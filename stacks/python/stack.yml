@@ -1,0 +1,38 @@
+# Python stack — detection and capabilities
+name: python
+description: "Python project (generic)"
+domain: service
+
+detection:
+  files_any_of:
+    - pyproject.toml
+    - setup.py
+    - setup.cfg
+    - requirements.txt
+    - Pipfile
+
+requires:
+  - adapter: python
+    min_version: "3.8"
+
+capabilities:
+  - name: install
+    adapter: shell
+    command: "pip install -e ."
+    description: "Install dependencies"
+  - name: lint
+    adapter: shell
+    command: "ruff check ."
+    description: "Run linter"
+  - name: format
+    adapter: shell
+    command: "ruff format ."
+    description: "Format code"
+  - name: test
+    adapter: shell
+    command: "pytest"
+    description: "Run tests"
+  - name: types
+    adapter: shell
+    command: "mypy ."
+    description: "Type check"

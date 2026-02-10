@@ -1,0 +1,42 @@
+# ── Python ───────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+*.egg
+
+# ── Virtual environments ────────────────────────────────────────────
+.venv/
+venv/
+ENV/
+
+# ── IDE ──────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ── Testing / Quality ───────────────────────────────────────────────
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+coverage.xml
+
+# ── Runtime state (generated, disposable) ────────────────────────────
+state/
+
+# ── Security ─────────────────────────────────────────────────────────
+.env
+.env.vault
+*.pem
+*.key
+
+# ── OS ───────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db

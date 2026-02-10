@@ -1,0 +1,58 @@
+# project.yml — Control Plane Self-Hosting Configuration
+#
+# This project.yml describes the control plane itself,
+# demonstrating self-hosting: the tool manages its own structure.
+
+version: 1
+
+name: devops-control-plane
+description: "A general-purpose project control plane for DevOps automation"
+repository: "github.com/cyberpunk042/devops-control-plane"
+
+domains:
+  - library
+  - ops
+  - docs
+
+environments:
+  - name: dev
+    description: "Local development"
+    default: true
+  - name: test
+    description: "CI test environment"
+  - name: production
+    description: "Published package"
+
+modules:
+  - name: core
+    path: src/core
+    domain: library
+    stack: python-lib
+    description: "Domain models, services, and engine"
+
+  - name: adapters
+    path: src/adapters
+    domain: library
+    stack: python-lib
+    description: "Tool bindings for git, docker, etc."
+
+  - name: cli
+    path: src/ui/cli
+    domain: ops
+    stack: python-cli
+    description: "Click-based CLI interface"
+
+  - name: web
+    path: src/ui/web
+    domain: ops
+    stack: python-flask
+    description: "Flask admin web interface"
+
+  - name: docs
+    path: docs
+    domain: docs
+    stack: markdown
+    description: "Project documentation"
+
+external:
+  ci: github-actions

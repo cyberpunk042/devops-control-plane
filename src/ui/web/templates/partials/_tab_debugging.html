@@ -1,0 +1,44 @@
+<!-- Debugging Tab -->
+<div id="tab-debugging" class="tab-content">
+    <header class="tab-header">
+        <h1>🐛 Debugging</h1>
+        <p class="subtitle">Diagnostics, logs, and system inspection</p>
+    </header>
+
+    <div class="debug-modes">
+        <button class="content-mode active" onclick="debugSwitchMode('audit')">📋 Audit Log</button>
+        <button class="content-mode" onclick="debugSwitchMode('state')">📦 State</button>
+        <button class="content-mode" onclick="debugSwitchMode('health')">❤️ Health</button>
+        <button class="content-mode" onclick="debugSwitchMode('config')">⚙️ Config</button>
+    </div>
+
+    <div class="grid">
+        <!-- Audit log viewer -->
+        <div class="card full-width" id="debug-audit">
+            <h2 class="card-title" style="margin-bottom:var(--space-md)">Audit Log</h2>
+            <div id="debug-audit-list" class="activity-list">
+                <div class="activity-item" style="color:var(--text-muted)">
+                    <span class="spinner"></span>&nbsp; Loading audit log...
+                </div>
+            </div>
+        </div>
+
+        <!-- State inspector -->
+        <div class="card full-width" id="debug-state" style="display:none">
+            <h2 class="card-title" style="margin-bottom:var(--space-md)">State Inspector</h2>
+            <pre class="terminal" id="debug-state-json" translate="no">Loading...</pre>
+        </div>
+
+        <!-- Health details -->
+        <div class="card full-width" id="debug-health" style="display:none">
+            <h2 class="card-title" style="margin-bottom:var(--space-md)">Health Details</h2>
+            <pre class="terminal" id="debug-health-json" translate="no">Loading...</pre>
+        </div>
+
+        <!-- Config dump -->
+        <div class="card full-width" id="debug-config" style="display:none">
+            <h2 class="card-title" style="margin-bottom:var(--space-md)">Configuration</h2>
+            <pre class="terminal" id="debug-config-json" translate="no">Loading...</pre>
+        </div>
+    </div>
+</div>

@@ -1,0 +1,36 @@
+# Node.js stack — detection and capabilities
+name: node
+description: "Node.js project"
+domain: service
+
+detection:
+  files_any_of:
+    - package.json
+  files_all_of: []
+  content_contains: {}
+
+requires:
+  - adapter: node
+    min_version: "18"
+
+capabilities:
+  - name: install
+    adapter: shell
+    command: "npm install"
+    description: "Install dependencies"
+  - name: lint
+    adapter: shell
+    command: "npm run lint"
+    description: "Run linter"
+  - name: format
+    adapter: shell
+    command: "npm run format"
+    description: "Format code"
+  - name: test
+    adapter: shell
+    command: "npm test"
+    description: "Run tests"
+  - name: build
+    adapter: shell
+    command: "npm run build"
+    description: "Build project"

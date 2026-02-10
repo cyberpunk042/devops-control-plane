@@ -1,0 +1,29 @@
+<body>
+    <!-- Tab Navigation -->
+    <nav class="tabs">
+        <div class="tabs-brand">
+            <div class="logo-icon">⚡</div>
+            <span class="logo-text">Control Plane</span>
+        </div>
+        <div class="tabs-group">
+            <button class="tab active" onclick="switchTab('dashboard')">📊 Dashboard</button>
+            <button class="tab" onclick="switchTab('wizard')">🧙 Setup</button>
+            <button class="tab" onclick="switchTab('secrets')">🔐 Secrets</button>
+            <button class="tab" onclick="switchTab('commands')">⚡ Commands</button>
+            <button class="tab" onclick="switchTab('content')">📁 Content</button>
+            <button class="tab" onclick="switchTab('integrations')">🔌 Integrations</button>
+            <button class="tab" onclick="switchTab('debugging')">🐛 Debugging</button>
+        </div>
+        <div class="nav-controls">
+            <span id="health-badge" class="status-badge ok">
+                <span class="status-dot"></span>
+                <span>Healthy</span>
+            </span>
+            <button class="theme-toggle" id="theme-toggle" onclick="toggleTheme()" title="Toggle theme">
+                🌙
+            </button>
+        </div>
+    </nav>
+    <div class="refresh-bar" id="refresh-bar">
+        <div class="refresh-bar-inner"></div>
+    </div>

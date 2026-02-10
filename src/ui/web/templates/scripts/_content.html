@@ -1,0 +1,21 @@
+<script>
+    // ── Content tab (shell — full logic in MS-13/14) ────────────────────
+
+    let contentCurrentMode = 'docs';
+
+    function contentSwitchMode(mode) {
+        contentCurrentMode = mode;
+        document.querySelectorAll('.content-modes .content-mode').forEach(b => b.classList.remove('active'));
+        event.target.classList.add('active');
+
+        const browser = document.getElementById('content-browser');
+        const modeLabels = { docs: '📝 Documents', media: '🎬 Media Files', archive: '📦 Archived Files' };
+        browser.innerHTML = `
+        <p class="empty-state">
+            <span style="font-size:2rem;display:block;margin-bottom:0.5rem">📂</span>
+            ${modeLabels[mode] || mode} browser not configured yet.<br>
+            Use the <strong>Setup Wizard</strong> to configure your content folders.
+        </p>
+    `;
+    }
+</script>

@@ -1,0 +1,108 @@
+<script>
+    // ── Debugging tab ───────────────────────────────────────────────────
+
+    let debugCurrentMode = 'audit';
+
+    function debugSwitchMode(mode) {
+        debugCurrentMode = mode;
+        document.querySelectorAll('#tab-debugging .content-mode').forEach(b => b.classList.remove('active'));
+        event.target.classList.add('active');
+
+        // Show/hide panels
+        ['audit', 'state', 'health', 'config'].forEach(m => {
+            const el = document.getElementById(`debug-${m}`);
+            if (el) el.style.display = m === mode ? '' : 'none';
+        });
+
+        if (mode === 'state') loadDebugState();
+        if (mode === 'health') loadDebugHealth();
+        if (mode === 'config') loadDebugConfig();
+    }
+
+    async function loadDebugTab() {
+        loadDebugAudit();
+    }
+
+    async function loadDebugAudit() {
+        try {
+            const data = await api('/audit?n=50');
+            const container = document.getElementById('debug-audit-list');
+
+            if (!data.entries || !data.entries.length) {
+                container.innerHTML = `<div class="activity-item" style="color:var(--text-muted)">
+                No audit entries yet. Run a command from the <strong>Commands</strong> tab.
+            </div>`;
+                return;
+            }
+
+            container.innerHTML = data.entries.reverse().map(entry => {
+                const statusClass = entry.status === 'ok' ? 'ok' : entry.status === 'failed' ? 'failed' : 'partial';
+                const time = new Date(entry.timestamp).toLocaleString();
+                const modules = (entry.modules_affected || []).join(', ');
+
+                return `<div class="activity-item">
+                <span class="activity-time">${time}</span>
+                <span class="activity-action">
+                    <span class="status-badge ${statusClass}" style="font-size:0.7rem;padding:2px 8px;">
+                        <span class="status-dot"></span>${esc(entry.status)}
+                    </span>
+                </span>
+                <span class="activity-detail">
+                    <strong>${esc(entry.automation)}</strong> → ${esc(modules || 'all')}
+                    · ${entry.actions_succeeded}/${entry.actions_total} succeeded
+                </span>
+            </div>`;
+            }).join('');
+        } catch (e) {
+            document.getElementById('debug-audit-list').innerHTML = `
+            <div class="activity-item" style="color:var(--error)">
+                Failed to load audit log: ${esc(e.message)}
+            </div>`;
+        }
+    }
+
+    async function loadDebugState() {
+        const el = document.getElementById('debug-state-json');
+        el.textContent = 'Loading…';
+        try {
+            const data = await api('/status');
+            el.textContent = JSON.stringify(data.state || {}, null, 2);
+        } catch (e) {
+            el.textContent = `Error: ${e.message}`;
+        }
+    }
+
+    async function loadDebugHealth() {
+        const el = document.getElementById('debug-health-json');
+        el.textContent = 'Loading…';
+        try {
+            const data = await api('/health');
+            el.textContent = JSON.stringify(data, null, 2);
+        } catch (e) {
+            el.textContent = `Error: ${e.message}`;
+        }
+    }
+
+    async function loadDebugConfig() {
+        const el = document.getElementById('debug-config-json');
+        el.textContent = 'Loading…';
+        try {
+            const [statusData, stacksData, vaultData] = await Promise.all([
+                api('/status'),
+                api('/stacks'),
+                api('/vault/status').catch(() => null),
+            ]);
+
+            const config = {
+                project: statusData.project,
+                modules: statusData.modules,
+                environments: statusData.environments,
+                stacks: Object.keys(stacksData),
+                vault: vaultData,
+            };
+            el.textContent = JSON.stringify(config, null, 2);
+        } catch (e) {
+            el.textContent = `Error: ${e.message}`;
+        }
+    }
+</script>

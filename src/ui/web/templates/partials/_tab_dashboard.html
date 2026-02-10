@@ -1,0 +1,73 @@
+<!-- Dashboard Tab -->
+<div id="tab-dashboard" class="tab-content active">
+    <header class="tab-header">
+        <h1>📊 Dashboard</h1>
+        <p class="subtitle">Project overview and recent activity</p>
+    </header>
+
+    <!-- Status cards -->
+    <div class="card-grid">
+        <div class="card">
+            <div class="card-header">
+                <span class="card-title">Project</span>
+            </div>
+            <div class="card-value" id="project-name">—</div>
+            <div class="card-subtitle" id="project-desc"></div>
+        </div>
+        <div class="card">
+            <div class="card-header">
+                <span class="card-title">Modules</span>
+            </div>
+            <div class="card-value" id="module-count">—</div>
+            <div class="card-subtitle" id="module-summary"></div>
+        </div>
+        <div class="card">
+            <div class="card-header">
+                <span class="card-title">Last Operation</span>
+            </div>
+            <div class="card-value" id="last-op-name">—</div>
+            <div class="card-subtitle" id="last-op-detail"></div>
+        </div>
+        <div class="card">
+            <div class="card-header">
+                <span class="card-title">Environments</span>
+            </div>
+            <div class="card-value" id="env-count">—</div>
+            <div class="card-subtitle" id="env-list"></div>
+        </div>
+    </div>
+
+    <!-- Modules -->
+    <section class="section">
+        <div class="section-header">
+            <h2 class="section-title">Modules</h2>
+            <button class="btn btn-secondary btn-sm" onclick="runDetect()">
+                🔍 Re-Detect
+            </button>
+        </div>
+        <p class="section-description">
+            Your project's components. Each module is matched to a <strong>stack</strong> that defines what commands it
+            supports.
+        </p>
+        <div class="module-list" id="module-list">
+            <div class="module-item" style="justify-content:center;color:var(--text-muted)">
+                <span class="spinner"></span>&nbsp; Loading...
+            </div>
+        </div>
+    </section>
+
+    <!-- Recent Activity -->
+    <section class="section">
+        <div class="section-header">
+            <h2 class="section-title">Recent Activity</h2>
+        </div>
+        <p class="section-description">
+            Operations executed from the CLI or this dashboard.
+        </p>
+        <div class="activity-list" id="activity-list">
+            <div class="activity-item" style="color:var(--text-muted)">
+                <span class="spinner"></span>&nbsp; Loading...
+            </div>
+        </div>
+    </section>
+</div>

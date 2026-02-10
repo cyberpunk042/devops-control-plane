@@ -1,0 +1,159 @@
+<script>
+    // ── Wizard (shell — full logic in MS-15) ────────────────────────────
+
+    let currentWizardStep = 0;
+    let wizardDirty = false;
+
+    const wizardSteps = [
+        {
+            id: 'welcome',
+            title: 'Welcome',
+            content: () => `
+            <h2 style="margin-bottom: 1rem;">👋 Welcome to the Setup Wizard</h2>
+            <p style="color: var(--text-secondary); line-height: 1.6; margin-bottom: 1rem;">
+                This wizard will guide you through configuring the DevOps Control Plane step-by-step.
+            </p>
+            <p style="color: var(--text-secondary); line-height: 1.6; margin-bottom: 1rem;">
+                You'll configure:
+            </p>
+            <ul style="color: var(--text-secondary); line-height: 1.8; margin-left: 1.5rem;">
+                <li>📋 Basic project settings</li>
+                <li>🔍 Module detection</li>
+                <li>📦 Stack assignments</li>
+                <li>🌍 Environments</li>
+                <li>🔐 Secret files &amp; vault</li>
+                <li>📁 Content folders</li>
+            </ul>
+            <p style="color: var(--text-muted); margin-top: 1rem; font-size: 0.9rem;">
+                💡 Skip any optional step by clicking Next.
+            </p>
+        `,
+            validate: () => true,
+        },
+        {
+            id: 'modules',
+            title: 'Modules',
+            content: () => `
+            <h2 style="margin-bottom: 1rem;">🔍 Detect Modules</h2>
+            <p style="color: var(--text-secondary); line-height: 1.6; margin-bottom: 1.5rem;">
+                We'll scan your project for components and assign stacks automatically.
+            </p>
+            <button class="btn btn-primary" onclick="wizardDetect()">🔍 Scan Project</button>
+            <div id="wizard-modules-list" style="margin-top:1rem"></div>
+        `,
+            validate: () => true,
+        },
+        {
+            id: 'secrets',
+            title: 'Secrets',
+            content: () => `
+            <h2 style="margin-bottom: 1rem;">🔐 Secret Files</h2>
+            <p style="color: var(--text-secondary); line-height: 1.6; margin-bottom: 1.5rem;">
+                Identify files that contain secrets (API keys, passwords, tokens).
+                These will be encrypted by the vault.
+            </p>
+            <p class="empty-state">
+                Vault setup will be available after the Secrets Vault feature is implemented.
+            </p>
+        `,
+            validate: () => true,
+        },
+        {
+            id: 'content',
+            title: 'Content',
+            content: () => `
+            <h2 style="margin-bottom: 1rem;">📁 Content Folders</h2>
+            <p style="color: var(--text-secondary); line-height: 1.6; margin-bottom: 1.5rem;">
+                Configure which folders contain documents, media, or files that should be managed
+                by the content vault.
+            </p>
+            <p class="empty-state">
+                Content vault setup will be available after the Content Vault feature is implemented.
+            </p>
+        `,
+            validate: () => true,
+        },
+        {
+            id: 'review',
+            title: 'Review',
+            content: () => `
+            <h2 style="margin-bottom: 1rem;">✅ Review</h2>
+            <p style="color: var(--text-secondary); line-height: 1.6; margin-bottom: 1.5rem;">
+                Your project configuration is ready. Click <strong>Finish</strong> to save.
+            </p>
+        `,
+            validate: () => true,
+        },
+    ];
+
+    function renderWizard() {
+        // Render step indicators
+        const stepsEl = document.getElementById('wizard-steps');
+        stepsEl.innerHTML = wizardSteps.map((step, i) => {
+            const cls = i === currentWizardStep ? 'active' : i < currentWizardStep ? 'done' : '';
+            return `<div class="wizard-step ${cls}" onclick="wizardGoTo(${i})">
+            <span class="wizard-step-num">${i + 1}</span>
+            <span class="wizard-step-label">${step.title}</span>
+        </div>`;
+        }).join('');
+
+        // Render body
+        const body = document.getElementById('wizard-body');
+        body.innerHTML = wizardSteps[currentWizardStep].content();
+
+        // Update nav buttons
+        document.getElementById('wizard-prev').style.display = currentWizardStep > 0 ? '' : 'none';
+        const isLast = currentWizardStep === wizardSteps.length - 1;
+        document.getElementById('wizard-next').style.display = isLast ? 'none' : '';
+        document.getElementById('wizard-finish').style.display = isLast ? '' : 'none';
+    }
+
+    function wizardNext() {
+        if (currentWizardStep < wizardSteps.length - 1) {
+            if (wizardSteps[currentWizardStep].validate()) {
+                currentWizardStep++;
+                renderWizard();
+            }
+        }
+    }
+
+    function wizardPrev() {
+        if (currentWizardStep > 0) {
+            currentWizardStep--;
+            renderWizard();
+        }
+    }
+
+    function wizardGoTo(idx) {
+        if (idx >= 0 && idx < wizardSteps.length) {
+            currentWizardStep = idx;
+            renderWizard();
+        }
+    }
+
+    function wizardFinish() {
+        toast('Setup complete! Your project configuration has been saved.', 'success');
+        switchTab('dashboard');
+    }
+
+    async function wizardDetect() {
+        const list = document.getElementById('wizard-modules-list');
+        list.innerHTML = '<span class="spinner"></span> Scanning...';
+        try {
+            await api('/detect', { method: 'POST' });
+            const data = await api('/status');
+            const modules = data.modules || [];
+            list.innerHTML = modules.length
+                ? modules.map(m => `<div class="module-item" style="margin-top:0.5rem">
+                <div class="module-icon">${m.stack?.includes('python') ? '🐍' : '📁'}</div>
+                <div class="module-info">
+                    <div class="module-name">${esc(m.name)}</div>
+                    <div class="module-meta"><span>${esc(m.stack)}</span> <span>${esc(m.path)}</span></div>
+                </div>
+            </div>`).join('')
+                : '<p style="color:var(--text-muted)">No modules found.</p>';
+        } catch (e) {
+            list.innerHTML = `<p style="color:var(--error)">${esc(e.message)}</p>`;
+        }
+    }
+</script>

@@ -1,0 +1,37 @@
+# Docker Compose stack — detection and capabilities
+name: docker-compose
+description: "Docker Compose project"
+domain: ops
+
+detection:
+  files_any_of:
+    - docker-compose.yml
+    - docker-compose.yaml
+    - compose.yml
+    - compose.yaml
+
+requires:
+  - adapter: docker
+    min_version: "20"
+
+capabilities:
+  - name: up
+    adapter: shell
+    command: "docker compose up -d"
+    description: "Start services"
+  - name: down
+    adapter: shell
+    command: "docker compose down"
+    description: "Stop services"
+  - name: build
+    adapter: shell
+    command: "docker compose build"
+    description: "Build images"
+  - name: logs
+    adapter: shell
+    command: "docker compose logs --tail=50"
+    description: "Show service logs"
+  - name: status
+    adapter: shell
+    command: "docker compose ps"
+    description: "Show service status"

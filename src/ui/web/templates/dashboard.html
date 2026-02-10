@@ -1,0 +1,39 @@
+{% include 'partials/_head.html' %}
+{% include 'partials/_nav.html' %}
+
+{% include 'partials/_tab_dashboard.html' %}
+
+{% include 'partials/_tab_wizard.html' %}
+
+{% include 'partials/_tab_secrets.html' %}
+
+{% include 'partials/_tab_commands.html' %}
+
+{% include 'partials/_tab_content.html' %}
+
+{% include 'partials/_tab_integrations.html' %}
+
+{% include 'partials/_tab_debugging.html' %}
+
+<footer class="footer">
+    <p>🔒 Local server only — never expose to internet</p>
+</footer>
+
+<!-- Toast container -->
+<div class="toast-container" id="toast-container"></div>
+
+{% include 'scripts/_globals.html' %}
+{% include 'scripts/_theme.html' %}
+{% include 'scripts/_tabs.html' %}
+{% include 'scripts/_dashboard.html' %}
+{% include 'scripts/_commands.html' %}
+{% include 'scripts/_wizard.html' %}
+{% include 'scripts/_secrets.html' %}
+{% include 'scripts/_content.html' %}
+{% include 'scripts/_integrations.html' %}
+{% include 'scripts/_debugging.html' %}
+{% include 'scripts/_boot.html' %}
+
+</body>
+
+</html>

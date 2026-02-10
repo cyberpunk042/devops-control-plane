@@ -1,0 +1,16 @@
+<script>
+    // ── Boot ────────────────────────────────────────────────────────────
+
+    document.addEventListener('DOMContentLoaded', async () => {
+        // Load initial data
+        await Promise.all([
+            loadStatus(),
+            loadCapabilities(),
+            loadHealth(),
+            loadAudit(),
+        ]);
+
+        // Restore tab from URL hash (after data is loaded)
+        restoreFromHash();
+    });
+</script>

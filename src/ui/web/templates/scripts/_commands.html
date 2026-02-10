@@ -1,0 +1,247 @@
+<script>
+    // ── Commands tab logic ──────────────────────────────────────────────
+
+    let capabilitiesLoaded = false;
+
+    async function loadCapabilities() {
+        try {
+            capabilityData = await api('/capabilities');
+            capabilitiesLoaded = true;
+            populateCapabilitySelect();
+        } catch (e) {
+            console.error('Failed to load capabilities:', e);
+        }
+    }
+
+    function populateCapabilitySelect() {
+        const sel = document.getElementById('run-capability');
+        if (!sel) return;
+        const current = sel.value;
+        sel.innerHTML = '<option value="">Choose what to do...</option>';
+
+        const names = Object.keys(capabilityData).sort();
+        if (names.length === 0) {
+            sel.innerHTML = '<option value="">No capabilities available</option>';
+            return;
+        }
+
+        for (const name of names) {
+            const cap = capabilityData[name];
+            const modCount = cap.modules.length;
+            const desc = cap.description ? ` — ${cap.description}` : '';
+            const label = `${name}${desc} (${modCount} module${modCount !== 1 ? 's' : ''})`;
+            sel.innerHTML += `<option value="${esc(name)}">${esc(label)}</option>`;
+        }
+
+        if (current && capabilityData[current]) sel.value = current;
+    }
+
+    function populateModuleSelect(capName) {
+        const sel = document.getElementById('run-module');
+        if (!sel) return;
+        const current = sel.value;
+
+        if (!capName || !capabilityData[capName]) {
+            sel.innerHTML = '<option value="">All modules</option>';
+            moduleList.forEach(m => {
+                sel.innerHTML += `<option value="${esc(m.name)}">${esc(m.name)} (${esc(m.stack)})</option>`;
+            });
+        } else {
+            const cap = capabilityData[capName];
+            const supportedModules = cap.modules.map(m => m.module);
+            sel.innerHTML = `<option value="">All ${supportedModules.length} supported modules</option>`;
+            cap.modules.forEach(m => {
+                sel.innerHTML += `<option value="${esc(m.module)}">${esc(m.module)} → ${esc(m.command)}</option>`;
+            });
+        }
+
+        if (current) sel.value = current;
+    }
+
+    function onCapabilityChange() {
+        const capName = document.getElementById('run-capability').value;
+        populateModuleSelect(capName);
+        onSelectionChange();
+    }
+
+    function onSelectionChange() {
+        const capName = document.getElementById('run-capability').value;
+        const moduleName = document.getElementById('run-module').value;
+        const emptyEl = document.getElementById('context-empty');
+        const detailEl = document.getElementById('context-detail');
+        const runBtn = document.getElementById('run-btn');
+
+        if (!capName) {
+            emptyEl.style.display = 'block';
+            detailEl.style.display = 'none';
+            runBtn.disabled = true;
+            return;
+        }
+
+        const cap = capabilityData[capName];
+        if (!cap) {
+            emptyEl.textContent = `Capability "${capName}" not recognized`;
+            emptyEl.style.display = 'block';
+            detailEl.style.display = 'none';
+            runBtn.disabled = true;
+            return;
+        }
+
+        emptyEl.style.display = 'none';
+        detailEl.style.display = 'block';
+        runBtn.disabled = false;
+
+        let targets = cap.modules;
+        if (moduleName) {
+            targets = targets.filter(m => m.module === moduleName);
+        }
+
+        if (targets.length === 0) {
+            detailEl.innerHTML = `
+            <div class="context-warning">
+                ⚠️ No modules support <strong>${esc(capName)}</strong>${moduleName ? ` for module <strong>${esc(moduleName)}</strong>` : ''}.
+            </div>`;
+            runBtn.disabled = true;
+            return;
+        }
+
+        let html = `
+        <div class="context-header">
+            When you click <strong>Execute</strong>, here's what happens:
+        </div>
+        <div class="context-actions">
+    `;
+
+        for (const t of targets) {
+            html += `
+            <div class="context-action-row">
+                <span class="context-module">${esc(t.module)}</span>
+                <span class="context-arrow">→</span>
+                <code class="context-command">${esc(t.command)}</code>
+                <span class="context-adapter">${esc(t.adapter)}</span>
+            </div>
+        `;
+        }
+
+        html += '</div>';
+        detailEl.innerHTML = html;
+    }
+
+    // ── Results Panel ───────────────────────────────────────────────────
+
+    function showResults(title, report, isDryRun) {
+        const section = document.getElementById('results-section');
+        const panel = document.getElementById('results-panel');
+
+        const receipts = report.receipts || [];
+        const statusIcon = report.status === 'ok' ? '✅' : report.status === 'partial' ? '⚠️' : '❌';
+
+        let html = `
+        <div class="results-summary">
+            <div class="results-summary-main">
+                <span class="results-icon">${statusIcon}</span>
+                <div>
+                    <div class="results-title">${esc(title)}</div>
+                    <div class="results-subtitle">
+                        ${isDryRun ? '🔍 Preview only — no commands were executed' : ''}
+                        ${!isDryRun ? `${report.succeeded}/${report.total} modules succeeded` : `${report.total} actions planned`}
+                        ${report.failed > 0 ? ` · <span style="color:var(--error)">${report.failed} failed</span>` : ''}
+                        ${report.skipped > 0 ? ` · ${report.skipped} skipped` : ''}
+                    </div>
+                </div>
+            </div>
+            <span class="status-badge ${report.status === 'ok' ? 'ok' : report.status === 'failed' ? 'failed' : 'degraded'}">
+                <span class="status-dot"></span>${esc(report.status)}
+            </span>
+        </div>
+    `;
+
+        if (receipts.length > 0) {
+            html += '<div class="results-receipts">';
+            html += '<div class="results-receipts-header">Per-module breakdown:</div>';
+
+            for (const r of receipts) {
+                const rClass = r.status === 'ok' ? 'ok' : r.status === 'failed' ? 'failed' : r.status === 'skipped' ? 'degraded' : '';
+                const rIcon = r.status === 'ok' ? '✓' : r.status === 'failed' ? '✗' : '⊘';
+                const moduleName = r.module_name || r.action_id || '?';
+                const adapter = r.adapter || '';
+                const output = r.output || '';
+
+                html += `
+                <div class="receipt-item ${rClass}">
+                    <div class="receipt-header">
+                        <span class="receipt-icon">${rIcon}</span>
+                        <span class="receipt-module">${esc(moduleName)}</span>
+                        <span class="receipt-adapter">${esc(adapter)}</span>
+                        <span class="status-badge ${rClass}" style="font-size:0.65rem;padding:1px 6px;">${esc(r.status)}</span>
+                    </div>
+                    ${output ? `<pre class="receipt-output">${esc(output)}</pre>` : ''}
+                </div>
+            `;
+            }
+            html += '</div>';
+        }
+
+        panel.innerHTML = html;
+        section.style.display = 'block';
+        section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    function clearResults() {
+        document.getElementById('results-section').style.display = 'none';
+    }
+
+    // ── Execute / Preview ───────────────────────────────────────────────
+
+    async function executeRun(event) {
+        if (event) event.preventDefault();
+
+        const capability = document.getElementById('run-capability').value;
+        if (!capability) { toast('Pick a capability first', 'error'); return false; }
+
+        const module = document.getElementById('run-module').value;
+        const env = document.getElementById('run-env').value;
+        const btn = document.getElementById('run-btn');
+
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner"></span> Executing...';
+
+        try {
+            const body = { capability, environment: env, mock: true };
+            if (module) body.modules = [module];
+
+            const data = await api('/run', { method: 'POST', body: JSON.stringify(body) });
+            const report = data.report || {};
+            const target = module ? module : 'all modules';
+            showResults(`${capability} → ${target}`, report, false);
+            toast(`${capability}: ${report.succeeded}/${report.total} succeeded`, 'success');
+            loadAudit();
+        } catch (e) {
+            toast(e.message, 'error');
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = '⚡ Execute';
+        }
+        return false;
+    }
+
+    async function executeDryRun() {
+        const capability = document.getElementById('run-capability').value;
+        if (!capability) { toast('Pick a capability first', 'error'); return; }
+
+        const module = document.getElementById('run-module').value;
+        const env = document.getElementById('run-env').value;
+
+        try {
+            const body = { capability, environment: env, dry_run: true };
+            if (module) body.modules = [module];
+
+            const data = await api('/run', { method: 'POST', body: JSON.stringify(body) });
+            const report = data.report || data;
+            const target = module ? module : 'all modules';
+            showResults(`Preview: ${capability} → ${target}`, report, true);
+        } catch (e) {
+            toast(e.message, 'error');
+        }
+    }
+</script>

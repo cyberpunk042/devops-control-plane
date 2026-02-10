@@ -1,0 +1,86 @@
+<script>
+    // ── Integrations tab ────────────────────────────────────────────────
+
+    async function loadIntegrationsTab() {
+        checkGitIntegration();
+        checkDockerIntegration();
+        checkGitHubIntegration();
+    }
+
+    async function checkGitIntegration() {
+        const badge = document.getElementById('int-git-badge');
+        const detail = document.getElementById('int-git-detail');
+
+        try {
+            const data = await api('/status');
+            const modules = data.modules || [];
+            const hasModules = modules.length > 0;
+
+            badge.className = 'status-badge ok';
+            badge.innerHTML = '<span class="status-dot"></span>OK';
+
+            detail.innerHTML = `
+            <div style="font-size:0.82rem;color:var(--text-secondary);line-height:1.6">
+                <div><strong>Project:</strong> ${esc(data.project.name)}</div>
+                <div><strong>Modules:</strong> ${modules.length} detected</div>
+                ${data.project.repository ? `<div><strong>Repo:</strong> ${esc(data.project.repository)}</div>` : ''}
+            </div>
+        `;
+        } catch (e) {
+            badge.className = 'status-badge failed';
+            badge.innerHTML = '<span class="status-dot"></span>Error';
+            detail.innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(e.message)}</p>`;
+        }
+    }
+
+    async function checkGitHubIntegration() {
+        const badge = document.getElementById('int-gh-badge');
+        const detail = document.getElementById('int-gh-detail');
+
+        try {
+            const data = await api('/status');
+            if (data.project.repository) {
+                badge.className = 'status-badge ok';
+                badge.innerHTML = '<span class="status-dot"></span>Configured';
+                detail.innerHTML = `
+                <div style="font-size:0.82rem;color:var(--text-secondary)">
+                    <code style="font-family:var(--font-mono);color:var(--accent)">${esc(data.project.repository)}</code>
+                </div>`;
+            } else {
+                badge.className = 'status-badge degraded';
+                badge.innerHTML = '<span class="status-dot"></span>Not set';
+                detail.innerHTML = '<p class="empty-state-sm">No repository configured in project.yml</p>';
+            }
+        } catch (e) {
+            // Silently fail
+        }
+    }
+
+    async function checkDockerIntegration() {
+        const badge = document.getElementById('int-docker-badge');
+        const detail = document.getElementById('int-docker-detail');
+
+        try {
+            const data = await api('/status');
+            const dockerModules = (data.modules || []).filter(m =>
+                m.stack && m.stack.includes('docker')
+            );
+
+            if (dockerModules.length > 0) {
+                badge.className = 'status-badge ok';
+                badge.innerHTML = '<span class="status-dot"></span>Detected';
+                detail.innerHTML = `
+                <div style="font-size:0.82rem;color:var(--text-secondary)">
+                    ${dockerModules.length} Docker module(s) found:
+                    ${dockerModules.map(m => `<code style="font-family:var(--font-mono);color:var(--accent)">${esc(m.name)}</code>`).join(', ')}
+                </div>`;
+            } else {
+                badge.className = 'status-badge degraded';
+                badge.innerHTML = '<span class="status-dot"></span>None';
+                detail.innerHTML = '<p class="empty-state-sm">No Docker modules detected</p>';
+            }
+        } catch (e) {
+            // Silently fail
+        }
+    }
+</script>

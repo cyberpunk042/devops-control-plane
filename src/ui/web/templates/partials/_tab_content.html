@@ -1,0 +1,27 @@
+<!-- Content Tab -->
+<div id="tab-content" class="tab-content">
+    <header class="tab-header">
+        <h1>📁 Content Vault</h1>
+        <p class="subtitle">Manage documents, media, and encrypted archives</p>
+    </header>
+
+    <!-- Content sub-tabs -->
+    <div class="content-modes">
+        <button class="content-mode active" onclick="contentSwitchMode('docs')">📝 Docs</button>
+        <button class="content-mode" onclick="contentSwitchMode('media')">🎬 Media</button>
+        <button class="content-mode" onclick="contentSwitchMode('archive')">📦 Archive</button>
+    </div>
+
+    <div class="grid">
+        <div class="card full-width">
+            <div id="content-browser">
+                <p class="empty-state">
+                    <span style="font-size:2rem;display:block;margin-bottom:0.5rem">📂</span>
+                    Content vault not configured yet.<br>
+                    Use the <strong>Setup Wizard</strong> to configure your content folders,
+                    or create a <code>docs/</code> folder in your project.
+                </p>
+            </div>
+        </div>
+    </div>
+</div>

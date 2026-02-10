@@ -1,0 +1,50 @@
+<!-- Integrations Tab -->
+<div id="tab-integrations" class="tab-content">
+    <header class="tab-header">
+        <h1>🔌 Integrations</h1>
+        <p class="subtitle">External services and connection status</p>
+    </header>
+
+    <div class="card-grid">
+        <div class="card">
+            <div class="card-header">
+                <span class="card-title">Git</span>
+                <span class="status-badge" id="int-git-badge">—</span>
+            </div>
+            <div class="card-subtitle">Local repository status</div>
+            <div id="int-git-detail" class="integration-detail" style="margin-top:var(--space-md)">
+                <span class="spinner"></span>
+            </div>
+        </div>
+        <div class="card">
+            <div class="card-header">
+                <span class="card-title">GitHub</span>
+                <span class="status-badge" id="int-gh-badge">—</span>
+            </div>
+            <div class="card-subtitle">Remote repository connection</div>
+            <div id="int-gh-detail" class="integration-detail" style="margin-top:var(--space-md)">
+                <p class="empty-state-sm">Not configured</p>
+            </div>
+        </div>
+        <div class="card">
+            <div class="card-header">
+                <span class="card-title">Docker</span>
+                <span class="status-badge" id="int-docker-badge">—</span>
+            </div>
+            <div class="card-subtitle">Container runtime</div>
+            <div id="int-docker-detail" class="integration-detail" style="margin-top:var(--space-md)">
+                <p class="empty-state-sm">Not detected</p>
+            </div>
+        </div>
+        <div class="card">
+            <div class="card-header">
+                <span class="card-title">CI/CD</span>
+                <span class="status-badge" id="int-ci-badge">—</span>
+            </div>
+            <div class="card-subtitle">Continuous integration</div>
+            <div id="int-ci-detail" class="integration-detail" style="margin-top:var(--space-md)">
+                <p class="empty-state-sm">Not configured</p>
+            </div>
+        </div>
+    </div>
+</div>
