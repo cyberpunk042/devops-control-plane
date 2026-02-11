@@ -15,6 +15,26 @@
             <button class="tab" onclick="switchTab('debugging')">🐛 Debugging</button>
         </div>
         <div class="nav-controls">
+            <div id="google_translate_element"></div>
+            <div class="lang-btn" id="lang-btn" onclick="toggleLangDropdown()">
+                <span id="lang-flag">🌐</span>
+                <span id="lang-label">EN</span>
+                <span style="font-size:0.6rem;">▾</span>
+                <div class="lang-dropdown" id="lang-dropdown"></div>
+            </div>
+            <div class="gh-menu" id="gh-menu">
+                <span>🔗</span>
+                <span style="font-size:0.6rem;">▾</span>
+                <div class="gh-dropdown">
+                    <div>
+                        <a id="gh-link-repo" href="#" target="_blank">📦 Repository</a>
+                        <a id="gh-link-actions" href="#" target="_blank">⚡ Actions</a>
+                        <a id="gh-link-pages" href="#" target="_blank">🌐 Pages</a>
+                        <a id="gh-link-secrets" href="#" target="_blank">🔐 Secrets</a>
+                        <a id="gh-link-settings" href="#" target="_blank">⚙️ Settings</a>
+                    </div>
+                </div>
+            </div>
             <span id="health-badge" class="status-badge ok">
                 <span class="status-dot"></span>
                 <span>Healthy</span>

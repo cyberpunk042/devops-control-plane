@@ -53,6 +53,11 @@ _auto_lock_timer: Optional[Timer] = None
 _auto_lock_minutes: int = 30
 _lock = ThreadLock()
 
+
+def get_passphrase() -> Optional[str]:
+    """Return the current session passphrase, or None if not set."""
+    return _session_passphrase
+
 # ── Rate limiting state ──────────────────────────────────────────────
 _failed_attempts: int = 0
 _last_failed_time: float = 0

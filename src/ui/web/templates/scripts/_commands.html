@@ -117,7 +117,7 @@
             <div class="context-action-row">
                 <span class="context-module">${esc(t.module)}</span>
                 <span class="context-arrow">→</span>
-                <code class="context-command">${esc(t.command)}</code>
+                <code class="context-command notranslate" translate="no">${esc(t.command)}</code>
                 <span class="context-adapter">${esc(t.adapter)}</span>
             </div>
         `;
@@ -175,7 +175,7 @@
                         <span class="receipt-adapter">${esc(adapter)}</span>
                         <span class="status-badge ${rClass}" style="font-size:0.65rem;padding:1px 6px;">${esc(r.status)}</span>
                     </div>
-                    ${output ? `<pre class="receipt-output">${esc(output)}</pre>` : ''}
+                    ${output ? `<pre class="receipt-output notranslate" translate="no">${esc(output)}</pre>` : ''}
                 </div>
             `;
             }

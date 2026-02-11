@@ -12,6 +12,7 @@
 
             document.getElementById('project-name').textContent = data.project.name || '—';
             document.getElementById('project-desc').textContent = data.project.description || '';
+            if (data.project.repository) updateGhMenu(data.project.repository);
 
             moduleList = data.modules || [];
             document.getElementById('module-count').textContent = moduleList.length;

@@ -4,12 +4,14 @@
     let activeTab = 'dashboard';
 
     function switchTab(tabId) {
-        // Parse compound tab IDs like 'wizard/modules'
+        // Parse compound tab IDs like 'wizard/modules' or 'content/media/docs'
         let subStep = null;
+        let subParts = [];
         if (tabId.includes('/')) {
             const parts = tabId.split('/');
             tabId = parts[0];
             subStep = parts[1];
+            subParts = parts.slice(1);
         }
 
         // Update button active states
@@ -21,9 +23,8 @@
         const tabEl = document.getElementById(`tab-${tabId}`);
         if (tabEl) tabEl.classList.add('active');
 
-        // Update URL hash
-        const hashParts = [tabId];
-        if (subStep) hashParts.push(subStep);
+        // Update URL hash (keep full compound ID)
+        const hashParts = [tabId, ...subParts];
         history.replaceState(null, '', `#${hashParts.join('/')}`);
 
         activeTab = tabId;
@@ -45,6 +46,8 @@
             loadDebugTab();
         } else if (tabId === 'integrations') {
             loadIntegrationsTab();
+        } else if (tabId === 'content') {
+            loadContentTab(subParts);
         }
     }
 

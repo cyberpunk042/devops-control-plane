@@ -17,4 +17,28 @@
         const btn = document.getElementById('theme-toggle');
         if (btn) btn.textContent = saved === 'light' ? '☀️' : '🌙';
     })();
+
+    // ── GitHub shortcut menu ────────────────────────────────────────────
+
+    function updateGhMenu(repo) {
+        const menu = document.getElementById('gh-menu');
+        if (!repo || !menu) return;
+
+        // Normalise: strip any leading https://github.com/ or github.com/
+        let slug = repo
+            .replace(/^https?:\/\/github\.com\//, '')
+            .replace(/^github\.com\//, '')
+            .replace(/\.git$/, '');
+
+        const [owner, name] = slug.split('/');
+        if (!owner || !name) return;
+
+        const base = `https://github.com/${owner}/${name}`;
+        document.getElementById('gh-link-repo').href = base;
+        document.getElementById('gh-link-actions').href = `${base}/actions`;
+        document.getElementById('gh-link-pages').href = `https://${owner}.github.io/${name}/`;
+        document.getElementById('gh-link-secrets').href = `${base}/settings/secrets/actions`;
+        document.getElementById('gh-link-settings').href = `${base}/settings`;
+        menu.classList.add('visible');
+    }
 </script>

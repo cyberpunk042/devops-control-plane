@@ -44,9 +44,12 @@ def create_app(
     app.config["PROJECT_ROOT"] = str(project_root or Path.cwd())
     app.config["CONFIG_PATH"] = str(config_path) if config_path else None
     app.config["MOCK_MODE"] = mock_mode
+    app.config["MAX_CONTENT_LENGTH"] = 500 * 1024 * 1024  # 500 MB upload limit
 
     # Register blueprints
     from src.ui.web.routes_api import api_bp
+    from src.ui.web.routes_backup import backup_bp
+    from src.ui.web.routes_content import content_bp
     from src.ui.web.routes_pages import pages_bp
     from src.ui.web.routes_secrets import secrets_bp
     from src.ui.web.routes_vault import vault_bp
@@ -55,6 +58,8 @@ def create_app(
     app.register_blueprint(api_bp, url_prefix="/api")
     app.register_blueprint(vault_bp, url_prefix="/api")
     app.register_blueprint(secrets_bp, url_prefix="/api")
+    app.register_blueprint(content_bp, url_prefix="/api")
+    app.register_blueprint(backup_bp, url_prefix="/api")
 
     # Initialize vault with project root (for auto-lock)
     from src.ui.web import vault as vault_module

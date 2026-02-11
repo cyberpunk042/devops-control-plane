@@ -44,7 +44,7 @@
                 badge.innerHTML = '<span class="status-dot"></span>Configured';
                 detail.innerHTML = `
                 <div style="font-size:0.82rem;color:var(--text-secondary)">
-                    <code style="font-family:var(--font-mono);color:var(--accent)">${esc(data.project.repository)}</code>
+                    <code class="notranslate" translate="no" style="font-family:var(--font-mono);color:var(--accent)">${esc(data.project.repository)}</code>
                 </div>`;
             } else {
                 badge.className = 'status-badge degraded';
@@ -72,7 +72,7 @@
                 detail.innerHTML = `
                 <div style="font-size:0.82rem;color:var(--text-secondary)">
                     ${dockerModules.length} Docker module(s) found:
-                    ${dockerModules.map(m => `<code style="font-family:var(--font-mono);color:var(--accent)">${esc(m.name)}</code>`).join(', ')}
+                    ${dockerModules.map(m => `<code class="notranslate" translate="no" style="font-family:var(--font-mono);color:var(--accent)">${esc(m.name)}</code>`).join(', ')}
                 </div>`;
             } else {
                 badge.className = 'status-badge degraded';
