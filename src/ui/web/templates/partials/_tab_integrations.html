@@ -2,11 +2,13 @@
 <div id="tab-integrations" class="tab-content">
     <header class="tab-header">
         <h1>🔌 Integrations</h1>
-        <p class="subtitle">External services and connection status</p>
+        <p class="subtitle">Version control, CI/CD, and deployment services</p>
     </header>
 
     <div class="card-grid">
-        <div class="card">
+
+        <!-- ── Git Card ─────────────────────────────────────────── -->
+        <div class="card" id="int-git-card">
             <div class="card-header">
                 <span class="card-title">Git</span>
                 <span class="status-badge" id="int-git-badge">—</span>
@@ -16,17 +18,33 @@
                 <span class="spinner"></span>
             </div>
         </div>
-        <div class="card">
+
+        <!-- ── GitHub Card ──────────────────────────────────────── -->
+        <div class="card" id="int-gh-card">
             <div class="card-header">
                 <span class="card-title">GitHub</span>
                 <span class="status-badge" id="int-gh-badge">—</span>
             </div>
-            <div class="card-subtitle">Remote repository connection</div>
+            <div class="card-subtitle">Remote repository & API</div>
             <div id="int-gh-detail" class="integration-detail" style="margin-top:var(--space-md)">
-                <p class="empty-state-sm">Not configured</p>
+                <span class="spinner"></span>
             </div>
         </div>
-        <div class="card">
+
+        <!-- ── CI/CD Card ───────────────────────────────────────── -->
+        <div class="card" id="int-ci-card">
+            <div class="card-header">
+                <span class="card-title">CI/CD</span>
+                <span class="status-badge" id="int-ci-badge">—</span>
+            </div>
+            <div class="card-subtitle">Workflow runs & deployment</div>
+            <div id="int-ci-detail" class="integration-detail" style="margin-top:var(--space-md)">
+                <span class="spinner"></span>
+            </div>
+        </div>
+
+        <!-- ── Docker Card ──────────────────────────────────────── -->
+        <div class="card" id="int-docker-card">
             <div class="card-header">
                 <span class="card-title">Docker</span>
                 <span class="status-badge" id="int-docker-badge">—</span>
@@ -36,15 +54,18 @@
                 <p class="empty-state-sm">Not detected</p>
             </div>
         </div>
-        <div class="card">
-            <div class="card-header">
-                <span class="card-title">CI/CD</span>
-                <span class="status-badge" id="int-ci-badge">—</span>
-            </div>
-            <div class="card-subtitle">Continuous integration</div>
-            <div id="int-ci-detail" class="integration-detail" style="margin-top:var(--space-md)">
-                <p class="empty-state-sm">Not configured</p>
-            </div>
+
+    </div>
+
+    <!-- ── GitHub Pages Card (Phase 2 — full-width) ─────────────── -->
+    <div class="card" id="int-pages-card" style="display:none">
+        <div class="card-header">
+            <span class="card-title">📄 GitHub Pages</span>
+            <span class="status-badge" id="int-pages-badge">—</span>
+        </div>
+        <div class="card-subtitle">Multi-segment static site builder</div>
+        <div id="int-pages-detail" class="integration-detail" style="margin-top:var(--space-md)">
+            <p class="empty-state-sm">Coming in Phase 2</p>
         </div>
     </div>
 </div>

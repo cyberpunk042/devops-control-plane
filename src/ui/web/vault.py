@@ -48,15 +48,27 @@ TAG_BYTES = 16
 VAULT_SUFFIX = ".vault"
 
 # ── In-memory session state ──────────────────────────────────────────
-_session_passphrase: Optional[str] = None
+# Passphrases are stored per-env-file so each vault can have its own
+# password.  Key = str(path.resolve()), value = passphrase.
+_session_passphrases: dict[str, str] = {}
 _auto_lock_timer: Optional[Timer] = None
 _auto_lock_minutes: int = 30
 _lock = ThreadLock()
 
 
-def get_passphrase() -> Optional[str]:
-    """Return the current session passphrase, or None if not set."""
-    return _session_passphrase
+def _pp_key(path: Path) -> str:
+    """Canonical dict key for a secret-file path."""
+    return str(path.resolve())
+
+
+def get_passphrase(secret_path: Path) -> Optional[str]:
+    """Return the session passphrase for *secret_path*, or None."""
+    return _session_passphrases.get(_pp_key(secret_path))
+
+
+def has_any_passphrase() -> bool:
+    """True if at least one vault passphrase is held in memory."""
+    return bool(_session_passphrases)
 
 # ── Rate limiting state ──────────────────────────────────────────────
 _failed_attempts: int = 0
@@ -181,7 +193,7 @@ def touch_activity(request_path: str = "", request_method: str = "GET") -> None:
 
     Only resets for user-initiated requests, NOT background polling.
     """
-    if _session_passphrase is None:
+    if not _session_passphrases:
         return
 
     # Ignore background polling endpoints
@@ -248,7 +260,7 @@ def vault_status(secret_path: Path) -> dict:
         result = {"locked": False, "vault_file": None, "empty": True}
 
     result["auto_lock_minutes"] = _auto_lock_minutes
-    result["has_passphrase"] = _session_passphrase is not None
+    result["has_passphrase"] = _pp_key(secret_path) in _session_passphrases
 
     rate_info = _check_rate_limit()
     if rate_info:
@@ -271,7 +283,6 @@ def lock_vault(secret_path: Path, passphrase: str) -> dict:
     Raises:
         ValueError: If file not found, passphrase too short.
     """
-    global _session_passphrase
 
     from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
@@ -315,9 +326,11 @@ def lock_vault(secret_path: Path, passphrase: str) -> dict:
     _secure_delete(secret_path)
 
     with _lock:
-        _session_passphrase = passphrase
+        # Remove passphrase for this file — it’s locked now
+        _session_passphrases.pop(_pp_key(secret_path), None)
 
-    _cancel_auto_lock_timer()
+    if not _session_passphrases:
+        _cancel_auto_lock_timer()
 
     logger.info("Vault locked — %s encrypted and deleted", secret_path.name)
     return {"success": True, "message": f"Vault locked ({secret_path.name})"}
@@ -336,7 +349,6 @@ def unlock_vault(secret_path: Path, passphrase: str) -> dict:
     Raises:
         ValueError: If vault not found, wrong passphrase, rate limited.
     """
-    global _session_passphrase
 
     rate_info = _check_rate_limit()
     if rate_info:
@@ -383,7 +395,7 @@ def unlock_vault(secret_path: Path, passphrase: str) -> dict:
         pass
 
     with _lock:
-        _session_passphrase = passphrase
+        _session_passphrases[_pp_key(secret_path)] = passphrase
 
     _start_auto_lock_timer()
 
@@ -392,30 +404,48 @@ def unlock_vault(secret_path: Path, passphrase: str) -> dict:
 
 
 def auto_lock() -> dict:
-    """Auto-lock using the stored passphrase.
+    """Auto-lock ALL unlocked vaults using their stored passphrases.
 
-    Called by the inactivity timer. Requires that a project root
-    has been registered via set_project_root().
+    Called by the inactivity timer. Iterates every registered
+    passphrase and locks the corresponding file.
     """
     with _lock:
-        passphrase = _session_passphrase
+        snapshot = dict(_session_passphrases)
 
-    if not passphrase:
-        logger.warning("Auto-lock skipped — no passphrase in memory")
-        return {"success": False, "message": "No passphrase stored"}
+    if not snapshot:
+        logger.warning("Auto-lock skipped — no passphrases in memory")
+        return {"success": False, "message": "No passphrases stored"}
 
-    # Auto-lock targets the default .env
     project_root = _project_root_ref
     if project_root is None:
         logger.warning("Auto-lock skipped — no project root set")
         return {"success": False, "message": "No project root configured"}
 
-    env_path = project_root / ".env"
-    if not env_path.exists():
-        logger.debug("Auto-lock skipped — .env doesn't exist (already locked?)")
-        return {"success": False, "message": "Already locked"}
+    locked = []
+    skipped = []
 
-    return lock_vault(env_path, passphrase)
+    for path_key, passphrase in snapshot.items():
+        env_path = Path(path_key)
+        if not env_path.exists():
+            skipped.append(env_path.name)
+            continue
+        try:
+            lock_vault(env_path, passphrase)
+            locked.append(env_path.name)
+        except Exception as e:
+            logger.error("Auto-lock failed for %s: %s", env_path.name, e)
+            skipped.append(env_path.name)
+
+    # Clear all stored passphrases
+    with _lock:
+        _session_passphrases.clear()
+
+    msg = f"Auto-locked: {', '.join(locked)}" if locked else "Nothing to lock"
+    if skipped:
+        msg += f" (skipped: {', '.join(skipped)})"
+
+    logger.info("Auto-lock complete: %s", msg)
+    return {"success": bool(locked), "message": msg}
 
 
 def register_passphrase(passphrase: str, secret_path: Path) -> dict:
@@ -434,7 +464,6 @@ def register_passphrase(passphrase: str, secret_path: Path) -> dict:
     Raises:
         ValueError: If passphrase is empty or wrong.
     """
-    global _session_passphrase
 
     if not passphrase or not passphrase.strip():
         raise ValueError("Passphrase cannot be empty")
@@ -477,7 +506,7 @@ def register_passphrase(passphrase: str, secret_path: Path) -> dict:
         _reset_rate_limit()
 
     with _lock:
-        _session_passphrase = passphrase
+        _session_passphrases[_pp_key(secret_path)] = passphrase
 
     _start_auto_lock_timer()
 
@@ -494,7 +523,7 @@ def set_auto_lock_minutes(minutes: int) -> None:
     global _auto_lock_minutes
     _auto_lock_minutes = max(0, minutes)
 
-    if _session_passphrase is not None:
+    if _session_passphrases:
         _start_auto_lock_timer()
 
     logger.info(

@@ -41,6 +41,10 @@
             }
             renderWizard();
         } else if (tabId === 'secrets') {
+            if (subStep) {
+                selectedEnv = subStep;
+                secretsLoaded = false;
+            }
             loadSecretsTab();
         } else if (tabId === 'debugging') {
             loadDebugTab();

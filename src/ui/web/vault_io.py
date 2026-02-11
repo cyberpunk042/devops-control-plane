@@ -189,11 +189,36 @@ SECRET_FILE_PATTERNS = [
 def detect_secret_files(project_root: Path) -> list[dict]:
     """Scan project root for known secret files.
 
+    Includes static patterns plus dynamic ``.env.<envname>`` files
+    for each environment configured in ``project.yml``.
+
     Returns a list of dicts with file info and vault status.
     """
+    # Build the pattern list — start with static patterns
+    patterns = list(SECRET_FILE_PATTERNS)
+
+    # Add dynamic .env.<envname> from project.yml environments
+    config_file = project_root / "project.yml"
+    if config_file.is_file():
+        try:
+            import yaml
+
+            raw = config_file.read_text(encoding="utf-8")
+            data = yaml.safe_load(raw)
+            if isinstance(data, dict):
+                for env in data.get("environments", []):
+                    name = env.get("name", "") if isinstance(env, dict) else str(env)
+                    name = name.strip().lower()
+                    if name and name != "dev":  # dev maps to .env (already listed)
+                        env_file = f".env.{name}"
+                        if env_file not in patterns:
+                            patterns.append(env_file)
+        except Exception:
+            pass
+
     results = []
 
-    for pattern in SECRET_FILE_PATTERNS:
+    for pattern in patterns:
         file_path = project_root / pattern
         vault_path = _vault_path_for(file_path)
 
@@ -223,33 +248,98 @@ def detect_secret_files(project_root: Path) -> list[dict]:
     return results
 
 
+def _parse_meta_tags(comment_line: str) -> dict:
+    """Parse structured metadata tags from a comment line.
+
+    Tags use ``@`` prefix:  ``# @type:toggle @encoding:base64 @options:a,b,c``
+
+    Supported tags:
+        @local-only            → {"local_only": True}
+        @type:<t>              → {"type": "toggle"|"select"|"password"|"multiline"}
+        @options:<csv>         → {"options": ["a","b","c"]}
+        @encoding:<enc>        → {"encoding": "base64"}
+        @generated:<gen>       → {"generated": "password"|"ssh-ed25519"|...}
+        @length:<n>            → {"length": 32}
+
+    Returns dict of parsed metadata (empty if no tags found).
+    """
+    import re
+
+    if not comment_line or not comment_line.strip().startswith("#"):
+        return {}
+
+    body = comment_line.strip().lstrip("#").strip()
+    if not body or "@" not in body:
+        return {}
+
+    meta: dict = {}
+    # Match @key or @key:value tokens
+    for m in re.finditer(r"@([\w-]+)(?::([^\s]+))?", body):
+        tag = m.group(1).lower().replace("-", "_")
+        val = m.group(2) or True
+
+        if tag == "local_only":
+            meta["local_only"] = True
+        elif tag == "type":
+            meta["type"] = val
+        elif tag == "options":
+            meta["options"] = [o.strip() for o in val.split(",") if o.strip()] if isinstance(val, str) else []
+        elif tag == "encoding":
+            meta["encoding"] = val
+        elif tag == "generated":
+            meta["generated"] = val
+        elif tag == "length":
+            try:
+                meta["length"] = int(val) if isinstance(val, str) else val
+            except (ValueError, TypeError):
+                pass
+
+    return meta
+
+
 def list_env_keys(env_path: Path) -> list[dict]:
-    """Parse a .env file and return keys with masked values.
+    """Parse a .env file and return keys with masked values and metadata.
 
     Args:
         env_path: Path to the .env file.
 
     Returns:
         List of dicts: {"key": str, "has_value": bool, "masked": str,
-                        "local_only": bool}
+                        "local_only": bool, "meta": dict}
     """
     if not env_path.exists():
         return []
 
     content = env_path.read_text(encoding="utf-8")
     result = []
+    pending_meta: dict = {}
+
     for line in content.splitlines():
         line = line.strip()
-        if not line or line.startswith("#"):
-            continue
-        if "=" not in line:
+        if not line:
+            pending_meta = {}
             continue
 
-        # Detect # local-only marker at end of line
+        # Comment line — check for metadata tags
+        if line.startswith("#"):
+            tags = _parse_meta_tags(line)
+            if tags:
+                pending_meta.update(tags)
+            continue
+
+        if "=" not in line:
+            pending_meta = {}
+            continue
+
+        # Detect # local-only marker at end of line (legacy)
         local_only = False
         if "# local-only" in line:
             local_only = True
             line = line[: line.index("# local-only")].rstrip()
+
+        # Also pick up @local-only from meta comment
+        if pending_meta.get("local_only"):
+            local_only = True
 
         key, _, value = line.partition("=")
         key = key.strip()
@@ -272,7 +362,9 @@ def list_env_keys(env_path: Path) -> list[dict]:
             "has_value": has_value,
             "masked": masked,
             "local_only": local_only,
+            "meta": pending_meta if pending_meta else {},
         })
+        pending_meta = {}
 
     return result
 
@@ -290,7 +382,7 @@ def list_env_sections(env_path: Path) -> list[dict]:
     Returns list of dicts:
         {
             "name": str,
-            "keys": [{key, has_value, masked}, ...],
+            "keys": [{key, has_value, masked, local_only, meta}, ...],
         }
     """
     if not env_path.exists():
@@ -302,6 +394,7 @@ def list_env_sections(env_path: Path) -> list[dict]:
     sections: list[dict] = []
     current_section = "General"
     current_keys: list[dict] = []
+    pending_meta: dict = {}
 
     section_re = re.compile(
         r"^#\s*(?:[─━═\-=]{2,}\s*)?([A-Za-z][\w\s/()]+?)\s*(?:[─━═\-=]{2,})?\s*$"
@@ -310,7 +403,11 @@ def list_env_sections(env_path: Path) -> list[dict]:
     for line in content.splitlines():
         stripped = line.strip()
 
-        # Try to match a section header
+        if not stripped:
+            pending_meta = {}
+            continue
+
+        # Try to match a section header or metadata comment
         if stripped.startswith("#"):
             comment_body = stripped.lstrip("#").strip()
             m = section_re.match(stripped)
@@ -322,6 +419,7 @@ def list_env_sections(env_path: Path) -> list[dict]:
                     )
                     current_keys = []
                 current_section = m.group(1).strip()
+                pending_meta = {}
                 continue
             # Also catch plain uppercase comment section headers
             if (
@@ -330,6 +428,7 @@ def list_env_sections(env_path: Path) -> list[dict]:
                 and len(comment_body) > 3
                 and not comment_body.startswith("!")
                 and "=" not in comment_body
+                and "@" not in comment_body
             ):
                 if current_keys:
                     sections.append(
@@ -337,17 +436,27 @@ def list_env_sections(env_path: Path) -> list[dict]:
                     )
                     current_keys = []
                 current_section = comment_body.title()
+                pending_meta = {}
                 continue
+
+            # Check for metadata tags
+            tags = _parse_meta_tags(stripped)
+            if tags:
+                pending_meta.update(tags)
             continue
 
-        if not stripped or "=" not in stripped:
+        if "=" not in stripped:
+            pending_meta = {}
             continue
 
-        # Detect # local-only marker at end of line
+        # Detect # local-only marker at end of line (legacy)
         local_only = False
         if "# local-only" in stripped:
             local_only = True
             stripped = stripped[: stripped.index("# local-only")].rstrip()
+
+        if pending_meta.get("local_only"):
+            local_only = True
 
         key, _, value = stripped.partition("=")
         key = key.strip()
@@ -369,7 +478,9 @@ def list_env_sections(env_path: Path) -> list[dict]:
             "has_value": has_value,
             "masked": masked,
             "local_only": local_only,
+            "meta": pending_meta if pending_meta else {},
         })
+        pending_meta = {}
 
     # Don't forget the last section
     if current_keys:

@@ -42,8 +42,8 @@
         }
         const allFolderPaths = _flattenPaths(folderTree);
 
-        // Sync from docs/media folder if no archive folder explicitly selected
-        if (!_archiveSelectedFolder && contentCurrentPath) {
+        // Sync from docs/media folder context
+        if (contentCurrentPath) {
             const rootFolder = contentCurrentPath.split('/')[0];
             if (rootFolder && allFolderPaths.includes(rootFolder)) {
                 _archiveSelectedFolder = rootFolder;

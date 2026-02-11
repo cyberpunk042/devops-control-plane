@@ -451,14 +451,34 @@ DEFAULT_CONTENT_DIRS = ["docs", "content", "media", "assets", "archive"]
 def detect_content_folders(project_root: Path) -> list[dict]:
     """Auto-detect content folders in a project.
 
-    Scans for known folder names and returns metadata about each.
+    Checks project.yml for a ``content_folders`` list first.
+    Falls back to DEFAULT_CONTENT_DIRS if not configured.
 
     Returns:
         List of dicts: {name, path, file_count, total_size, categories}
     """
+    # Try to load configured folders from project.yml
+    dir_names = None
+    config_file = project_root / "project.yml"
+    if config_file.is_file():
+        try:
+            import yaml
+
+            raw = config_file.read_text(encoding="utf-8")
+            data = yaml.safe_load(raw)
+            if isinstance(data, dict):
+                configured = data.get("content_folders")
+                if isinstance(configured, list) and configured:
+                    dir_names = configured
+        except Exception:
+            pass  # Fall back to defaults
+
+    if dir_names is None:
+        dir_names = DEFAULT_CONTENT_DIRS
+
     folders = []
 
-    for dir_name in DEFAULT_CONTENT_DIRS:
+    for dir_name in dir_names:
         folder = project_root / dir_name
         if folder.is_dir():
             info = _scan_folder(folder, project_root)

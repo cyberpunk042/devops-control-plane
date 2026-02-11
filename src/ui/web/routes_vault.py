@@ -22,15 +22,130 @@ def _project_root() -> Path:
     return Path(current_app.config["PROJECT_ROOT"])
 
 
+def _env_path() -> Path:
+    """Resolve the .env file path from the optional ``?env=`` query param.
+
+    Mapping:
+        (no param)       → .env          (single-env mode)
+        env=development  → .env.development
+        env=production   → .env.production
+        env=<name>       → .env.<name>
+    """
+    env_name = request.args.get("env", "").strip().lower()
+    root = _project_root()
+    if not env_name:
+        return root / ".env"
+    return root / f".env.{env_name}"
+
+
 # ── Status ───────────────────────────────────────────────────────────
 
 
 @vault_bp.route("/vault/status")
 def vault_status():  # type: ignore[no-untyped-def]
     """Get vault status for the default .env."""
-    env_path = _project_root() / ".env"
+    env_path = _env_path()
     status = vault.vault_status(env_path)
     return jsonify(status)
+
+
+# ── Active environment (file swapping) ───────────────────────────────
+
+_ACTIVE_MARKER = ".env.active"
+
+
+def _read_active_env(root: Path) -> str:
+    """Read which environment is currently active (empty = single-env mode)."""
+    marker = root / _ACTIVE_MARKER
+    if marker.exists():
+        name = marker.read_text(encoding="utf-8").strip().lower()
+        return name
+    return ""
+
+
+@vault_bp.route("/vault/active-env")
+def vault_active_env():  # type: ignore[no-untyped-def]
+    """Return the currently active environment name."""
+    root = _project_root()
+    return jsonify({"active": _read_active_env(root)})
+
+
+@vault_bp.route("/vault/activate-env", methods=["POST"])
+def vault_activate_env():  # type: ignore[no-untyped-def]
+    """Swap .env files to make a different environment active.
+
+    Flow:
+        1. Save current .env → .env.<old_active>
+        2. Copy .env.<new_active> → .env
+        3. Write marker file .env.active
+        4. Handles .env.vault files too
+    """
+    import shutil
+
+    data = request.get_json(silent=True) or {}
+    new_env = data.get("env", "").strip().lower()
+
+    if not new_env:
+        return jsonify({"error": "Environment name required"}), 400
+
+    root = _project_root()
+    current_active = _read_active_env(root)
+
+    if new_env == current_active:
+        return jsonify({
+            "success": True,
+            "active": new_env,
+            "message": f"Already active: {new_env}",
+        })
+
+    dotenv = root / ".env"
+    dotenv_vault = root / ".env.vault"
+
+    # ── Step 1: Stash current .env → .env.<current> ──────────
+    stash_path = root / f".env.{current_active}"
+
+    if dotenv.exists():
+        shutil.copy2(str(dotenv), str(stash_path))
+        logger.info("Stashed .env → %s", stash_path.name)
+
+    if dotenv_vault.exists():
+        stash_vault = stash_path.with_suffix(stash_path.suffix + ".vault")
+        shutil.copy2(str(dotenv_vault), str(stash_vault))
+        logger.info("Stashed .env.vault → %s", stash_vault.name)
+
+    # ── Step 2: Restore .env.<new> → .env ────────────────────
+    source = root / f".env.{new_env}"
+
+    source_vault = source.with_suffix(source.suffix + ".vault")
+
+    # Remove current .env / .env.vault before copying
+    if dotenv.exists():
+        dotenv.unlink()
+    if dotenv_vault.exists():
+        dotenv_vault.unlink()
+
+    if source.exists():
+        shutil.copy2(str(source), str(dotenv))
+        logger.info("Activated %s → .env", source.name)
+    elif source_vault.exists():
+        # Source is locked — copy the vault file instead
+        shutil.copy2(str(source_vault), str(dotenv_vault))
+        logger.info("Activated %s → .env.vault (locked)", source_vault.name)
+    else:
+        # No source file exists — .env will be empty
+        logger.warning("No %s found — .env will be missing", source.name)
+
+    # ── Step 3: Write marker ─────────────────────────────────
+    marker = root / _ACTIVE_MARKER
+    marker.write_text(new_env + "\n", encoding="utf-8")
+
+    logger.info("Active environment changed: %s → %s", current_active, new_env)
+    return jsonify({
+        "success": True,
+        "active": new_env,
+        "previous": current_active,
+        "message": f"Activated: {new_env}",
+    })
 
 
 # ── Lock ─────────────────────────────────────────────────────────────
@@ -45,7 +160,7 @@ def vault_lock():  # type: ignore[no-untyped-def]
     if not passphrase:
         return jsonify({"error": "Missing passphrase"}), 400
 
-    env_path = _project_root() / ".env"
+    env_path = _env_path()
 
     try:
         result = vault.lock_vault(env_path, passphrase)
@@ -66,7 +181,7 @@ def vault_unlock():  # type: ignore[no-untyped-def]
     if not passphrase:
         return jsonify({"error": "Missing passphrase"}), 400
 
-    env_path = _project_root() / ".env"
+    env_path = _env_path()
 
     try:
         result = vault.unlock_vault(env_path, passphrase)
@@ -87,7 +202,7 @@ def vault_register():  # type: ignore[no-untyped-def]
     if not passphrase:
         return jsonify({"error": "Missing passphrase"}), 400
 
-    env_path = _project_root() / ".env"
+    env_path = _env_path()
 
     try:
         result = vault.register_passphrase(passphrase, env_path)
@@ -145,7 +260,7 @@ def vault_keys():  # type: ignore[no-untyped-def]
     Config (non-secret) keys include the raw value for inline editing.
     Secret keys only get masked values.
     """
-    env_path = _project_root() / ".env"
+    env_path = _env_path()
     vault_path = vault._vault_path_for(env_path)
 
     keys = vault.list_env_keys(env_path)
@@ -162,6 +277,10 @@ def vault_keys():  # type: ignore[no-untyped-def]
 
     # Section-based grouping from comments
     sections = vault.list_env_sections(env_path)
+
+    # Content Vault always first
+    sections.sort(key=lambda s: 0 if "content vault" in s.get("name", "").lower() else 1)
+
     for section in sections:
         for k in section["keys"]:
             kind = _classify_key(k["key"])
@@ -179,19 +298,139 @@ def vault_keys():  # type: ignore[no-untyped-def]
     return jsonify({"keys": keys, "sections": sections, "state": state})
 
 
+# ── .env Template Sections ───────────────────────────────────────────
+
+# Template sections are ordered — Content Vault is always first (special).
+# Each section has: id, name, description, keys (list of {key, default, comment})
+_ENV_TEMPLATE_SECTIONS = [
+    {
+        "id": "content_vault",
+        "name": "Content Vault",
+        "description": "Encryption key for content file protection",
+        "special": True,
+        "keys": [
+            {
+                "key": "CONTENT_VAULT_ENC_KEY",
+                "default": "__auto_generate__",
+                "comment": "Auto-generated AES-256 key for content encryption",
+            },
+        ],
+    },
+    {
+        "id": "github_ci",
+        "name": "GitHub CI",
+        "description": "GitHub Actions and CI/CD integration",
+        "keys": [
+            {"key": "GITHUB_TOKEN", "default": "", "comment": "Auto-provided by GitHub Actions"},
+            {"key": "GITHUB_REPOSITORY", "default": "", "comment": "owner/repo — auto-detected from git remote"},
+        ],
+    },
+    {
+        "id": "database",
+        "name": "Database",
+        "description": "Database connection settings",
+        "keys": [
+            {"key": "DATABASE_URL", "default": "", "comment": "e.g. postgres://localhost:5432/mydb"},
+            {"key": "DATABASE_HOST", "default": "localhost", "comment": ""},
+            {"key": "DATABASE_PORT", "default": "5432", "comment": ""},
+            {"key": "DATABASE_NAME", "default": "", "comment": ""},
+            {"key": "DATABASE_USER", "default": "", "comment": ""},
+            {"key": "DATABASE_PASSWORD", "default": "", "comment": ""},
+        ],
+    },
+    {
+        "id": "api_keys",
+        "name": "API Keys",
+        "description": "External service API keys and tokens",
+        "keys": [
+            {"key": "API_KEY", "default": "", "comment": "Primary API key"},
+            {"key": "API_SECRET", "default": "", "comment": "Primary API secret"},
+            {"key": "OPENAI_API_KEY", "default": "", "comment": "OpenAI API key"},
+            {"key": "STRIPE_SECRET_KEY", "default": "", "comment": "Stripe secret key"},
+        ],
+    },
+    {
+        "id": "app_config",
+        "name": "App Config",
+        "description": "Application configuration variables",
+        "keys": [
+            {"key": "APP_ENV", "default": "development", "comment": "development | staging | production"},
+            {"key": "DEBUG", "default": "true", "comment": "Enable debug mode"},
+            {"key": "LOG_LEVEL", "default": "info", "comment": "debug | info | warning | error"},
+            {"key": "SECRET_KEY", "default": "", "comment": "App secret key for sessions/CSRF"},
+            {"key": "PORT", "default": "3000", "comment": "Application port"},
+        ],
+    },
+    {
+        "id": "email",
+        "name": "Email / SMTP",
+        "description": "Email and notification service credentials",
+        "keys": [
+            {"key": "SMTP_HOST", "default": "", "comment": "SMTP server hostname"},
+            {"key": "SMTP_PORT", "default": "587", "comment": ""},
+            {"key": "SMTP_USER", "default": "", "comment": ""},
+            {"key": "SMTP_PASSWORD", "default": "", "comment": ""},
+            {"key": "SMTP_FROM", "default": "", "comment": "Default sender address"},
+        ],
+    },
+    {
+        "id": "cloud",
+        "name": "Cloud / Storage",
+        "description": "Cloud provider and object storage credentials",
+        "keys": [
+            {"key": "AWS_ACCESS_KEY_ID", "default": "", "comment": ""},
+            {"key": "AWS_SECRET_ACCESS_KEY", "default": "", "comment": ""},
+            {"key": "AWS_REGION", "default": "us-east-1", "comment": ""},
+            {"key": "S3_BUCKET", "default": "", "comment": ""},
+        ],
+    },
+]
+
+
+@vault_bp.route("/vault/templates")
+def vault_templates():  # type: ignore[no-untyped-def]
+    """Return available .env template sections."""
+    sections = []
+    for s in _ENV_TEMPLATE_SECTIONS:
+        sections.append({
+            "id": s["id"],
+            "name": s["name"],
+            "description": s["description"],
+            "special": s.get("special", False),
+            "keys": [
+                {
+                    "key": k["key"],
+                    "has_default": bool(k["default"] and k["default"] != "__auto_generate__"),
+                    "comment": k.get("comment", ""),
+                }
+                for k in s["keys"]
+            ],
+        })
+    return jsonify({"sections": sections})
+
+
 # ── Create .env ──────────────────────────────────────────────────────
 
 
 @vault_bp.route("/vault/create", methods=["POST"])
 def vault_create():  # type: ignore[no-untyped-def]
-    """Create a new .env file from key-value pairs."""
+    """Create a new .env file from template sections and/or key-value pairs.
+
+    Request body:
+        entries: list of {key, value} — explicit key-value pairs
+        template_sections: list of section IDs to include
+    """
+    import base64
+    import os
+
     data = request.get_json(silent=True) or {}
     entries = data.get("entries", [])
+    template_sections = data.get("template_sections", [])
 
-    env_path = _project_root() / ".env"
+    env_path = _env_path()
 
     if env_path.exists():
-        return jsonify({"error": ".env already exists"}), 400
+        return jsonify({"error": f"{env_path.name} already exists"}), 400
 
     # Build .env content
     lines = [
@@ -200,35 +439,79 @@ def vault_create():  # type: ignore[no-untyped-def]
         "",
     ]
 
+    key_count = 0
+
+    # ── Template sections ────────────────────────────────────────
+    if template_sections:
+        section_map = {s["id"]: s for s in _ENV_TEMPLATE_SECTIONS}
+
+        # Always put Content Vault first if selected
+        ordered = []
+        if "content_vault" in template_sections:
+            ordered.append("content_vault")
+        for sid in template_sections:
+            if sid != "content_vault" and sid in section_map:
+                ordered.append(sid)
+
+        for sid in ordered:
+            section = section_map[sid]
+            dash_len = max(0, 48 - len(section["name"]))
+            lines.append(f"# ── {section['name']} {'─' * dash_len}")
+
+            for k in section["keys"]:
+                value = k["default"]
+
+                # Auto-generate encryption key
+                if value == "__auto_generate__":
+                    raw = os.urandom(32)
+                    value = base64.urlsafe_b64encode(raw).decode()
+
+                comment = f"  # {k['comment']}" if k.get("comment") else ""
+
+                if value:
+                    lines.append(f"{k['key']}={value}{comment}")
+                else:
+                    lines.append(f"# {k['key']}={comment.strip()}")
+
+                key_count += 1
+
+            lines.append("")
+
+    # ── Explicit entries ─────────────────────────────────────────
     if entries:
+        if template_sections:
+            lines.append("# ── Custom ─────────────────────────────────────────")
+
         for entry in entries:
             key = entry.get("key", "").strip()
             value = entry.get("value", "").strip()
             if not key:
                 continue
-            # Quote values with spaces or special chars
             if " " in value or "#" in value or "=" in value or not value:
                 value = f'"{value}"'
             lines.append(f"{key}={value}")
-    else:
-        # Provide starter template
+            key_count += 1
+
+        lines.append("")
+
+    # ── Fallback: Content Vault with auto-generated key ──────────
+    if not template_sections and not entries:
+        raw = os.urandom(32)
+        enc_key = base64.urlsafe_b64encode(raw).decode()
         lines.extend([
-            "# ── Example configuration ──",
-            "# Uncomment and modify the keys you need",
-            "",
-            "# DATABASE_URL=postgres://localhost:5432/mydb",
-            "# SECRET_KEY=change-me-to-something-secure",
-            "# DEBUG=true",
+            "# ── Content Vault ──────────────────────────────────",
+            f"CONTENT_VAULT_ENC_KEY={enc_key}  # Auto-generated AES-256 key",
             "",
         ])
+        key_count = 1
 
     lines.append("")  # trailing newline
     env_path.write_text("\n".join(lines), encoding="utf-8")
 
-    logger.info("Created .env with %d entries", len(entries))
+    logger.info("Created %s with %d entries", env_path.name, key_count)
     return jsonify({
         "success": True,
-        "message": f".env created with {len(entries)} entries",
+        "message": f"{env_path.name} created with {key_count} entries",
         "path": str(env_path),
     })
 
@@ -250,7 +533,7 @@ def vault_add_keys():  # type: ignore[no-untyped-def]
     if not entries:
         return jsonify({"error": "No entries provided"}), 400
 
-    env_path = _project_root() / ".env"
+    env_path = _env_path()
 
     if not env_path.exists():
         return jsonify({"error": ".env does not exist — create it first"}), 400
@@ -389,7 +672,7 @@ def vault_move_key():  # type: ignore[no-untyped-def]
     if not target_section:
         return jsonify({"error": "Missing 'section'"}), 400
 
-    env_path = _project_root() / ".env"
+    env_path = _env_path()
     if not env_path.exists():
         return jsonify({"error": ".env does not exist"}), 400
 
@@ -441,7 +724,7 @@ def vault_rename_section():  # type: ignore[no-untyped-def]
     if not old_name or not new_name:
         return jsonify({"error": "Missing old_name or new_name"}), 400
 
-    env_path = _project_root() / ".env"
+    env_path = _env_path()
     if not env_path.exists():
         return jsonify({"error": ".env does not exist"}), 400
 
@@ -549,7 +832,7 @@ def vault_update_key():  # type: ignore[no-untyped-def]
     if not key:
         return jsonify({"error": "Missing 'key'"}), 400
 
-    env_path = _project_root() / ".env"
+    env_path = _env_path()
     if not env_path.exists():
         return jsonify({"error": ".env does not exist"}), 400
 
@@ -596,7 +879,7 @@ def vault_delete_key():  # type: ignore[no-untyped-def]
     if not key:
         return jsonify({"error": "Missing 'key'"}), 400
 
-    env_path = _project_root() / ".env"
+    env_path = _env_path()
     if not env_path.exists():
         return jsonify({"error": ".env does not exist"}), 400
 
@@ -625,6 +908,29 @@ def vault_delete_key():  # type: ignore[no-untyped-def]
     logger.info("Deleted key %s from .env", key)
     return jsonify({"success": True, "key": key, "message": f"Deleted {key}"})
 
+# ── Get raw value for a single key ───────────────────────────────────
+
+
+@vault_bp.route("/vault/raw-value", methods=["POST"])
+def vault_raw_value():  # type: ignore[no-untyped-def]
+    """Return the raw value of a single .env key.
+
+    Body: {"key": "MY_KEY"}
+    Returns: {"key": "MY_KEY", "value": "raw_value"}
+    """
+    data = request.get_json(silent=True) or {}
+    key = data.get("key", "").strip()
+    if not key:
+        return jsonify({"error": "Missing 'key'"}), 400
+
+    env_path = _env_path()
+    values = _read_env_values(env_path)
+
+    if key not in values:
+        return jsonify({"error": f"Key '{key}' not found"}), 404
+
+    return jsonify({"key": key, "value": values[key]})
+
 
 # ── Toggle local-only ────────────────────────────────────────────────
 
@@ -643,7 +949,7 @@ def vault_toggle_local_only():  # type: ignore[no-untyped-def]
     if not key:
         return jsonify({"error": "Missing 'key'"}), 400
 
-    env_path = _project_root() / ".env"
+    env_path = _env_path()
     if not env_path.exists():
         return jsonify({"error": ".env does not exist"}), 400
 
@@ -684,6 +990,81 @@ def vault_toggle_local_only():  # type: ignore[no-untyped-def]
         "key": key,
         "local_only": local_only,
     })
+
+
+# ── Set metadata tags ────────────────────────────────────────────────
+
+
+@vault_bp.route("/vault/set-meta", methods=["POST"])
+def vault_set_meta():  # type: ignore[no-untyped-def]
+    """Set or update @ metadata tags on a .env key.
+
+    Body: {"key": "MY_KEY", "meta_tags": "@encoding:base64 @generated:ssh-ed25519"}
+
+    If a comment line containing @ tags already exists immediately above the key,
+    it is replaced.  Otherwise a new comment line is inserted.
+    """
+    data = request.get_json(silent=True) or {}
+    key = data.get("key", "").strip()
+    meta_tags = data.get("meta_tags", "").strip()
+
+    if not key:
+        return jsonify({"error": "Missing 'key'"}), 400
+    if not meta_tags:
+        return jsonify({"error": "Missing 'meta_tags'"}), 400
+
+    # Ensure tags start with #
+    if not meta_tags.startswith("#"):
+        meta_tags = f"# {meta_tags}"
+
+    env_path = _env_path()
+    if not env_path.exists():
+        return jsonify({"error": ".env does not exist"}), 400
+
+    content = env_path.read_text(encoding="utf-8")
+    lines = content.splitlines()
+
+    new_lines = []
+    found = False
+    i = 0
+    while i < len(lines):
+        stripped = lines[i].strip()
+
+        # Check if this line is the target KEY=value
+        if (
+            stripped
+            and not stripped.startswith("#")
+            and "=" in stripped
+        ):
+            clean = stripped
+            if "# local-only" in clean:
+                clean = clean[: clean.index("# local-only")].rstrip()
+            k, _, _ = clean.partition("=")
+            if k.strip() == key:
+                found = True
+                # Check if the previous line is already a meta comment
+                if new_lines and new_lines[-1].strip().startswith("#") and "@" in new_lines[-1]:
+                    new_lines[-1] = meta_tags
+                else:
+                    new_lines.append(meta_tags)
+                new_lines.append(lines[i])
+                i += 1
+                continue
+
+        new_lines.append(lines[i])
+        i += 1
+
+    if not found:
+        return jsonify({"error": f"Key '{key}' not found in .env"}), 404
+
+    final = "\n".join(new_lines)
+    if not final.endswith("\n"):
+        final += "\n"
+    env_path.write_text(final, encoding="utf-8")
+
+    logger.info("Set meta tags for key %s: %s", key, meta_tags)
+    return jsonify({"success": True, "key": key, "meta_tags": meta_tags})
+
 
 @vault_bp.route("/vault/export", methods=["POST"])
 def vault_export():  # type: ignore[no-untyped-def]

@@ -1820,11 +1820,69 @@ body {
     font-weight: 600;
     color: var(--text-primary);
     display: flex;
-    align-items: center;
+    flex-direction: column;
+    gap: 0.15rem;
+    justify-content: center;
+    overflow: hidden;
+    min-width: 0;
+}
+
+.secret-config-name .btn-icon[title="Configure type"] {
+    opacity: 0;
+    transition: opacity 0.15s ease;
+}
+
+.secret-config-row:hover .secret-config-name .btn-icon[title="Configure type"] {
+    opacity: 0.5;
+}
+
+.secret-config-name .btn-icon[title="Configure type"]:hover {
+    opacity: 1 !important;
 }
 
 .secret-config-value {
     position: relative;
+}
+
+/* ── Select dropdown styling ─────────────────────────── */
+.secret-config-value select {
+    width: 100%;
+    padding: 0.45rem 0.6rem;
+    background: var(--bg-inset);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text-primary);
+    font-family: var(--font-mono);
+    font-size: 0.82rem;
+    transition: border-color 0.15s ease;
+    cursor: pointer;
+}
+
+.secret-config-value select:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.15);
+}
+
+/* ── Toggle switch ───────────────────────────────────── */
+.toggle-switch input:checked+span {
+    background: var(--accent) !important;
+}
+
+.toggle-switch span::before {
+    content: "";
+    position: absolute;
+    height: 14px;
+    width: 14px;
+    left: 3px;
+    bottom: 3px;
+    background: white;
+    border-radius: 50%;
+    transition: 0.2s;
+}
+
+.toggle-switch input:checked+span::before {
+    transform: translateX(18px);
 }
 
 .secret-config-value input {

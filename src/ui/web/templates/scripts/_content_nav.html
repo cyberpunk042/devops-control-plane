@@ -201,7 +201,8 @@ browser.innerHTML = `<p class="empty-state" style="color:var(--error)">❌ ${esc
 
 function contentSwitchMode(mode) {
 // Clean up archive modals & polls before switching away
-if (contentCurrentMode === 'archive' && mode !== 'archive') {
+const previousMode = contentCurrentMode;
+if (previousMode === 'archive' && mode !== 'archive') {
 _archiveCleanup();
 }
 
@@ -232,11 +233,32 @@ document.getElementById('content-breadcrumb').style.display = '';
 const browser = document.getElementById('content-browser');
 browser.innerHTML = '<p style="text-align:center;padding:2rem"><span class="spinner"></span></p>';
 
-// Load folder — use current path if valid, otherwise first available folder
-if (contentCurrentPath) {
-contentLoadFolder(contentCurrentPath);
+// Determine target folder
+// Only carry over archive folder when coming FROM archive mode
+let targetFolder = contentCurrentPath;
+if (previousMode === 'archive' && _archiveSelectedFolder && _archiveSelectedFolder !== '.') {
+    targetFolder = _archiveSelectedFolder;
+}
+
+// Check if target is outside configured folders
+const configuredPaths = contentFolders.map(f => f.path);
+const targetRoot = (targetFolder || '').split('/')[0];
+const isInScope = configuredPaths.some(p => targetFolder && targetFolder.startsWith(p));
+
+if (targetFolder && !isInScope && targetRoot) {
+    // Auto-enable "explore all" so the folder is accessible
+    const exploreAllCb = document.getElementById('content-explore-all');
+    if (exploreAllCb && !exploreAllCb.checked) {
+        exploreAllCb.checked = true;
+    }
+    // Load all folders into the dropdown, then navigate
+    contentToggleExploreAll(true).then(() => {
+        contentLoadFolder(targetFolder);
+    });
+} else if (targetFolder) {
+    contentLoadFolder(targetFolder);
 } else if (contentFolders.length > 0) {
-contentLoadFolder(contentFolders[0].path);
+    contentLoadFolder(contentFolders[0].path);
 }
 }
 }

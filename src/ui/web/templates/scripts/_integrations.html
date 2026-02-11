@@ -1,31 +1,108 @@
 <script>
     // ── Integrations tab ────────────────────────────────────────────────
 
+    let _intLoaded = false;
+
     async function loadIntegrationsTab() {
-        checkGitIntegration();
-        checkDockerIntegration();
-        checkGitHubIntegration();
+        // Load all cards in parallel
+        await Promise.allSettled([
+            loadGitCard(),
+            loadGitHubCard(),
+            loadCICard(),
+            loadDockerCard(),
+        ]);
+        _intLoaded = true;
     }
 
-    async function checkGitIntegration() {
+    // ── Git Card ────────────────────────────────────────────────────────
+
+    async function loadGitCard() {
         const badge = document.getElementById('int-git-badge');
         const detail = document.getElementById('int-git-detail');
 
         try {
-            const data = await api('/status');
-            const modules = data.modules || [];
-            const hasModules = modules.length > 0;
+            const data = await api('/git/status');
 
-            badge.className = 'status-badge ok';
-            badge.innerHTML = '<span class="status-dot"></span>OK';
+            if (!data.available) {
+                badge.className = 'status-badge failed';
+                badge.innerHTML = '<span class="status-dot"></span>No repo';
+                detail.innerHTML = '<p class="empty-state-sm">Not a git repository</p>';
+                return;
+            }
+
+            // Badge
+            if (data.dirty) {
+                badge.className = 'status-badge degraded';
+                badge.innerHTML = `<span class="status-dot"></span>${data.total_changes} change${data.total_changes !== 1 ? 's' : ''}`;
+            } else {
+                badge.className = 'status-badge ok';
+                badge.innerHTML = '<span class="status-dot"></span>Clean';
+            }
+
+            // Branch + tracking info
+            let trackingHtml = '';
+            if (data.ahead > 0 || data.behind > 0) {
+                const parts = [];
+                if (data.ahead > 0) parts.push(`<span style="color:var(--success)">↑${data.ahead}</span>`);
+                if (data.behind > 0) parts.push(`<span style="color:var(--warning)">↓${data.behind}</span>`);
+                trackingHtml = `<span style="margin-left:0.5rem;font-size:0.8rem">${parts.join(' ')}</span>`;
+            }
+
+            // Changes summary
+            let changesHtml = '';
+            if (data.dirty) {
+                const items = [];
+                if (data.staged_count > 0) items.push(`<span style="color:var(--success)">${data.staged_count} staged</span>`);
+                if (data.modified_count > 0) items.push(`<span style="color:var(--warning)">${data.modified_count} modified</span>`);
+                if (data.untracked_count > 0) items.push(`<span style="color:var(--text-muted)">${data.untracked_count} untracked</span>`);
+                changesHtml = `
+                <div style="margin-top:var(--space-sm);font-size:0.8rem;color:var(--text-secondary)">
+                    ${items.join(' · ')}
+                </div>`;
+            }
+
+            // Last commit
+            let commitHtml = '';
+            if (data.last_commit) {
+                const c = data.last_commit;
+                const ago = _timeAgo(c.date);
+                commitHtml = `
+                <div style="margin-top:var(--space-sm);font-size:0.78rem;color:var(--text-muted);display:flex;gap:0.5rem;align-items:baseline">
+                    <code style="color:var(--accent);font-family:var(--font-mono)">${esc(c.short_hash)}</code>
+                    <span style="flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(c.message)}</span>
+                    <span style="flex-shrink:0">${ago}</span>
+                </div>`;
+            }
+
+            // Action buttons
+            const actionsHtml = `
+            <div style="display:flex;gap:var(--space-sm);margin-top:var(--space-md);flex-wrap:wrap">
+                <button class="btn btn-sm btn-secondary" onclick="gitCommitModal()" title="Stage all + commit">
+                    💾 Commit
+                </button>
+                <button class="btn btn-sm btn-secondary" onclick="gitPull()" title="Pull from remote">
+                    ⬇️ Pull
+                </button>
+                <button class="btn btn-sm btn-secondary" onclick="gitPush()" ${data.ahead === 0 ? 'disabled' : ''} title="${data.ahead > 0 ? data.ahead + ' commit(s) to push' : 'Nothing to push'}">
+                    ⬆️ Push${data.ahead > 0 ? ' (' + data.ahead + ')' : ''}
+                </button>
+                <button class="btn btn-sm btn-ghost" onclick="gitLogModal()" title="View recent commits">
+                    📜 Log
+                </button>
+            </div>`;
 
             detail.innerHTML = `
-            <div style="font-size:0.82rem;color:var(--text-secondary);line-height:1.6">
-                <div><strong>Project:</strong> ${esc(data.project.name)}</div>
-                <div><strong>Modules:</strong> ${modules.length} detected</div>
-                ${data.project.repository ? `<div><strong>Repo:</strong> ${esc(data.project.repository)}</div>` : ''}
-            </div>
-        `;
+            <div style="font-size:0.85rem;color:var(--text-secondary);line-height:1.6">
+                <div style="display:flex;align-items:center;gap:0.4rem">
+                    <span style="font-weight:600">🌿 ${esc(data.branch)}</span>
+                    ${trackingHtml}
+                    <code style="font-family:var(--font-mono);font-size:0.75rem;color:var(--text-muted);margin-left:auto">${esc(data.commit || '')}</code>
+                </div>
+                ${changesHtml}
+                ${commitHtml}
+                ${actionsHtml}
+            </div>`;
+
         } catch (e) {
             badge.className = 'status-badge failed';
             badge.innerHTML = '<span class="status-dot"></span>Error';
@@ -33,30 +110,324 @@
         }
     }
 
-    async function checkGitHubIntegration() {
+    // ── Git Actions ────────────────────────────────────────────────────
+
+    function gitCommitModal() {
+        const modal = document.createElement('div');
+        modal.className = 'vault-modal-overlay';
+        modal.id = 'vault-modal';
+        modal.innerHTML = `
+        <div class="vault-modal" style="max-width:480px">
+            <h3 style="margin-bottom:var(--space-md)">💾 Commit Changes</h3>
+            <div class="form-group" style="margin-bottom:var(--space-md)">
+                <label>Commit Message</label>
+                <input type="text" id="git-commit-msg" placeholder="feat: describe your change"
+                    style="width:100%" autocomplete="off"
+                    onkeydown="if(event.key==='Enter'){doGitCommit()}">
+            </div>
+            <div id="git-commit-error" style="display:none;color:var(--error);font-size:0.82rem;margin-bottom:var(--space-sm)"></div>
+            <div style="display:flex;gap:var(--space-sm);justify-content:flex-end">
+                <button class="btn btn-sm btn-ghost" onclick="closeVaultModal()" type="button">Cancel</button>
+                <button class="btn btn-sm btn-primary" id="git-commit-btn" onclick="doGitCommit()" type="button">Commit All</button>
+            </div>
+        </div>`;
+        document.body.appendChild(modal);
+        setTimeout(() => document.getElementById('git-commit-msg').focus(), 100);
+    }
+
+    async function doGitCommit() {
+        const msgEl = document.getElementById('git-commit-msg');
+        const errEl = document.getElementById('git-commit-error');
+        const btnEl = document.getElementById('git-commit-btn');
+        const message = msgEl.value.trim();
+
+        if (!message) {
+            errEl.textContent = 'Message is required';
+            errEl.style.display = 'block';
+            return;
+        }
+
+        btnEl.disabled = true;
+        btnEl.textContent = 'Committing…';
+
+        try {
+            const data = await api('/git/commit', {
+                method: 'POST',
+                body: JSON.stringify({ message }),
+            });
+            closeVaultModal();
+            toast(`Committed ${data.hash}: ${message}`, 'success');
+            await loadGitCard();
+        } catch (e) {
+            errEl.textContent = e.message;
+            errEl.style.display = 'block';
+            btnEl.disabled = false;
+            btnEl.textContent = 'Commit All';
+        }
+    }
+
+    async function gitPull() {
+        toast('Pulling…', 'info');
+        try {
+            const data = await api('/git/pull', { method: 'POST', body: '{}' });
+            toast('Pull complete: ' + (data.output || 'up to date'), 'success');
+            await loadGitCard();
+        } catch (e) {
+            toast('Pull failed: ' + e.message, 'error');
+        }
+    }
+
+    async function gitPush() {
+        toast('Pushing…', 'info');
+        try {
+            const data = await api('/git/push', { method: 'POST', body: '{}' });
+            toast('Push complete', 'success');
+            await loadGitCard();
+        } catch (e) {
+            toast('Push failed: ' + e.message, 'error');
+        }
+    }
+
+    async function gitLogModal() {
+        const modal = document.createElement('div');
+        modal.className = 'vault-modal-overlay';
+        modal.id = 'vault-modal';
+        modal.innerHTML = `
+        <div class="vault-modal" style="max-width:600px">
+            <h3 style="margin-bottom:var(--space-md)">📜 Recent Commits</h3>
+            <div id="git-log-body" style="max-height:400px;overflow-y:auto"><span class="spinner"></span></div>
+            <div style="display:flex;justify-content:flex-end;margin-top:var(--space-md)">
+                <button class="btn btn-sm btn-primary" onclick="closeVaultModal()" type="button">Close</button>
+            </div>
+        </div>`;
+        document.body.appendChild(modal);
+
+        try {
+            const data = await api('/git/log?n=15');
+            const body = document.getElementById('git-log-body');
+            if (!data.commits || data.commits.length === 0) {
+                body.innerHTML = '<p class="empty-state-sm">No commits found</p>';
+                return;
+            }
+            body.innerHTML = data.commits.map(c => {
+                const ago = _timeAgo(c.date);
+                return `
+                <div style="display:flex;gap:0.5rem;align-items:baseline;padding:0.4rem 0;border-bottom:1px solid var(--border-subtle);font-size:0.8rem">
+                    <code style="color:var(--accent);font-family:var(--font-mono);flex-shrink:0">${esc(c.short_hash)}</code>
+                    <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(c.message)}</span>
+                    <span style="color:var(--text-muted);flex-shrink:0;font-size:0.72rem">${esc(c.author)}</span>
+                    <span style="color:var(--text-muted);flex-shrink:0;font-size:0.72rem">${ago}</span>
+                </div>`;
+            }).join('');
+        } catch (e) {
+            document.getElementById('git-log-body').innerHTML =
+                `<p class="empty-state-sm" style="color:var(--error)">${esc(e.message)}</p>`;
+        }
+    }
+
+    // ── GitHub Card ─────────────────────────────────────────────────────
+
+    async function loadGitHubCard() {
         const badge = document.getElementById('int-gh-badge');
         const detail = document.getElementById('int-gh-detail');
 
         try {
-            const data = await api('/status');
-            if (data.project.repository) {
-                badge.className = 'status-badge ok';
-                badge.innerHTML = '<span class="status-dot"></span>Configured';
+            const data = await api('/integrations/gh/status');
+
+            if (!data.available) {
+                badge.className = 'status-badge failed';
+                badge.innerHTML = '<span class="status-dot"></span>No gh CLI';
                 detail.innerHTML = `
-                <div style="font-size:0.82rem;color:var(--text-secondary)">
-                    <code class="notranslate" translate="no" style="font-family:var(--font-mono);color:var(--accent)">${esc(data.project.repository)}</code>
-                </div>`;
-            } else {
-                badge.className = 'status-badge degraded';
-                badge.innerHTML = '<span class="status-dot"></span>Not set';
-                detail.innerHTML = '<p class="empty-state-sm">No repository configured in project.yml</p>';
+                <p class="empty-state-sm">
+                    The <code>gh</code> CLI is not installed.
+                    <a href="https://cli.github.com/" target="_blank" rel="noopener" style="color:var(--accent)">Install it →</a>
+                </p>`;
+                return;
             }
+
+            if (!data.authenticated) {
+                badge.className = 'status-badge degraded';
+                badge.innerHTML = '<span class="status-dot"></span>Not auth';
+                detail.innerHTML = `
+                <p class="empty-state-sm">
+                    gh CLI found (${esc(data.version)}) but not authenticated.
+                    Run <code>gh auth login</code> in terminal.
+                </p>`;
+                return;
+            }
+
+            badge.className = 'status-badge ok';
+            badge.innerHTML = '<span class="status-dot"></span>Connected';
+
+            let repoHtml = '';
+            if (data.repo) {
+                repoHtml = `
+                <div style="margin-top:var(--space-xs)">
+                    <a href="https://github.com/${esc(data.repo)}" target="_blank" rel="noopener"
+                       style="color:var(--accent);font-family:var(--font-mono);font-size:0.82rem;text-decoration:none">
+                        ${esc(data.repo)} ↗
+                    </a>
+                </div>`;
+            }
+
+            // Load PRs
+            let prHtml = '<div id="int-gh-prs" style="margin-top:var(--space-sm)"><span class="spinner" style="width:14px;height:14px"></span></div>';
+
+            detail.innerHTML = `
+            <div style="font-size:0.85rem;color:var(--text-secondary);line-height:1.6">
+                <div>✅ Authenticated · ${esc(data.version)}</div>
+                ${repoHtml}
+                ${prHtml}
+            </div>`;
+
+            // Async load PRs
+            loadPullRequests();
         } catch (e) {
-            // Silently fail
+            badge.className = 'status-badge failed';
+            badge.innerHTML = '<span class="status-dot"></span>Error';
+            detail.innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(e.message)}</p>`;
         }
     }
 
-    async function checkDockerIntegration() {
+    async function loadPullRequests() {
+        const container = document.getElementById('int-gh-prs');
+        if (!container) return;
+
+        try {
+            const data = await api('/gh/pulls');
+            if (!data.available || !data.pulls || data.pulls.length === 0) {
+                container.innerHTML = '<div style="font-size:0.78rem;color:var(--text-muted)">No open pull requests</div>';
+                return;
+            }
+
+            container.innerHTML = `
+            <div style="font-size:0.78rem;color:var(--text-muted);margin-bottom:0.3rem;font-weight:600">
+                ${data.pulls.length} open PR${data.pulls.length !== 1 ? 's' : ''}
+            </div>
+            ${data.pulls.slice(0, 5).map(pr => `
+                <a href="${esc(pr.url)}" target="_blank" rel="noopener"
+                   style="display:flex;gap:0.4rem;padding:0.25rem 0;font-size:0.78rem;text-decoration:none;color:var(--text-secondary);border-bottom:1px solid var(--border-subtle)">
+                    <span style="color:var(--success);flex-shrink:0">#${pr.number}</span>
+                    <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(pr.title)}</span>
+                    <span style="color:var(--text-muted);flex-shrink:0">${esc(pr.headRefName)}</span>
+                </a>
+            `).join('')}`;
+        } catch (e) {
+            container.innerHTML = `<div style="font-size:0.78rem;color:var(--text-muted)">Could not load PRs</div>`;
+        }
+    }
+
+    // ── CI/CD Card ──────────────────────────────────────────────────────
+
+    async function loadCICard() {
+        const badge = document.getElementById('int-ci-badge');
+        const detail = document.getElementById('int-ci-detail');
+
+        try {
+            const data = await api('/gh/actions/runs?n=5');
+
+            if (!data.available) {
+                badge.className = 'status-badge degraded';
+                badge.innerHTML = '<span class="status-dot"></span>N/A';
+                detail.innerHTML = `<p class="empty-state-sm">${esc(data.error || 'Not available')}</p>`;
+                return;
+            }
+
+            if (!data.runs || data.runs.length === 0) {
+                badge.className = 'status-badge degraded';
+                badge.innerHTML = '<span class="status-dot"></span>No runs';
+                detail.innerHTML = '<p class="empty-state-sm">No workflow runs found</p>';
+                return;
+            }
+
+            // Latest run determines badge
+            const latest = data.runs[0];
+            const conclusion = latest.conclusion || latest.status;
+
+            if (conclusion === 'success') {
+                badge.className = 'status-badge ok';
+                badge.innerHTML = '<span class="status-dot"></span>Passing';
+            } else if (conclusion === 'failure') {
+                badge.className = 'status-badge failed';
+                badge.innerHTML = '<span class="status-dot"></span>Failing';
+            } else if (latest.status === 'in_progress' || latest.status === 'queued') {
+                badge.className = 'status-badge degraded';
+                badge.innerHTML = '<span class="status-dot"></span>Running';
+            } else {
+                badge.className = 'status-badge degraded';
+                badge.innerHTML = `<span class="status-dot"></span>${esc(conclusion || 'Unknown')}`;
+            }
+
+            const runsHtml = data.runs.slice(0, 5).map(run => {
+                const icon = run.conclusion === 'success' ? '✅' :
+                             run.conclusion === 'failure' ? '❌' :
+                             run.status === 'in_progress' ? '🔄' :
+                             run.status === 'queued' ? '⏳' : '⚪';
+                const ago = _timeAgo(run.createdAt);
+                return `
+                <a href="${esc(run.url)}" target="_blank" rel="noopener"
+                   style="display:flex;gap:0.4rem;align-items:center;padding:0.3rem 0;font-size:0.78rem;text-decoration:none;color:var(--text-secondary);border-bottom:1px solid var(--border-subtle)">
+                    <span style="flex-shrink:0">${icon}</span>
+                    <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(run.name)}</span>
+                    <span style="color:var(--text-muted);flex-shrink:0;font-size:0.72rem">${esc(run.headBranch || '')}</span>
+                    <span style="color:var(--text-muted);flex-shrink:0;font-size:0.72rem">${ago}</span>
+                </a>`;
+            }).join('');
+
+            // Trigger button
+            let triggerHtml = '';
+            try {
+                const wfData = await api('/gh/actions/workflows');
+                if (wfData.available && wfData.workflows && wfData.workflows.length > 0) {
+                    const opts = wfData.workflows.map(w =>
+                        `<option value="${esc(w.name)}.yml">${esc(w.name)}</option>`
+                    ).join('');
+                    triggerHtml = `
+                    <div style="display:flex;gap:var(--space-sm);margin-top:var(--space-sm);align-items:center">
+                        <select id="int-ci-workflow" style="font-size:0.78rem;padding:0.2rem 0.4rem;background:var(--bg-inset);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-secondary);flex:1">
+                            ${opts}
+                        </select>
+                        <button class="btn btn-sm btn-secondary" onclick="triggerWorkflow()" title="Trigger workflow run">
+                            🚀 Trigger
+                        </button>
+                    </div>`;
+                }
+            } catch (_) { /* skip trigger if workflows API fails */ }
+
+            detail.innerHTML = `
+            <div style="font-size:0.85rem;color:var(--text-secondary)">
+                ${runsHtml}
+                ${triggerHtml}
+            </div>`;
+
+        } catch (e) {
+            badge.className = 'status-badge failed';
+            badge.innerHTML = '<span class="status-dot"></span>Error';
+            detail.innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(e.message)}</p>`;
+        }
+    }
+
+    async function triggerWorkflow() {
+        const sel = document.getElementById('int-ci-workflow');
+        if (!sel) return;
+        const workflow = sel.value;
+        toast('Triggering ' + workflow + '…', 'info');
+        try {
+            await api('/gh/actions/dispatch', {
+                method: 'POST',
+                body: JSON.stringify({ workflow }),
+            });
+            toast('Workflow dispatched: ' + workflow, 'success');
+            // Reload after a brief delay to pick up the new run
+            setTimeout(() => loadCICard(), 3000);
+        } catch (e) {
+            toast('Failed: ' + e.message, 'error');
+        }
+    }
+
+    // ── Docker Card ─────────────────────────────────────────────────────
+
+    async function loadDockerCard() {
         const badge = document.getElementById('int-docker-badge');
         const detail = document.getElementById('int-docker-detail');
 
@@ -72,7 +443,7 @@
                 detail.innerHTML = `
                 <div style="font-size:0.82rem;color:var(--text-secondary)">
                     ${dockerModules.length} Docker module(s) found:
-                    ${dockerModules.map(m => `<code class="notranslate" translate="no" style="font-family:var(--font-mono);color:var(--accent)">${esc(m.name)}</code>`).join(', ')}
+                    ${dockerModules.map(m => `<code style="font-family:var(--font-mono);color:var(--accent)">${esc(m.name)}</code>`).join(', ')}
                 </div>`;
             } else {
                 badge.className = 'status-badge degraded';
@@ -80,7 +451,25 @@
                 detail.innerHTML = '<p class="empty-state-sm">No Docker modules detected</p>';
             }
         } catch (e) {
-            // Silently fail
+            // Silently fail — Docker is optional
         }
+    }
+
+    // ── Helpers ──────────────────────────────────────────────────────────
+
+    function _timeAgo(dateStr) {
+        if (!dateStr) return '';
+        const d = new Date(dateStr);
+        const now = new Date();
+        const sec = Math.floor((now - d) / 1000);
+        if (sec < 60) return 'just now';
+        const min = Math.floor(sec / 60);
+        if (min < 60) return min + 'm ago';
+        const hr = Math.floor(min / 60);
+        if (hr < 24) return hr + 'h ago';
+        const days = Math.floor(hr / 24);
+        if (days < 30) return days + 'd ago';
+        const months = Math.floor(days / 30);
+        return months + 'mo ago';
     }
 </script>
