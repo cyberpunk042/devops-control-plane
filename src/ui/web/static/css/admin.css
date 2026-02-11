@@ -749,6 +749,7 @@ body {
     box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
     animation: slideIn 0.3s ease;
     max-width: 360px;
+    word-break: break-word;
 }
 
 .toast.success {

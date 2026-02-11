@@ -1,3 +1,4 @@
+
 # Phase 2: The Real Product
 
 > Phase 1 (MS-0 → MS-9) built the engine infrastructure — detection, adapters,

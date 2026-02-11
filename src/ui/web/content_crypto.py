@@ -522,6 +522,9 @@ def list_folder_contents(
         """Append a single file entry."""
         if not include_hidden and f.name.startswith("."):
             return
+        # Skip release metadata sidecars
+        if f.name.endswith(".release.json"):
+            return
 
         is_enc = f.suffix.lower() == ".enc" and is_covault_file(f)
 
@@ -551,6 +554,11 @@ def list_folder_contents(
                 entry["covault_meta"] = meta
             except Exception:
                 entry["covault_meta"] = None
+
+        # Check for release metadata sidecar
+        release_meta_path = f.parent / f"{f.name}.release.json"
+        if release_meta_path.exists():
+            entry["has_release"] = True
 
         files.append(entry)
 
@@ -606,6 +614,8 @@ def list_folder_contents_recursive(
     def _add_file(f: Path, *, tier: str = "git", subfolder: str = "") -> None:
         if not include_hidden and f.name.startswith("."):
             return
+        if f.name.endswith(".release.json"):
+            return
 
         is_enc = f.suffix.lower() == ".enc" and is_covault_file(f)
 
@@ -633,6 +643,10 @@ def list_folder_contents_recursive(
                 entry["covault_meta"] = meta
             except Exception:
                 entry["covault_meta"] = None
+
+        release_meta_path = f.parent / f"{f.name}.release.json"
+        if release_meta_path.exists():
+            entry["has_release"] = True
 
         files.append(entry)
 

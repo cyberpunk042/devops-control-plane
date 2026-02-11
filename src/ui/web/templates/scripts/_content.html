@@ -46,6 +46,7 @@
     };
 
 
+
     // ═════════════════════════════════════════════════════════════════
     //  Init / Load
     // ═════════════════════════════════════════════════════════════════
@@ -701,12 +702,11 @@
                     <div id="bk-crypto-modal-title" style="font-size:1.3rem;margin-bottom:0.5rem">🔐 Encrypt Backup</div>
                     <div id="bk-crypto-modal-info" style="color:var(--text-secondary);font-size:0.9rem;line-height:1.6;margin-bottom:1rem"></div>
                     <div id="bk-crypto-modal-status" style="display:none;margin-bottom:0.75rem;padding:0.5rem;background:var(--bg-tertiary);border-radius:8px;font-size:0.85rem"></div>
-                    <div id="bk-crypto-modal-artifact" style="display:none;margin-bottom:1rem;padding:0.75rem;background:var(--bg-tertiary);border:1px solid var(--border-subtle);border-radius:8px">
-                        <div style="font-size:0.9rem;margin-bottom:0.5rem;color:var(--text-primary)">⚠️ The old release artifact is now stale.</div>
-                        <div style="display:flex;gap:0.5rem;flex-wrap:wrap">
-                            <button class="btn btn-primary btn-sm" id="bk-crypto-update-artifact-btn" onclick="archiveCryptoUpdateArtifact()" style="font-size:0.8rem">🚀 Delete old & upload new</button>
-                            <button class="btn btn-secondary btn-sm" onclick="archiveCryptoSkipArtifact()" style="font-size:0.8rem">Skip</button>
-                        </div>
+                    <div id="bk-crypto-modal-release-warn" style="display:none;margin-bottom:1rem;padding:0.5rem;background:var(--bg-tertiary);border:1px solid var(--border-subtle);border-radius:8px;font-size:0.85rem;color:var(--text-secondary)">
+                        ⚠️ This backup has a release artifact. After this operation, the old artifact will be stale.
+                        <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer;margin-top:0.5rem;font-size:0.85rem">
+                            <input type="checkbox" id="bk-crypto-update-artifact-cb" style="width:16px;height:16px;accent-color:var(--accent-primary)"> 🚀 Delete old artifact & upload new version
+                        </label>
                     </div>
                     <div style="display:flex;gap:0.5rem;justify-content:flex-end">
                         <button class="btn btn-secondary" id="bk-crypto-close-btn" onclick="document.getElementById('bk-crypto-modal').style.display='none'">Cancel</button>
@@ -1405,20 +1405,21 @@
         const title = document.getElementById('bk-crypto-modal-title');
         const info = document.getElementById('bk-crypto-modal-info');
         const status = document.getElementById('bk-crypto-modal-status');
-        const artifact = document.getElementById('bk-crypto-modal-artifact');
         const confirmBtn = document.getElementById('bk-crypto-confirm-btn');
         const closeBtn = document.getElementById('bk-crypto-close-btn');
 
         title.textContent = `🔐 ${action} Backup`;
 
         let html = `${action} this backup?<br><br><code style="font-size:0.82rem;word-break:break-all">${esc(backupPath)}</code>`;
-        if (hasRelease) {
-            html += `<br><br><span style="color:var(--warning)">⚠️ This backup has a GitHub Release artifact. After ${action.toLowerCase()}ion the old artifact will be stale.</span>`;
-        }
         info.innerHTML = html;
 
+        // Show/hide release artifact checkbox
+        const releaseWarn = document.getElementById('bk-crypto-modal-release-warn');
+        const artifactCb = document.getElementById('bk-crypto-update-artifact-cb');
+        releaseWarn.style.display = hasRelease ? 'block' : 'none';
+        if (artifactCb) artifactCb.checked = false;
+
         status.style.display = 'none';
-        artifact.style.display = 'none';
         confirmBtn.style.display = '';
         confirmBtn.disabled = false;
         confirmBtn.textContent = `🔐 ${action}`;
@@ -1429,7 +1430,6 @@
     async function archiveDoCryptoConfirm() {
         const action = _cryptoShouldEncrypt ? 'Encrypt' : 'Decrypt';
         const status = document.getElementById('bk-crypto-modal-status');
-        const artifact = document.getElementById('bk-crypto-modal-artifact');
         const confirmBtn = document.getElementById('bk-crypto-confirm-btn');
         const closeBtn = document.getElementById('bk-crypto-close-btn');
 
@@ -1453,9 +1453,22 @@
                 confirmBtn.style.display = 'none';
                 closeBtn.textContent = 'Done';
 
-                // Show artifact update panel if applicable
-                if (_cryptoHasRelease) {
-                    artifact.style.display = 'block';
+                // Auto-handle artifact update if checkbox was checked
+                const updateArtifact = document.getElementById('bk-crypto-update-artifact-cb')?.checked;
+                if (_cryptoHasRelease && updateArtifact) {
+                    status.innerHTML += '<br><span class="spinner" style="width:12px;height:12px"></span> Deleting old release artifact…';
+                    try {
+                        await api('/backup/delete-release', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ backup_path: _cryptoBackupPath }),
+                        });
+                    } catch (_) { /* old artifact may already be gone */ }
+
+                    document.getElementById('bk-crypto-modal').style.display = 'none';
+                    archiveLoadList();
+                    // Open the upload modal for the new file
+                    archiveUploadToRelease(_cryptoNewPath);
                 } else {
                     archiveLoadList();
                 }
@@ -1471,36 +1484,6 @@
         }
     }
 
-    async function archiveCryptoUpdateArtifact() {
-        const status = document.getElementById('bk-crypto-modal-status');
-        const artifact = document.getElementById('bk-crypto-modal-artifact');
-        const updateBtn = document.getElementById('bk-crypto-update-artifact-btn');
-
-        updateBtn.disabled = true;
-        updateBtn.textContent = '⏳ Working…';
-        status.innerHTML = '<span class="spinner"></span> Deleting old release artifact…';
-
-        try {
-            await api('/backup/delete-release', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ backup_path: _cryptoBackupPath }),
-            });
-        } catch (e) { /* old artifact may already be gone */ }
-
-        artifact.style.display = 'none';
-        document.getElementById('bk-crypto-modal').style.display = 'none';
-        archiveLoadList();
-
-        // Open the upload modal for the new file
-        archiveUploadToRelease(_cryptoNewPath);
-    }
-
-    function archiveCryptoSkipArtifact() {
-        document.getElementById('bk-crypto-modal-artifact').style.display = 'none';
-        document.getElementById('bk-crypto-modal').style.display = 'none';
-        archiveLoadList();
-    }
 
 
     // ── Rename backup (modal) ─────────────────────────────────
@@ -1559,10 +1542,11 @@
             if (result.success) {
                 if (updateArtifact) {
                     status.innerHTML = '<span class="spinner"></span> Deleting old release artifact…';
+                    // Use the NEW path — rename already moved the .release.json metadata
                     await api('/backup/delete-release', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ backup_path: _renameBackupPath }),
+                        body: JSON.stringify({ backup_path: result.full_path }),
                     }).catch(() => { });
 
                     modal.style.display = 'none';
@@ -2011,22 +1995,162 @@
         return name.includes(query);
     }
 
+    // ── Recursive search cache and helpers ──────────────────────
+    let _searchRecursiveCache = { path: '', files: [] };
+    let _searchDebounceTimer = null;
+
     function contentFilterListByName(query) {
         const q = query.toLowerCase().trim();
-        const rows = document.querySelectorAll('.content-file-list .content-file-row[data-name]');
-        rows.forEach(row => {
-            const name = row.dataset.name || '';
-            row.style.display = (!q || _matchesGlob(name, q)) ? '' : 'none';
-        });
+        const recursive = document.getElementById('content-list-search-recursive')?.checked ?? true;
+
+        if (!recursive || !q) {
+            // Remove any injected search results
+            const injected = document.getElementById('content-search-results-overlay');
+            if (injected) injected.remove();
+            // Show original list
+            const origList = document.querySelector('.content-file-list');
+            if (origList) origList.style.display = '';
+            // Simple DOM filter
+            const rows = document.querySelectorAll('.content-file-list .content-file-row[data-name]');
+            rows.forEach(row => {
+                const name = row.dataset.name || '';
+                row.style.display = (!q || _matchesGlob(name, q)) ? '' : 'none';
+            });
+            return;
+        }
+
+        // Recursive search with debounce
+        clearTimeout(_searchDebounceTimer);
+        _searchDebounceTimer = setTimeout(() => _doRecursiveListSearch(q), 250);
+    }
+
+    async function _doRecursiveListSearch(q) {
+        // Fetch recursive data (cached per path)
+        if (_searchRecursiveCache.path !== contentCurrentPath) {
+            try {
+                const data = await api(`/content/list?path=${encodeURIComponent(contentCurrentPath)}&recursive=true`);
+                _searchRecursiveCache = { path: contentCurrentPath, files: (data.files || []).filter(f => !f.is_dir) };
+            } catch (e) { return; }
+        }
+
+        const allowedCats = CATEGORY_MODES[contentCurrentMode] || [];
+        const matches = _searchRecursiveCache.files.filter(f =>
+            allowedCats.includes(f.category) && _matchesGlob(f.name.toLowerCase(), q)
+        );
+
+        // Hide original list, show results overlay
+        const origList = document.querySelector('.content-file-list');
+        if (origList) origList.style.display = 'none';
+
+        let overlay = document.getElementById('content-search-results-overlay');
+        if (!overlay) {
+            overlay = document.createElement('div');
+            overlay.id = 'content-search-results-overlay';
+            overlay.style.cssText = 'border:1px solid var(--border-subtle);border-radius:8px;background:var(--bg-tertiary);padding:0.5rem;max-height:400px;overflow-y:auto';
+            origList?.parentElement?.appendChild(overlay);
+        }
+
+        if (!matches.length) {
+            overlay.innerHTML = '<div style="padding:0.5rem;color:var(--text-muted);font-size:0.85rem">No matching files found in subfolders</div>';
+            return;
+        }
+
+        let html = `<div style="font-size:0.75rem;color:var(--text-muted);margin-bottom:0.3rem">${matches.length} result(s) across all subfolders</div>`;
+        for (const f of matches.slice(0, 100)) {
+            const icon = f.encrypted ? '🔐' : (CATEGORY_ICONS[f.category] || '📄');
+            const relPath = f.path.replace(contentCurrentPath + '/', '');
+            const dir = relPath.includes('/') ? relPath.substring(0, relPath.lastIndexOf('/')) + '/' : '';
+            html += `<div class="content-file-row" style="cursor:pointer;padding:0.25rem 0.4rem;border-radius:4px"
+                onclick="contentPreviewFile('${esc(f.path)}', '${esc(f.name)}', '${esc(f.mime_type || '')}', ${f.encrypted || false})">
+                <div class="content-file-icon">${icon}</div>
+                <div class="content-file-info">
+                    <div class="content-file-name">${dir ? '<span style="color:var(--text-muted);font-size:0.75rem">' + esc(dir) + '</span>' : ''}${esc(f.name)}</div>
+                </div>
+                <div class="content-file-size">${formatFileSize(f.size || 0)}</div>
+            </div>`;
+        }
+        if (matches.length > 100) {
+            html += `<div style="padding:0.3rem;color:var(--text-muted);font-size:0.8rem">… and ${matches.length - 100} more</div>`;
+        }
+        overlay.innerHTML = html;
     }
 
     function contentFilterMediaByName(query) {
         const q = query.toLowerCase().trim();
-        const items = document.querySelectorAll('.media-gallery-grid .media-gallery-item[data-name]');
-        items.forEach(item => {
-            const name = item.dataset.name || '';
-            item.style.display = (!q || _matchesGlob(name, q)) ? '' : 'none';
-        });
+        const recursive = document.getElementById('content-media-search-recursive')?.checked ?? true;
+
+        if (!recursive || !q) {
+            // Remove any injected search results
+            const injected = document.getElementById('media-search-results-overlay');
+            if (injected) injected.remove();
+            // Show original gallery
+            const origGrid = document.querySelector('.media-gallery-grid');
+            if (origGrid) origGrid.style.display = '';
+            // Simple DOM filter
+            const items = document.querySelectorAll('.media-gallery-grid .media-gallery-item[data-name]');
+            items.forEach(item => {
+                const name = item.dataset.name || '';
+                item.style.display = (!q || _matchesGlob(name, q)) ? '' : 'none';
+            });
+            return;
+        }
+
+        // Recursive search with debounce
+        clearTimeout(_searchDebounceTimer);
+        _searchDebounceTimer = setTimeout(() => _doRecursiveMediaSearch(q), 250);
+    }
+
+    async function _doRecursiveMediaSearch(q) {
+        // Fetch recursive data (cached per path)
+        if (_searchRecursiveCache.path !== contentCurrentPath) {
+            try {
+                const data = await api(`/content/list?path=${encodeURIComponent(contentCurrentPath)}&recursive=true`);
+                _searchRecursiveCache = { path: contentCurrentPath, files: (data.files || []).filter(f => !f.is_dir) };
+            } catch (e) { return; }
+        }
+
+        const mediaCats = CATEGORY_MODES['media'] || [];
+        const matches = _searchRecursiveCache.files.filter(f =>
+            mediaCats.includes(f.category) && _matchesGlob(f.name.toLowerCase(), q)
+        );
+
+        // Hide original grid, show results overlay
+        const origGrid = document.querySelector('.media-gallery-grid');
+        if (origGrid) origGrid.style.display = 'none';
+
+        let overlay = document.getElementById('media-search-results-overlay');
+        if (!overlay) {
+            overlay = document.createElement('div');
+            overlay.id = 'media-search-results-overlay';
+            overlay.className = 'media-gallery-grid';
+            overlay.style.cssText = 'margin-top:0.5rem';
+            origGrid?.parentElement?.appendChild(overlay);
+        }
+
+        if (!matches.length) {
+            overlay.innerHTML = '<div style="padding:1rem;color:var(--text-muted);font-size:0.85rem;text-align:center">No matching files found in subfolders</div>';
+            return;
+        }
+
+        let html = `<div style="grid-column:1/-1;font-size:0.75rem;color:var(--text-muted);margin-bottom:0.2rem">${matches.length} result(s) across all subfolders</div>`;
+        for (const f of matches.slice(0, 60)) {
+            const isImage = (f.mime_type || '').startsWith('image/') && !f.encrypted;
+            const icon = f.encrypted ? '🔐' : (CATEGORY_ICONS[f.category] || '📎');
+            const thumbSrc = isImage ? `/api/content/download?path=${encodeURIComponent(f.path)}` : '';
+            const relPath = f.path.replace(contentCurrentPath + '/', '');
+
+            html += `<div class="media-gallery-item" data-name="${f.name.toLowerCase()}"
+                onclick="contentPreviewFile('${esc(f.path)}', '${esc(f.name)}', '${esc(f.mime_type || '')}', ${f.encrypted || false})"
+                style="cursor:pointer">`;
+            if (thumbSrc) {
+                html += `<div class="media-gallery-thumb" style="background-image:url('${thumbSrc}')"></div>`;
+            } else {
+                html += `<div class="media-gallery-thumb" style="display:flex;align-items:center;justify-content:center;font-size:2rem;background:var(--bg-tertiary)">${icon}</div>`;
+            }
+            html += `<div class="media-gallery-label" title="${esc(relPath)}">${esc(f.name)}</div>`;
+            html += `</div>`;
+        }
+        overlay.innerHTML = html;
     }
 
     function renderContentFiles(data, folderPath) {
@@ -2163,8 +2287,33 @@
             ${_contentMediaShowAll ? '<span style="font-size:0.72rem;color:var(--accent-primary)">✓ showing all</span>' : ''}
         </div>` : '';
 
+        // Build search bar HTML for empty-state renders (so recursive subfolder search still works)
+        const _searchBarSnippet = contentCurrentMode === 'media'
+            ? `<div style="margin-bottom:0.5rem;display:flex;gap:0.5rem;align-items:center">
+                <input type="text" id="content-media-search" placeholder="🔍 Search media… (supports * wildcards)"
+                    oninput="contentFilterMediaByName(this.value)"
+                    style="flex:1;font-size:0.82rem;padding:0.35rem 0.6rem;border:1px solid var(--border-subtle);border-radius:8px;background:var(--bg-tertiary);color:var(--text-primary);box-sizing:border-box">
+                <label style="display:flex;align-items:center;gap:0.3rem;cursor:pointer;font-size:0.75rem;color:var(--text-muted);white-space:nowrap" title="Search in all subfolders recursively">
+                    <input type="checkbox" id="content-media-search-recursive" checked
+                        onchange="contentFilterMediaByName(document.getElementById('content-media-search')?.value||'')"
+                        style="width:13px;height:13px;accent-color:var(--accent-primary)"> 📂 Subfolders
+                </label>
+            </div>`
+            : (contentCurrentMode === 'docs'
+                ? `<div style="margin-bottom:0.5rem;display:flex;gap:0.5rem;align-items:center">
+                    <input type="text" id="content-list-search" placeholder="🔍 Filter files… (supports * wildcards)"
+                        oninput="contentFilterListByName(this.value)"
+                        style="flex:1;font-size:0.82rem;padding:0.35rem 0.6rem;border:1px solid var(--border-subtle);border-radius:8px;background:var(--bg-tertiary);color:var(--text-primary);box-sizing:border-box">
+                    <label style="display:flex;align-items:center;gap:0.3rem;cursor:pointer;font-size:0.75rem;color:var(--text-muted);white-space:nowrap" title="Search in all subfolders recursively">
+                        <input type="checkbox" id="content-list-search-recursive" checked
+                            onchange="contentFilterListByName(document.getElementById('content-list-search')?.value||'')"
+                            style="width:13px;height:13px;accent-color:var(--accent-primary)"> 📂 Subfolders
+                    </label>
+                </div>`
+                : '');
+
         if (filtered.length === 0 && files.length === 0) {
-            browser.innerHTML = uploadZoneHtml + mediaShowAllHtml + `
+            browser.innerHTML = uploadZoneHtml + mediaShowAllHtml + _searchBarSnippet + `
                 <div class="empty-state" style="padding:2rem">
                     <span style="font-size:2rem;display:block;margin-bottom:0.5rem">📭</span>
                     <p>This folder is empty.</p>
@@ -2176,7 +2325,7 @@
 
         if (filtered.length === 0) {
             const modeLabel = { docs: 'documents', media: 'media files', archive: 'archives' }[contentCurrentMode];
-            browser.innerHTML = uploadZoneHtml + mediaShowAllHtml + `
+            browser.innerHTML = uploadZoneHtml + mediaShowAllHtml + _searchBarSnippet + `
                 <div class="empty-state" style="padding:2rem">
                     <span style="font-size:2rem;display:block;margin-bottom:0.5rem">🔍</span>
                     <p>No ${modeLabel} in this folder.</p>
@@ -2210,14 +2359,17 @@
                     </div>`;
             }
 
-            // Search bar for media
-            if (regularFiles.length > 0) {
-                html += `<div style="margin-bottom:0.5rem">
-                    <input type="text" id="content-media-search" placeholder="🔍 Search media…"
-                        oninput="contentFilterMediaByName(this.value)"
-                        style="width:100%;font-size:0.82rem;padding:0.35rem 0.6rem;border:1px solid var(--border-subtle);border-radius:8px;background:var(--bg-tertiary);color:var(--text-primary);box-sizing:border-box">
-                </div>`;
-            }
+            // Search bar for media — always show (recursive search works across subfolders)
+            html += `<div style="margin-bottom:0.5rem;display:flex;gap:0.5rem;align-items:center">
+                <input type="text" id="content-media-search" placeholder="🔍 Search media… (supports * wildcards)"
+                    oninput="contentFilterMediaByName(this.value)"
+                    style="flex:1;font-size:0.82rem;padding:0.35rem 0.6rem;border:1px solid var(--border-subtle);border-radius:8px;background:var(--bg-tertiary);color:var(--text-primary);box-sizing:border-box">
+                <label style="display:flex;align-items:center;gap:0.3rem;cursor:pointer;font-size:0.75rem;color:var(--text-muted);white-space:nowrap" title="Search in all subfolders recursively">
+                    <input type="checkbox" id="content-media-search-recursive" checked
+                        onchange="contentFilterMediaByName(document.getElementById('content-media-search')?.value||'')"
+                        style="width:13px;height:13px;accent-color:var(--accent-primary)"> 📂 Subfolders
+                </label>
+            </div>`;
 
             // Gallery grid for files
             html += '<div class="media-gallery-grid" style="margin-top:0.5rem">';
@@ -2230,7 +2382,7 @@
 
                 const clickFn = f.encrypted
                     ? `contentPreviewEncrypted('${esc(f.path)}', '${esc(f.name)}')`
-                    : `contentPreviewFile('${esc(f.path)}', '${esc(f.name)}')`;
+                    : `contentPreviewFile('${esc(f.path)}', '${esc(f.name)}', ${!!f.has_release})`;
 
                 html += `
                     <div class="media-gallery-item" data-name="${f.name.toLowerCase()}" onclick="${clickFn}" title="${esc(f.name)}\n${f.mime_type || ''} · ${formatFileSize(f.size)}">
@@ -2248,6 +2400,7 @@
                                 ${f.subfolder ? `<span style="color:var(--text-muted);font-size:0.65rem">📂 ${esc(f.subfolder)}</span>` : ''}
                                 <span>${formatFileSize(f.size)}</span>
                                 ${f.encrypted ? '<span style="color:#f87171">🔒</span>' : ''}
+                                ${f.has_release ? '<span style="color:#60a5fa" title="Backed up to GitHub Release">☁️</span>' : ''}
                             </span>
                         </div>
                     </div>`;
@@ -2262,10 +2415,15 @@
 
         // ── Default: list view ────────────────────────────────────────
         const totalItems = dirs.length + regularFiles.length;
-        const searchBarHtml = totalItems > 0 ? `<div style="margin-bottom:0.5rem">
-            <input type="text" id="content-list-search" placeholder="🔍 Filter files…"
+        const searchBarHtml = totalItems > 0 ? `<div style="margin-bottom:0.5rem;display:flex;gap:0.5rem;align-items:center">
+            <input type="text" id="content-list-search" placeholder="🔍 Filter files… (supports * wildcards)"
                 oninput="contentFilterListByName(this.value)"
-                style="width:100%;font-size:0.82rem;padding:0.35rem 0.6rem;border:1px solid var(--border-subtle);border-radius:8px;background:var(--bg-tertiary);color:var(--text-primary);box-sizing:border-box">
+                style="flex:1;font-size:0.82rem;padding:0.35rem 0.6rem;border:1px solid var(--border-subtle);border-radius:8px;background:var(--bg-tertiary);color:var(--text-primary);box-sizing:border-box">
+            <label style="display:flex;align-items:center;gap:0.3rem;cursor:pointer;font-size:0.75rem;color:var(--text-muted);white-space:nowrap" title="Search in all subfolders recursively">
+                <input type="checkbox" id="content-list-search-recursive" checked
+                    onchange="contentFilterListByName(document.getElementById('content-list-search')?.value||'')"
+                    style="width:13px;height:13px;accent-color:var(--accent-primary)"> 📂 Subfolders
+            </label>
         </div>` : '';
         let html = filterBarHtml + searchBarHtml + '<div class="content-file-list">';
 
@@ -2287,7 +2445,7 @@
             const encOriginal = f.covault_meta ? f.covault_meta.filename : '';
             const clickFn = f.encrypted
                 ? `contentPreviewEncrypted('${esc(f.path)}', '${esc(f.name)}')`
-                : `contentPreviewFile('${esc(f.path)}', '${esc(f.name)}')`;
+                : `contentPreviewFile('${esc(f.path)}', '${esc(f.name)}', ${!!f.has_release})`;
             const escapedPath = esc(f.path).replace(/'/g, "\\'");
             const escapedName = esc(f.name).replace(/'/g, "\\'");
 
@@ -2309,14 +2467,14 @@
                         <button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();contentMoveFile('${escapedPath}', '${escapedName}')" title="Move">📂</button>
                         <button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();${clickFn}" title="Preview">👁️</button>
                         ${f.encrypted
-                    ? `<button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();contentDecryptFile('${esc(f.path)}')" title="Decrypt to disk">🔓</button>`
-                    : `<button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();contentEncryptFile('${esc(f.path)}')" title="Encrypt">🔒</button>`
+                    ? `<button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();contentDecryptFile('${esc(f.path)}', ${!!f.has_release})" title="Decrypt to disk">🔓</button>`
+                    : `<button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();contentEncryptFile('${esc(f.path)}', ${!!f.has_release})" title="Encrypt">🔒</button>`
                 }
                         ${!f.encrypted
                     ? `<a class="btn btn-secondary btn-sm" href="/api/content/download?path=${encodeURIComponent(f.path)}" title="Download" target="_blank" onclick="event.stopPropagation()">⬇️</a>`
                     : ''
                 }
-                        <button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();contentDeleteFile('${esc(f.path)}', '${esc(f.name)}')" title="Delete" style="color:var(--error)">🗑️</button>
+                        <button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();contentDeleteFile('${esc(f.path)}', '${esc(f.name)}', false, ${!!f.has_release})" title="Delete" style="color:var(--error)">🗑️</button>
                     </div>
                     <div class="content-file-size">${formatFileSize(f.size)}</div>
                 </div>`;
@@ -2347,7 +2505,7 @@
 
     let _ctEncryptPath = '';
 
-    function contentEncryptFile(path) {
+    function contentEncryptFile(path, hasRelease) {
         _ctEncryptPath = path || previewCurrentPath;
         // Check if enc key is configured
         if (!encKeyConfigured) {
@@ -2359,9 +2517,11 @@
         const info = document.getElementById('ct-encrypt-modal-info');
         const status = document.getElementById('ct-encrypt-modal-status');
         const confirmBtn = document.getElementById('ct-encrypt-confirm-btn');
+        const releaseWarn = document.getElementById('ct-encrypt-modal-release-warn');
 
         info.innerHTML = `File: <code style="font-size:0.82rem">${esc(_ctEncryptPath)}</code>`;
         status.style.display = 'none';
+        if (releaseWarn) releaseWarn.style.display = hasRelease ? 'block' : 'none';
         confirmBtn.disabled = false;
         confirmBtn.textContent = '🔒 Encrypt';
         modal.style.display = 'flex';
@@ -2405,16 +2565,18 @@
 
     let _ctDecryptPath = '';
 
-    function contentDecryptFile(path) {
+    function contentDecryptFile(path, hasRelease) {
         _ctDecryptPath = path || previewCurrentPath;
 
         const modal = document.getElementById('ct-decrypt-modal');
         const info = document.getElementById('ct-decrypt-modal-info');
         const status = document.getElementById('ct-decrypt-modal-status');
         const confirmBtn = document.getElementById('ct-decrypt-confirm-btn');
+        const releaseWarn = document.getElementById('ct-decrypt-modal-release-warn');
 
         info.innerHTML = `File: <code style="font-size:0.82rem">${esc(_ctDecryptPath)}</code>`;
         status.style.display = 'none';
+        if (releaseWarn) releaseWarn.style.display = hasRelease ? 'block' : 'none';
         confirmBtn.disabled = false;
         confirmBtn.textContent = '🔓 Decrypt';
         modal.style.display = 'flex';
@@ -2460,7 +2622,7 @@
     let _ctDeleteName = '';
     let _ctDeleteFromPreview = false;
 
-    function contentDeleteFile(path, name, fromPreview) {
+    function contentDeleteFile(path, name, fromPreview, hasRelease) {
         _ctDeletePath = path || previewCurrentPath;
         _ctDeleteName = name || previewCurrentName;
         _ctDeleteFromPreview = !!fromPreview;
@@ -2469,9 +2631,11 @@
         const info = document.getElementById('ct-delete-modal-info');
         const status = document.getElementById('ct-delete-modal-status');
         const confirmBtn = document.getElementById('ct-delete-confirm-btn');
+        const releaseWarn = document.getElementById('ct-delete-modal-release-warn');
 
         info.innerHTML = `File: <code style="font-size:0.82rem">${esc(_ctDeleteName)}</code>`;
         status.style.display = 'none';
+        if (releaseWarn) releaseWarn.style.display = hasRelease ? 'block' : 'none';
         confirmBtn.disabled = false;
         confirmBtn.textContent = '🗑️ Delete';
         modal.style.display = 'flex';
@@ -2481,6 +2645,10 @@
         const modal = document.getElementById('ct-delete-modal');
         const status = document.getElementById('ct-delete-modal-status');
         const confirmBtn = document.getElementById('ct-delete-confirm-btn');
+        const releaseWarn = document.getElementById('ct-delete-modal-release-warn');
+        const releaseCheckbox = document.getElementById('ct-delete-also-release');
+        const alsoDeleteRelease = releaseWarn && releaseWarn.style.display !== 'none'
+            && releaseCheckbox && releaseCheckbox.checked;
 
         confirmBtn.disabled = true;
         confirmBtn.textContent = '⏳ Deleting…';
@@ -2488,6 +2656,15 @@
         status.innerHTML = '<span class="spinner"></span> Deleting…';
 
         try {
+            if (alsoDeleteRelease) {
+                status.innerHTML = '<span class="spinner"></span> Removing release artifact…';
+                await api('/backup/delete-release', {
+                    method: 'POST',
+                    body: JSON.stringify({ path: _ctDeletePath }),
+                });
+            }
+
+            status.innerHTML = '<span class="spinner"></span> Deleting file…';
             await api('/content/delete', {
                 method: 'POST',
                 body: JSON.stringify({ path: _ctDeletePath }),
@@ -2506,6 +2683,37 @@
             confirmBtn.textContent = '🗑️ Delete';
         }
     }
+
+    async function contentDeleteRelease(path, name) {
+        if (!confirm(`Remove the GitHub Release artifact for "${name}"?\n\nThis only removes the remote artifact — the local file stays.`)) {
+            return;
+        }
+        try {
+            toast('Removing release artifact…', 'success');
+            await api('/backup/delete-release', {
+                method: 'POST',
+                body: JSON.stringify({ path }),
+            });
+            toast('Release artifact removed', 'success');
+            await contentLoadFolder(contentCurrentPath);
+        } catch (e) {
+            toast(`Failed: ${e.message}`, 'error');
+        }
+    }
+
+    async function contentUploadToRelease(path) {
+        try {
+            toast('Uploading to release…', 'success');
+            const result = await api('/backup/upload-release', {
+                method: 'POST',
+                body: JSON.stringify({ path }),
+            });
+            toast(result.message || 'Upload started', 'success');
+            setTimeout(() => contentLoadFolder(contentCurrentPath), 1500);
+        } catch (e) {
+            toast(`Upload failed: ${e.message}`, 'error');
+        }
+    }
     // ═════════════════════════════════════════════════════════════════
     //  File Preview + Edit
     // ═════════════════════════════════════════════════════════════════
@@ -2515,6 +2723,7 @@
     let previewOrigContent = '';  // snapshot for discard
     let previewCurrentPath = '';
     let previewCurrentName = '';
+    let previewCurrentHasRelease = false;
     let previewIsText = false;
 
     /**
@@ -2576,13 +2785,14 @@
         });
     }
 
-    async function contentPreviewFile(path, name) {
+    async function contentPreviewFile(path, name, hasRelease) {
         // Only reset edit mode if opening a different file
         if (path !== previewCurrentPath) {
             previewEditMode = false;
         }
         previewCurrentPath = path;
         previewCurrentName = name;
+        previewCurrentHasRelease = !!hasRelease;
         contentUpdateHash();
 
         const browser = document.getElementById('content-browser');
@@ -2595,7 +2805,10 @@
                     <button class="btn btn-secondary btn-sm" onclick="contentRenameFile()" title="Rename" style="font-size:0.7rem;padding:0.15rem 0.4rem">✏️</button>
                     <div id="content-preview-toggle" style="display:none;gap:4px"></div>
                     <div style="flex:1"></div>
-                    <div id="content-preview-actions" style="display:flex;gap:4px">
+                    <div id="content-preview-actions" style="display:flex;gap:4px;align-items:center">
+                        ${hasRelease ? '<span style="font-size:0.75rem;color:#60a5fa;background:rgba(96,165,250,0.12);border:1px solid rgba(96,165,250,0.3);border-radius:6px;padding:0.1rem 0.45rem" title="Backed up to GitHub Release">☁️ release</span>' : ''}
+                        ${hasRelease ? '<button class="btn btn-secondary btn-sm" onclick="contentDeleteRelease(previewCurrentPath, previewCurrentName)" title="Delete release artifact" style="color:#f59e0b">☁️✕</button>' : ''}
+                        ${!hasRelease ? '<button class="btn btn-secondary btn-sm" id="content-btn-upload-release" onclick="contentUploadToRelease(previewCurrentPath)" title="Upload to Release" style="color:#60a5fa">⬆️ Release</button>' : ''}
                         <button class="btn btn-secondary btn-sm" onclick="contentEncryptFromPreview()" title="Encrypt">🔒 Encrypt</button>
                         <button class="btn btn-secondary btn-sm" id="content-btn-move" onclick="contentMoveFile()" title="Move to…">📂 Move</button>
                         <button class="btn btn-secondary btn-sm" onclick="contentDeleteFromPreview()" title="Delete" style="color:var(--error)">🗑️ Delete</button>
@@ -2610,6 +2823,25 @@
 
         try {
             const data = await api(`/content/preview?path=${encodeURIComponent(path)}`);
+
+            // Update release status from API (authoritative source)
+            if (data.has_release && !previewCurrentHasRelease) {
+                previewCurrentHasRelease = true;
+                const actions = document.getElementById('content-preview-actions');
+                if (actions) {
+                    // Remove upload button, add badge + delete button
+                    const uploadBtn = document.getElementById('content-btn-upload-release');
+                    if (uploadBtn) uploadBtn.remove();
+                    if (!actions.querySelector('[data-release-badge]')) {
+                        actions.insertAdjacentHTML('afterbegin',
+                            '<button class="btn btn-secondary btn-sm" onclick="contentDeleteRelease(previewCurrentPath, previewCurrentName)" title="Delete release artifact" style="color:#f59e0b" data-release-badge>☁️✕</button>' +
+                            '<span style="font-size:0.75rem;color:#60a5fa;background:rgba(96,165,250,0.12);border:1px solid rgba(96,165,250,0.3);border-radius:6px;padding:0.1rem 0.45rem" title="Backed up to GitHub Release" data-release-badge>☁️ release</span>'
+                        );
+                    }
+                }
+            } else if (!data.has_release) {
+                previewCurrentHasRelease = false;
+            }
 
             const body = document.getElementById('content-preview-body');
             const toggle = document.getElementById('content-preview-toggle');
@@ -2969,7 +3201,7 @@
     let _ctRenameName = '';
     let _ctRenameFromPreview = false;
 
-    function contentRenameFile(path, name) {
+    function contentRenameFile(path, name, hasRelease) {
         _ctRenamePath = path || previewCurrentPath;
         _ctRenameName = name || previewCurrentName;
         _ctRenameFromPreview = (!path);  // if no path passed, we're in preview mode
@@ -2979,10 +3211,13 @@
         const input = document.getElementById('ct-rename-input');
         const status = document.getElementById('ct-rename-modal-status');
         const confirmBtn = document.getElementById('ct-rename-confirm-btn');
+        const releaseInfo = document.getElementById('ct-rename-modal-release-info');
 
+        const showRelease = hasRelease !== undefined ? hasRelease : previewCurrentHasRelease;
         info.innerHTML = `Current name: <code style="font-size:0.82rem">${esc(_ctRenameName)}</code>`;
         input.value = _ctRenameName;
         status.style.display = 'none';
+        if (releaseInfo) releaseInfo.style.display = showRelease ? 'block' : 'none';
         confirmBtn.disabled = false;
         confirmBtn.textContent = '✏️ Rename';
         modal.style.display = 'flex';
@@ -2995,6 +3230,10 @@
         const status = document.getElementById('ct-rename-modal-status');
         const confirmBtn = document.getElementById('ct-rename-confirm-btn');
         const newName = input.value.trim();
+        const releaseInfo = document.getElementById('ct-rename-modal-release-info');
+        const releaseCheckbox = document.getElementById('ct-rename-update-release');
+        const updateRelease = releaseInfo && releaseInfo.style.display !== 'none'
+            && releaseCheckbox && releaseCheckbox.checked;
 
         if (!newName || newName === _ctRenameName) {
             modal.style.display = 'none';
@@ -3011,6 +3250,25 @@
                 method: 'POST',
                 body: JSON.stringify({ path: _ctRenamePath, new_name: newName }),
             });
+
+            if (updateRelease) {
+                // Delete old artifact (sidecar has old_asset_name)
+                status.innerHTML = '<span class="spinner"></span> Removing old release artifact…';
+                try {
+                    await api('/backup/delete-release', {
+                        method: 'POST',
+                        body: JSON.stringify({ path: result.new_path }),
+                    });
+                } catch (e) { /* old artifact may already be gone */ }
+
+                // Upload with new name
+                status.innerHTML = '<span class="spinner"></span> Uploading with new name…';
+                await api('/backup/upload-release', {
+                    method: 'POST',
+                    body: JSON.stringify({ path: result.new_path }),
+                });
+            }
+
             modal.style.display = 'none';
             toast(`Renamed → ${result.new_name}`, 'success');
 
@@ -3174,11 +3432,11 @@
     }
 
     function contentDeleteFromPreview() {
-        contentDeleteFile(previewCurrentPath, previewCurrentName, true);
+        contentDeleteFile(previewCurrentPath, previewCurrentName, true, previewCurrentHasRelease);
     }
 
     function contentEncryptFromPreview() {
-        contentEncryptFile(previewCurrentPath);
+        contentEncryptFile(previewCurrentPath, previewCurrentHasRelease);
     }
 
     function contentClosePreview() {

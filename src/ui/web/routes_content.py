@@ -23,8 +23,10 @@ Routes:
 
 from __future__ import annotations
 
+import json
 import logging
 import shutil
+from datetime import datetime, timezone
 from pathlib import Path
 
 from flask import Blueprint, current_app, jsonify, request, send_file
@@ -286,9 +288,21 @@ def content_encrypt():  # type: ignore[no-untyped-def]
         if ".large" in source.parts:
             from .content_release import delete_release_asset, upload_to_release_bg
 
+            # Remove old release metadata + asset
+            old_meta = source.parent / f"{source.name}.release.json"
+            old_meta.unlink(missing_ok=True)
             delete_release_asset(source.name, _project_root())
+
+            # Upload new encrypted version
             file_id = output.stem
             upload_to_release_bg(file_id, output, _project_root())
+            new_meta = output.parent / f"{output.name}.release.json"
+            new_meta.write_text(json.dumps({
+                "file_id": file_id,
+                "asset_name": output.name,
+                "uploaded_at": datetime.now(timezone.utc).isoformat(),
+                "status": "uploading",
+            }, indent=2))
             result["release_updated"] = True
 
         return jsonify(result)
@@ -347,9 +361,21 @@ def content_decrypt():  # type: ignore[no-untyped-def]
         if ".large" in vault_file.parts:
             from .content_release import delete_release_asset, upload_to_release_bg
 
+            # Remove old release metadata + asset
+            old_meta = vault_file.parent / f"{vault_file.name}.release.json"
+            old_meta.unlink(missing_ok=True)
             delete_release_asset(vault_file.name, _project_root())
+
+            # Upload new decrypted version
             file_id = output.stem
             upload_to_release_bg(file_id, output, _project_root())
+            new_meta = output.parent / f"{output.name}.release.json"
+            new_meta.write_text(json.dumps({
+                "file_id": file_id,
+                "asset_name": output.name,
+                "uploaded_at": datetime.now(timezone.utc).isoformat(),
+                "status": "uploading",
+            }, indent=2))
             result["release_updated"] = True
 
         return jsonify(result)
@@ -475,6 +501,10 @@ def content_delete():  # type: ignore[no-untyped-def]
     if is_large:
         from .content_release import delete_release_asset
         delete_release_asset(asset_name, _project_root())
+        # Remove release metadata sidecar
+        meta_path = target.parent / f"{target.name}.release.json"
+        if meta_path.exists():
+            meta_path.unlink(missing_ok=True)
 
     return jsonify({
         "success": True,
@@ -631,6 +661,16 @@ def content_upload():  # type: ignore[no-untyped-def]
         upload_to_release_bg(file_id, dest, _project_root())
         result["release_upload"] = file_id
 
+        # Write release metadata (same pattern as backups)
+        meta_path = dest.parent / f"{dest.name}.release.json"
+        meta = {
+            "file_id": file_id,
+            "asset_name": dest.name,
+            "uploaded_at": datetime.now(timezone.utc).isoformat(),
+            "status": "uploading",
+        }
+        meta_path.write_text(json.dumps(meta, indent=2))
+
     return jsonify(result)
 
 
@@ -701,6 +741,10 @@ def content_preview():  # type: ignore[no-untyped-def]
     # Check if text-previewable
     is_text = suffix in _TEXT_EXTS or mime.startswith("text/")
 
+    # Check release sidecar
+    meta_path = target.parent / f"{target.name}.release.json"
+    has_release = meta_path.exists()
+
     if not is_text:
         # For images, return a URL to the download endpoint for inline display
         if mime.startswith("image/"):
@@ -708,6 +752,7 @@ def content_preview():  # type: ignore[no-untyped-def]
                 "type": "image",
                 "mime": mime,
                 "url": f"/api/content/download?path={rel_path}",
+                "has_release": has_release,
             })
         # Video — return a URL for the <video> player
         if mime.startswith("video/"):
@@ -716,6 +761,7 @@ def content_preview():  # type: ignore[no-untyped-def]
                 "mime": mime,
                 "url": f"/api/content/download?path={rel_path}",
                 "size": target.stat().st_size,
+                "has_release": has_release,
             })
         # Audio — return a URL for the <audio> player
         if mime.startswith("audio/"):
@@ -724,11 +770,13 @@ def content_preview():  # type: ignore[no-untyped-def]
                 "mime": mime,
                 "url": f"/api/content/download?path={rel_path}",
                 "size": target.stat().st_size,
+                "has_release": has_release,
             })
         return jsonify({
             "type": "binary",
             "mime": mime,
             "error": "Cannot preview binary files",
+            "has_release": has_release,
         })
 
     # Read text content (limited)
@@ -747,6 +795,7 @@ def content_preview():  # type: ignore[no-untyped-def]
         "truncated": truncated,
         "size": size,
         "line_count": content.count("\n") + 1,
+        "has_release": has_release,
     })
 
 
@@ -1090,6 +1139,20 @@ def content_rename():  # type: ignore[no-untyped-def]
     source.rename(dest)
     root = _project_root()
 
+    # Move release metadata sidecar if it exists
+    old_meta = source.parent / f"{source.name}.release.json"
+    if old_meta.exists():
+        new_meta = dest.parent / f"{dest.name}.release.json"
+        try:
+            meta = json.loads(old_meta.read_text())
+            if "old_asset_name" not in meta:
+                meta["old_asset_name"] = meta.get("asset_name", source.name)
+            meta["asset_name"] = dest.name
+            new_meta.write_text(json.dumps(meta, indent=2))
+            old_meta.unlink(missing_ok=True)
+        except Exception:
+            old_meta.rename(new_meta)
+
     logger.info("Renamed: %s → %s", rel_path, new_name)
     return jsonify({
         "success": True,
@@ -1134,6 +1197,12 @@ def content_move():  # type: ignore[no-untyped-def]
 
     shutil.move(str(source), str(dest))
     root = _project_root()
+
+    # Move release metadata sidecar if it exists
+    old_meta = source.parent / f"{source.name}.release.json"
+    if old_meta.exists():
+        new_meta = dest.parent / f"{dest.name}.release.json"
+        shutil.move(str(old_meta), str(new_meta))
 
     logger.info("Moved: %s → %s", rel_path, str(dest.relative_to(root)))
     return jsonify({

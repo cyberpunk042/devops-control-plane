@@ -216,16 +216,16 @@ def api_folders():  # type: ignore[no-untyped-def]
 
 @backup_bp.route("/backup/upload-release", methods=["POST"])
 def api_upload_release():  # type: ignore[no-untyped-def]
-    """Upload a backup archive to a GitHub Release as an artifact.
+    """Upload a file to a GitHub Release as an artifact.
 
     JSON body:
-        backup_path:  relative path to the .tar.gz or .tar.gz.enc
+        path (or backup_path):  relative path to the file
     """
     data = request.get_json(silent=True) or {}
-    backup_path = data.get("backup_path", "").strip()
+    backup_path = (data.get("path") or data.get("backup_path", "")).strip()
 
     if not backup_path:
-        return jsonify({"error": "Missing 'backup_path'"}), 400
+        return jsonify({"error": "Missing 'path'"}), 400
 
     root = _project_root()
     file_path = (root / backup_path).resolve()
@@ -365,13 +365,13 @@ def api_decrypt_backup():  # type: ignore[no-untyped-def]
 
 @backup_bp.route("/backup/delete-release", methods=["POST"])
 def api_delete_release():  # type: ignore[no-untyped-def]
-    """Delete a backup's GitHub Release artifact.
+    """Delete a file's GitHub Release artifact.
 
     JSON body:
-        backup_path:  relative path to the backup archive
+        path (or backup_path):  relative path to the file
     """
     data = request.get_json(silent=True) or {}
-    backup_path = data.get("backup_path", "").strip()
+    backup_path = (data.get("path") or data.get("backup_path", "")).strip()
 
     if not backup_path:
         return jsonify({"error": "Missing 'backup_path'"}), 400
@@ -394,7 +394,7 @@ def api_delete_release():  # type: ignore[no-untyped-def]
     except Exception:
         return jsonify({"error": "Could not read release metadata"}), 500
 
-    asset_name = meta.get("asset_name", file_path.name)
+    asset_name = meta.get("old_asset_name") or meta.get("asset_name", file_path.name)
 
     try:
         from .content_release import delete_release_asset
@@ -459,9 +459,11 @@ def api_rename_backup():  # type: ignore[no-untyped-def]
         if old_release.exists():
             new_release = old_path.parent / f"{safe_name}.release.json"
             old_release.rename(new_release)
-            # Update asset_name inside the metadata
+            # Preserve old_asset_name so delete-release can still find the GitHub asset
             try:
                 meta = json.loads(new_release.read_text())
+                if "old_asset_name" not in meta:
+                    meta["old_asset_name"] = meta.get("asset_name", old_path.name)
                 meta["asset_name"] = safe_name
                 new_release.write_text(json.dumps(meta, indent=2))
             except Exception:
