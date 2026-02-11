@@ -182,3 +182,36 @@
         </div>
     </div>
 </div>
+
+<!-- Orphaned Release Fix Modal -->
+<div id="ct-orphan-modal" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.6);backdrop-filter:blur(4px);align-items:center;justify-content:center">
+    <div style="background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:16px;padding:2rem;max-width:480px;width:90%;box-shadow:0 20px 60px rgba(0,0,0,0.4)">
+        <div style="font-size:1.3rem;margin-bottom:0.5rem">⚠️ Orphaned Release</div>
+        <div id="ct-orphan-modal-info" style="color:var(--text-secondary);font-size:0.85rem;line-height:1.6;margin-bottom:0.75rem;word-break:break-all"></div>
+        <div style="background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.3);border-radius:8px;padding:0.6rem 0.75rem;margin-bottom:1rem;font-size:0.84rem;color:#f59e0b">
+            ⚠️ The local <code>.release.json</code> sidecar exists but the GitHub Release asset is missing.
+        </div>
+        <div id="ct-orphan-modal-status" style="display:none;margin-bottom:0.75rem;padding:0.5rem;background:var(--bg-tertiary);border-radius:8px;font-size:0.85rem"></div>
+        <div style="display:flex;gap:0.5rem;justify-content:flex-end;flex-wrap:wrap">
+            <button class="btn btn-secondary" onclick="document.getElementById('ct-orphan-modal').style.display='none'">Cancel</button>
+            <button class="btn btn-primary" id="ct-orphan-clean-btn" onclick="contentDoCleanOrphan()" style="background:#ef4444;border-color:#ef4444">🗑️ Clean sidecar</button>
+            <button class="btn btn-primary" id="ct-orphan-reupload-btn" onclick="contentDoReuploadOrphan()">⬆️ Re-upload</button>
+        </div>
+    </div>
+</div>
+
+<!-- Delete Release Artifact Confirm Modal -->
+<div id="ct-release-delete-modal" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.6);backdrop-filter:blur(4px);align-items:center;justify-content:center">
+    <div style="background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:16px;padding:2rem;max-width:440px;width:90%;box-shadow:0 20px 60px rgba(0,0,0,0.4)">
+        <div style="font-size:1.3rem;margin-bottom:0.5rem">☁️✕ Delete Release Artifact</div>
+        <div id="ct-release-delete-modal-info" style="color:var(--text-secondary);font-size:0.85rem;line-height:1.6;margin-bottom:0.75rem;word-break:break-all"></div>
+        <div style="background:rgba(251,191,36,0.1);border:1px solid rgba(251,191,36,0.3);border-radius:8px;padding:0.6rem 0.75rem;margin-bottom:1rem;font-size:0.84rem;color:#fbbf24">
+            ⚠️ This only removes the remote artifact — the local file stays.
+        </div>
+        <div id="ct-release-delete-modal-status" style="display:none;margin-bottom:0.75rem;padding:0.5rem;background:var(--bg-tertiary);border-radius:8px;font-size:0.85rem"></div>
+        <div style="display:flex;gap:0.5rem;justify-content:flex-end">
+            <button class="btn btn-secondary" onclick="document.getElementById('ct-release-delete-modal').style.display='none'">Cancel</button>
+            <button class="btn btn-primary" id="ct-release-delete-confirm-btn" onclick="contentDoDeleteReleaseConfirm()" style="background:var(--error);border-color:var(--error)">☁️✕ Delete artifact</button>
+        </div>
+    </div>
+</div>

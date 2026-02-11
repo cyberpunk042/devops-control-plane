@@ -1,259 +1,314 @@
-    // ─────────────────────────────────────────────────────────────────
-    //  _content_preview.html
-    //  Content Vault — File Preview + Edit
-    //  Plain file preview (text, markdown, image, video, audio, binary),
-    //  edit mode, save/discard, link handlers, mode toggling
-    //  Included by: _content.html (Jinja2 include)
-    // ─────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────
+// _content_preview.html
+// Content Vault — File Preview + Edit
+// Plain file preview (text, markdown, image, video, audio, binary),
+// edit mode, save/discard, link handlers, mode toggling
+// Included by: _content.html (Jinja2 include)
+// ─────────────────────────────────────────────────────────────────
 
-    // ═════════════════════════════════════════════════════════════════
-    //  File Preview + Edit
-    // ═════════════════════════════════════════════════════════════════
+// ═════════════════════════════════════════════════════════════════
+// File Preview + Edit
+// ═════════════════════════════════════════════════════════════════
 
-    let previewRawMode = true;    // true = raw text, false = rendered markdown
-    let previewEditMode = false;  // true = editing
-    let previewOrigContent = '';  // snapshot for discard
-    let previewCurrentPath = '';
-    let previewCurrentName = '';
-    let previewCurrentHasRelease = false;
-    let previewIsText = false;
+let previewRawMode = true; // true = raw text, false = rendered markdown
+let previewEditMode = false; // true = editing
+let previewOrigContent = ''; // snapshot for discard
+let previewCurrentPath = '';
+let previewCurrentName = '';
+let previewCurrentHasRelease = false;
+let previewIsText = false;
 
-    /**
-     * Attach delegated click handlers for anchor links and doc links
-     * in the rendered markdown preview.
-     */
-    function _attachPreviewLinkHandlers(container) {
-        container.addEventListener('click', (e) => {
-            const anchor = e.target.closest('a[data-anchor]');
-            if (anchor) {
-                e.preventDefault();
-                const targetId = anchor.dataset.anchor;
-                const el = document.getElementById(targetId);
-                if (el) {
-                    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                }
-                return;
-            }
-            const docLink = e.target.closest('a[data-doclink]');
-            if (docLink) {
-                e.preventDefault();
-                let href = docLink.dataset.doclink;
-                // Strip anchor part from href (file.md#section → file.md)
-                const hashIdx = href.indexOf('#');
-                if (hashIdx >= 0) href = href.substring(0, hashIdx);
-                if (!href) return; // was just "#" with no file
+/**
+* Attach delegated click handlers for anchor links and doc links
+* in the rendered markdown preview.
+*/
+function _attachPreviewLinkHandlers(container) {
+container.addEventListener('click', (e) => {
+const anchor = e.target.closest('a[data-anchor]');
+if (anchor) {
+e.preventDefault();
+const targetId = anchor.dataset.anchor;
+const el = document.getElementById(targetId);
+if (el) {
+el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+return;
+}
+const docLink = e.target.closest('a[data-doclink]');
+if (docLink) {
+e.preventDefault();
+let href = docLink.dataset.doclink;
+// Strip anchor part from href (file.md#section → file.md)
+const hashIdx = href.indexOf('#');
+if (hashIdx >= 0) href = href.substring(0, hashIdx);
+if (!href) return; // was just "#" with no file
 
-                // Resolve relative path against current file's directory
-                const currentDir = previewCurrentPath.split('/').slice(0, -1).join('/');
-                let resolved = href;
-                if (href.startsWith('./')) {
-                    resolved = currentDir ? currentDir + '/' + href.substring(2) : href.substring(2);
-                } else if (href.startsWith('../')) {
-                    const parts = currentDir.split('/');
-                    let rel = href;
-                    while (rel.startsWith('../') && parts.length > 0) {
-                        parts.pop();
-                        rel = rel.substring(3);
-                    }
-                    resolved = parts.length ? parts.join('/') + '/' + rel : rel;
-                } else if (!href.includes('/')) {
-                    // bare filename like "other.md" — same directory
-                    resolved = currentDir ? currentDir + '/' + href : href;
-                }
+// Resolve relative path against current file's directory
+const currentDir = previewCurrentPath.split('/').slice(0, -1).join('/');
+let resolved = href;
+if (href.startsWith('./')) {
+resolved = currentDir ? currentDir + '/' + href.substring(2) : href.substring(2);
+} else if (href.startsWith('../')) {
+const parts = currentDir.split('/');
+let rel = href;
+while (rel.startsWith('../') && parts.length > 0) {
+parts.pop();
+rel = rel.substring(3);
+}
+resolved = parts.length ? parts.join('/') + '/' + rel : rel;
+} else if (!href.includes('/')) {
+// bare filename like "other.md" — same directory
+resolved = currentDir ? currentDir + '/' + href : href;
+}
 
-                const fileName = resolved.split('/').pop();
-                // Update folder context so "Back" returns to the right folder
-                const fileDir = resolved.split('/').slice(0, -1).join('/');
-                if (fileDir && fileDir !== contentCurrentPath) {
-                    contentCurrentPath = fileDir;
-                }
-                if (resolved.endsWith('.enc')) {
-                    contentPreviewEncrypted(resolved, fileName);
-                } else {
-                    contentPreviewFile(resolved, fileName);
-                }
-                return;
-            }
-        });
-    }
+const fileName = resolved.split('/').pop();
+// Update folder context so "Back" returns to the right folder
+const fileDir = resolved.split('/').slice(0, -1).join('/');
+if (fileDir && fileDir !== contentCurrentPath) {
+contentCurrentPath = fileDir;
+}
+if (resolved.endsWith('.enc')) {
+contentPreviewEncrypted(resolved, fileName);
+} else {
+contentPreviewFile(resolved, fileName);
+}
+return;
+}
+});
+}
 
-    async function contentPreviewFile(path, name, hasRelease) {
-        // Only reset edit mode if opening a different file
-        if (path !== previewCurrentPath) {
-            previewEditMode = false;
-        }
-        previewCurrentPath = path;
-        previewCurrentName = name;
-        previewCurrentHasRelease = !!hasRelease;
-        contentUpdateHash();
+async function contentPreviewFile(path, name, hasRelease) {
+// Only reset edit mode if opening a different file
+if (path !== previewCurrentPath) {
+previewEditMode = false;
+}
+previewCurrentPath = path;
+previewCurrentName = name;
+previewCurrentHasRelease = !!hasRelease;
+contentUpdateHash();
 
-        const browser = document.getElementById('content-browser');
+const browser = document.getElementById('content-browser');
 
-        browser.innerHTML = `
-            <div class="content-preview-panel">
-                <div class="content-preview-header">
-                    <button class="btn btn-secondary btn-sm" onclick="contentClosePreview()" title="Back to files">← Back</button>
-                    <span class="content-preview-title" id="content-preview-filename" translate="no">${esc(name)}</span>
-                    <button class="btn btn-secondary btn-sm" onclick="contentRenameFile()" title="Rename" style="font-size:0.7rem;padding:0.15rem 0.4rem">✏️</button>
-                    <div id="content-preview-toggle" style="display:none;gap:4px"></div>
-                    <div style="flex:1"></div>
+browser.innerHTML = `
+<div class="content-preview-panel">
+    <div class="content-preview-header">
+        <button class="btn btn-secondary btn-sm" onclick="contentClosePreview()" title="Back to files">← Back</button>
+        <span class="content-preview-title" id="content-preview-filename" translate="no">${esc(name)}</span>
+        <button class="btn btn-secondary btn-sm" onclick="contentRenameFile()" title="Rename"
+            style="font-size:0.7rem;padding:0.15rem 0.4rem">✏️</button>
+        <div id="content-preview-toggle" style="display:none;gap:4px"></div>
+        <div style="flex:1"></div>
                     <div id="content-preview-actions" style="display:flex;gap:4px;align-items:center">
-                        ${hasRelease ? '<span style="font-size:0.75rem;color:#60a5fa;background:rgba(96,165,250,0.12);border:1px solid rgba(96,165,250,0.3);border-radius:6px;padding:0.1rem 0.45rem" title="Backed up to GitHub Release">☁️ release</span>' : ''}
-                        ${hasRelease ? '<button class="btn btn-secondary btn-sm" onclick="contentDeleteRelease(previewCurrentPath, previewCurrentName)" title="Delete release artifact" style="color:#f59e0b">☁️✕</button>' : ''}
+                        ${hasRelease ? '<span style="font-size:0.75rem;color:#60a5fa;background:rgba(96,165,250,0.12);border:1px solid rgba(96,165,250,0.3);border-radius:6px;padding:0.1rem 0.45rem" title="Backed up to GitHub Release" data-release-badge>☁️ release</span>' : ''}
+                        ${hasRelease ? '<button class="btn btn-secondary btn-sm" onclick="contentDeleteRelease(previewCurrentPath, previewCurrentName)" title="Delete release artifact" style="color:#f59e0b" data-release-badge>☁️✕</button>' : ''}
                         ${!hasRelease ? '<button class="btn btn-secondary btn-sm" id="content-btn-upload-release" onclick="contentUploadToRelease(previewCurrentPath)" title="Upload to Release" style="color:#60a5fa">⬆️ Release</button>' : ''}
                         <button class="btn btn-secondary btn-sm" onclick="contentEncryptFromPreview()" title="Encrypt">🔒 Encrypt</button>
                         <button class="btn btn-secondary btn-sm" id="content-btn-move" onclick="contentMoveFile()" title="Move to…">📂 Move</button>
                         <button class="btn btn-secondary btn-sm" onclick="contentDeleteFromPreview()" title="Delete" style="color:var(--error)">🗑️ Delete</button>
                     </div>
-                </div>
-                <div id="content-preview-body" class="content-preview-body" translate="no">
-                    <p class="empty-state"><span class="spinner"></span> Loading preview…</p>
-                </div>
-                <div id="content-preview-edit-bar" style="display:none;padding-top:var(--space-sm);border-top:1px solid var(--border-subtle);gap:0.5rem;justify-content:flex-end">
-                </div>
-            </div>`;
+    </div>
+    <div id="content-preview-orphan-bar" style="display:none"></div>
+    <div id="content-preview-body" class="content-preview-body" translate="no">
+        <p class="empty-state"><span class="spinner"></span> Loading preview…</p>
+    </div>
+    <div id="content-preview-edit-bar"
+        style="display:none;padding-top:var(--space-sm);border-top:1px solid var(--border-subtle);gap:0.5rem;justify-content:flex-end">
+    </div>
+</div>`;
 
-        try {
-            const data = await api(`/content/preview?path=${encodeURIComponent(path)}`);
+try {
+const data = await api(`/content/preview?path=${encodeURIComponent(path)}`);
 
-            // Update release status from API (authoritative source)
-            if (data.has_release && !previewCurrentHasRelease) {
-                previewCurrentHasRelease = true;
-                const actions = document.getElementById('content-preview-actions');
-                if (actions) {
-                    // Remove upload button, add badge + delete button
-                    const uploadBtn = document.getElementById('content-btn-upload-release');
-                    if (uploadBtn) uploadBtn.remove();
-                    if (!actions.querySelector('[data-release-badge]')) {
-                        actions.insertAdjacentHTML('afterbegin',
-                            '<button class="btn btn-secondary btn-sm" onclick="contentDeleteRelease(previewCurrentPath, previewCurrentName)" title="Delete release artifact" style="color:#f59e0b" data-release-badge>☁️✕</button>' +
-                            '<span style="font-size:0.75rem;color:#60a5fa;background:rgba(96,165,250,0.12);border:1px solid rgba(96,165,250,0.3);border-radius:6px;padding:0.1rem 0.45rem" title="Backed up to GitHub Release" data-release-badge>☁️ release</span>'
-                        );
-                    }
-                }
-            } else if (!data.has_release) {
-                previewCurrentHasRelease = false;
-            }
+// ── Handle release status (orphaned / stale / failed / uploading) ──
+const orphanBar = document.getElementById('content-preview-orphan-bar');
+const rStatus = data.release_status || '';
+const needsFixBar = data.release_orphaned || rStatus === 'stale' || rStatus === 'failed';
 
-            const body = document.getElementById('content-preview-body');
-            const toggle = document.getElementById('content-preview-toggle');
-            const editBar = document.getElementById('content-preview-edit-bar');
-            previewIsText = (data.type === 'text' || data.type === 'markdown');
-
-            if (data.type === 'image') {
-                body.innerHTML = `<div style="text-align:center;padding:1rem">
-                    <img src="${data.url}" alt="${esc(name)}" style="max-width:100%;max-height:70vh;border-radius:var(--radius-sm)">
-                </div>`;
-
-            } else if (data.type === 'video') {
-                // Video player with fallback + optimize option
-                const canPlayNatively = ['video/mp4', 'video/webm'].includes(data.mime);
-                body.innerHTML = `
-                    <div style="text-align:center;padding:1rem">
-                        <video id="content-video-player" controls ${!canPlayNatively ? 'style="display:none"' : ''}
-                            style="max-width:100%;max-height:55vh;border-radius:var(--radius-sm);background:#000">
-                            <source src="${data.url}">
-                        </video>
-                        <div id="content-video-fallback" style="${canPlayNatively ? 'display:none;' : ''}padding:1.5rem">
-                            <div style="font-size:2.5rem;margin-bottom:0.5rem;opacity:0.5">🎬</div>
-                            <p style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:0.75rem">
-                                ${canPlayNatively ? 'Cannot play this video.' : `<strong>${esc(name)}</strong> (${data.mime}) can't play in browser.`}
-                            </p>
-                            <a href="${data.url}" download="${esc(name)}" class="btn btn-secondary btn-sm">
-                                ⬇️ Download (${formatFileSize(data.size)})
-                            </a>
-                        </div>
-                        <div style="margin-top:1rem;padding:0.75rem;background:var(--bg-inset);border-radius:var(--radius-sm);border:1px solid var(--border-subtle)">
-                            <div style="display:flex;align-items:center;gap:0.5rem;justify-content:center;flex-wrap:wrap">
-                                <span style="font-size:0.8rem;color:var(--text-secondary)">
-                                    ${formatFileSize(data.size)} · ${data.mime}
-                                </span>
-                                <a href="${data.url}" download="${esc(name)}" class="btn btn-secondary btn-sm">⬇️ Download</a>
-                            </div>
-                        </div>
-                    </div>`;
-                // If browser can't decode, show download fallback
-                if (canPlayNatively) {
-                    const videoEl = document.getElementById('content-video-player');
-                    if (videoEl) {
-                        videoEl.addEventListener('error', () => {
-                            videoEl.style.display = 'none';
-                            const fb = document.getElementById('content-video-fallback');
-                            if (fb) fb.style.display = 'block';
-                        }, true);
-                    }
-                }
-
-            } else if (data.type === 'audio') {
-                // Audio player
-                body.innerHTML = `
-                    <div style="text-align:center;width:100%;padding:2rem">
-                        <div style="font-size:3rem;margin-bottom:1rem;opacity:0.4">🎵</div>
-                        <p style="font-size:0.9rem;color:var(--text-secondary);margin-bottom:1rem">${esc(name)}</p>
-                        <audio controls style="width:100%;max-width:450px">
-                            <source src="${data.url}" type="${data.mime}">
-                        </audio>
-                        <div style="margin-top:1rem">
-                            <a href="${data.url}" download="${esc(name)}" class="btn btn-secondary btn-sm">⬇️ Download (${formatFileSize(data.size)})</a>
-                        </div>
-                    </div>`;
-
-            } else if (data.type === 'markdown' || data.type === 'text') {
-                previewOrigContent = data.content;
-
-                // Build toggle buttons
-                toggle.style.display = 'flex';
-                let toggleHtml = '';
-                if (data.type === 'markdown') {
-                    toggleHtml += `
-                        <button class="btn btn-sm ${previewRawMode && !previewEditMode ? 'btn-primary' : 'btn-secondary'}" onclick="contentSetPreviewMode('raw')">Raw</button>
-                        <button class="btn btn-sm ${!previewRawMode && !previewEditMode ? 'btn-primary' : 'btn-secondary'}" onclick="contentSetPreviewMode('preview')">Preview</button>`;
-                }
-                toggleHtml += `<button class="btn btn-sm ${previewEditMode ? 'btn-primary' : 'btn-secondary'}" onclick="contentSetPreviewMode('edit')">✏️ Edit</button>`;
-                toggle.innerHTML = toggleHtml;
-
-                if (previewEditMode) {
-                    body.innerHTML = `<textarea id="content-editor" class="content-editor" spellcheck="false">${esc(data.content)}</textarea>`;
-                    editBar.style.display = 'flex';
-                    editBar.innerHTML = `
-                        <button class="btn btn-secondary btn-sm" onclick="contentDiscardEdit()">↩️ Discard</button>
-                        <button class="btn btn-primary btn-sm" onclick="contentSaveEdit()">💾 Save</button>`;
-                } else if (data.type === 'markdown' && !previewRawMode) {
-                    body.innerHTML = `<div class="content-preview-rendered notranslate" translate="no"><div style="display:flex;justify-content:flex-end;margin-bottom:0.5rem"><button class="btn btn-secondary btn-sm" style="font-size:0.7rem;padding:0.15rem 0.5rem" onclick="contentToggleTranslate(this)">🌐 Translate</button></div>${renderMarkdown(data.content)}</div>`;
-                    _attachPreviewLinkHandlers(body);
-                    editBar.style.display = 'none';
-                } else {
-                    body.innerHTML = `<pre class="content-preview-code notranslate" translate="no"><code>${esc(data.content)}</code></pre>`;
-                    editBar.style.display = 'none';
-                }
-
-                if (data.truncated) {
-                    body.innerHTML += `<p style="color:var(--warning);font-size:0.8rem;padding:0.5rem">⚠️ File truncated (showing first 512 KB of ${formatFileSize(data.size)})</p>`;
-                }
-
-            } else if (data.type === 'binary') {
-                body.innerHTML = `<div class="empty-state" style="padding:2rem">
-                    <span style="font-size:2rem">📦</span>
-                    <p>Binary file — cannot preview</p>
-                    <p style="font-size:0.8rem;color:var(--text-muted)">${data.mime || 'unknown type'}</p>
-                    <a class="btn btn-primary btn-sm" href="/api/content/download?path=${encodeURIComponent(path)}&download=1" style="margin-top:0.75rem">⬇️ Download</a>
-                </div>`;
-            }
-        } catch (e) {
-            document.getElementById('content-preview-body').innerHTML =
-                `<p class="empty-state" style="color:var(--error)">❌ ${esc(e.message)}</p>`;
-        }
+if (needsFixBar) {
+const actions = document.getElementById('content-preview-actions');
+if (actions) {
+    // Remove normal release badge/buttons
+    actions.querySelectorAll('[data-release-badge]').forEach(el => el.remove());
+    const uploadBtn = document.getElementById('content-btn-upload-release');
+    if (uploadBtn) uploadBtn.remove();
+}
+const title = rStatus === 'stale' ? 'Upload never completed'
+    : rStatus === 'failed' ? 'Upload failed'
+    : 'Release asset missing';
+const subtitle = rStatus === 'stale' ? 'The sidecar has status &ldquo;uploading&rdquo; but no upload is running. The file was never uploaded.'
+    : rStatus === 'failed' ? 'The upload to GitHub Release failed. You can retry or clean the sidecar.'
+    : 'The sidecar metadata exists but the GitHub Release asset was deleted.';
+if (orphanBar) {
+    orphanBar.style.display = 'block';
+    orphanBar.innerHTML = `
+<div style="display:flex;align-items:center;gap:0.75rem;padding:0.5rem 0.75rem;background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.35);border-radius:8px;margin-bottom:0.5rem">
+    <span style="font-size:1.1rem">⚠️</span>
+    <div style="flex:1">
+        <div style="font-size:0.82rem;font-weight:600;color:#f59e0b">${title}</div>
+        <div style="font-size:0.75rem;color:var(--text-muted);margin-top:0.15rem">${subtitle}</div>
+    </div>
+    <button class="btn btn-sm" onclick="contentFixOrphanedRelease(previewCurrentPath, previewCurrentName)" style="background:rgba(96,165,250,0.15);border:1px solid rgba(96,165,250,0.4);color:#60a5fa;font-size:0.78rem;font-weight:600;padding:0.2rem 0.6rem;border-radius:6px;cursor:pointer" title="Re-upload or clean sidecar">⚠️ Fix</button>
+</div>`;
+}
+previewCurrentHasRelease = false;
+} else if (rStatus === 'uploading') {
+// Active upload — show spinner badge
+const actions = document.getElementById('content-preview-actions');
+if (actions) {
+    actions.querySelectorAll('[data-release-badge]').forEach(el => el.remove());
+    if (!actions.querySelector('[data-release-uploading]')) {
+        actions.insertAdjacentHTML('afterbegin', '<span style="font-size:0.75rem;color:#eab308;background:rgba(234,179,8,0.12);border:1px solid rgba(234,179,8,0.3);border-radius:6px;padding:0.1rem 0.45rem" data-release-uploading>⏳ uploading…</span>');
     }
-
-    function contentSetPreviewMode(mode) {
-        if (mode === 'edit') {
-            previewEditMode = true;
-        } else {
-            previewEditMode = false;
-            previewRawMode = (mode === 'raw');
-        }
-        contentPreviewFile(previewCurrentPath, previewCurrentName);
-        contentUpdateHash();
+}
+if (orphanBar) orphanBar.style.display = 'none';
+} else if (data.has_release && !previewCurrentHasRelease) {
+// Upload completed — update release status from API
+previewCurrentHasRelease = true;
+if (orphanBar) orphanBar.style.display = 'none';
+const actions = document.getElementById('content-preview-actions');
+if (actions) {
+    const uploadBtn = document.getElementById('content-btn-upload-release');
+    if (uploadBtn) uploadBtn.remove();
+    if (!actions.querySelector('[data-release-badge]')) {
+        actions.insertAdjacentHTML('afterbegin', '<button class="btn btn-secondary btn-sm" onclick="contentDeleteRelease(previewCurrentPath, previewCurrentName)" title="Delete release artifact" style="color:#f59e0b" data-release-badge>☁️✕</button>' + '<span style="font-size:0.75rem;color:#60a5fa;background:rgba(96,165,250,0.12);border:1px solid rgba(96,165,250,0.3);border-radius:6px;padding:0.1rem 0.45rem" title="Backed up to GitHub Release" data-release-badge>☁️ release</span>');
     }
+}
+} else if (!data.has_release) {
+previewCurrentHasRelease = false;
+if (orphanBar) orphanBar.style.display = 'none';
+}
 
+const body = document.getElementById('content-preview-body');
+const toggle = document.getElementById('content-preview-toggle');
+const editBar = document.getElementById('content-preview-edit-bar');
+previewIsText = (data.type === 'text' || data.type === 'markdown');
 
+if (data.type === 'image') {
+body.innerHTML = `<div style="text-align:center;padding:1rem">
+    <img src="${data.url}" alt="${esc(name)}" style="max-width:100%;max-height:70vh;border-radius:var(--radius-sm)">
+</div>`;
+
+} else if (data.type === 'video') {
+// Video player with fallback + optimize option
+const canPlayNatively = ['video/mp4', 'video/webm'].includes(data.mime);
+body.innerHTML = `
+<div style="text-align:center;padding:1rem">
+    <video id="content-video-player" controls ${!canPlayNatively ? 'style="display:none"' : '' }
+        style="max-width:100%;max-height:55vh;border-radius:var(--radius-sm);background:#000">
+        <source src="${data.url}">
+    </video>
+    <div id="content-video-fallback" style="${canPlayNatively ? 'display:none;' : ''}padding:1.5rem">
+        <div style="font-size:2.5rem;margin-bottom:0.5rem;opacity:0.5">🎬</div>
+        <p style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:0.75rem">
+            ${canPlayNatively ? 'Cannot play this video.' : `<strong>${esc(name)}</strong> (${data.mime}) can't play in
+            browser.`}
+        </p>
+        <a href="${data.url}" download="${esc(name)}" class="btn btn-secondary btn-sm">
+            ⬇️ Download (${formatFileSize(data.size)})
+        </a>
+    </div>
+    <div
+        style="margin-top:1rem;padding:0.75rem;background:var(--bg-inset);border-radius:var(--radius-sm);border:1px solid var(--border-subtle)">
+        <div style="display:flex;align-items:center;gap:0.5rem;justify-content:center;flex-wrap:wrap">
+            <span style="font-size:0.8rem;color:var(--text-secondary)">
+                ${formatFileSize(data.size)} · ${data.mime}
+            </span>
+            <a href="${data.url}" download="${esc(name)}" class="btn btn-secondary btn-sm">⬇️ Download</a>
+        </div>
+    </div>
+</div>`;
+// If browser can't decode, show download fallback
+if (canPlayNatively) {
+const videoEl = document.getElementById('content-video-player');
+if (videoEl) {
+videoEl.addEventListener('error', () => {
+videoEl.style.display = 'none';
+const fb = document.getElementById('content-video-fallback');
+if (fb) fb.style.display = 'block';
+}, true);
+}
+}
+
+} else if (data.type === 'audio') {
+// Audio player
+body.innerHTML = `
+<div style="text-align:center;width:100%;padding:2rem">
+    <div style="font-size:3rem;margin-bottom:1rem;opacity:0.4">🎵</div>
+    <p style="font-size:0.9rem;color:var(--text-secondary);margin-bottom:1rem">${esc(name)}</p>
+    <audio controls style="width:100%;max-width:450px">
+        <source src="${data.url}" type="${data.mime}">
+    </audio>
+    <div style="margin-top:1rem">
+        <a href="${data.url}" download="${esc(name)}" class="btn btn-secondary btn-sm">⬇️ Download
+            (${formatFileSize(data.size)})</a>
+    </div>
+</div>`;
+
+} else if (data.type === 'markdown' || data.type === 'text') {
+previewOrigContent = data.content;
+
+// Build toggle buttons
+toggle.style.display = 'flex';
+let toggleHtml = '';
+if (data.type === 'markdown') {
+toggleHtml += `
+<button class="btn btn-sm ${previewRawMode && !previewEditMode ? 'btn-primary' : 'btn-secondary'}"
+    onclick="contentSetPreviewMode('raw')">Raw</button>
+<button class="btn btn-sm ${!previewRawMode && !previewEditMode ? 'btn-primary' : 'btn-secondary'}"
+    onclick="contentSetPreviewMode('preview')">Preview</button>`;
+}
+toggleHtml += `<button class="btn btn-sm ${previewEditMode ? 'btn-primary' : 'btn-secondary'}"
+    onclick="contentSetPreviewMode('edit')">✏️ Edit</button>`;
+toggle.innerHTML = toggleHtml;
+
+if (previewEditMode) {
+body.innerHTML = `<textarea id="content-editor" class="content-editor"
+    spellcheck="false">${esc(data.content)}</textarea>`;
+editBar.style.display = 'flex';
+editBar.innerHTML = `
+<button class="btn btn-secondary btn-sm" onclick="contentDiscardEdit()">↩️ Discard</button>
+<button class="btn btn-primary btn-sm" onclick="contentSaveEdit()">💾 Save</button>`;
+} else if (data.type === 'markdown' && !previewRawMode) {
+body.innerHTML = `<div class="content-preview-rendered notranslate" translate="no">
+    <div style="display:flex;justify-content:flex-end;margin-bottom:0.5rem"><button class="btn btn-secondary btn-sm"
+            style="font-size:0.7rem;padding:0.15rem 0.5rem" onclick="contentToggleTranslate(this)">🌐 Translate</button>
+    </div>${renderMarkdown(data.content)}
+</div>`;
+_attachPreviewLinkHandlers(body);
+editBar.style.display = 'none';
+} else {
+body.innerHTML = `
+<pre class="content-preview-code notranslate" translate="no"><code>${esc(data.content)}</code></pre>`;
+editBar.style.display = 'none';
+}
+
+if (data.truncated) {
+body.innerHTML += `<p style="color:var(--warning);font-size:0.8rem;padding:0.5rem">⚠️ File truncated (showing first 512
+    KB of ${formatFileSize(data.size)})</p>`;
+}
+
+} else if (data.type === 'binary') {
+body.innerHTML = `<div class="empty-state" style="padding:2rem">
+    <span style="font-size:2rem">📦</span>
+    <p>Binary file — cannot preview</p>
+    <p style="font-size:0.8rem;color:var(--text-muted)">${data.mime || 'unknown type'}</p>
+    <a class="btn btn-primary btn-sm" href="/api/content/download?path=${encodeURIComponent(path)}&download=1"
+        style="margin-top:0.75rem">⬇️ Download</a>
+</div>`;
+}
+} catch (e) {
+document.getElementById('content-preview-body').innerHTML =
+`<p class="empty-state" style="color:var(--error)">❌ ${esc(e.message)}</p>`;
+}
+}
+
+function contentSetPreviewMode(mode) {
+if (mode === 'edit') {
+previewEditMode = true;
+} else {
+previewEditMode = false;
+previewRawMode = (mode === 'raw');
+}
+contentPreviewFile(previewCurrentPath, previewCurrentName);
+contentUpdateHash();
+}

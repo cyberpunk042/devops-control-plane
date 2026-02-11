@@ -38,6 +38,63 @@ _release_upload_status: dict[str, dict] = {}
 _release_active_procs: dict[str, subprocess.Popen] = {}
 
 
+# ── Sidecar cleanup helper ──────────────────────────────────────
+
+
+def cleanup_release_sidecar(
+    file_path: Path,
+    project_root: Path,
+) -> bool:
+    """Remove a file's .release.json sidecar and its GitHub Release asset.
+
+    Call this whenever deleting a file that might have a release attachment.
+    Safe to call even if no sidecar exists — returns False in that case.
+
+    Args:
+        file_path: Path to the content/backup file being deleted.
+        project_root: Project root (for `gh` CWD).
+
+    Returns:
+        True if a sidecar was found and cleaned up.
+    """
+    import json
+
+    meta_path = file_path.parent / f"{file_path.name}.release.json"
+    if not meta_path.exists():
+        return False
+
+    try:
+        meta = json.loads(meta_path.read_text())
+        asset_name = (
+            meta.get("old_asset_name")
+            or meta.get("asset_name")
+            or file_path.name
+        )
+        delete_release_asset(asset_name, project_root)
+    except Exception:
+        pass  # best-effort
+
+    meta_path.unlink(missing_ok=True)
+    return True
+
+
+# ── Sidecar helpers ─────────────────────────────────────────
+
+
+def _update_sidecar(file_path: Path, status: str) -> None:
+    """Update the on-disk .release.json sidecar status field."""
+    meta_path = file_path.parent / f"{file_path.name}.release.json"
+    if not meta_path.exists():
+        return
+    try:
+        import json
+        meta = json.loads(meta_path.read_text())
+        meta["status"] = status
+        meta_path.write_text(json.dumps(meta, indent=2))
+    except Exception:
+        pass
+
+
 # ── Upload ──────────────────────────────────────────────────────
 
 
@@ -216,6 +273,8 @@ def upload_to_release_bg(
                     "progress_pct": 100,
                     "elapsed_sec": round(elapsed, 1),
                 }
+                # Update sidecar on disk → status: done
+                _update_sidecar(file_path, "done")
                 logger.info(
                     "[content-release] ✅ %s uploaded (%s, %.1f MB, %.0fs)",
                     file_id,
@@ -234,6 +293,7 @@ def upload_to_release_bg(
                     "message": f"gh upload failed: {err}",
                     "progress_pct": 0,
                 }
+                _update_sidecar(file_path, "failed")
                 logger.warning(
                     "[content-release] ❌ %s failed: %s", file_id, err
                 )
@@ -247,6 +307,7 @@ def upload_to_release_bg(
                 "message": "Upload timed out (>1 hour)",
                 "progress_pct": 0,
             }
+            _update_sidecar(file_path, "failed")
             logger.warning("[content-release] ❌ %s timed out", file_id)
 
         except Exception as e:
@@ -256,6 +317,7 @@ def upload_to_release_bg(
                 "message": str(e),
                 "progress_pct": 0,
             }
+            _update_sidecar(file_path, "failed")
             logger.error(
                 "[content-release] ❌ %s error: %s", file_id, e, exc_info=True
             )
@@ -418,6 +480,142 @@ def restore_large_files(project_root: Path) -> dict:
         logger.error("[content-restore] Error during restore: %s", e)
 
     return result
+
+
+# ── Release asset inventory ─────────────────────────────────────
+
+
+def list_release_assets(project_root: Path) -> dict:
+    """Fetch the list of assets currently on the content-vault release.
+
+    Returns:
+        {"available": True, "assets": [{"name": ..., "size": ...}, ...]}
+        or {"available": False, "error": "..."}
+    """
+    if not shutil.which("gh"):
+        return {"available": False, "error": "gh CLI not installed"}
+
+    try:
+        proc = subprocess.run(
+            [
+                "gh", "release", "view", CONTENT_RELEASE_TAG,
+                "--json", "assets",
+                "--jq", '.assets[] | {name: .name, size: .size}',
+            ],
+            cwd=str(project_root),
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if proc.returncode != 0:
+            return {
+                "available": False,
+                "error": f"Release '{CONTENT_RELEASE_TAG}' not found",
+            }
+
+        import json
+
+        # Each line is a JSON object
+        assets = []
+        for line in proc.stdout.strip().splitlines():
+            line = line.strip()
+            if line:
+                try:
+                    assets.append(json.loads(line))
+                except json.JSONDecodeError:
+                    pass
+
+        return {"available": True, "assets": assets}
+
+    except subprocess.TimeoutExpired:
+        return {"available": False, "error": "gh timed out"}
+    except Exception as e:
+        return {"available": False, "error": str(e)}
+
+
+def release_inventory(project_root: Path) -> dict:
+    """Cross-reference local release sidecars with actual GitHub assets.
+
+    Scans all content folders for `.release.json` sidecars and compares
+    with the remote asset list to find:
+    - **orphaned**: local sidecar exists but GitHub asset is missing
+      (someone manually deleted the release asset)
+    - **synced**: local sidecar exists and GitHub asset exists
+    - **extra_remote**: GitHub asset exists but no local sidecar
+      (could be from another workflow or manual upload)
+
+    Returns:
+        {
+            "gh_available": bool,
+            "remote_assets": ["name", ...],
+            "local_sidecars": [{"name": ..., "path": ..., "asset_name": ...}, ...],
+            "orphaned": [{"name": ..., "path": ..., "asset_name": ...}, ...],
+            "synced": [{"name": ..., "asset_name": ...}, ...],
+            "extra_remote": ["name", ...],
+        }
+    """
+    import json as _json
+
+    # 1. Fetch remote assets
+    remote = list_release_assets(project_root)
+    remote_names: set[str] = set()
+    if remote.get("available"):
+        remote_names = {a["name"] for a in remote["assets"]}
+
+    # 2. Scan local sidecars
+    local_sidecars: list[dict] = []
+
+    # Scan content dirs + backup dirs for .release.json files
+    from .content_crypto import DEFAULT_CONTENT_DIRS
+
+    scan_dirs = [project_root / d for d in DEFAULT_CONTENT_DIRS]
+    # Also check backup directories (they live under .backup/)
+    for d in scan_dirs[:]:
+        backup_dir = d / ".backup"
+        if backup_dir.is_dir():
+            scan_dirs.append(backup_dir)
+
+    for scan_dir in scan_dirs:
+        if not scan_dir.is_dir():
+            continue
+        for meta_file in scan_dir.rglob("*.release.json"):
+            try:
+                meta = _json.loads(meta_file.read_text())
+                # The file this sidecar refers to
+                ref_name = meta_file.name.replace(".release.json", "")
+                asset_name = (
+                    meta.get("old_asset_name")
+                    or meta.get("asset_name")
+                    or ref_name
+                )
+                local_sidecars.append({
+                    "name": ref_name,
+                    "path": str(meta_file.relative_to(project_root)),
+                    "asset_name": asset_name,
+                    "meta": meta,
+                })
+            except Exception:
+                pass
+
+    # 3. Cross-reference
+    sidecar_asset_names: set[str] = {s["asset_name"] for s in local_sidecars}
+
+    orphaned = [
+        s for s in local_sidecars if s["asset_name"] not in remote_names
+    ]
+    synced = [
+        s for s in local_sidecars if s["asset_name"] in remote_names
+    ]
+    extra_remote = sorted(remote_names - sidecar_asset_names)
+
+    return {
+        "gh_available": remote.get("available", False),
+        "remote_assets": sorted(remote_names),
+        "local_sidecars": local_sidecars,
+        "orphaned": orphaned,
+        "synced": synced,
+        "extra_remote": extra_remote,
+    }
 
 
 # ── Delete ──────────────────────────────────────────────────────

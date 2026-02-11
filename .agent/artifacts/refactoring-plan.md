@@ -245,11 +245,11 @@ Can likely be left as-is (553 is just over 500). If desired split:
 ## Execution Order
 
 1. ~~**`_content.html`** — highest ROI, 4,011 → 12 files~~ ✅ **DONE** (2026-02-11)
-2. **`routes_backup.py`** — second largest, clean domain boundaries
-3. **`_secrets.html`** — same pattern as _content, easy once #1 establishes the template
-4. **`routes_content.py`** — same pattern as routes_backup
-5. **`content_optimize.py`** — independent, clean split
-6. **`vault.py`** — straightforward
+2. ~~**`routes_backup.py`** — second largest, clean domain boundaries~~ ✅ **DONE** (2026-02-11) — 1,527 → 5 files (210+385+142+453+480)
+3. ~~**`_secrets.html`** — same pattern as _content, easy once #1 establishes the template~~ ✅ **DONE** (2026-02-11) — 1,348 → 7 files (26+108+370+175+362+233+140)
+4. ~~**`routes_content.py`** — same pattern as routes_backup~~ ✅ **DONE** (2026-02-11) — 1,253 → 4 files (422+329+315+306)
+5. ~~**`content_optimize.py`** — independent, clean split~~ ✅ **DONE** (2026-02-11) — 968 → 2 files (356+673)
+6. ~~**`vault.py`** — straightforward~~ ✅ **DONE** (2026-02-11) — 886 → 2 files (537+398)
 7. **`routes_vault.py`** — borderline, lower priority
 8. **`content_crypto.py`** — borderline, lower priority
 9. **`routes_secrets.py`** — smallest, lowest priority

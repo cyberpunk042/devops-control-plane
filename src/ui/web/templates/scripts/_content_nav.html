@@ -1,361 +1,359 @@
-    // ─────────────────────────────────────────────────────────────────
-    //  _content_nav.html
-    //  Content Vault — tab init, folder bar, mode switching, URL hash
-    //  navigation, sub-nav, empty state rendering
-    //  Included by: _content.html (Jinja2 include)
-    // ─────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────
+// _content_nav.html
+// Content Vault — tab init, folder bar, mode switching, URL hash
+// navigation, sub-nav, empty state rendering
+// Included by: _content.html (Jinja2 include)
+// ─────────────────────────────────────────────────────────────────
 
 
 
-    // ═════════════════════════════════════════════════════════════════
-    //  Init / Load
-    // ═════════════════════════════════════════════════════════════════
+// ═════════════════════════════════════════════════════════════════
+// Init / Load
+// ═════════════════════════════════════════════════════════════════
 
-    async function loadContentTab(subParts) {
-        if (contentLoaded) {
-            // If sub-navigation is requested but tab is already loaded, apply it
-            if (subParts && subParts.length > 0) {
-                contentApplySubNav(subParts);
-            }
-            return;
-        }
-        const browser = document.getElementById('content-browser');
-        browser.innerHTML = '<p class="empty-state"><span class="spinner"></span> Detecting folders…</p>';
+async function loadContentTab(subParts) {
+if (contentLoaded) {
+// If sub-navigation is requested but tab is already loaded, apply it
+if (subParts && subParts.length > 0) {
+contentApplySubNav(subParts);
+}
+return;
+}
+const browser = document.getElementById('content-browser');
+browser.innerHTML = '<p class="empty-state"><span class="spinner"></span> Detecting folders…</p>';
 
-        try {
-            // Check enc key status in parallel with folder detection
-            const [data, keyStatus] = await Promise.all([
-                api('/content/folders'),
-                api('/content/enc-key-status').catch(() => ({ configured: false })),
-            ]);
+try {
+// Check enc key status in parallel with folder detection
+const [data, keyStatus] = await Promise.all([
+api('/content/folders'),
+api('/content/enc-key-status').catch(() => ({ configured: false })),
+]);
 
-            encKeyConfigured = keyStatus.configured;
-            contentFolders = data.folders || [];
+encKeyConfigured = keyStatus.configured;
+contentFolders = data.folders || [];
 
-            if (contentFolders.length === 0) {
-                renderContentEmpty(data.suggestions || []);
-            } else {
-                renderContentFolderBar();
+if (contentFolders.length === 0) {
+renderContentEmpty(data.suggestions || []);
+} else {
+renderContentFolderBar();
 
-                // Restore navigation from hash sub-parts or default to first folder
-                if (subParts && subParts.length > 0) {
-                    contentApplySubNav(subParts);
-                } else {
-                    contentLoadFolder(contentFolders[0].path);
-                }
-            }
-            contentLoaded = true;
-        } catch (e) {
-            browser.innerHTML = `<p class="empty-state" style="color:var(--error)">❌ ${esc(e.message)}</p>`;
-        }
-    }
-
-
-    // ═════════════════════════════════════════════════════════════════
-    //  Empty State
-    // ═════════════════════════════════════════════════════════════════
-
-    function renderContentEmpty(suggestions) {
-        const folderBar = document.getElementById('content-folder-bar');
-        folderBar.style.display = 'none';
-
-        const browser = document.getElementById('content-browser');
-
-        let quickButtons = '';
-        for (const name of suggestions.slice(0, 3)) {
-            quickButtons += `
-                <button class="btn btn-primary btn-sm" onclick="contentCreateFolder('${esc(name)}')"
-                        style="min-width:100px">
-                    📁 Create <code>${esc(name)}/</code>
-                </button>`;
-        }
-
-        browser.innerHTML = `
-            <div class="empty-state" style="padding:3rem 1rem">
-                <span style="font-size:3rem;display:block;margin-bottom:1rem">📂</span>
-                <h3 style="margin-bottom:0.75rem;color:var(--text-primary)">No content folders detected</h3>
-                <p style="color:var(--text-secondary);margin-bottom:1.5rem;max-width:400px;line-height:1.6">
-                    Create a content folder to start managing documents, media, and encrypted files.
-                </p>
-                <div style="display:flex;gap:0.75rem;justify-content:center;flex-wrap:wrap">
-                    ${quickButtons}
-                </div>
-                <p style="color:var(--text-muted);margin-top:1.5rem;font-size:0.8rem">
-                    Or create any of: <code>${suggestions.join('</code>, <code>')}</code>
-                </p>
-            </div>`;
-    }
+// Restore navigation from hash sub-parts or default to first folder
+if (subParts && subParts.length > 0) {
+contentApplySubNav(subParts);
+} else {
+contentLoadFolder(contentFolders[0].path);
+}
+}
+contentLoaded = true;
+} catch (e) {
+browser.innerHTML = `<p class="empty-state" style="color:var(--error)">❌ ${esc(e.message)}</p>`;
+}
+}
 
 
-    // ═════════════════════════════════════════════════════════════════
-    //  Folder Bar & Selection
-    // ═════════════════════════════════════════════════════════════════
+// ═════════════════════════════════════════════════════════════════
+// Empty State
+// ═════════════════════════════════════════════════════════════════
 
-    function renderContentFolderBar() {
-        const bar = document.getElementById('content-folder-bar');
-        bar.style.display = 'block';
+function renderContentEmpty(suggestions) {
+const folderBar = document.getElementById('content-folder-bar');
+folderBar.style.display = 'none';
 
-        const select = document.getElementById('content-folder-select');
-        select.innerHTML = contentFolders.map(f =>
-            `<option value="${esc(f.path)}">${esc(f.name)} (${f.file_count} files)</option>`
-        ).join('');
-    }
+const browser = document.getElementById('content-browser');
 
-    async function contentToggleExploreAll(enabled) {
-        const select = document.getElementById('content-folder-select');
-        if (!enabled) {
-            // Revert to configured folders only
-            renderContentFolderBar();
-            // Re-select first configured folder if current isn't in the list
-            let found = false;
-            for (const opt of select.options) {
-                if (contentCurrentPath && contentCurrentPath.startsWith(opt.value)) {
-                    select.value = opt.value;
-                    found = true;
-                    break;
-                }
-            }
-            if (!found && contentFolders.length > 0) {
-                select.value = contentFolders[0].path;
-                contentLoadFolder(contentFolders[0].path);
-            }
-            return;
-        }
+let quickButtons = '';
+for (const name of suggestions.slice(0, 3)) {
+quickButtons += `
+<button class="btn btn-primary btn-sm" onclick="contentCreateFolder('${esc(name)}')" style="min-width:100px">
+    📁 Create <code>${esc(name)}/</code>
+</button>`;
+}
 
-        // Fetch all project folders
-        try {
-            const data = await api('/content/all-folders');
-            const allFolders = data.folders || [];
-            const configuredPaths = new Set(contentFolders.map(f => f.path));
+browser.innerHTML = `
+<div class="empty-state" style="padding:3rem 1rem">
+    <span style="font-size:3rem;display:block;margin-bottom:1rem">📂</span>
+    <h3 style="margin-bottom:0.75rem;color:var(--text-primary)">No content folders detected</h3>
+    <p style="color:var(--text-secondary);margin-bottom:1.5rem;max-width:400px;line-height:1.6">
+        Create a content folder to start managing documents, media, and encrypted files.
+    </p>
+    <div style="display:flex;gap:0.75rem;justify-content:center;flex-wrap:wrap">
+        ${quickButtons}
+    </div>
+    <p style="color:var(--text-muted);margin-top:1.5rem;font-size:0.8rem">
+        Or create any of: <code>${suggestions.join('</code>, <code>')}</code>
+    </p>
+</div>`;
+}
 
-            // Build options: configured first (with file counts), then additional
-            let html = '';
-            for (const f of contentFolders) {
-                html += `<option value="${esc(f.path)}">${esc(f.name)} (${f.file_count} files)</option>`;
-            }
-            const extras = allFolders.filter(f => !configuredPaths.has(f.path));
-            if (extras.length > 0) {
-                html += '<option disabled>──────────</option>';
-                for (const f of extras) {
-                    html += `<option value="${esc(f.path)}">🗂 ${esc(f.name)}</option>`;
-                }
-            }
-            select.innerHTML = html;
 
-            // Keep current selection
-            if (contentCurrentPath) {
-                for (const opt of select.options) {
-                    if (contentCurrentPath.startsWith(opt.value)) {
-                        select.value = opt.value;
-                        break;
-                    }
-                }
-            }
-        } catch (e) {
-            toast(`Failed to load folders: ${e.message}`, 'error');
-        }
-    }
+// ═════════════════════════════════════════════════════════════════
+// Folder Bar & Selection
+// ═════════════════════════════════════════════════════════════════
 
-    async function contentLoadFolder(folderPath) {
-        contentCurrentPath = folderPath;
-        // Clear file preview state so hash reverts to folder format
-        previewCurrentPath = '';
-        previewCurrentName = '';
-        contentUpdateHash();
-        const browser = document.getElementById('content-browser');
-        browser.innerHTML = '<p style="text-align:center;padding:2rem"><span class="spinner"></span></p>';
+function renderContentFolderBar() {
+const bar = document.getElementById('content-folder-bar');
+bar.style.display = 'block';
 
-        // Sync the folder selector — add temporary option if path is outside configured folders
-        const sel = document.getElementById('content-folder-select');
-        if (sel) {
-            const rootFolder = folderPath.split('/')[0];
-            let matched = false;
-            for (const opt of sel.options) {
-                if (folderPath.startsWith(opt.value)) {
-                    sel.value = opt.value;
-                    matched = true;
-                    break;
-                }
-            }
-            if (!matched && rootFolder) {
-                // Add a temporary option for out-of-context navigation
-                const tempOpt = document.createElement('option');
-                tempOpt.value = rootFolder;
-                tempOpt.textContent = `🔗 ${rootFolder}`;
-                tempOpt.dataset.temporary = 'true';
-                sel.appendChild(tempOpt);
-                sel.value = rootFolder;
-            }
-        }
+const select = document.getElementById('content-folder-select');
+select.innerHTML = contentFolders.map(f =>
+`<option value="${esc(f.path)}">${esc(f.name)} (${f.file_count} files)</option>`
+).join('');
+}
 
-        try {
-            let listUrl = `/content/list?path=${encodeURIComponent(folderPath)}`;
-            if (_contentMediaShowAll && contentCurrentMode === 'media') {
-                listUrl += '&recursive=true';
-            }
-            const data = await api(listUrl);
-            renderContentFiles(data, folderPath);
-        } catch (e) {
-            browser.innerHTML = `<p class="empty-state" style="color:var(--error)">❌ ${esc(e.message)}</p>`;
-        }
-    }
+async function contentToggleExploreAll(enabled) {
+const select = document.getElementById('content-folder-select');
+if (!enabled) {
+// Revert to configured folders only
+renderContentFolderBar();
+// Re-select first configured folder if current isn't in the list
+let found = false;
+for (const opt of select.options) {
+if (contentCurrentPath && contentCurrentPath.startsWith(opt.value)) {
+select.value = opt.value;
+found = true;
+break;
+}
+}
+if (!found && contentFolders.length > 0) {
+select.value = contentFolders[0].path;
+contentLoadFolder(contentFolders[0].path);
+}
+return;
+}
 
-    function contentSwitchMode(mode) {
-        // Clean up archive modals & polls before switching away
-        if (contentCurrentMode === 'archive' && mode !== 'archive') {
-            _archiveCleanup();
-        }
+// Fetch all project folders
+try {
+const data = await api('/content/all-folders');
+const allFolders = data.folders || [];
+const configuredPaths = new Set(contentFolders.map(f => f.path));
 
-        contentCurrentMode = mode;
-        document.querySelectorAll('.content-modes .content-mode').forEach(b => b.classList.remove('active'));
-        const btn = document.querySelector(`.content-modes .content-mode[data-mode="${mode}"]`);
-        if (btn) btn.classList.add('active');
+// Build options: configured first (with file counts), then additional
+let html = '';
+for (const f of contentFolders) {
+html += `<option value="${esc(f.path)}">${esc(f.name)} (${f.file_count} files)</option>`;
+}
+const extras = allFolders.filter(f => !configuredPaths.has(f.path));
+if (extras.length > 0) {
+html += '<option disabled>──────────</option>';
+for (const f of extras) {
+html += `<option value="${esc(f.path)}">🗂 ${esc(f.name)}</option>`;
+}
+}
+select.innerHTML = html;
 
-        // Show/hide upload button based on mode
-        const uploadBtn = document.getElementById('content-upload-btn');
-        if (uploadBtn) uploadBtn.style.display = (mode === 'media') ? '' : 'none';
+// Keep current selection
+if (contentCurrentPath) {
+for (const opt of select.options) {
+if (contentCurrentPath.startsWith(opt.value)) {
+select.value = opt.value;
+break;
+}
+}
+}
+} catch (e) {
+toast(`Failed to load folders: ${e.message}`, 'error');
+}
+}
 
-        contentUpdateHash();
+async function contentLoadFolder(folderPath) {
+contentCurrentPath = folderPath;
+// Clear file preview state so hash reverts to folder format
+previewCurrentPath = '';
+previewCurrentName = '';
+contentUpdateHash();
+const browser = document.getElementById('content-browser');
+browser.innerHTML = '<p style="text-align:center;padding:2rem"><span class="spinner"></span></p>';
 
-        if (mode === 'archive') {
-            // Archive mode: own panel with folder context selector
-            document.getElementById('content-folder-bar').style.display = 'none';
-            document.getElementById('content-breadcrumb').style.display = 'none';
-            renderArchivePanel();
-        } else {
-            // Show folder bar again
-            if (contentFolders.length > 0) {
-                document.getElementById('content-folder-bar').style.display = '';
-            }
-            document.getElementById('content-breadcrumb').style.display = '';
+// Sync the folder selector — add temporary option if path is outside configured folders
+const sel = document.getElementById('content-folder-select');
+if (sel) {
+const rootFolder = folderPath.split('/')[0];
+let matched = false;
+for (const opt of sel.options) {
+if (folderPath.startsWith(opt.value)) {
+sel.value = opt.value;
+matched = true;
+break;
+}
+}
+if (!matched && rootFolder) {
+// Add a temporary option for out-of-context navigation
+const tempOpt = document.createElement('option');
+tempOpt.value = rootFolder;
+tempOpt.textContent = `🔗 ${rootFolder}`;
+tempOpt.dataset.temporary = 'true';
+sel.appendChild(tempOpt);
+sel.value = rootFolder;
+}
+}
 
-            // Clear the browser immediately to remove any stale archive HTML
-            const browser = document.getElementById('content-browser');
-            browser.innerHTML = '<p style="text-align:center;padding:2rem"><span class="spinner"></span></p>';
+try {
+let listUrl = `/content/list?path=${encodeURIComponent(folderPath)}&check_release=true`;
+if (_contentMediaShowAll && contentCurrentMode === 'media') {
+listUrl += '&recursive=true';
+}
+const data = await api(listUrl);
+renderContentFiles(data, folderPath);
+} catch (e) {
+browser.innerHTML = `<p class="empty-state" style="color:var(--error)">❌ ${esc(e.message)}</p>`;
+}
+}
 
-            // Load folder — use current path if valid, otherwise first available folder
-            if (contentCurrentPath) {
-                contentLoadFolder(contentCurrentPath);
-            } else if (contentFolders.length > 0) {
-                contentLoadFolder(contentFolders[0].path);
-            }
-        }
-    }
+function contentSwitchMode(mode) {
+// Clean up archive modals & polls before switching away
+if (contentCurrentMode === 'archive' && mode !== 'archive') {
+_archiveCleanup();
+}
 
-    function _archiveCleanup() {
-        // Close all archive modals
-        const modalIds = ['bk-wipe-modal', 'bk-restore-modal', 'bk-release-modal',
-            'bk-delete-modal', 'bk-crypto-modal', 'bk-rename-modal'];
-        for (const id of modalIds) {
-            const m = document.getElementById(id);
-            if (m) m.style.display = 'none';
-        }
-        // Stop upload poll if running
-        if (_releasePollTimer) {
-            clearInterval(_releasePollTimer);
-            _releasePollTimer = null;
-        }
-    }
+contentCurrentMode = mode;
+document.querySelectorAll('.content-modes .content-mode').forEach(b => b.classList.remove('active'));
+const btn = document.querySelector(`.content-modes .content-mode[data-mode="${mode}"]`);
+if (btn) btn.classList.add('active');
 
-    // ── Navigation state in URL hash ───────────────────────────────
-    // Format: #content/MODE/FOLDER_OR_FILE_PATH[@viewmode]
-    // Examples:
-    //   #content/docs/docs                     → folder listing
-    //   #content/docs/docs/readme.md@preview    → file in rendered mode
-    //   #content/docs/docs/readme.md@raw        → file in raw mode
-    //   #content/docs/docs/readme.md@edit       → file in edit mode
-    //   #content/archive/backups                → archive with folder context
+// Show/hide upload button based on mode
+const uploadBtn = document.getElementById('content-upload-btn');
+if (uploadBtn) uploadBtn.style.display = (mode === 'media' || mode === 'docs') ? '' : 'none';
 
-    function contentUpdateHash() {
-        if (contentCurrentMode === 'archive') {
-            const parts = ['content', 'archive'];
-            if (_archiveSelectedFolder) parts.push(_archiveSelectedFolder);
-            history.replaceState(null, '', `#${parts.join('/')}`);
-            return;
-        }
-        // If previewing a file, encode file path + view mode
-        if (previewCurrentPath) {
-            let viewMode = 'preview';
-            if (previewEditMode) viewMode = 'edit';
-            else if (previewRawMode) viewMode = 'raw';
-            const parts = ['content', contentCurrentMode, previewCurrentPath + '@' + viewMode];
-            history.replaceState(null, '', `#${parts.join('/')}`);
-            return;
-        }
-        if (!contentCurrentPath) return;
-        const parts = ['content', contentCurrentMode, contentCurrentPath];
-        history.replaceState(null, '', `#${parts.join('/')}`);
-    }
+contentUpdateHash();
 
-    function contentApplySubNav(subParts) {
-        // subParts = [mode, ...rest]
-        if (subParts.length >= 1) {
-            const mode = subParts[0];
-            if (['docs', 'media', 'archive'].includes(mode)) {
-                contentCurrentMode = mode;
-                document.querySelectorAll('.content-modes .content-mode').forEach(b => b.classList.remove('active'));
-                const btn = document.querySelector(`.content-modes .content-mode[data-mode="${mode}"]`);
-                if (btn) btn.classList.add('active');
-                const uploadBtn = document.getElementById('content-upload-btn');
-                if (uploadBtn) uploadBtn.style.display = (mode === 'media') ? '' : 'none';
-            }
-        }
-        // Archive mode: own panel — read folder from hash
-        if (contentCurrentMode === 'archive') {
-            document.getElementById('content-folder-bar').style.display = 'none';
-            document.getElementById('content-breadcrumb').style.display = 'none';
-            if (subParts.length >= 2) {
-                _archiveSelectedFolder = subParts.slice(1).join('/');
-            }
-            renderArchivePanel();
-            return;
-        }
-        if (subParts.length >= 2) {
-            const rawPath = subParts.slice(1).join('/');
-            // Check for @viewmode suffix indicating a file preview
-            const atIdx = rawPath.lastIndexOf('@');
-            if (atIdx > 0) {
-                const filePath = rawPath.substring(0, atIdx);
-                const viewMode = rawPath.substring(atIdx + 1);
-                // Set the folder context from the file path (first segment)
-                const folderRoot = filePath.split('/')[0];
-                contentCurrentPath = folderRoot;
-                // Set view mode state before opening preview
-                if (viewMode === 'edit') {
-                    previewEditMode = true;
-                    previewRawMode = false;
-                } else if (viewMode === 'raw') {
-                    previewEditMode = false;
-                    previewRawMode = true;
-                } else {
-                    previewEditMode = false;
-                    previewRawMode = false;
-                }
-                // Sync folder bar
-                renderContentFolderBar();
-                const sel = document.getElementById('content-folder-select');
-                if (sel) {
-                    for (const opt of sel.options) {
-                        if (filePath.startsWith(opt.value)) { sel.value = opt.value; break; }
-                    }
-                }
-                document.getElementById('content-folder-bar').style.display = '';
-                // Determine if encrypted
-                if (filePath.endsWith('.enc')) {
-                    contentPreviewEncrypted(filePath, filePath.split('/').pop());
-                } else {
-                    contentPreviewFile(filePath, filePath.split('/').pop());
-                }
-                return;
-            }
-            contentLoadFolder(rawPath);
-        } else if (contentFolders.length > 0) {
-            contentLoadFolder(contentFolders[0].path);
-        }
-    }
+if (mode === 'archive') {
+// Archive mode: own panel with folder context selector
+document.getElementById('content-folder-bar').style.display = 'none';
+document.getElementById('content-breadcrumb').style.display = 'none';
+renderArchivePanel();
+} else {
+// Show folder bar again
+if (contentFolders.length > 0) {
+document.getElementById('content-folder-bar').style.display = '';
+}
+document.getElementById('content-breadcrumb').style.display = '';
 
-    async function contentRefresh() {
-        contentLoaded = false;
-        await loadContentTab();
-    }
+// Clear the browser immediately to remove any stale archive HTML
+const browser = document.getElementById('content-browser');
+browser.innerHTML = '<p style="text-align:center;padding:2rem"><span class="spinner"></span></p>';
 
+// Load folder — use current path if valid, otherwise first available folder
+if (contentCurrentPath) {
+contentLoadFolder(contentCurrentPath);
+} else if (contentFolders.length > 0) {
+contentLoadFolder(contentFolders[0].path);
+}
+}
+}
+
+function _archiveCleanup() {
+// Close all archive modals
+const modalIds = ['bk-wipe-modal', 'bk-restore-modal', 'bk-release-modal',
+'bk-delete-modal', 'bk-crypto-modal', 'bk-rename-modal'];
+for (const id of modalIds) {
+const m = document.getElementById(id);
+if (m) m.style.display = 'none';
+}
+// Stop upload poll if running
+if (_releasePollTimer) {
+clearInterval(_releasePollTimer);
+_releasePollTimer = null;
+}
+}
+
+// ── Navigation state in URL hash ───────────────────────────────
+// Format: #content/MODE/FOLDER_OR_FILE_PATH[@viewmode]
+// Examples:
+// #content/docs/docs → folder listing
+// #content/docs/docs/readme.md@preview → file in rendered mode
+// #content/docs/docs/readme.md@raw → file in raw mode
+// #content/docs/docs/readme.md@edit → file in edit mode
+// #content/archive/backups → archive with folder context
+
+function contentUpdateHash() {
+if (contentCurrentMode === 'archive') {
+const parts = ['content', 'archive'];
+if (_archiveSelectedFolder) parts.push(_archiveSelectedFolder);
+history.replaceState(null, '', `#${parts.join('/')}`);
+return;
+}
+// If previewing a file, encode file path + view mode
+if (previewCurrentPath) {
+let viewMode = 'preview';
+if (previewEditMode) viewMode = 'edit';
+else if (previewRawMode) viewMode = 'raw';
+const parts = ['content', contentCurrentMode, previewCurrentPath + '@' + viewMode];
+history.replaceState(null, '', `#${parts.join('/')}`);
+return;
+}
+if (!contentCurrentPath) return;
+const parts = ['content', contentCurrentMode, contentCurrentPath];
+history.replaceState(null, '', `#${parts.join('/')}`);
+}
+
+function contentApplySubNav(subParts) {
+// subParts = [mode, ...rest]
+if (subParts.length >= 1) {
+const mode = subParts[0];
+if (['docs', 'media', 'archive'].includes(mode)) {
+contentCurrentMode = mode;
+document.querySelectorAll('.content-modes .content-mode').forEach(b => b.classList.remove('active'));
+const btn = document.querySelector(`.content-modes .content-mode[data-mode="${mode}"]`);
+if (btn) btn.classList.add('active');
+const uploadBtn = document.getElementById('content-upload-btn');
+if (uploadBtn) uploadBtn.style.display = (mode === 'media' || mode === 'docs') ? '' : 'none';
+}
+}
+// Archive mode: own panel — read folder from hash
+if (contentCurrentMode === 'archive') {
+document.getElementById('content-folder-bar').style.display = 'none';
+document.getElementById('content-breadcrumb').style.display = 'none';
+if (subParts.length >= 2) {
+_archiveSelectedFolder = subParts.slice(1).join('/');
+}
+renderArchivePanel();
+return;
+}
+if (subParts.length >= 2) {
+const rawPath = subParts.slice(1).join('/');
+// Check for @viewmode suffix indicating a file preview
+const atIdx = rawPath.lastIndexOf('@');
+if (atIdx > 0) {
+const filePath = rawPath.substring(0, atIdx);
+const viewMode = rawPath.substring(atIdx + 1);
+// Set the folder context from the file path (first segment)
+const folderRoot = filePath.split('/')[0];
+contentCurrentPath = folderRoot;
+// Set view mode state before opening preview
+if (viewMode === 'edit') {
+previewEditMode = true;
+previewRawMode = false;
+} else if (viewMode === 'raw') {
+previewEditMode = false;
+previewRawMode = true;
+} else {
+previewEditMode = false;
+previewRawMode = false;
+}
+// Sync folder bar
+renderContentFolderBar();
+const sel = document.getElementById('content-folder-select');
+if (sel) {
+for (const opt of sel.options) {
+if (filePath.startsWith(opt.value)) { sel.value = opt.value; break; }
+}
+}
+document.getElementById('content-folder-bar').style.display = '';
+// Determine if encrypted
+if (filePath.endsWith('.enc')) {
+contentPreviewEncrypted(filePath, filePath.split('/').pop());
+} else {
+contentPreviewFile(filePath, filePath.split('/').pop());
+}
+return;
+}
+contentLoadFolder(rawPath);
+} else if (contentFolders.length > 0) {
+contentLoadFolder(contentFolders[0].path);
+}
+}
+
+async function contentRefresh() {
+contentLoaded = false;
+await loadContentTab();
+}

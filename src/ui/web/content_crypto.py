@@ -500,6 +500,7 @@ def list_folder_contents(
     folder: Path,
     project_root: Path,
     include_hidden: bool = False,
+    remote_assets: set[str] | None = None,
 ) -> list[dict]:
     """List files in a content folder with metadata.
 
@@ -559,6 +560,32 @@ def list_folder_contents(
         release_meta_path = f.parent / f"{f.name}.release.json"
         if release_meta_path.exists():
             entry["has_release"] = True
+            import json as _json
+            try:
+                _meta = _json.loads(release_meta_path.read_text())
+                _status = _meta.get("status", "unknown")
+                # Detect stale "uploading" — no active upload thread
+                if _status == "uploading":
+                    _fid = _meta.get("file_id", "")
+                    try:
+                        from .content_release import _release_upload_status
+                        live = _release_upload_status.get(_fid, {})
+                        if not live or live.get("status") not in ("uploading", "queued"):
+                            _status = "stale"
+                    except ImportError:
+                        _status = "stale"
+                entry["release_status"] = _status
+                # Orphan check: skip only genuinely in-progress uploads
+                if remote_assets is not None and _status not in ("uploading",):
+                    _asset = (
+                        _meta.get("old_asset_name")
+                        or _meta.get("asset_name")
+                        or f.name
+                    )
+                    if _asset not in remote_assets:
+                        entry["release_orphaned"] = True
+            except Exception:
+                entry["release_status"] = "unknown"
 
         files.append(entry)
 
@@ -595,6 +622,7 @@ def list_folder_contents_recursive(
     folder: Path,
     project_root: Path,
     include_hidden: bool = False,
+    remote_assets: set[str] | None = None,
 ) -> list[dict]:
     """Recursively list all files under a folder, plus immediate subdirs.
 
@@ -647,6 +675,32 @@ def list_folder_contents_recursive(
         release_meta_path = f.parent / f"{f.name}.release.json"
         if release_meta_path.exists():
             entry["has_release"] = True
+            import json as _json
+            try:
+                _meta = _json.loads(release_meta_path.read_text())
+                _status = _meta.get("status", "unknown")
+                # Detect stale "uploading" — no active upload thread
+                if _status == "uploading":
+                    _fid = _meta.get("file_id", "")
+                    try:
+                        from .content_release import _release_upload_status
+                        live = _release_upload_status.get(_fid, {})
+                        if not live or live.get("status") not in ("uploading", "queued"):
+                            _status = "stale"
+                    except ImportError:
+                        _status = "stale"
+                entry["release_status"] = _status
+                # Orphan check: skip only genuinely in-progress uploads
+                if remote_assets is not None and _status not in ("uploading",):
+                    _asset = (
+                        _meta.get("old_asset_name")
+                        or _meta.get("asset_name")
+                        or f.name
+                    )
+                    if _asset not in remote_assets:
+                        entry["release_orphaned"] = True
+            except Exception:
+                entry["release_status"] = "unknown"
 
         files.append(entry)
 

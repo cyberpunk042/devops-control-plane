@@ -207,26 +207,48 @@ confirmBtn.textContent = '🗑️ Delete';
 }
 }
 
+// ── Delete release artifact (modal) ────────────────────────
+let _releaseDeletePath = '';
+let _releaseDeleteName = '';
+
 async function contentDeleteRelease(path, name) {
-if (!confirm(`Remove the GitHub Release artifact for "${name}"?\n\nThis only removes the remote artifact — the local
-file stays.`)) {
-return;
+_releaseDeletePath = path;
+_releaseDeleteName = name;
+const modal = document.getElementById('ct-release-delete-modal');
+const info = document.getElementById('ct-release-delete-modal-info');
+const status = document.getElementById('ct-release-delete-modal-status');
+const btn = document.getElementById('ct-release-delete-confirm-btn');
+info.innerHTML = `Remove the GitHub Release artifact for <strong>${esc(name)}</strong>?<br><br><code style="font-size:0.82rem;word-break:break-all">${esc(path)}</code>`;
+status.style.display = 'none';
+btn.disabled = false;
+btn.textContent = '☁️✕ Delete artifact';
+modal.style.display = 'flex';
 }
+
+async function contentDoDeleteReleaseConfirm() {
+const modal = document.getElementById('ct-release-delete-modal');
+const status = document.getElementById('ct-release-delete-modal-status');
+const btn = document.getElementById('ct-release-delete-confirm-btn');
+btn.disabled = true;
+btn.textContent = '⏳ Deleting…';
+status.style.display = 'block';
+status.innerHTML = '<span class="spinner"></span> Removing release artifact…';
 try {
-toast('Removing release artifact…', 'success');
 await api('/backup/delete-release', {
 method: 'POST',
-body: JSON.stringify({ path }),
+body: JSON.stringify({ path: _releaseDeletePath }),
 });
+modal.style.display = 'none';
 toast('Release artifact removed', 'success');
-// Stay in preview if we're previewing this file
-if (previewCurrentPath && previewCurrentPath === path) {
+if (previewCurrentPath && previewCurrentPath === _releaseDeletePath) {
 contentPreviewFile(previewCurrentPath, previewCurrentName, false);
 } else {
 await contentLoadFolder(contentCurrentPath);
 }
 } catch (e) {
-toast(`Failed: ${e.message}`, 'error');
+status.innerHTML = `<span style="color:var(--error)">❌ ${esc(e.message)}</span>`;
+btn.disabled = false;
+btn.textContent = '☁️✕ Delete artifact';
 }
 }
 
@@ -238,13 +260,144 @@ method: 'POST',
 body: JSON.stringify({ path }),
 });
 toast(result.message || 'Upload started', 'success');
-// Stay in preview if we're previewing this file
-if (previewCurrentPath && previewCurrentPath === path) {
-setTimeout(() => contentPreviewFile(previewCurrentPath, previewCurrentName, true), 1500);
+// Clear orphan bar immediately if visible
+const orphanBar = document.getElementById('content-preview-orphan-bar');
+if (orphanBar) orphanBar.style.display = 'none';
+// Poll status until done
+if (result.file_id) {
+    _pollUploadStatus(result.file_id, path);
 } else {
-setTimeout(() => contentLoadFolder(contentCurrentPath), 1500);
+    // fallback: refresh after delay
+    setTimeout(() => {
+        if (previewCurrentPath && previewCurrentPath === path) {
+            contentPreviewFile(previewCurrentPath, previewCurrentName, true);
+        } else {
+            contentLoadFolder(contentCurrentPath);
+        }
+    }, 3000);
 }
 } catch (e) {
 toast(`Upload failed: ${e.message}`, 'error');
+}
+}
+
+async function _pollUploadStatus(fileId, path) {
+const poll = async () => {
+    try {
+        const s = await api(`/content/release-status/${fileId}`);
+        if (s.status === 'done') {
+            toast(s.message || 'Upload complete ✅', 'success');
+            // Refresh to show updated badge
+            if (previewCurrentPath && previewCurrentPath === path) {
+                contentPreviewFile(previewCurrentPath, previewCurrentName, true);
+            } else {
+                contentLoadFolder(contentCurrentPath);
+            }
+            return;
+        }
+        if (s.status === 'failed') {
+            toast(`Upload failed: ${s.message}`, 'error');
+            if (previewCurrentPath && previewCurrentPath === path) {
+                contentPreviewFile(previewCurrentPath, previewCurrentName, true);
+            }
+            return;
+        }
+        // Still uploading — poll again
+        setTimeout(poll, 2000);
+    } catch {
+        // Status endpoint errored — stop polling
+        setTimeout(() => {
+            if (previewCurrentPath && previewCurrentPath === path) {
+                contentPreviewFile(previewCurrentPath, previewCurrentName, true);
+            }
+        }, 3000);
+    }
+};
+setTimeout(poll, 2000);
+}
+
+// ── Orphaned release fix (modal chooser) ──────────────────
+let _orphanFixPath = '';
+let _orphanFixName = '';
+
+function contentFixOrphanedRelease(path, name) {
+_orphanFixPath = path;
+_orphanFixName = name;
+const modal = document.getElementById('ct-orphan-modal');
+const info = document.getElementById('ct-orphan-modal-info');
+const status = document.getElementById('ct-orphan-modal-status');
+const cleanBtn = document.getElementById('ct-orphan-clean-btn');
+const reuploadBtn = document.getElementById('ct-orphan-reupload-btn');
+info.innerHTML = `File: <strong>${esc(name)}</strong><br><code style="font-size:0.82rem;word-break:break-all">${esc(path)}</code>`;
+status.style.display = 'none';
+cleanBtn.disabled = false;
+cleanBtn.textContent = '🗑️ Clean sidecar';
+reuploadBtn.disabled = false;
+reuploadBtn.textContent = '⬆️ Re-upload';
+modal.style.display = 'flex';
+}
+
+async function contentDoReuploadOrphan() {
+const modal = document.getElementById('ct-orphan-modal');
+const status = document.getElementById('ct-orphan-modal-status');
+const btn = document.getElementById('ct-orphan-reupload-btn');
+btn.disabled = true;
+btn.textContent = '⏳ Uploading…';
+status.style.display = 'block';
+status.innerHTML = '<span class="spinner"></span> Re-uploading to release…';
+try {
+const result = await api('/backup/upload-release', {
+method: 'POST',
+body: JSON.stringify({ path: _orphanFixPath }),
+});
+modal.style.display = 'none';
+toast(result.message || 'Re-upload started', 'success');
+const orphanBar = document.getElementById('content-preview-orphan-bar');
+if (orphanBar) orphanBar.style.display = 'none';
+// Poll status until done
+if (result.file_id) {
+    _pollUploadStatus(result.file_id, _orphanFixPath);
+} else {
+    setTimeout(() => {
+        if (previewCurrentPath && previewCurrentPath === _orphanFixPath) {
+            contentPreviewFile(previewCurrentPath, previewCurrentName, true);
+        } else {
+            contentLoadFolder(contentCurrentPath);
+        }
+    }, 3000);
+}
+} catch (e) {
+status.innerHTML = `<span style="color:var(--error)">❌ ${esc(e.message)}</span>`;
+btn.disabled = false;
+btn.textContent = '⬆️ Re-upload';
+}
+}
+
+async function contentDoCleanOrphan() {
+const modal = document.getElementById('ct-orphan-modal');
+const status = document.getElementById('ct-orphan-modal-status');
+const btn = document.getElementById('ct-orphan-clean-btn');
+btn.disabled = true;
+btn.textContent = '⏳ Cleaning…';
+status.style.display = 'block';
+status.innerHTML = '<span class="spinner"></span> Removing stale sidecar…';
+try {
+await api('/content/clean-release-sidecar', {
+method: 'POST',
+body: JSON.stringify({ path: _orphanFixPath }),
+});
+modal.style.display = 'none';
+toast('Sidecar cleaned', 'success');
+const orphanBar = document.getElementById('content-preview-orphan-bar');
+if (orphanBar) orphanBar.style.display = 'none';
+if (previewCurrentPath && previewCurrentPath === _orphanFixPath) {
+contentPreviewFile(previewCurrentPath, previewCurrentName, false);
+} else {
+await contentLoadFolder(contentCurrentPath);
+}
+} catch (e) {
+status.innerHTML = `<span style="color:var(--error)">❌ ${esc(e.message)}</span>`;
+btn.disabled = false;
+btn.textContent = '🗑️ Clean sidecar';
 }
 }

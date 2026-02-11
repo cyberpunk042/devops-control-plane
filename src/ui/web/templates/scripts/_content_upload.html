@@ -260,11 +260,33 @@
         showToast('Upload cancelled', 'info');
     }
 
+    let _contentShowUploadPending = false;
+
     function contentShowUpload() {
         const zone = document.getElementById('content-upload-zone');
         if (zone) {
             zone.style.display = zone.style.display === 'none' ? 'block' : 'none';
+            return;
         }
+        // Upload zone not in DOM — either in preview or not yet rendered.
+        // Close preview if open, then wait for the zone to appear.
+        _contentShowUploadPending = true;
+        if (previewCurrentPath) {
+            contentClosePreview();
+        } else if (contentCurrentPath) {
+            contentLoadFolder(contentCurrentPath);
+        }
+        const observer = new MutationObserver(() => {
+            const z = document.getElementById('content-upload-zone');
+            if (z) {
+                observer.disconnect();
+                z.style.display = 'block';
+                _contentShowUploadPending = false;
+            }
+        });
+        const browser = document.getElementById('content-browser');
+        if (browser) observer.observe(browser, { childList: true, subtree: true });
+        setTimeout(() => { observer.disconnect(); _contentShowUploadPending = false; }, 3000);
     }
 
     function contentInitDragDrop() {

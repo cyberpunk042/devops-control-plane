@@ -209,7 +209,7 @@
         if (!container) return;
 
         try {
-            const data = await api(`/backup/list?path=${encodeURIComponent(_archiveSelectedFolder)}`);
+            const data = await api(`/backup/list?path=${encodeURIComponent(_archiveSelectedFolder)}&check_release=true`);
 
             if (!data.backups || !data.backups.length) {
                 container.innerHTML = '<em style="color:var(--text-muted)">No backups yet. Use "Backup selected" below to create one.</em>';
@@ -232,7 +232,9 @@
                 let badges = '';
                 if (b.encrypted) badges += ' 🔒';
                 if (b.git_tracked) badges += ' <span title="Git-tracked (special)" style="font-size:0.72rem;background:#8b5cf6;color:#fff;padding:1px 5px;border-radius:3px">⭐ Git</span>';
-                if (b.release) {
+                if (b.release_orphaned) {
+                    badges += ' <span title="Release asset missing from GitHub" style="font-size:0.72rem;background:#f59e0b;color:#000;padding:1px 5px;border-radius:3px">⚠️ Orphaned</span>';
+                } else if (b.release) {
                     const rStatus = b.release.status || 'unknown';
                     if (rStatus === 'done') badges += ' <span title="Uploaded to GitHub Release" style="font-size:0.72rem;background:#22c55e;color:#fff;padding:1px 5px;border-radius:3px">🟢 Release</span>';
                     else if (rStatus === 'uploading') badges += ' <span title="Upload in progress" style="font-size:0.72rem;background:#eab308;color:#000;padding:1px 5px;border-radius:3px">🟡 Uploading</span>';
@@ -347,7 +349,11 @@
         const paths = Array.from(cbs).map(cb => cb.dataset.path);
 
         if (!paths.length) { toast('No files selected', 'error'); return; }
-        if (!confirm(`⚠️ Restore ${paths.length} file(s) from backup?\n\nThis will OVERWRITE existing files.\n\nProceed?`)) return;
+        const ok = await _archiveConfirmAction(
+            '⚠️ Restore from backup',
+            `<strong>${paths.length} file(s)</strong> will be restored from this backup.<br><br>This will <strong>OVERWRITE</strong> existing files. Proceed?`
+        );
+        if (!ok) return;
 
         try {
             const result = await api('/backup/restore', {
@@ -370,7 +376,11 @@
 
 
     async function archiveDoImportFrom(backupPath) {
-        if (!confirm('📤 Import files?\n\nNew files will be added.\nExisting files will NOT be overwritten.\n\nProceed?')) return;
+        const ok = await _archiveConfirmAction(
+            '📤 Import files',
+            'New files will be added.<br>Existing files will <strong>NOT</strong> be overwritten.<br><br>Proceed?'
+        );
+        if (!ok) return;
 
         try {
             const result = await api('/backup/import', {
@@ -388,6 +398,45 @@
             }
         } catch (e) {
             toast(e.message, 'error');
+        }
+    }
+
+
+    // ── Generic confirm modal (replaces native confirm()) ──────
+    let _archiveConfirmResolve = null;
+
+    function _archiveConfirmAction(title, bodyHtml) {
+        return new Promise(resolve => {
+            _archiveConfirmResolve = resolve;
+            let modal = document.getElementById('bk-generic-confirm-modal');
+            if (!modal) {
+                document.body.insertAdjacentHTML('beforeend', `
+                <div id="bk-generic-confirm-modal" style="display:none;position:fixed;inset:0;z-index:9999;
+                    background:rgba(0,0,0,0.6);backdrop-filter:blur(4px);align-items:center;justify-content:center">
+                    <div style="background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:16px;
+                        padding:2rem;max-width:480px;width:90%;box-shadow:0 20px 60px rgba(0,0,0,0.4)">
+                        <div id="bk-generic-confirm-title" style="font-size:1.2rem;margin-bottom:0.75rem"></div>
+                        <div id="bk-generic-confirm-body" style="color:var(--text-secondary);font-size:0.9rem;line-height:1.6;margin-bottom:1.25rem"></div>
+                        <div style="display:flex;gap:0.5rem;justify-content:flex-end">
+                            <button class="btn btn-secondary" onclick="_archiveConfirmResult(false)">Cancel</button>
+                            <button class="btn btn-primary" onclick="_archiveConfirmResult(true)">Confirm</button>
+                        </div>
+                    </div>
+                </div>`);
+                modal = document.getElementById('bk-generic-confirm-modal');
+            }
+            document.getElementById('bk-generic-confirm-title').innerHTML = title;
+            document.getElementById('bk-generic-confirm-body').innerHTML = bodyHtml;
+            modal.style.display = 'flex';
+        });
+    }
+
+    function _archiveConfirmResult(ok) {
+        const modal = document.getElementById('bk-generic-confirm-modal');
+        if (modal) modal.style.display = 'none';
+        if (_archiveConfirmResolve) {
+            _archiveConfirmResolve(ok);
+            _archiveConfirmResolve = null;
         }
     }
 
