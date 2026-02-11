@@ -1,0 +1,393 @@
+    // ─────────────────────────────────────────────────────────────────
+    //  _content_archive_actions.html
+    //  Content Vault — Archive non-modal actions
+    //  Mark as git-tracked, delete release artifact,
+    //  upload to release, list local backups, browse/selective restore
+    //  Included by: _content.html (Jinja2 include)
+    // ─────────────────────────────────────────────────────────────────
+
+
+    // ── Mark as special (git-tracked) ─────────────────────────
+
+    async function archiveMarkSpecial(backupPath, isTracked) {
+        // This one is simple enough to keep as a quick action with a toast
+        const action = isTracked ? 'Remove from' : 'Add to';
+        try {
+            const result = await api('/backup/mark-special', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ backup_path: backupPath, unmark: isTracked }),
+            });
+            if (result.success) {
+                toast(result.message, 'success');
+                archiveLoadList();
+            } else {
+                toast(result.error || 'Failed', 'error');
+            }
+        } catch (e) {
+            toast(e.message, 'error');
+        }
+    }
+
+
+    // ── Delete release artifact ───────────────────────────────
+
+    function archiveDeleteRelease(backupPath) {
+        // Re-use the delete modal in release-only mode
+        _deleteBackupPath = backupPath;
+        _deleteHasRelease = true;
+
+        const modal = document.getElementById('bk-delete-modal');
+        const info = document.getElementById('bk-delete-modal-info');
+        const releaseOpt = document.getElementById('bk-delete-modal-release-opt');
+        const status = document.getElementById('bk-delete-modal-status');
+        const confirmBtn = document.getElementById('bk-delete-confirm-btn');
+
+        info.innerHTML = `Delete the <strong>GitHub Release artifact</strong> for this backup?<br><br><code style="font-size:0.82rem;word-break:break-all">${esc(backupPath)}</code><br><br>The local backup file will <strong>not</strong> be deleted.`;
+        releaseOpt.style.display = 'none'; // no checkbox needed — this IS the release delete
+        status.style.display = 'none';
+        confirmBtn.disabled = false;
+        confirmBtn.textContent = '🚀🗑️ Delete artifact';
+
+        // Override the confirm to only delete the release
+        confirmBtn.onclick = async function () {
+            confirmBtn.disabled = true;
+            confirmBtn.textContent = '⏳ Deleting…';
+            status.style.display = 'block';
+            status.innerHTML = '<span class="spinner"></span> Removing release artifact…';
+            try {
+                const result = await api('/backup/delete-release', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ backup_path: backupPath }),
+                });
+                if (result.success) {
+                    modal.style.display = 'none';
+                    toast(result.message, 'success');
+                    archiveLoadList();
+                } else {
+                    status.innerHTML = `<span style="color:var(--error)">❌ ${esc(result.error)}</span>`;
+                    confirmBtn.disabled = false;
+                    confirmBtn.textContent = '🚀🗑️ Delete artifact';
+                }
+            } catch (e) {
+                status.innerHTML = `<span style="color:var(--error)">❌ ${esc(e.message)}</span>`;
+                confirmBtn.disabled = false;
+                confirmBtn.textContent = '🚀🗑️ Delete artifact';
+            }
+            // Restore original handler
+            confirmBtn.onclick = archiveDoDeleteConfirm;
+        };
+
+        modal.style.display = 'flex';
+    }
+
+
+    // ── Upload to Release (modal) ────────────────────────────
+
+    let _releaseBackupPath = '';
+    let _releaseFileId = '';
+    let _releasePollTimer = null;
+
+    function archiveUploadToRelease(backupPath) {
+        _releaseBackupPath = backupPath;
+
+        const modal = document.getElementById('bk-release-modal');
+        const info = document.getElementById('bk-release-modal-info');
+        const progress = document.getElementById('bk-release-modal-progress');
+        const result = document.getElementById('bk-release-modal-result');
+        const confirmBtn = document.getElementById('bk-release-confirm-btn');
+        const closeBtn = document.getElementById('bk-release-close-btn');
+
+        const filename = backupPath.split('/').pop();
+        info.innerHTML = `Push <strong>${esc(filename)}</strong> to a GitHub Release as a downloadable artifact.<br><br>Path: <code>${esc(backupPath)}</code>`;
+        progress.style.display = 'none';
+        result.style.display = 'none';
+        confirmBtn.style.display = '';
+        confirmBtn.disabled = false;
+        confirmBtn.textContent = '🚀 Upload';
+        modal.style.display = 'flex';
+    }
+
+    async function archiveDoUploadRelease() {
+        const confirmBtn = document.getElementById('bk-release-confirm-btn');
+        const progress = document.getElementById('bk-release-modal-progress');
+        const statusText = document.getElementById('bk-release-modal-status-text');
+        const bar = document.getElementById('bk-release-modal-bar');
+        const result = document.getElementById('bk-release-modal-result');
+
+        confirmBtn.disabled = true;
+        confirmBtn.textContent = '⏳ Starting…';
+        progress.style.display = 'block';
+        result.style.display = 'none';
+        bar.style.width = '0%';
+        statusText.textContent = 'Starting upload…';
+
+        try {
+            const data = await api('/backup/upload-release', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ backup_path: _releaseBackupPath }),
+            });
+
+            if (!data.success) {
+                progress.style.display = 'none';
+                result.style.display = 'block';
+                result.innerHTML = `<span style="color:var(--error)">❌ ${esc(data.error)}</span>`;
+                confirmBtn.disabled = false;
+                confirmBtn.textContent = '🚀 Upload';
+                return;
+            }
+
+            _releaseFileId = data.file_id;
+            confirmBtn.style.display = 'none';
+            bar.style.width = '10%';
+            statusText.textContent = 'Upload in progress…';
+
+            // Start polling for status
+            _releasePollTimer = setInterval(() => _pollReleaseStatus(), 2000);
+        } catch (e) {
+            progress.style.display = 'none';
+            result.style.display = 'block';
+            result.innerHTML = `<span style="color:var(--error)">❌ ${esc(e.message)}</span>`;
+            confirmBtn.disabled = false;
+            confirmBtn.textContent = '🚀 Upload';
+        }
+    }
+
+    async function _pollReleaseStatus() {
+        const statusText = document.getElementById('bk-release-modal-status-text');
+        const bar = document.getElementById('bk-release-modal-bar');
+        const progress = document.getElementById('bk-release-modal-progress');
+        const result = document.getElementById('bk-release-modal-result');
+
+        try {
+            const data = await api(`/content/release-status/${_releaseFileId}`);
+            const st = data.status || 'unknown';
+
+            if (st === 'uploading' || st === 'pending') {
+                const pct = data.progress_pct || 0;
+                bar.style.width = `${Math.min(pct, 95)}%`;
+                statusText.textContent = data.message || `Uploading… ${pct}%`;
+            } else if (st === 'done' || st === 'complete') {
+                clearInterval(_releasePollTimer);
+                _releasePollTimer = null;
+                bar.style.width = '100%';
+                statusText.textContent = 'Complete!';
+
+                setTimeout(() => {
+                    progress.style.display = 'none';
+                    result.style.display = 'block';
+                    let html = `✅ <strong>Upload complete!</strong>`;
+                    if (data.url) html += `<br><a href="${esc(data.url)}" target="_blank" style="color:var(--accent-primary)">View release →</a>`;
+                    if (data.download_url) html += `<br><a href="${esc(data.download_url)}" target="_blank" style="color:var(--accent-primary)">Download link →</a>`;
+                    result.innerHTML = html;
+                }, 500);
+                toast('Release upload done!', 'success');
+                // Refresh list so the release badge appears immediately
+                archiveLoadList();
+            } else if (st === 'error' || st === 'failed') {
+                clearInterval(_releasePollTimer);
+                _releasePollTimer = null;
+                progress.style.display = 'none';
+                result.style.display = 'block';
+                result.innerHTML = `<span style="color:var(--error)">❌ ${esc(data.error || 'Upload failed')}</span>`;
+                // Refresh list to sync state
+                archiveLoadList();
+            }
+            // else keep polling
+        } catch (e) {
+            // Network error; keep trying
+        }
+    }
+
+
+    // ── List local .backup/ archives ──────────────────────────
+
+    async function archiveLoadList() {
+        const container = document.getElementById('bk-local-list');
+        if (!container) return;
+
+        try {
+            const data = await api(`/backup/list?path=${encodeURIComponent(_archiveSelectedFolder)}`);
+
+            if (!data.backups || !data.backups.length) {
+                container.innerHTML = '<em style="color:var(--text-muted)">No backups yet. Use "Backup selected" below to create one.</em>';
+                return;
+            }
+
+            let html = '';
+            for (const b of data.backups) {
+                const sizeKB = (b.size_bytes / 1024).toFixed(1);
+                const m = b.manifest || {};
+                const stats = m.stats || {};
+                const trigger = m.trigger || '';
+                const created = m.created_at ? new Date(m.created_at).toLocaleString() : (m.manifest?.created_at ? new Date(m.manifest.created_at).toLocaleString() : '?');
+                const fileCount = stats.total_files || (m.files || []).length || '?';
+                const bkId = esc(b.full_path).replace(/[^a-zA-Z0-9]/g, '_');
+                const hasRelease = !!b.release;
+                const escapedPath = esc(b.full_path).replace(/'/g, "\\'");
+
+                // Status badges
+                let badges = '';
+                if (b.encrypted) badges += ' 🔒';
+                if (b.git_tracked) badges += ' <span title="Git-tracked (special)" style="font-size:0.72rem;background:#8b5cf6;color:#fff;padding:1px 5px;border-radius:3px">⭐ Git</span>';
+                if (b.release) {
+                    const rStatus = b.release.status || 'unknown';
+                    if (rStatus === 'done') badges += ' <span title="Uploaded to GitHub Release" style="font-size:0.72rem;background:#22c55e;color:#fff;padding:1px 5px;border-radius:3px">🟢 Release</span>';
+                    else if (rStatus === 'uploading') badges += ' <span title="Upload in progress" style="font-size:0.72rem;background:#eab308;color:#000;padding:1px 5px;border-radius:3px">🟡 Uploading</span>';
+                    else badges += ' <span title="Release status: ' + rStatus + '" style="font-size:0.72rem;background:var(--text-muted);color:#fff;padding:1px 5px;border-radius:3px">⚪ ' + rStatus + '</span>';
+                }
+
+                html += `<div style="padding:0.6rem 0;border-bottom:1px solid var(--border-subtle)">`;
+                html += `<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:0.5rem">`;
+                html += `<div style="min-width:0;flex:1">`;
+                html += `<strong style="color:var(--text-primary)">📦 ${esc(b.filename)}</strong>`;
+                html += ` <span style="color:var(--text-muted);font-size:0.8rem">(${sizeKB} KB)</span>`;
+                html += `${badges}<br>`;
+                html += `<span style="font-size:0.8rem;color:var(--text-muted)">${fileCount} files`;
+                if (trigger) html += ` · ${esc(trigger)}`;
+                html += ` · ${created}</span>`;
+                html += `</div>`;
+
+                // Action buttons
+                html += `<div style="display:flex;flex-direction:column;gap:3px;flex-shrink:0">`;
+                // Row 1: core actions
+                html += `<div style="display:flex;gap:3px">`;
+                html += `<button class="btn btn-primary btn-sm" style="font-size:0.75rem;padding:0.2rem 0.45rem" title="Restore (modal)" onclick="archiveDoRestoreFrom('${escapedPath}')">♻️</button>`;
+                html += `<button class="btn btn-secondary btn-sm" style="font-size:0.75rem;padding:0.2rem 0.45rem" title="Browse contents" onclick="archiveBrowseBackup('${escapedPath}', '${bkId}')">📂</button>`;
+                html += `<a href="/api/backup/download/${esc(b.full_path)}" class="btn btn-secondary btn-sm" style="font-size:0.75rem;padding:0.2rem 0.45rem" title="Download" download>💾</a>`;
+                html += `<button class="btn btn-secondary btn-sm" style="font-size:0.75rem;padding:0.2rem 0.45rem" title="Rename" onclick="archiveRenameBackup('${escapedPath}', '${esc(b.filename)}', ${hasRelease})">✏️</button>`;
+                html += `<button class="btn btn-secondary btn-sm" style="font-size:0.75rem;padding:0.2rem 0.45rem;color:var(--error)" title="Delete backup" onclick="archiveDeleteBackup('${escapedPath}', ${hasRelease})">🗑️</button>`;
+                html += `</div>`;
+                // Row 2: crypto + release + git
+                html += `<div style="display:flex;gap:3px">`;
+                if (b.encrypted) {
+                    html += `<button class="btn btn-secondary btn-sm" style="font-size:0.75rem;padding:0.2rem 0.45rem" title="Decrypt backup" onclick="archiveToggleCrypto('${escapedPath}', false, ${hasRelease})">🔓</button>`;
+                } else {
+                    html += `<button class="btn btn-secondary btn-sm" style="font-size:0.75rem;padding:0.2rem 0.45rem" title="Encrypt backup" onclick="archiveToggleCrypto('${escapedPath}', true, ${hasRelease})">🔒</button>`;
+                }
+                html += `<button class="btn btn-secondary btn-sm" style="font-size:0.75rem;padding:0.2rem 0.45rem" title="Upload to GitHub Release" onclick="archiveUploadToRelease('${escapedPath}')">🚀</button>`;
+                if (b.release) {
+                    html += `<button class="btn btn-secondary btn-sm" style="font-size:0.75rem;padding:0.2rem 0.45rem;color:var(--error)" title="Delete release artifact" onclick="archiveDeleteRelease('${escapedPath}')">🚀🗑️</button>`;
+                }
+                html += `<button class="btn btn-secondary btn-sm" style="font-size:0.75rem;padding:0.2rem 0.45rem" title="${b.git_tracked ? 'Remove from git tracking' : 'Add to git (force, ≤25MB)'}" onclick="archiveMarkSpecial('${escapedPath}', ${!!b.git_tracked})">${b.git_tracked ? '⭐' : '☆'}</button>`;
+                html += `</div>`;
+                html += `</div></div>`;
+
+                html += `<div id="bk-browse-${bkId}" style="display:none;margin-top:0.5rem;padding:0.75rem;background:var(--bg-tertiary);border:1px solid var(--border-subtle);border-radius:8px"></div>`;
+                html += `</div>`;
+            }
+
+            container.innerHTML = html;
+        } catch (e) {
+            container.innerHTML = `<span style="color:var(--error)">Error: ${esc(e.message)}</span>`;
+        }
+    }
+
+
+    // ── Browse backup contents (selective restore) ────────────
+
+    async function archiveBrowseBackup(backupPath, bkId) {
+        const panel = document.getElementById('bk-browse-' + bkId);
+        if (!panel) return;
+
+        if (panel.style.display !== 'none') {
+            panel.style.display = 'none';
+            return;
+        }
+
+        panel.style.display = 'block';
+        panel.innerHTML = '<span class="spinner"></span> Loading archive contents…';
+
+        try {
+            const data = await api(`/backup/preview?path=${encodeURIComponent(backupPath)}`);
+            const files = data.files || [];
+
+            if (!files.length) {
+                panel.innerHTML = '<em style="color:var(--text-muted)">No files in this archive.</em>';
+                return;
+            }
+
+            let html = '<div style="margin-bottom:0.5rem;display:flex;align-items:center;gap:0.75rem">';
+            html += `<button class="btn btn-secondary btn-sm" onclick="document.querySelectorAll('#bk-browse-${bkId} .bk-restore-cb').forEach(c=>c.checked=true)" style="font-size:0.75rem;padding:0.2rem 0.5rem">☑ All</button>`;
+            html += `<button class="btn btn-secondary btn-sm" onclick="document.querySelectorAll('#bk-browse-${bkId} .bk-restore-cb').forEach(c=>c.checked=false)" style="font-size:0.75rem;padding:0.2rem 0.5rem">☐ None</button>`;
+            html += `<span style="font-size:0.8rem;color:var(--text-muted);margin-left:auto">${files.length} file(s)</span>`;
+            html += '</div>';
+
+            html += '<div style="max-height:250px;overflow-y:auto;font-size:0.82rem;line-height:1.5">';
+            for (const f of files) {
+                const icon = _archiveTypeIcons[f.type] || '📄';
+                const sizeStr = f.size < 1024 ? `${f.size} B`
+                    : f.size < 1048576 ? `${(f.size / 1024).toFixed(1)} KB`
+                        : `${(f.size / 1048576).toFixed(1)} MB`;
+                html += `<div style="display:flex;align-items:center;gap:0.4rem;padding:2px 0">`;
+                html += `<input type="checkbox" class="bk-restore-cb" data-path="${esc(f.path)}" checked style="width:14px;height:14px;accent-color:var(--accent-primary);flex-shrink:0">`;
+                html += `<span>${icon} ${esc(f.path)}</span>`;
+                html += `<span style="color:var(--text-muted);font-size:0.75rem;margin-left:auto">${sizeStr}</span>`;
+                html += `</div>`;
+            }
+            html += '</div>';
+
+            html += '<div style="display:flex;gap:0.5rem;margin-top:0.75rem;justify-content:flex-end">';
+            html += `<button class="btn btn-primary btn-sm" onclick="archiveDoSelectiveRestore('${esc(backupPath)}', '${bkId}')" style="min-width:140px">♻️ Restore selected</button>`;
+            html += `<button class="btn btn-secondary btn-sm" onclick="archiveDoImportFrom('${esc(backupPath)}')" style="min-width:140px">📤 Import (additive)</button>`;
+            html += '</div>';
+
+            panel.innerHTML = html;
+        } catch (e) {
+            panel.innerHTML = `<span style="color:var(--error)">❌ ${esc(e.message)}</span>`;
+        }
+    }
+
+
+    async function archiveDoSelectiveRestore(backupPath, bkId) {
+        const panel = document.getElementById('bk-browse-' + bkId);
+        const cbs = panel ? panel.querySelectorAll('.bk-restore-cb:checked') : [];
+        const paths = Array.from(cbs).map(cb => cb.dataset.path);
+
+        if (!paths.length) { toast('No files selected', 'error'); return; }
+        if (!confirm(`⚠️ Restore ${paths.length} file(s) from backup?\n\nThis will OVERWRITE existing files.\n\nProceed?`)) return;
+
+        try {
+            const result = await api('/backup/restore', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ backup_path: backupPath, paths: paths }),
+            });
+
+            if (result.success) {
+                toast(`Restored ${result.restored.length} file(s)`, 'success');
+                archiveRefreshTree();
+                contentLoaded = false;
+            } else {
+                toast(result.error || 'Restore failed', 'error');
+            }
+        } catch (e) {
+            toast(e.message, 'error');
+        }
+    }
+
+
+    async function archiveDoImportFrom(backupPath) {
+        if (!confirm('📤 Import files?\n\nNew files will be added.\nExisting files will NOT be overwritten.\n\nProceed?')) return;
+
+        try {
+            const result = await api('/backup/import', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ backup_path: backupPath }),
+            });
+
+            if (result.success) {
+                toast(`Imported ${result.imported.length} file(s), skipped ${result.skipped.length}`, 'success');
+                archiveRefreshTree();
+                contentLoaded = false;
+            } else {
+                toast(result.error || 'Import failed', 'error');
+            }
+        } catch (e) {
+            toast(e.message, 'error');
+        }
+    }
+

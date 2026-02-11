@@ -1,0 +1,250 @@
+// ─────────────────────────────────────────────────────────────────
+// _content_actions.html
+// Content Vault — File management actions
+// Create folder, encrypt/decrypt files, delete files,
+// upload to / delete from GitHub Releases
+// Included by: _content.html (Jinja2 include)
+// ─────────────────────────────────────────────────────────────────
+
+
+
+// ═════════════════════════════════════════════════════════════════
+// Actions
+// ═════════════════════════════════════════════════════════════════
+
+async function contentCreateFolder(name) {
+try {
+await api('/content/create-folder', {
+method: 'POST',
+body: JSON.stringify({ name }),
+});
+toast(`Created folder: ${name}/`, 'success');
+contentLoaded = false;
+await loadContentTab();
+} catch (e) {
+toast(`Failed: ${e.message}`, 'error');
+}
+}
+
+let _ctEncryptPath = '';
+
+function contentEncryptFile(path, hasRelease) {
+_ctEncryptPath = path || previewCurrentPath;
+// Check if enc key is configured
+if (!encKeyConfigured) {
+contentEncKeySetup();
+return;
+}
+
+const modal = document.getElementById('ct-encrypt-modal');
+const info = document.getElementById('ct-encrypt-modal-info');
+const status = document.getElementById('ct-encrypt-modal-status');
+const confirmBtn = document.getElementById('ct-encrypt-confirm-btn');
+const releaseWarn = document.getElementById('ct-encrypt-modal-release-warn');
+
+info.innerHTML = `File: <code style="font-size:0.82rem">${esc(_ctEncryptPath)}</code>`;
+status.style.display = 'none';
+if (releaseWarn) releaseWarn.style.display = hasRelease ? 'block' : 'none';
+confirmBtn.disabled = false;
+confirmBtn.textContent = '🔒 Encrypt';
+modal.style.display = 'flex';
+}
+
+async function contentDoEncryptConfirm() {
+const modal = document.getElementById('ct-encrypt-modal');
+const status = document.getElementById('ct-encrypt-modal-status');
+const confirmBtn = document.getElementById('ct-encrypt-confirm-btn');
+
+confirmBtn.disabled = true;
+confirmBtn.textContent = '⏳ Encrypting…';
+status.style.display = 'block';
+status.innerHTML = '<span class="spinner"></span> Encrypting…';
+
+try {
+const result = await api('/content/encrypt', {
+method: 'POST',
+body: JSON.stringify({ path: _ctEncryptPath, delete_original: true }),
+});
+
+if (result.error) {
+status.innerHTML = `<span style="color:var(--error)">❌ ${esc(result.error)}</span>`;
+confirmBtn.disabled = false;
+confirmBtn.textContent = '🔒 Encrypt';
+return;
+}
+
+modal.style.display = 'none';
+toast('Encrypted successfully!', 'success');
+contentLoaded = false;
+const newPath = result.output;
+const newName = newPath.split('/').pop();
+setTimeout(() => contentPreviewEncrypted(newPath, newName), 300);
+} catch (e) {
+status.innerHTML = `<span style="color:var(--error)">❌ ${esc(e.message)}</span>`;
+confirmBtn.disabled = false;
+confirmBtn.textContent = '🔒 Encrypt';
+}
+}
+
+let _ctDecryptPath = '';
+
+function contentDecryptFile(path, hasRelease) {
+_ctDecryptPath = path || previewCurrentPath;
+
+const modal = document.getElementById('ct-decrypt-modal');
+const info = document.getElementById('ct-decrypt-modal-info');
+const status = document.getElementById('ct-decrypt-modal-status');
+const confirmBtn = document.getElementById('ct-decrypt-confirm-btn');
+const releaseWarn = document.getElementById('ct-decrypt-modal-release-warn');
+
+info.innerHTML = `File: <code style="font-size:0.82rem">${esc(_ctDecryptPath)}</code>`;
+status.style.display = 'none';
+if (releaseWarn) releaseWarn.style.display = hasRelease ? 'block' : 'none';
+confirmBtn.disabled = false;
+confirmBtn.textContent = '🔓 Decrypt';
+modal.style.display = 'flex';
+}
+
+async function contentDoDecryptConfirm() {
+const modal = document.getElementById('ct-decrypt-modal');
+const status = document.getElementById('ct-decrypt-modal-status');
+const confirmBtn = document.getElementById('ct-decrypt-confirm-btn');
+
+confirmBtn.disabled = true;
+confirmBtn.textContent = '⏳ Decrypting…';
+status.style.display = 'block';
+status.innerHTML = '<span class="spinner"></span> Decrypting…';
+
+try {
+const result = await api('/content/decrypt', {
+method: 'POST',
+body: JSON.stringify({ path: _ctDecryptPath, delete_encrypted: true }),
+});
+
+if (result.error) {
+status.innerHTML = `<span style="color:var(--error)">❌ ${esc(result.error)}</span>`;
+confirmBtn.disabled = false;
+confirmBtn.textContent = '🔓 Decrypt';
+return;
+}
+
+modal.style.display = 'none';
+toast('Decrypted successfully!', 'success');
+contentLoaded = false;
+const newPath = result.output;
+const newName = newPath.split('/').pop();
+setTimeout(() => contentPreviewFile(newPath, newName), 300);
+} catch (e) {
+status.innerHTML = `<span style="color:var(--error)">❌ ${esc(e.message)}</span>`;
+confirmBtn.disabled = false;
+confirmBtn.textContent = '🔓 Decrypt';
+}
+}
+
+let _ctDeletePath = '';
+let _ctDeleteName = '';
+let _ctDeleteFromPreview = false;
+
+function contentDeleteFile(path, name, fromPreview, hasRelease) {
+_ctDeletePath = path || previewCurrentPath;
+_ctDeleteName = name || previewCurrentName;
+_ctDeleteFromPreview = !!fromPreview;
+
+const modal = document.getElementById('ct-delete-modal');
+const info = document.getElementById('ct-delete-modal-info');
+const status = document.getElementById('ct-delete-modal-status');
+const confirmBtn = document.getElementById('ct-delete-confirm-btn');
+const releaseWarn = document.getElementById('ct-delete-modal-release-warn');
+
+info.innerHTML = `File: <code style="font-size:0.82rem">${esc(_ctDeleteName)}</code>`;
+status.style.display = 'none';
+if (releaseWarn) releaseWarn.style.display = hasRelease ? 'block' : 'none';
+confirmBtn.disabled = false;
+confirmBtn.textContent = '🗑️ Delete';
+modal.style.display = 'flex';
+}
+
+async function contentDoDeleteConfirm() {
+const modal = document.getElementById('ct-delete-modal');
+const status = document.getElementById('ct-delete-modal-status');
+const confirmBtn = document.getElementById('ct-delete-confirm-btn');
+const releaseWarn = document.getElementById('ct-delete-modal-release-warn');
+const releaseCheckbox = document.getElementById('ct-delete-also-release');
+const alsoDeleteRelease = releaseWarn && releaseWarn.style.display !== 'none'
+&& releaseCheckbox && releaseCheckbox.checked;
+
+confirmBtn.disabled = true;
+confirmBtn.textContent = '⏳ Deleting…';
+status.style.display = 'block';
+status.innerHTML = '<span class="spinner"></span> Deleting…';
+
+try {
+if (alsoDeleteRelease) {
+status.innerHTML = '<span class="spinner"></span> Removing release artifact…';
+await api('/backup/delete-release', {
+method: 'POST',
+body: JSON.stringify({ path: _ctDeletePath }),
+});
+}
+
+status.innerHTML = '<span class="spinner"></span> Deleting file…';
+await api('/content/delete', {
+method: 'POST',
+body: JSON.stringify({ path: _ctDeletePath }),
+});
+modal.style.display = 'none';
+toast(`Deleted: ${_ctDeleteName}`, 'success');
+
+if (_ctDeleteFromPreview) {
+contentClosePreview();
+} else {
+await contentLoadFolder(contentCurrentPath);
+}
+} catch (e) {
+status.innerHTML = `<span style="color:var(--error)">❌ ${esc(e.message)}</span>`;
+confirmBtn.disabled = false;
+confirmBtn.textContent = '🗑️ Delete';
+}
+}
+
+async function contentDeleteRelease(path, name) {
+if (!confirm(`Remove the GitHub Release artifact for "${name}"?\n\nThis only removes the remote artifact — the local
+file stays.`)) {
+return;
+}
+try {
+toast('Removing release artifact…', 'success');
+await api('/backup/delete-release', {
+method: 'POST',
+body: JSON.stringify({ path }),
+});
+toast('Release artifact removed', 'success');
+// Stay in preview if we're previewing this file
+if (previewCurrentPath && previewCurrentPath === path) {
+contentPreviewFile(previewCurrentPath, previewCurrentName, false);
+} else {
+await contentLoadFolder(contentCurrentPath);
+}
+} catch (e) {
+toast(`Failed: ${e.message}`, 'error');
+}
+}
+
+async function contentUploadToRelease(path) {
+try {
+toast('Uploading to release…', 'success');
+const result = await api('/backup/upload-release', {
+method: 'POST',
+body: JSON.stringify({ path }),
+});
+toast(result.message || 'Upload started', 'success');
+// Stay in preview if we're previewing this file
+if (previewCurrentPath && previewCurrentPath === path) {
+setTimeout(() => contentPreviewFile(previewCurrentPath, previewCurrentName, true), 1500);
+} else {
+setTimeout(() => contentLoadFolder(contentCurrentPath), 1500);
+}
+} catch (e) {
+toast(`Upload failed: ${e.message}`, 'error');
+}
+}

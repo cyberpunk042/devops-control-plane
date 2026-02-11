@@ -1,0 +1,563 @@
+    // ─────────────────────────────────────────────────────────────────
+    //  _content_archive_modals.html
+    //  Content Vault — Archive modal handlers
+    //  Wipe, upload/preview, restore, delete backup,
+    //  encrypt/decrypt, rename backup
+    //  Included by: _content.html (Jinja2 include)
+    // ─────────────────────────────────────────────────────────────────
+
+
+    // ── Wipe modal ────────────────────────────────────────────
+
+    function archiveShowWipeModal() {
+        const paths = archiveGetSelectedPaths();
+        if (!paths.length) { toast('No files selected', 'error'); return; }
+
+        const modal = document.getElementById('bk-wipe-modal');
+        const info = document.getElementById('bk-wipe-modal-info');
+
+        // Build expandable file list
+        const limit = 30;
+        const showing = paths.slice(0, limit);
+        let fileList = showing.map(p => `<div style="padding:1px 0;font-size:0.8rem;font-family:monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">• ${esc(p)}</div>`).join('');
+        if (paths.length > limit) {
+            fileList += `<div style="padding:1px 0;font-size:0.8rem;color:var(--text-muted)">… and ${paths.length - limit} more</div>`;
+        }
+
+        info.innerHTML = `You are about to delete <strong>${paths.length} file(s)</strong> from <code>${esc(_archiveSelectedFolder)}/</code>.<br><br>This action <strong>cannot be undone</strong> without a backup.`
+            + `<details style="margin-top:0.75rem;cursor:pointer">`
+            + `<summary style="font-size:0.85rem;color:var(--text-secondary);user-select:none">📋 Show ${paths.length} file(s) to be wiped</summary>`
+            + `<div style="max-height:200px;overflow-y:auto;margin-top:0.4rem;padding:0.4rem;background:var(--bg-tertiary);border-radius:6px;border:1px solid var(--border-subtle)">${fileList}</div>`
+            + `</details>`;
+
+        // Extra warning + CONFIRM for root-level wipe
+        if (_archiveSelectedFolder === '.') {
+            info.innerHTML += `<div style="margin-top:0.75rem;padding:0.5rem 0.75rem;background:rgba(var(--error-rgb,239,68,68),0.1);border:1px solid rgba(var(--error-rgb,239,68,68),0.3);border-radius:8px">
+                <div style="font-size:0.85rem;color:var(--error);font-weight:700;margin-bottom:0.3rem">⚠️ PROJECT ROOT WIPE</div>
+                <div style="font-size:0.8rem;color:var(--text-secondary);margin-bottom:0.5rem">This will delete files at the project root level. Type <code>CONFIRM</code> to proceed:</div>
+                <input type="text" id="bk-wipe-confirm-input" placeholder="Type CONFIRM"
+                    style="width:160px;font-size:0.85rem;padding:0.3rem 0.5rem;border:1px solid var(--error);border-radius:6px;background:var(--bg-tertiary);color:var(--text-primary);font-family:monospace">
+            </div>`;
+        }
+
+        modal.style.display = 'flex';
+    }
+
+    async function archiveDoWipe() {
+        const paths = archiveGetSelectedPaths();
+        if (!paths.length) { toast('No files selected', 'error'); return; }
+
+        // Require CONFIRM for project root wipe
+        if (_archiveSelectedFolder === '.') {
+            const confirmInput = document.getElementById('bk-wipe-confirm-input');
+            if (!confirmInput || confirmInput.value.trim() !== 'CONFIRM') {
+                toast('Type CONFIRM to wipe the project root', 'error');
+                return;
+            }
+        }
+
+        const createBackup = document.getElementById('bk-wipe-backup-cb')?.checked ?? true;
+        const modal = document.getElementById('bk-wipe-modal');
+        modal.style.display = 'none';
+
+        const status = document.getElementById('bk-action-status');
+        status.style.display = 'block';
+        status.innerHTML = '<span class="spinner"></span> ' + (createBackup ? 'Backing up then deleting…' : 'Deleting…');
+
+        try {
+            const result = await api('/backup/wipe', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    target_folder: _archiveSelectedFolder,
+                    paths: paths,
+                    create_backup: createBackup,
+                }),
+            });
+
+            if (result.error) {
+                status.innerHTML = `<span style="color:var(--error)">❌ ${esc(result.error)}</span>`;
+            } else {
+                let msg = `✅ Wiped ${result.deleted.length} file(s)`;
+                if (result.backup) {
+                    msg += `<br>💾 Backup: <code>${esc(result.backup.full_path)}</code> (${(result.backup.size_bytes / 1024).toFixed(1)} KB)`;
+                }
+                if (result.errors?.length) {
+                    msg += `<br><span style="color:var(--warning)">⚠️ ${result.errors.length} error(s)</span>`;
+                }
+                status.innerHTML = msg;
+                toast('Wipe complete!', 'success');
+                archiveRefreshTree();
+                archiveLoadList();
+                contentLoaded = false;
+            }
+        } catch (e) {
+            status.innerHTML = `<span style="color:var(--error)">❌ ${esc(e.message)}</span>`;
+        }
+    }
+
+
+    // ── Upload + preview ─────────────────────────────────────
+
+    async function archivePreviewUpload(input) {
+        const file = input.files[0];
+        if (!file) return;
+
+        document.getElementById('bk-import-filename').textContent = file.name;
+        const preview = document.getElementById('bk-import-preview');
+        preview.style.display = 'block';
+        preview.innerHTML = '<span class="spinner"></span> Uploading & validating…';
+        _archiveUploadedPath = null;
+
+        try {
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('target_folder', _archiveSelectedFolder);
+
+            const resp = await fetch('/api/backup/upload', { method: 'POST', body: formData });
+            const data = await resp.json();
+
+            if (!data.success) {
+                preview.innerHTML = `<span style="color:var(--error)">❌ ${data.error}</span>`;
+                return;
+            }
+
+            _archiveUploadedPath = data.full_path;
+            const sizeKB = (data.size_bytes / 1024).toFixed(1);
+            const encLabel = data.encrypted ? ' 🔒 encrypted' : '';
+
+            let html = `<strong>📦 ${esc(data.filename)}</strong> (${sizeKB} KB)${encLabel}<br>`;
+            html += `Uploaded to <code>${esc(data.folder)}/.backup/</code>`;
+
+            if (data.manifest) {
+                const m = data.manifest;
+                const stats = m.stats || {};
+                html += `<br>Files: ${stats.total_files || (m.files || []).length || '?'}`;
+                if (m.created_at) html += ` · Created: ${new Date(m.created_at).toLocaleString()}`;
+            }
+
+            preview.innerHTML = html;
+            toast('Archive uploaded!', 'success');
+            archiveLoadList();
+        } catch (e) {
+            preview.innerHTML = `<span style="color:var(--error)">❌ ${e.message}</span>`;
+        }
+    }
+
+
+    // ── Restore modal ─────────────────────────────────────────
+
+    let _restoreModalPath = '';
+
+    async function archiveDoRestoreFrom(backupPath) {
+        if (!backupPath) return;
+        _restoreModalPath = backupPath;
+
+        const modal = document.getElementById('bk-restore-modal');
+        const info = document.getElementById('bk-restore-modal-info');
+        const filesEl = document.getElementById('bk-restore-modal-files');
+        const statusEl = document.getElementById('bk-restore-modal-status');
+        const countEl = document.getElementById('bk-restore-modal-count');
+        const encOpts = document.getElementById('bk-restore-modal-enc-opts');
+        const encCount = document.getElementById('bk-restore-enc-count');
+
+        statusEl.style.display = 'none';
+        encOpts.style.display = 'none';
+        info.innerHTML = `Backup: <code>${esc(backupPath)}</code>`;
+
+        // Show if archive itself is encrypted
+        const isEncArchive = backupPath.endsWith('.enc');
+        if (isEncArchive) {
+            info.innerHTML += ` <span style="color:var(--accent-primary);font-size:0.8rem">🔐 encrypted archive</span>`;
+        }
+
+        filesEl.innerHTML = '<span class="spinner"></span> Loading files…';
+        // Reset checkboxes
+        const decCb = document.getElementById('bk-restore-decrypt-cb');
+        const encCb = document.getElementById('bk-restore-encrypt-cb');
+        if (decCb) decCb.checked = false;
+        if (encCb) encCb.checked = false;
+        // Reset wipe option
+        const wipeCb = document.getElementById('bk-restore-wipe-cb');
+        const wipeConfirm = document.getElementById('bk-restore-wipe-confirm');
+        const wipeInput = document.getElementById('bk-restore-wipe-confirm-input');
+        if (wipeCb) wipeCb.checked = false;
+        if (wipeConfirm) wipeConfirm.style.display = 'none';
+        if (wipeInput) wipeInput.value = '';
+        modal.style.display = 'flex';
+
+        try {
+            const data = await api(`/backup/preview?path=${encodeURIComponent(backupPath)}`);
+            const files = data.files || [];
+            if (!files.length) {
+                filesEl.innerHTML = '<em style="color:var(--text-muted)">Archive is empty.</em>';
+                return;
+            }
+
+            let html = '';
+            let encFileCount = 0;
+            let plainFileCount = 0;
+            for (const f of files) {
+                const isEnc = f.path.endsWith('.enc');
+                if (isEnc) encFileCount++;
+                else plainFileCount++;
+                const icon = isEnc ? '🔐' : (_archiveTypeIcons[f.type] || '📄');
+                const sizeStr = f.size < 1024 ? `${f.size} B`
+                    : f.size < 1048576 ? `${(f.size / 1024).toFixed(1)} KB`
+                        : `${(f.size / 1048576).toFixed(1)} MB`;
+                html += `<div style="display:flex;align-items:center;gap:0.4rem;padding:2px 0">`;
+                html += `<input type="checkbox" class="bk-rmod-cb" data-path="${esc(f.path)}" checked style="width:14px;height:14px;accent-color:var(--accent-primary);flex-shrink:0">`;
+                html += `<span>${icon} ${esc(f.path)}</span>`;
+                html += `<span style="color:var(--text-muted);font-size:0.75rem;margin-left:auto">${sizeStr}</span>`;
+                html += `</div>`;
+            }
+            filesEl.innerHTML = html;
+            countEl.textContent = `${files.length} file(s)`;
+
+            // Show encryption options if there are any enc or plain files
+            if (encFileCount > 0 || plainFileCount > 0) {
+                encOpts.style.display = 'block';
+                const parts = [];
+                if (encFileCount > 0) parts.push(`${encFileCount} encrypted`);
+                if (plainFileCount > 0) parts.push(`${plainFileCount} plain`);
+                encCount.textContent = `— ${parts.join(', ')}`;
+            }
+        } catch (e) {
+            filesEl.innerHTML = `<span style="color:var(--error)">❌ ${esc(e.message)}</span>`;
+        }
+    }
+
+    async function archiveDoRestoreFromModal() {
+        const cbs = document.querySelectorAll('#bk-restore-modal-files .bk-rmod-cb:checked');
+        const paths = Array.from(cbs).map(c => c.dataset.path);
+        if (!paths.length) { toast('No files selected', 'error'); return; }
+
+        const btn = document.getElementById('bk-restore-confirm-btn');
+        const statusEl = document.getElementById('bk-restore-modal-status');
+        btn.disabled = true;
+        btn.textContent = '⏳ Restoring…';
+        statusEl.style.display = 'block';
+        statusEl.innerHTML = '<span class="spinner"></span> Restoring files…';
+
+        const wipeFirst = document.getElementById('bk-restore-wipe-cb')?.checked || false;
+
+        // If wiping the project root, require CONFIRM
+        if (wipeFirst && _archiveSelectedFolder === '.') {
+            const confirmInput = document.getElementById('bk-restore-wipe-confirm-input');
+            if (!confirmInput || confirmInput.value.trim() !== 'CONFIRM') {
+                statusEl.innerHTML = '<span style="color:var(--error)">❌ You must type CONFIRM to wipe the project root</span>';
+                btn.disabled = false;
+                btn.textContent = '♻️ Restore selected';
+                return;
+            }
+        }
+
+        try {
+            const result = await api('/backup/restore', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    backup_path: _restoreModalPath,
+                    paths: paths,
+                    decrypt_restored: document.getElementById('bk-restore-decrypt-cb')?.checked || false,
+                    encrypt_restored: document.getElementById('bk-restore-encrypt-cb')?.checked || false,
+                    wipe_first: wipeFirst,
+                    target_folder: _archiveSelectedFolder,
+                }),
+            });
+
+            if (result.success) {
+                let msg = `✅ Restored <strong>${result.restored.length}</strong> file(s)`;
+                if (result.wiped_count) {
+                    msg += ` — <span style="color:var(--text-muted)">${result.wiped_count} file(s) wiped before restore</span>`;
+                }
+                statusEl.innerHTML = msg;
+                toast(`Restored ${result.restored.length} file(s)`, 'success');
+                archiveRefreshTree();
+                contentLoaded = false;
+                setTimeout(() => { document.getElementById('bk-restore-modal').style.display = 'none'; }, 1500);
+            } else {
+                statusEl.innerHTML = `<span style="color:var(--error)">❌ ${esc(result.error)}</span>`;
+            }
+        } catch (e) {
+            statusEl.innerHTML = `<span style="color:var(--error)">❌ ${esc(e.message)}</span>`;
+        } finally {
+            btn.disabled = false;
+            btn.textContent = '♻️ Restore selected';
+        }
+    }
+
+    function _restoreWipeChanged() {
+        const checked = document.getElementById('bk-restore-wipe-cb')?.checked;
+        const confirmDiv = document.getElementById('bk-restore-wipe-confirm');
+        const confirmInput = document.getElementById('bk-restore-wipe-confirm-input');
+        const btn = document.getElementById('bk-restore-confirm-btn');
+
+        if (checked) {
+            // Always show CONFIRM for wipe operations (especially dangerous for root)
+            confirmDiv.style.display = 'block';
+            confirmInput.value = '';
+            btn.style.background = 'var(--error)';
+            btn.style.borderColor = 'var(--error)';
+            btn.textContent = '🧹 Wipe & Restore';
+        } else {
+            confirmDiv.style.display = 'none';
+            btn.style.background = '';
+            btn.style.borderColor = '';
+            btn.textContent = '♻️ Restore selected';
+        }
+    }
+
+
+    // ── Delete backup (modal) ─────────────────────────────────
+
+    let _deleteBackupPath = '';
+    let _deleteHasRelease = false;
+
+    function archiveDeleteBackup(backupPath, hasRelease) {
+        _deleteBackupPath = backupPath;
+        _deleteHasRelease = hasRelease;
+
+        const modal = document.getElementById('bk-delete-modal');
+        const info = document.getElementById('bk-delete-modal-info');
+        const releaseOpt = document.getElementById('bk-delete-modal-release-opt');
+        const status = document.getElementById('bk-delete-modal-status');
+        const confirmBtn = document.getElementById('bk-delete-confirm-btn');
+
+        info.innerHTML = `Are you sure you want to permanently delete this backup?<br><br><code style="font-size:0.82rem;word-break:break-all">${esc(backupPath)}</code><br><br>This action <strong>cannot be undone</strong>.`;
+        releaseOpt.style.display = hasRelease ? 'block' : 'none';
+        status.style.display = 'none';
+        confirmBtn.disabled = false;
+        confirmBtn.textContent = '🗑️ Delete';
+        modal.style.display = 'flex';
+    }
+
+    async function archiveDoDeleteConfirm() {
+        const modal = document.getElementById('bk-delete-modal');
+        const status = document.getElementById('bk-delete-modal-status');
+        const confirmBtn = document.getElementById('bk-delete-confirm-btn');
+        const deleteRelease = _deleteHasRelease && (document.getElementById('bk-delete-release-cb')?.checked ?? false);
+
+        confirmBtn.disabled = true;
+        confirmBtn.textContent = '⏳ Deleting…';
+        status.style.display = 'block';
+        status.innerHTML = '<span class="spinner"></span> Deleting…';
+
+        try {
+            // Delete release artifact first if requested
+            if (deleteRelease) {
+                status.innerHTML = '<span class="spinner"></span> Removing release artifact…';
+                await api('/backup/delete-release', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ backup_path: _deleteBackupPath }),
+                });
+            }
+
+            status.innerHTML = '<span class="spinner"></span> Deleting local backup…';
+            const result = await api('/backup/delete', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ backup_path: _deleteBackupPath }),
+            });
+
+            if (result.success) {
+                modal.style.display = 'none';
+                toast('Backup deleted' + (deleteRelease ? ' (+ release artifact)' : ''), 'success');
+                archiveLoadList();
+            } else {
+                status.innerHTML = `<span style="color:var(--error)">❌ ${esc(result.error || 'Delete failed')}</span>`;
+                confirmBtn.disabled = false;
+                confirmBtn.textContent = '🗑️ Delete';
+            }
+        } catch (e) {
+            status.innerHTML = `<span style="color:var(--error)">❌ ${esc(e.message)}</span>`;
+            confirmBtn.disabled = false;
+            confirmBtn.textContent = '🗑️ Delete';
+        }
+    }
+
+
+    // ── Encrypt / Decrypt (modal) ─────────────────────────────
+
+    let _cryptoBackupPath = '';
+    let _cryptoShouldEncrypt = true;
+    let _cryptoHasRelease = false;
+    let _cryptoNewPath = '';  // stored after success for artifact update
+
+    function archiveToggleCrypto(backupPath, shouldEncrypt, hasRelease) {
+        _cryptoBackupPath = backupPath;
+        _cryptoShouldEncrypt = shouldEncrypt;
+        _cryptoHasRelease = hasRelease;
+        _cryptoNewPath = '';
+
+        const action = shouldEncrypt ? 'Encrypt' : 'Decrypt';
+        const modal = document.getElementById('bk-crypto-modal');
+        const title = document.getElementById('bk-crypto-modal-title');
+        const info = document.getElementById('bk-crypto-modal-info');
+        const status = document.getElementById('bk-crypto-modal-status');
+        const confirmBtn = document.getElementById('bk-crypto-confirm-btn');
+        const closeBtn = document.getElementById('bk-crypto-close-btn');
+
+        title.textContent = `🔐 ${action} Backup`;
+
+        let html = `${action} this backup?<br><br><code style="font-size:0.82rem;word-break:break-all">${esc(backupPath)}</code>`;
+        info.innerHTML = html;
+
+        // Show/hide release artifact checkbox
+        const releaseWarn = document.getElementById('bk-crypto-modal-release-warn');
+        const artifactCb = document.getElementById('bk-crypto-update-artifact-cb');
+        releaseWarn.style.display = hasRelease ? 'block' : 'none';
+        if (artifactCb) artifactCb.checked = false;
+
+        status.style.display = 'none';
+        confirmBtn.style.display = '';
+        confirmBtn.disabled = false;
+        confirmBtn.textContent = `🔐 ${action}`;
+        closeBtn.textContent = 'Cancel';
+        modal.style.display = 'flex';
+    }
+
+    async function archiveDoCryptoConfirm() {
+        const action = _cryptoShouldEncrypt ? 'Encrypt' : 'Decrypt';
+        const status = document.getElementById('bk-crypto-modal-status');
+        const confirmBtn = document.getElementById('bk-crypto-confirm-btn');
+        const closeBtn = document.getElementById('bk-crypto-close-btn');
+
+        confirmBtn.disabled = true;
+        confirmBtn.textContent = `⏳ ${action}ing…`;
+        status.style.display = 'block';
+        status.innerHTML = `<span class="spinner"></span> ${action}ing backup…`;
+
+        try {
+            const endpoint = _cryptoShouldEncrypt ? '/backup/encrypt' : '/backup/decrypt';
+            const result = await api(endpoint, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ backup_path: _cryptoBackupPath }),
+            });
+
+            if (result.success) {
+                _cryptoNewPath = result.full_path;
+                const sizeKB = (result.size_bytes / 1024).toFixed(1);
+                status.innerHTML = `✅ ${action}ed → <strong>${esc(result.filename)}</strong> (${sizeKB} KB)`;
+                confirmBtn.style.display = 'none';
+                closeBtn.textContent = 'Done';
+
+                // Auto-handle artifact update if checkbox was checked
+                const updateArtifact = document.getElementById('bk-crypto-update-artifact-cb')?.checked;
+                if (_cryptoHasRelease && updateArtifact) {
+                    status.innerHTML += '<br><span class="spinner" style="width:12px;height:12px"></span> Deleting old release artifact…';
+                    try {
+                        await api('/backup/delete-release', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ backup_path: _cryptoBackupPath }),
+                        });
+                    } catch (_) { /* old artifact may already be gone */ }
+
+                    document.getElementById('bk-crypto-modal').style.display = 'none';
+                    archiveLoadList();
+                    // Open the upload modal for the new file
+                    archiveUploadToRelease(_cryptoNewPath);
+                } else {
+                    archiveLoadList();
+                }
+            } else {
+                status.innerHTML = `<span style="color:var(--error)">❌ ${esc(result.error || action + ' failed')}</span>`;
+                confirmBtn.disabled = false;
+                confirmBtn.textContent = `🔐 ${action}`;
+            }
+        } catch (e) {
+            status.innerHTML = `<span style="color:var(--error)">❌ ${esc(e.message)}</span>`;
+            confirmBtn.disabled = false;
+            confirmBtn.textContent = `🔐 ${action}`;
+        }
+    }
+
+
+
+    // ── Rename backup (modal) ─────────────────────────────────
+
+    let _renameBackupPath = '';
+    let _renameHasRelease = false;
+
+    function archiveRenameBackup(backupPath, currentName, hasRelease) {
+        _renameBackupPath = backupPath;
+        _renameHasRelease = hasRelease;
+
+        const modal = document.getElementById('bk-rename-modal');
+        const info = document.getElementById('bk-rename-modal-info');
+        const input = document.getElementById('bk-rename-input');
+        const releaseWarn = document.getElementById('bk-rename-modal-release-warn');
+        const status = document.getElementById('bk-rename-modal-status');
+        const confirmBtn = document.getElementById('bk-rename-confirm-btn');
+
+        info.innerHTML = `Current name: <code style="font-size:0.82rem">${esc(currentName)}</code>`;
+        input.value = currentName.replace(/\.tar\.gz(\.enc)?$/, '');
+        releaseWarn.style.display = hasRelease ? 'block' : 'none';
+        if (hasRelease) {
+            document.getElementById('bk-rename-update-artifact-cb').checked = false;
+        }
+        status.style.display = 'none';
+        confirmBtn.disabled = false;
+        confirmBtn.textContent = '✏️ Rename';
+        modal.style.display = 'flex';
+
+        // Focus & select text
+        setTimeout(() => { input.focus(); input.select(); }, 100);
+    }
+
+    async function archiveDoRenameConfirm() {
+        const modal = document.getElementById('bk-rename-modal');
+        const input = document.getElementById('bk-rename-input');
+        const status = document.getElementById('bk-rename-modal-status');
+        const confirmBtn = document.getElementById('bk-rename-confirm-btn');
+        const newName = input.value.trim();
+        const updateArtifact = _renameHasRelease && (document.getElementById('bk-rename-update-artifact-cb')?.checked ?? false);
+
+        if (!newName) { toast('Enter a name', 'error'); return; }
+
+        confirmBtn.disabled = true;
+        confirmBtn.textContent = '⏳ Renaming…';
+        status.style.display = 'block';
+        status.innerHTML = '<span class="spinner"></span> Renaming…';
+
+        try {
+            const result = await api('/backup/rename', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ backup_path: _renameBackupPath, new_name: newName }),
+            });
+
+            if (result.success) {
+                if (updateArtifact) {
+                    status.innerHTML = '<span class="spinner"></span> Deleting old release artifact…';
+                    // Use the NEW path — rename already moved the .release.json metadata
+                    await api('/backup/delete-release', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ backup_path: result.full_path }),
+                    }).catch(() => { });
+
+                    modal.style.display = 'none';
+                    archiveLoadList();
+                    // Open upload modal for renamed file
+                    archiveUploadToRelease(result.full_path);
+                } else {
+                    modal.style.display = 'none';
+                    toast(`Renamed → ${result.filename}`, 'success');
+                    archiveLoadList();
+                }
+            } else {
+                status.innerHTML = `<span style="color:var(--error)">❌ ${esc(result.error || 'Rename failed')}</span>`;
+                confirmBtn.disabled = false;
+                confirmBtn.textContent = '✏️ Rename';
+            }
+        } catch (e) {
+            status.innerHTML = `<span style="color:var(--error)">❌ ${esc(e.message)}</span>`;
+            confirmBtn.disabled = false;
+            confirmBtn.textContent = '✏️ Rename';
+        }
+    }
+

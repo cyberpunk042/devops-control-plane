@@ -1,0 +1,624 @@
+    // ─────────────────────────────────────────────────────────────────
+    //  _content_archive.html
+    //  Content Vault — Archive Panel (Backup & Restore)
+    //  Panel rendering, folder switch, tree loading/rendering,
+    //  tree interactions (select/toggle), export (backup)
+    //  Included by: _content.html (Jinja2 include)
+    // ─────────────────────────────────────────────────────────────────
+
+
+    // ═════════════════════════════════════════════════════════════════
+    //  Archive Panel (Backup & Restore)
+    // ═════════════════════════════════════════════════════════════════
+
+    let _archiveUploadedPath = null;
+    let _archiveSelectedFolder = '';
+    let _archiveTreeData = [];
+    let _archiveFolders = [];       // loaded from /backup/folders
+    const _archiveTypeIcons = { document: '📝', code: '💻', script: '⚡', config: '⚙️', data: '📊', image: '🖼️', video: '🎬', audio: '🎵', archive: '📦', encrypted: '🔐', other: '📄' };
+
+    async function renderArchivePanel() {
+        const browser = document.getElementById('content-browser');
+        browser.innerHTML = '<div style="padding:2rem;text-align:center"><span class="spinner"></span> Loading archive…</div>';
+
+        // Load recursive folder tree from backend
+        let folderTree = [];
+        try {
+            const data = await api('/backup/folder-tree');
+            folderTree = data.tree || [];
+        } catch (e) {
+            browser.innerHTML = `<p class="empty-state" style="color:var(--error)">❌ ${esc(e.message)}</p>`;
+            return;
+        }
+
+        // Flatten tree to get all folder paths for validation
+        function _flattenPaths(nodes) {
+            let paths = [];
+            for (const n of nodes) {
+                paths.push(n.path);
+                if (n.children) paths = paths.concat(_flattenPaths(n.children));
+            }
+            return paths;
+        }
+        const allFolderPaths = _flattenPaths(folderTree);
+
+        // Sync from docs/media folder if no archive folder explicitly selected
+        if (!_archiveSelectedFolder && contentCurrentPath) {
+            const rootFolder = contentCurrentPath.split('/')[0];
+            if (rootFolder && allFolderPaths.includes(rootFolder)) {
+                _archiveSelectedFolder = rootFolder;
+            }
+        }
+
+        if (!_archiveSelectedFolder && folderTree.length) {
+            _archiveSelectedFolder = folderTree[0].path;
+        }
+
+        // Render folder tree HTML
+        function _renderFolderTree(nodes, depth) {
+            let h = '';
+            for (const n of nodes) {
+                const indent = depth * 1.2;
+                const isSel = n.path === _archiveSelectedFolder;
+                const bkIcon = n.has_backup ? ' 💾' : '';
+                const filesBadge = n.files > 0 ? ` <span style="color:var(--text-muted);font-size:0.75rem">(${n.files})</span>` : '';
+                const selCls = isSel ? 'bk-folder-active' : '';
+                const hasKids = n.children && n.children.length > 0;
+                // Auto-expand if selected folder is inside this subtree
+                const selPath = _archiveSelectedFolder || '';
+                const shouldExpand = isSel || selPath.startsWith(n.path + '/');
+
+                h += `<div style="padding-left:${indent}rem" data-folder-wrap="${esc(n.path)}">`;
+                h += `<div style="display:flex;align-items:center;gap:0.3rem;padding:1px 0">`;
+                if (hasKids) {
+                    h += `<span class="bk-tree-toggle" style="font-size:0.65rem;cursor:pointer;display:inline-block;width:12px;text-align:center" onclick="this.textContent=this.textContent==='▶'?'▼':'▶';this.parentElement.nextElementSibling.style.display=this.textContent==='▶'?'none':'block'">${shouldExpand ? '▼' : '▶'}</span>`;
+                } else {
+                    h += `<span style="width:12px"></span>`;
+                }
+                h += `<span class="bk-folder-item ${selCls}" data-path="${esc(n.path)}" onclick="archiveSwitchFolder('${esc(n.path)}')" style="cursor:pointer;padding:1px 6px;border-radius:4px;transition:background 0.15s">📁 ${esc(n.name)}${filesBadge}${bkIcon}</span>`;
+                h += `</div>`;
+                if (hasKids) {
+                    h += `<div style="display:${shouldExpand ? 'block' : 'none'}">`;
+                    h += _renderFolderTree(n.children, depth + 1);
+                    h += `</div>`;
+                }
+                h += `</div>`;
+            }
+            return h;
+        }
+
+        const folderTreeHtml = _renderFolderTree(folderTree, 0);
+
+        // Project root entry at the top
+        const rootSel = _archiveSelectedFolder === '.' ? 'bk-folder-active' : '';
+        const rootHasBackup = folderTree.some(n => n.has_backup); // approximate
+        const rootEntry = `<div style="margin-bottom:0.25rem">
+            <span class="bk-folder-item ${rootSel}" data-path="." onclick="archiveSwitchFolder('.')" style="cursor:pointer;padding:1px 6px;border-radius:4px;transition:background 0.15s;font-weight:600">
+                📦 Project Root
+            </span>
+        </div>`;
+
+        browser.innerHTML = `
+            <div style="max-width:740px;margin:0 auto">
+
+                <!-- Folder tree context -->
+                <div style="background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:12px;padding:1rem 1.25rem;margin-bottom:1.25rem">
+                    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.5rem">
+                        <div style="font-weight:700;font-size:0.95rem">📂 Folder context</div>
+                        <span id="bk-folder-selected" style="font-size:0.85rem;font-weight:600;color:var(--accent-primary)">${esc(_archiveSelectedFolder || '—')}</span>
+                    </div>
+                    <div id="bk-folder-tree" style="max-height:220px;overflow-y:auto;font-size:0.84rem;line-height:1.5;border:1px solid var(--border-subtle);border-radius:8px;padding:0.4rem;background:var(--bg-tertiary)">
+                        ${rootEntry}
+                        ${folderTreeHtml}
+                    </div>
+                </div>
+
+                <!-- Backups (AT THE TOP) -->
+                <div style="background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:12px;padding:1.5rem;margin-bottom:1.25rem">
+                    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.75rem">
+                        <div style="font-weight:700;font-size:1rem">🗄️ Backups</div>
+                        <button class="btn btn-secondary btn-sm" onclick="archiveLoadList()" title="Refresh">🔄</button>
+                    </div>
+                    <div id="bk-local-list" style="font-size:0.85rem;color:var(--text-secondary);max-height:500px;overflow-y:auto">
+                        <span class="spinner"></span> Loading…
+                    </div>
+                </div>
+
+                <!-- Export / Wipe -->
+                <div style="background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:12px;padding:1.5rem;margin-bottom:1.25rem">
+                    <div style="font-weight:700;font-size:1rem;margin-bottom:0.75rem">📦 Select items to backup</div>
+
+                    <!-- Gitignore exclusion toggle -->
+                    <div style="margin-bottom:0.75rem">
+                        <label style="display:flex;align-items:center;gap:0.4rem;cursor:pointer;font-size:0.85rem;color:var(--text-secondary)" title="Exclude files matched by .gitignore (node_modules, dist, build, etc.)">
+                            <input type="checkbox" id="bk-opt-gitignore" checked onchange="archiveRefreshTree()"
+                                style="width:16px;height:16px;accent-color:var(--accent-primary)"> 🚫 Respect <code>.gitignore</code> exclusions
+                        </label>
+                    </div>
+
+                    <div id="bk-type-filters" style="display:flex;gap:0.75rem;margin-bottom:1rem;flex-wrap:wrap">
+                        <!-- dynamically populated by archiveRefreshTree -->
+                    </div>
+
+                    <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:0.75rem">
+                        <button class="btn btn-secondary btn-sm" onclick="archiveSelectAll(true)" style="font-size:0.75rem;padding:0.2rem 0.6rem">☑ All</button>
+                        <button class="btn btn-secondary btn-sm" onclick="archiveSelectAll(false)" style="font-size:0.75rem;padding:0.2rem 0.6rem">☐ None</button>
+                        <span id="bk-selection-count" style="font-size:0.8rem;color:var(--text-muted);margin-left:auto"></span>
+                    </div>
+
+                    <div id="bk-file-tree" style="max-height:350px;overflow-y:auto;border:1px solid var(--border-subtle);border-radius:8px;padding:0.5rem;background:var(--bg-tertiary);font-size:0.84rem;line-height:1.3">
+                        <span class="spinner"></span> Loading…
+                    </div>
+
+                    <!-- Encryption Options -->
+                    <div style="display:flex;gap:1.25rem;margin-top:1rem;flex-wrap:wrap">
+                        <label style="display:flex;align-items:center;gap:0.4rem;cursor:pointer;font-size:0.85rem;color:var(--text-secondary)" title="Decrypt .enc files into plaintext form inside the archive">
+                            <input type="checkbox" id="bk-opt-decrypt" style="width:16px;height:16px;accent-color:var(--accent-primary)"> 🔓 Decrypt .enc in archive
+                        </label>
+                        <label style="display:flex;align-items:center;gap:0.4rem;cursor:pointer;font-size:0.85rem;color:var(--text-secondary)" title="Encrypt the entire .tar.gz archive with your vault key">
+                            <input type="checkbox" id="bk-opt-encrypt-archive" style="width:16px;height:16px;accent-color:var(--accent-primary)"> 🔒 Encrypt archive
+                        </label>
+                    </div>
+
+                    <div style="display:flex;gap:0.5rem;margin-top:0.75rem;align-items:center;flex-wrap:wrap">
+                        <label style="font-size:0.85rem;color:var(--text-secondary);font-weight:600;white-space:nowrap">📝 Backup name:</label>
+                        <input type="text" id="bk-custom-name"
+                               style="flex:1;min-width:200px;font-size:0.85rem;padding:0.35rem 0.6rem;border:1px solid var(--border-subtle);border-radius:6px;background:var(--bg-tertiary);color:var(--text-primary);font-family:monospace"
+                               value="">
+                        <button class="btn btn-secondary btn-sm" style="font-size:0.7rem;padding:0.2rem 0.5rem" onclick="_archiveRefreshName()" title="Generate a new name">↺</button>
+                    </div>
+
+                    <div style="display:flex;gap:0.5rem;margin-top:1rem;flex-wrap:wrap;justify-content:flex-end">
+                        <button class="btn btn-primary btn-sm" id="bk-export-btn" onclick="archiveDoExport()" style="min-width:150px">
+                            📥 Backup selected
+                        </button>
+                        <button class="btn btn-secondary btn-sm" id="bk-wipe-btn" onclick="archiveShowWipeModal()" style="min-width:150px;color:var(--error)">
+                            🗑️ Wipe selected
+                        </button>
+                    </div>
+                    <div id="bk-action-status" style="display:none;margin-top:0.75rem;padding:0.75rem;background:var(--bg-tertiary);border-radius:8px;font-size:0.85rem;line-height:1.6"></div>
+                </div>
+
+                <!-- Upload -->
+                <div style="background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:12px;padding:1.5rem">
+                    <div style="font-weight:700;font-size:1rem;margin-bottom:0.75rem">📤 Upload archive</div>
+                    <p style="color:var(--text-secondary);font-size:0.85rem;margin-bottom:1rem;line-height:1.6">
+                        Upload a <code>.tar.gz</code> or <code>.tar.gz.enc</code> archive into this folder's <code>.backup/</code>.
+                    </p>
+                    <div style="display:flex;gap:0.75rem;align-items:center;flex-wrap:wrap">
+                        <label class="btn btn-secondary btn-sm" style="cursor:pointer;min-width:130px;text-align:center">
+                            📁 Choose file…
+                            <input type="file" id="bk-import-file" accept=".tar.gz,.gz,.enc"
+                                   style="display:none" onchange="archivePreviewUpload(this)">
+                        </label>
+                        <span id="bk-import-filename" style="font-size:0.85rem;color:var(--text-muted)">No file selected</span>
+                    </div>
+                    <div id="bk-import-preview" style="display:none;margin-top:1rem;padding:0.85rem;background:var(--bg-tertiary);border:1px solid var(--border-subtle);border-radius:8px;font-size:0.85rem;line-height:1.8"></div>
+                </div>
+
+            </div>
+
+            <!-- Wipe Modal -->
+            <div id="bk-wipe-modal" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.6);backdrop-filter:blur(4px);align-items:center;justify-content:center">
+                <div style="background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:16px;padding:2rem;max-width:480px;width:90%;box-shadow:0 20px 60px rgba(0,0,0,0.4)">
+                    <div style="font-size:1.5rem;margin-bottom:0.5rem">⚠️ Factory Reset</div>
+                    <div id="bk-wipe-modal-info" style="color:var(--text-secondary);font-size:0.9rem;line-height:1.6;margin-bottom:1.25rem"></div>
+                    <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer;font-size:0.85rem;margin-bottom:1.25rem;color:var(--text-secondary)">
+                        <input type="checkbox" id="bk-wipe-backup-cb" checked style="width:16px;height:16px;accent-color:var(--accent-primary)"> 💾 Create backup before wiping (recommended)
+                    </label>
+                    <div style="display:flex;gap:0.5rem;justify-content:flex-end">
+                        <button class="btn btn-secondary" onclick="document.getElementById('bk-wipe-modal').style.display='none'">Cancel</button>
+                        <button class="btn btn-primary" id="bk-wipe-confirm-btn" onclick="archiveDoWipe()" style="background:var(--error);border-color:var(--error)">🗑️ Wipe files</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Restore Modal -->
+            <div id="bk-restore-modal" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.6);backdrop-filter:blur(4px);align-items:center;justify-content:center">
+                <div style="background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:16px;padding:2rem;max-width:560px;width:92%;box-shadow:0 20px 60px rgba(0,0,0,0.4)">
+                    <div style="font-size:1.3rem;margin-bottom:0.5rem">♻️ Restore from backup</div>
+                    <div id="bk-restore-modal-info" style="color:var(--text-secondary);font-size:0.85rem;margin-bottom:0.75rem"></div>
+                    <div id="bk-restore-modal-files" style="max-height:300px;overflow-y:auto;border:1px solid var(--border-subtle);border-radius:8px;padding:0.5rem;background:var(--bg-tertiary);font-size:0.84rem;margin-bottom:1rem">
+                        <span class="spinner"></span> Loading…
+                    </div>
+                    <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.75rem">
+                        <button class="btn btn-secondary btn-sm" onclick="document.querySelectorAll('#bk-restore-modal-files .bk-rmod-cb').forEach(c=>c.checked=true)" style="font-size:0.75rem">☑ All</button>
+                        <button class="btn btn-secondary btn-sm" onclick="document.querySelectorAll('#bk-restore-modal-files .bk-rmod-cb').forEach(c=>c.checked=false)" style="font-size:0.75rem">☐ None</button>
+                        <span id="bk-restore-modal-count" style="font-size:0.8rem;color:var(--text-muted);margin-left:auto"></span>
+                    </div>
+                    <div id="bk-restore-modal-enc-opts" style="display:none;margin-bottom:1rem;padding:0.6rem 0.75rem;background:var(--bg-tertiary);border:1px solid var(--border-subtle);border-radius:8px">
+                        <div style="font-size:0.85rem;font-weight:600;color:var(--text-secondary);margin-bottom:0.4rem">🔐 Encryption options <span id="bk-restore-enc-count" style="font-weight:400;color:var(--text-muted)"></span></div>
+                        <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer;font-size:0.84rem;color:var(--text-secondary);margin-bottom:0.3rem">
+                            <input type="checkbox" id="bk-restore-decrypt-cb" style="width:15px;height:15px;accent-color:var(--accent-primary)"> 🔓 Decrypt .enc files during restore (restore as plain text)
+                        </label>
+                        <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer;font-size:0.84rem;color:var(--text-secondary)">
+                            <input type="checkbox" id="bk-restore-encrypt-cb" style="width:15px;height:15px;accent-color:var(--accent-primary)"> 🔒 Encrypt plain files during restore (restore as .enc)
+                        </label>
+                    </div>
+
+                    <!-- Wipe before restore (hard restore) -->
+                    <div style="margin-bottom:1rem;padding:0.6rem 0.75rem;background:rgba(var(--error-rgb,239,68,68),0.08);border:1px solid rgba(var(--error-rgb,239,68,68),0.25);border-radius:8px">
+                        <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer;font-size:0.84rem;color:var(--text-secondary)">
+                            <input type="checkbox" id="bk-restore-wipe-cb" onchange="_restoreWipeChanged()"
+                                style="width:15px;height:15px;accent-color:var(--error)">
+                            🧹 <strong>Wipe folder before restore</strong> (hard restore)
+                        </label>
+                        <div style="font-size:0.75rem;color:var(--text-muted);margin-top:0.25rem;margin-left:1.75rem">
+                            Deletes all existing files in the target folder before restoring from backup.
+                        </div>
+                        <div id="bk-restore-wipe-confirm" style="display:none;margin-top:0.5rem;margin-left:1.75rem">
+                            <div style="font-size:0.8rem;color:var(--error);font-weight:600;margin-bottom:0.3rem">
+                                ⚠️ Type <code>CONFIRM</code> to proceed with wipe:
+                            </div>
+                            <input type="text" id="bk-restore-wipe-confirm-input" placeholder="Type CONFIRM"
+                                style="width:160px;font-size:0.85rem;padding:0.3rem 0.5rem;border:1px solid var(--error);border-radius:6px;background:var(--bg-tertiary);color:var(--text-primary);font-family:monospace">
+                        </div>
+                    </div>
+
+                    <div id="bk-restore-modal-status" style="display:none;margin-bottom:0.75rem;padding:0.5rem;background:var(--bg-tertiary);border-radius:8px;font-size:0.85rem"></div>
+                    <div style="display:flex;gap:0.5rem;justify-content:flex-end">
+                        <button class="btn btn-secondary" onclick="document.getElementById('bk-restore-modal').style.display='none'">Cancel</button>
+                        <button class="btn btn-primary" id="bk-restore-confirm-btn" onclick="archiveDoRestoreFromModal()">♻️ Restore selected</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Upload to Release Modal -->
+            <div id="bk-release-modal" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.6);backdrop-filter:blur(4px);align-items:center;justify-content:center">
+                <div style="background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:16px;padding:2rem;max-width:480px;width:90%;box-shadow:0 20px 60px rgba(0,0,0,0.4)">
+                    <div style="font-size:1.3rem;margin-bottom:0.5rem">🚀 Upload to GitHub Release</div>
+                    <div id="bk-release-modal-info" style="color:var(--text-secondary);font-size:0.9rem;line-height:1.6;margin-bottom:1rem"></div>
+                    <div id="bk-release-modal-progress" style="display:none;margin-bottom:1rem">
+                        <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:0.5rem">
+                            <span class="spinner"></span>
+                            <span id="bk-release-modal-status-text" style="font-size:0.85rem">Uploading…</span>
+                        </div>
+                        <div style="height:6px;background:var(--bg-tertiary);border-radius:3px;overflow:hidden">
+                            <div id="bk-release-modal-bar" style="height:100%;background:var(--accent-primary);width:0%;transition:width 0.3s"></div>
+                        </div>
+                    </div>
+                    <div id="bk-release-modal-result" style="display:none;padding:0.75rem;background:var(--bg-tertiary);border-radius:8px;font-size:0.85rem;margin-bottom:1rem"></div>
+                    <div style="display:flex;gap:0.5rem;justify-content:flex-end">
+                        <button class="btn btn-secondary" id="bk-release-close-btn" onclick="document.getElementById('bk-release-modal').style.display='none'">Close</button>
+                        <button class="btn btn-primary" id="bk-release-confirm-btn" onclick="archiveDoUploadRelease()">🚀 Upload</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Delete Backup Modal -->
+            <div id="bk-delete-modal" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.6);backdrop-filter:blur(4px);align-items:center;justify-content:center">
+                <div style="background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:16px;padding:2rem;max-width:480px;width:90%;box-shadow:0 20px 60px rgba(0,0,0,0.4)">
+                    <div style="font-size:1.3rem;margin-bottom:0.5rem">🗑️ Delete Backup</div>
+                    <div id="bk-delete-modal-info" style="color:var(--text-secondary);font-size:0.9rem;line-height:1.6;margin-bottom:1rem"></div>
+                    <div id="bk-delete-modal-release-opt" style="display:none;margin-bottom:1rem">
+                        <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer;font-size:0.85rem;color:var(--text-secondary)">
+                            <input type="checkbox" id="bk-delete-release-cb" checked style="width:16px;height:16px;accent-color:var(--accent-primary)"> 🚀 Also delete the GitHub Release artifact
+                        </label>
+                    </div>
+                    <div id="bk-delete-modal-status" style="display:none;margin-bottom:0.75rem;padding:0.5rem;background:var(--bg-tertiary);border-radius:8px;font-size:0.85rem"></div>
+                    <div style="display:flex;gap:0.5rem;justify-content:flex-end">
+                        <button class="btn btn-secondary" onclick="document.getElementById('bk-delete-modal').style.display='none'">Cancel</button>
+                        <button class="btn btn-primary" id="bk-delete-confirm-btn" onclick="archiveDoDeleteConfirm()" style="background:var(--error);border-color:var(--error)">🗑️ Delete</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Encrypt / Decrypt Modal -->
+            <div id="bk-crypto-modal" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.6);backdrop-filter:blur(4px);align-items:center;justify-content:center">
+                <div style="background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:16px;padding:2rem;max-width:480px;width:90%;box-shadow:0 20px 60px rgba(0,0,0,0.4)">
+                    <div id="bk-crypto-modal-title" style="font-size:1.3rem;margin-bottom:0.5rem">🔐 Encrypt Backup</div>
+                    <div id="bk-crypto-modal-info" style="color:var(--text-secondary);font-size:0.9rem;line-height:1.6;margin-bottom:1rem"></div>
+                    <div id="bk-crypto-modal-status" style="display:none;margin-bottom:0.75rem;padding:0.5rem;background:var(--bg-tertiary);border-radius:8px;font-size:0.85rem"></div>
+                    <div id="bk-crypto-modal-release-warn" style="display:none;margin-bottom:1rem;padding:0.5rem;background:var(--bg-tertiary);border:1px solid var(--border-subtle);border-radius:8px;font-size:0.85rem;color:var(--text-secondary)">
+                        ⚠️ This backup has a release artifact. After this operation, the old artifact will be stale.
+                        <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer;margin-top:0.5rem;font-size:0.85rem">
+                            <input type="checkbox" id="bk-crypto-update-artifact-cb" style="width:16px;height:16px;accent-color:var(--accent-primary)"> 🚀 Delete old artifact & upload new version
+                        </label>
+                    </div>
+                    <div style="display:flex;gap:0.5rem;justify-content:flex-end">
+                        <button class="btn btn-secondary" id="bk-crypto-close-btn" onclick="document.getElementById('bk-crypto-modal').style.display='none'">Cancel</button>
+                        <button class="btn btn-primary" id="bk-crypto-confirm-btn" onclick="archiveDoCryptoConfirm()">🔐 Confirm</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Rename Modal -->
+            <div id="bk-rename-modal" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.6);backdrop-filter:blur(4px);align-items:center;justify-content:center">
+                <div style="background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:16px;padding:2rem;max-width:480px;width:90%;box-shadow:0 20px 60px rgba(0,0,0,0.4)">
+                    <div style="font-size:1.3rem;margin-bottom:0.5rem">✏️ Rename Backup</div>
+                    <div id="bk-rename-modal-info" style="color:var(--text-secondary);font-size:0.85rem;line-height:1.6;margin-bottom:0.75rem"></div>
+                    <div style="margin-bottom:1rem">
+                        <label style="font-size:0.85rem;color:var(--text-secondary);font-weight:600;display:block;margin-bottom:0.4rem">New filename:</label>
+                        <input type="text" id="bk-rename-input" onkeydown="if(event.key==='Enter'){archiveDoRenameConfirm();}"
+                               style="width:100%;font-size:0.85rem;padding:0.4rem 0.6rem;border:1px solid var(--border-subtle);border-radius:6px;background:var(--bg-tertiary);color:var(--text-primary);font-family:monospace;box-sizing:border-box">
+                        <div style="font-size:0.75rem;color:var(--text-muted);margin-top:0.3rem">Extension (.tar.gz / .tar.gz.enc) will be auto-added if missing</div>
+                    </div>
+                    <div id="bk-rename-modal-release-warn" style="display:none;margin-bottom:1rem;padding:0.5rem;background:var(--bg-tertiary);border:1px solid var(--border-subtle);border-radius:8px;font-size:0.85rem;color:var(--text-secondary)">
+                        ⚠️ This backup has a release artifact. After renaming, the old artifact name will be stale.
+                        <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer;margin-top:0.5rem;font-size:0.85rem">
+                            <input type="checkbox" id="bk-rename-update-artifact-cb" style="width:16px;height:16px;accent-color:var(--accent-primary)"> 🚀 Delete old artifact & upload renamed file
+                        </label>
+                    </div>
+                    <div id="bk-rename-modal-status" style="display:none;margin-bottom:0.75rem;padding:0.5rem;background:var(--bg-tertiary);border-radius:8px;font-size:0.85rem"></div>
+                    <div style="display:flex;gap:0.5rem;justify-content:flex-end">
+                        <button class="btn btn-secondary" onclick="document.getElementById('bk-rename-modal').style.display='none'">Cancel</button>
+                        <button class="btn btn-primary" id="bk-rename-confirm-btn" onclick="archiveDoRenameConfirm()">✏️ Rename</button>
+                    </div>
+                </div>
+            </div>`;
+
+        archiveRefreshTree();
+        archiveLoadList();
+        _archiveRefreshName();
+    }
+
+
+    // ── Name generation ──────────────────────────────────────────
+
+    function _archiveRefreshName() {
+        const now = new Date();
+        const pad = (n, w = 2) => String(n).padStart(w, '0');
+        const ts = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}T${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+        const name = `backup_${ts}`;
+        const el = document.getElementById('bk-custom-name');
+        if (el) el.value = name;
+    }
+
+
+    // ── Folder switch ──────────────────────────────────────────
+
+    function archiveSwitchFolder(folder) {
+        _archiveSelectedFolder = folder;
+        _archiveBkTypeState = null;  // re-discover types for new folder
+
+        // Update URL hash
+        contentUpdateHash();
+
+        // Update folder tree highlighting in-place (no re-render)
+        document.querySelectorAll('.bk-folder-item').forEach(el => {
+            el.classList.toggle('bk-folder-active', el.dataset.path === folder);
+        });
+
+        // Update the selected label
+        const selLabel = document.getElementById('bk-folder-selected');
+        if (selLabel) selLabel.textContent = folder;
+
+        // Refresh only backup list + file tree
+        archiveRefreshTree();
+        archiveLoadList();
+    }
+
+
+    // ── Tree loading ──────────────────────────────────────────
+
+    let _archiveBkTypeState = null;  // { type: bool } — null until discovered
+
+    const _BK_TYPE_ICONS = {
+        document: '📝', code: '💻', script: '⚡', config: '⚙️', data: '📊',
+        image: '🖼️', video: '🎬', audio: '🎵', archive: '📦', encrypted: '🔐', other: '📄',
+    };
+    const _BK_TYPE_ORDER = ['document', 'code', 'script', 'config', 'data', 'image', 'video', 'audio', 'archive', 'encrypted', 'other'];
+
+    function _archiveBuildTypeFilters(counts) {
+        const container = document.getElementById('bk-type-filters');
+        if (!container) return;
+        let html = '';
+        for (const cat of _BK_TYPE_ORDER) {
+            const count = counts[cat] || 0;
+            if (count === 0) continue; // don't show types with no files
+            const icon = _BK_TYPE_ICONS[cat] || '📄';
+            const checked = (_archiveBkTypeState === null || _archiveBkTypeState[cat] !== false) ? 'checked' : '';
+            html += `<label style="display:flex;align-items:center;gap:0.4rem;cursor:pointer;font-size:0.85rem">
+                <input type="checkbox" data-bk-type="${cat}" ${checked} onchange="archiveFilterByTypes()"
+                    style="width:16px;height:16px;accent-color:var(--accent-primary)"> ${icon} ${cat} <span style="font-size:0.72rem;color:var(--text-muted)">(${count})</span>
+            </label>`;
+        }
+        container.innerHTML = html;
+    }
+
+    function archiveFilterByTypes() {
+        // Read checkbox states
+        const checkboxes = document.querySelectorAll('#bk-type-filters input[data-bk-type]');
+        _archiveBkTypeState = {};
+        checkboxes.forEach(cb => { _archiveBkTypeState[cb.dataset.bkType] = cb.checked; });
+        archiveRefreshTree();
+    }
+
+    async function archiveRefreshTree() {
+        const treeEl = document.getElementById('bk-file-tree');
+        if (!treeEl) return;
+        treeEl.innerHTML = '<span class="spinner"></span> Loading…';
+
+        // Collect selected types from checkboxes
+        const types = [];
+        if (_archiveBkTypeState === null) {
+            // First load — fetch all, then build checkboxes from discovery
+            types.push(..._BK_TYPE_ORDER);
+        } else {
+            for (const [t, on] of Object.entries(_archiveBkTypeState)) {
+                if (on) types.push(t);
+            }
+        }
+
+        if (!types.length) {
+            treeEl.innerHTML = '<em style="color:var(--text-muted)">Select at least one type above.</em>';
+            _archiveTreeData = [];
+            archiveUpdateCount();
+            return;
+        }
+
+        try {
+            const respectGitignore = document.getElementById('bk-opt-gitignore')?.checked ?? true;
+            const gitParam = respectGitignore ? '&gitignore=true' : '';
+            const data = await api(`/backup/tree?path=${encodeURIComponent(_archiveSelectedFolder)}&types=${types.join(',')}${gitParam}`);
+            _archiveTreeData = data.tree || [];
+            const counts = data.counts || {};
+
+            // Build / refresh dynamic type filter checkboxes
+            if (_archiveBkTypeState === null) {
+                // Discovery pass: build checkboxes, initialize state
+                _archiveBuildTypeFilters(counts);
+                _archiveBkTypeState = {};
+                for (const cat of _BK_TYPE_ORDER) {
+                    if ((counts[cat] || 0) > 0) _archiveBkTypeState[cat] = true;
+                }
+            }
+
+            const infoEl = document.getElementById('bk-folder-info');
+            if (infoEl) {
+                const total = Object.values(counts).reduce((a, b) => a + b, 0);
+                const parts = [];
+                for (const [k, v] of Object.entries(counts)) {
+                    if (v > 0) parts.push(`${v} ${k}`);
+                }
+                infoEl.textContent = total > 0 ? `${total} items (${parts.join(', ')})` : 'empty';
+            }
+
+            if (!_archiveTreeData.length) {
+                treeEl.innerHTML = '<em style="color:var(--text-muted)">No matching files in this folder.</em>';
+                return;
+            }
+
+            treeEl.innerHTML = archiveRenderTreeNodes(_archiveTreeData, 0);
+            archiveUpdateCount();
+        } catch (e) {
+            treeEl.innerHTML = `<span style="color:var(--error)">❌ ${esc(e.message)}</span>`;
+        }
+    }
+
+
+    // ── Tree rendering ────────────────────────────────────────
+
+    function archiveRenderTreeNodes(nodes, depth) {
+        let html = '';
+        for (const node of nodes) {
+            const indent = depth * 1.2;
+            const pathAttr = esc(node.path);
+
+            if (node.type === 'directory') {
+                const count = node.count || 0;
+                html += `<div style="padding-left:${indent}rem">`;
+                html += `<div style="display:flex;align-items:center;gap:0.4rem;padding:3px 0;cursor:pointer" onclick="archiveToggleDir(this)">`;
+                html += `<input type="checkbox" class="bk-tree-cb bk-tree-dir" data-path="${pathAttr}" data-dir="1"
+                            onchange="archiveDirCheck(this)" onclick="event.stopPropagation()"
+                            style="width:15px;height:15px;accent-color:var(--accent-primary);flex-shrink:0" checked>`;
+                html += `<span class="bk-tree-arrow" style="font-size:0.7rem;transition:transform 0.15s;display:inline-block">▶</span>`;
+                html += `<span style="font-weight:600">📁 ${esc(node.name)}</span>`;
+                html += `<span style="color:var(--text-muted);font-size:0.75rem;margin-left:0.3rem">(${count})</span>`;
+                html += `</div>`;
+                html += `<div class="bk-tree-children" style="display:none">`;
+                html += archiveRenderTreeNodes(node.children || [], depth + 1);
+                html += `</div></div>`;
+            } else {
+                const icon = _archiveTypeIcons[node.type] || '📄';
+                const sizeStr = node.size < 1024 ? `${node.size} B`
+                    : node.size < 1048576 ? `${(node.size / 1024).toFixed(1)} KB`
+                        : `${(node.size / 1048576).toFixed(1)} MB`;
+                html += `<div style="display:flex;align-items:center;gap:0.4rem;padding:2px 0;padding-left:${indent}rem">`;
+                html += `<input type="checkbox" class="bk-tree-cb bk-tree-file" data-path="${pathAttr}"
+                            onchange="archiveUpdateCount()" style="width:15px;height:15px;accent-color:var(--accent-primary);flex-shrink:0" checked>`;
+                html += `<span>${icon} ${esc(node.name)}</span>`;
+                html += `<span style="color:var(--text-muted);font-size:0.75rem;margin-left:auto">${sizeStr}</span>`;
+                html += `</div>`;
+            }
+        }
+        return html;
+    }
+
+
+    // ── Tree interactions ─────────────────────────────────────
+
+    function archiveToggleDir(rowEl) {
+        const children = rowEl.nextElementSibling;
+        const arrow = rowEl.querySelector('.bk-tree-arrow');
+        if (children) {
+            const open = children.style.display !== 'none';
+            children.style.display = open ? 'none' : 'block';
+            if (arrow) arrow.style.transform = open ? '' : 'rotate(90deg)';
+        }
+    }
+
+    function archiveDirCheck(cb) {
+        const checked = cb.checked;
+        const children = cb.closest('div[style]').nextElementSibling;
+        if (children) {
+            children.querySelectorAll('.bk-tree-cb').forEach(c => { c.checked = checked; });
+        }
+        archiveUpdateCount();
+    }
+
+    function archiveSelectAll(state) {
+        document.querySelectorAll('.bk-tree-cb').forEach(c => { c.checked = state; });
+        archiveUpdateCount();
+    }
+
+    function archiveUpdateCount() {
+        const files = document.querySelectorAll('.bk-tree-file:checked');
+        const el = document.getElementById('bk-selection-count');
+        if (el) el.textContent = `${files.length} file(s) selected`;
+    }
+
+    function archiveGetSelectedPaths() {
+        const paths = [];
+        document.querySelectorAll('.bk-tree-file:checked').forEach(cb => {
+            paths.push(cb.dataset.path);
+        });
+        return paths;
+    }
+
+
+    // ── Export (backup) ────────────────────────────────────────
+
+    async function archiveDoExport() {
+        const paths = archiveGetSelectedPaths();
+        if (!paths.length) { toast('No files selected', 'error'); return; }
+
+        const decryptEnc = document.getElementById('bk-opt-decrypt')?.checked || false;
+        const encryptArchive = document.getElementById('bk-opt-encrypt-archive')?.checked || false;
+        const customName = document.getElementById('bk-custom-name')?.value?.trim() || '';
+
+        const btn = document.getElementById('bk-export-btn');
+        const status = document.getElementById('bk-action-status');
+        btn.disabled = true;
+        btn.textContent = '⏳ Backing up…';
+        status.style.display = 'block';
+        status.innerHTML = '<span class="spinner"></span> Creating archive…';
+
+        try {
+            const result = await api('/backup/export', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    target_folder: _archiveSelectedFolder,
+                    paths: paths,
+                    label: 'admin_export',
+                    decrypt_enc: decryptEnc,
+                    encrypt_archive: encryptArchive,
+                    custom_name: customName,
+                }),
+            });
+
+            if (result.error) {
+                status.innerHTML = `<span style="color:var(--error)">❌ ${esc(result.error)}</span>`;
+            } else {
+                const sizeKB = (result.size_bytes / 1024).toFixed(1);
+                const stats = result.manifest?.stats || {};
+                const encLabel = result.encrypted ? ' 🔒 encrypted' : '';
+                status.innerHTML = `
+                    ✅ <strong>${esc(result.filename)}</strong> (${sizeKB} KB)${encLabel} — ${stats.total_files || 0} files<br>
+                    Saved to <code>${esc(result.backup_folder)}/</code><br>
+                    <a href="/api/backup/download/${esc(result.full_path)}" class="btn btn-primary btn-sm" style="margin-top:0.5rem;display:inline-block" download>
+                        💾 Download
+                    </a>`;
+                toast('Backup created!', 'success');
+                archiveLoadList();
+                _archiveRefreshName(); // fresh name for next backup
+            }
+        } catch (e) {
+            status.innerHTML = `<span style="color:var(--error)">❌ ${esc(e.message)}</span>`;
+        } finally {
+            btn.disabled = false;
+            btn.textContent = '📥 Backup selected';
+        }
+    }
+

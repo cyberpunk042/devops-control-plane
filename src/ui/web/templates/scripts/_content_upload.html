@@ -1,0 +1,569 @@
+    // ─────────────────────────────────────────────────────────────────
+    //  _content_upload.html
+    //  Content Vault — Encryption key setup, upload, utilities
+    //  Enc key setup/generate/save, markdown renderer, format helpers,
+    //  translation toggle, file upload with progress, drag-drop
+    //  Included by: _content.html (Jinja2 include)
+    // ─────────────────────────────────────────────────────────────────
+
+
+
+    // ═════════════════════════════════════════════════════════════════
+    //  Encryption Key Setup
+    // ═════════════════════════════════════════════════════════════════
+
+    async function contentEncKeySetup() {
+        const browser = document.getElementById('content-browser');
+        browser.innerHTML = `
+            <div class="content-preview-panel">
+                <div class="content-preview-header">
+                    <button class="btn btn-secondary btn-sm" onclick="contentClosePreview()">← Back</button>
+                    <span class="content-preview-title">🔑 Set Up Content Encryption Key</span>
+                </div>
+                <div class="content-preview-body" style="padding:1.5rem">
+                    <p style="color:var(--text-secondary);line-height:1.6;margin-bottom:1.5rem">
+                        Content encryption requires a <strong>CONTENT_VAULT_ENC_KEY</strong> in your <code>.env</code> file.
+                        Choose your own key or generate a strong random one.
+                    </p>
+                    <div style="display:flex;gap:0.5rem;align-items:flex-end;flex-wrap:wrap">
+                        <div style="flex:1;min-width:250px">
+                            <label style="font-size:0.8rem;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:0.35rem">Encryption Key</label>
+                            <input type="text" id="enc-key-input" placeholder="Enter at least 8 characters…" style="width:100%;font-family:monospace">
+                        </div>
+                        <button class="btn btn-secondary" onclick="contentGenerateKey()">🎲 Generate</button>
+                        <button class="btn btn-primary" onclick="contentSaveEncKey()">💾 Save Key</button>
+                    </div>
+                    <p style="color:var(--text-muted);font-size:0.8rem;margin-top:1rem">
+                        ⚠️ This key is stored in <code>.env</code>. Losing it means losing access to encrypted content.
+                        Make sure it's backed up (push to GitHub Secrets or save it securely).
+                    </p>
+                </div>
+            </div>`;
+    }
+
+    async function contentGenerateKey() {
+        try {
+            const result = await api('/content/setup-enc-key', {
+                method: 'POST',
+                body: JSON.stringify({ generate: true }),
+            });
+            // Show it in the input for the user to see before saving
+            // Actually it's already saved! Let them know.
+            const input = document.getElementById('enc-key-input');
+            if (input) input.value = result.key_value;
+            encKeyConfigured = true;
+            toast('🔑 Encryption key generated and saved!', 'success');
+            // Refresh secrets tab if used later
+            if (typeof secretsLoaded !== 'undefined') secretsLoaded = false;
+        } catch (e) {
+            toast(`Failed: ${e.message}`, 'error');
+        }
+    }
+
+    async function contentSaveEncKey() {
+        const input = document.getElementById('enc-key-input');
+        const keyVal = input ? input.value.trim() : '';
+        if (!keyVal || keyVal.length < 8) {
+            toast('Key must be at least 8 characters.', 'warning');
+            return;
+        }
+
+        try {
+            await api('/content/setup-enc-key', {
+                method: 'POST',
+                body: JSON.stringify({ key: keyVal }),
+            });
+            encKeyConfigured = true;
+            toast('🔑 Encryption key saved!', 'success');
+            if (typeof secretsLoaded !== 'undefined') secretsLoaded = false;
+            contentClosePreview();
+        } catch (e) {
+            toast(`Failed: ${e.message}`, 'error');
+        }
+    }
+
+
+    // ═════════════════════════════════════════════════════════════════
+    //  Markdown Renderer
+    // ═════════════════════════════════════════════════════════════════
+
+    /**
+     * Basic markdown → HTML renderer.
+     * Handles headers, bold, italic, code blocks, inline code, links, lists, and paragraphs.
+     */
+    function renderMarkdown(md) {
+        let html = esc(md);
+
+        // Code blocks (``` ... ```)
+        html = html.replace(/```(\w*)\n([\s\S]*?)```/g, '<pre class="content-preview-code notranslate" translate="no"><code>$2</code></pre>');
+
+        // Headers — generate slug IDs for anchor links (GitHub-compatible)
+        function _slugify(text) {
+            return text.toLowerCase()
+                .replace(/<[^>]+>/g, '')          // strip HTML tags
+                .replace(/&[^;]+;/g, '')          // strip HTML entities
+                .replace(/[^\w\s-]/g, '')          // strip non-word chars (keep hyphens)
+                .trim()
+                .replace(/\s+/g, '-');             // spaces → dashes (preserve consecutive -)
+        }
+        html = html.replace(/^######\s+(.+)$/gm, (_, t) => `<h6 id="${_slugify(t)}">${t}</h6>`);
+        html = html.replace(/^#####\s+(.+)$/gm, (_, t) => `<h5 id="${_slugify(t)}">${t}</h5>`);
+        html = html.replace(/^####\s+(.+)$/gm, (_, t) => `<h4 id="${_slugify(t)}">${t}</h4>`);
+        html = html.replace(/^###\s+(.+)$/gm, (_, t) => `<h3 id="${_slugify(t)}">${t}</h3>`);
+        html = html.replace(/^##\s+(.+)$/gm, (_, t) => `<h2 id="${_slugify(t)}">${t}</h2>`);
+        html = html.replace(/^#\s+(.+)$/gm, (_, t) => `<h1 id="${_slugify(t)}">${t}</h1>`);
+
+        // Bold and italic
+        html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+        html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
+
+        // Inline code
+        html = html.replace(/`([^`]+)`/g, '<code class="notranslate" translate="no" style="background:var(--bg-inset);padding:0.1em 0.3em;border-radius:3px;font-size:0.9em">$1</code>');
+
+        // Links — anchor links use data-anchor, doc links use data-doclink
+        html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, text, href) => {
+            if (href.startsWith('#')) {
+                return `<a href="#" data-anchor="${href.substring(1)}">${text}</a>`;
+            }
+            // Relative doc/media links (./file.md, ../other/file.md, file.md)
+            if (!href.startsWith('http://') && !href.startsWith('https://') && !href.startsWith('//')) {
+                return `<a href="#" data-doclink="${href}">${text}</a>`;
+            }
+            return `<a href="${href}" target="_blank" rel="noopener">${text}</a>`;
+        });
+
+        // Unordered lists
+        html = html.replace(/^[\-\*]\s+(.+)$/gm, '<li>$1</li>');
+        html = html.replace(/((?:<li>.*<\/li>\n?)+)/g, '<ul>$1</ul>');
+
+        // Horizontal rules
+        html = html.replace(/^---+$/gm, '<hr>');
+
+        // Line breaks → paragraphs
+        html = html.replace(/\n\n/g, '</p><p>');
+        html = '<p>' + html + '</p>';
+
+        // Clean up
+        html = html.replace(/<p><\/p>/g, '');
+        html = html.replace(/<p>\s*(<h[1-6]>)/g, '$1');
+        html = html.replace(/(<\/h[1-6]>)\s*<\/p>/g, '$1');
+        html = html.replace(/<p>\s*(<pre)/g, '$1');
+        html = html.replace(/(<\/pre>)\s*<\/p>/g, '$1');
+        html = html.replace(/<p>\s*(<ul>)/g, '$1');
+        html = html.replace(/(<\/ul>)\s*<\/p>/g, '$1');
+        html = html.replace(/<p>\s*(<hr>)/g, '$1');
+
+        return html;
+    }
+
+
+    // ═════════════════════════════════════════════════════════════════
+    //  Helpers
+    // ═════════════════════════════════════════════════════════════════
+
+    function formatFileSize(bytes) {
+        if (bytes < 1024) return bytes + ' B';
+        if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+        if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+        return (bytes / (1024 * 1024 * 1024)).toFixed(1) + ' GB';
+    }
+
+
+    // ═════════════════════════════════════════════════════════════════
+    //  Translate toggle for preview content
+    // ═════════════════════════════════════════════════════════════════
+
+    function contentToggleTranslate(btn) {
+        const container = btn.parentElement.parentElement;  // .content-preview-rendered
+        const previewBody = document.getElementById('content-preview-body');  // parent wrapper
+        const isBlocked = container.classList.contains('notranslate');
+
+        if (isBlocked) {
+            // ── Enable translation ──────────────────────────────────
+            // Remove notranslate from BOTH the rendered div AND the parent body
+            // (the parent has translate="no" which blocks GT for all children)
+            container.classList.remove('notranslate');
+            container.removeAttribute('translate');
+            if (previewBody) {
+                previewBody.removeAttribute('translate');
+                previewBody.classList.remove('notranslate');
+            }
+            btn.textContent = '🌐 Translate off';
+
+            // Force Google Translate to re-scan by resetting then reapplying
+            const gtSelect = document.querySelector('.goog-te-combo');
+            if (gtSelect && gtSelect.value) {
+                const targetLang = gtSelect.value;
+                gtSelect.value = '';
+                gtSelect.dispatchEvent(new Event('change'));
+                setTimeout(() => {
+                    gtSelect.value = targetLang;
+                    gtSelect.dispatchEvent(new Event('change'));
+                }, 300);
+            }
+        } else {
+            // ── Disable translation ─────────────────────────────────
+            // Restore notranslate on both levels
+            container.classList.add('notranslate');
+            container.setAttribute('translate', 'no');
+            if (previewBody) {
+                previewBody.setAttribute('translate', 'no');
+            }
+
+            // Re-render original markdown content (un-mangled by GT)
+            if (previewOrigContent || encPreviewContent) {
+                const src = previewOrigContent || encPreviewContent;
+                const rendered = renderMarkdown(src);
+                // Clear everything except the first child (toggle button row)
+                while (container.children.length > 1) {
+                    container.removeChild(container.lastChild);
+                }
+                // Append fresh rendered content
+                const wrapper = document.createElement('div');
+                wrapper.innerHTML = rendered;
+                while (wrapper.firstChild) {
+                    container.appendChild(wrapper.firstChild);
+                }
+            }
+
+            btn.textContent = '🌐 Translate';
+        }
+    }
+
+    // ═════════════════════════════════════════════════════════════════
+    //  Upload
+    // ═════════════════════════════════════════════════════════════════
+
+    let _contentUploadXhr = null;
+    let _contentReleaseUploadId = null;  // tracks active release upload for cancellation
+
+    function contentCancelUpload() {
+        // 1. Abort the XHR upload if still in progress
+        if (_contentUploadXhr) {
+            _contentUploadXhr.abort();
+            _contentUploadXhr = null;
+        }
+        // 2. Cancel any active server-side optimization (ffmpeg)
+        api('/content/optimize-cancel', { method: 'POST' }).catch(() => { });
+        // 3. Cancel any active release upload
+        if (_contentReleaseUploadId) {
+            api(`/content/release-cancel/${_contentReleaseUploadId}`, { method: 'POST' }).catch(() => { });
+            _contentReleaseUploadId = null;
+        }
+        // 4. Reset the progress UI
+        const progressEl = document.getElementById('content-upload-progress');
+        if (progressEl) progressEl.style.display = 'none';
+        const bar = document.getElementById('content-upload-bar');
+        if (bar) { bar.style.width = '0%'; bar.style.background = ''; }
+        const label = document.getElementById('content-upload-label');
+        if (label) label.textContent = '📤 Uploading...';
+        showToast('Upload cancelled', 'info');
+    }
+
+    function contentShowUpload() {
+        const zone = document.getElementById('content-upload-zone');
+        if (zone) {
+            zone.style.display = zone.style.display === 'none' ? 'block' : 'none';
+        }
+    }
+
+    function contentInitDragDrop() {
+        const dropzone = document.getElementById('content-dropzone');
+        if (!dropzone) return;
+
+        ['dragenter', 'dragover'].forEach(evt => {
+            dropzone.addEventListener(evt, (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                dropzone.classList.add('drag-active');
+            });
+        });
+
+        ['dragleave', 'drop'].forEach(evt => {
+            dropzone.addEventListener(evt, (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                dropzone.classList.remove('drag-active');
+            });
+        });
+
+        dropzone.addEventListener('drop', (e) => {
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                contentDoUpload(files);
+            }
+        });
+    }
+
+    function contentUploadFiles(event) {
+        const files = event.target.files;
+        if (!files || files.length === 0) return;
+        contentDoUpload(files);
+    }
+
+    async function contentDoUpload(files) {
+        if (!contentCurrentPath) {
+            toast('No folder selected for upload', 'warning');
+            return;
+        }
+
+        const dropzone = document.getElementById('content-dropzone');
+        const progressEl = document.getElementById('content-upload-progress');
+        const bar = document.getElementById('content-upload-bar');
+        const label = document.getElementById('content-upload-label');
+        const detail = document.getElementById('content-upload-detail');
+        const eta = document.getElementById('content-upload-eta');
+
+        // Hide dropzone, show progress
+        if (dropzone) dropzone.style.display = 'none';
+        if (progressEl) progressEl.style.display = 'block';
+
+        let uploaded = 0;
+        const totalFiles = files.length;
+        let totalSavings = 0;
+
+        for (let i = 0; i < totalFiles; i++) {
+            const file = files[i];
+            label.textContent = `📤 Uploading ${file.name} (${i + 1}/${totalFiles})…`;
+            bar.style.background = 'linear-gradient(90deg, var(--accent), var(--accent-hover))';
+
+            try {
+                const result = await new Promise((resolve, reject) => {
+                    const formData = new FormData();
+                    formData.append('file', file);
+                    formData.append('folder', contentCurrentPath);
+
+                    const xhr = new XMLHttpRequest();
+                    _contentUploadXhr = xhr;
+                    let uploadDone = false;
+                    let optimizePollId = null;
+
+                    const startTime = Date.now();
+
+                    xhr.upload.addEventListener('progress', (e) => {
+                        if (!e.lengthComputable) return;
+                        const pct = Math.round((e.loaded / e.total) * 100);
+                        bar.style.width = pct + '%';
+                        detail.textContent = `${pct}% · ${formatFileSize(e.loaded)} / ${formatFileSize(e.total)}`;
+
+                        const elapsedSec = (Date.now() - startTime) / 1000;
+                        const speed = e.loaded / elapsedSec;
+                        const remaining = (e.total - e.loaded) / speed;
+                        eta.textContent = remaining > 60
+                            ? `~${Math.ceil(remaining / 60)} min left`
+                            : remaining > 5
+                                ? `~${Math.ceil(remaining)}s left`
+                                : '';
+                    });
+
+                    // When upload bytes are fully sent, switch to "optimizing" stage
+                    xhr.upload.addEventListener('load', () => {
+                        uploadDone = true;
+                        bar.style.width = '0%';
+                        bar.style.background = 'linear-gradient(90deg, #818cf8, #a78bfa)';
+                        label.textContent = `⚡ Optimizing ${file.name}…`;
+                        detail.textContent = 'Processing on server…';
+                        eta.textContent = '';
+
+                        // Poll optimize status for real-time progress
+                        const isMedia = file.type.startsWith('video/') || file.type.startsWith('audio/');
+                        if (isMedia) {
+                            optimizePollId = setInterval(async () => {
+                                try {
+                                    const st = await api('/content/optimize-status');
+                                    if (st.status === 'encoding') {
+                                        // Compute progress % from encoded time vs duration
+                                        let pct = 0;
+                                        if (st.duration_sec > 0 && st.time) {
+                                            const parts = st.time.split(':');
+                                            if (parts.length === 3) {
+                                                const secs = parseInt(parts[0]) * 3600
+                                                    + parseInt(parts[1]) * 60
+                                                    + parseFloat(parts[2]);
+                                                pct = Math.min(99, Math.round((secs / st.duration_sec) * 100));
+                                            }
+                                        }
+                                        bar.style.width = pct + '%';
+
+                                        const encoder = st.encoder || '';
+                                        let info = encoder ? `[${encoder}] ` : '';
+                                        if (st.speed) info += `${st.speed} `;
+                                        if (st.fps) info += `${st.fps} fps `;
+                                        if (st.time) info += `· ${st.time}`;
+                                        detail.textContent = info || 'Encoding…';
+
+                                        label.textContent = `⚡ Encoding ${file.name}… ${pct}%`;
+                                        eta.textContent = st.elapsed ? `${Math.round(st.elapsed)}s elapsed` : '';
+
+                                        if (st.deadline_warning) {
+                                            eta.textContent += ' ⚠️ Deadline approaching';
+                                        }
+                                    }
+                                } catch (e) { /* ignore poll errors */ }
+                            }, 2000);
+                        } else {
+                            // Non-media: show indeterminate bar
+                            bar.style.width = '60%';
+                        }
+                    });
+
+                    xhr.addEventListener('load', () => {
+                        _contentUploadXhr = null;
+                        if (optimizePollId) clearInterval(optimizePollId);
+
+                        if (xhr.status >= 200 && xhr.status < 300) {
+                            try {
+                                const data = JSON.parse(xhr.responseText);
+                                if (data.success) {
+                                    resolve(data);
+                                } else {
+                                    reject(new Error(data.error || 'Upload failed'));
+                                }
+                            } catch (e) {
+                                reject(new Error('Invalid response'));
+                            }
+                        } else {
+                            let errMsg = `Server error (HTTP ${xhr.status})`;
+                            try {
+                                const err = JSON.parse(xhr.responseText);
+                                errMsg = err.error || errMsg;
+                            } catch (e) { }
+                            reject(new Error(errMsg));
+                        }
+                    });
+
+                    xhr.addEventListener('error', () => {
+                        _contentUploadXhr = null;
+                        if (optimizePollId) clearInterval(optimizePollId);
+                        reject(new Error('Network error'));
+                    });
+
+                    xhr.addEventListener('abort', () => {
+                        _contentUploadXhr = null;
+                        if (optimizePollId) clearInterval(optimizePollId);
+                        reject(new Error('Upload cancelled'));
+                    });
+
+                    xhr.open('POST', '/api/content/upload');
+                    xhr.send(formData);
+                });
+
+                uploaded++;
+
+                // Show per-file result
+                if (result.optimized && result.savings_pct) {
+                    totalSavings += (result.savings || 0);
+                    detail.textContent = `${result.original_name} → ${result.name} (−${result.savings_pct}%, tier: ${result.tier})`;
+                }
+
+                // Stage 3: If large file → poll GitHub Release upload progress
+                if (result.release_upload) {
+                    const releaseId = result.release_upload;
+                    _contentReleaseUploadId = releaseId;  // track for cancel
+                    bar.style.width = '2%';
+                    bar.style.background = 'linear-gradient(90deg, #8b5cf6, #a78bfa)';
+                    label.textContent = `☁️ Backing up ${result.name} to GitHub Release…`;
+                    detail.textContent = 'Queued…';
+                    eta.textContent = '';
+
+                    // Poll release status until done/failed/cancelled
+                    await new Promise((resolve) => {
+                        const pollId = setInterval(async () => {
+                            try {
+                                const st = await api(`/content/release-status/${releaseId}`);
+
+                                if (st.status === 'uploading') {
+                                    const pct = st.progress_pct || 0;
+                                    bar.style.width = pct + '%';
+                                    label.textContent = `☁️ Uploading ${result.name}… ${pct}%`;
+                                    // Build detail line: speed + elapsed
+                                    let info = st.speed || '';
+                                    if (st.elapsed_sec) info += ` · ${Math.round(st.elapsed_sec)}s`;
+                                    detail.textContent = info || st.message || 'Uploading…';
+                                    eta.textContent = st.eta || (st.size_mb ? `${st.size_mb} MB` : '');
+                                } else if (st.status === 'done') {
+                                    clearInterval(pollId);
+                                    _contentReleaseUploadId = null;
+                                    bar.style.width = '100%';
+                                    bar.style.background = 'linear-gradient(90deg, #22c55e, #4ade80)';
+                                    label.textContent = `☁️ ${result.name} backed up`;
+                                    detail.textContent = st.message || 'Done';
+                                    eta.textContent = '';
+                                    toast(`☁️ ${result.name} backed up to GitHub Release`, 'success');
+                                    resolve();
+                                } else if (st.status === 'failed' || st.status === 'cancelled') {
+                                    clearInterval(pollId);
+                                    _contentReleaseUploadId = null;
+                                    bar.style.background = 'linear-gradient(90deg, #f87171, #ef4444)';
+                                    bar.style.width = '100%';
+                                    label.textContent = `⚠️ Release backup ${st.status}`;
+                                    detail.textContent = st.message || st.status;
+                                    eta.textContent = '';
+                                    toast(`Release backup ${st.status}: ${st.message}`, 'error');
+                                    resolve();
+                                } else {
+                                    // pending / setup
+                                    detail.textContent = st.message || st.status || 'Pending…';
+                                }
+                            } catch (e) {
+                                // Poll errors are non-fatal
+                            }
+                        }, 1500);
+
+                        // Safety: don't poll forever (30 min max)
+                        setTimeout(() => {
+                            clearInterval(pollId);
+                            _contentReleaseUploadId = null;
+                            resolve();
+                        }, 30 * 60 * 1000);
+                    });
+                }
+
+                // Stage 4: If encrypt checkbox is checked, encrypt after upload
+                const encryptCb = document.getElementById('content-upload-encrypt-cb');
+                if (encryptCb && encryptCb.checked && result.path) {
+                    bar.style.width = '0%';
+                    bar.style.background = 'linear-gradient(90deg, #f59e0b, #fbbf24)';
+                    label.textContent = `🔒 Encrypting ${result.name}…`;
+                    detail.textContent = 'Calling encrypt API…';
+                    eta.textContent = '';
+                    try {
+                        const encResult = await api('/content/encrypt', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ path: result.path, delete_original: true }),
+                        });
+                        if (encResult.success) {
+                            bar.style.width = '100%';
+                            bar.style.background = 'linear-gradient(90deg, #22c55e, #4ade80)';
+                            label.textContent = `🔒 ${result.name} encrypted`;
+                            detail.textContent = `${formatFileSize(encResult.original_size)} → ${formatFileSize(encResult.encrypted_size)}`;
+                            toast(`🔒 ${result.name} encrypted`, 'success');
+                        } else {
+                            toast(`Encrypt failed: ${encResult.error || 'unknown'}`, 'error');
+                        }
+                    } catch (encErr) {
+                        toast(`Encrypt error: ${encErr.message}`, 'error');
+                    }
+                }
+
+            } catch (e) {
+                toast(`Failed to upload ${file.name}: ${e.message}`, 'error');
+            }
+        }
+
+        // Done — show success
+        bar.style.width = '100%';
+        bar.style.background = 'linear-gradient(90deg, #22c55e, #4ade80)';
+        let doneMsg = `✅ ${uploaded}/${totalFiles} file(s) uploaded`;
+        if (totalSavings > 0) doneMsg += ` · saved ${formatFileSize(totalSavings)}`;
+        label.textContent = doneMsg;
+        eta.textContent = '';
+
+        // Refresh folder after delay
+        setTimeout(() => {
+            contentLoaded = false;
+            contentLoadFolder(contentCurrentPath);
+        }, 2000);
+    }
+

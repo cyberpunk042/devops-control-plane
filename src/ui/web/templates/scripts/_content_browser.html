@@ -1,0 +1,536 @@
+    // ─────────────────────────────────────────────────────────────────
+    //  _content_browser.html
+    //  Content Vault — File Browser
+    //  Category filtering, name search, recursive search,
+    //  file list rendering (list view, media gallery)
+    //  Included by: _content.html (Jinja2 include)
+    // ─────────────────────────────────────────────────────────────────
+
+
+
+    // ═════════════════════════════════════════════════════════════════
+    //  File Browser
+    // ═════════════════════════════════════════════════════════════════
+
+    function contentToggleCategoryFilter(category) {
+        if (!_contentCategoryFilters[contentCurrentMode]) {
+            _contentCategoryFilters[contentCurrentMode] = {};
+        }
+        const mf = _contentCategoryFilters[contentCurrentMode];
+        mf[category] = mf[category] === false ? true : false;
+
+        // Re-render from cached data
+        if (_contentLastRenderData) {
+            renderContentFiles(_contentLastRenderData.data, _contentLastRenderData.folderPath);
+        }
+    }
+
+    function contentToggleMediaShowAll(checked) {
+        _contentMediaShowAll = checked;
+        // Reload current folder with/without recursive flag
+        contentLoadFolder(contentCurrentPath);
+    }
+
+    function _matchesGlob(name, query) {
+        // If query contains *, treat as glob pattern
+        if (query.includes('*')) {
+            // Convert glob to regex: escape regex chars except *, then replace * with .*
+            const escaped = query.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*');
+            try {
+                return new RegExp('^' + escaped + '$', 'i').test(name);
+            } catch (_) {
+                return name.includes(query);
+            }
+        }
+        // Plain substring match
+        return name.includes(query);
+    }
+
+    // ── Recursive search cache and helpers ──────────────────────
+    let _searchRecursiveCache = { path: '', files: [] };
+    let _searchDebounceTimer = null;
+
+    function contentFilterListByName(query) {
+        const q = query.toLowerCase().trim();
+        const recursive = document.getElementById('content-list-search-recursive')?.checked ?? true;
+
+        if (!recursive || !q) {
+            // Remove any injected search results
+            const injected = document.getElementById('content-search-results-overlay');
+            if (injected) injected.remove();
+            // Show original list
+            const origList = document.querySelector('.content-file-list');
+            if (origList) origList.style.display = '';
+            // Simple DOM filter
+            const rows = document.querySelectorAll('.content-file-list .content-file-row[data-name]');
+            rows.forEach(row => {
+                const name = row.dataset.name || '';
+                row.style.display = (!q || _matchesGlob(name, q)) ? '' : 'none';
+            });
+            return;
+        }
+
+        // Recursive search with debounce
+        clearTimeout(_searchDebounceTimer);
+        _searchDebounceTimer = setTimeout(() => _doRecursiveListSearch(q), 250);
+    }
+
+    async function _doRecursiveListSearch(q) {
+        // Fetch recursive data (cached per path)
+        if (_searchRecursiveCache.path !== contentCurrentPath) {
+            try {
+                const data = await api(`/content/list?path=${encodeURIComponent(contentCurrentPath)}&recursive=true`);
+                _searchRecursiveCache = { path: contentCurrentPath, files: (data.files || []).filter(f => !f.is_dir) };
+            } catch (e) { return; }
+        }
+
+        const allowedCats = CATEGORY_MODES[contentCurrentMode] || [];
+        const matches = _searchRecursiveCache.files.filter(f =>
+            allowedCats.includes(f.category) && _matchesGlob(f.name.toLowerCase(), q)
+        );
+
+        // Hide original list, show results overlay
+        const origList = document.querySelector('.content-file-list');
+        if (origList) origList.style.display = 'none';
+
+        let overlay = document.getElementById('content-search-results-overlay');
+        if (!overlay) {
+            overlay = document.createElement('div');
+            overlay.id = 'content-search-results-overlay';
+            overlay.style.cssText = 'border:1px solid var(--border-subtle);border-radius:8px;background:var(--bg-tertiary);padding:0.5rem;max-height:400px;overflow-y:auto';
+            origList?.parentElement?.appendChild(overlay);
+        }
+
+        if (!matches.length) {
+            overlay.innerHTML = '<div style="padding:0.5rem;color:var(--text-muted);font-size:0.85rem">No matching files found in subfolders</div>';
+            return;
+        }
+
+        let html = `<div style="font-size:0.75rem;color:var(--text-muted);margin-bottom:0.3rem">${matches.length} result(s) across all subfolders</div>`;
+        for (const f of matches.slice(0, 100)) {
+            const icon = f.encrypted ? '🔐' : (CATEGORY_ICONS[f.category] || '📄');
+            const relPath = f.path.replace(contentCurrentPath + '/', '');
+            const dir = relPath.includes('/') ? relPath.substring(0, relPath.lastIndexOf('/')) + '/' : '';
+            html += `<div class="content-file-row" style="cursor:pointer;padding:0.25rem 0.4rem;border-radius:4px"
+                onclick="contentPreviewFile('${esc(f.path)}', '${esc(f.name)}', '${esc(f.mime_type || '')}', ${f.encrypted || false})">
+                <div class="content-file-icon">${icon}</div>
+                <div class="content-file-info">
+                    <div class="content-file-name">${dir ? '<span style="color:var(--text-muted);font-size:0.75rem">' + esc(dir) + '</span>' : ''}${esc(f.name)}</div>
+                </div>
+                <div class="content-file-size">${formatFileSize(f.size || 0)}</div>
+            </div>`;
+        }
+        if (matches.length > 100) {
+            html += `<div style="padding:0.3rem;color:var(--text-muted);font-size:0.8rem">… and ${matches.length - 100} more</div>`;
+        }
+        overlay.innerHTML = html;
+    }
+
+    function contentFilterMediaByName(query) {
+        const q = query.toLowerCase().trim();
+        const recursive = document.getElementById('content-media-search-recursive')?.checked ?? true;
+
+        if (!recursive || !q) {
+            // Remove any injected search results
+            const injected = document.getElementById('media-search-results-overlay');
+            if (injected) injected.remove();
+            // Show original gallery
+            const origGrid = document.querySelector('.media-gallery-grid');
+            if (origGrid) origGrid.style.display = '';
+            // Simple DOM filter
+            const items = document.querySelectorAll('.media-gallery-grid .media-gallery-item[data-name]');
+            items.forEach(item => {
+                const name = item.dataset.name || '';
+                item.style.display = (!q || _matchesGlob(name, q)) ? '' : 'none';
+            });
+            return;
+        }
+
+        // Recursive search with debounce
+        clearTimeout(_searchDebounceTimer);
+        _searchDebounceTimer = setTimeout(() => _doRecursiveMediaSearch(q), 250);
+    }
+
+    async function _doRecursiveMediaSearch(q) {
+        // Fetch recursive data (cached per path)
+        if (_searchRecursiveCache.path !== contentCurrentPath) {
+            try {
+                const data = await api(`/content/list?path=${encodeURIComponent(contentCurrentPath)}&recursive=true`);
+                _searchRecursiveCache = { path: contentCurrentPath, files: (data.files || []).filter(f => !f.is_dir) };
+            } catch (e) { return; }
+        }
+
+        const mediaCats = CATEGORY_MODES['media'] || [];
+        const matches = _searchRecursiveCache.files.filter(f =>
+            mediaCats.includes(f.category) && _matchesGlob(f.name.toLowerCase(), q)
+        );
+
+        // Hide original grid, show results overlay
+        const origGrid = document.querySelector('.media-gallery-grid');
+        if (origGrid) origGrid.style.display = 'none';
+
+        let overlay = document.getElementById('media-search-results-overlay');
+        if (!overlay) {
+            overlay = document.createElement('div');
+            overlay.id = 'media-search-results-overlay';
+            overlay.className = 'media-gallery-grid';
+            overlay.style.cssText = 'margin-top:0.5rem';
+            origGrid?.parentElement?.appendChild(overlay);
+        }
+
+        if (!matches.length) {
+            overlay.innerHTML = '<div style="padding:1rem;color:var(--text-muted);font-size:0.85rem;text-align:center">No matching files found in subfolders</div>';
+            return;
+        }
+
+        let html = `<div style="grid-column:1/-1;font-size:0.75rem;color:var(--text-muted);margin-bottom:0.2rem">${matches.length} result(s) across all subfolders</div>`;
+        for (const f of matches.slice(0, 60)) {
+            const isImage = (f.mime_type || '').startsWith('image/') && !f.encrypted;
+            const icon = f.encrypted ? '🔐' : (CATEGORY_ICONS[f.category] || '📎');
+            const thumbSrc = isImage ? `/api/content/download?path=${encodeURIComponent(f.path)}` : '';
+            const relPath = f.path.replace(contentCurrentPath + '/', '');
+
+            html += `<div class="media-gallery-item" data-name="${f.name.toLowerCase()}"
+                onclick="contentPreviewFile('${esc(f.path)}', '${esc(f.name)}', '${esc(f.mime_type || '')}', ${f.encrypted || false})"
+                style="cursor:pointer">`;
+            if (thumbSrc) {
+                html += `<div class="media-gallery-thumb" style="background-image:url('${thumbSrc}')"></div>`;
+            } else {
+                html += `<div class="media-gallery-thumb" style="display:flex;align-items:center;justify-content:center;font-size:2rem;background:var(--bg-tertiary)">${icon}</div>`;
+            }
+            html += `<div class="media-gallery-label" title="${esc(relPath)}">${esc(f.name)}</div>`;
+            html += `</div>`;
+        }
+        overlay.innerHTML = html;
+    }
+
+    function renderContentFiles(data, folderPath) {
+        _contentLastRenderData = { data, folderPath };
+        const browser = document.getElementById('content-browser');
+        const summary = document.getElementById('content-summary');
+        const breadcrumb = document.getElementById('content-breadcrumb');
+        const files = data.files || [];
+
+        // Summary
+        if (summary && data.summary) {
+            const s = data.summary;
+            summary.textContent = `${s.file_count} files · ${s.total_size_human}${s.encrypted_count ? ` · ${s.encrypted_count} encrypted` : ''}`;
+        }
+
+        // Breadcrumb
+        const parts = folderPath.split('/');
+        if (breadcrumb) {
+            breadcrumb.style.display = parts.length > 1 ? 'block' : 'none';
+            let crumbs = '';
+            let accumulated = '';
+            for (let i = 0; i < parts.length; i++) {
+                accumulated += (i > 0 ? '/' : '') + parts[i];
+                const isLast = i === parts.length - 1;
+                if (isLast) {
+                    crumbs += `<span style="color:var(--text-primary);font-weight:600">${esc(parts[i])}</span>`;
+                } else {
+                    const p = accumulated;
+                    crumbs += `<a href="#" onclick="event.preventDefault();contentLoadFolder('${esc(p)}')" style="color:var(--primary)">${esc(parts[i])}</a>`;
+                    crumbs += ' <span style="color:var(--text-muted)">›</span> ';
+                }
+            }
+            breadcrumb.innerHTML = '📂 ' + crumbs;
+        }
+
+        // Filter by mode
+        const allowedCategories = CATEGORY_MODES[contentCurrentMode] || [];
+        const filtered = files.filter(f => {
+            if (f.is_dir) return true; // always show dirs
+            return allowedCategories.includes(f.category);
+        });
+
+        // Detect categories present in filtered files and build filter bar
+        const categoryCounts = {};
+        for (const f of filtered) {
+            if (f.is_dir) continue;
+            const cat = f.category || 'other';
+            categoryCounts[cat] = (categoryCounts[cat] || 0) + 1;
+        }
+        const detectedCategories = Object.keys(categoryCounts).sort((a, b) => {
+            const order = ['document', 'code', 'script', 'config', 'data', 'image', 'video', 'audio', 'archive', 'encrypted', 'other'];
+            return order.indexOf(a) - order.indexOf(b);
+        });
+
+        // Initialize filter state for current mode if needed
+        if (!_contentCategoryFilters[contentCurrentMode]) {
+            _contentCategoryFilters[contentCurrentMode] = {};
+        }
+        const modeFilters = _contentCategoryFilters[contentCurrentMode];
+        for (const cat of detectedCategories) {
+            if (modeFilters[cat] === undefined) modeFilters[cat] = true; // default ON
+        }
+
+        let filterBarHtml = '';
+        if (detectedCategories.length > 0) {
+            filterBarHtml = '<div id="content-category-filters" style="display:flex;flex-wrap:wrap;gap:0.35rem;margin-bottom:0.75rem;align-items:center">';
+            filterBarHtml += '<span style="font-size:0.75rem;color:var(--text-muted);margin-right:0.25rem">Filter:</span>';
+            for (const cat of detectedCategories) {
+                const color = CATEGORY_COLORS[cat] || '#94a3b8';
+                const icon = CATEGORY_ICONS[cat] || '📎';
+                const isOn = modeFilters[cat] !== false;
+                const opacity = isOn ? '1' : '0.35';
+                filterBarHtml += `<button class="content-cat-filter-pill" data-cat="${cat}"
+                    onclick="contentToggleCategoryFilter('${cat}')"
+                    style="display:inline-flex;align-items:center;gap:0.25rem;padding:0.2rem 0.55rem;border-radius:12px;
+                           border:1px solid ${color}40;background:${isOn ? color + '18' : 'transparent'};
+                           color:${color};font-size:0.75rem;font-weight:500;cursor:pointer;
+                           opacity:${opacity};transition:all 0.15s"
+                    title="${cat}">${icon} ${cat} <span style="opacity:0.6;font-size:0.7rem">${categoryCounts[cat]}</span></button>`;
+            }
+            filterBarHtml += '</div>';
+        }
+
+        // Apply category filters to filtered list
+        const visibleFiles = filtered.filter(f => {
+            if (f.is_dir) return true;
+            const cat = f.category || 'other';
+            return modeFilters[cat] !== false;
+        });
+
+        // ── Always render upload zone for media mode (before empty-state checks)
+        // This ensures contentShowUpload() can always find it in the DOM
+        const uploadZoneHtml = (contentCurrentMode === 'media') ? `
+            <div id="content-upload-zone" style="display:none;margin-bottom:1rem">
+                <div id="content-dropzone" class="content-dropzone" onclick="document.getElementById('content-upload-input').click()">
+                    <div style="font-size:2.5rem;margin-bottom:0.5rem;opacity:0.4">📤</div>
+                    <p style="font-size:0.9rem;margin-bottom:0.3rem">Drop files here, or click to upload</p>
+                    <p style="font-size:0.75rem;color:var(--text-muted)">Images, Videos, Audio, Documents — up to 500 MB</p>
+                    <input type="file" id="content-upload-input" style="display:none" multiple
+                        accept="image/*,video/*,audio/*,application/pdf,text/*,.json,.xml,.csv,.md,.zip,.gz,.tar,.7z,.mkv,.webm,.mov,.avi,.mp3,.mp4,.wav,.flac,.ogg"
+                        onchange="contentUploadFiles(event)">
+                </div>
+                <label style="display:flex;align-items:center;gap:0.5rem;margin-top:0.5rem;font-size:0.8rem;color:var(--text-muted);cursor:pointer">
+                    <input type="checkbox" id="content-upload-encrypt-cb"> 🔒 Encrypt after upload
+                </label>
+                <div id="content-upload-progress" class="content-upload-progress" style="display:none">
+                    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.5rem">
+                        <div style="font-size:0.85rem;font-weight:500" id="content-upload-label">📤 Uploading...</div>
+                        <button onclick="contentCancelUpload()" id="content-upload-cancel-btn"
+                            style="background:none;border:1px solid var(--border);border-radius:6px;padding:2px 10px;
+                            font-size:0.75rem;color:var(--text-muted);cursor:pointer;transition:all 0.2s"
+                            onmouseover="this.style.borderColor='#ef4444';this.style.color='#ef4444'"
+                            onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--text-muted)'"
+                            >✕ Cancel</button>
+                    </div>
+                    <div class="content-upload-progress-bar-track">
+                        <div class="content-upload-progress-bar" id="content-upload-bar"></div>
+                    </div>
+                    <div style="display:flex;justify-content:space-between;font-size:0.75rem;color:var(--text-muted)">
+                        <span id="content-upload-detail">0%</span>
+                        <span id="content-upload-eta"></span>
+                    </div>
+                </div>
+            </div>` : '';
+
+        // Build the media "Include subfolders" toggle (needs to survive empty-state renders)
+        const mediaShowAllHtml = (contentCurrentMode === 'media') ? `<div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.5rem">
+            <label style="display:inline-flex;align-items:center;gap:0.35rem;font-size:0.78rem;color:var(--text-secondary);cursor:pointer;user-select:none">
+                <input type="checkbox" id="content-media-show-all-cb" ${_contentMediaShowAll ? 'checked' : ''}
+                    onchange="contentToggleMediaShowAll(this.checked)"
+                    style="cursor:pointer">
+                📂 Include subfolders
+            </label>
+            ${_contentMediaShowAll ? '<span style="font-size:0.72rem;color:var(--accent-primary)">✓ showing all</span>' : ''}
+        </div>` : '';
+
+        // Build search bar HTML for empty-state renders (so recursive subfolder search still works)
+        const _searchBarSnippet = contentCurrentMode === 'media'
+            ? `<div style="margin-bottom:0.5rem;display:flex;gap:0.5rem;align-items:center">
+                <input type="text" id="content-media-search" placeholder="🔍 Search media… (supports * wildcards)"
+                    oninput="contentFilterMediaByName(this.value)"
+                    style="flex:1;font-size:0.82rem;padding:0.35rem 0.6rem;border:1px solid var(--border-subtle);border-radius:8px;background:var(--bg-tertiary);color:var(--text-primary);box-sizing:border-box">
+                <label style="display:flex;align-items:center;gap:0.3rem;cursor:pointer;font-size:0.75rem;color:var(--text-muted);white-space:nowrap" title="Search in all subfolders recursively">
+                    <input type="checkbox" id="content-media-search-recursive" checked
+                        onchange="contentFilterMediaByName(document.getElementById('content-media-search')?.value||'')"
+                        style="width:13px;height:13px;accent-color:var(--accent-primary)"> 📂 Subfolders
+                </label>
+            </div>`
+            : (contentCurrentMode === 'docs'
+                ? `<div style="margin-bottom:0.5rem;display:flex;gap:0.5rem;align-items:center">
+                    <input type="text" id="content-list-search" placeholder="🔍 Filter files… (supports * wildcards)"
+                        oninput="contentFilterListByName(this.value)"
+                        style="flex:1;font-size:0.82rem;padding:0.35rem 0.6rem;border:1px solid var(--border-subtle);border-radius:8px;background:var(--bg-tertiary);color:var(--text-primary);box-sizing:border-box">
+                    <label style="display:flex;align-items:center;gap:0.3rem;cursor:pointer;font-size:0.75rem;color:var(--text-muted);white-space:nowrap" title="Search in all subfolders recursively">
+                        <input type="checkbox" id="content-list-search-recursive" checked
+                            onchange="contentFilterListByName(document.getElementById('content-list-search')?.value||'')"
+                            style="width:13px;height:13px;accent-color:var(--accent-primary)"> 📂 Subfolders
+                    </label>
+                </div>`
+                : '');
+
+        if (filtered.length === 0 && files.length === 0) {
+            browser.innerHTML = uploadZoneHtml + mediaShowAllHtml + _searchBarSnippet + `
+                <div class="empty-state" style="padding:2rem">
+                    <span style="font-size:2rem;display:block;margin-bottom:0.5rem">📭</span>
+                    <p>This folder is empty.</p>
+                    ${contentCurrentMode === 'media' ? `<button class="btn btn-primary btn-sm" onclick="contentShowUpload()" style="margin-top:0.75rem">📤 Upload a file</button>` : ''}
+                </div>`;
+            if (contentCurrentMode === 'media') contentInitDragDrop();
+            return;
+        }
+
+        if (filtered.length === 0) {
+            const modeLabel = { docs: 'documents', media: 'media files', archive: 'archives' }[contentCurrentMode];
+            browser.innerHTML = uploadZoneHtml + mediaShowAllHtml + _searchBarSnippet + `
+                <div class="empty-state" style="padding:2rem">
+                    <span style="font-size:2rem;display:block;margin-bottom:0.5rem">🔍</span>
+                    <p>No ${modeLabel} in this folder.</p>
+                    <p style="font-size:0.8rem;color:var(--text-muted);margin-top:0.5rem">
+                        ${files.length} file(s) found in other categories.
+                    </p>
+                    ${contentCurrentMode === 'media' ? `<button class="btn btn-primary btn-sm" onclick="contentShowUpload()" style="margin-top:0.75rem">📤 Upload a file</button>` : ''}
+                </div>`;
+            if (contentCurrentMode === 'media') contentInitDragDrop();
+            return;
+        }
+
+        // Directories first
+        const dirs = visibleFiles.filter(f => f.is_dir);
+        const regularFiles = visibleFiles.filter(f => !f.is_dir);
+
+        // ── Media mode: gallery grid ──────────────────────────────────
+        if (contentCurrentMode === 'media') {
+            let html = uploadZoneHtml + mediaShowAllHtml + filterBarHtml;
+
+            // Directory cards — always show for navigation
+            for (const d of dirs) {
+                html += `
+                    <div class="content-file-row" onclick="contentLoadFolder('${esc(d.path)}')" style="cursor:pointer">
+                        <div class="content-file-icon" style="font-size:1.3rem">📁</div>
+                        <div class="content-file-info">
+                            <div class="content-file-name" translate="no">${esc(d.name)}/</div>
+                            <div class="content-file-meta">${d.file_count} file(s)</div>
+                        </div>
+                        <div class="content-file-size">${formatFileSize(d.size || 0)}</div>
+                    </div>`;
+            }
+
+            // Search bar for media — always show (recursive search works across subfolders)
+            html += `<div style="margin-bottom:0.5rem;display:flex;gap:0.5rem;align-items:center">
+                <input type="text" id="content-media-search" placeholder="🔍 Search media… (supports * wildcards)"
+                    oninput="contentFilterMediaByName(this.value)"
+                    style="flex:1;font-size:0.82rem;padding:0.35rem 0.6rem;border:1px solid var(--border-subtle);border-radius:8px;background:var(--bg-tertiary);color:var(--text-primary);box-sizing:border-box">
+                <label style="display:flex;align-items:center;gap:0.3rem;cursor:pointer;font-size:0.75rem;color:var(--text-muted);white-space:nowrap" title="Search in all subfolders recursively">
+                    <input type="checkbox" id="content-media-search-recursive" checked
+                        onchange="contentFilterMediaByName(document.getElementById('content-media-search')?.value||'')"
+                        style="width:13px;height:13px;accent-color:var(--accent-primary)"> 📂 Subfolders
+                </label>
+            </div>`;
+
+            // Gallery grid for files
+            html += '<div class="media-gallery-grid" style="margin-top:0.5rem">';
+            for (const f of regularFiles) {
+                const isImage = (f.mime_type || '').startsWith('image/') && !f.encrypted;
+                const isVideo = (f.mime_type || '').startsWith('video/');
+                const isAudio = (f.mime_type || '').startsWith('audio/');
+                const icon = f.encrypted ? '🔐' : (CATEGORY_ICONS[f.category] || '📎');
+                const thumbSrc = isImage ? `/api/content/download?path=${encodeURIComponent(f.path)}` : '';
+
+                const clickFn = f.encrypted
+                    ? `contentPreviewEncrypted('${esc(f.path)}', '${esc(f.name)}')`
+                    : `contentPreviewFile('${esc(f.path)}', '${esc(f.name)}', ${!!f.has_release})`;
+
+                html += `
+                    <div class="media-gallery-item" data-name="${f.name.toLowerCase()}" onclick="${clickFn}" title="${esc(f.name)}\n${f.mime_type || ''} · ${formatFileSize(f.size)}">
+                        <div class="media-gallery-thumb">
+                            ${isImage
+                        ? `<img src="${thumbSrc}" alt="${esc(f.name)}" loading="lazy"
+                                    onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+                                   <div style="display:none;align-items:center;justify-content:center;width:100%;height:100%;font-size:1.5rem;opacity:0.4">🖼️</div>`
+                        : `<div style="display:flex;align-items:center;justify-content:center;width:100%;height:100%;font-size:1.8rem;opacity:0.5">${isVideo ? '🎬' : isAudio ? '🎵' : icon}</div>`
+                    }
+                        </div>
+                        <div class="media-gallery-label" translate="no">
+                            <span class="media-gallery-name">${esc(f.name)}</span>
+                            <span class="media-gallery-meta">
+                                ${f.subfolder ? `<span style="color:var(--text-muted);font-size:0.65rem">📂 ${esc(f.subfolder)}</span>` : ''}
+                                <span>${formatFileSize(f.size)}</span>
+                                ${f.encrypted ? '<span style="color:#f87171">🔒</span>' : ''}
+                                ${f.has_release ? '<span style="color:#60a5fa" title="Backed up to GitHub Release">☁️</span>' : ''}
+                            </span>
+                        </div>
+                    </div>`;
+            }
+            html += '</div>';
+            browser.innerHTML = html;
+
+            // Init drag & drop on the dropzone
+            contentInitDragDrop();
+            return;
+        }
+
+        // ── Default: list view ────────────────────────────────────────
+        const totalItems = dirs.length + regularFiles.length;
+        const searchBarHtml = totalItems > 0 ? `<div style="margin-bottom:0.5rem;display:flex;gap:0.5rem;align-items:center">
+            <input type="text" id="content-list-search" placeholder="🔍 Filter files… (supports * wildcards)"
+                oninput="contentFilterListByName(this.value)"
+                style="flex:1;font-size:0.82rem;padding:0.35rem 0.6rem;border:1px solid var(--border-subtle);border-radius:8px;background:var(--bg-tertiary);color:var(--text-primary);box-sizing:border-box">
+            <label style="display:flex;align-items:center;gap:0.3rem;cursor:pointer;font-size:0.75rem;color:var(--text-muted);white-space:nowrap" title="Search in all subfolders recursively">
+                <input type="checkbox" id="content-list-search-recursive" checked
+                    onchange="contentFilterListByName(document.getElementById('content-list-search')?.value||'')"
+                    style="width:13px;height:13px;accent-color:var(--accent-primary)"> 📂 Subfolders
+            </label>
+        </div>` : '';
+        let html = filterBarHtml + searchBarHtml + '<div class="content-file-list">';
+
+        for (const d of dirs) {
+            html += `
+                <div class="content-file-row" data-name="${d.name.toLowerCase()}" onclick="contentLoadFolder('${esc(d.path)}')" style="cursor:pointer">
+                    <div class="content-file-icon" style="font-size:1.3rem">📁</div>
+                    <div class="content-file-info">
+                        <div class="content-file-name" translate="no">${esc(d.name)}/</div>
+                        <div class="content-file-meta">${d.file_count} file(s)</div>
+                    </div>
+                    <div class="content-file-size">${formatFileSize(d.size || 0)}</div>
+                </div>`;
+        }
+
+        for (const f of regularFiles) {
+            const icon = f.encrypted ? '🔐' : (CATEGORY_ICONS[f.category] || '📎');
+            const catColor = CATEGORY_COLORS[f.category] || '#94a3b8';
+            const encOriginal = f.covault_meta ? f.covault_meta.filename : '';
+            const clickFn = f.encrypted
+                ? `contentPreviewEncrypted('${esc(f.path)}', '${esc(f.name)}')`
+                : `contentPreviewFile('${esc(f.path)}', '${esc(f.name)}', ${!!f.has_release})`;
+            const escapedPath = esc(f.path).replace(/'/g, "\\'");
+            const escapedName = esc(f.name).replace(/'/g, "\\'");
+
+            html += `
+                <div class="content-file-row" data-name="${f.name.toLowerCase()}" data-file-path="${esc(f.path)}" onclick="${clickFn}" style="cursor:pointer">
+                    <div class="content-file-icon" style="font-size:1.3rem">${icon}</div>
+                    <div class="content-file-info">
+                        <div class="content-file-name" translate="no">${esc(f.name)}</div>
+                        <div class="content-file-meta">
+                            <span class="content-cat-badge" style="background:${catColor}20;color:${catColor};border:1px solid ${catColor}40">
+                                ${f.encrypted ? 'encrypted' : f.category}
+                            </span>
+                            ${encOriginal ? `<span style="color:var(--text-muted)">← ${esc(encOriginal)}</span>` : ''}
+                            <span style="color:var(--text-muted)">${f.mime_type || ''}</span>
+                        </div>
+                    </div>
+                    <div class="content-file-actions">
+                        <button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();contentRenameFile('${escapedPath}', '${escapedName}')" title="Rename">✏️</button>
+                        <button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();contentMoveFile('${escapedPath}', '${escapedName}')" title="Move">📂</button>
+                        <button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();${clickFn}" title="Preview">👁️</button>
+                        ${f.encrypted
+                    ? `<button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();contentDecryptFile('${esc(f.path)}', ${!!f.has_release})" title="Decrypt to disk">🔓</button>`
+                    : `<button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();contentEncryptFile('${esc(f.path)}', ${!!f.has_release})" title="Encrypt">🔒</button>`
+                }
+                        ${!f.encrypted
+                    ? `<a class="btn btn-secondary btn-sm" href="/api/content/download?path=${encodeURIComponent(f.path)}" title="Download" target="_blank" onclick="event.stopPropagation()">⬇️</a>`
+                    : ''
+                }
+                        <button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();contentDeleteFile('${esc(f.path)}', '${esc(f.name)}', false, ${!!f.has_release})" title="Delete" style="color:var(--error)">🗑️</button>
+                    </div>
+                    <div class="content-file-size">${formatFileSize(f.size)}</div>
+                </div>`;
+        }
+
+        html += '</div>';
+        browser.innerHTML = html;
+    }

@@ -1,0 +1,184 @@
+<!-- ─────────────────────────────────────────────────────────────────
+     _content_modals.html
+     Content Vault — file operation modals (HTML markup only)
+     Modals: Rename, Move, Delete, Encrypt, Decrypt
+     JS handlers: _content_preview_enc.html, _content_actions.html
+     Included by: _tab_content.html (Jinja2 include)
+     ───────────────────────────────────────────────────────────────── -->
+
+<!-- Rename File Modal -->
+<div id="ct-rename-modal"
+    style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.6);backdrop-filter:blur(4px);align-items:center;justify-content:center">
+    <div
+        style="background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:16px;padding:2rem;max-width:480px;width:90%;box-shadow:0 20px 60px rgba(0,0,0,0.4)">
+        <div style="font-size:1.3rem;margin-bottom:0.5rem">✏️ Rename File</div>
+        <div id="ct-rename-modal-info"
+            style="color:var(--text-secondary);font-size:0.85rem;line-height:1.6;margin-bottom:0.75rem;word-break:break-all">
+        </div>
+        <div style="margin-bottom:1rem">
+            <label
+                style="font-size:0.85rem;color:var(--text-secondary);font-weight:600;display:block;margin-bottom:0.4rem">New
+                filename:</label>
+            <input type="text" id="ct-rename-input" onkeydown="if(event.key==='Enter'){contentDoRenameConfirm();}"
+                style="width:100%;font-size:0.85rem;padding:0.4rem 0.6rem;border:1px solid var(--border-subtle);border-radius:6px;background:var(--bg-tertiary);color:var(--text-primary);font-family:monospace;box-sizing:border-box">
+        </div>
+        <div id="ct-rename-modal-status"
+            style="display:none;margin-bottom:0.75rem;padding:0.5rem;background:var(--bg-tertiary);border-radius:8px;font-size:0.85rem">
+        </div>
+        <div id="ct-rename-modal-release-info"
+            style="display:none;margin-bottom:0.75rem;padding:0.5rem;background:var(--bg-tertiary);border:1px solid var(--border-subtle);border-radius:8px;font-size:0.85rem;color:var(--text-secondary)">
+            ⚠️ This file has a GitHub Release artifact.
+            <label
+                style="display:flex;align-items:center;gap:0.5rem;cursor:pointer;margin-top:0.5rem;font-size:0.85rem">
+                <input type="checkbox" id="ct-rename-update-release" checked
+                    style="width:16px;height:16px;accent-color:var(--accent-primary)"> 🚀 Delete old artifact &
+                re-upload with new name
+            </label>
+        </div>
+        <div style="display:flex;gap:0.5rem;justify-content:flex-end">
+            <button class="btn btn-secondary"
+                onclick="document.getElementById('ct-rename-modal').style.display='none'">Cancel</button>
+            <button class="btn btn-primary" id="ct-rename-confirm-btn" onclick="contentDoRenameConfirm()">✏️
+                Rename</button>
+        </div>
+    </div>
+</div>
+
+<!-- Move File Modal -->
+<div id="ct-move-modal"
+    style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.6);backdrop-filter:blur(4px);align-items:center;justify-content:center">
+    <div
+        style="background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:16px;padding:2rem;max-width:480px;width:90%;box-shadow:0 20px 60px rgba(0,0,0,0.4)">
+        <div style="font-size:1.3rem;margin-bottom:0.5rem">📂 Move File</div>
+        <div id="ct-move-modal-info"
+            style="color:var(--text-secondary);font-size:0.85rem;line-height:1.6;margin-bottom:0.75rem;word-break:break-all">
+        </div>
+        <div style="margin-bottom:1rem">
+            <label
+                style="font-size:0.85rem;color:var(--text-secondary);font-weight:600;display:block;margin-bottom:0.4rem">Destination
+                folder:</label>
+            <div id="ct-move-folder-list" style="display:flex;flex-wrap:wrap;gap:0.4rem;margin-bottom:0.5rem"></div>
+            <div id="ct-move-subfolder-area" style="max-height:200px;overflow-y:auto"></div>
+            <input type="text" id="ct-move-input" placeholder="Or type a folder name…"
+                onkeydown="if(event.key==='Enter'){contentDoMoveConfirm();}"
+                style="width:100%;font-size:0.85rem;padding:0.4rem 0.6rem;border:1px solid var(--border-subtle);border-radius:6px;background:var(--bg-tertiary);color:var(--text-primary);font-family:monospace;box-sizing:border-box">
+            <div style="font-size:0.75rem;color:var(--text-muted);margin-top:0.3rem">Folder will be created if it
+                doesn't exist</div>
+        </div>
+        <div id="ct-move-modal-status"
+            style="display:none;margin-bottom:0.75rem;padding:0.5rem;background:var(--bg-tertiary);border-radius:8px;font-size:0.85rem">
+        </div>
+        <div style="display:flex;gap:0.5rem;justify-content:flex-end">
+            <button class="btn btn-secondary"
+                onclick="document.getElementById('ct-move-modal').style.display='none'">Cancel</button>
+            <button class="btn btn-primary" id="ct-move-confirm-btn" onclick="contentDoMoveConfirm()">📂
+                Move</button>
+        </div>
+    </div>
+</div>
+
+<!-- Delete File Modal -->
+<div id="ct-delete-modal"
+    style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.6);backdrop-filter:blur(4px);align-items:center;justify-content:center">
+    <div
+        style="background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:16px;padding:2rem;max-width:440px;width:90%;box-shadow:0 20px 60px rgba(0,0,0,0.4)">
+        <div style="font-size:1.3rem;margin-bottom:0.5rem">🗑️ Delete File</div>
+        <div id="ct-delete-modal-info"
+            style="color:var(--text-secondary);font-size:0.85rem;line-height:1.6;margin-bottom:0.75rem;word-break:break-all">
+        </div>
+        <div
+            style="background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);border-radius:8px;padding:0.6rem 0.75rem;margin-bottom:1rem;font-size:0.84rem;color:#ef5350">
+            ⚠️ This action cannot be undone. The file will be permanently deleted.
+        </div>
+        <div id="ct-delete-modal-release-warn"
+            style="display:none;margin-bottom:1rem;padding:0.5rem;background:var(--bg-tertiary);border:1px solid var(--border-subtle);border-radius:8px;font-size:0.85rem;color:var(--text-secondary)">
+            ⚠️ This file has a GitHub Release artifact.
+            <label
+                style="display:flex;align-items:center;gap:0.5rem;cursor:pointer;margin-top:0.5rem;font-size:0.85rem">
+                <input type="checkbox" id="ct-delete-also-release" checked
+                    style="width:16px;height:16px;accent-color:var(--accent-primary)"> ☁️ Also delete the release
+                artifact
+            </label>
+        </div>
+        <div id="ct-delete-modal-status"
+            style="display:none;margin-bottom:0.75rem;padding:0.5rem;background:var(--bg-tertiary);border-radius:8px;font-size:0.85rem">
+        </div>
+        <div style="display:flex;gap:0.5rem;justify-content:flex-end">
+            <button class="btn btn-secondary"
+                onclick="document.getElementById('ct-delete-modal').style.display='none'">Cancel</button>
+            <button class="btn btn-primary" id="ct-delete-confirm-btn" onclick="contentDoDeleteConfirm()"
+                style="background:var(--error);border-color:var(--error)">🗑️ Delete</button>
+        </div>
+    </div>
+</div>
+
+<!-- Encrypt File Modal -->
+<div id="ct-encrypt-modal"
+    style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.6);backdrop-filter:blur(4px);align-items:center;justify-content:center">
+    <div
+        style="background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:16px;padding:2rem;max-width:480px;width:90%;box-shadow:0 20px 60px rgba(0,0,0,0.4)">
+        <div style="font-size:1.3rem;margin-bottom:0.5rem">🔒 Encrypt File</div>
+        <div id="ct-encrypt-modal-info"
+            style="color:var(--text-secondary);font-size:0.85rem;line-height:1.6;margin-bottom:0.75rem;word-break:break-all">
+        </div>
+        <div
+            style="background:rgba(251,191,36,0.1);border:1px solid rgba(251,191,36,0.3);border-radius:8px;padding:0.6rem 0.75rem;margin-bottom:1rem;font-size:0.84rem;color:#fbbf24">
+            ⚠️ The original file will be removed and replaced by an encrypted <code>.enc</code> version.
+        </div>
+        <div id="ct-encrypt-modal-release-warn"
+            style="display:none;margin-bottom:1rem;padding:0.5rem;background:var(--bg-tertiary);border:1px solid var(--border-subtle);border-radius:8px;font-size:0.85rem;color:var(--text-secondary)">
+            ⚠️ This file has a GitHub Release artifact. After encryption, the old artifact will be stale.
+            <label
+                style="display:flex;align-items:center;gap:0.5rem;cursor:pointer;margin-top:0.5rem;font-size:0.85rem">
+                <input type="checkbox" id="ct-encrypt-update-release" checked
+                    style="width:16px;height:16px;accent-color:var(--accent-primary)"> 🚀 Delete old artifact &
+                upload new encrypted version
+            </label>
+        </div>
+        <div id="ct-encrypt-modal-status"
+            style="display:none;margin-bottom:0.75rem;padding:0.5rem;background:var(--bg-tertiary);border-radius:8px;font-size:0.85rem">
+        </div>
+        <div style="display:flex;gap:0.5rem;justify-content:flex-end">
+            <button class="btn btn-secondary"
+                onclick="document.getElementById('ct-encrypt-modal').style.display='none'">Cancel</button>
+            <button class="btn btn-primary" id="ct-encrypt-confirm-btn" onclick="contentDoEncryptConfirm()">🔒
+                Encrypt</button>
+        </div>
+    </div>
+</div>
+
+<!-- Decrypt File Modal -->
+<div id="ct-decrypt-modal"
+    style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.6);backdrop-filter:blur(4px);align-items:center;justify-content:center">
+    <div
+        style="background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:16px;padding:2rem;max-width:480px;width:90%;box-shadow:0 20px 60px rgba(0,0,0,0.4)">
+        <div style="font-size:1.3rem;margin-bottom:0.5rem">🔓 Decrypt File</div>
+        <div id="ct-decrypt-modal-info"
+            style="color:var(--text-secondary);font-size:0.85rem;line-height:1.6;margin-bottom:0.75rem;word-break:break-all">
+        </div>
+        <div
+            style="background:rgba(74,222,128,0.1);border:1px solid rgba(74,222,128,0.3);border-radius:8px;padding:0.6rem 0.75rem;margin-bottom:1rem;font-size:0.84rem;color:#4ade80">
+            🔓 The encrypted file will be removed and replaced by the decrypted original.
+        </div>
+        <div id="ct-decrypt-modal-release-warn"
+            style="display:none;margin-bottom:1rem;padding:0.5rem;background:var(--bg-tertiary);border:1px solid var(--border-subtle);border-radius:8px;font-size:0.85rem;color:var(--text-secondary)">
+            ⚠️ This file has a GitHub Release artifact. After decryption, the old artifact will be stale.
+            <label
+                style="display:flex;align-items:center;gap:0.5rem;cursor:pointer;margin-top:0.5rem;font-size:0.85rem">
+                <input type="checkbox" id="ct-decrypt-update-release" checked
+                    style="width:16px;height:16px;accent-color:var(--accent-primary)"> 🚀 Delete old artifact &
+                upload new decrypted version
+            </label>
+        </div>
+        <div id="ct-decrypt-modal-status"
+            style="display:none;margin-bottom:0.75rem;padding:0.5rem;background:var(--bg-tertiary);border-radius:8px;font-size:0.85rem">
+        </div>
+        <div style="display:flex;gap:0.5rem;justify-content:flex-end">
+            <button class="btn btn-secondary"
+                onclick="document.getElementById('ct-decrypt-modal').style.display='none'">Cancel</button>
+            <button class="btn btn-primary" id="ct-decrypt-confirm-btn" onclick="contentDoDecryptConfirm()"
+                style="background:#22c55e;border-color:#22c55e">🔓
+                Decrypt</button>
+        </div>
+    </div>
+</div>
