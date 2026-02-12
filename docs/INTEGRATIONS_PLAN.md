@@ -1,6 +1,6 @@
 # 🔌 Integrations — Architecture & Implementation Plan
 
-> **Status**: Draft for discussion — decisions made, ready for Phase 1  
+> **Status**: Phase 1–4 implemented — all core features complete  
 > **Date**: 2026-02-11  
 > **Principle**: This control plane works on **any project** — nothing is hardcoded to a specific stack.
 
@@ -261,7 +261,7 @@ templates/
 4. Wire up GitHub card — PR count, latest Actions run
 5. Wire up CI/CD card — run history, dispatch trigger
 
-**Deliverable**: Fully functional Git/GitHub/CI cards with real data and actions.
+**Deliverable**: ✅ Fully functional Git/GitHub/CI cards with real data and actions.
 
 ### Phase 2: Pages Infrastructure
 **Goal**: Builder-agnostic engine with segment CRUD.
@@ -273,7 +273,7 @@ templates/
 10. Create `routes_pages.py` — REST API
 11. Build Pages card UI — segment list, add/configure/delete
 
-**Deliverable**: Can create segments, configure them, build with `raw` builder.
+**Deliverable**: ✅ Can create segments, configure them, build with `raw` builder.
 
 ### Phase 3: Real Builders
 **Goal**: At least 2 production-grade builders.
@@ -284,7 +284,7 @@ templates/
 15. MD transform layer (admonitions, frontmatter enrichment)
 16. Builder auto-detection and availability UI
 
-**Deliverable**: Can build real static sites with MkDocs/Hugo/Docusaurus.
+**Deliverable**: ✅ All 6 builders (raw, mkdocs, hugo, docusaurus, sphinx, custom) + MD transform layer.
 
 ### Phase 4: Deploy & Preview
 **Goal**: Full lifecycle — preview, build, deploy.
@@ -296,7 +296,7 @@ templates/
 21. Auto-generated hub landing page
 22. Auto `docs` segment when project has `docs` domain
 
-**Deliverable**: Complete Pages workflow from authoring to live deploy.
+**Deliverable**: ✅ SSE streaming, merge, deploy, preview management, CI workflow generation, hub page.
 
 ---
 

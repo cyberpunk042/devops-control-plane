@@ -41,6 +41,72 @@ function releaseBadge(f, compact) {
 
 
 // ═════════════════════════════════════════════════════════════════
+// Pages Segment → View Site integration
+// ═════════════════════════════════════════════════════════════════
+
+let _pagesSegmentsCache = null;
+let _pagesSegmentsCacheTs = 0;
+
+async function _ensureSegmentsCache() {
+    if (_pagesSegmentsCache && (Date.now() - _pagesSegmentsCacheTs) < 30000) return;
+    try {
+        const data = await api('/pages/segments');
+        _pagesSegmentsCache = data.segments || [];
+        _pagesSegmentsCacheTs = Date.now();
+    } catch (_) {
+        _pagesSegmentsCache = [];
+    }
+}
+
+function _injectViewSiteButton(breadcrumbEl, folderPath) {
+    _ensureSegmentsCache().then(() => {
+        if (!_pagesSegmentsCache) return;
+
+        // Find segment matching this folder (built or unbuilt)
+        const match = _pagesSegmentsCache.find(s =>
+            s.source === folderPath || folderPath.startsWith(s.source + '/') || s.source.endsWith('/' + folderPath)
+        );
+        if (!match) return;
+
+        if (match.build && match.build.serve_url) {
+            // Already built → show View Site link
+            const btn = document.createElement('a');
+            btn.href = match.build.serve_url;
+            btn.target = '_blank';
+            btn.style.cssText = 'margin-left:0.5rem;font-size:0.72rem;color:#818cf8;text-decoration:none;font-weight:600;vertical-align:middle';
+            btn.title = `View built site (${match.builder})`;
+            btn.textContent = '🌐 View Site';
+            breadcrumbEl.appendChild(btn);
+
+            // Also show builder + build time
+            if (match.build.built_at) {
+                const info = document.createElement('span');
+                info.style.cssText = 'margin-left:0.3rem;font-size:0.62rem;color:var(--text-muted);vertical-align:middle';
+                info.textContent = `(${match.builder})`;
+                breadcrumbEl.appendChild(info);
+            }
+        } else {
+            // Not built yet → show Build & View button
+            const btn = document.createElement('button');
+            btn.className = 'btn btn-sm';
+            btn.style.cssText = 'margin-left:0.5rem;font-size:0.72rem;padding:0.1rem 0.5rem;vertical-align:middle';
+            btn.title = `Build this folder with ${match.builder} and view as site`;
+            btn.textContent = '🔨 Build & View';
+            btn.onclick = () => {
+                // Trigger build stream modal — buildSegmentStream is from _integrations.html
+                if (typeof buildSegmentStream === 'function') {
+                    buildSegmentStream(match.name);
+                } else {
+                    toast('Pages integration not loaded', 'warning');
+                }
+            };
+            breadcrumbEl.appendChild(btn);
+        }
+    });
+}
+
+
+// ═════════════════════════════════════════════════════════════════
 // File Browser
 // ═════════════════════════════════════════════════════════════════
 
@@ -273,6 +339,9 @@ for (let i = 0; i < parts.length; i++) { accumulated +=(i> 0 ? '/' : '') + parts
     }
     }
     breadcrumb.innerHTML = '📂 ' + crumbs;
+
+    // 🌐 View as Site button — show when current folder is a built segment
+    _injectViewSiteButton(breadcrumb, folderPath);
     }
 
     // Filter by mode

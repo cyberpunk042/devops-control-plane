@@ -45,3 +45,6 @@ backups/
 # ── OS ───────────────────────────────────────────────────────────────
 .DS_Store
 Thumbs.db
+
+# Pages build workspace
+.pages/

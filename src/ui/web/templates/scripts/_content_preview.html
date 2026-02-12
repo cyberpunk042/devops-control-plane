@@ -99,6 +99,7 @@ browser.innerHTML = `
         <div id="content-preview-toggle" style="display:none;gap:4px"></div>
         <div style="flex:1"></div>
                     <div id="content-preview-actions" style="display:flex;gap:4px;align-items:center">
+                        <span id="content-pages-link" style="display:none"></span>
                         ${hasRelease ? '<span style="font-size:0.75rem;color:#60a5fa;background:rgba(96,165,250,0.12);border:1px solid rgba(96,165,250,0.3);border-radius:6px;padding:0.1rem 0.45rem" title="Backed up to GitHub Release" data-release-badge>☁️ release</span>' : ''}
                         ${hasRelease ? '<button class="btn btn-secondary btn-sm" onclick="contentDeleteRelease(previewCurrentPath, previewCurrentName)" title="Delete release artifact" style="color:#f59e0b" data-release-badge>☁️✕</button>' : ''}
                         ${!hasRelease ? '<button class="btn btn-secondary btn-sm" id="content-btn-upload-release" onclick="contentUploadToRelease(previewCurrentPath)" title="Upload to Release" style="color:#60a5fa">⬆️ Release</button>' : ''}
@@ -118,6 +119,18 @@ browser.innerHTML = `
 
 try {
 const data = await api(`/content/preview?path=${encodeURIComponent(path)}`);
+
+// ── Pages integration: async resolve file → preview link ──
+if (path.endsWith('.md') || path.endsWith('.mdx')) {
+    api(`/pages/resolve-file?path=${encodeURIComponent(path)}`).then(res => {
+        const linkEl = document.getElementById('content-pages-link');
+        if (linkEl && res.matches && res.matches.length > 0) {
+            const m = res.matches[0];
+            linkEl.style.display = 'inline-flex';
+            linkEl.innerHTML = `<a href="${m.preview_url}" target="_blank" style="font-size:0.72rem;color:#34d399;background:rgba(52,211,153,0.1);border:1px solid rgba(52,211,153,0.3);border-radius:6px;padding:0.1rem 0.45rem;text-decoration:none;display:inline-flex;align-items:center;gap:0.2rem" title="Preview in Pages (${m.segment})">📖 Pages</a>`;
+        }
+    }).catch(() => {});
+}
 
 // ── Handle release status (orphaned / stale / failed / uploading) ──
 const orphanBar = document.getElementById('content-preview-orphan-bar');

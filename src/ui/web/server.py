@@ -53,6 +53,7 @@ def create_app(
     from src.ui.web.routes_content import content_bp
     from src.ui.web.routes_integrations import integrations_bp
     from src.ui.web.routes_pages import pages_bp
+    from src.ui.web.routes_pages_api import pages_api_bp
     from src.ui.web.routes_secrets import secrets_bp
     from src.ui.web.routes_vault import vault_bp
 
@@ -64,6 +65,7 @@ def create_app(
     app.register_blueprint(content_bp, url_prefix="/api")
     app.register_blueprint(backup_bp, url_prefix="/api")
     app.register_blueprint(integrations_bp, url_prefix="/api")
+    app.register_blueprint(pages_api_bp, url_prefix="/api")
 
     # Initialize vault with project root (for auto-lock)
     from src.ui.web import vault as vault_module
