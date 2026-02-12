@@ -2,15 +2,16 @@
     // ── Boot ────────────────────────────────────────────────────────────
 
     document.addEventListener('DOMContentLoaded', async () => {
-        // Load initial data
+        // Restore tab from URL hash FIRST — so the correct tab is visible instantly
+        restoreFromHash();
+
+        // Load dashboard data (needed for the dashboard tab and global status)
         await Promise.all([
             loadStatus(),
             loadCapabilities(),
             loadHealth(),
             loadAudit(),
+            loadHealthScore(),
         ]);
-
-        // Restore tab from URL hash (after data is loaded)
-        restoreFromHash();
     });
 </script>

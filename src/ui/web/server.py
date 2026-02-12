@@ -49,13 +49,26 @@ def create_app(
     # Register blueprints
     from src.ui.web.routes_api import api_bp
     from src.ui.web.routes_backup import backup_bp
+    from src.ui.web.routes_ci import ci_bp
     from src.ui.web.routes_config import config_bp
     from src.ui.web.routes_content import content_bp
+    from src.ui.web.routes_docker import docker_bp
+    from src.ui.web.routes_docs import docs_bp
+    from src.ui.web.routes_infra import infra_bp
+    from src.ui.web.routes_k8s import k8s_bp
+    from src.ui.web.routes_terraform import terraform_bp
+    from src.ui.web.routes_dns import dns_bp
     from src.ui.web.routes_integrations import integrations_bp
+    from src.ui.web.routes_metrics import metrics_bp
+    from src.ui.web.routes_packages import packages_bp
+    from src.ui.web.routes_quality import quality_bp
+    from src.ui.web.routes_security_scan import security_bp2
+    from src.ui.web.routes_testing import testing_bp
     from src.ui.web.routes_pages import pages_bp
     from src.ui.web.routes_pages_api import pages_api_bp
     from src.ui.web.routes_secrets import secrets_bp
     from src.ui.web.routes_vault import vault_bp
+    from src.ui.web.routes_devops import devops_bp
 
     app.register_blueprint(pages_bp)
     app.register_blueprint(api_bp, url_prefix="/api")
@@ -64,8 +77,21 @@ def create_app(
     app.register_blueprint(secrets_bp, url_prefix="/api")
     app.register_blueprint(content_bp, url_prefix="/api")
     app.register_blueprint(backup_bp, url_prefix="/api")
+    app.register_blueprint(ci_bp, url_prefix="/api")
+    app.register_blueprint(docker_bp, url_prefix="/api")
+    app.register_blueprint(docs_bp, url_prefix="/api")
+    app.register_blueprint(infra_bp, url_prefix="/api")
+    app.register_blueprint(k8s_bp, url_prefix="/api")
+    app.register_blueprint(terraform_bp, url_prefix="/api")
+    app.register_blueprint(dns_bp, url_prefix="/api")
     app.register_blueprint(integrations_bp, url_prefix="/api")
+    app.register_blueprint(metrics_bp, url_prefix="/api")
+    app.register_blueprint(packages_bp, url_prefix="/api")
+    app.register_blueprint(quality_bp, url_prefix="/api")
+    app.register_blueprint(security_bp2, url_prefix="/api")
+    app.register_blueprint(testing_bp, url_prefix="/api")
     app.register_blueprint(pages_api_bp, url_prefix="/api")
+    app.register_blueprint(devops_bp, url_prefix="/api")
 
     # Initialize vault with project root (for auto-lock)
     from src.ui.web import vault as vault_module
@@ -91,4 +117,4 @@ def run_server(
 ) -> None:
     """Run the Flask development server."""
     logger.info("Starting web admin on %s:%d", host, port)
-    app.run(host=host, port=port, debug=debug, use_reloader=False)
+    app.run(host=host, port=port, debug=debug, use_reloader=False, threaded=True)

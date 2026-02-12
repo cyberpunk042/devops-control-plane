@@ -169,4 +169,103 @@
             toast(e.message, 'error');
         }
     }
+
+    // ── Project Health Score Widget ────────────────────────────────────
+
+    async function loadHealthScore() {
+        const badge = document.getElementById('health-score-badge');
+        const detail = document.getElementById('health-score-detail');
+        const cached = cardCached('health-score');
+        const data = cached || await api('/metrics/health').catch(e => ({ _err: e }));
+        if (data._err) {
+            badge.className = 'status-badge failed';
+            badge.innerHTML = '<span class="status-dot"></span>Error';
+            detail.innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(data._err.message)}</p>`;
+            return;
+        }
+        if (!cached) cardStore('health-score', data);
+
+        const score = data.score || 0;
+        const grade = data.grade || '?';
+        const probes = data.probes || {};
+        const recs = data.recommendations || [];
+
+        // Grade color
+        const gradeColors = { A: '#22c55e', B: '#84cc16', C: '#eab308', D: '#f97316', F: '#ef4444' };
+        const gradeColor = gradeColors[grade] || 'var(--text-muted)';
+
+        // Badge
+        badge.className = 'status-badge ' + (score >= 75 ? 'ok' : score >= 50 ? 'degraded' : 'failed');
+        badge.innerHTML = `<span class="status-dot"></span>${grade} (${score})`;
+
+        // Probe labels
+        const probeLabels = {
+            git: '🌿 Git',
+            docker: '🐳 Docker',
+            ci: '🔄 CI/CD',
+            packages: '📦 Packages',
+            env: '⚙️ Environment',
+            quality: '🔧 Quality',
+            structure: '🏗️ Structure',
+        };
+
+        let html = `<div style="display:flex;gap:var(--space-xl);flex-wrap:wrap;align-items:flex-start">`;
+
+        // ── Score circle ──
+        const circumference = 2 * Math.PI * 54;
+        const offset = circumference - (score / 100) * circumference;
+        html += `<div style="flex-shrink:0;text-align:center">
+            <svg width="130" height="130" viewBox="0 0 120 120">
+                <circle cx="60" cy="60" r="54" fill="none" stroke="var(--border-subtle)" stroke-width="8"></circle>
+                <circle cx="60" cy="60" r="54" fill="none" stroke="${gradeColor}" stroke-width="8"
+                    stroke-dasharray="${circumference}" stroke-dashoffset="${offset}"
+                    stroke-linecap="round" transform="rotate(-90 60 60)"
+                    style="transition:stroke-dashoffset 0.8s ease"></circle>
+                <text x="60" y="52" text-anchor="middle" fill="${gradeColor}" font-size="32" font-weight="800">${grade}</text>
+                <text x="60" y="72" text-anchor="middle" fill="var(--text-secondary)" font-size="13">${score}/100</text>
+            </svg>
+        </div>`;
+
+        // ── Probe bars ──
+        html += `<div style="flex:1;min-width:220px">`;
+        html += `<div style="font-size:0.82rem;font-weight:600;color:var(--text-primary);margin-bottom:var(--space-sm)">Domain Scores</div>`;
+
+        const probeOrder = ['git', 'docker', 'ci', 'packages', 'env', 'quality', 'structure'];
+        probeOrder.forEach(key => {
+            const probe = probes[key];
+            if (!probe) return;
+            const pScore = probe.score || 0;
+            const pColor = pScore >= 75 ? '#22c55e' : pScore >= 50 ? '#eab308' : '#ef4444';
+            const label = probeLabels[key] || key;
+            html += `<div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.35rem;font-size:0.72rem">
+                <span style="min-width:90px;color:var(--text-secondary)">${label}</span>
+                <div style="flex:1;height:6px;background:var(--border-subtle);border-radius:3px;overflow:hidden">
+                    <div style="width:${pScore}%;height:100%;background:${pColor};border-radius:3px;transition:width 0.6s ease"></div>
+                </div>
+                <span style="min-width:28px;text-align:right;font-family:var(--font-mono);font-weight:600;color:${pColor}">${pScore}</span>
+            </div>`;
+        });
+        html += `</div>`;
+
+        html += `</div>`; // close flex row
+
+        // ── Recommendations ──
+        if (recs.length) {
+            html += `<div style="margin-top:var(--space-md);border-top:1px solid var(--border-subtle);padding-top:var(--space-md)">
+                <div style="font-size:0.78rem;font-weight:600;color:var(--text-primary);margin-bottom:var(--space-xs)">💡 Recommendations</div>`;
+            recs.slice(0, 5).forEach((r, i) => {
+                html += `<div style="font-size:0.72rem;color:var(--text-secondary);padding:0.2rem 0;display:flex;gap:0.4rem">
+                    <span style="color:var(--accent);font-weight:600">${i + 1}.</span>
+                    <span>${esc(r)}</span>
+                </div>`;
+            });
+            if (recs.length > 5) {
+                html += `<div style="font-size:0.68rem;color:var(--text-muted);margin-top:0.2rem">…and ${recs.length - 5} more</div>`;
+            }
+            html += `</div>`;
+        }
+
+        detail.innerHTML = html;
+    }
+
 </script>

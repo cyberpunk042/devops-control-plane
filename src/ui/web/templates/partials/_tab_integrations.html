@@ -2,8 +2,13 @@
 <div id="tab-integrations" class="tab-content">
     <header class="tab-header">
         <h1>🔌 Integrations</h1>
-        <p class="subtitle">Version control, CI/CD, and deployment services</p>
+        <div style="display:flex;align-items:center;gap:var(--space-md)">
+            <button class="btn btn-sm btn-secondary" onclick="loadIntegrationsTab(true)" title="Refresh all cards">
+                🔄 Refresh All
+            </button>
+        </div>
     </header>
+    <p class="subtitle">Version control, CI/CD, and deployment services</p>
 
     <div class="card-grid">
 
@@ -11,7 +16,11 @@
         <div class="card" id="int-git-card">
             <div class="card-header">
                 <span class="card-title">Git</span>
-                <span class="status-badge" id="int-git-badge">—</span>
+                <div style="display:flex;align-items:center;gap:0.4rem">
+                    <span class="card-age" data-cache-key="git" style="font-size:0.64rem;color:var(--text-muted)"></span>
+                    <button class="btn-icon" onclick="cardRefresh('git','int-git-badge','int-git-detail',loadGitCard)" title="Refresh" style="font-size:0.7rem;cursor:pointer;background:none;border:none;color:var(--text-muted);padding:0">🔄</button>
+                    <span class="status-badge" id="int-git-badge">—</span>
+                </div>
             </div>
             <div class="card-subtitle">Local repository status</div>
             <div id="int-git-detail" class="integration-detail" style="margin-top:var(--space-md)">
@@ -23,7 +32,11 @@
         <div class="card" id="int-gh-card">
             <div class="card-header">
                 <span class="card-title">GitHub</span>
-                <span class="status-badge" id="int-gh-badge">—</span>
+                <div style="display:flex;align-items:center;gap:0.4rem">
+                    <span class="card-age" data-cache-key="github" style="font-size:0.64rem;color:var(--text-muted)"></span>
+                    <button class="btn-icon" onclick="cardRefresh('github','int-gh-badge','int-gh-detail',loadGitHubCard)" title="Refresh" style="font-size:0.7rem;cursor:pointer;background:none;border:none;color:var(--text-muted);padding:0">🔄</button>
+                    <span class="status-badge" id="int-gh-badge">—</span>
+                </div>
             </div>
             <div class="card-subtitle">Remote repository & API</div>
             <div id="int-gh-detail" class="integration-detail" style="margin-top:var(--space-md)">
@@ -35,7 +48,11 @@
         <div class="card" id="int-ci-card">
             <div class="card-header">
                 <span class="card-title">CI/CD</span>
-                <span class="status-badge" id="int-ci-badge">—</span>
+                <div style="display:flex;align-items:center;gap:0.4rem">
+                    <span class="card-age" data-cache-key="ci" style="font-size:0.64rem;color:var(--text-muted)"></span>
+                    <button class="btn-icon" onclick="cardRefresh('ci','int-ci-badge','int-ci-detail',loadCICard)" title="Refresh" style="font-size:0.7rem;cursor:pointer;background:none;border:none;color:var(--text-muted);padding:0">🔄</button>
+                    <span class="status-badge" id="int-ci-badge">—</span>
+                </div>
             </div>
             <div class="card-subtitle">Workflow runs & deployment</div>
             <div id="int-ci-detail" class="integration-detail" style="margin-top:var(--space-md)">
@@ -47,7 +64,11 @@
         <div class="card" id="int-docker-card">
             <div class="card-header">
                 <span class="card-title">Docker</span>
-                <span class="status-badge" id="int-docker-badge">—</span>
+                <div style="display:flex;align-items:center;gap:0.4rem">
+                    <span class="card-age" data-cache-key="docker" style="font-size:0.64rem;color:var(--text-muted)"></span>
+                    <button class="btn-icon" onclick="cardRefresh('docker','int-docker-badge','int-docker-detail',loadDockerCard)" title="Refresh" style="font-size:0.7rem;cursor:pointer;background:none;border:none;color:var(--text-muted);padding:0">🔄</button>
+                    <span class="status-badge" id="int-docker-badge">—</span>
+                </div>
             </div>
             <div class="card-subtitle">Container runtime</div>
             <div id="int-docker-detail" class="integration-detail" style="margin-top:var(--space-md)">
@@ -61,7 +82,11 @@
     <div class="card" id="int-pages-card" style="margin-top:var(--space-lg)">
         <div class="card-header">
             <span class="card-title">📄 GitHub Pages</span>
-            <span class="status-badge" id="int-pages-badge">—</span>
+            <div style="display:flex;align-items:center;gap:0.4rem">
+                <span class="card-age" data-cache-key="pages" style="font-size:0.64rem;color:var(--text-muted)"></span>
+                <button class="btn-icon" onclick="cardRefresh('pages','int-pages-badge','int-pages-detail',loadPagesCard)" title="Refresh" style="font-size:0.7rem;cursor:pointer;background:none;border:none;color:var(--text-muted);padding:0">🔄</button>
+                <span class="status-badge" id="int-pages-badge">—</span>
+            </div>
         </div>
         <div class="card-subtitle">Multi-segment static site builder</div>
         <div id="int-pages-detail" class="integration-detail" style="margin-top:var(--space-md)">

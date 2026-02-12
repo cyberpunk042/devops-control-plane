@@ -1,0 +1,162 @@
+<!-- DevOps Tab -->
+<div id="tab-devops" class="tab-content">
+    <header class="tab-header">
+        <h1>🛠️ DevOps</h1>
+        <div style="display:flex;align-items:center;gap:var(--space-md)">
+            <button class="btn btn-sm btn-ghost" onclick="openDevopsPrefsModal()" title="Configure which cards auto-load, load manually, or are hidden">
+                ⚙️ Card Preferences
+            </button>
+            <button class="btn btn-sm btn-secondary" onclick="loadDevopsTab(true)" title="Force-refresh all cards (busts client + server cache)">
+                🔄 Refresh All
+            </button>
+        </div>
+    </header>
+
+    <div class="card-grid">
+
+        <!-- ── Security Card ─────────────────────────────────── -->
+        <div class="card" id="devops-security-card">
+            <div class="card-header">
+                <span class="card-title">🔐 Security Posture</span>
+                <div style="display:flex;align-items:center;gap:0.4rem">
+                    <span class="card-age" data-cache-key="security" style="font-size:0.64rem;color:var(--text-muted)"></span>
+                    <button class="btn-icon" onclick="cardRefresh('security','devops-security-badge','devops-security-detail',loadSecurityCard)" title="Re-scan source code for hardcoded secrets, check .gitignore coverage, and recalculate security posture score" style="font-size:0.7rem;cursor:pointer;background:none;border:none;color:var(--text-muted);padding:0">🔄</button>
+                    <span class="status-badge" id="devops-security-badge">—</span>
+                </div>
+            </div>
+            <div class="card-subtitle">Hardcoded secret scanning, sensitive file detection, .gitignore completeness, and overall security posture score</div>
+            <div id="devops-security-detail" class="integration-detail" style="margin-top:var(--space-md)">
+                <span class="spinner"></span>
+            </div>
+        </div>
+
+        <!-- ── Testing Card ──────────────────────────────────── -->
+        <div class="card" id="devops-testing-card">
+            <div class="card-header">
+                <span class="card-title">🧪 Testing</span>
+                <div style="display:flex;align-items:center;gap:0.4rem">
+                    <span class="card-age" data-cache-key="testing" style="font-size:0.64rem;color:var(--text-muted)"></span>
+                    <button class="btn-icon" onclick="cardRefresh('testing','devops-testing-badge','devops-testing-detail',loadTestingCard)" title="Re-detect test frameworks, recount test files/functions, and check coverage tools" style="font-size:0.7rem;cursor:pointer;background:none;border:none;color:var(--text-muted);padding:0">🔄</button>
+                    <span class="status-badge" id="devops-testing-badge">—</span>
+                </div>
+            </div>
+            <div class="card-subtitle">Detected test frameworks, test file/function counts, test-to-source ratio, coverage tooling, and test execution</div>
+            <div id="devops-testing-detail" class="integration-detail" style="margin-top:var(--space-md)">
+                <span class="spinner"></span>
+            </div>
+        </div>
+
+        <!-- ── Quality Card ────────────────────────────────── -->
+        <div class="card" id="devops-quality-card">
+            <div class="card-header">
+                <span class="card-title">🔧 Code Quality</span>
+                <div style="display:flex;align-items:center;gap:0.4rem">
+                    <span class="card-age" data-cache-key="quality" style="font-size:0.64rem;color:var(--text-muted)"></span>
+                    <button class="btn-icon" onclick="cardRefresh('quality','devops-quality-badge','devops-quality-detail',loadQualityCard)" title="Re-detect linters, type checkers, formatters, and their configuration files" style="font-size:0.7rem;cursor:pointer;background:none;border:none;color:var(--text-muted);padding:0">🔄</button>
+                    <span class="status-badge" id="devops-quality-badge">—</span>
+                </div>
+            </div>
+            <div class="card-subtitle">Linter, type-checker, formatter, and test runner detection — which tools are installed, configured, and relevant to your stacks</div>
+            <div id="devops-quality-detail" class="integration-detail" style="margin-top:var(--space-md)">
+                <span class="spinner"></span>
+            </div>
+        </div>
+
+        <!-- ── Packages Card ───────────────────────────────── -->
+        <div class="card" id="devops-packages-card">
+            <div class="card-header">
+                <span class="card-title">📦 Packages</span>
+                <div style="display:flex;align-items:center;gap:0.4rem">
+                    <span class="card-age" data-cache-key="packages" style="font-size:0.64rem;color:var(--text-muted)"></span>
+                    <button class="btn-icon" onclick="cardRefresh('packages','devops-packages-badge','devops-packages-detail',loadPackagesCard)" title="Re-detect package managers, dependency files, and lock file freshness" style="font-size:0.7rem;cursor:pointer;background:none;border:none;color:var(--text-muted);padding:0">🔄</button>
+                    <span class="status-badge" id="devops-packages-badge">—</span>
+                </div>
+            </div>
+            <div class="card-subtitle">Package manager detection (pip, npm, cargo, go mod), dependency files, lock files, outdated check, and vulnerability audit</div>
+            <div id="devops-packages-detail" class="integration-detail" style="margin-top:var(--space-md)">
+                <span class="spinner"></span>
+            </div>
+        </div>
+
+        <!-- ── Environment Card ──────────────────────────────── -->
+        <div class="card" id="devops-env-card">
+            <div class="card-header">
+                <span class="card-title">⚙️ Environment</span>
+                <div style="display:flex;align-items:center;gap:0.4rem">
+                    <span class="card-age" data-cache-key="env" style="font-size:0.64rem;color:var(--text-muted)"></span>
+                    <button class="btn-icon" onclick="cardRefresh('env','devops-env-badge','devops-env-detail',loadEnvCard)" title="Re-check deployment environments, active env, .env files, and local↔GitHub secrets drift" style="font-size:0.7rem;cursor:pointer;background:none;border:none;color:var(--text-muted);padding:0">🔄</button>
+                    <span class="status-badge" id="devops-env-badge">—</span>
+                </div>
+            </div>
+            <div class="card-subtitle">Deployment contexts (dev/staging/prod), active environment, .env file status, variable inventory, validation, and local↔GitHub secrets drift</div>
+            <div id="devops-env-detail" class="integration-detail" style="margin-top:var(--space-md)">
+                <span class="spinner"></span>
+            </div>
+        </div>
+
+        <!-- ── Documentation Card ────────────────────────────── -->
+        <div class="card" id="devops-docs-card">
+            <div class="card-header">
+                <span class="card-title">📚 Documentation</span>
+                <div style="display:flex;align-items:center;gap:0.4rem">
+                    <span class="card-age" data-cache-key="docs" style="font-size:0.64rem;color:var(--text-muted)"></span>
+                    <button class="btn-icon" onclick="cardRefresh('docs','devops-docs-badge','devops-docs-detail',loadDocsCard)" title="Re-scan for README, CHANGELOG, LICENSE, API specs, doc directories, and per-module documentation coverage" style="font-size:0.7rem;cursor:pointer;background:none;border:none;color:var(--text-muted);padding:0">🔄</button>
+                    <span class="status-badge" id="devops-docs-badge">—</span>
+                </div>
+            </div>
+            <div class="card-subtitle">Key project docs (README, CHANGELOG, LICENSE, CONTRIBUTING), doc directory inventory, API spec detection, and per-module coverage</div>
+            <div id="devops-docs-detail" class="integration-detail" style="margin-top:var(--space-md)">
+                <span class="spinner"></span>
+            </div>
+        </div>
+
+        <!-- ── Kubernetes Card ───────────────────────────────── -->
+        <div class="card" id="devops-k8s-card">
+            <div class="card-header">
+                <span class="card-title">☸️ Kubernetes</span>
+                <div style="display:flex;align-items:center;gap:0.4rem">
+                    <span class="card-age" data-cache-key="k8s" style="font-size:0.64rem;color:var(--text-muted)"></span>
+                    <button class="btn-icon" onclick="cardRefresh('k8s','devops-k8s-badge','devops-k8s-detail',loadK8sCard)" title="Re-detect K8s manifests, Helm charts, Kustomize configs, and kubectl availability" style="font-size:0.7rem;cursor:pointer;background:none;border:none;color:var(--text-muted);padding:0">🔄</button>
+                    <span class="status-badge" id="devops-k8s-badge">—</span>
+                </div>
+            </div>
+            <div class="card-subtitle">Manifest detection, resource summary per kind, Helm chart and Kustomize detection, kubectl status, validation, and cluster connectivity</div>
+            <div id="devops-k8s-detail" class="integration-detail" style="margin-top:var(--space-md)">
+                <span class="spinner"></span>
+            </div>
+        </div>
+
+        <!-- ── Terraform Card ────────────────────────────────── -->
+        <div class="card" id="devops-terraform-card">
+            <div class="card-header">
+                <span class="card-title">🏗️ Terraform</span>
+                <div style="display:flex;align-items:center;gap:0.4rem">
+                    <span class="card-age" data-cache-key="terraform" style="font-size:0.64rem;color:var(--text-muted)"></span>
+                    <button class="btn-icon" onclick="cardRefresh('terraform','devops-terraform-badge','devops-terraform-detail',loadTerraformCard)" title="Re-detect Terraform configs, providers, modules, resources, backend, and initialization state" style="font-size:0.7rem;cursor:pointer;background:none;border:none;color:var(--text-muted);padding:0">🔄</button>
+                    <span class="status-badge" id="devops-terraform-badge">—</span>
+                </div>
+            </div>
+            <div class="card-subtitle">IaC configuration detection, provider/module/resource inventory, backend configuration, state inspection, workspace management, and plan/validate</div>
+            <div id="devops-terraform-detail" class="integration-detail" style="margin-top:var(--space-md)">
+                <span class="spinner"></span>
+            </div>
+        </div>
+
+        <!-- ── DNS & CDN Card ────────────────────────────────── -->
+        <div class="card" id="devops-dns-card">
+            <div class="card-header">
+                <span class="card-title">🌐 DNS & CDN</span>
+                <div style="display:flex;align-items:center;gap:0.4rem">
+                    <span class="card-age" data-cache-key="dns" style="font-size:0.64rem;color:var(--text-muted)"></span>
+                    <button class="btn-icon" onclick="cardRefresh('dns','devops-dns-badge','devops-dns-detail',loadDnsCard)" title="Re-detect CDN provider configs, domain references, SSL certificates, and DNS file presence" style="font-size:0.7rem;cursor:pointer;background:none;border:none;color:var(--text-muted);padding:0">🔄</button>
+                    <span class="status-badge" id="devops-dns-badge">—</span>
+                </div>
+            </div>
+            <div class="card-subtitle">CDN provider detection (Cloudflare, Netlify, Vercel, GitHub Pages), domain extraction, SSL cert files, DNS lookup, and record generation</div>
+            <div id="devops-dns-detail" class="integration-detail" style="margin-top:var(--space-md)">
+                <span class="spinner"></span>
+            </div>
+        </div>
+
+    </div>
+</div>

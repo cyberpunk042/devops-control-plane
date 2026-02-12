@@ -1,0 +1,2135 @@
+<script>
+    // ── DevOps tab ────────────────────────────────────────────────────
+    // Uses shared cache from _globals.html (cardCached / cardStore / cardInvalidate)
+
+    let _devopsLoaded = false;
+
+    // Card metadata: key → { loadFn, badgeId, detailId, cardId, label }
+    const _DEVOPS_CARDS = {
+        security:  { loadFn: () => loadSecurityCard(),  label: '🔐 Security' },
+        testing:   { loadFn: () => loadTestingCard(),   label: '🧪 Testing' },
+        quality:   { loadFn: () => loadQualityCard(),   label: '🔧 Quality' },
+        packages:  { loadFn: () => loadPackagesCard(),  label: '📦 Packages' },
+        env:       { loadFn: () => loadEnvCard(),       label: '⚙️ Environment' },
+        docs:      { loadFn: () => loadDocsCard(),      label: '📚 Docs' },
+        k8s:       { loadFn: () => loadK8sCard(),       label: '☸️ Kubernetes' },
+        terraform: { loadFn: () => loadTerraformCard(), label: '🏗️ Terraform' },
+        dns:       { loadFn: () => loadDnsCard(),       label: '🌐 DNS & CDN' },
+    };
+
+    // Current prefs (fetched once per session)
+    let _devopsPrefs = null;
+
+    async function _fetchDevopsPrefs() {
+        if (_devopsPrefs) return _devopsPrefs;
+        try {
+            _devopsPrefs = await api('/devops/prefs');
+        } catch {
+            // Default: all auto
+            _devopsPrefs = Object.fromEntries(Object.keys(_DEVOPS_CARDS).map(k => [k, 'auto']));
+        }
+        return _devopsPrefs;
+    }
+
+    async function loadDevopsTab(force) {
+        if (force) {
+            cardInvalidateAll();
+            // Bust ALL server-side caches
+            api('/devops/cache/bust', { method: 'POST', body: JSON.stringify({ card: 'all' }) }).catch(() => {});
+            _devopsLoaded = false;
+            _devopsPrefs = null; // Re-fetch prefs too
+        }
+        if (_devopsLoaded) return;
+
+        const prefs = await _fetchDevopsPrefs();
+
+        // Apply visibility + loading per preference
+        for (const [key, meta] of Object.entries(_DEVOPS_CARDS)) {
+            const card = document.getElementById('devops-' + key + '-card');
+            const detail = document.getElementById('devops-' + key + '-detail');
+            const badge = document.getElementById('devops-' + key + '-badge');
+            const pref = prefs[key] || 'auto';
+
+            if (!card) continue;
+
+            if (pref === 'hidden') {
+                card.style.display = 'none';
+                continue;
+            }
+            card.style.display = '';
+
+            if (pref === 'manual') {
+                // Show "click to load" instead of spinner
+                if (badge) { badge.className = 'status-badge'; badge.textContent = '⏸'; }
+                if (detail) {
+                    detail.innerHTML = `<div style="display:flex;flex-direction:column;align-items:center;gap:0.5rem;padding:1rem 0">
+                        <span style="color:var(--text-muted);font-size:0.82rem">Manual load — click to fetch</span>
+                        <button class="btn btn-sm btn-secondary" onclick="(async()=>{
+                            const d=document.getElementById('devops-${key}-detail');
+                            const b=document.getElementById('devops-${key}-badge');
+                            if(d)d.innerHTML='<span class=\\'spinner\\'></span>';
+                            if(b){b.className='status-badge';b.textContent='—';}
+                            await _DEVOPS_CARDS['${key}'].loadFn();
+                        })()" style="font-size:0.78rem">▶ Load ${esc(meta.label)}</button>
+                    </div>`;
+                }
+                continue;
+            }
+
+            // auto: show spinner and load
+            if (detail && !cardCached(key)) detail.innerHTML = '<span class="spinner"></span>';
+            if (badge && !cardCached(key)) { badge.className = 'status-badge'; badge.textContent = '—'; }
+        }
+
+        // Load auto cards sequentially (Flask dev server is single-threaded)
+        for (const [key, meta] of Object.entries(_DEVOPS_CARDS)) {
+            const pref = prefs[key] || 'auto';
+            if (pref === 'auto') {
+                await meta.loadFn();
+            }
+        }
+
+        _devopsLoaded = true;
+    }
+
+    /** Open preferences modal for DevOps cards. */
+    function openDevopsPrefsModal() {
+        const modal = document.createElement('div');
+        modal.className = 'vault-modal-overlay'; modal.id = 'devops-prefs-modal';
+
+        const prefs = _devopsPrefs || {};
+        let rows = '';
+        for (const [key, meta] of Object.entries(_DEVOPS_CARDS)) {
+            const cur = prefs[key] || 'auto';
+            rows += `<div style="display:flex;align-items:center;justify-content:space-between;padding:0.5rem 0;border-bottom:1px solid var(--border-subtle)">
+                <span style="font-size:0.85rem;font-weight:500">${meta.label}</span>
+                <select id="pref-${key}" style="font-size:0.8rem;padding:0.25rem 0.5rem;border-radius:4px;border:1px solid var(--border-subtle);background:var(--bg-inset);color:var(--text-primary)">
+                    <option value="auto" ${cur==='auto'?'selected':''}>Auto</option>
+                    <option value="manual" ${cur==='manual'?'selected':''}>Manual</option>
+                    <option value="hidden" ${cur==='hidden'?'selected':''}>Hidden</option>
+                </select>
+            </div>`;
+        }
+
+        modal.innerHTML = `<div class="vault-modal" style="max-width:420px">
+            <div class="vault-modal-header">
+                <span class="vault-modal-title">⚙️ Card Preferences</span>
+                <button class="vault-modal-close" onclick="document.getElementById('devops-prefs-modal').remove()">✕</button>
+            </div>
+            <div class="vault-modal-body">
+                <p style="font-size:0.78rem;color:var(--text-muted);margin-bottom:0.75rem">
+                    <strong>Auto</strong> — loads when tab opens &nbsp;
+                    <strong>Manual</strong> — click to load &nbsp;
+                    <strong>Hidden</strong> — not shown
+                </p>
+                ${rows}
+            </div>
+            <div class="vault-modal-footer" style="display:flex;gap:0.5rem;justify-content:flex-end;padding:0.75rem 1rem">
+                <button class="btn btn-sm btn-secondary" onclick="document.getElementById('devops-prefs-modal').remove()">Cancel</button>
+                <button class="btn btn-sm btn-primary" onclick="_saveDevopsPrefs()">Save</button>
+            </div>
+        </div>`;
+        document.body.appendChild(modal);
+        modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
+    }
+
+    async function _saveDevopsPrefs() {
+        const prefs = {};
+        for (const key of Object.keys(_DEVOPS_CARDS)) {
+            const sel = document.getElementById('pref-' + key);
+            prefs[key] = sel ? sel.value : 'auto';
+        }
+        try {
+            _devopsPrefs = await api('/devops/prefs', { method: 'PUT', body: JSON.stringify(prefs) });
+            toast('Card preferences saved', 'success');
+            document.getElementById('devops-prefs-modal')?.remove();
+            // Reload tab with new prefs
+            _devopsLoaded = false;
+            cardInvalidateAll();
+            loadDevopsTab();
+        } catch (e) {
+            toast('Failed to save: ' + e.message, 'error');
+        }
+    }
+
+    // ── Security Card ──────────────────────────────────────────────────
+
+    async function loadSecurityCard() {
+        const badge = document.getElementById('devops-security-badge');
+        const detail = document.getElementById('devops-security-detail');
+        const cached = cardCached('security');
+        const data = cached || await api('/security/status').catch(e => ({ _err: e }));
+        if (data._err) {
+            badge.className = 'status-badge failed';
+            badge.innerHTML = '<span class="status-dot"></span>Error';
+            detail.innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(data._err.message)}</p>`;
+            return;
+        }
+        if (!cached) cardStore('security', data);
+
+        const posture = data.posture || {};
+        const score = posture.score ?? 0;
+        const grade = posture.grade || '?';
+        const cls = score >= 80 ? 'ok' : score >= 50 ? 'degraded' : 'failed';
+        const scoreColor = cls === 'ok' ? 'var(--success)' : cls === 'degraded' ? 'var(--warning)' : 'var(--error)';
+        badge.className = 'status-badge ' + cls;
+        badge.innerHTML = `<span class="status-dot"></span>${grade} (${score})`;
+
+        const findings = data.findings || [];
+        const checks = posture.checks || [];
+
+        let html = `<div style="font-size:0.85rem;color:var(--text-secondary);line-height:1.5">`;
+
+        // ── Score header with visual bar ────────────────────────────
+        html += `<div style="display:flex;align-items:center;gap:0.6rem;margin-bottom:var(--space-sm)">
+            <span style="font-size:1.8rem;font-weight:700;color:var(--text-primary)" title="Weighted average of all security checks (0–100)">${score}</span>
+            <div style="flex:1">
+                <div style="display:flex;align-items:center;gap:0.4rem;margin-bottom:0.2rem">
+                    <span style="font-size:0.78rem;padding:0.1rem 0.5rem;border-radius:4px;background:${scoreColor}22;color:${scoreColor};font-weight:600">${grade}</span>
+                    <span style="font-size:0.68rem;color:var(--text-muted)" title="Security posture score out of 100">/ 100</span>
+                </div>
+                <div style="height:4px;border-radius:2px;background:var(--bg-inset);overflow:hidden" title="Visual representation of security score">
+                    <div style="height:100%;width:${score}%;background:${scoreColor};border-radius:2px;transition:width 0.5s"></div>
+                </div>
+            </div>
+        </div>`;
+
+        // ── Posture checks — expanded inline with full details ──────
+        if (checks.length > 0) {
+            html += `<div style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;margin:var(--space-sm) 0 0.3rem" title="Each check contributes a weighted score to the overall posture">Posture Checks</div>`;
+            checks.forEach(c => {
+                const cScore = c.score != null ? Math.round(c.score * 100) : '?';
+                const cColor = c.passed ? 'var(--success)' : cScore >= 60 ? 'var(--warning)' : 'var(--error)';
+                const weight = c.weight || '?';
+                html += `<div style="padding:0.35rem 0.5rem;margin-bottom:0.25rem;background:var(--bg-inset);border-radius:6px;border-left:3px solid ${cColor}">
+                    <div style="display:flex;align-items:center;gap:0.4rem;font-size:0.75rem">
+                        <span>${c.passed ? '✅' : '⚠️'}</span>
+                        <span style="font-weight:600;color:var(--text-primary);flex:1">${esc(c.name)}</span>
+                        <span style="font-size:0.64rem;color:${cColor};font-weight:600" title="Score: ${cScore}% · Weight: ${weight}">${cScore}%</span>
+                        <span style="font-size:0.6rem;color:var(--text-muted)" title="How much this check affects the total score">w${weight}</span>
+                    </div>
+                    <div style="font-size:0.68rem;color:var(--text-muted);margin-top:0.15rem" title="What this check found">${esc(c.details || '')}</div>`;
+                // Show recommendations inline
+                if (c.recommendations && c.recommendations.length > 0) {
+                    c.recommendations.forEach(r => {
+                        html += `<div style="font-size:0.64rem;color:var(--accent);margin-top:0.1rem;padding-left:0.5rem">💡 ${esc(r)}</div>`;
+                    });
+                }
+                html += `</div>`;
+            });
+        }
+
+        // ── Findings — hardcoded secrets found in source ────────────
+        html += `<div style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;margin:var(--space-md) 0 0.3rem" title="Source code scan for hardcoded API keys, tokens, passwords, and connection strings">Secret Scan Results</div>`;
+        if (findings.length > 0) {
+            const crit = findings.filter(f => f.severity === 'critical').length;
+            const high = findings.filter(f => f.severity === 'high').length;
+            const med = findings.filter(f => f.severity === 'medium').length;
+            html += `<div style="display:flex;gap:0.6rem;font-size:0.75rem;margin-bottom:0.3rem">
+                <span style="color:var(--error)" title="Critical: AWS keys, GCP credentials, etc.">${crit} critical</span>
+                <span style="color:var(--warning)" title="High: API tokens, database URLs, JWT tokens">${high} high</span>
+                <span style="color:var(--text-muted)" title="Medium: password assignments, generic secrets">${med} medium</span>
+            </div>`;
+            // Show top findings inline
+            findings.slice(0, 5).forEach(f => {
+                const icon = f.severity === 'critical' ? '🔴' : f.severity === 'high' ? '🟠' : '🟡';
+                html += `<div style="display:flex;gap:0.4rem;align-items:center;padding:0.2rem 0;font-size:0.7rem;border-bottom:1px solid var(--border-subtle)" title="${esc(f.description || f.pattern || '')}">
+                    <span>${icon}</span>
+                    <code style="font-family:var(--font-mono);color:var(--accent);font-size:0.66rem;max-width:40%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(f.file||'')}${f.line ? ':'+f.line : ''}</code>
+                    <span style="flex:1;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(f.message||f.pattern||'')}</span>
+                </div>`;
+            });
+            if (findings.length > 5) {
+                html += `<div style="font-size:0.66rem;color:var(--text-muted);padding:0.2rem 0">… and ${findings.length - 5} more finding${findings.length-5!==1?'s':''}</div>`;
+            }
+        } else {
+            html += `<div style="font-size:0.75rem;color:var(--success);padding:0.2rem 0">✅ No hardcoded secrets found in source code</div>`;
+        }
+
+        // ── Actions ─────────────────────────────────────────────────
+        html += `<div style="display:flex;gap:var(--space-sm);margin-top:var(--space-md);flex-wrap:wrap">
+            <button class="btn btn-sm btn-secondary" onclick="cardRefresh('security','devops-security-badge','devops-security-detail',loadSecurityCard)" title="Re-scan all source files for hardcoded secrets and recalculate posture">🔍 Re-Scan</button>
+            <button class="btn btn-sm btn-secondary" onclick="secSensitiveFiles()" title="List files like .pem, .key, credentials.json — and whether they are protected by .gitignore">📄 Sensitive Files</button>
+            <button class="btn btn-sm btn-secondary" onclick="secGitignoreAnalysis()" title="Analyze .gitignore completeness — check if all recommended patterns for your stacks are present">📋 .gitignore</button>
+            <button class="btn btn-sm btn-ghost" onclick="secGenerateGitignore()" title="Auto-generate a .gitignore file based on detected stacks (Python, Node, Rust, etc.)">⚙️ Gen .gitignore</button>
+        </div>`;
+        html += `</div>`;
+        detail.innerHTML = html;
+    }
+
+    async function secSensitiveFiles() {
+        const modal = document.createElement('div');
+        modal.className = 'vault-modal-overlay'; modal.id = 'vault-modal';
+        modal.innerHTML = `<div class="vault-modal" style="max-width:650px">
+            <h3 style="margin-bottom:var(--space-sm)">📄 Sensitive Files</h3>
+            <p style="font-size:0.75rem;color:var(--text-muted);margin-bottom:var(--space-md)">Files that typically contain credentials or private keys. Each file is checked against .gitignore — unprotected files (⚠️) risk being committed to version control.</p>
+            <div id="sec-files-body" style="max-height:400px;overflow-y:auto"><span class="spinner"></span></div>
+            <div style="display:flex;justify-content:flex-end;margin-top:var(--space-md)">
+                <button class="btn btn-sm btn-primary" onclick="closeVaultModal()">Close</button>
+            </div>
+        </div>`;
+        document.body.appendChild(modal);
+        try {
+            const data = await api('/security/files');
+            const body = document.getElementById('sec-files-body');
+            const files = data.files || [];
+            if (!files.length) { body.innerHTML = '<p class="empty-state-sm" style="color:var(--success)">✅ No sensitive files detected — your project is clean.</p>'; return; }
+            const unprotected = files.filter(f => !f.gitignored).length;
+            let h = `<div style="font-size:0.78rem;margin-bottom:var(--space-sm);display:flex;gap:0.6rem">
+                <span>${files.length} file${files.length!==1?'s':''} detected</span>
+                ${unprotected > 0 ? `<span style="color:var(--error);font-weight:600">⚠️ ${unprotected} NOT gitignored</span>` : '<span style="color:var(--success)">All gitignored ✅</span>'}
+            </div>`;
+            files.forEach(f => {
+                h += `<div style="display:flex;gap:0.5rem;align-items:center;padding:0.35rem 0;border-bottom:1px solid var(--border-subtle);font-size:0.78rem">
+                    <span style="flex-shrink:0" title="${f.gitignored ? 'Protected by .gitignore' : 'NOT in .gitignore — risk of committing!'}">${f.gitignored ? '✅' : '⚠️'}</span>
+                    <code style="font-family:var(--font-mono);color:var(--accent);font-size:0.72rem;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(f.path)}</code>
+                    <span style="color:var(--text-muted);font-size:0.66rem;flex-shrink:0;max-width:40%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(f.description||'')}">${esc(f.description||'')}</span>
+                </div>`;
+            });
+            body.innerHTML = h;
+        } catch (e) {
+            document.getElementById('sec-files-body').innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(e.message)}</p>`;
+        }
+    }
+
+    async function secGitignoreAnalysis() {
+        const modal = document.createElement('div');
+        modal.className = 'vault-modal-overlay'; modal.id = 'vault-modal';
+        modal.innerHTML = `<div class="vault-modal" style="max-width:650px">
+            <h3 style="margin-bottom:var(--space-sm)">📋 .gitignore Analysis</h3>
+            <p style="font-size:0.75rem;color:var(--text-muted);margin-bottom:var(--space-md)">Checks whether your .gitignore includes the recommended patterns for all detected stacks (Python → __pycache__, .venv; Node → node_modules; etc.).</p>
+            <div id="sec-gi-body" style="max-height:400px;overflow-y:auto"><span class="spinner"></span></div>
+            <div style="display:flex;gap:var(--space-sm);justify-content:flex-end;margin-top:var(--space-md)">
+                <button class="btn btn-sm btn-ghost" onclick="secGenerateGitignore();closeVaultModal()" title="Auto-generate .gitignore with all recommended patterns">⚙️ Generate</button>
+                <button class="btn btn-sm btn-primary" onclick="closeVaultModal()">Close</button>
+            </div>
+        </div>`;
+        document.body.appendChild(modal);
+        try {
+            const data = await api('/security/gitignore');
+            const body = document.getElementById('sec-gi-body');
+            const missing = data.missing_patterns || [];
+            const cov = data.coverage != null ? Math.round(data.coverage * 100) : '?';
+            let h = `<div style="font-size:0.82rem;line-height:1.8">
+                <div style="display:flex;align-items:center;gap:0.5rem">
+                    ${data.exists ? '✅' : '❌'} <strong>.gitignore</strong> ${data.exists ? 'exists' : 'missing — create one immediately!'}
+                </div>
+                <div style="display:flex;align-items:center;gap:0.5rem">
+                    <span>📊 Coverage:</span>
+                    <strong style="color:${cov >= 90 ? 'var(--success)' : cov >= 70 ? 'var(--warning)' : 'var(--error)'}">${cov}%</strong>
+                    <span style="font-size:0.72rem;color:var(--text-muted)">· ${data.current_patterns || 0} patterns defined</span>
+                </div>
+                <div style="height:4px;border-radius:2px;background:var(--bg-inset);overflow:hidden;margin-top:0.3rem">
+                    <div style="height:100%;width:${cov}%;background:${cov >= 90 ? 'var(--success)' : cov >= 70 ? 'var(--warning)' : 'var(--error)'};border-radius:2px"></div>
+                </div>`;
+            if (missing.length > 0) {
+                h += `<div style="margin-top:var(--space-md);font-weight:600;color:var(--warning)">⚠️ ${missing.length} recommended pattern${missing.length!==1?'s':''} missing:</div>
+                    <div style="font-size:0.68rem;color:var(--text-muted);margin-bottom:0.3rem">These patterns are recommended for your detected stacks. Without them, generated artifacts may be committed.</div>`;
+                missing.forEach(m => {
+                    h += `<div style="display:flex;gap:0.5rem;align-items:center;font-size:0.72rem;padding:0.25rem 0;border-bottom:1px solid var(--border-subtle)">
+                        <code style="color:var(--accent);font-weight:600;min-width:120px">${esc(m.pattern)}</code>
+                        <span style="color:var(--text-muted);font-size:0.68rem;flex:1">${esc(m.reason||m.category||'')}</span>
+                    </div>`;
+                });
+            } else {
+                h += `<div style="margin-top:var(--space-sm);color:var(--success)">✅ All recommended patterns are present — nothing to add.</div>`;
+            }
+            h += `</div>`;
+            body.innerHTML = h;
+        } catch (e) {
+            document.getElementById('sec-gi-body').innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(e.message)}</p>`;
+        }
+    }
+
+    async function secGenerateGitignore() {
+        toast('Generating .gitignore…', 'info');
+        try {
+            const data = await api('/security/generate/gitignore', { method: 'POST', body: '{}' });
+            if (data.error) { toast(data.error, 'error'); return; }
+            toast('.gitignore generated ✅', 'success');
+            cardInvalidate('security');
+        } catch (e) { toast('Failed: ' + e.message, 'error'); }
+    }
+
+    // ── Testing Card ───────────────────────────────────────────────────
+
+    async function loadTestingCard() {
+        const badge = document.getElementById('devops-testing-badge');
+        const detail = document.getElementById('devops-testing-detail');
+        const cached = cardCached('testing');
+        const data = cached || await api('/testing/status').catch(e => ({ _err: e }));
+        if (data._err) {
+            badge.className = 'status-badge failed';
+            badge.innerHTML = '<span class="status-dot"></span>Error';
+            detail.innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(data._err.message)}</p>`;
+            return;
+        }
+        if (!cached) cardStore('testing', data);
+
+        const frameworks = data.frameworks || [];
+        const stats = data.stats || {};
+        const testFiles = stats.test_files || 0;
+        const testFunctions = stats.test_functions || 0;
+        const testClasses = stats.test_classes || 0;
+        const sourceFiles = stats.source_files || 0;
+        const ratioRaw = stats.test_ratio;
+        const ratioDisp = ratioRaw != null ? (typeof ratioRaw === 'number' ? ratioRaw.toFixed(2) : ratioRaw) : '—';
+        const covTools = data.coverage_tools || [];
+
+        if (!frameworks.length) {
+            badge.className = 'status-badge degraded';
+            badge.innerHTML = '<span class="status-dot"></span>No framework';
+            detail.innerHTML = `<div style="font-size:0.82rem;color:var(--text-secondary);line-height:1.5">
+                <p class="empty-state-sm">No test framework detected</p>
+                <div style="font-size:0.68rem;color:var(--text-muted);margin-top:var(--space-xs)">
+                    Supported: pytest, jest, vitest, mocha, cargo test. Add a config file or test directory to get started.
+                </div>
+                <div style="margin-top:var(--space-md)">
+                    <button class="btn btn-sm btn-ghost" onclick="testGenTemplate()" title="Generate a test template file for a specific module">⚙️ Generate Template</button>
+                </div>
+            </div>`;
+            return;
+        }
+
+        badge.className = 'status-badge ok';
+        badge.innerHTML = `<span class="status-dot"></span>${testFunctions} tests`;
+
+        let html = `<div style="font-size:0.85rem;color:var(--text-secondary);line-height:1.5">`;
+
+        // ── Detected frameworks with details ────────────────────────
+        html += `<div style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.3rem" title="Test frameworks detected in your project">Frameworks</div>`;
+        frameworks.forEach(fw => {
+            html += `<div style="display:flex;align-items:center;gap:0.4rem;padding:0.25rem 0.5rem;margin-bottom:0.2rem;background:var(--bg-inset);border-radius:6px;border-left:3px solid var(--success)">
+                <span style="font-weight:600;color:var(--text-primary);font-size:0.75rem">${esc(fw.name)}</span>
+                <span style="font-size:0.64rem;color:var(--text-muted);flex:1" title="How this framework was detected">${esc(fw.detected_by || '')}</span>
+                ${fw.stack ? `<span style="font-size:0.6rem;padding:0.05rem 0.3rem;border:1px solid var(--accent);border-radius:3px;color:var(--accent)" title="Language stack">${esc(fw.stack)}</span>` : ''}
+            </div>`;
+        });
+
+        // ── Stats with visual ratio bar ─────────────────────────────
+        html += `<div style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;margin:var(--space-sm) 0 0.3rem" title="Counts of test infrastructure in your codebase">Test Inventory</div>`;
+        html += `<div style="display:flex;gap:0.8rem;font-size:0.78rem;margin-bottom:0.3rem">
+            <span title="Total test functions/methods detected"><span style="font-weight:700;color:var(--text-primary);font-size:0.9rem">${testFunctions}</span> <span style="color:var(--text-muted);font-size:0.7rem">functions</span></span>
+            <span title="Test classes detected"><span style="font-weight:700;color:var(--text-primary)">${testClasses}</span> <span style="color:var(--text-muted);font-size:0.7rem">classes</span></span>
+            <span title="Test files detected"><span style="font-weight:700;color:var(--text-primary)">${testFiles}</span> <span style="color:var(--text-muted);font-size:0.7rem">files</span></span>
+        </div>`;
+        // Test ratio bar
+        const ratioNum = typeof ratioRaw === 'number' ? ratioRaw : 0;
+        const ratioPct = Math.min(ratioNum * 100, 100);
+        const ratioColor = ratioPct >= 50 ? 'var(--success)' : ratioPct >= 25 ? 'var(--warning)' : 'var(--error)';
+        html += `<div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.2rem">
+            <span style="font-size:0.68rem;color:var(--text-muted);min-width:60px" title="Ratio of test files to source files — higher is better">Test ratio:</span>
+            <div style="flex:1;height:4px;border-radius:2px;background:var(--bg-inset);overflow:hidden">
+                <div style="height:100%;width:${ratioPct}%;background:${ratioColor};border-radius:2px;transition:width 0.5s"></div>
+            </div>
+            <span style="font-size:0.68rem;font-weight:600;color:${ratioColor}">${ratioDisp}</span>
+        </div>`;
+        if (sourceFiles > 0) {
+            html += `<div style="font-size:0.64rem;color:var(--text-muted)">${testFiles} test files / ${sourceFiles} source files</div>`;
+        }
+
+        // ── Coverage tools ──────────────────────────────────────────
+        if (covTools.length) {
+            html += `<div style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;margin:var(--space-sm) 0 0.3rem" title="Coverage tools configured for measuring test coverage">Coverage Tools</div>`;
+            covTools.forEach(t => {
+                html += `<div style="display:flex;align-items:center;gap:0.4rem;font-size:0.72rem;padding:0.15rem 0">
+                    <span>📊</span>
+                    <span style="font-weight:600;color:var(--text-primary)">${esc(t.name)}</span>
+                    ${t.config ? `<span style="font-size:0.64rem;color:var(--text-muted)" title="Configuration file">${esc(t.config)}</span>` : ''}
+                </div>`;
+            });
+        } else {
+            html += `<div style="font-size:0.68rem;color:var(--text-muted);margin-top:var(--space-xs)" title="No coverage.py, istanbul, or similar tool detected">📊 No coverage tool configured</div>`;
+        }
+
+        // ── Actions ─────────────────────────────────────────────────
+        html += `<div style="display:flex;gap:var(--space-sm);margin-top:var(--space-md);flex-wrap:wrap">
+            <button class="btn btn-sm btn-secondary" onclick="runTests()" title="Execute test suite and show pass/fail/skip results in a modal">▶️ Run Tests</button>
+            <button class="btn btn-sm btn-secondary" onclick="testCoverage()" title="Run tests with coverage and show per-file coverage breakdown">📊 Coverage</button>
+            <button class="btn btn-sm btn-secondary" onclick="testInventory()" title="List all test files with function/class counts per file">📋 Inventory</button>
+            <button class="btn btn-sm btn-ghost" onclick="testGenTemplate()" title="Generate a test file template for a specific module (Python/Node/Rust)">⚙️ Gen Template</button>
+        </div>`;
+        html += `</div>`;
+        detail.innerHTML = html;
+    }
+
+    async function runTests() {
+        const modal = document.createElement('div');
+        modal.className = 'vault-modal-overlay'; modal.id = 'vault-modal';
+        modal.innerHTML = `<div class="vault-modal" style="max-width:650px">
+            <h3 style="margin-bottom:var(--space-sm)">▶️ Test Results</h3>
+            <p style="font-size:0.75rem;color:var(--text-muted);margin-bottom:var(--space-md)">Executing test suite… Results will appear below.</p>
+            <div id="test-run-body" style="max-height:450px;overflow-y:auto"><span class="spinner"></span></div>
+            <div style="display:flex;justify-content:flex-end;margin-top:var(--space-md)">
+                <button class="btn btn-sm btn-primary" onclick="closeVaultModal()">Close</button>
+            </div>
+        </div>`;
+        document.body.appendChild(modal);
+        try {
+            const data = await api('/testing/run', { method: 'POST', body: '{}' });
+            const body = document.getElementById('test-run-body');
+            if (data.error) { body.innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(data.error)}</p>`; return; }
+            const p = data.passed || 0, f = data.failed || 0, e = data.errors || 0, s = data.skipped || 0;
+            const dur = data.duration_seconds ? data.duration_seconds.toFixed(1) + 's' : '—';
+            const total = p + f + e;
+            const allGood = f === 0 && e === 0;
+            let h = `<div style="display:flex;align-items:center;gap:0.6rem;margin-bottom:var(--space-sm)">
+                <span style="font-size:1.4rem;font-weight:700;color:${allGood ? 'var(--success)' : 'var(--error)'}">${allGood ? '✅' : '❌'}</span>
+                <div>
+                    <div style="font-size:0.85rem;font-weight:600;color:var(--text-primary)">${allGood ? 'All tests passed' : `${f} test${f!==1?'s':''} failed`}</div>
+                    <div style="font-size:0.72rem;color:var(--text-muted)">Duration: ${dur} · Total: ${total}</div>
+                </div>
+            </div>`;
+            // Breakdown bar
+            if (total > 0) {
+                const pPct = (p/total*100).toFixed(1), fPct = (f/total*100).toFixed(1), ePct = (e/total*100).toFixed(1);
+                h += `<div style="display:flex;height:6px;border-radius:3px;overflow:hidden;margin-bottom:var(--space-sm)">
+                    <div style="width:${pPct}%;background:var(--success)" title="${p} passed"></div>
+                    <div style="width:${fPct}%;background:var(--error)" title="${f} failed"></div>
+                    <div style="width:${ePct}%;background:var(--warning)" title="${e} errors"></div>
+                </div>`;
+            }
+            // Stats row
+            h += `<div style="display:flex;gap:0.8rem;font-size:0.78rem;margin-bottom:var(--space-sm)">
+                <span style="color:var(--success)">✅ ${p} passed</span>
+                <span style="color:var(--error)">❌ ${f} failed</span>
+                <span style="color:var(--warning)">⚠️ ${e} errors</span>
+                <span style="color:var(--text-muted)">⏭️ ${s} skipped</span>
+            </div>`;
+            // Failures detail
+            const failures = data.failures || [];
+            if (failures.length > 0) {
+                h += `<div style="font-size:0.72rem;font-weight:600;color:var(--error);margin-top:var(--space-sm)">Failures:</div>`;
+                failures.forEach(fl => {
+                    h += `<div style="padding:0.35rem 0.5rem;margin-top:0.25rem;background:var(--bg-inset);border-radius:6px;border-left:3px solid var(--error)">
+                        <div style="font-size:0.72rem;font-weight:600;color:var(--text-primary)">${esc(fl.name||'')}</div>
+                        <pre style="font-size:0.64rem;color:var(--text-muted);margin-top:0.15rem;white-space:pre-wrap;max-height:80px;overflow-y:auto">${esc(fl.output||'')}</pre>
+                    </div>`;
+                });
+            }
+            body.innerHTML = h;
+        } catch (err) {
+            document.getElementById('test-run-body').innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(err.message)}</p>`;
+        }
+    }
+
+    async function testCoverage() {
+        const modal = document.createElement('div');
+        modal.className = 'vault-modal-overlay'; modal.id = 'vault-modal';
+        modal.innerHTML = `<div class="vault-modal" style="max-width:700px">
+            <h3 style="margin-bottom:var(--space-sm)">📊 Test Coverage</h3>
+            <p style="font-size:0.75rem;color:var(--text-muted);margin-bottom:var(--space-md)">Running tests with coverage instrumentation… Per-file results will appear below.</p>
+            <div id="test-cov-body" style="max-height:450px;overflow-y:auto"><span class="spinner"></span></div>
+            <div style="display:flex;justify-content:flex-end;margin-top:var(--space-md)">
+                <button class="btn btn-sm btn-primary" onclick="closeVaultModal()">Close</button>
+            </div>
+        </div>`;
+        document.body.appendChild(modal);
+        try {
+            const data = await api('/testing/coverage', { method: 'POST', body: '{}' });
+            const body = document.getElementById('test-cov-body');
+            if (data.error) { body.innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(data.error)}</p>`; return; }
+            const pct = data.coverage_percent != null ? Math.round(data.coverage_percent) : '?';
+            const covColor = pct >= 80 ? 'var(--success)' : pct >= 50 ? 'var(--warning)' : 'var(--error)';
+            let h = `<div style="display:flex;align-items:center;gap:0.6rem;margin-bottom:var(--space-sm)">
+                <span style="font-size:1.5rem;font-weight:700;color:${covColor}">${pct}%</span>
+                <div style="flex:1">
+                    <div style="height:6px;border-radius:3px;background:var(--bg-inset);overflow:hidden">
+                        <div style="height:100%;width:${pct}%;background:${covColor};border-radius:3px"></div>
+                    </div>
+                </div>
+                <span style="font-size:0.72rem;color:var(--text-muted)">${esc(data.tool || '')}</span>
+            </div>`;
+            // Per-file table
+            const files = data.files || [];
+            if (files.length > 0) {
+                h += `<div style="font-size:0.72rem;font-weight:600;color:var(--text-muted);margin-bottom:0.3rem">Per-File Breakdown</div>`;
+                files.forEach(f => {
+                    const pctFile = f.cover != null ? Math.round(f.cover) : '?';
+                    const fColor = pctFile >= 80 ? 'var(--success)' : pctFile >= 50 ? 'var(--warning)' : 'var(--error)';
+                    h += `<div style="display:flex;gap:0.4rem;align-items:center;padding:0.25rem 0;border-bottom:1px solid var(--border-subtle);font-size:0.72rem">
+                        <code style="font-family:var(--font-mono);color:var(--accent);font-size:0.68rem;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(f.name)}</code>
+                        <span style="color:var(--text-muted);font-size:0.64rem">${f.stmts||0} stmts · ${f.miss||0} miss</span>
+                        <span style="font-weight:600;color:${fColor};min-width:35px;text-align:right">${pctFile}%</span>
+                    </div>`;
+                });
+            }
+            body.innerHTML = h;
+        } catch (err) {
+            document.getElementById('test-cov-body').innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(err.message)}</p>`;
+        }
+    }
+
+    async function testInventory() {
+        const modal = document.createElement('div');
+        modal.className = 'vault-modal-overlay'; modal.id = 'vault-modal';
+        modal.innerHTML = `<div class="vault-modal" style="max-width:700px">
+            <h3 style="margin-bottom:var(--space-sm)">📋 Test Inventory</h3>
+            <p style="font-size:0.75rem;color:var(--text-muted);margin-bottom:var(--space-md)">Every test file in your project — with function, class, and line counts, grouped by framework.</p>
+            <div id="test-inv-body" style="max-height:450px;overflow-y:auto"><span class="spinner"></span></div>
+            <div style="display:flex;justify-content:flex-end;margin-top:var(--space-md)">
+                <button class="btn btn-sm btn-primary" onclick="closeVaultModal()">Close</button>
+            </div>
+        </div>`;
+        document.body.appendChild(modal);
+        try {
+            const data = await api('/testing/inventory');
+            const body = document.getElementById('test-inv-body');
+            const files = data.files || [];
+            if (!files.length) { body.innerHTML = '<p class="empty-state-sm">No test files found — create one with Generate Template.</p>'; return; }
+            let h = `<div style="display:flex;gap:0.6rem;font-size:0.78rem;margin-bottom:var(--space-sm)">
+                <span><strong>${data.total_files||files.length}</strong> files</span>
+                <span><strong>${data.total_functions||0}</strong> functions</span>
+            </div>`;
+            files.forEach(f => {
+                h += `<div style="display:flex;gap:0.5rem;align-items:center;padding:0.3rem 0;border-bottom:1px solid var(--border-subtle);font-size:0.75rem">
+                    <code style="font-family:var(--font-mono);color:var(--accent);font-size:0.68rem;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(f.path)}">${esc(f.path)}</code>
+                    <span style="color:var(--text-muted);flex-shrink:0;font-size:0.68rem" title="Functions · Classes · Lines">${f.functions||0} fn · ${f.classes||0} cls${f.lines ? ' · '+f.lines+' ln' : ''}</span>
+                    ${f.framework ? `<span style="font-size:0.6rem;padding:0.05rem 0.3rem;border:1px solid var(--border-subtle);border-radius:3px;color:var(--text-muted)" title="Detected framework">${esc(f.framework)}</span>` : ''}
+                </div>`;
+            });
+            body.innerHTML = h;
+        } catch (e) {
+            document.getElementById('test-inv-body').innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(e.message)}</p>`;
+        }
+    }
+
+    function testGenTemplate() {
+        const modal = document.createElement('div');
+        modal.className = 'vault-modal-overlay'; modal.id = 'vault-modal';
+        modal.innerHTML = `<div class="vault-modal" style="max-width:450px">
+            <h3 style="margin-bottom:var(--space-sm)">⚙️ Generate Test Template</h3>
+            <p style="font-size:0.75rem;color:var(--text-muted);margin-bottom:var(--space-md)">Creates a test file with boilerplate imports, fixtures, and example tests for a specific module.</p>
+            <div class="form-group" style="margin-bottom:var(--space-sm)">
+                <label title="Dot-separated Python module path or JS/TS file path">Module name</label>
+                <input type="text" id="tgen-module" placeholder="src.core.services.my_module" autocomplete="off">
+            </div>
+            <div class="form-group" style="margin-bottom:var(--space-sm)">
+                <label title="Determines the testing conventions used in the generated template">Stack</label>
+                <select id="tgen-stack" style="width:100%">
+                    <option value="python">Python (pytest)</option>
+                    <option value="node">Node.js (jest/vitest)</option>
+                    <option value="rust">Rust (cargo test)</option>
+                </select>
+            </div>
+            <div id="tgen-error" style="display:none;color:var(--error);font-size:0.82rem"></div>
+            <div style="display:flex;gap:var(--space-sm);justify-content:flex-end;margin-top:var(--space-md)">
+                <button class="btn btn-sm btn-ghost" onclick="closeVaultModal()">Cancel</button>
+                <button class="btn btn-sm btn-primary" id="tgen-btn" onclick="doTestGenTemplate()">Generate</button>
+            </div>
+        </div>`;
+        document.body.appendChild(modal);
+        setTimeout(() => document.getElementById('tgen-module').focus(), 100);
+    }
+
+    async function doTestGenTemplate() {
+        const mod = document.getElementById('tgen-module').value.trim();
+        const stack = document.getElementById('tgen-stack').value;
+        if (!mod) { document.getElementById('tgen-error').textContent = 'Module name required'; document.getElementById('tgen-error').style.display = 'block'; return; }
+        const btn = document.getElementById('tgen-btn'); btn.disabled = true; btn.textContent = 'Generating…';
+        try {
+            const data = await api('/testing/generate/template', { method: 'POST', body: JSON.stringify({ module: mod, stack }) });
+            closeVaultModal();
+            toast(`Test template generated: ${data.file?.path || ''} ✅`, 'success');
+        } catch (e) {
+            document.getElementById('tgen-error').textContent = e.message;
+            document.getElementById('tgen-error').style.display = 'block';
+            btn.disabled = false; btn.textContent = 'Generate';
+        }
+    }
+
+    // ── Documentation Card ─────────────────────────────────────────────
+
+    async function loadDocsCard() {
+        const badge = document.getElementById('devops-docs-badge');
+        const detail = document.getElementById('devops-docs-detail');
+        const cached = cardCached('docs');
+        const data = cached || await api('/docs/status').catch(e => ({ _err: e }));
+        if (data._err) {
+            badge.className = 'status-badge failed';
+            badge.innerHTML = '<span class="status-dot"></span>Error';
+            detail.innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(data._err.message)}</p>`;
+            return;
+        }
+        if (!cached) cardStore('docs', data);
+
+        const readme = data.readme || {};
+        const docDirs = data.doc_dirs || [];
+        const apiSpecs = data.api_specs || [];
+        const changelog = data.changelog || {};
+        const license = data.license || {};
+        const contributing = data.contributing || {};
+        const docFiles = data.doc_files || 0;
+
+        // Badge based on presence of key docs
+        const hasCore = readme.exists && changelog.exists;
+        badge.className = 'status-badge ' + (hasCore ? 'ok' : 'degraded');
+        badge.innerHTML = `<span class="status-dot"></span>${docFiles} docs`;
+
+        let html = `<div style="font-size:0.85rem;color:var(--text-secondary);line-height:1.5">`;
+
+        // ── Key project files ───────────────────────────────────────
+        html += `<div style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.3rem" title="Essential project documentation files">Key Files</div>`;
+        const items = [
+            { exists: readme.exists, name: 'README', extra: readme.headings ? `${readme.headings.length} sections` : '', desc: 'Primary project documentation — the first thing users see' },
+            { exists: changelog.exists, name: 'CHANGELOG', extra: '', desc: 'Version history and release notes' },
+            { exists: license.exists, name: 'LICENSE', extra: '', desc: 'Open-source license or usage terms' },
+            { exists: contributing.exists, name: 'CONTRIBUTING', extra: '', desc: 'Guidelines for contributors' },
+        ];
+        items.forEach(item => {
+            html += `<div style="display:flex;align-items:center;gap:0.4rem;padding:0.15rem 0;font-size:0.75rem" title="${esc(item.desc)}">
+                <span>${item.exists ? '✅' : '❌'}</span>
+                <span style="font-weight:600;color:var(--text-primary)">${item.name}</span>
+                ${item.extra ? `<span style="font-size:0.64rem;color:var(--text-muted)">(${item.extra})</span>` : ''}
+                ${!item.exists ? `<span style="font-size:0.62rem;color:var(--warning)">missing</span>` : ''}
+            </div>`;
+        });
+
+        // ── Doc directories ─────────────────────────────────────────
+        if (docDirs.length) {
+            html += `<div style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;margin:var(--space-sm) 0 0.3rem" title="Documentation directories detected in your project">Doc Directories</div>`;
+            docDirs.forEach(d => {
+                html += `<div style="display:flex;align-items:center;gap:0.4rem;padding:0.15rem 0.5rem;margin-bottom:0.15rem;background:var(--bg-inset);border-radius:5px;font-size:0.72rem">
+                    <span>📁</span>
+                    <span style="font-weight:600;color:var(--text-primary)">${esc(d.name)}</span>
+                    <span style="color:var(--text-muted);font-size:0.64rem">${d.file_count} file${d.file_count!==1?'s':''}</span>
+                    ${d.total_size ? `<span style="color:var(--text-muted);font-size:0.64rem">· ${(d.total_size/1024).toFixed(0)}KB</span>` : ''}
+                </div>`;
+            });
+        }
+
+        // ── API specifications ──────────────────────────────────────
+        if (apiSpecs.length) {
+            html += `<div style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;margin:var(--space-sm) 0 0.3rem" title="Detected API specification files (OpenAPI, Swagger, GraphQL, etc.)">API Specifications</div>`;
+            apiSpecs.forEach(s => {
+                html += `<div style="display:flex;align-items:center;gap:0.4rem;font-size:0.72rem;padding:0.15rem 0">
+                    <span>📡</span>
+                    <code style="font-family:var(--font-mono);color:var(--accent);font-size:0.68rem">${esc(s.file)}</code>
+                    <span style="font-size:0.6rem;padding:0.05rem 0.3rem;border:1px solid var(--accent);border-radius:3px;color:var(--accent)">${esc(s.type||'')} ${esc(s.format||'')}</span>
+                </div>`;
+            });
+        }
+
+        // ── Summary ─────────────────────────────────────────────────
+        html += `<div style="font-size:0.68rem;color:var(--text-muted);margin-top:var(--space-sm)" title="Total documentation files across all formats (.md, .rst, .txt, .adoc, etc.)">
+            📄 <strong>${docFiles}</strong> documentation file${docFiles!==1?'s':''} total
+        </div>`;
+
+        // ── Actions ─────────────────────────────────────────────────
+        html += `<div style="display:flex;gap:var(--space-sm);margin-top:var(--space-md);flex-wrap:wrap">
+            <button class="btn btn-sm btn-secondary" onclick="docsCoverage()" title="Check per-module documentation coverage — which modules have READMEs and doc files">📊 Coverage</button>
+            <button class="btn btn-sm btn-secondary" onclick="docsCheckLinks()" title="Scan all markdown files for broken internal links and anchors">🔗 Check Links</button>
+            <button class="btn btn-sm btn-ghost" onclick="docsGenChangelog()" title="Auto-generate CHANGELOG.md from git commit history using conventional commit formatting">📝 Gen Changelog</button>
+            <button class="btn btn-sm btn-ghost" onclick="docsGenReadme()" title="Auto-generate README.md template from project metadata (project.yml)">📄 Gen README</button>
+        </div>`;
+        html += `</div>`;
+        detail.innerHTML = html;
+    }
+
+    async function docsCoverage() {
+        const modal = document.createElement('div');
+        modal.className = 'vault-modal-overlay'; modal.id = 'vault-modal';
+        modal.innerHTML = `<div class="vault-modal" style="max-width:650px">
+            <h3 style="margin-bottom:var(--space-sm)">📊 Documentation Coverage</h3>
+            <p style="font-size:0.75rem;color:var(--text-muted);margin-bottom:var(--space-md)">Per-module documentation health — checks for README presence, doc files, and API specs in each detected module.</p>
+            <div id="doc-cov-body" style="max-height:450px;overflow-y:auto"><span class="spinner"></span></div>
+            <div style="display:flex;justify-content:flex-end;margin-top:var(--space-md)">
+                <button class="btn btn-sm btn-primary" onclick="closeVaultModal()">Close</button>
+            </div>
+        </div>`;
+        document.body.appendChild(modal);
+        try {
+            const data = await api('/docs/coverage');
+            const body = document.getElementById('doc-cov-body');
+            const modules = data.modules || [];
+            const pct = data.coverage != null ? Math.round(data.coverage * 100) : '?';
+            const covColor = pct >= 80 ? 'var(--success)' : pct >= 50 ? 'var(--warning)' : 'var(--error)';
+            let h = `<div style="display:flex;align-items:center;gap:0.6rem;margin-bottom:var(--space-sm)">
+                <span style="font-size:1.3rem;font-weight:700;color:${covColor}">${pct}%</span>
+                <div style="flex:1">
+                    <div style="height:5px;border-radius:3px;background:var(--bg-inset);overflow:hidden">
+                        <div style="height:100%;width:${pct}%;background:${covColor};border-radius:3px"></div>
+                    </div>
+                </div>
+                <span style="font-size:0.72rem;color:var(--text-muted)">${data.documented||0}/${data.total||0} modules</span>
+            </div>`;
+            if (modules.length) {
+                modules.forEach(m => {
+                    h += `<div style="display:flex;gap:0.5rem;align-items:center;padding:0.3rem 0;border-bottom:1px solid var(--border-subtle);font-size:0.75rem">
+                        <span title="${m.has_readme ? 'Has README' : 'No README'}">${m.has_readme?'✅':'❌'}</span>
+                        <span style="font-weight:600;color:var(--text-primary);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(m.path||'')}">${esc(m.name)}</span>
+                        <span style="color:var(--text-muted);font-size:0.66rem">${m.doc_files||0} docs${m.has_api_spec?' · 📡 API':''}</span>
+                    </div>`;
+                });
+            }
+            body.innerHTML = h;
+        } catch (e) {
+            document.getElementById('doc-cov-body').innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(e.message)}</p>`;
+        }
+    }
+
+    async function docsCheckLinks() {
+        const modal = document.createElement('div');
+        modal.className = 'vault-modal-overlay'; modal.id = 'vault-modal';
+        modal.innerHTML = `<div class="vault-modal" style="max-width:700px">
+            <h3 style="margin-bottom:var(--space-sm)">🔗 Link Check Results</h3>
+            <p style="font-size:0.75rem;color:var(--text-muted);margin-bottom:var(--space-md)">Scans all markdown files for broken internal links (relative paths and anchors). Does not check external URLs.</p>
+            <div id="doc-links-body" style="max-height:450px;overflow-y:auto"><span class="spinner"></span></div>
+            <div style="display:flex;justify-content:flex-end;margin-top:var(--space-md)">
+                <button class="btn btn-sm btn-primary" onclick="closeVaultModal()">Close</button>
+            </div>
+        </div>`;
+        document.body.appendChild(modal);
+        try {
+            const data = await api('/docs/links');
+            const body = document.getElementById('doc-links-body');
+            const broken = data.broken || [];
+            let h = `<div style="display:flex;gap:0.6rem;font-size:0.78rem;margin-bottom:var(--space-sm)">
+                <span>📄 <strong>${data.files_checked||0}</strong> files</span>
+                <span>🔗 <strong>${data.total_links||0}</strong> links</span>
+                <span style="color:${broken.length ? 'var(--error)' : 'var(--success)'}">
+                    ${broken.length ? `❌ <strong>${broken.length}</strong> broken` : '✅ All valid'}
+                </span>
+            </div>`;
+            if (broken.length > 0) {
+                broken.forEach(b => {
+                    h += `<div style="display:flex;gap:0.4rem;align-items:center;padding:0.25rem 0;border-bottom:1px solid var(--border-subtle);font-size:0.72rem">
+                        <span>❌</span>
+                        <code style="font-family:var(--font-mono);color:var(--accent);font-size:0.66rem">${esc(b.file||'')}${b.line?':'+b.line:''}</code>
+                        <code style="font-family:var(--font-mono);color:var(--error);font-size:0.66rem;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(b.link||'')}">${esc(b.link||'')}</code>
+                        <span style="font-size:0.64rem;color:var(--text-muted)">${esc(b.reason||'')}</span>
+                    </div>`;
+                });
+            } else {
+                h += `<div style="font-size:0.75rem;color:var(--success);padding:0.3rem 0">✅ All ${data.total_links||0} internal links are valid.</div>`;
+            }
+            body.innerHTML = h;
+        } catch (e) {
+            document.getElementById('doc-links-body').innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(e.message)}</p>`;
+        }
+    }
+
+    async function docsGenChangelog() {
+        toast('Generating changelog…', 'info');
+        try {
+            const data = await api('/docs/generate/changelog', { method: 'POST', body: '{}' });
+            if (data.error) { toast(data.error, 'error'); return; }
+            toast(`Changelog generated (${data.commits||0} commits) ✅`, 'success');
+            cardInvalidate('docs');
+        } catch (e) { toast('Failed: ' + e.message, 'error'); }
+    }
+
+    async function docsGenReadme() {
+        toast('Generating README…', 'info');
+        try {
+            const data = await api('/docs/generate/readme', { method: 'POST', body: '{}' });
+            if (data.error) { toast(data.error, 'error'); return; }
+            toast('README generated ✅', 'success');
+            cardInvalidate('docs');
+        } catch (e) { toast('Failed: ' + e.message, 'error'); }
+    }
+
+    // ── Kubernetes Card ────────────────────────────────────────────────
+
+    async function loadK8sCard() {
+        const badge = document.getElementById('devops-k8s-badge');
+        const detail = document.getElementById('devops-k8s-detail');
+        const cached = cardCached('k8s');
+        const data = cached || await api('/k8s/status').catch(e => ({ _err: e }));
+        if (data._err) {
+            badge.className = 'status-badge failed';
+            badge.innerHTML = '<span class="status-dot"></span>Error';
+            detail.innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(data._err.message)}</p>`;
+            return;
+        }
+        if (!cached) cardStore('k8s', data);
+
+        const kubectl = data.kubectl || {};
+        const totalRes = data.total_resources || 0;
+        const resSummary = data.resource_summary || {};
+        const helmCharts = data.helm_charts || [];
+        const kustomize = data.kustomize || {};
+        const hasK8s = data.has_k8s;
+
+        if (!kubectl.available && !hasK8s) {
+            badge.className = 'status-badge degraded';
+            badge.innerHTML = '<span class="status-dot"></span>N/A';
+            detail.innerHTML = `<div style="font-size:0.82rem;color:var(--text-secondary);line-height:1.5">
+                <p class="empty-state-sm">No Kubernetes manifests or kubectl detected</p>
+                <div style="font-size:0.68rem;color:var(--text-muted);margin-top:var(--space-xs)">
+                    Create k8s/ directory with YAML manifests, or install kubectl and configure a cluster context.
+                </div>
+                <div style="margin-top:var(--space-md)">
+                    <button class="btn btn-sm btn-ghost" onclick="k8sGenerate()" title="Generate Deployment + Service + ConfigMap manifests for a new app">📄 Generate Manifest</button>
+                </div>
+            </div>`;
+            return;
+        }
+
+        badge.className = 'status-badge ' + (kubectl.available ? 'ok' : 'degraded');
+        badge.innerHTML = `<span class="status-dot"></span>${totalRes} resources`;
+
+        let html = `<div style="font-size:0.85rem;color:var(--text-secondary);line-height:1.5">`;
+
+        // ── kubectl status ──────────────────────────────────────────
+        html += `<div style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.3rem" title="kubectl CLI availability and version">CLI Status</div>`;
+        html += `<div style="display:flex;align-items:center;gap:0.4rem;padding:0.2rem 0.5rem;background:var(--bg-inset);border-radius:6px;border-left:3px solid ${kubectl.available?'var(--success)':'var(--warning)'}">
+            <span>${kubectl.available?'✅':'⚠️'}</span>
+            <span style="font-weight:600;color:var(--text-primary);font-size:0.75rem">kubectl</span>
+            <span style="font-size:0.64rem;color:var(--text-muted)">${esc(kubectl.version||'not installed')}</span>
+            ${kubectl.context ? `<span style="font-size:0.6rem;padding:0.05rem 0.3rem;border:1px solid var(--accent);border-radius:3px;color:var(--accent)" title="Current kubectl context">${esc(kubectl.context)}</span>` : ''}
+        </div>`;
+
+        // ── Resource summary ────────────────────────────────────────
+        const kinds = Object.entries(resSummary);
+        if (kinds.length) {
+            html += `<div style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;margin:var(--space-sm) 0 0.3rem" title="K8s resource kinds found in local manifests (YAML files)">Resources (${totalRes})</div>`;
+            html += `<div style="display:flex;flex-wrap:wrap;gap:0.25rem">`;
+            kinds.forEach(([k,v]) => {
+                html += `<span style="font-size:0.66rem;padding:0.1rem 0.4rem;background:var(--bg-inset);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-muted)" title="${v} ${k} resource${v!==1?'s':''}"><strong>${v}</strong> ${esc(k)}</span>`;
+            });
+            html += `</div>`;
+        }
+
+        // ── Helm charts ─────────────────────────────────────────────
+        if (helmCharts.length) {
+            html += `<div style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;margin:var(--space-sm) 0 0.3rem" title="Helm chart directories detected (Chart.yaml present)">Helm Charts (${helmCharts.length})</div>`;
+            helmCharts.forEach(c => {
+                html += `<div style="display:flex;align-items:center;gap:0.4rem;padding:0.15rem 0.5rem;margin-bottom:0.15rem;background:var(--bg-inset);border-radius:5px;font-size:0.72rem">
+                    <span>⎈</span>
+                    <span style="font-weight:600;color:var(--text-primary)">${esc(c.name)}</span>
+                    ${c.version ? `<span style="font-size:0.6rem;color:var(--text-muted)" title="Chart version">v${esc(c.version)}</span>` : ''}
+                    ${c.appVersion ? `<span style="font-size:0.6rem;color:var(--accent)" title="App version">app:${esc(c.appVersion)}</span>` : ''}
+                </div>`;
+            });
+        }
+
+        // ── Kustomize ───────────────────────────────────────────────
+        if (kustomize.exists) {
+            html += `<div style="display:flex;align-items:center;gap:0.4rem;margin-top:var(--space-xs);font-size:0.72rem">
+                <span>🔧</span>
+                <span style="font-weight:600;color:var(--text-primary)">Kustomize</span>
+                <span style="font-size:0.64rem;color:var(--text-muted)">detected${kustomize.path ? ' at '+esc(kustomize.path) : ''}</span>
+            </div>`;
+        }
+
+        // ── Actions ─────────────────────────────────────────────────
+        html += `<div style="display:flex;gap:var(--space-sm);margin-top:var(--space-md);flex-wrap:wrap">
+            <button class="btn btn-sm btn-secondary" onclick="k8sValidate()" title="Validate all local K8s manifests for syntax errors and schema issues">✅ Validate</button>
+            <button class="btn btn-sm btn-secondary" onclick="k8sCluster()" ${!kubectl.available?'disabled':''} title="Check cluster connectivity, list nodes, and namespaces">☸️ Cluster</button>
+            <button class="btn btn-sm btn-secondary" onclick="k8sResources()" ${!kubectl.available?'disabled':''} title="Browse live cluster resources by kind and namespace">📦 Resources</button>
+            <button class="btn btn-sm btn-ghost" onclick="k8sGenerate()" title="Generate Deployment + Service + ConfigMap manifests for a new app">📄 Generate</button>
+        </div>`;
+        html += `</div>`;
+        detail.innerHTML = html;
+    }
+
+    async function k8sValidate() {
+        const modal = document.createElement('div');
+        modal.className = 'vault-modal-overlay'; modal.id = 'vault-modal';
+        modal.innerHTML = `<div class="vault-modal" style="max-width:700px">
+            <h3 style="margin-bottom:var(--space-sm)">✅ Manifest Validation</h3>
+            <p style="font-size:0.75rem;color:var(--text-muted);margin-bottom:var(--space-md)">Checks all YAML manifests in your K8s directory for syntax errors, missing fields, and schema violations.</p>
+            <div id="k8s-val-body" style="max-height:450px;overflow-y:auto"><span class="spinner"></span></div>
+            <div style="display:flex;justify-content:flex-end;margin-top:var(--space-md)">
+                <button class="btn btn-sm btn-primary" onclick="closeVaultModal()">Close</button>
+            </div>
+        </div>`;
+        document.body.appendChild(modal);
+        try {
+            const data = await api('/k8s/validate');
+            const body = document.getElementById('k8s-val-body');
+            const issues = data.issues || [];
+            const files = data.files_checked || 0;
+            const errs = issues.filter(i => i.severity === 'error').length;
+            const warns = issues.filter(i => i.severity === 'warning').length;
+            let h = `<div style="display:flex;gap:0.6rem;font-size:0.78rem;margin-bottom:var(--space-sm)">
+                <span>📄 <strong>${files}</strong> files</span>
+                <span style="color:${errs ? 'var(--error)' : 'var(--success)'}">
+                    ${errs ? `❌ <strong>${errs}</strong> error${errs!==1?'s':''}` : '✅ No errors'}
+                </span>
+                ${warns ? `<span style="color:var(--warning)">⚠️ <strong>${warns}</strong> warning${warns!==1?'s':''}</span>` : ''}
+            </div>`;
+            if (issues.length > 0) {
+                issues.forEach(i => {
+                    const iColor = i.severity === 'error' ? 'var(--error)' : 'var(--warning)';
+                    h += `<div style="padding:0.3rem 0.5rem;margin-bottom:0.2rem;background:var(--bg-inset);border-radius:6px;border-left:3px solid ${iColor};font-size:0.72rem">
+                        <div style="display:flex;gap:0.4rem;align-items:center">
+                            <span>${i.severity==='error'?'❌':'⚠️'}</span>
+                            <code style="font-family:var(--font-mono);color:var(--accent);font-size:0.66rem">${esc(i.file||'')}</code>
+                            <span style="font-size:0.64rem;color:var(--text-muted);flex:1">${esc(i.resource||'')}</span>
+                        </div>
+                        <div style="font-size:0.68rem;color:var(--text-muted);margin-top:0.1rem">${esc(i.message||'')}</div>
+                    </div>`;
+                });
+            } else {
+                h += `<div style="font-size:0.75rem;color:var(--success);padding:0.3rem 0">✅ All manifests are valid — no issues found.</div>`;
+            }
+            body.innerHTML = h;
+        } catch (e) {
+            document.getElementById('k8s-val-body').innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(e.message)}</p>`;
+        }
+    }
+
+    async function k8sCluster() {
+        const modal = document.createElement('div');
+        modal.className = 'vault-modal-overlay'; modal.id = 'vault-modal';
+        modal.innerHTML = `<div class="vault-modal" style="max-width:650px">
+            <h3 style="margin-bottom:var(--space-sm)">☸️ Cluster Status</h3>
+            <p style="font-size:0.75rem;color:var(--text-muted);margin-bottom:var(--space-md)">Live cluster connectivity, node status, and available namespaces from your current kubectl context.</p>
+            <div id="k8s-cluster-body" style="max-height:450px;overflow-y:auto"><span class="spinner"></span></div>
+            <div style="display:flex;justify-content:flex-end;margin-top:var(--space-md)">
+                <button class="btn btn-sm btn-primary" onclick="closeVaultModal()">Close</button>
+            </div>
+        </div>`;
+        document.body.appendChild(modal);
+        try {
+            const data = await api('/k8s/cluster');
+            const body = document.getElementById('k8s-cluster-body');
+            if (data.error) { body.innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(data.error)}</p>`; return; }
+            const nodes = data.nodes || [];
+            const nss = data.namespaces || [];
+            let h = `<div style="font-size:0.82rem;line-height:1.6">
+                <div style="display:flex;align-items:center;gap:0.4rem">
+                    <span style="font-size:1rem">${data.connected?'✅':'❌'}</span>
+                    <span style="font-weight:600;color:var(--text-primary)">${data.connected?'Connected':'Disconnected'}</span>
+                </div>
+                ${data.context?`<div style="font-size:0.72rem;color:var(--text-muted)">📍 Context: <code style="font-family:var(--font-mono);color:var(--accent)">${esc(data.context)}</code></div>`:''}`;
+            if (nodes.length) {
+                h += `<div style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;margin:var(--space-sm) 0 0.3rem">Nodes (${nodes.length})</div>`;
+                nodes.forEach(n => {
+                    h += `<div style="display:flex;gap:0.4rem;align-items:center;padding:0.25rem 0;border-bottom:1px solid var(--border-subtle);font-size:0.75rem">
+                        <span>${n.status==='Ready'?'✅':'⚠️'}</span>
+                        <span style="font-weight:600;color:var(--text-primary)">${esc(n.name)}</span>
+                        <span style="color:${n.status==='Ready'?'var(--success)':'var(--warning)'}; font-size:0.68rem">${esc(n.status)}</span>
+                        <span style="font-size:0.64rem;color:var(--text-muted)">${esc(n.roles||'')}</span>
+                    </div>`;
+                });
+            }
+            if (nss.length) {
+                h += `<div style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;margin:var(--space-sm) 0 0.3rem">Namespaces (${nss.length})</div>
+                <div style="display:flex;flex-wrap:wrap;gap:0.25rem">`;
+                nss.forEach(ns => { h += `<span style="font-size:0.66rem;padding:0.1rem 0.4rem;background:var(--bg-inset);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-muted)">${esc(ns)}</span>`; });
+                h += `</div>`;
+            }
+            h += `</div>`;
+            body.innerHTML = h;
+        } catch (e) {
+            document.getElementById('k8s-cluster-body').innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(e.message)}</p>`;
+        }
+    }
+
+    async function k8sResources() {
+        const modal = document.createElement('div');
+        modal.className = 'vault-modal-overlay'; modal.id = 'vault-modal';
+        modal.innerHTML = `<div class="vault-modal" style="max-width:650px">
+            <h3 style="margin-bottom:var(--space-sm)">📦 Cluster Resources</h3>
+            <p style="font-size:0.75rem;color:var(--text-muted);margin-bottom:var(--space-md)">Browse live cluster resources by kind and namespace. Select options and click Load to query.</p>
+            <div style="display:flex;gap:var(--space-sm);margin-bottom:var(--space-sm)">
+                <select id="k8s-res-kind" style="flex:1" title="Resource kind to query"><option value="pods">Pods</option><option value="services">Services</option><option value="deployments">Deployments</option><option value="configmaps">ConfigMaps</option><option value="ingresses">Ingresses</option></select>
+                <input type="text" id="k8s-res-ns" placeholder="default" value="default" style="flex:1" title="Kubernetes namespace to query">
+                <button class="btn btn-sm btn-primary" onclick="doK8sResources()">Load</button>
+            </div>
+            <div id="k8s-res-body" style="max-height:350px;overflow-y:auto"><p class="empty-state-sm">Select kind and namespace, then click Load</p></div>
+            <div style="display:flex;justify-content:flex-end;margin-top:var(--space-md)">
+                <button class="btn btn-sm btn-primary" onclick="closeVaultModal()">Close</button>
+            </div>
+        </div>`;
+        document.body.appendChild(modal);
+    }
+
+    async function doK8sResources() {
+        const kind = document.getElementById('k8s-res-kind').value;
+        const ns = document.getElementById('k8s-res-ns').value.trim() || 'default';
+        const body = document.getElementById('k8s-res-body');
+        body.innerHTML = '<span class="spinner"></span>';
+        try {
+            const data = await api(`/k8s/resources?kind=${kind}&namespace=${ns}`);
+            const res = data.resources || [];
+            if (!res.length) { body.innerHTML = `<p class="empty-state-sm">No ${kind} found in namespace <code>${esc(ns)}</code></p>`; return; }
+            let h = `<div style="font-size:0.72rem;color:var(--text-muted);margin-bottom:0.3rem">${res.length} ${kind} in <code>${esc(ns)}</code></div>`;
+            res.forEach(r => {
+                h += `<div style="display:flex;gap:0.5rem;align-items:center;padding:0.3rem 0;border-bottom:1px solid var(--border-subtle);font-size:0.75rem">
+                    <span style="font-weight:600;color:var(--text-primary);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.name)}</span>
+                    <span style="color:${r.status==='Running'||r.status==='Active'?'var(--success)':'var(--text-muted)'};font-size:0.68rem">${esc(r.status||'')}</span>
+                    <span style="color:var(--text-muted);font-size:0.64rem">${esc(r.age||'')}</span>
+                </div>`;
+            });
+            body.innerHTML = h;
+        } catch (e) { body.innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(e.message)}</p>`; }
+    }
+
+    function k8sGenerate() {
+        const modal = document.createElement('div');
+        modal.className = 'vault-modal-overlay'; modal.id = 'vault-modal';
+        modal.innerHTML = `<div class="vault-modal" style="max-width:480px">
+            <h3 style="margin-bottom:var(--space-sm)">📄 Generate K8s Manifests</h3>
+            <p style="font-size:0.75rem;color:var(--text-muted);margin-bottom:var(--space-md)">Creates Deployment, Service, and ConfigMap YAML files for a containerized application.</p>
+            <div class="form-group" style="margin-bottom:var(--space-sm)"><label title="Name used for the Deployment, Service, and labels">App Name</label><input type="text" id="k8s-gen-name" placeholder="my-app" autocomplete="off"></div>
+            <div style="display:flex;gap:var(--space-sm)">
+                <div class="form-group" style="flex:1"><label title="Container port the app listens on">Port</label><input type="number" id="k8s-gen-port" value="8080"></div>
+                <div class="form-group" style="flex:1"><label title="Number of pod replicas for the Deployment">Replicas</label><input type="number" id="k8s-gen-replicas" value="2"></div>
+            </div>
+            <div id="k8s-gen-error" style="display:none;color:var(--error);font-size:0.82rem;margin-top:var(--space-sm)"></div>
+            <div style="display:flex;gap:var(--space-sm);justify-content:flex-end;margin-top:var(--space-md)">
+                <button class="btn btn-sm btn-ghost" onclick="closeVaultModal()">Cancel</button>
+                <button class="btn btn-sm btn-primary" id="k8s-gen-btn" onclick="doK8sGenerate()">Generate</button>
+            </div>
+        </div>`;
+        document.body.appendChild(modal);
+        setTimeout(() => document.getElementById('k8s-gen-name').focus(), 100);
+    }
+
+    async function doK8sGenerate() {
+        const name = document.getElementById('k8s-gen-name').value.trim();
+        if (!name) { const e = document.getElementById('k8s-gen-error'); e.textContent = 'App name required'; e.style.display = 'block'; return; }
+        const btn = document.getElementById('k8s-gen-btn'); btn.disabled = true; btn.textContent = 'Generating…';
+        try {
+            const data = await api('/k8s/generate/manifests', { method: 'POST', body: JSON.stringify({
+                name, port: parseInt(document.getElementById('k8s-gen-port').value)||8080,
+                replicas: parseInt(document.getElementById('k8s-gen-replicas').value)||2
+            })});
+            closeVaultModal();
+            toast(`Generated ${(data.files||[]).length} K8s manifests for ${name} ✅`, 'success');
+            cardInvalidate('k8s'); loadK8sCard();
+        } catch (e) {
+            const el = document.getElementById('k8s-gen-error'); el.textContent = e.message; el.style.display = 'block';
+            btn.disabled = false; btn.textContent = 'Generate';
+        }
+    }
+
+    // ── Terraform Card ─────────────────────────────────────────────────
+
+    async function loadTerraformCard() {
+        const badge = document.getElementById('devops-terraform-badge');
+        const detail = document.getElementById('devops-terraform-detail');
+        const cached = cardCached('terraform');
+        const data = cached || await api('/terraform/status').catch(e => ({ _err: e }));
+        if (data._err) {
+            badge.className = 'status-badge failed';
+            badge.innerHTML = '<span class="status-dot"></span>Error';
+            detail.innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(data._err.message)}</p>`;
+            return;
+        }
+        if (!cached) cardStore('terraform', data);
+
+        const cli = data.cli || {};
+        const hasTf = data.has_terraform;
+        const resources = data.resources || [];
+        const providers = data.providers || [];
+        const modules = data.modules || [];
+        const backend = data.backend;
+        const initialized = data.initialized;
+
+        if (!hasTf && !cli.available) {
+            badge.className = 'status-badge degraded';
+            badge.innerHTML = '<span class="status-dot"></span>N/A';
+            detail.innerHTML = `<div style="font-size:0.82rem;color:var(--text-secondary);line-height:1.5">
+                <p class="empty-state-sm">No Terraform configuration detected</p>
+                <div style="font-size:0.68rem;color:var(--text-muted);margin-top:var(--space-xs)">Create a <code>terraform/</code> directory with <code>.tf</code> files, or install Terraform CLI.</div>
+                <div style="margin-top:var(--space-md)"><button class="btn btn-sm btn-ghost" onclick="tfGenerate()" title="Generate main.tf, variables.tf, outputs.tf scaffold for a cloud provider">🏗️ Generate Scaffold</button></div>
+            </div>`;
+            return;
+        }
+
+        badge.className = 'status-badge ' + (hasTf ? 'ok' : 'degraded');
+        badge.innerHTML = `<span class="status-dot"></span>${hasTf ? resources.length + ' resources' : 'CLI only'}`;
+
+        let html = `<div style="font-size:0.85rem;color:var(--text-secondary);line-height:1.5">`;
+
+        // CLI status
+        html += `<div style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.3rem" title="Terraform CLI availability and version">CLI Status</div>`;
+        html += `<div style="display:flex;align-items:center;gap:0.4rem;padding:0.2rem 0.5rem;background:var(--bg-inset);border-radius:6px;border-left:3px solid ${cli.available?'var(--success)':'var(--warning)'}">
+            <span>${cli.available?'✅':'⚠️'}</span>
+            <span style="font-weight:600;color:var(--text-primary);font-size:0.75rem">terraform</span>
+            <span style="font-size:0.64rem;color:var(--text-muted)">${esc(cli.version||'not installed')}</span>
+            <span style="font-size:0.6rem;padding:0.05rem 0.3rem;border:1px solid ${initialized?'var(--success)':'var(--warning)'};border-radius:3px;color:${initialized?'var(--success)':'var(--warning)'}">${initialized?'initialized':'not initialized'}</span>
+        </div>`;
+
+        // Config summary
+        if (hasTf) {
+            html += `<div style="font-size:0.68rem;color:var(--text-muted);margin-top:var(--space-xs)">📄 ${(data.files||[]).length} .tf files · ${resources.length} resources</div>`;
+        }
+
+        // Providers
+        if (providers.length) {
+            html += `<div style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;margin:var(--space-sm) 0 0.3rem" title="Required Terraform providers">Providers (${providers.length})</div>`;
+            html += `<div style="display:flex;flex-wrap:wrap;gap:0.25rem">`;
+            providers.forEach(p => { html += `<span style="font-size:0.66rem;padding:0.1rem 0.4rem;border:1px solid var(--accent);border-radius:4px;color:var(--accent)">${esc(p)}</span>`; });
+            html += `</div>`;
+        }
+
+        // Modules
+        if (modules.length) {
+            html += `<div style="display:flex;align-items:center;gap:0.4rem;margin-top:var(--space-xs);font-size:0.72rem"><span>📦</span><span style="font-weight:600;color:var(--text-primary)">${modules.length} module${modules.length!==1?'s':''}</span></div>`;
+        }
+
+        // Backend
+        if (backend) {
+            html += `<div style="display:flex;align-items:center;gap:0.4rem;margin-top:0.15rem;font-size:0.72rem"><span>💾</span><span>Backend:</span><span style="font-weight:600;color:var(--accent)">${esc(backend.type||backend)}</span></div>`;
+        }
+
+        // Actions
+        html += `<div style="display:flex;gap:var(--space-sm);margin-top:var(--space-md);flex-wrap:wrap">
+            <button class="btn btn-sm btn-secondary" onclick="tfValidate()" ${!hasTf?'disabled':''} title="Validate Terraform configuration syntax and internal consistency">✅ Validate</button>
+            <button class="btn btn-sm btn-secondary" onclick="tfPlan()" ${!initialized?'disabled':''} title="Run terraform plan to preview infrastructure changes">📋 Plan</button>
+            <button class="btn btn-sm btn-secondary" onclick="tfState()" title="View resources tracked in the Terraform state file">📦 State</button>
+            <button class="btn btn-sm btn-secondary" onclick="tfWorkspaces()" title="List and view Terraform workspaces">🗂️ Workspaces</button>
+            <button class="btn btn-sm btn-ghost" onclick="tfGenerate()" title="Generate main.tf, variables.tf, outputs.tf scaffold">🏗️ Generate</button>
+        </div>`;
+        html += `</div>`;
+        detail.innerHTML = html;
+    }
+
+    async function tfValidate() {
+        const modal = document.createElement('div');
+        modal.className = 'vault-modal-overlay'; modal.id = 'vault-modal';
+        modal.innerHTML = `<div class="vault-modal" style="max-width:600px">
+            <h3 style="margin-bottom:var(--space-sm)">✅ Terraform Validate</h3>
+            <p style="font-size:0.75rem;color:var(--text-muted);margin-bottom:var(--space-md)">Checks .tf syntax and internal consistency (provider refs, variable usage, etc.).</p>
+            <div id="tf-val-body" style="max-height:400px;overflow-y:auto"><span class="spinner"></span></div>
+            <div style="display:flex;justify-content:flex-end;margin-top:var(--space-md)">
+                <button class="btn btn-sm btn-primary" onclick="closeVaultModal()">Close</button>
+            </div>
+        </div>`;
+        document.body.appendChild(modal);
+        try {
+            const data = await api('/terraform/validate', { method: 'POST', body: '{}' });
+            const body = document.getElementById('tf-val-body');
+            const valid = data.valid;
+            let h = `<div style="font-size:0.82rem;font-weight:600;color:${valid?'var(--success)':'var(--error)'}">
+                ${valid ? '✅ Configuration is valid' : `❌ ${data.error_count||0} error(s), ${data.warning_count||0} warning(s)`}
+            </div>`;
+            const diags = data.diagnostics || [];
+            diags.forEach(d => {
+                const clr = d.severity === 'error' ? 'var(--error)' : 'var(--warning)';
+                h += `<div style="padding:0.3rem 0.5rem;margin-top:0.2rem;background:var(--bg-inset);border-radius:6px;border-left:3px solid ${clr};font-size:0.72rem">
+                    <div style="font-weight:600;color:${clr}">${d.severity === 'error'?'❌':'⚠️'} ${esc(d.summary||'')}</div>
+                    ${d.detail ? `<div style="font-size:0.68rem;color:var(--text-muted);margin-top:0.1rem">${esc(d.detail)}</div>` : ''}
+                </div>`;
+            });
+            body.innerHTML = h;
+        } catch (e) {
+            document.getElementById('tf-val-body').innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(e.message)}</p>`;
+        }
+    }
+
+    async function tfPlan() {
+        const modal = document.createElement('div');
+        modal.className = 'vault-modal-overlay'; modal.id = 'vault-modal';
+        modal.innerHTML = `<div class="vault-modal" style="max-width:650px">
+            <h3 style="margin-bottom:var(--space-sm)">📋 Terraform Plan</h3>
+            <p style="font-size:0.75rem;color:var(--text-muted);margin-bottom:var(--space-md)">Previews what infrastructure changes would be applied without making them.</p>
+            <div id="tf-plan-body" style="max-height:450px;overflow-y:auto"><span class="spinner"></span></div>
+            <div style="display:flex;justify-content:flex-end;margin-top:var(--space-md)">
+                <button class="btn btn-sm btn-primary" onclick="closeVaultModal()">Close</button>
+            </div>
+        </div>`;
+        document.body.appendChild(modal);
+        try {
+            const data = await api('/terraform/plan', { method: 'POST', body: '{}' });
+            const body = document.getElementById('tf-plan-body');
+            if (data.error) { body.innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(data.error)}</p>`; return; }
+            const c = data.changes || {};
+            const total = (c.add||0) + (c.change||0) + (c.destroy||0);
+            let h = `<div style="font-size:0.82rem;font-weight:600;color:${total===0?'var(--success)':'var(--accent)'}">
+                ${total === 0 ? '✅ No changes — infrastructure is up-to-date' : `${total} change${total!==1?'s':''} planned`}
+            </div>`;
+            if (total > 0) {
+                h += `<div style="display:flex;gap:0.6rem;margin-top:var(--space-sm);font-size:0.78rem">
+                    <span style="color:var(--success)">+${c.add||0} add</span>
+                    <span style="color:var(--warning)">~${c.change||0} change</span>
+                    <span style="color:var(--error)">-${c.destroy||0} destroy</span>
+                </div>`;
+            }
+            if (data.output) {
+                h += `<pre style="margin-top:var(--space-sm);padding:var(--space-sm);background:var(--bg-primary);border-radius:var(--radius-sm);font-size:0.66rem;color:var(--text-secondary);overflow-x:auto;max-height:250px">${esc(data.output)}</pre>`;
+            }
+            body.innerHTML = h;
+        } catch (e) {
+            document.getElementById('tf-plan-body').innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(e.message)}</p>`;
+        }
+    }
+
+    async function tfState() {
+        const modal = document.createElement('div');
+        modal.className = 'vault-modal-overlay'; modal.id = 'vault-modal';
+        modal.innerHTML = `<div class="vault-modal" style="max-width:650px">
+            <h3 style="margin-bottom:var(--space-sm)">📦 Terraform State</h3>
+            <p style="font-size:0.75rem;color:var(--text-muted);margin-bottom:var(--space-md)">Resources currently tracked in the state file — these are the live infrastructure objects Terraform manages.</p>
+            <div id="tf-state-body" style="max-height:450px;overflow-y:auto"><span class="spinner"></span></div>
+            <div style="display:flex;justify-content:flex-end;margin-top:var(--space-md)">
+                <button class="btn btn-sm btn-primary" onclick="closeVaultModal()">Close</button>
+            </div>
+        </div>`;
+        document.body.appendChild(modal);
+        try {
+            const data = await api('/terraform/state');
+            const body = document.getElementById('tf-state-body');
+            const res = data.resources || [];
+            if (!res.length) { body.innerHTML = '<p class="empty-state-sm">No resources in state — run <code>terraform apply</code> first.</p>'; return; }
+            let h = `<div style="font-size:0.72rem;color:var(--text-muted);margin-bottom:0.3rem">${data.count||res.length} resources</div>`;
+            res.forEach(r => {
+                h += `<div style="display:flex;gap:0.5rem;align-items:center;padding:0.3rem 0;border-bottom:1px solid var(--border-subtle);font-size:0.75rem">
+                    <span style="font-weight:600;color:var(--accent);font-family:var(--font-mono);font-size:0.68rem;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.type)}.${esc(r.name)}</span>
+                    <span style="color:var(--text-muted);font-size:0.64rem">${esc(r.provider||'')}</span>
+                </div>`;
+            });
+            body.innerHTML = h;
+        } catch (e) {
+            document.getElementById('tf-state-body').innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(e.message)}</p>`;
+        }
+    }
+
+    async function tfWorkspaces() {
+        const modal = document.createElement('div');
+        modal.className = 'vault-modal-overlay'; modal.id = 'vault-modal';
+        modal.innerHTML = `<div class="vault-modal" style="max-width:420px">
+            <h3 style="margin-bottom:var(--space-sm)">🗂️ Terraform Workspaces</h3>
+            <p style="font-size:0.75rem;color:var(--text-muted);margin-bottom:var(--space-md)">Workspaces isolate state files — useful for managing multiple environments (dev, staging, prod).</p>
+            <div id="tf-ws-body" style="max-height:300px;overflow-y:auto"><span class="spinner"></span></div>
+            <div style="display:flex;justify-content:flex-end;margin-top:var(--space-md)">
+                <button class="btn btn-sm btn-primary" onclick="closeVaultModal()">Close</button>
+            </div>
+        </div>`;
+        document.body.appendChild(modal);
+        try {
+            const data = await api('/terraform/workspaces');
+            const body = document.getElementById('tf-ws-body');
+            const wss = data.workspaces || [];
+            const current = data.current || '';
+            if (!wss.length) { body.innerHTML = '<p class="empty-state-sm">No workspaces found</p>'; return; }
+            body.innerHTML = wss.map(ws => `<div style="display:flex;gap:0.5rem;align-items:center;padding:0.35rem 0;border-bottom:1px solid var(--border-subtle);font-size:0.78rem">
+                <span style="font-weight:${ws===current?'700':'400'};color:${ws===current?'var(--accent)':'var(--text-primary)'}">${ws===current?'▸ ':''} ${esc(ws)}</span>
+                ${ws===current?'<span style="font-size:0.66rem;padding:0.1rem 0.3rem;background:var(--accent);color:#fff;border-radius:4px">current</span>':''}
+            </div>`).join('');
+        } catch (e) {
+            document.getElementById('tf-ws-body').innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(e.message)}</p>`;
+        }
+    }
+
+    function tfGenerate() {
+        const modal = document.createElement('div');
+        modal.className = 'vault-modal-overlay'; modal.id = 'vault-modal';
+        modal.innerHTML = `<div class="vault-modal" style="max-width:480px">
+            <h3 style="margin-bottom:var(--space-sm)">🏗️ Generate Terraform Scaffold</h3>
+            <p style="font-size:0.75rem;color:var(--text-muted);margin-bottom:var(--space-md)">Creates main.tf, variables.tf, and outputs.tf with provider configuration and backend setup.</p>
+            <div class="form-group" style="margin-bottom:var(--space-sm)"><label title="Primary cloud provider for the Terraform configuration">Cloud Provider</label>
+                <select id="tf-gen-provider" style="width:100%"><option value="aws">AWS</option><option value="google">Google Cloud</option><option value="azurerm">Azure</option><option value="digitalocean">DigitalOcean</option></select></div>
+            <div class="form-group" style="margin-bottom:var(--space-sm)"><label title="Where Terraform stores the state file">Backend</label>
+                <select id="tf-gen-backend" style="width:100%"><option value="local">Local</option><option value="s3">S3 (AWS)</option><option value="gcs">GCS (Google)</option><option value="azurerm">Azure Blob</option></select></div>
+            <div id="tf-gen-error" style="display:none;color:var(--error);font-size:0.82rem"></div>
+            <div style="display:flex;gap:var(--space-sm);justify-content:flex-end;margin-top:var(--space-md)">
+                <button class="btn btn-sm btn-ghost" onclick="closeVaultModal()">Cancel</button>
+                <button class="btn btn-sm btn-primary" id="tf-gen-btn" onclick="doTfGenerate()">Generate</button>
+            </div>
+        </div>`;
+        document.body.appendChild(modal);
+    }
+
+    async function doTfGenerate() {
+        const provider = document.getElementById('tf-gen-provider').value;
+        const backend = document.getElementById('tf-gen-backend').value;
+        const btn = document.getElementById('tf-gen-btn'); btn.disabled = true; btn.textContent = 'Generating…';
+        try {
+            const data = await api('/terraform/generate', { method: 'POST', body: JSON.stringify({ provider, backend }) });
+            closeVaultModal();
+            toast(`Generated ${(data.files||[]).length} Terraform files (${provider}) ✅`, 'success');
+            cardInvalidate('terraform'); loadTerraformCard();
+        } catch (e) {
+            const el = document.getElementById('tf-gen-error'); el.textContent = e.message; el.style.display = 'block';
+            btn.disabled = false; btn.textContent = 'Generate';
+        }
+    }
+
+    // ── DNS & CDN Card ─────────────────────────────────────────────────
+
+    async function loadDnsCard() {
+        const badge = document.getElementById('devops-dns-badge');
+        const detail = document.getElementById('devops-dns-detail');
+        const cached = cardCached('dns');
+        const data = cached || await api('/dns/status').catch(e => ({ _err: e }));
+        if (data._err) {
+            badge.className = 'status-badge failed';
+            badge.innerHTML = '<span class="status-dot"></span>Error';
+            detail.innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(data._err.message)}</p>`;
+            return;
+        }
+        if (!cached) cardStore('dns', data);
+
+        const providers = data.cdn_providers || [];
+        const domains = data.domains || [];
+        const certs = data.ssl_certs || [];
+        const hasSomething = providers.length > 0 || domains.length > 0 || (data.dns_files||[]).length > 0;
+
+        if (!hasSomething) {
+            badge.className = 'status-badge degraded';
+            badge.innerHTML = '<span class="status-dot"></span>None';
+            detail.innerHTML = `<div style="font-size:0.82rem;color:var(--text-secondary);line-height:1.5">
+                <p class="empty-state-sm">No DNS/CDN configuration detected</p>
+                <div style="font-size:0.68rem;color:var(--text-muted);margin-top:var(--space-xs)">Add DNS zone files, CDN config, or domain references to your project.</div>
+                <div style="margin-top:var(--space-md)"><button class="btn btn-sm btn-ghost" onclick="dnsGenerateModal()" title="Generate DNS zone records for a domain">🌐 Generate Records</button></div>
+            </div>`;
+            return;
+        }
+
+        badge.className = 'status-badge ok';
+        const parts = [];
+        if (providers.length) parts.push(`${providers.length} CDN`);
+        if (domains.length) parts.push(`${domains.length} domain${domains.length!==1?'s':''}`);
+        badge.innerHTML = `<span class="status-dot"></span>${parts.join(' · ')}`;
+
+        let html = `<div style="font-size:0.85rem;color:var(--text-secondary);line-height:1.5">`;
+
+        // CDN Providers
+        if (providers.length) {
+            html += `<div style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.3rem" title="Detected CDN/edge providers in your configuration">CDN Providers</div>`;
+            providers.forEach(p => {
+                html += `<div style="display:flex;align-items:center;gap:0.4rem;padding:0.15rem 0;font-size:0.72rem">
+                    <span style="font-size:0.6rem;padding:0.05rem 0.3rem;border:1px solid var(--success);border-radius:3px;color:var(--success)">${esc(p.name)}</span>
+                    ${p.type ? `<span style="font-size:0.64rem;color:var(--text-muted)">${esc(p.type)}</span>` : ''}
+                </div>`;
+            });
+        }
+
+        // Domains
+        if (domains.length) {
+            html += `<div style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;margin:var(--space-sm) 0 0.3rem" title="Domain names referenced in your project">Domains (${domains.length})</div>`;
+            domains.forEach(d => {
+                html += `<div style="font-size:0.72rem;padding:0.1rem 0">🔗 <code style="font-family:var(--font-mono);color:var(--accent);font-size:0.68rem">${esc(d)}</code></div>`;
+            });
+        }
+
+        // SSL Certs
+        if (certs.length) {
+            html += `<div style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;margin:var(--space-sm) 0 0.3rem" title="SSL/TLS certificate configurations detected">SSL Certificates (${certs.length})</div>`;
+            certs.forEach(c => {
+                html += `<div style="display:flex;align-items:center;gap:0.4rem;font-size:0.72rem;padding:0.1rem 0">
+                    <span>🔒</span>
+                    <span style="font-weight:600;color:var(--text-primary)">${esc(c.domain||c.name||'')}</span>
+                    ${c.issuer ? `<span style="font-size:0.64rem;color:var(--text-muted)">${esc(c.issuer)}</span>` : ''}
+                </div>`;
+            });
+        }
+
+        // Actions
+        html += `<div style="display:flex;gap:var(--space-sm);margin-top:var(--space-md);flex-wrap:wrap">
+            <button class="btn btn-sm btn-secondary" onclick="dnsLookupModal()" title="Query DNS records for any domain name">🔍 Lookup</button>
+            <button class="btn btn-sm btn-secondary" onclick="dnsSslCheck()" title="Check SSL certificate validity, issuer, and expiration for a domain">🔒 SSL Check</button>
+            <button class="btn btn-sm btn-ghost" onclick="dnsGenerateModal()" title="Generate DNS zone records (A, MX, SPF, DKIM) for a domain">🌐 Generate</button>
+        </div>`;
+        html += `</div>`;
+        detail.innerHTML = html;
+    }
+
+    function dnsLookupModal() {
+        const modal = document.createElement('div');
+        modal.className = 'vault-modal-overlay'; modal.id = 'vault-modal';
+        modal.innerHTML = `<div class="vault-modal" style="max-width:500px">
+            <h3 style="margin-bottom:var(--space-md)">🔍 DNS Lookup</h3>
+            <div class="form-group" style="margin-bottom:var(--space-sm)"><label>Domain</label>
+                <input type="text" id="dns-lookup-domain" placeholder="example.com" autocomplete="off" onkeydown="if(event.key==='Enter'){doDnsLookup()}">
+            </div>
+            <div id="dns-lookup-result" style="display:none;margin-top:var(--space-md);max-height:300px;overflow-y:auto"></div>
+            <div style="display:flex;gap:var(--space-sm);justify-content:flex-end;margin-top:var(--space-md)">
+                <button class="btn btn-sm btn-ghost" onclick="closeVaultModal()">Close</button>
+                <button class="btn btn-sm btn-primary" id="dns-lookup-btn" onclick="doDnsLookup()">Lookup</button>
+            </div>
+        </div>`;
+        document.body.appendChild(modal);
+        setTimeout(() => document.getElementById('dns-lookup-domain').focus(), 100);
+    }
+
+    async function doDnsLookup() {
+        const domain = document.getElementById('dns-lookup-domain').value.trim();
+        const res = document.getElementById('dns-lookup-result');
+        const btn = document.getElementById('dns-lookup-btn');
+        if (!domain) return;
+        btn.disabled = true; btn.textContent = 'Looking up…';
+        res.style.display = 'block'; res.innerHTML = '<span class="spinner"></span>';
+        try {
+            const data = await api(`/dns/lookup/${encodeURIComponent(domain)}`);
+            const records = data.records || [];
+            if (!records.length) { res.innerHTML = '<p class="empty-state-sm">No records found</p>'; }
+            else {
+                let h = '';
+                if (data.a_records?.length) h += `<div style="font-size:0.72rem;color:var(--text-muted);margin-bottom:0.3rem">A: ${data.a_records.join(', ')}</div>`;
+                if (data.cname) h += `<div style="font-size:0.72rem;color:var(--text-muted);margin-bottom:0.3rem">CNAME: ${esc(data.cname)}</div>`;
+                if (data.nameservers?.length) h += `<div style="font-size:0.72rem;color:var(--text-muted);margin-bottom:0.5rem">NS: ${data.nameservers.join(', ')}</div>`;
+                h += records.map(r => `<div style="display:flex;gap:0.5rem;padding:0.25rem 0;border-bottom:1px solid var(--border-subtle);font-size:0.78rem">
+                    <span style="font-weight:600;color:var(--accent);width:50px;flex-shrink:0">${esc(r.type)}</span>
+                    <span style="color:var(--text-secondary);font-family:var(--font-mono);font-size:0.72rem">${esc(r.value)}</span>
+                </div>`).join('');
+                res.innerHTML = h;
+            }
+        } catch (e) { res.innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(e.message)}</p>`; }
+        btn.disabled = false; btn.textContent = 'Lookup';
+    }
+
+    function dnsSslCheck() {
+        const modal = document.createElement('div');
+        modal.className = 'vault-modal-overlay'; modal.id = 'vault-modal';
+        modal.innerHTML = `<div class="vault-modal" style="max-width:500px">
+            <h3 style="margin-bottom:var(--space-md)">🔒 SSL Certificate Check</h3>
+            <div class="form-group" style="margin-bottom:var(--space-sm)"><label>Domain</label>
+                <input type="text" id="ssl-check-domain" placeholder="example.com" autocomplete="off" onkeydown="if(event.key==='Enter'){doSslCheck()}">
+            </div>
+            <div id="ssl-check-result" style="display:none;margin-top:var(--space-md)"></div>
+            <div style="display:flex;gap:var(--space-sm);justify-content:flex-end;margin-top:var(--space-md)">
+                <button class="btn btn-sm btn-ghost" onclick="closeVaultModal()">Close</button>
+                <button class="btn btn-sm btn-primary" id="ssl-check-btn" onclick="doSslCheck()">Check</button>
+            </div>
+        </div>`;
+        document.body.appendChild(modal);
+        setTimeout(() => document.getElementById('ssl-check-domain').focus(), 100);
+    }
+
+    async function doSslCheck() {
+        const domain = document.getElementById('ssl-check-domain').value.trim();
+        const res = document.getElementById('ssl-check-result');
+        const btn = document.getElementById('ssl-check-btn');
+        if (!domain) return;
+        btn.disabled = true; btn.textContent = 'Checking…';
+        res.style.display = 'block'; res.innerHTML = '<span class="spinner"></span>';
+        try {
+            const data = await api(`/dns/ssl/${encodeURIComponent(domain)}`);
+            const valid = data.valid;
+            const days = data.days_remaining;
+            res.innerHTML = `<div style="font-size:0.85rem;line-height:1.8">
+                <div>${valid?'✅':'❌'} Certificate ${valid?'valid':'invalid'}</div>
+                ${data.issuer?`<div>🏢 Issuer: ${esc(data.issuer)}</div>`:''}
+                ${data.expiry?`<div>📅 Expires: ${esc(data.expiry)}</div>`:''}
+                ${days!=null?`<div style="color:${days>30?'var(--success)':days>7?'var(--warning)':'var(--error)'}">⏳ ${days} days remaining</div>`:''}
+            </div>`;
+        } catch (e) { res.innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(e.message)}</p>`; }
+        btn.disabled = false; btn.textContent = 'Check';
+    }
+
+    function dnsGenerateModal() {
+        const modal = document.createElement('div');
+        modal.className = 'vault-modal-overlay'; modal.id = 'vault-modal';
+        modal.innerHTML = `<div class="vault-modal" style="max-width:480px">
+            <h3 style="margin-bottom:var(--space-md)">🌐 Generate DNS Records</h3>
+            <div class="form-group" style="margin-bottom:var(--space-sm)"><label>Domain</label><input type="text" id="dns-gen-domain" placeholder="example.com" autocomplete="off"></div>
+            <div class="form-group" style="margin-bottom:var(--space-sm)"><label>Target IP (optional)</label><input type="text" id="dns-gen-ip" placeholder="203.0.113.1" autocomplete="off"></div>
+            <div class="form-group" style="margin-bottom:var(--space-sm)"><label>Mail Provider</label>
+                <select id="dns-gen-mail" style="width:100%"><option value="">None</option><option value="google">Google Workspace</option><option value="protonmail">ProtonMail</option></select></div>
+            <div id="dns-gen-result" style="display:none;margin-top:var(--space-md);max-height:250px;overflow-y:auto"></div>
+            <div style="display:flex;gap:var(--space-sm);justify-content:flex-end;margin-top:var(--space-md)">
+                <button class="btn btn-sm btn-ghost" onclick="closeVaultModal()">Close</button>
+                <button class="btn btn-sm btn-primary" id="dns-gen-btn" onclick="doDnsGenerate()">Generate</button>
+            </div>
+        </div>`;
+        document.body.appendChild(modal);
+        setTimeout(() => document.getElementById('dns-gen-domain').focus(), 100);
+    }
+
+    async function doDnsGenerate() {
+        const domain = document.getElementById('dns-gen-domain').value.trim();
+        const ip = document.getElementById('dns-gen-ip').value.trim();
+        const mail = document.getElementById('dns-gen-mail').value;
+        const res = document.getElementById('dns-gen-result');
+        if (!domain) return;
+        try {
+            const data = await api('/dns/generate', { method: 'POST', body: JSON.stringify({ domain, ip, mail }) });
+            const records = data.records || [];
+            res.style.display = 'block';
+            res.innerHTML = `<div style="font-size:0.78rem;font-weight:600;margin-bottom:0.3rem">${records.length} records generated</div>` +
+                records.map(r => `<div style="display:flex;gap:0.5rem;padding:0.25rem 0;border-bottom:1px solid var(--border-subtle);font-size:0.72rem">
+                    <span style="font-weight:600;color:var(--accent);width:40px;flex-shrink:0">${esc(r.type)}</span>
+                    <span style="width:60px;flex-shrink:0;color:var(--text-muted)">${esc(r.name)}</span>
+                    <span style="color:var(--text-secondary);font-family:var(--font-mono);font-size:0.68rem;flex:1">${esc(r.value)}</span>
+                </div>`).join('') +
+                `<pre style="margin-top:var(--space-sm);padding:var(--space-sm);background:var(--bg-primary);border-radius:var(--radius-sm);font-size:0.68rem;color:var(--text-muted);overflow-x:auto;max-height:150px">${esc(data.zone_file||'')}</pre>`;
+        } catch (e) {
+            res.style.display = 'block';
+            res.innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(e.message)}</p>`;
+        }
+    }
+
+    // ── Quality Card ──────────────────────────────────────────────────
+
+    async function loadQualityCard() {
+        const badge = document.getElementById('devops-quality-badge');
+        const detail = document.getElementById('devops-quality-detail');
+        const cached = cardCached('quality');
+        const data = cached || await api('/quality/status').catch(e => ({ _err: e }));
+        if (data._err) {
+            badge.className = 'status-badge failed';
+            badge.innerHTML = '<span class="status-dot"></span>Error';
+            detail.innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(data._err.message)}</p>`;
+            return;
+        }
+        if (!cached) cardStore('quality', data);
+
+        const tools = data.tools || [];
+        const cats = data.categories || {};
+        const hasQuality = data.has_quality;
+
+        if (!hasQuality) {
+            badge.className = 'status-badge degraded';
+            badge.innerHTML = '<span class="status-dot"></span>None';
+            detail.innerHTML = `<div style="font-size:0.82rem;color:var(--text-secondary);line-height:1.5">
+                <p class="empty-state-sm">No quality tools detected</p>
+                <div style="font-size:0.68rem;color:var(--text-muted);margin-top:var(--space-xs)">Install a linter, formatter, or type checker to enable quality checks.</div>
+                <div style="margin-top:var(--space-md)"><button class="btn btn-sm btn-ghost" onclick="qualityGenConfig()" title="Generate linter/formatter configuration files for your stack">⚙️ Generate Config</button></div>
+            </div>`;
+            return;
+        }
+
+        const relevant = tools.filter(t => t.relevant);
+        const available = relevant.filter(t => t.cli_available);
+        badge.className = 'status-badge ' + (available.length >= 2 ? 'ok' : 'degraded');
+        badge.innerHTML = `<span class="status-dot"></span>${available.length}/${relevant.length} tools`;
+
+        let html = `<div style="font-size:0.85rem;color:var(--text-secondary);line-height:1.5">`;
+
+        // Category summary
+        html += `<div style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.3rem" title="Quality tool categories detected in your project">Categories</div>`;
+        const catLabels = { lint: '🔍 Lint', typecheck: '🔎 Type', test: '🧪 Test', format: '✨ Format' };
+        html += `<div style="display:flex;flex-wrap:wrap;gap:0.25rem;margin-bottom:var(--space-sm)">`;
+        for (const [cat, label] of Object.entries(catLabels)) {
+            const count = cats[cat] || 0;
+            const clr = count > 0 ? 'var(--success)' : 'var(--text-muted)';
+            html += `<span style="font-size:0.66rem;padding:0.1rem 0.4rem;border:1px solid ${clr};border-radius:4px;color:${clr}" title="${count} ${cat} tool${count!==1?'s':''} detected">${label}: ${count}</span>`;
+        }
+        html += `</div>`;
+
+        // Tool list
+        html += `<div style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.3rem" title="Quality tools relevant to your project stack">Tools (${relevant.length})</div>`;
+        relevant.forEach(t => {
+            html += `<div style="display:flex;gap:0.4rem;align-items:center;padding:0.15rem 0;font-size:0.72rem" title="${esc(t.config_file||'No config file')}">
+                <span>${t.cli_available ? '✅' : '❌'}</span>
+                <span style="font-weight:600;color:var(--text-primary);min-width:60px">${esc(t.name)}</span>
+                <span style="font-size:0.6rem;padding:0.05rem 0.3rem;border:1px solid var(--border-subtle);border-radius:3px;color:var(--text-muted)">${esc(t.category)}</span>
+                ${t.config_found ? `<code style="font-family:var(--font-mono);font-size:0.6rem;color:var(--accent)" title="Config: ${esc(t.config_file||'')}">📄</code>` : ''}
+                ${!t.cli_available && t.install_hint ? `<code onclick="navigator.clipboard.writeText('${esc(t.install_hint)}');toast('Copied: ${esc(t.install_hint)}','success')" style="font-family:var(--font-mono);font-size:0.58rem;color:var(--warning);cursor:pointer;padding:0.05rem 0.3rem;border:1px dashed var(--warning);border-radius:3px" title="Click to copy install command">${esc(t.install_hint)}</code>` : !t.cli_available ? `<span style="font-size:0.6rem;color:var(--warning)">not installed</span>` : ''}
+            </div>`;
+        });
+
+        // Actions
+        html += `<div style="display:flex;gap:var(--space-sm);margin-top:var(--space-md);flex-wrap:wrap">
+            <button class="btn btn-sm btn-secondary" onclick="qualityRunCategory('lint')" title="Run all lint tools and show results">🔍 Lint</button>
+            <button class="btn btn-sm btn-secondary" onclick="qualityRunCategory('typecheck')" title="Run type-checking tools (mypy, pyright, tsc)">🔎 Typecheck</button>
+            <button class="btn btn-sm btn-secondary" onclick="qualityRunCategory('format')" title="Run code formatters (black, prettier, rustfmt)">✨ Format</button>
+            <button class="btn btn-sm btn-secondary" onclick="qualityRunCategory('test')" title="Run test-category quality checks">🧪 Test</button>
+            <button class="btn btn-sm btn-ghost" onclick="qualityGenConfig()" title="Generate linter/formatter config files">⚙️ Gen Config</button>
+        </div>`;
+        html += `</div>`;
+        detail.innerHTML = html;
+    }
+
+    async function qualityRunCategory(category) {
+        const labels = { lint: 'Lint', typecheck: 'Typecheck', format: 'Format', test: 'Test' };
+        const label = labels[category] || category;
+
+        const modal = document.createElement('div');
+        modal.className = 'vault-modal-overlay'; modal.id = 'vault-modal';
+        modal.innerHTML = `<div class="vault-modal" style="max-width:700px">
+            <h3 style="margin-bottom:var(--space-md)">🔧 ${label} Results</h3>
+            <div style="display:flex;gap:var(--space-sm);margin-bottom:var(--space-md)">
+                <button class="btn btn-sm btn-primary" id="qual-run-btn" onclick="doQualityRun('${category}',false)">▶️ Run</button>
+                ${category === 'lint' || category === 'format' ?
+                    `<button class="btn btn-sm btn-secondary" id="qual-fix-btn" onclick="doQualityRun('${category}',true)">🔧 Auto-Fix</button>` : ''}
+            </div>
+            <div id="qual-run-body" style="max-height:400px;overflow-y:auto">
+                <p class="empty-state-sm">Click Run to execute ${label.toLowerCase()} checks</p>
+            </div>
+            <div style="display:flex;justify-content:flex-end;margin-top:var(--space-md)">
+                <button class="btn btn-sm btn-primary" onclick="closeVaultModal()">Close</button>
+            </div>
+        </div>`;
+        document.body.appendChild(modal);
+    }
+
+    async function doQualityRun(category, fix) {
+        const body = document.getElementById('qual-run-body');
+        const runBtn = document.getElementById('qual-run-btn');
+        const fixBtn = document.getElementById('qual-fix-btn');
+        body.innerHTML = '<span class="spinner"></span> Running…';
+        if (runBtn) runBtn.disabled = true;
+        if (fixBtn) fixBtn.disabled = true;
+
+        try {
+            const data = await api(`/quality/${category}`, {
+                method: 'POST',
+                body: JSON.stringify({ fix })
+            });
+
+            if (data.error) {
+                body.innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(data.error)}</p>`;
+                return;
+            }
+
+            const results = data.results || [];
+            const allPassed = data.all_passed;
+
+            let h = `<div style="font-size:0.82rem;margin-bottom:var(--space-sm);font-weight:600;color:${allPassed ? 'var(--success)' : 'var(--error)'}">
+                ${allPassed ? '✅ All checks passed' : '❌ Issues found'}
+            </div>`;
+
+            results.forEach(r => {
+                const passed = r.exit_code === 0;
+                h += `<div style="margin-bottom:var(--space-md);border:1px solid var(--border-subtle);border-radius:var(--radius-sm);overflow:hidden">
+                    <div style="display:flex;align-items:center;gap:0.5rem;padding:0.4rem 0.6rem;background:var(--bg-inset);font-size:0.78rem">
+                        <span>${passed ? '✅' : '❌'}</span>
+                        <span style="font-weight:600;color:var(--text-primary)">${esc(r.tool)}</span>
+                        <span style="color:var(--text-muted);font-size:0.68rem">exit ${r.exit_code}</span>
+                        ${r.fixable ? '<span style="font-size:0.65rem;padding:0.1rem 0.3rem;background:var(--warning-bg);color:var(--warning);border-radius:3px">fixable</span>' : ''}
+                    </div>`;
+                if (r.stdout) {
+                    h += `<pre style="margin:0;padding:0.4rem 0.6rem;font-size:0.68rem;color:var(--text-secondary);overflow-x:auto;max-height:150px;border-top:1px solid var(--border-subtle);background:var(--bg-primary)">${esc(r.stdout)}</pre>`;
+                }
+                if (r.stderr) {
+                    h += `<pre style="margin:0;padding:0.4rem 0.6rem;font-size:0.68rem;color:var(--error);overflow-x:auto;max-height:100px;border-top:1px solid var(--border-subtle);background:var(--bg-primary)">${esc(r.stderr)}</pre>`;
+                }
+                h += `</div>`;
+            });
+
+            body.innerHTML = h;
+        } catch (e) {
+            body.innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(e.message)}</p>`;
+        } finally {
+            if (runBtn) runBtn.disabled = false;
+            if (fixBtn) fixBtn.disabled = false;
+        }
+    }
+
+    function qualityGenConfig() {
+        const modal = document.createElement('div');
+        modal.className = 'vault-modal-overlay'; modal.id = 'vault-modal';
+        modal.innerHTML = `<div class="vault-modal" style="max-width:420px">
+            <h3 style="margin-bottom:var(--space-md)">⚙️ Generate Quality Config</h3>
+            <div class="form-group" style="margin-bottom:var(--space-sm)">
+                <label>Stack</label>
+                <select id="qgen-stack" style="width:100%">
+                    <option value="python">Python</option>
+                    <option value="node">Node.js</option>
+                    <option value="typescript">TypeScript</option>
+                    <option value="rust">Rust</option>
+                </select>
+            </div>
+            <div id="qgen-result" style="display:none;margin-top:var(--space-md);max-height:250px;overflow-y:auto"></div>
+            <div id="qgen-error" style="display:none;color:var(--error);font-size:0.82rem;margin-top:var(--space-sm)"></div>
+            <div style="display:flex;gap:var(--space-sm);justify-content:flex-end;margin-top:var(--space-md)">
+                <button class="btn btn-sm btn-ghost" onclick="closeVaultModal()">Cancel</button>
+                <button class="btn btn-sm btn-primary" id="qgen-btn" onclick="doQualityGenConfig()">Generate</button>
+            </div>
+        </div>`;
+        document.body.appendChild(modal);
+    }
+
+    async function doQualityGenConfig() {
+        const stack = document.getElementById('qgen-stack').value;
+        const btn = document.getElementById('qgen-btn');
+        const result = document.getElementById('qgen-result');
+        const error = document.getElementById('qgen-error');
+        btn.disabled = true; btn.textContent = 'Generating…';
+        error.style.display = 'none';
+
+        try {
+            const data = await api('/quality/generate/config', {
+                method: 'POST',
+                body: JSON.stringify({ stack })
+            });
+            if (data.error) {
+                error.textContent = data.error; error.style.display = 'block';
+                btn.disabled = false; btn.textContent = 'Generate';
+                return;
+            }
+            const files = data.files || [];
+            result.style.display = 'block';
+            result.innerHTML = `<div style="font-size:0.78rem;font-weight:600;margin-bottom:0.3rem">${files.length} config file${files.length!==1?'s':''} generated</div>` +
+                files.map(f => `<div style="display:flex;gap:0.5rem;padding:0.3rem 0;border-bottom:1px solid var(--border-subtle);font-size:0.78rem">
+                    <code style="font-family:var(--font-mono);color:var(--accent);font-size:0.72rem;flex:1">${esc(f.path)}</code>
+                    <span style="color:var(--text-muted);font-size:0.68rem">${esc(f.reason||'')}</span>
+                </div>`).join('');
+            toast(`Generated ${files.length} quality config files ✅`, 'success');
+            cardInvalidate('quality');
+        } catch (e) {
+            error.textContent = e.message; error.style.display = 'block';
+        }
+        btn.disabled = false; btn.textContent = 'Generate';
+    }
+
+
+    // ── Packages Card ─────────────────────────────────────────────────
+
+    async function loadPackagesCard() {
+        const badge = document.getElementById('devops-packages-badge');
+        const detail = document.getElementById('devops-packages-detail');
+        const cached = cardCached('packages');
+        const data = cached || await api('/packages/status').catch(e => ({ _err: e }));
+        if (data._err) {
+            badge.className = 'status-badge failed';
+            badge.innerHTML = '<span class="status-dot"></span>Error';
+            detail.innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(data._err.message)}</p>`;
+            return;
+        }
+        if (!cached) cardStore('packages', data);
+
+        const managers = data.managers || [];
+        const hasPkgs = data.has_packages;
+
+        if (!hasPkgs) {
+            badge.className = 'status-badge degraded';
+            badge.innerHTML = '<span class="status-dot"></span>None';
+            detail.innerHTML = `<div style="font-size:0.82rem;color:var(--text-secondary);line-height:1.5">
+                <p class="empty-state-sm">No package managers detected</p>
+                <div style="font-size:0.68rem;color:var(--text-muted);margin-top:var(--space-xs)">No requirements.txt, package.json, Cargo.toml, or go.mod found.</div>
+            </div>`;
+            return;
+        }
+
+        badge.className = 'status-badge ok';
+        badge.innerHTML = `<span class="status-dot"></span>${data.total_managers || managers.length} manager${managers.length!==1?'s':''}`;
+
+        let html = `<div style="font-size:0.85rem;color:var(--text-secondary);line-height:1.5">`;
+
+        // Package managers
+        html += `<div style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.3rem" title="Detected package managers and their CLI availability">Package Managers</div>`;
+        managers.forEach(m => {
+            const deps = m.dependency_files || [];
+            const locks = m.lock_files || [];
+            html += `<div style="padding:0.2rem 0.5rem;margin-bottom:0.15rem;background:var(--bg-inset);border-radius:6px;border-left:3px solid ${m.cli_available?'var(--success)':'var(--warning)'}">
+                <div style="display:flex;align-items:center;gap:0.4rem;font-size:0.72rem">
+                    <span>${m.cli_available?'✅':'⚠️'}</span>
+                    <span style="font-weight:600;color:var(--text-primary)">${esc(m.name)}</span>
+                    ${!m.cli_available ? `<code style="font-family:var(--font-mono);font-size:0.58rem;color:var(--warning);cursor:pointer;padding:0.05rem 0.3rem;border:1px dashed var(--warning);border-radius:3px" title="CLI not found — click to copy install hint" onclick="navigator.clipboard.writeText('${esc(m.install_hint||m.name)}');toast('Copied install command','success')">${esc(m.install_hint||'install '+m.name)}</code>` : ''}
+                </div>
+                ${deps.length || locks.length ? `<div style="font-size:0.64rem;color:var(--text-muted);margin-top:0.1rem">${deps.length} dep file${deps.length!==1?'s':''} · ${locks.length} lock file${locks.length!==1?'s':''}</div>` : ''}
+            </div>`;
+        });
+
+        // Actions
+        html += `<div style="display:flex;gap:var(--space-sm);margin-top:var(--space-md);flex-wrap:wrap">
+            <button class="btn btn-sm btn-secondary" onclick="pkgOutdated()" title="Check for outdated packages — shows current vs latest version">📋 Outdated</button>
+            <button class="btn btn-sm btn-secondary" onclick="pkgAudit()" title="Run security audit on installed dependencies for known vulnerabilities">🛡️ Audit</button>
+            <button class="btn btn-sm btn-secondary" onclick="pkgList()" title="List all installed packages with versions">📦 List</button>
+            <button class="btn btn-sm btn-ghost" onclick="pkgInstall()" title="Run install command (pip install, npm install, etc.)">⬇️ Install</button>
+            <button class="btn btn-sm btn-ghost" onclick="pkgUpdate()" title="Update all packages to latest compatible versions">⬆️ Update</button>
+        </div>`;
+        html += `</div>`;
+        detail.innerHTML = html;
+    }
+
+    async function pkgOutdated() {
+        const modal = document.createElement('div');
+        modal.className = 'vault-modal-overlay'; modal.id = 'vault-modal';
+        modal.innerHTML = `<div class="vault-modal" style="max-width:650px">
+            <h3 style="margin-bottom:var(--space-md)">📋 Outdated Packages</h3>
+            <div id="pkg-outdated-body" style="max-height:400px;overflow-y:auto"><span class="spinner"></span></div>
+            <div style="display:flex;justify-content:flex-end;margin-top:var(--space-md)">
+                <button class="btn btn-sm btn-primary" onclick="closeVaultModal()">Close</button>
+            </div>
+        </div>`;
+        document.body.appendChild(modal);
+        try {
+            const data = await api('/packages/outdated');
+            const body = document.getElementById('pkg-outdated-body');
+            if (data.error) { body.innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(data.error)}</p>`; return; }
+            const outdated = data.outdated || [];
+            if (!outdated.length) { body.innerHTML = '<p class="empty-state-sm" style="color:var(--success)">✅ All packages up to date</p>'; return; }
+            body.innerHTML = `<div style="font-size:0.78rem;margin-bottom:var(--space-sm)">${outdated.length} outdated package${outdated.length!==1?'s':''} (${esc(data.manager||'')})</div>` +
+                outdated.map(p => `<div style="display:flex;gap:0.5rem;align-items:center;padding:0.3rem 0;border-bottom:1px solid var(--border-subtle);font-size:0.78rem">
+                    <span style="font-weight:600;color:var(--text-primary);flex:1">${esc(p.name)}</span>
+                    <span style="color:var(--text-muted);font-size:0.72rem">${esc(p.current||'?')}</span>
+                    <span style="color:var(--text-muted);font-size:0.72rem">→</span>
+                    <span style="color:var(--accent);font-size:0.72rem;font-weight:600">${esc(p.latest||p.wanted||'?')}</span>
+                </div>`).join('');
+        } catch (e) {
+            document.getElementById('pkg-outdated-body').innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(e.message)}</p>`;
+        }
+    }
+
+    async function pkgAudit() {
+        const modal = document.createElement('div');
+        modal.className = 'vault-modal-overlay'; modal.id = 'vault-modal';
+        modal.innerHTML = `<div class="vault-modal" style="max-width:650px">
+            <h3 style="margin-bottom:var(--space-md)">🛡️ Security Audit</h3>
+            <div id="pkg-audit-body" style="max-height:400px;overflow-y:auto"><span class="spinner"></span></div>
+            <div style="display:flex;justify-content:flex-end;margin-top:var(--space-md)">
+                <button class="btn btn-sm btn-primary" onclick="closeVaultModal()">Close</button>
+            </div>
+        </div>`;
+        document.body.appendChild(modal);
+        try {
+            const data = await api('/packages/audit');
+            const body = document.getElementById('pkg-audit-body');
+            if (data.error) { body.innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(data.error)}</p>`; return; }
+            const vulns = data.vulnerabilities || 0;
+            const clr = vulns === 0 ? 'var(--success)' : 'var(--error)';
+            let h = `<div style="font-size:0.82rem;margin-bottom:var(--space-sm);font-weight:600;color:${clr}">
+                ${vulns === 0 ? '✅ No vulnerabilities found' : `⚠️ ${vulns} vulnerability${vulns!==1?'ies':'y'} found`}
+            </div>`;
+            h += `<div style="font-size:0.72rem;color:var(--text-muted);margin-bottom:var(--space-sm)">Manager: ${esc(data.manager||'auto')}</div>`;
+            if (data.output) {
+                h += `<pre style="padding:var(--space-sm);background:var(--bg-primary);border-radius:var(--radius-sm);font-size:0.68rem;color:var(--text-secondary);overflow-x:auto;max-height:250px">${esc(data.output)}</pre>`;
+            }
+            body.innerHTML = h;
+        } catch (e) {
+            document.getElementById('pkg-audit-body').innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(e.message)}</p>`;
+        }
+    }
+
+    async function pkgList() {
+        const modal = document.createElement('div');
+        modal.className = 'vault-modal-overlay'; modal.id = 'vault-modal';
+        modal.innerHTML = `<div class="vault-modal" style="max-width:600px">
+            <h3 style="margin-bottom:var(--space-md)">📦 Installed Packages</h3>
+            <div id="pkg-list-body" style="max-height:400px;overflow-y:auto"><span class="spinner"></span></div>
+            <div style="display:flex;justify-content:flex-end;margin-top:var(--space-md)">
+                <button class="btn btn-sm btn-primary" onclick="closeVaultModal()">Close</button>
+            </div>
+        </div>`;
+        document.body.appendChild(modal);
+        try {
+            const data = await api('/packages/list');
+            const body = document.getElementById('pkg-list-body');
+            if (data.error) { body.innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(data.error)}</p>`; return; }
+            const pkgs = data.packages || [];
+            if (!pkgs.length) { body.innerHTML = '<p class="empty-state-sm">No packages found</p>'; return; }
+            body.innerHTML = `<div style="font-size:0.78rem;margin-bottom:var(--space-sm)">${pkgs.length} package${pkgs.length!==1?'s':''} (${esc(data.manager||'')})</div>` +
+                pkgs.map(p => `<div style="display:flex;gap:0.5rem;align-items:center;padding:0.2rem 0;border-bottom:1px solid var(--border-subtle);font-size:0.72rem">
+                    <span style="font-weight:600;color:var(--text-primary);flex:1">${esc(p.name)}</span>
+                    <span style="color:var(--text-muted);font-family:var(--font-mono);font-size:0.68rem">${esc(p.version||'')}</span>
+                </div>`).join('');
+        } catch (e) {
+            document.getElementById('pkg-list-body').innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(e.message)}</p>`;
+        }
+    }
+
+    async function pkgInstall() {
+        toast('Installing dependencies…', 'info');
+        try {
+            const data = await api('/packages/install', { method: 'POST', body: '{}' });
+            if (data.error) { toast('Install failed: ' + data.error, 'error'); return; }
+            toast('Dependencies installed ✅', 'success');
+        } catch (e) { toast('Install failed: ' + e.message, 'error'); }
+    }
+
+    async function pkgUpdate() {
+        toast('Updating packages…', 'info');
+        try {
+            const data = await api('/packages/update', { method: 'POST', body: '{}' });
+            if (data.error) { toast('Update failed: ' + data.error, 'error'); return; }
+            toast('Packages updated ✅', 'success');
+        } catch (e) { toast('Update failed: ' + e.message, 'error'); }
+    }
+
+
+    // ── Environment & IaC Card ────────────────────────────────────────
+
+    async function loadEnvCard() {
+        const badge = document.getElementById('devops-env-badge');
+        const detail = document.getElementById('devops-env-detail');
+        const cached = cardCached('env');
+        const data = cached || await api('/env/card-status').catch(e => ({ _err: e }));
+        if (data._err) {
+            badge.className = 'status-badge failed';
+            badge.innerHTML = '<span class="status-dot"></span>Error';
+            detail.innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(data._err.message)}</p>`;
+            return;
+        }
+        if (!cached) cardStore('env', data);
+
+        const envs = data.environments || [];
+        const activeEnv = data.active || '';
+        const ghAvailable = data.github?.available || false;
+
+        // Badge
+        if (!envs.length) {
+            badge.className = 'status-badge degraded';
+            badge.innerHTML = '<span class="status-dot"></span>No envs';
+            detail.innerHTML = `<p class="empty-state-sm">No environments defined in project.yml</p>
+                <div style="font-size:0.72rem;color:var(--text-muted);margin-top:var(--space-xs)">
+                    Define environments in <code>project.yml</code> to enable environment management.
+                    Use the <strong>🧙 Setup</strong> tab to configure your project.
+                </div>`;
+            return;
+        }
+
+        // Check overall sync
+        const allInSync = envs.every(e => e.in_sync === true || e.in_sync === null);
+        badge.className = 'status-badge ' + (allInSync ? 'ok' : 'degraded');
+        badge.innerHTML = `<span class="status-dot"></span>${envs.length} env${envs.length !== 1 ? 's' : ''}${!allInSync ? ' ⚠️' : ''}`;
+
+        let html = `<div style="font-size:0.85rem;color:var(--text-secondary);line-height:1.5">`;
+
+        // Active environment indicator
+        if (activeEnv) {
+            html += `<div style="display:flex;align-items:center;gap:0.4rem;margin-bottom:var(--space-sm);font-size:0.85rem">
+                <span style="color:var(--success);font-weight:600">● Active:</span>
+                <code style="font-family:var(--font-mono);font-weight:700;color:var(--accent)">${esc(activeEnv)}</code>
+            </div>`;
+        }
+
+        // Environment rows
+        html += `<div style="display:flex;flex-direction:column;gap:0.35rem">`;
+        envs.forEach(env => {
+            const name = env.name;
+            const isActive = env.active;
+            const vaultIcon = env.vault_state === 'unlocked' ? '🔓' : env.vault_state === 'locked' ? '🔒' : '⬜';
+
+            // Tags
+            let tags = '';
+            if (isActive) tags += `<span style="font-size:0.7rem;padding:0.1rem 0.35rem;border-radius:3px;background:var(--success);color:#000;font-weight:700">ACTIVE</span>`;
+            if (env.default) tags += `<span style="font-size:0.7rem;padding:0.1rem 0.35rem;border-radius:3px;border:1px solid var(--accent);color:var(--accent)">DEFAULT</span>`;
+
+            // Sync indicator
+            let syncTag = '';
+            if (env.in_sync === true) {
+                syncTag = `<span title="Local keys and GitHub secrets are in sync" style="font-size:0.7rem;padding:0.1rem 0.35rem;border-radius:3px;border:1px solid var(--success);color:var(--success)">✅ synced</span>`;
+            } else if (env.in_sync === false) {
+                const driftCount = (env.local_only?.length || 0) + (env.gh_only?.length || 0);
+                syncTag = `<span title="${env.local_only?.length || 0} local-only, ${env.gh_only?.length || 0} github-only" style="font-size:0.7rem;padding:0.1rem 0.35rem;border-radius:3px;border:1px solid var(--warning);color:var(--warning)">⚠️ ${driftCount} drifted</span>`;
+            }
+
+            // GitHub env tag
+            let ghTag = '';
+            if (ghAvailable) {
+                ghTag = env.on_github
+                    ? `<span title="Exists as GitHub deployment environment" style="font-size:0.7rem;padding:0.1rem 0.35rem;border-radius:3px;border:1px solid var(--success);color:var(--success)">☁️ GitHub</span>`
+                    : `<span title="Not found on GitHub" style="font-size:0.7rem;padding:0.1rem 0.35rem;border-radius:3px;border:1px solid var(--text-muted);color:var(--text-muted)">☁️ —</span>`;
+            }
+
+            // Stats line
+            let stats = `<span title="Vault state: ${env.vault_state}">${vaultIcon}</span>`;
+            stats += ` <span style="font-size:0.75rem;color:var(--text-muted)">📁 ${env.local_keys} keys</span>`;
+            if (ghAvailable) {
+                stats += ` <span style="font-size:0.75rem;color:var(--text-muted)">· ☁️ ${env.gh_secrets}s + ${env.gh_variables}v</span>`;
+            }
+
+            html += `<div style="padding:0.4rem 0.55rem;background:var(--bg-inset);border-radius:6px;border:1px solid ${isActive ? 'var(--success)' : 'var(--border-subtle)'}">
+                <div style="display:flex;align-items:center;gap:0.5rem">
+                    <code style="font-family:var(--font-mono);font-weight:600;font-size:0.82rem;color:var(--text-primary);min-width:80px">${esc(name)}</code>
+                    <div style="display:flex;gap:0.3rem;flex:1;flex-wrap:wrap">${tags}${syncTag}${ghTag}</div>
+                    <button class="btn btn-sm btn-ghost" onclick="envDriftModal('${esc(name)}')" style="font-size:0.72rem;padding:0.2rem 0.5rem" title="Compare local vs GitHub secrets for this environment">🔍 Drift</button>
+                    ${!isActive ? `<button class="btn btn-sm btn-ghost" onclick="envActivate('${esc(name)}')" style="font-size:0.72rem;padding:0.2rem 0.5rem" title="Switch active environment to ${esc(name)}">⬆️ Activate</button>` : ''}
+                </div>
+                <div style="display:flex;align-items:center;gap:0.4rem;margin-top:0.25rem;font-size:0.75rem">${stats}</div>
+            </div>`;
+        });
+        html += `</div>`;
+
+        // GitHub environments status — env on GH but not in project.yml
+        if (ghAvailable) {
+            // drift is shown per-env inline above
+        } else if (data.github?.reason) {
+            html += `<div style="font-size:0.75rem;color:var(--text-muted);margin-top:var(--space-sm)">
+                ☁️ GitHub environments unavailable: ${esc(data.github.reason)}
+            </div>`;
+        }
+
+        // .env files summary
+        const envFiles = data.env_files || [];
+        if (envFiles.length) {
+            html += `<div style="font-size:0.75rem;color:var(--text-muted);margin-top:var(--space-sm)">
+                📄 ${envFiles.length} .env file${envFiles.length !== 1 ? 's' : ''} · ${data.total_vars || 0} total vars
+            </div>`;
+        }
+
+        html += `</div>`;
+        detail.innerHTML = html;
+    }
+
+    /** Modal: compare local .env keys vs GitHub secrets for a specific environment. */
+    async function envDriftModal(envName) {
+        const modal = document.createElement('div');
+        modal.className = 'vault-modal-overlay'; modal.id = 'vault-modal';
+        modal.innerHTML = `<div class="vault-modal" style="max-width:650px">
+            <h3 style="margin-bottom:var(--space-md)">🔍 Drift: <code>${esc(envName)}</code> — Local ↔ GitHub</h3>
+            <div id="env-drift-body" style="max-height:450px;overflow-y:auto"><span class="spinner"></span></div>
+            <div style="display:flex;justify-content:flex-end;margin-top:var(--space-md)">
+                <button class="btn btn-sm btn-primary" onclick="closeVaultModal()">Close</button>
+            </div>
+        </div>`;
+        document.body.appendChild(modal);
+
+        const body = document.getElementById('env-drift-body');
+        try {
+            // Fetch both in parallel
+            const [localRes, ghRes] = await Promise.allSettled([
+                api(`/vault/keys?env=${encodeURIComponent(envName)}`),
+                api(`/gh/secrets?env=${encodeURIComponent(envName)}`),
+            ]);
+
+            const localKeys = localRes.status === 'fulfilled'
+                ? (localRes.value.keys || []).map(k => k.name || k.key || k) : [];
+            const ghSecrets = ghRes.status === 'fulfilled'
+                ? (ghRes.value.secrets || []) : [];
+            const ghVars = ghRes.status === 'fulfilled'
+                ? (ghRes.value.variables || []) : [];
+            const ghAll = [...ghSecrets, ...ghVars];
+
+            const localSet = new Set(localKeys);
+            const ghSet = new Set(ghAll);
+
+            const inBoth = localKeys.filter(k => ghSet.has(k));
+            const localOnly = localKeys.filter(k => !ghSet.has(k));
+            const ghOnly = ghAll.filter(k => !localSet.has(k));
+
+            const inSync = localOnly.length === 0 && ghOnly.length === 0;
+
+            let h = `<div style="font-size:0.82rem;margin-bottom:var(--space-sm);font-weight:600;color:${inSync ? 'var(--success)' : 'var(--warning)'}">
+                ${inSync ? '✅ In sync' : '⚠️ Drift detected'}
+            </div>`;
+
+            h += `<div style="display:flex;gap:var(--space-lg);margin-bottom:var(--space-sm);font-size:0.72rem;color:var(--text-muted)">
+                <span>📁 Local: <strong>${localKeys.length}</strong> keys</span>
+                <span>☁️ GitHub: <strong>${ghSecrets.length}</strong> secrets + <strong>${ghVars.length}</strong> vars</span>
+                <span>✅ Synced: <strong>${inBoth.length}</strong></span>
+            </div>`;
+
+            if (localOnly.length) {
+                h += `<div style="font-weight:600;color:var(--warning);font-size:0.78rem;margin-top:var(--space-sm)">
+                    📁→☁️ Local only — not on GitHub (${localOnly.length}):
+                </div>`;
+                localOnly.forEach(k => {
+                    h += `<div style="font-size:0.72rem;padding:0.15rem 0;color:var(--warning)"><code>${esc(k)}</code></div>`;
+                });
+            }
+
+            if (ghOnly.length) {
+                h += `<div style="font-weight:600;color:var(--accent);font-size:0.78rem;margin-top:var(--space-sm)">
+                    ☁️→📁 GitHub only — not in local .env (${ghOnly.length}):
+                </div>`;
+                ghOnly.forEach(k => {
+                    h += `<div style="font-size:0.72rem;padding:0.15rem 0;color:var(--accent)"><code>${esc(k)}</code></div>`;
+                });
+            }
+
+            if (inBoth.length && !localOnly.length && !ghOnly.length) {
+                h += `<div style="font-size:0.72rem;color:var(--success);margin-top:var(--space-sm)">All ${inBoth.length} keys present in both local and GitHub ✅</div>`;
+            }
+
+            // State info
+            if (localRes.status === 'fulfilled' && localRes.value.state) {
+                h += `<div style="font-size:0.68rem;color:var(--text-muted);margin-top:var(--space-md);border-top:1px solid var(--border-subtle);padding-top:var(--space-sm)">
+                    Vault state: <strong>${esc(localRes.value.state)}</strong>
+                </div>`;
+            }
+
+            body.innerHTML = h;
+        } catch (e) {
+            body.innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(e.message)}</p>`;
+        }
+    }
+
+    /** Activate a different environment. */
+    async function envActivate(envName) {
+        try {
+            toast(`Activating ${envName}…`, 'info');
+            await api('/vault/activate-env', {
+                method: 'POST',
+                body: JSON.stringify({ name: envName }),
+            });
+            toast(`Environment "${envName}" is now active ✅`, 'success');
+            cardInvalidate('env');
+            loadEnvCard();
+        } catch (e) {
+            toast('Failed: ' + e.message, 'error');
+        }
+    }
+
+</script>

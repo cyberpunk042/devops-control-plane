@@ -412,6 +412,18 @@ from src.ui.cli.pages import pages
 from src.ui.cli.git import git
 from src.ui.cli.backup import backup
 from src.ui.cli.secrets import secrets
+from src.ui.cli.docker import docker
+from src.ui.cli.ci import ci
+from src.ui.cli.packages import packages
+from src.ui.cli.infra import infra
+from src.ui.cli.quality import quality
+from src.ui.cli.metrics import metrics
+from src.ui.cli.security import security
+from src.ui.cli.docs import docs
+from src.ui.cli.testing import testing
+from src.ui.cli.k8s import k8s
+from src.ui.cli.terraform import terraform
+from src.ui.cli.dns import dns
 
 cli.add_command(vault)
 cli.add_command(content)
@@ -419,6 +431,18 @@ cli.add_command(pages)
 cli.add_command(git)
 cli.add_command(backup)
 cli.add_command(secrets)
+cli.add_command(docker)
+cli.add_command(ci)
+cli.add_command(packages)
+cli.add_command(infra)
+cli.add_command(quality)
+cli.add_command(metrics)
+cli.add_command(security)
+cli.add_command(docs)
+cli.add_command(testing)
+cli.add_command(k8s)
+cli.add_command(terraform)
+cli.add_command(dns)
 
 
 if __name__ == "__main__":

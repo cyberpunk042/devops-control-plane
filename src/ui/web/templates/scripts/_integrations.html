@@ -1,9 +1,21 @@
 <script>
     // ── Integrations tab ────────────────────────────────────────────────
+    // Uses shared cache from _globals.html (cardCached / cardStore / cardInvalidate)
 
     let _intLoaded = false;
 
-    async function loadIntegrationsTab() {
+    async function loadIntegrationsTab(force) {
+        if (force) {
+            _intLoaded = false;
+            ['git','github','ci','docker','pages'].forEach(key => {
+                cardInvalidate(key);
+                const detail = document.getElementById('int-' + (key === 'github' ? 'gh' : key) + '-detail');
+                const badge = document.getElementById('int-' + (key === 'github' ? 'gh' : key) + '-badge');
+                if (detail) detail.innerHTML = '<span class="spinner"></span>';
+                if (badge) { badge.className = 'status-badge'; badge.textContent = '—'; }
+            });
+        }
+        if (_intLoaded) return;
         // Load all cards in parallel
         await Promise.allSettled([
             loadGitCard(),
@@ -22,7 +34,9 @@
         const detail = document.getElementById('int-git-detail');
 
         try {
-            const data = await api('/git/status');
+            const cached = cardCached('git');
+            const data = cached || await api('/git/status');
+            if (!cached) cardStore('git', data);
 
             if (!data.available) {
                 badge.className = 'status-badge failed';
@@ -233,7 +247,9 @@
         const detail = document.getElementById('int-gh-detail');
 
         try {
-            const data = await api('/integrations/gh/status');
+            const cached = cardCached('github');
+            const data = cached || await api('/integrations/gh/status');
+            if (!cached) cardStore('github', data);
 
             if (!data.available) {
                 badge.className = 'status-badge failed';
@@ -325,7 +341,9 @@
         const detail = document.getElementById('int-ci-detail');
 
         try {
-            const data = await api('/gh/actions/runs?n=5');
+            const cached = cardCached('ci');
+            const data = cached || await api('/gh/actions/runs?n=5');
+            if (!cached) cardStore('ci', data);
 
             if (!data.available) {
                 badge.className = 'status-badge degraded';
@@ -433,7 +451,9 @@
         const detail = document.getElementById('int-docker-detail');
 
         try {
-            const data = await api('/status');
+            const cached = cardCached('docker');
+            const data = cached || await api('/status');
+            if (!cached) cardStore('docker', data);
             const dockerModules = (data.modules || []).filter(m =>
                 m.stack && m.stack.includes('docker')
             );
@@ -463,10 +483,18 @@
         const detail = document.getElementById('int-pages-detail');
 
         try {
-            const [segData, bdData] = await Promise.all([
-                api('/pages/segments'),
-                api('/pages/builders').catch(() => ({ builders: [] })),
-            ]);
+            const cached = cardCached('pages');
+            let segData, bdData;
+            if (cached) {
+                segData = cached.segData;
+                bdData = cached.bdData;
+            } else {
+                [segData, bdData] = await Promise.all([
+                    api('/pages/segments'),
+                    api('/pages/builders').catch(() => ({ builders: [] })),
+                ]);
+                cardStore('pages', { segData, bdData });
+            }
 
             const segments = segData.segments || [];
             const builders = bdData.builders || [];

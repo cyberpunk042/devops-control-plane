@@ -37,6 +37,23 @@
         </div>
     </div>
 
+    <!-- ── Project Health Score ──────────────────────────────────── -->
+    <section class="section" style="margin-top:var(--space-lg)">
+        <div class="card" id="health-score-card" style="padding:var(--space-lg)">
+            <div class="card-header" style="margin-bottom:var(--space-md)">
+                <span class="card-title">📊 Project Health</span>
+                <div style="display:flex;align-items:center;gap:0.4rem">
+                    <span class="card-age" data-cache-key="health-score" style="font-size:0.64rem;color:var(--text-muted)"></span>
+                    <button class="btn-icon" onclick="cardRefresh('health-score','health-score-badge','health-score-detail',loadHealthScore)" title="Refresh" style="font-size:0.7rem;cursor:pointer;background:none;border:none;color:var(--text-muted);padding:0">🔄</button>
+                    <span class="status-badge" id="health-score-badge">—</span>
+                </div>
+            </div>
+            <div id="health-score-detail">
+                <span class="spinner"></span>
+            </div>
+        </div>
+    </section>
+
     <!-- Modules -->
     <section class="section">
         <div class="section-header">

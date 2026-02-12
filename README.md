@@ -1,126 +1,140 @@
-# DevOps Control Plane
+# Solution Control Plane
 
-> A general-purpose project control plane for DevOps automation.
+> **A solution management platform for software projects.**
 
-**Detect** project modules, **match** them to stack definitions, **run**
-capabilities through adapters, **encrypt** secrets with AES-256-GCM,
-**manage** content with media optimization, **build** documentation sites
-with pluggable SSGs, and **audit** every operation — all from a unified CLI
-and web dashboard.
+Point it at any project — mono-repo or single-stack — and get full visibility,
+management, and evolution tools through a unified CLI, web dashboard, and
+interactive terminal.
+
+---
+
+## What It Does
+
+The control plane gives you **one place** to see, manage, and evolve your
+software solution. It replaces scattered scripts, manual environment setup,
+fragmented dashboards, and tool-specific knowledge with a unified platform
+that understands your project.
+
+### 🔍 Project Visibility & Observability
+
+See your entire solution at a glance. The platform detects what technologies
+are in your project, reports their status, and surfaces what needs attention.
+
+- **Technology detection** — auto-scans for stacks (Python, Node, Go, Rust, Docker, Terraform, and 14 more)
+- **Project status** — unified health view across all modules and environments
+- **Audit trail** — append-only ledger of every operation performed
+
+### 🔌 Integrations
+
+First-class support for the tools your project depends on, with more added
+over time.
+
+- **Git** — status, commit, push, pull, branch management
+- **GitHub** — secrets, environments, pull requests, Actions workflows, Releases
+- **Docker** — container management (adapter ready)
+- **Kubernetes** — orchestration (adapter ready)
+- **CI/CD** — workflow triggering, status monitoring
+- **Extensible** — pluggable adapter protocol for adding any tool
+
+### 🔐 Vaults
+
+Two vault systems for two different concerns:
+
+- **Secret / Variable Vault** — AES-256-GCM encrypted `.env` files, environment-specific configs, key management, GitHub Secrets sync, auto-lock on inactivity
+- **Content Vault** — per-file encryption for sensitive media and documents, binary envelope format, inline content preview
+
+### � Project & Environment Management
+
+Manage your project's lifecycle: its environments, its configuration, its
+documentation, and its backups.
+
+- **Environment management** — create, switch, compare `.env` configurations across dev/staging/production
+- **Backup system** — create, restore, export, and archive project state
+- **Documentation sites** — build and deploy with 6 SSG builders (Docusaurus, MkDocs, Hugo, Sphinx, Raw, Custom)
+- **Content management** — file browser, media optimization (image compression, video transcoding), GitHub Release uploads
+
+### � Solution Evolution & Augmentation
+
+The platform doesn't just show you what's there — it helps you evolve your
+solution by detecting what technologies you use and offering paths forward.
+
+- **Stack detection** — 20 technology definitions with detection rules
+- **Integration guidance** — identify what your project can integrate with
+- **Solution analysis** — understand your project's structure, dependencies, and gaps
+
+### 🧭 Setup Wizard
+
+Guided setup with steps for configuring your project, its environments, its
+secrets, and its integrations. Reduces onboarding from hours to minutes.
+
+### � Debugging
+
+Built-in debugging tools for diagnosing issues with your project, its
+integrations, and its environment.
+
+### 🔗 Resource Links
+
+Quick access to your project's remote interfaces and resources — repositories,
+dashboards, CI pipelines, deployed environments.
+
+### 📊 Multi-Module & Multi-Stack
+
+Handles mono-repos with multiple services and modules, multiple technology
+stacks within a single solution, and complex project structures. Every
+module gets detected, tracked, and managed.
+
+---
+
+## Three Interfaces, One Platform
+
+Every capability is accessible from all three interfaces — they all drive the
+same core:
+
+| Interface | Usage | Best For |
+|---|---|---|
+| **`./manage.sh`** | Interactive terminal menu | Daily operations, guided workflows |
+| **CLI** (`python -m src.main`) | Direct commands with flags | Scripting, automation, CI |
+| **Web Dashboard** | Flask SPA at `localhost:8000` | Visual management, content browsing, setup wizard |
 
 ---
 
 ## Quick Start
 
 ```bash
-# 1. Clone and install
+# Clone and install
 git clone https://github.com/cyberpunk042/devops-control-plane.git
 cd devops-control-plane
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
 
-# 2. Discover your project
+# Discover your project
 ./manage.sh detect
 
-# 3. Check status
+# Check status
 ./manage.sh status
 
-# 4. Run automations (mock mode for safety)
-./manage.sh run test --mock
-
-# 5. Launch the web dashboard
+# Launch the web dashboard
 ./manage.sh web
 ```
 
-See [docs/QUICKSTART.md](docs/QUICKSTART.md) for the full 5-minute guide.
-
----
-
-## Architecture
-
-```
-┌──────────────────────────────────────────────────────────────┐
-│                    CLI / Web Admin                            │
-│  manage.sh  │  Click CLI  │  Flask SPA (7 tabs)              │
-├──────────────────────────────────────────────────────────────┤
-│                    Core Domain (pure)                         │
-│  Models  │  Services  │  Engine  │  Use-Cases                │
-├──────────────────────────────────────────────────────────────┤
-│                    Adapter Layer                              │
-│  shell  │  filesystem  │  mock  │  (vcs, containers)         │
-├──────────────────────────────────────────────────────────────┤
-│                 Invariant Infrastructure                      │
-│  Reliability      │  Observability   │  Security   │  State  │
-│  circuit breaker  │  health checks   │  AES vault  │  audit  │
-│  retry queue      │  metrics         │  rate limit  │  NDJSON │
-└──────────────────────────────────────────────────────────────┘
-```
-
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full layer spec.
-
----
-
-## Features
-
-### 📦 Module Detection
-Automatically scans for modules by matching marker files (`pyproject.toml`,
-`package.json`, `docker-compose.yml`) to stack definitions.
-
-### ⚡ Automation Engine
-Execute capabilities (test, lint, build, deploy) across modules with
-planning, receipts, dry-run, and mock mode.
-
-### 🛡️ Reliability
-- **Circuit breakers** — per-adapter failure protection (CLOSED → OPEN → HALF_OPEN)
-- **Retry queue** — exponential backoff, persisted to disk
-
-### 📊 Observability
-- **Health checks** — component-level status aggregation
-- **Metrics** — counters, gauges, histograms (Prometheus-compatible)
-- **Audit log** — append-only NDJSON ledger of every operation
-
-### 🔐 Vault & Secrets
-- **AES-256-GCM** encryption for `.env` files
-- **Auto-lock** with configurable inactivity timer
-- **Secrets editor** in the web admin (masked values, add/edit/delete)
-- **Export/import** portable encrypted backups
-
-### 📁 Content Management
-- **File browser** with inline preview (images, video, audio, markdown)
-- **Per-file encryption** with binary envelope format
-- **Media optimization** (image compression, video transcoding)
-- **GitHub Release** uploads for large files
-
-### 📄 Pages Builder
-- **Multi-segment** site generation (docs, blog, API, each with its own builder)
-- **6 built-in builders**: Raw, MkDocs, Hugo, Docusaurus, Sphinx, Custom
-- **Dynamic config schemas** — each builder declares UI-renderable fields
-- **SSE build streaming** — real-time log output
-- **Deploy to GitHub Pages** with auto-generated hub page
-
-### 🌐 Web Dashboard
-Dark-mode admin with 7 tabs: Dashboard, Setup Wizard, Secrets, Commands,
-Content, Integrations (Git/GitHub/Pages), Debugging.
-
-### 🔌 Adapter Protocol
-Pluggable adapter system — implement `Adapter.execute()` to add support
-for any tool or platform.
+See [docs/QUICKSTART.md](docs/QUICKSTART.md) for the full setup guide.
 
 ---
 
 ## CLI Commands
 
-| Command | Description |
-|---------|-------------|
-| `status [--json]` | Project overview: modules, environments, last operation |
-| `detect [--json] [--no-save]` | Scan for modules and match stacks |
-| `config check [--json]` | Validate `project.yml` |
-| `run <capability> [--mock] [--dry-run] [-m module] [--json]` | Execute a capability |
-| `health [--json]` | System health status |
-| `web [--mock] [--port 8000]` | Start web admin dashboard |
+| Group | Commands |
+|-------|----------|
+| **Core** | `status`, `detect`, `config check`, `health`, `run`, `web` |
+| **Vault** | `lock`, `unlock`, `status`, `export`, `detect`, `keys`, `templates`, `create`, `add-key`, `update-key`, `delete-key`, `activate` |
+| **Content** | `encrypt`, `decrypt`, `optimize`, `upload`, `restore`, `list`, `preview`, `status` |
+| **Pages** | `build`, `deploy`, `list`, `status`, `clean` |
+| **Git** | `status`, `log`, `commit`, `pull`, `push`, `gh pulls`, `gh runs`, `gh dispatch`, `clone`, `branch` |
+| **Backup** | `create`, `list`, `preview`, `delete`, `folders` |
+| **Secrets** | `status`, `auto-detect`, `generate`, `set`, `remove`, `list`, `envs list`, `envs create`, `envs cleanup` |
 
-Global flags: `--verbose`, `--quiet`, `--config <path>`
+Global flags: `--verbose`, `--quiet`, `--config <path>`, `--json`
 
 ---
 
@@ -128,32 +142,25 @@ Global flags: `--verbose`, `--quiet`, `--config <path>`
 
 | Document | Description |
 |----------|-------------|
-| [QUICKSTART.md](docs/QUICKSTART.md) | 5-minute setup guide |
+| [QUICKSTART.md](docs/QUICKSTART.md) | Setup guide |
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) | System architecture and file layout |
 | [DESIGN.md](docs/DESIGN.md) | Design philosophy and principles |
 | [WEB_ADMIN.md](docs/WEB_ADMIN.md) | Web dashboard guide |
 | [PAGES.md](docs/PAGES.md) | Pages builder system |
 | [VAULT.md](docs/VAULT.md) | Vault & secrets encryption |
 | [CONTENT.md](docs/CONTENT.md) | Content management |
-| [STACKS.md](docs/STACKS.md) | Creating stack definitions |
-| [ADAPTERS.md](docs/ADAPTERS.md) | Creating adapters |
-| [DEVELOPMENT.md](docs/DEVELOPMENT.md) | Developer setup and contributing |
+| [STACKS.md](docs/STACKS.md) | Stack definitions |
+| [ADAPTERS.md](docs/ADAPTERS.md) | Adapter protocol |
+| [DEVELOPMENT.md](docs/DEVELOPMENT.md) | Developer setup |
 
 ---
 
 ## Development
 
 ```bash
-# Install dev dependencies
 pip install -e ".[dev]"
-
-# Run the full check suite (lint + types + tests)
-make check
-
-# Individual commands
-make lint     # ruff
-make types    # mypy
-make test     # pytest
+make check    # lint + types + tests
+make test     # pytest only
 ```
 
 See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for the full development guide.

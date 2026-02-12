@@ -33,4 +33,101 @@
     function hideRefreshBar() {
         document.getElementById('refresh-bar').classList.remove('active');
     }
+
+    // ── Shared card cache (sessionStorage-backed) ───────────────────────
+    //
+    // Client-side cache with long TTL (10 min).  Server-side cache handles
+    // real freshness via mtime tracking.  Manual refresh busts BOTH caches.
+
+    const _CARD_PREFIX = '_cc:';     // sessionStorage key prefix
+    const _CARD_TTL    = 600_000;    // 10 min (server checks mtimes for freshness)
+
+    /** Return cached data if fresh, else null. */
+    function cardCached(key) {
+        try {
+            const raw = sessionStorage.getItem(_CARD_PREFIX + key);
+            if (!raw) return null;
+            const c = JSON.parse(raw);
+            if (Date.now() - c.ts < _CARD_TTL) return c.data;
+            sessionStorage.removeItem(_CARD_PREFIX + key);
+            return null;
+        } catch { return null; }
+    }
+
+    /** Store data in cache with a timestamp. */
+    function cardStore(key, data) {
+        try {
+            sessionStorage.setItem(_CARD_PREFIX + key,
+                JSON.stringify({ data, ts: Date.now() }));
+        } catch { /* quota exceeded — silently skip */ }
+    }
+
+    /** Invalidate a single card's cache. */
+    function cardInvalidate(key) {
+        sessionStorage.removeItem(_CARD_PREFIX + key);
+    }
+
+    /** Invalidate all cards (optionally filtered by prefix). */
+    function cardInvalidateAll(prefix) {
+        const keys = [];
+        for (let i = 0; i < sessionStorage.length; i++) {
+            const k = sessionStorage.key(i);
+            if (k && k.startsWith(_CARD_PREFIX)) {
+                const card = k.slice(_CARD_PREFIX.length);
+                if (!prefix || card.startsWith(prefix)) keys.push(k);
+            }
+        }
+        keys.forEach(k => sessionStorage.removeItem(k));
+    }
+
+    /** Get age of a cached entry in seconds, or null. */
+    function cardAge(key) {
+        try {
+            const raw = sessionStorage.getItem(_CARD_PREFIX + key);
+            if (!raw) return null;
+            const c = JSON.parse(raw);
+            // Use server-side computed_at if available (more accurate)
+            if (c.data?._cache?.computed_at) {
+                return Math.round(Date.now() / 1000 - c.data._cache.computed_at);
+            }
+            return Math.round((Date.now() - c.ts) / 1000);
+        } catch { return null; }
+    }
+
+    /** Format age as human-readable string. */
+    function _formatAge(secs) {
+        if (secs == null) return '';
+        if (secs < 5) return 'just now';
+        if (secs < 60) return secs + 's ago';
+        if (secs < 3600) return Math.floor(secs / 60) + 'm ago';
+        return Math.floor(secs / 3600) + 'h ago';
+    }
+
+    /** Tick all visible card-age indicators. */
+    function _tickCardAges() {
+        document.querySelectorAll('[data-cache-key]').forEach(el => {
+            const age = cardAge(el.dataset.cacheKey);
+            el.textContent = _formatAge(age);
+            if (age != null && age > 600) {
+                el.style.color = 'var(--warning)';
+            } else {
+                el.style.color = 'var(--text-muted)';
+            }
+        });
+    }
+    setInterval(_tickCardAges, 5000);
+
+    /**
+     * Refresh a single card: bust both client + server cache, show spinner, reload.
+     */
+    async function cardRefresh(cacheKey, badgeId, detailId, loadFn) {
+        cardInvalidate(cacheKey);
+        // Bust server-side cache
+        api('/devops/cache/bust', { method: 'POST', body: JSON.stringify({ card: cacheKey }) }).catch(() => {});
+        const badge = document.getElementById(badgeId);
+        const detail = document.getElementById(detailId);
+        if (badge) { badge.className = 'status-badge'; badge.textContent = '—'; }
+        if (detail) detail.innerHTML = '<span class="spinner"></span>';
+        await loadFn();
+    }
 </script>
