@@ -48,7 +48,8 @@ This shows:
 ./manage.sh detect
 ```
 
-This scans the project for modules matching stack definitions. Each module gets tagged with its stack (e.g., `python`, `node`, `docker-compose`).
+Scans the project for modules matching stack definitions. Each module gets
+tagged with its stack (e.g., `python`, `node`, `docker-compose`).
 
 ## 5. Run an Automation
 
@@ -74,10 +75,24 @@ Shows system health including circuit breaker states and retry queue status.
 ## 7. Launch the Web Dashboard
 
 ```bash
-./manage.sh web --mock
+./manage.sh web
 ```
 
 Open [http://127.0.0.1:8000](http://127.0.0.1:8000) to see the admin dashboard.
+
+The dashboard has 7 tabs:
+
+| Tab | What it does |
+|-----|-------------|
+| 📊 Dashboard | Project overview, modules, activity feed |
+| 🧙 Setup | Guided project configuration wizard |
+| 🔐 Secrets | Vault encryption, secrets editor |
+| ⚡ Commands | Run capabilities on modules |
+| 📁 Content | File browser, encryption, media optimization |
+| 🔌 Integrations | Git, GitHub, Pages builder, CI/CD |
+| 🐛 Debugging | Audit logs, state inspector, health details |
+
+Press **SPACE** to live-reload the server. Press **Ctrl+C** or **q** to quit.
 
 ## 8. JSON Output
 
@@ -96,4 +111,8 @@ All commands support `--json` for machine-readable output:
 
 - Create custom stacks → [STACKS.md](STACKS.md)
 - Write custom adapters → [ADAPTERS.md](ADAPTERS.md)
-- Understand the architecture → [DESIGN.md](DESIGN.md)
+- Explore the web admin → [WEB_ADMIN.md](WEB_ADMIN.md)
+- Build documentation sites → [PAGES.md](PAGES.md)
+- Set up secrets encryption → [VAULT.md](VAULT.md)
+- Understand the architecture → [ARCHITECTURE.md](ARCHITECTURE.md)
+- Start developing → [DEVELOPMENT.md](DEVELOPMENT.md)

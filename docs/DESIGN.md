@@ -1,10 +1,10 @@
 # DevOps Control Plane — Design Document
 
-> **Status:** Draft v1  
-> **Date:** 2026-02-10  
-> **Origin:** Distilled from the architectural vision (`first artifact.md`) and the
-> proven patterns of the `continuity-orchestrator` (22k+ lines, 89 modules, full
-> operational stack).
+> **Status:** Living document — reflects design philosophy and architectural decisions  
+> **Origin:** Distilled from the architectural vision and proven patterns of the
+> `continuity-orchestrator` (22k+ lines, 89 modules, full operational stack).  
+> **Note:** For the current file layout and implementation status, see
+> [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ---
 
@@ -40,8 +40,7 @@
 12. [Plugin & Extension Model](#12-plugin--extension-model)
 13. [Growth Rules](#13-growth-rules)
 14. [Technology Choices](#14-technology-choices)
-15. [Implementation Roadmap](#15-implementation-roadmap)
-16. [Appendix: Pattern Lineage](#appendix-pattern-lineage)
+15. [Appendix: Pattern Lineage](#appendix-pattern-lineage)
 
 ---
 
@@ -1347,103 +1346,7 @@ functional web UI with zero npm dependencies.
 
 ---
 
-## 15. Implementation Roadmap
-
-### Phase 0: Foundation (Current)
-
-- [x] Define root architecture (`first artifact.md`)
-- [x] Analyze orchestrator patterns
-- [x] Write comprehensive design document (this file)
-- [ ] Scaffold directory structure
-- [ ] Create `pyproject.toml`
-
-### Phase 1: Kernel
-
-The minimum viable domain layer.
-
-- [ ] **core/models/** — `Project`, `Module`, `Stack`, `Action`, `Receipt`, `ProjectState`
-- [ ] **project.yml schema** — Pydantic model + YAML loader
-- [ ] **adapters/base.py** — `Adapter`, `ExecutionContext`, `Receipt`
-- [ ] **adapters/registry.py** — `AdapterRegistry` with mock mode
-- [ ] **adapters/mock.py** — Universal mock adapter
-- [ ] **core/persistence/** — State file + audit ledger
-- [ ] Tests for all of the above
-
-### Phase 2: Detection
-
-The engine learns to see.
-
-- [ ] **core/services/detection.py** — Module discovery + stack matching
-- [ ] **stacks/** — First 2-3 stack definitions (python, node, docker-compose)
-- [ ] **adapters/shell/** — `command.py`, `filesystem.py`
-- [ ] **adapters/languages/** — `python.py`, `node.py`
-- [ ] **core/use_cases/detect.py** — Detection use case
-- [ ] **core/use_cases/status.py** — Status use case
-
-### Phase 3: CLI
-
-The first interface.
-
-- [ ] **ui/cli/main.py** — Click entrypoint
-- [ ] **ui/cli/status.py** — `status` command
-- [ ] **ui/cli/detect.py** — `detect` command
-- [ ] **manage.sh** — Interactive TUI wrapper
-- [ ] **state/** — Generated state from detection
-
-### Phase 4: Engine
-
-The execution loop.
-
-- [ ] **core/engine/runner.py** — Main execution loop
-- [ ] **core/engine/evaluator.py** — Condition evaluation
-- [ ] **core/services/planning.py** — Execution planning
-- [ ] **automations/** — First automation definitions
-- [ ] **core/use_cases/automate.py** — Automation use case
-- [ ] **ui/cli/automate.py** — `automate` command
-
-### Phase 5: Infrastructure
-
-Production-grade plumbing.
-
-- [ ] **core/reliability/** — Circuit breaker + retry queue
-- [ ] **core/observability/** — Health checker + metrics
-- [ ] **core/security/vault.py** — .env vault
-- [ ] Wire reliability into adapter execution pipeline
-- [ ] Wire metrics into engine execution
-
-### Phase 6: Web Admin
-
-The visual interface.
-
-- [ ] **ui/web/server.py** — Flask app factory
-- [ ] **ui/web/routes_core.py** — Dashboard + status API
-- [ ] **ui/web/templates/** — SPA structure
-- [ ] **ui/web/static/css/admin.css** — Theming
-- [ ] Additional route blueprints as needed
-
-### Phase 7: Expansion
-
-Stack and adapter breadth.
-
-- [ ] **adapters/vcs/git.py** — Git operations
-- [ ] **adapters/containers/docker.py** — Docker/Compose
-- [ ] **stacks/** — Additional stack definitions
-- [ ] **templates/** — File generation templates
-- [ ] **core/use_cases/scaffold.py** — Project scaffolding
-- [ ] **core/services/graph.py** — Dependency graphs
-
-### Phase 8: Distribution
-
-Packaging and reuse.
-
-- [ ] Documentation completion
-- [ ] Example projects (wire to different domains)
-- [ ] Fork/template guide
-- [ ] PyPI packaging
-
----
-
-## Appendix: Pattern Lineage
+## 15. Appendix: Pattern Lineage
 
 Every major design decision in this document traces directly to a working
 implementation in the continuity-orchestrator. The table below maps each control
