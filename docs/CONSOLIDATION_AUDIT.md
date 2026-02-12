@@ -1,6 +1,9 @@
 # Architecture Consolidation Audit
 
-> What's trapped in `src/ui/web/` and where it should live.
+> ✅ **COMPLETED** — All 9 extraction phases done. 324 tests pass, zero regressions.
+> Post-extraction cleanup (dead imports, orphaned helpers) also complete.
+>
+> What was trapped in `src/ui/web/` and where it now lives.
 
 ## Progress
 
@@ -40,16 +43,28 @@ New CLI group: `controlplane backup create|list|preview|delete|folders`.
 **P8 Details:** Extracted secrets & GitHub environment management from `routes_secrets.py` (904→215 lines).
 Includes gh status/auto-detect, key generators, secret set/remove, bulk push, environment CRUD.
 
-**P9 Details:** Extracted .env file manipulation from `routes_vault.py` (1,114→417 lines).
+**P9 Details:** Extracted .env file manipulation from `routes_vault.py` (1,114→414 lines).
 Includes key CRUD, section management, template creation, environment activation, metadata tags, local-only markers.
 
 **All phases:** 324 tests pass. Zero regressions. 1 pre-existing deselected test (unrelated).
 
 ---
 
-**Post-extraction state:** ~10,412 lines of domain logic in `src/core/services/` (14 service modules).
-Route files (web layer) reduced from ~7,000 to ~4,300 lines — most are now thin HTTP wrappers.
-Core domain logic is accessible from CLI, TUI, and automation.
+### Post-Extraction Cleanup
+
+| Item | Action |
+|---|---|
+| Unused `logging`/`logger` in 6 route files | ✅ Removed (routes_vault, routes_secrets, routes_integrations, routes_backup_restore, routes_backup_tree, routes_backup_archive) |
+| Unused `Path` import in 2 backup route files | ✅ Removed (routes_backup_ops, routes_backup_archive) |
+| `helpers.py` (52 lines) — `fresh_env` + `gh_repo_flag` | ✅ Orphaned — sole consumer (`routes_content.py`) now imports from `secrets_ops` |
+| CLI parity | ✅ 6 CLI groups: vault (12 cmds), content, pages, git, backup, secrets |
+
+---
+
+**Post-extraction state:** **10,709 lines** of domain logic in `src/core/services/` (14 service modules + builders).
+Route files (web layer): **4,294 lines** across 16 files — all thin HTTP wrappers.
+CLI commands: **1,800 lines** across 6 groups — all thin Click wrappers.
+Core domain logic is accessible from CLI, TUI, web, and automation.
 
 ---
 
@@ -163,7 +178,7 @@ to emit build events to the event bus.
 | `routes_config.py` | 204 | ✅ STAYS | Config API — already thin. |
 | `routes_api.py` | 247 | ✅ STAYS | General API routes — thin. |
 | `routes_pages.py` | 73 | ✅ STAYS | Template rendering only. |
-| `helpers.py` | 51 | ✅ STAYS | Flask-specific helpers. |
+| `helpers.py` | 52 | ⚠️ **ORPHANED** | No consumers — `fresh_env`/`gh_repo_flag` now in `secrets_ops`. Can be deleted. |
 | `server.py` | 94 | ✅ STAYS | App factory. |
 
 ---
@@ -265,11 +280,24 @@ Service (vault.py)
 | `src/core/services/git_ops.py` | routes_integrations.py | 415 |
 | `src/core/services/backup_ops.py` | routes_backup*.py | 1,179 |
 | `src/core/services/secrets_ops.py` | routes_secrets.py | 830 |
-| `src/core/services/vault_env_ops.py` | routes_vault.py | 815 |
+| `src/core/services/vault_env_ops.py` | routes_vault.py | 816 |
 | `src/core/services/detection.py` | *(already existed)* | 300 |
-| **Total** | | **~10,706** |
+| **Total** | | **~10,709** |
 
 **After extraction:** Core domain logic is now accessible from any channel
 (CLI, TUI, web, automation). Web layer route files are thin HTTP wrappers
 that parse requests and delegate to core services. Re-export shims
 maintain full backward compatibility for existing route handlers and tests.
+
+---
+
+## CLI Command Coverage
+
+| CLI Group | Core Service | Commands |
+|---|---|---|
+| `vault` | `vault` + `vault_io` + `vault_env_ops` | 12 (lock, unlock, status, export, detect, keys, templates, create, add-key, update-key, delete-key, activate) |
+| `content` | `content_crypto` + `content_release` | 8 |
+| `pages` | `pages_engine` | 5 |
+| `git` | `git_ops` | 10 |
+| `backup` | `backup_ops` | 5 |
+| `secrets` | `secrets_ops` | 9 (status, auto-detect, generate, set, remove, list, envs list, envs create, envs cleanup) |

@@ -19,14 +19,11 @@ Endpoints:
 
 from __future__ import annotations
 
-import logging
 from pathlib import Path
 
 from flask import Blueprint, current_app, jsonify, request
 
 from src.core.services import git_ops
-
-logger = logging.getLogger(__name__)
 
 integrations_bp = Blueprint("integrations", __name__)
 

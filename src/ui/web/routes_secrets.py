@@ -21,14 +21,11 @@ Routes:
 
 from __future__ import annotations
 
-import logging
 from pathlib import Path
 
 from flask import Blueprint, current_app, jsonify, request
 
 from src.core.services import secrets_ops
-
-logger = logging.getLogger(__name__)
 
 secrets_bp = Blueprint("secrets", __name__)
 

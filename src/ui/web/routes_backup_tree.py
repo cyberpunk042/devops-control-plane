@@ -11,14 +11,10 @@ Routes:
 
 from __future__ import annotations
 
-import logging
-
 from flask import jsonify, request
 
 from src.core.services import backup_ops
 from .routes_backup import backup_bp, _project_root
-
-logger = logging.getLogger(__name__)
 
 
 # ── Tree endpoint ──────────────────────────────────────────────────

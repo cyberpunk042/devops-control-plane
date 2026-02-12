@@ -72,7 +72,7 @@ def _resolve_safe_path(relative: str) -> Path | None:
 
 def _get_enc_key() -> str:
     """Read CONTENT_VAULT_ENC_KEY from .env."""
-    from .helpers import fresh_env
+    from src.core.services.secrets_ops import fresh_env
 
     env = fresh_env(_project_root())
     return env.get("CONTENT_VAULT_ENC_KEY", "").strip()

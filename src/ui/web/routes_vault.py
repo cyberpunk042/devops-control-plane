@@ -10,15 +10,12 @@ Prefix: /api/vault
 
 from __future__ import annotations
 
-import logging
 from pathlib import Path
 
 from flask import Blueprint, current_app, jsonify, request
 
 from src.core.services import vault_env_ops
 from . import vault
-
-logger = logging.getLogger(__name__)
 
 vault_bp = Blueprint("vault", __name__)
 
