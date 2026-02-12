@@ -76,6 +76,12 @@ show_menu() {
     echo "  ${CYAN}6${RESET})  ${BOLD}config check${RESET} — Validate project.yml"
     echo "  ${CYAN}7${RESET})  ${BOLD}web${RESET}          — Start web dashboard"
     echo ""
+    echo "  ${BOLD}Vault / Content / Pages${RESET}"
+    echo ""
+    echo "  ${CYAN}8${RESET})  ${BOLD}vault${RESET}        — Secrets Vault commands"
+    echo "  ${CYAN}9${RESET})  ${BOLD}content${RESET}      — Content Vault commands"
+    echo "  ${CYAN}10${RESET}) ${BOLD}pages${RESET}        — GitHub Pages commands"
+    echo ""
     echo "  ${DIM}q)  quit${RESET}"
     echo ""
 }
@@ -89,6 +95,9 @@ handle_choice() {
         5)  run_cli health ;;
         6)  run_cli config check ;;
         7)  run_cli web --mock ;;
+        8)  run_cli vault --help ;;
+        9)  run_cli content --help ;;
+        10) run_cli pages --help ;;
         q|Q|exit)
             echo ""
             ok "Goodbye!"

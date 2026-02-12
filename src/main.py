@@ -404,5 +404,16 @@ def web(ctx: click.Context, host: str, port: int, mock: bool) -> None:
     run_server(app, host=host, port=port)
 
 
+# ── Register sub-command groups from src/ui/cli/ ──────────────────
+
+from src.ui.cli.vault import vault
+from src.ui.cli.content import content
+from src.ui.cli.pages import pages
+
+cli.add_command(vault)
+cli.add_command(content)
+cli.add_command(pages)
+
+
 if __name__ == "__main__":
     cli()

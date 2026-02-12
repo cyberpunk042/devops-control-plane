@@ -17,9 +17,10 @@
 ├──────────────────────────────────────────────────────────────────────┤
 │                         CORE DOMAIN (pure)                           │
 │                                                                      │
-│  Models       Services       Engine       Use-Cases                  │
-│  (Pydantic)   (detection,    (runner,     (detect, status,           │
-│               validation)    evaluator)    automate, health)         │
+│  Models       Services            Engine       Use-Cases             │
+│  (Pydantic)   (vault, content,    (runner,     (detect, status,      │
+│               pages, detection,   evaluator)    automate, health)    │
+│               optimization)                                          │
 │                                                                      │
 ├──────────────────────────────────────────────────────────────────────┤
 │                         POLICY (data)                                │
@@ -99,8 +100,25 @@ devops-control-plane/
 │   │   │   └── state.py       #   ProjectState (root state model)
 │   │   ├── config/            # YAML loaders
 │   │   │   └── loader.py      #   project.yml → Project model
-│   │   ├── services/          # Business logic (detection, validation)
-│   │   │   └── detection.py   #   Stack matching, module scanning
+│   │   ├── services/          # Business logic (channel-independent)
+│   │   │   ├── detection.py   #   Stack matching, module scanning
+│   │   │   ├── vault.py       #   AES-256-GCM secrets vault
+│   │   │   ├── vault_io.py    #   Vault export/import, secret detection
+│   │   │   ├── content_crypto.py      # COVAULT binary format, encryption
+│   │   │   ├── content_optimize.py    # Image/text optimization pipeline
+│   │   │   ├── content_optimize_video.py  # Video/audio ffmpeg pipeline
+│   │   │   ├── content_release.py     # GitHub Release large file sync
+│   │   │   ├── pages_engine.py        # Pages segment orchestrator
+│   │   │   ├── pages_builders/        # SSG builder plugins
+│   │   │   │   ├── base.py            #   PageBuilder ABC + ConfigField
+│   │   │   │   ├── docusaurus.py      #   Docusaurus builder
+│   │   │   │   ├── mkdocs.py          #   MkDocs builder
+│   │   │   │   ├── hugo.py            #   Hugo builder
+│   │   │   │   ├── sphinx.py          #   Sphinx builder
+│   │   │   │   ├── custom.py          #   User-defined build
+│   │   │   │   ├── raw.py             #   Static file copy
+│   │   │   │   └── template_engine.py #   Docusaurus template system
+│   │   │   └── md_transforms.py       # MD → MDX transforms
 │   │   ├── engine/            # Execution loop
 │   │   │   └── runner.py      #   Run capabilities through adapters
 │   │   ├── use_cases/         # High-level entry points (CLI/Web call these)
@@ -120,25 +138,20 @@ devops-control-plane/
 │   │   └── shell/             #   Shell command + filesystem adapters
 │   │
 │   └── ui/
-│       ├── cli/               # Click CLI commands
+│       ├── cli/               # Click CLI commands (thin wrappers)
+│       │   ├── vault.py       #   vault lock/unlock/status/export/detect
+│       │   ├── content.py     #   content encrypt/decrypt/optimize/release
+│       │   └── pages.py       #   pages build/deploy/list/builders
 │       └── web/               # Flask web admin
 │           ├── server.py      #   App factory
-│           ├── vault.py       #   AES-256-GCM vault
-│           ├── vault_io.py    #   Vault file I/O
-│           ├── content_crypto.py     # Content file encryption
-│           ├── content_optimize.py   # Image/video optimization
-│           ├── content_release.py    # GitHub Release uploads
-│           ├── pages_engine.py       # Pages orchestrator
-│           ├── pages_builders/       # SSG builder plugins
-│           │   ├── base.py           #   PageBuilder ABC + ConfigField
-│           │   ├── raw.py            #   Static file copy
-│           │   ├── mkdocs.py         #   MkDocs builder
-│           │   ├── hugo.py           #   Hugo builder
-│           │   ├── docusaurus.py     #   Docusaurus builder
-│           │   ├── sphinx.py         #   Sphinx builder
-│           │   ├── custom.py         #   User-defined build
-│           │   └── template_engine.py  # Docusaurus template system
-│           ├── md_transforms.py      # MD → MDX transforms
+│           ├── vault.py       #   ← re-export shim → core/services/vault.py
+│           ├── vault_io.py    #   ← re-export shim → core/services/vault_io.py
+│           ├── content_crypto.py     # ← shim → core/services/content_crypto.py
+│           ├── content_optimize.py   # ← shim → core/services/content_optimize.py
+│           ├── content_release.py    # ← shim → core/services/content_release.py
+│           ├── pages_engine.py       # ← shim → core/services/pages_engine.py
+│           ├── pages_builders/       # ← shim → core/services/pages_builders/
+│           ├── md_transforms.py      # ← shim → core/services/md_transforms.py
 │           ├── routes_api.py         # Core status/run/detect API
 │           ├── routes_vault.py       # Vault lock/unlock API
 │           ├── routes_secrets.py     # Secrets management API
@@ -162,7 +175,7 @@ devops-control-plane/
 │   ├── state.json             #   Current project state
 │   └── audit.ndjson           #   Append-only operation log
 │
-├── tests/                     # pytest suite (280+ tests)
+├── tests/                     # pytest suite (324 tests)
 │   ├── test_models.py
 │   ├── test_config.py
 │   ├── test_adapters.py
@@ -227,13 +240,14 @@ logic**. No business logic in the frontend — all actions call API endpoints.
 - **Circuit Breaker** — CLOSED → OPEN → HALF_OPEN state machine per adapter
 - **Retry Queue** — persistent, exponential backoff with max retries
 
-### Security (`src/ui/web/vault.py`)
+### Security (`src/core/services/vault.py`)
 
 - **AES-256-GCM** encryption with PBKDF2-SHA256 key derivation
 - **480,000 KDF iterations** (600,000 for portable exports)
 - **Secure delete** — 3-pass random overwrite before unlink
 - **Auto-lock** — timer-based re-encryption after inactivity
 - **Rate limiting** — on failed passphrase attempts
+- **Channel-independent** — accessible from CLI, TUI, and web equally
 
 ---
 
