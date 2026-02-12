@@ -11,6 +11,10 @@
 | **P3** | `pages_engine.py` + builders + `md_transforms.py` (3,656 lines) | ✅ **DONE** | 2026-02-12 |
 | **P4** | `content_optimize.py` + `content_optimize_video.py` (1,031 lines) | ✅ **DONE** | 2026-02-12 |
 | **P5** | `content_release.py` (647 lines) | ✅ **DONE** | 2026-02-12 |
+| **P6** | `git_ops.py` — extracted from `routes_integrations.py` (415 lines) | ✅ **DONE** | 2026-02-12 |
+| **P7** | `backup_ops.py` — extracted from `routes_backup*.py` (1,179 lines) | ✅ **DONE** | 2026-02-12 |
+| **P8** | `secrets_ops.py` — extracted from `routes_secrets.py` (830 lines) | ✅ **DONE** | 2026-02-12 |
+| **P9** | `vault_env_ops.py` — extracted from `routes_vault.py` (815 lines) | ✅ **DONE** | 2026-02-12 |
 
 **P1 Details:** Canonical logic moved to `src/core/services/vault.py` + `vault_io.py`.
 Web shim uses `__getattr__`/`__setattr__` proxy for mutable module globals.
@@ -27,12 +31,24 @@ Circular import between the two resolved with absolute imports in core copies.
 **P5 Details:** `content_release.py` → `src/core/services/content_release.py` (647 lines).
 Also updated `content_crypto.py` core copy to import from core `content_release` instead of web.
 
+**P6 Details:** Extracted Git/GitHub operations from `routes_integrations.py` (479→161 lines).
+New CLI group: `controlplane git status|log|commit|pull|push|gh`.
+
+**P7 Details:** Extracted all backup operations from `routes_backup*.py` (1,711→647 lines across 5 route files).
+New CLI group: `controlplane backup create|list|preview|delete|folders`.
+
+**P8 Details:** Extracted secrets & GitHub environment management from `routes_secrets.py` (904→215 lines).
+Includes gh status/auto-detect, key generators, secret set/remove, bulk push, environment CRUD.
+
+**P9 Details:** Extracted .env file manipulation from `routes_vault.py` (1,114→417 lines).
+Includes key CRUD, section management, template creation, environment activation, metadata tags, local-only markers.
+
 **All phases:** 324 tests pass. Zero regressions. 1 pre-existing deselected test (unrelated).
 
 ---
 
-**Post-extraction state:** ~7,173 lines moved from `src/ui/web/` to `src/core/services/`.
-Web layer is now thin re-export shims + route handlers.
+**Post-extraction state:** ~10,412 lines of domain logic in `src/core/services/` (14 service modules).
+Route files (web layer) reduced from ~7,000 to ~4,300 lines — most are now thin HTTP wrappers.
 Core domain logic is accessible from CLI, TUI, and automation.
 
 ---
@@ -239,15 +255,21 @@ Service (vault.py)
 |---|---|---|
 | `src/core/services/vault.py` | vault.py | 564 |
 | `src/core/services/vault_io.py` | vault_io.py | 507 |
-| `src/core/services/content_crypto.py` | content_crypto.py | 768 |
-| `src/core/services/content_optimize.py` | content_optimize.py | 357 |
-| `src/core/services/content_optimize_video.py` | content_optimize_video.py | 674 |
-| `src/core/services/content_release.py` | content_release.py | 647 |
-| `src/core/services/pages_engine.py` | pages_engine.py | 691 |
+| `src/core/services/content_crypto.py` | content_crypto.py | 767 |
+| `src/core/services/content_optimize.py` | content_optimize.py | 356 |
+| `src/core/services/content_optimize_video.py` | content_optimize_video.py | 673 |
+| `src/core/services/content_release.py` | content_release.py | 646 |
+| `src/core/services/pages_engine.py` | pages_engine.py | 690 |
 | `src/core/services/pages_builders/*` | pages_builders/* (8 files + templates) | ~2,751 |
-| `src/core/services/md_transforms.py` | md_transforms.py | 214 |
-| **Total** | | **~7,173** |
+| `src/core/services/md_transforms.py` | md_transforms.py | 213 |
+| `src/core/services/git_ops.py` | routes_integrations.py | 415 |
+| `src/core/services/backup_ops.py` | routes_backup*.py | 1,179 |
+| `src/core/services/secrets_ops.py` | routes_secrets.py | 830 |
+| `src/core/services/vault_env_ops.py` | routes_vault.py | 815 |
+| `src/core/services/detection.py` | *(already existed)* | 300 |
+| **Total** | | **~10,706** |
 
 **After extraction:** Core domain logic is now accessible from any channel
-(CLI, TUI, web, automation). Web layer files are thin re-export shims
-that maintain full backward compatibility for existing route handlers and tests.
+(CLI, TUI, web, automation). Web layer route files are thin HTTP wrappers
+that parse requests and delegate to core services. Re-export shims
+maintain full backward compatibility for existing route handlers and tests.

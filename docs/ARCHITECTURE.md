@@ -108,6 +108,10 @@ devops-control-plane/
 │   │   │   ├── content_optimize.py    # Image/text optimization pipeline
 │   │   │   ├── content_optimize_video.py  # Video/audio ffmpeg pipeline
 │   │   │   ├── content_release.py     # GitHub Release large file sync
+│   │   │   ├── git_ops.py             # Git/GitHub CLI operations
+│   │   │   ├── backup_ops.py          # Backup/restore/wipe/encrypt archives
+│   │   │   ├── secrets_ops.py         # Secrets management, key generators
+│   │   │   ├── vault_env_ops.py       # .env CRUD, sections, templates
 │   │   │   ├── pages_engine.py        # Pages segment orchestrator
 │   │   │   ├── pages_builders/        # SSG builder plugins
 │   │   │   │   ├── base.py            #   PageBuilder ABC + ConfigField
@@ -141,8 +145,10 @@ devops-control-plane/
 │       ├── cli/               # Click CLI commands (thin wrappers)
 │       │   ├── vault.py       #   vault lock/unlock/status/export/detect
 │       │   ├── content.py     #   content encrypt/decrypt/optimize/release
-│       │   └── pages.py       #   pages build/deploy/list/builders
-│       └── web/               # Flask web admin
+│       │   ├── pages.py       #   pages build/deploy/list/builders
+│       │   ├── git.py         #   git status/log/commit/push/gh
+│       │   └── backup.py     #   backup create/list/preview/delete/folders
+│       └── web/               # Flask web admin (thin HTTP wrappers)
 │           ├── server.py      #   App factory
 │           ├── vault.py       #   ← re-export shim → core/services/vault.py
 │           ├── vault_io.py    #   ← re-export shim → core/services/vault_io.py
@@ -153,12 +159,12 @@ devops-control-plane/
 │           ├── pages_builders/       # ← shim → core/services/pages_builders/
 │           ├── md_transforms.py      # ← shim → core/services/md_transforms.py
 │           ├── routes_api.py         # Core status/run/detect API
-│           ├── routes_vault.py       # Vault lock/unlock API
-│           ├── routes_secrets.py     # Secrets management API
+│           ├── routes_vault.py       # ← thin wrapper → vault + vault_env_ops
+│           ├── routes_secrets.py     # ← thin wrapper → secrets_ops
 │           ├── routes_content*.py    # Content vault API
-│           ├── routes_integrations.py # Git/GitHub/CI API
+│           ├── routes_integrations.py # ← thin wrapper → git_ops
 │           ├── routes_pages*.py      # Pages builder API
-│           ├── routes_backup*.py     # Backup/restore API
+│           ├── routes_backup*.py     # ← thin wrapper → backup_ops
 │           ├── routes_config.py      # Config management API
 │           ├── static/css/admin.css  # Dark-mode CSS
 │           └── templates/            # Jinja2 templates

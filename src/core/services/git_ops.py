@@ -1,0 +1,415 @@
+"""
+Git & GitHub operations — channel-independent service.
+
+Provides Git status, log, commit, pull, push, and GitHub CLI
+(pull requests, actions runs, workflow dispatch) without any
+Flask or HTTP dependency.
+
+Extracted from ``src/ui/web/routes_integrations.py`` (P7).
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import shutil
+import subprocess
+from pathlib import Path
+
+logger = logging.getLogger(__name__)
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  Low-level runners
+# ═══════════════════════════════════════════════════════════════════
+
+
+def run_git(
+    *args: str,
+    cwd: Path,
+    timeout: int = 15,
+    check: bool = False,
+) -> subprocess.CompletedProcess[str]:
+    """Run a git command and return the result."""
+    return subprocess.run(
+        ["git", *args],
+        cwd=str(cwd),
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        check=check,
+    )
+
+
+def run_gh(
+    *args: str,
+    cwd: Path,
+    timeout: int = 30,
+    stdin: str | None = None,
+) -> subprocess.CompletedProcess[str]:
+    """Run a gh CLI command and return the result."""
+    return subprocess.run(
+        ["gh", *args],
+        cwd=str(cwd),
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        input=stdin,
+    )
+
+
+def repo_slug(project_root: Path) -> str | None:
+    """Get the GitHub owner/repo slug from git remote."""
+    r = run_git("remote", "get-url", "origin", cwd=project_root)
+    if r.returncode != 0:
+        return None
+    url = r.stdout.strip()
+    # Handle SSH: git@github.com:owner/repo.git
+    if url.startswith("git@"):
+        url = url.split(":", 1)[1]
+    # Handle HTTPS: https://github.com/owner/repo.git
+    elif "github.com/" in url:
+        url = url.split("github.com/", 1)[1]
+    else:
+        return None
+    return url.removesuffix(".git")
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  Git operations
+# ═══════════════════════════════════════════════════════════════════
+
+
+def git_status(project_root: Path) -> dict:
+    """Git repository status: branch, dirty files, ahead/behind tracking."""
+    root = project_root
+
+    # Current branch
+    r_branch = run_git("rev-parse", "--abbrev-ref", "HEAD", cwd=root)
+    branch = r_branch.stdout.strip() if r_branch.returncode == 0 else None
+
+    if branch is None:
+        return {"error": "Not a git repository", "available": False}
+
+    # Commit hash
+    r_hash = run_git("rev-parse", "--short", "HEAD", cwd=root)
+    commit_hash = r_hash.stdout.strip() if r_hash.returncode == 0 else None
+
+    # Dirty state — porcelain v1 for reliable parsing
+    r_status = run_git("status", "--porcelain", cwd=root)
+    status_lines = [
+        ln for ln in r_status.stdout.strip().splitlines() if ln.strip()
+    ] if r_status.returncode == 0 else []
+
+    staged = []
+    modified = []
+    untracked = []
+    for line in status_lines:
+        if len(line) < 3:
+            continue
+        idx = line[0]  # index status
+        wt = line[1]   # worktree status
+        fname = line[3:]
+        if idx in ("A", "M", "D", "R", "C"):
+            staged.append(fname)
+        if wt == "M":
+            modified.append(fname)
+        elif wt == "?":
+            untracked.append(fname)
+
+    dirty = len(status_lines) > 0
+
+    # Ahead/behind remote tracking branch
+    ahead = 0
+    behind = 0
+    r_ab = run_git(
+        "rev-list", "--left-right", "--count", "HEAD...@{u}", cwd=root,
+    )
+    if r_ab.returncode == 0:
+        parts = r_ab.stdout.strip().split()
+        if len(parts) == 2:
+            ahead = int(parts[0])
+            behind = int(parts[1])
+
+    # Last commit info
+    r_last = run_git(
+        "log", "-1", "--format=%H%n%h%n%s%n%an%n%aI", cwd=root,
+    )
+    last_commit = None
+    if r_last.returncode == 0:
+        lines = r_last.stdout.strip().splitlines()
+        if len(lines) >= 5:
+            last_commit = {
+                "hash": lines[0],
+                "short_hash": lines[1],
+                "message": lines[2],
+                "author": lines[3],
+                "date": lines[4],
+            }
+
+    # Remote URL
+    r_remote = run_git("remote", "get-url", "origin", cwd=root)
+    remote_url = r_remote.stdout.strip() if r_remote.returncode == 0 else None
+
+    return {
+        "available": True,
+        "branch": branch,
+        "commit": commit_hash,
+        "dirty": dirty,
+        "staged_count": len(staged),
+        "modified_count": len(modified),
+        "untracked_count": len(untracked),
+        "total_changes": len(status_lines),
+        "staged": staged[:20],         # cap for UI
+        "modified": modified[:20],
+        "untracked": untracked[:20],
+        "ahead": ahead,
+        "behind": behind,
+        "last_commit": last_commit,
+        "remote_url": remote_url,
+    }
+
+
+def git_log(project_root: Path, *, n: int = 10) -> dict:
+    """Recent commit history."""
+    n = min(n, 50)  # cap
+
+    r = run_git(
+        "log", f"-{n}", "--format=%H%n%h%n%s%n%an%n%aI%n---",
+        cwd=project_root,
+    )
+    if r.returncode != 0:
+        return {"error": "Failed to read git log", "commits": []}
+
+    commits = []
+    entries = r.stdout.strip().split("\n---\n")
+    for entry in entries:
+        lines = entry.strip().splitlines()
+        if len(lines) >= 5:
+            commits.append({
+                "hash": lines[0],
+                "short_hash": lines[1],
+                "message": lines[2],
+                "author": lines[3],
+                "date": lines[4],
+            })
+
+    return {"commits": commits}
+
+
+def git_commit(
+    project_root: Path,
+    message: str,
+    *,
+    files: list[str] | None = None,
+) -> dict:
+    """Stage and commit changes.
+
+    Args:
+        project_root: Repository root.
+        message: Commit message.
+        files: Optional list of files to stage (default: all).
+
+    Returns:
+        {"ok": True, "hash": ..., "message": ...} on success,
+        {"error": ...} on failure.
+    """
+    if not message.strip():
+        return {"error": "Commit message is required"}
+
+    root = project_root
+
+    # Stage
+    if files:
+        for f in files:
+            run_git("add", f, cwd=root)
+    else:
+        run_git("add", "-A", cwd=root)
+
+    # Check if there's anything to commit
+    r_diff = run_git("diff", "--cached", "--quiet", cwd=root)
+    if r_diff.returncode == 0:
+        return {"error": "Nothing to commit (no staged changes)"}
+
+    # Commit
+    r = run_git("commit", "-m", message, cwd=root, timeout=30)
+    if r.returncode != 0:
+        return {"error": f"Commit failed: {r.stderr.strip()}"}
+
+    # Get the new commit hash
+    r_hash = run_git("rev-parse", "--short", "HEAD", cwd=root)
+    new_hash = r_hash.stdout.strip() if r_hash.returncode == 0 else "?"
+
+    return {"ok": True, "hash": new_hash, "message": message}
+
+
+def git_pull(project_root: Path, *, rebase: bool = False) -> dict:
+    """Pull from remote."""
+    args = ["pull"]
+    if rebase:
+        args.append("--rebase")
+
+    r = run_git(*args, cwd=project_root, timeout=60)
+    if r.returncode != 0:
+        return {"error": f"Pull failed: {r.stderr.strip()}"}
+
+    return {"ok": True, "output": r.stdout.strip()}
+
+
+def git_push(project_root: Path, *, force: bool = False) -> dict:
+    """Push to remote."""
+    root = project_root
+    args = ["push"]
+    if force:
+        args.append("--force-with-lease")
+
+    r = run_git(*args, cwd=root, timeout=60)
+    if r.returncode != 0:
+        stderr = r.stderr.strip()
+        # Common case: no upstream configured
+        if "no upstream branch" in stderr.lower() or "has no upstream" in stderr.lower():
+            # Get current branch and set upstream
+            r_branch = run_git("rev-parse", "--abbrev-ref", "HEAD", cwd=root)
+            branch = r_branch.stdout.strip()
+            r2 = run_git("push", "--set-upstream", "origin", branch, cwd=root, timeout=60)
+            if r2.returncode != 0:
+                return {"error": f"Push failed: {r2.stderr.strip()}"}
+            return {"ok": True, "output": r2.stdout.strip() or r2.stderr.strip()}
+        return {"error": f"Push failed: {stderr}"}
+
+    return {"ok": True, "output": r.stdout.strip() or r.stderr.strip()}
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  GitHub CLI operations
+# ═══════════════════════════════════════════════════════════════════
+
+
+def gh_status(project_root: Path) -> dict:
+    """Extended GitHub status — version, repo, auth details."""
+    if not shutil.which("gh"):
+        return {"available": False, "error": "gh CLI not installed"}
+
+    # Get version
+    r = run_gh("--version", cwd=project_root)
+    version = (
+        r.stdout.strip().splitlines()[0]
+        if r.returncode == 0 and r.stdout.strip()
+        else "unknown"
+    )
+
+    # Check auth
+    r_auth = run_gh("auth", "status", cwd=project_root)
+    authenticated = r_auth.returncode == 0
+
+    slug = repo_slug(project_root)
+
+    return {
+        "available": True,
+        "version": version,
+        "authenticated": authenticated,
+        "auth_detail": r_auth.stdout.strip() or r_auth.stderr.strip(),
+        "repo": slug,
+    }
+
+
+def gh_pulls(project_root: Path) -> dict:
+    """List open pull requests."""
+    slug = repo_slug(project_root)
+    if not slug:
+        return {"available": False, "error": "No GitHub remote configured"}
+
+    r = run_gh(
+        "pr", "list", "--json", "number,title,author,createdAt,url,headRefName,state",
+        "--limit", "10",
+        "-R", slug,
+        cwd=project_root,
+    )
+    if r.returncode != 0:
+        return {"available": False, "error": r.stderr.strip()}
+
+    try:
+        pulls = json.loads(r.stdout)
+    except (json.JSONDecodeError, ValueError):
+        pulls = []
+
+    return {"available": True, "pulls": pulls}
+
+
+def gh_actions_runs(project_root: Path, *, n: int = 10) -> dict:
+    """Recent workflow run history."""
+    slug = repo_slug(project_root)
+    if not slug:
+        return {"available": False, "error": "No GitHub remote configured"}
+
+    n = min(n, 30)
+
+    r = run_gh(
+        "run", "list",
+        "--json", "databaseId,name,status,conclusion,createdAt,updatedAt,url,headBranch,event",
+        "--limit", str(n),
+        "-R", slug,
+        cwd=project_root,
+    )
+    if r.returncode != 0:
+        return {"available": False, "error": r.stderr.strip()}
+
+    try:
+        runs = json.loads(r.stdout)
+    except (json.JSONDecodeError, ValueError):
+        runs = []
+
+    return {"available": True, "runs": runs}
+
+
+def gh_actions_dispatch(
+    project_root: Path,
+    workflow: str,
+    *,
+    ref: str | None = None,
+) -> dict:
+    """Trigger a workflow via repository dispatch."""
+    slug = repo_slug(project_root)
+    if not slug:
+        return {"error": "No GitHub remote configured"}
+
+    if not workflow:
+        return {"error": "Missing 'workflow' field"}
+
+    if not ref:
+        r_branch = run_git("rev-parse", "--abbrev-ref", "HEAD", cwd=project_root)
+        ref = r_branch.stdout.strip() if r_branch.returncode == 0 else "main"
+
+    r = run_gh(
+        "workflow", "run", workflow,
+        "--ref", ref,
+        "-R", slug,
+        cwd=project_root,
+    )
+    if r.returncode != 0:
+        return {"error": f"Dispatch failed: {r.stderr.strip()}"}
+
+    return {"ok": True, "workflow": workflow, "ref": ref}
+
+
+def gh_actions_workflows(project_root: Path) -> dict:
+    """List available workflows."""
+    slug = repo_slug(project_root)
+    if not slug:
+        return {"available": False, "error": "No GitHub remote configured"}
+
+    r = run_gh(
+        "workflow", "list",
+        "--json", "id,name,state",
+        "-R", slug,
+        cwd=project_root,
+    )
+    if r.returncode != 0:
+        return {"available": False, "error": r.stderr.strip()}
+
+    try:
+        workflows = json.loads(r.stdout)
+    except (json.JSONDecodeError, ValueError):
+        workflows = []
+
+    return {"available": True, "workflows": workflows}
