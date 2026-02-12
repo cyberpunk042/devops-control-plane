@@ -81,6 +81,9 @@ show_menu() {
     echo "  ${CYAN}8${RESET})  ${BOLD}vault${RESET}        — Secrets Vault commands"
     echo "  ${CYAN}9${RESET})  ${BOLD}content${RESET}      — Content Vault commands"
     echo "  ${CYAN}10${RESET}) ${BOLD}pages${RESET}        — GitHub Pages commands"
+    echo "  ${CYAN}11${RESET}) ${BOLD}git${RESET}          — Git & GitHub commands"
+    echo "  ${CYAN}12${RESET}) ${BOLD}backup${RESET}       — Backup & Restore commands"
+    echo "  ${CYAN}13${RESET}) ${BOLD}secrets${RESET}      — Secrets & environment management"
     echo ""
     echo "  ${DIM}q)  quit${RESET}"
     echo ""
@@ -98,6 +101,9 @@ handle_choice() {
         8)  run_cli vault --help ;;
         9)  run_cli content --help ;;
         10) run_cli pages --help ;;
+        11) run_cli git --help ;;
+        12) run_cli backup --help ;;
+        13) run_cli secrets --help ;;
         q|Q|exit)
             echo ""
             ok "Goodbye!"

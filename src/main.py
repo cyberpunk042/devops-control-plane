@@ -411,12 +411,14 @@ from src.ui.cli.content import content
 from src.ui.cli.pages import pages
 from src.ui.cli.git import git
 from src.ui.cli.backup import backup
+from src.ui.cli.secrets import secrets
 
 cli.add_command(vault)
 cli.add_command(content)
 cli.add_command(pages)
 cli.add_command(git)
 cli.add_command(backup)
+cli.add_command(secrets)
 
 
 if __name__ == "__main__":

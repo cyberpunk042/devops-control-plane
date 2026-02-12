@@ -147,7 +147,8 @@ devops-control-plane/
 │       │   ├── content.py     #   content encrypt/decrypt/optimize/release
 │       │   ├── pages.py       #   pages build/deploy/list/builders
 │       │   ├── git.py         #   git status/log/commit/push/gh
-│       │   └── backup.py     #   backup create/list/preview/delete/folders
+│       │   ├── backup.py      #   backup create/list/preview/delete/folders
+│       │   └── secrets.py     #   secrets status/set/remove/list/generate/envs
 │       └── web/               # Flask web admin (thin HTTP wrappers)
 │           ├── server.py      #   App factory
 │           ├── vault.py       #   ← re-export shim → core/services/vault.py
