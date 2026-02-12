@@ -1,0 +1,40 @@
+# Go stack — detection and capabilities
+name: go
+description: "Go project"
+domain: service
+
+detection:
+  files_any_of:
+    - go.mod
+  files_all_of: []
+  content_contains: {}
+
+requires:
+  - adapter: shell
+    min_version: ""
+
+capabilities:
+  - name: install
+    adapter: shell
+    command: "go mod download"
+    description: "Download dependencies"
+  - name: lint
+    adapter: shell
+    command: "golangci-lint run ./..."
+    description: "Run linter"
+  - name: format
+    adapter: shell
+    command: "gofmt -w ."
+    description: "Format code"
+  - name: test
+    adapter: shell
+    command: "go test ./..."
+    description: "Run tests"
+  - name: build
+    adapter: shell
+    command: "go build ./..."
+    description: "Build project"
+  - name: vet
+    adapter: shell
+    command: "go vet ./..."
+    description: "Run go vet"

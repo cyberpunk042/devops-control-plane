@@ -1,0 +1,43 @@
+# C stack — detects CMakeLists.txt or Makefile in C projects
+name: c
+description: "C project (Make/CMake)"
+domain: service
+
+detection:
+  files_any_of:
+    - CMakeLists.txt
+    - Makefile
+    - configure.ac
+    - meson.build
+  files_all_of: []
+  content_contains: {}
+
+requires:
+  - adapter: shell
+    min_version: ""
+
+capabilities:
+  - name: install
+    adapter: shell
+    command: "cmake -B build -S . 2>/dev/null || true"
+    description: "Configure build system"
+  - name: build
+    adapter: shell
+    command: "cmake --build build 2>/dev/null || make"
+    description: "Build project"
+  - name: test
+    adapter: shell
+    command: "ctest --test-dir build 2>/dev/null || make test"
+    description: "Run tests"
+  - name: clean
+    adapter: shell
+    command: "cmake --build build --target clean 2>/dev/null || make clean"
+    description: "Clean build artifacts"
+  - name: lint
+    adapter: shell
+    command: "cppcheck --enable=all --suppress=missingIncludeSystem . 2>&1 | head -50"
+    description: "Static analysis with cppcheck"
+  - name: format
+    adapter: shell
+    command: "find . -name '*.c' -o -name '*.h' | xargs clang-format -i"
+    description: "Format with clang-format"

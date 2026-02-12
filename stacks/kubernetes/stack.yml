@@ -1,0 +1,42 @@
+# Kubernetes stack — raw manifests and kustomize
+name: kubernetes
+description: "Kubernetes manifests (raw or Kustomize)"
+domain: ops
+
+detection:
+  files_any_of:
+    - kustomization.yaml
+    - kustomization.yml
+    - skaffold.yaml
+  files_all_of: []
+  content_contains: {}
+
+requires:
+  - adapter: shell
+    min_version: ""
+
+capabilities:
+  - name: lint
+    adapter: shell
+    command: "kubectl apply --dry-run=client -f . 2>&1 | head -50"
+    description: "Validate manifests (dry-run)"
+  - name: apply
+    adapter: shell
+    command: "kubectl apply -f ."
+    description: "Apply manifests"
+  - name: diff
+    adapter: shell
+    command: "kubectl diff -f ."
+    description: "Diff against live cluster"
+  - name: status
+    adapter: shell
+    command: "kubectl get all"
+    description: "Show cluster resources"
+  - name: build
+    adapter: shell
+    command: "kustomize build ."
+    description: "Render kustomize output"
+  - name: delete
+    adapter: shell
+    command: "kubectl delete -f ."
+    description: "Delete resources"

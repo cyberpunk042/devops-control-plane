@@ -1,0 +1,40 @@
+# Elixir stack — Mix projects
+name: elixir
+description: "Elixir project (Mix)"
+domain: service
+
+detection:
+  files_any_of:
+    - mix.exs
+  files_all_of: []
+  content_contains: {}
+
+requires:
+  - adapter: shell
+    min_version: ""
+
+capabilities:
+  - name: install
+    adapter: shell
+    command: "mix deps.get"
+    description: "Get dependencies"
+  - name: lint
+    adapter: shell
+    command: "mix credo"
+    description: "Run Credo linter"
+  - name: format
+    adapter: shell
+    command: "mix format"
+    description: "Format code"
+  - name: test
+    adapter: shell
+    command: "mix test"
+    description: "Run tests"
+  - name: build
+    adapter: shell
+    command: "mix compile"
+    description: "Compile project"
+  - name: types
+    adapter: shell
+    command: "mix dialyzer"
+    description: "Run Dialyzer type checking"

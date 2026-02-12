@@ -1,0 +1,30 @@
+# Static site stack — plain HTML/CSS/JS without a build step
+name: static-site
+description: "Static site (HTML/CSS/JS)"
+domain: docs
+
+detection:
+  files_all_of:
+    - index.html
+  files_any_of: []
+  content_contains: {}
+
+requires: []
+
+capabilities:
+  - name: lint
+    adapter: shell
+    command: "npx htmlhint '**/*.html' 2>/dev/null || echo 'htmlhint not available'"
+    description: "Lint HTML files"
+  - name: format
+    adapter: shell
+    command: "npx prettier --write '**/*.{html,css,js}' 2>/dev/null || echo 'prettier not available'"
+    description: "Format with Prettier"
+  - name: test
+    adapter: shell
+    command: "npx lighthouse-ci autorun 2>/dev/null || echo 'lighthouse-ci not available'"
+    description: "Run Lighthouse audit"
+  - name: serve
+    adapter: shell
+    command: "python3 -m http.server 8080"
+    description: "Serve locally on port 8080"

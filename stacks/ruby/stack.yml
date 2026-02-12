@@ -1,0 +1,37 @@
+# Ruby stack — detection and capabilities
+name: ruby
+description: "Ruby project"
+domain: service
+
+detection:
+  files_any_of:
+    - Gemfile
+    - Rakefile
+  files_all_of: []
+  content_contains: {}
+
+requires:
+  - adapter: shell
+    min_version: ""
+
+capabilities:
+  - name: install
+    adapter: shell
+    command: "bundle install"
+    description: "Install dependencies"
+  - name: lint
+    adapter: shell
+    command: "bundle exec rubocop"
+    description: "Run RuboCop linter"
+  - name: format
+    adapter: shell
+    command: "bundle exec rubocop -A"
+    description: "Auto-correct with RuboCop"
+  - name: test
+    adapter: shell
+    command: "bundle exec rspec"
+    description: "Run tests"
+  - name: console
+    adapter: shell
+    command: "bundle exec irb"
+    description: "Open interactive console"

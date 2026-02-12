@@ -1,0 +1,40 @@
+# Swift stack — Swift Package Manager projects
+name: swift
+description: "Swift project (SPM)"
+domain: service
+
+detection:
+  files_any_of:
+    - Package.swift
+  files_all_of: []
+  content_contains: {}
+
+requires:
+  - adapter: shell
+    min_version: ""
+
+capabilities:
+  - name: install
+    adapter: shell
+    command: "swift package resolve"
+    description: "Resolve dependencies"
+  - name: build
+    adapter: shell
+    command: "swift build"
+    description: "Build project"
+  - name: test
+    adapter: shell
+    command: "swift test"
+    description: "Run tests"
+  - name: clean
+    adapter: shell
+    command: "swift package clean"
+    description: "Clean build artifacts"
+  - name: format
+    adapter: shell
+    command: "swift-format --recursive --in-place ."
+    description: "Format with swift-format"
+  - name: lint
+    adapter: shell
+    command: "swiftlint"
+    description: "Run SwiftLint"

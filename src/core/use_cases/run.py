@@ -136,9 +136,19 @@ def run_automation(
     # ── Set up adapter registry ──────────────────────────────────
     if registry is None:
         from src.adapters.shell.command import ShellCommandAdapter
+        from src.adapters.shell.filesystem import FilesystemAdapter
+        from src.adapters.vcs.git import GitAdapter
+        from src.adapters.containers.docker import DockerAdapter
+        from src.adapters.languages.python import PythonAdapter
+        from src.adapters.languages.node import NodeAdapter
 
         registry = AdapterRegistry(mock_mode=mock_mode)
         registry.register(ShellCommandAdapter())
+        registry.register(FilesystemAdapter())
+        registry.register(GitAdapter())
+        registry.register(DockerAdapter())
+        registry.register(PythonAdapter())
+        registry.register(NodeAdapter())
 
     # ── Execute ──────────────────────────────────────────────────
     report = execute_plan(

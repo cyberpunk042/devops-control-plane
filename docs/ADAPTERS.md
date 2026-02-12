@@ -1,21 +1,42 @@
 # Adapters Guide
 
-> How to create custom adapters for the DevOps Control Plane.
+> How to use and create adapters for the DevOps Control Plane.
 
 ---
 
 ## What is an Adapter?
 
-An **adapter** is a pluggable component that executes actions. The built-in `ShellCommandAdapter` runs shell commands, but you can create adapters for any execution target — Docker, Kubernetes, cloud APIs, CI/CD systems, etc.
+An **adapter** is a pluggable component that executes actions against external
+tools. The engine never talks to tools directly — it dispatches `Action` objects
+through the `AdapterRegistry`, which routes them to the right adapter and
+collects `Receipt` results.
+
+Adapters **never raise exceptions**. All failures are captured in the `Receipt`.
+
+---
+
+## Built-in Adapters
+
+| Adapter | Module | Tool | Description |
+|---|---|---|---|
+| `shell` | `src.adapters.shell.command` | `sh` | Execute arbitrary shell commands |
+| `filesystem` | `src.adapters.shell.filesystem` | — | File and directory operations |
+| `git` | `src.adapters.vcs.git` | `git` | Version control operations (status, commit, push, pull, log, branch, diff) |
+| `docker` | `src.adapters.containers.docker` | `docker` | Container and Docker Compose operations (ps, images, build, up, down, logs) |
+| `python` | `src.adapters.languages.python` | `python3` | Python toolchain (version, run, venv, pip install) |
+| `node` | `src.adapters.languages.node` | `node` | Node.js toolchain (version, run, install, npm scripts) with auto-detect for npm/yarn/pnpm |
+
+All adapters are registered automatically when the engine starts. Each adapter's
+`is_available()` method checks if the underlying CLI tool exists on the system.
 
 ---
 
 ## The Adapter Protocol
 
-Every adapter implements the `Adapter` protocol defined in `src/adapters/protocol.py`:
+Every adapter extends the `Adapter` ABC from `src/adapters/base.py`:
 
 ```python
-from src.adapters.protocol import Adapter, ExecutionContext
+from src.adapters.base import Adapter, ExecutionContext
 from src.core.models.action import Receipt
 
 
@@ -24,48 +45,60 @@ class MyAdapter(Adapter):
 
     @property
     def name(self) -> str:
-        """Unique identifier for this adapter."""
         return "my-adapter"
 
-    def can_handle(self, context: ExecutionContext) -> bool:
-        """Whether this adapter can handle the given context."""
-        return context.adapter == self.name
+    def is_available(self) -> bool:
+        """Check if the underlying tool exists."""
+        return shutil.which("my-tool") is not None
+
+    def validate(self, context: ExecutionContext) -> tuple[bool, str]:
+        """Validate the action before execution."""
+        command = context.action.params.get("command", "")
+        if not command:
+            return False, "Missing required param: 'command'"
+        return True, ""
 
     def execute(self, context: ExecutionContext) -> Receipt:
-        """Execute the action described by the context."""
+        """Execute the action. NEVER raise — capture errors in Receipt."""
         try:
-            # Your execution logic here
-            result = do_something(context.command, context.params)
-
+            result = do_something(context.action.params)
             return Receipt.success(
                 adapter=self.name,
-                action_id=context.action_id,
+                action_id=context.action.id,
                 output=result,
             )
         except Exception as e:
             return Receipt.failure(
                 adapter=self.name,
-                action_id=context.action_id,
-                output=str(e),
+                action_id=context.action.id,
+                error=str(e),
             )
 ```
+
+### Required Methods
+
+| Method | Purpose |
+|---|---|
+| `name` (property) | Unique identifier, matches `adapter:` field in stack capabilities |
+| `is_available()` | Quick check if the tool exists (e.g., `shutil.which("git")`) |
+| `validate(context)` | Pre-flight validation, returns `(ok, error_message)` |
+| `execute(context)` | Run the action, return a `Receipt` |
 
 ---
 
 ## ExecutionContext
 
-The context object passed to `execute()` contains:
+The context object passed to `validate()` and `execute()`:
 
 | Field | Type | Description |
 |---|---|---|
-| `adapter` | `str` | Target adapter name |
-| `action_id` | `str` | Unique action identifier |
-| `command` | `str` | Command to execute |
+| `action` | `Action` | The action to execute (contains `id`, `adapter`, `params`) |
 | `project_root` | `str` | Absolute path to project root |
-| `module_path` | `str` | Relative path to the module |
-| `environment` | `str` | Target environment name |
-| `dry_run` | `bool` | If True, simulate without executing |
-| `params` | `dict` | Additional parameters |
+| `environment` | `str` | Target environment name (e.g., "dev") |
+| `module_path` | `str | None` | Relative path to the module |
+| `dry_run` | `bool` | If True, validate but don't execute |
+| `params` | `dict` | Same as `action.params` (convenience shortcut) |
+| `working_dir` | `str` (property) | Resolved `project_root/module_path` |
 
 ---
 
@@ -75,14 +108,17 @@ Actions return a `Receipt` with the result:
 
 ```python
 # Success
-Receipt.success(adapter="my-adapter", action_id="...", output="all good")
+Receipt.success(adapter="git", action_id="...", output="branch=main, dirty=False")
 
-# Failure
-Receipt.failure(adapter="my-adapter", action_id="...", output="error details")
+# Failure (NEVER raise — use this instead)
+Receipt.failure(adapter="git", action_id="...", error="not a git repository")
 
 # Skip (e.g., dry run)
-Receipt.skip(adapter="my-adapter", action_id="...", reason="dry run")
+Receipt.skip(adapter="git", action_id="...", reason="dry run")
 ```
+
+Receipt fields: `status` ("ok" | "failed" | "skipped"), `output`, `error`,
+`duration_ms`, `metadata`, `started_at`, `ended_at`.
 
 ---
 
@@ -96,10 +132,13 @@ from src.adapters.registry import AdapterRegistry
 registry = AdapterRegistry()
 registry.register(MyAdapter())
 
-# The adapter will be selected when action.adapter == "my-adapter"
+# The adapter is selected when action.adapter == "my-adapter"
 ```
 
-In a stack definition, reference your adapter:
+All built-in adapters are auto-registered in `src/core/use_cases/run.py`.
+To add a new adapter to the default set, add it there.
+
+In a stack definition, reference your adapter by name:
 
 ```yaml
 capabilities:
@@ -110,71 +149,31 @@ capabilities:
 
 ---
 
-## Example: Docker Adapter
+## Stack Capability Compatibility
 
-```python
-import subprocess
-from src.adapters.protocol import Adapter, ExecutionContext
-from src.core.models.action import Receipt
+All built-in adapters support a **raw command fallback**: if the action's
+`params` contain a `command` key (as stack capabilities do), the adapter
+will execute that command string directly via `subprocess`. This means you
+can reference any adapter in a stack capability without needing structured
+`operation` params — the adapter handles both patterns.
 
+---
 
-class DockerAdapter(Adapter):
-    @property
-    def name(self) -> str:
-        return "docker"
+## Circuit Breaker Integration
 
-    def can_handle(self, context: ExecutionContext) -> bool:
-        return context.adapter == "docker"
-
-    def execute(self, context: ExecutionContext) -> Receipt:
-        if context.dry_run:
-            return Receipt.skip(
-                adapter=self.name,
-                action_id=context.action_id,
-                reason="dry run — would run docker command",
-            )
-
-        cmd = context.command
-        workdir = f"{context.project_root}/{context.module_path}"
-
-        try:
-            result = subprocess.run(
-                cmd, shell=True, capture_output=True, text=True,
-                cwd=workdir, timeout=300,
-            )
-
-            if result.returncode == 0:
-                return Receipt.success(
-                    adapter=self.name,
-                    action_id=context.action_id,
-                    output=result.stdout,
-                )
-            else:
-                return Receipt.failure(
-                    adapter=self.name,
-                    action_id=context.action_id,
-                    output=result.stderr,
-                )
-
-        except subprocess.TimeoutExpired:
-            return Receipt.failure(
-                adapter=self.name,
-                action_id=context.action_id,
-                output="Command timed out after 300s",
-            )
-```
+The `AdapterRegistry` integrates with the circuit breaker system. If an
+adapter fails repeatedly, its circuit breaker opens and subsequent requests
+are short-circuited with a failure receipt until the breaker recovers.
 
 ---
 
 ## Testing Adapters
 
-Use mock mode and the test infrastructure:
+Use mock mode or direct instantiation:
 
 ```python
-import pytest
 from src.adapters.registry import AdapterRegistry
-from src.core.models.action import Action, Receipt
-
+from src.core.models.action import Action
 
 def test_my_adapter():
     adapter = MyAdapter()
@@ -185,20 +184,18 @@ def test_my_adapter():
         id="test-1",
         adapter="my-adapter",
         capability="test",
-        command="echo hello",
-        module_name="api",
+        params={"command": "echo hello"},
     )
 
-    receipt = registry.execute_action(action, project_root="/tmp", environment="dev")
+    receipt = registry.execute_action(
+        action, project_root="/tmp", environment="dev",
+    )
     assert receipt.ok
 ```
 
----
+For mock mode testing:
 
-## Built-in Adapters
-
-| Adapter | Module | Description |
-|---|---|---|
-| `shell` | `src.adapters.shell.command` | Executes shell commands via subprocess |
-
-The shell adapter is registered by default and handles most use cases through stack capability commands.
+```python
+registry = AdapterRegistry(mock_mode=True)
+# All actions return success without executing
+```

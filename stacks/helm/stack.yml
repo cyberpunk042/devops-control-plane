@@ -1,0 +1,36 @@
+# Helm stack — detection and capabilities
+name: helm
+description: "Helm chart"
+domain: ops
+
+detection:
+  files_all_of:
+    - Chart.yaml
+  files_any_of: []
+  content_contains: {}
+
+requires:
+  - adapter: shell
+    min_version: ""
+
+capabilities:
+  - name: install
+    adapter: shell
+    command: "helm dependency update"
+    description: "Download chart dependencies"
+  - name: lint
+    adapter: shell
+    command: "helm lint ."
+    description: "Lint the chart"
+  - name: test
+    adapter: shell
+    command: "helm template . | kubectl apply --dry-run=client -f -"
+    description: "Dry-run template rendering"
+  - name: build
+    adapter: shell
+    command: "helm package ."
+    description: "Package chart into archive"
+  - name: status
+    adapter: shell
+    command: "helm list"
+    description: "List installed releases"

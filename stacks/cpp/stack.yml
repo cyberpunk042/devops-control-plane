@@ -1,0 +1,43 @@
+# C++ stack — detects CMakeLists.txt with C++ markers
+name: cpp
+description: "C++ project (CMake/Make)"
+domain: service
+
+detection:
+  files_any_of:
+    - CMakeLists.txt
+    - Makefile
+    - meson.build
+  files_all_of: []
+  content_contains:
+    CMakeLists.txt: "CXX"
+
+requires:
+  - adapter: shell
+    min_version: ""
+
+capabilities:
+  - name: install
+    adapter: shell
+    command: "cmake -B build -S . -DCMAKE_BUILD_TYPE=Release"
+    description: "Configure CMake"
+  - name: build
+    adapter: shell
+    command: "cmake --build build --parallel"
+    description: "Build project"
+  - name: test
+    adapter: shell
+    command: "ctest --test-dir build --output-on-failure"
+    description: "Run tests"
+  - name: clean
+    adapter: shell
+    command: "cmake --build build --target clean"
+    description: "Clean build artifacts"
+  - name: lint
+    adapter: shell
+    command: "cppcheck --enable=all --std=c++17 --suppress=missingIncludeSystem . 2>&1 | head -50"
+    description: "Static analysis with cppcheck"
+  - name: format
+    adapter: shell
+    command: "find . -name '*.cpp' -o -name '*.hpp' -o -name '*.cc' -o -name '*.hh' | xargs clang-format -i"
+    description: "Format with clang-format"

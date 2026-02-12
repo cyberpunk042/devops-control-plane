@@ -1,13 +1,11 @@
 """
-Page builders — pluggable static site generators.
+Page builders — backward-compatible re-export shim.
 
-Registry of all available builders. Import this module to get
-access to the builder registry.
+The canonical page builders now live in
+``src.core.services.pages_builders``. This module re-exports everything.
 """
 
-from __future__ import annotations
-
-from .base import (
+from src.core.services.pages_builders import (  # noqa: F401
     BuilderInfo,
     BuildResult,
     ConfigField,
@@ -18,45 +16,19 @@ from .base import (
     StageInfo,
     StageResult,
     run_pipeline,
+    get_builder,
+    list_builders,
+    _BUILDERS,
+    _register_defaults,
 )
-from .custom import CustomBuilder
-from .docusaurus import DocusaurusBuilder
-from .hugo import HugoBuilder
-from .mkdocs import MkDocsBuilder
-from .raw import RawBuilder
-from .sphinx import SphinxBuilder
 
-# ── Builder registry ────────────────────────────────────────────────
-
-_BUILDERS: dict[str, PageBuilder] = {}
-
-
-def _register_defaults() -> None:
-    """Register all built-in builders."""
-    for cls in (RawBuilder, MkDocsBuilder, HugoBuilder, DocusaurusBuilder, SphinxBuilder, CustomBuilder):
-        builder = cls()
-        _BUILDERS[builder.info().name] = builder
-
-
-def get_builder(name: str) -> PageBuilder | None:
-    """Get a builder by name."""
-    if not _BUILDERS:
-        _register_defaults()
-    return _BUILDERS.get(name)
-
-
-def list_builders() -> list[BuilderInfo]:
-    """List all builders with availability status."""
-    if not _BUILDERS:
-        _register_defaults()
-
-    result = []
-    for builder in _BUILDERS.values():
-        info = builder.info()
-        info.available = builder.detect()
-        result.append(info)
-    return result
-
+# Re-export builder classes
+from src.core.services.pages_builders.custom import CustomBuilder  # noqa: F401
+from src.core.services.pages_builders.docusaurus import DocusaurusBuilder  # noqa: F401
+from src.core.services.pages_builders.hugo import HugoBuilder  # noqa: F401
+from src.core.services.pages_builders.mkdocs import MkDocsBuilder  # noqa: F401
+from src.core.services.pages_builders.raw import RawBuilder  # noqa: F401
+from src.core.services.pages_builders.sphinx import SphinxBuilder  # noqa: F401
 
 __all__ = [
     "BuilderInfo",

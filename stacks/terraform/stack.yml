@@ -1,0 +1,42 @@
+# Terraform stack — detection and capabilities
+name: terraform
+description: "Terraform infrastructure project"
+domain: ops
+
+detection:
+  files_any_of:
+    - main.tf
+    - terraform.tf
+    - versions.tf
+  files_all_of: []
+  content_contains: {}
+
+requires:
+  - adapter: shell
+    min_version: ""
+
+capabilities:
+  - name: install
+    adapter: shell
+    command: "terraform init"
+    description: "Initialise Terraform"
+  - name: lint
+    adapter: shell
+    command: "terraform validate"
+    description: "Validate configuration"
+  - name: format
+    adapter: shell
+    command: "terraform fmt -recursive"
+    description: "Format HCL files"
+  - name: plan
+    adapter: shell
+    command: "terraform plan"
+    description: "Show execution plan"
+  - name: apply
+    adapter: shell
+    command: "terraform apply -auto-approve"
+    description: "Apply changes"
+  - name: status
+    adapter: shell
+    command: "terraform show"
+    description: "Show current state"

@@ -1,0 +1,296 @@
+/* ──────────────────────────────────────────────────────────
+   DevOps Control Plane — Docusaurus Theme
+   Indigo primary palette with dark mode support
+   ────────────────────────────────────────────────────────── */
+
+:root {
+  --ifm-color-primary: #6366f1;
+  --ifm-color-primary-dark: #4f46e5;
+  --ifm-color-primary-darker: #4338ca;
+  --ifm-color-primary-darkest: #3730a3;
+  --ifm-color-primary-light: #818cf8;
+  --ifm-color-primary-lighter: #a5b4fc;
+  --ifm-color-primary-lightest: #c7d2fe;
+
+  --ifm-code-font-size: 95%;
+  --ifm-font-family-base: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+
+  --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.1);
+}
+
+[data-theme='dark'] {
+  --ifm-color-primary: #818cf8;
+  --ifm-color-primary-dark: #6366f1;
+  --ifm-color-primary-darker: #4f46e5;
+  --ifm-color-primary-darkest: #4338ca;
+  --ifm-color-primary-light: #a5b4fc;
+  --ifm-color-primary-lighter: #c7d2fe;
+  --ifm-color-primary-lightest: #e0e7ff;
+
+  --docusaurus-highlighted-code-line-bg: rgba(255, 255, 255, 0.08);
+}
+
+/* ── Typography ────────────────────────────────────────── */
+
+article h1 {
+  font-size: 2rem;
+  font-weight: 700;
+}
+
+article h2 {
+  border-bottom: 1px solid var(--ifm-color-emphasis-200);
+  padding-bottom: 0.3rem;
+}
+
+/* ── Code blocks ───────────────────────────────────────── */
+
+.theme-code-block {
+  border: 1px solid var(--ifm-color-emphasis-200);
+  border-radius: var(--ifm-code-border-radius);
+}
+
+[data-theme='dark'] .theme-code-block {
+  border-color: var(--ifm-color-emphasis-300);
+}
+
+/* ── Admonitions ───────────────────────────────────────── */
+
+.theme-admonition {
+  border-radius: 8px;
+}
+
+/* ── Tables ────────────────────────────────────────────── */
+
+table {
+  display: table;
+  width: 100%;
+}
+
+table th {
+  background: var(--ifm-color-emphasis-100);
+}
+
+[data-theme='dark'] table th {
+  background: var(--ifm-color-emphasis-200);
+}
+
+/* ── Sidebar ───────────────────────────────────────────── */
+
+.menu__link--active:not(.menu__link--sublist) {
+  background: rgba(99, 102, 241, 0.08);
+}
+
+[data-theme='dark'] .menu__link--active:not(.menu__link--sublist) {
+  background: rgba(129, 140, 248, 0.12);
+}
+
+/* ── Search (when enabled) ─────────────────────────────── */
+
+.navbar__search-input {
+  background: var(--ifm-color-emphasis-100);
+}
+
+[data-theme='dark'] .navbar__search-input {
+  background: var(--ifm-color-emphasis-200);
+}
+
+/* ── Footer ────────────────────────────────────────────── */
+
+.footer--dark {
+  background-color: #0f0f23;
+}
+
+/* ── Language Selector (Google Translate) ──────────────── */
+
+.language-selector {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.language-selector-button {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  background: transparent;
+  border: 1px solid var(--ifm-color-emphasis-300);
+  border-radius: 6px;
+  padding: 0.4rem 0.6rem;
+  cursor: pointer;
+  color: var(--ifm-navbar-link-color);
+  font-size: 0.85rem;
+  transition: all 0.2s ease;
+}
+
+.language-selector-button:hover {
+  border-color: var(--ifm-color-primary);
+  background: var(--ifm-color-emphasis-100);
+}
+
+.language-label {
+  font-weight: 600;
+  font-size: 0.85rem;
+  min-width: 1.5rem;
+}
+
+.language-name {
+  font-weight: 500;
+}
+
+.language-arrow {
+  font-size: 0.6rem;
+  opacity: 0.6;
+}
+
+.language-dropdown {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  min-width: 160px;
+  background: var(--ifm-background-surface-color);
+  border: 1px solid var(--ifm-color-emphasis-200);
+  border-radius: 8px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.15);
+  z-index: 1000;
+  overflow: hidden;
+  animation: dropdownSlide 0.15s ease;
+}
+
+@keyframes dropdownSlide {
+  from { opacity: 0; transform: translateY(-8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.language-option {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.6rem 0.8rem;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--ifm-color-content);
+  font-size: 0.9rem;
+  text-align: left;
+  transition: background 0.15s ease;
+}
+
+.language-option:hover {
+  background: var(--ifm-color-emphasis-100);
+}
+
+.language-option.active {
+  background: var(--ifm-color-primary-lightest);
+  color: var(--ifm-color-primary-dark);
+  font-weight: 600;
+}
+
+.language-notice {
+  padding: 0.5rem 0.8rem;
+  font-size: 0.75rem;
+  color: var(--ifm-color-content-secondary);
+  border-top: 1px solid var(--ifm-color-emphasis-200);
+  text-align: center;
+}
+
+/* Prevent Google Translate from modifying navbar elements */
+.navbar__title,
+.navbar__brand,
+.hash-link,
+code,
+pre {
+  translate: no;
+}
+
+/* Fix Google Translate visual artifacts */
+font[style] {
+  background: transparent !important;
+}
+
+/* Hide Google Translate visual elements but keep functionality */
+.skiptranslate,
+.goog-te-banner-frame {
+  display: none !important;
+}
+
+body { top: 0 !important; }
+
+#google_translate_hidden {
+  position: absolute;
+  left: -9999px;
+  visibility: hidden;
+}
+
+.navbar__items--right>.navbar__item:has(#navbar-language-selector) {
+  display: flex;
+  align-items: center;
+  padding: 0;
+}
+
+#navbar-language-selector {
+  display: flex;
+  align-items: center;
+}
+
+/* Hide content until translation completes */
+html.translation-active main { opacity: 0; transition: opacity 0.2s ease; }
+html.translation-ready main { opacity: 1; }
+
+@keyframes bounce-dot {
+  0%, 80%, 100% { transform: translateY(0); opacity: 0.6; }
+  40% { transform: translateY(-12px); opacity: 1; }
+}
+
+/* Container loading state during translation (SPA navigation) */
+[class*="docMainContainer"].translating,
+main.translating {
+  position: relative;
+  min-height: 300px;
+}
+
+[class*="docMainContainer"].translating > *,
+main.translating > * {
+  visibility: hidden;
+}
+
+[class*="docMainContainer"].translating::after,
+main.translating::after {
+  content: '• • •';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 2.5rem;
+  letter-spacing: 0.5rem;
+  color: var(--ifm-color-primary);
+  animation: bounce-dot 1.4s ease-in-out infinite;
+}
+
+/* Loading overlay for translation */
+.translation-loading-dots {
+  font-size: 2.5rem;
+  letter-spacing: 0.5rem;
+  color: var(--ifm-color-primary);
+  animation: bounce-dot 1.4s ease-in-out infinite;
+}
+
+/* Mobile responsive */
+@media (max-width: 996px) {
+  .language-selector-button {
+    padding: 0.3rem 0.5rem;
+    font-size: 0.8rem;
+  }
+  .language-label { font-size: 0.8rem; }
+  .language-arrow { font-size: 0.5rem; }
+  .language-dropdown {
+    position: fixed;
+    top: 60px;
+    right: 10px;
+    max-width: calc(100vw - 20px);
+  }
+}
+
+/* __USER_CSS_MARKER__ */
+/* User custom CSS is appended below this line by the build system.
+   Do NOT remove this marker. */

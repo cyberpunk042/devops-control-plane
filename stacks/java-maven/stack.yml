@@ -1,0 +1,40 @@
+# Java (Maven) stack — detects pom.xml
+name: java-maven
+description: "Java project (Maven)"
+domain: service
+
+detection:
+  files_all_of:
+    - pom.xml
+  files_any_of: []
+  content_contains: {}
+
+requires:
+  - adapter: shell
+    min_version: ""
+
+capabilities:
+  - name: install
+    adapter: shell
+    command: "mvn dependency:resolve"
+    description: "Resolve dependencies"
+  - name: lint
+    adapter: shell
+    command: "mvn checkstyle:check"
+    description: "Run Checkstyle"
+  - name: test
+    adapter: shell
+    command: "mvn test"
+    description: "Run tests"
+  - name: build
+    adapter: shell
+    command: "mvn package -DskipTests"
+    description: "Build JAR/WAR"
+  - name: clean
+    adapter: shell
+    command: "mvn clean"
+    description: "Clean build artifacts"
+  - name: verify
+    adapter: shell
+    command: "mvn verify"
+    description: "Run full verification"

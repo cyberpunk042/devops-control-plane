@@ -1,0 +1,42 @@
+# .NET / C# stack — detects .sln or Directory.Build.props
+name: dotnet
+description: ".NET / C# project"
+domain: service
+
+detection:
+  files_any_of:
+    - Directory.Build.props
+    - global.json
+    - nuget.config
+  files_all_of: []
+  content_contains: {}
+
+requires:
+  - adapter: shell
+    min_version: ""
+
+capabilities:
+  - name: install
+    adapter: shell
+    command: "dotnet restore"
+    description: "Restore NuGet packages"
+  - name: lint
+    adapter: shell
+    command: "dotnet format --verify-no-changes"
+    description: "Check code formatting"
+  - name: format
+    adapter: shell
+    command: "dotnet format"
+    description: "Format code"
+  - name: test
+    adapter: shell
+    command: "dotnet test"
+    description: "Run tests"
+  - name: build
+    adapter: shell
+    command: "dotnet build --no-restore"
+    description: "Build solution"
+  - name: clean
+    adapter: shell
+    command: "dotnet clean"
+    description: "Clean build output"

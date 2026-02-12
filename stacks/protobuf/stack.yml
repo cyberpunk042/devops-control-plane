@@ -1,0 +1,34 @@
+# Protobuf / gRPC stack — buf or raw protoc
+name: protobuf
+description: "Protocol Buffers / gRPC"
+domain: service
+
+detection:
+  files_any_of:
+    - buf.yaml
+    - buf.gen.yaml
+    - buf.work.yaml
+  files_all_of: []
+  content_contains: {}
+
+requires:
+  - adapter: shell
+    min_version: ""
+
+capabilities:
+  - name: lint
+    adapter: shell
+    command: "buf lint"
+    description: "Lint proto files"
+  - name: format
+    adapter: shell
+    command: "buf format -w"
+    description: "Format proto files"
+  - name: build
+    adapter: shell
+    command: "buf generate"
+    description: "Generate code from protos"
+  - name: test
+    adapter: shell
+    command: "buf breaking --against '.git#branch=main'"
+    description: "Check breaking changes"

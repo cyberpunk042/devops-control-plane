@@ -1,0 +1,45 @@
+# TypeScript stack — TypeScript-first Node.js projects
+name: typescript
+description: "TypeScript project"
+domain: service
+
+detection:
+  files_all_of:
+    - tsconfig.json
+    - package.json
+  files_any_of: []
+  content_contains: {}
+
+requires:
+  - adapter: node
+    min_version: "18"
+
+capabilities:
+  - name: install
+    adapter: shell
+    command: "npm install"
+    description: "Install dependencies"
+  - name: lint
+    adapter: shell
+    command: "npx eslint ."
+    description: "Run ESLint"
+  - name: format
+    adapter: shell
+    command: "npx prettier --write ."
+    description: "Format with Prettier"
+  - name: test
+    adapter: shell
+    command: "npm test"
+    description: "Run tests"
+  - name: build
+    adapter: shell
+    command: "npx tsc --noEmit"
+    description: "Type-check (no emit)"
+  - name: compile
+    adapter: shell
+    command: "npx tsc"
+    description: "Compile TypeScript"
+  - name: types
+    adapter: shell
+    command: "npx tsc --noEmit --strict"
+    description: "Strict type checking"

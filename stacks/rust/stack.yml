@@ -1,0 +1,40 @@
+# Rust stack — detection and capabilities
+name: rust
+description: "Rust project"
+domain: service
+
+detection:
+  files_any_of:
+    - Cargo.toml
+  files_all_of: []
+  content_contains: {}
+
+requires:
+  - adapter: shell
+    min_version: ""
+
+capabilities:
+  - name: install
+    adapter: shell
+    command: "cargo fetch"
+    description: "Download dependencies"
+  - name: lint
+    adapter: shell
+    command: "cargo clippy -- -D warnings"
+    description: "Run Clippy linter"
+  - name: format
+    adapter: shell
+    command: "cargo fmt"
+    description: "Format code"
+  - name: test
+    adapter: shell
+    command: "cargo test"
+    description: "Run tests"
+  - name: build
+    adapter: shell
+    command: "cargo build"
+    description: "Build project"
+  - name: check
+    adapter: shell
+    command: "cargo check"
+    description: "Type-check without building"

@@ -1,0 +1,33 @@
+# Zig stack — modern systems language
+name: zig
+description: "Zig project"
+domain: service
+
+detection:
+  files_any_of:
+    - build.zig
+    - build.zig.zon
+  files_all_of: []
+  content_contains: {}
+
+requires:
+  - adapter: shell
+    min_version: ""
+
+capabilities:
+  - name: build
+    adapter: shell
+    command: "zig build"
+    description: "Build project"
+  - name: test
+    adapter: shell
+    command: "zig build test"
+    description: "Run tests"
+  - name: format
+    adapter: shell
+    command: "zig fmt ."
+    description: "Format code"
+  - name: clean
+    adapter: shell
+    command: "rm -rf zig-out zig-cache .zig-cache"
+    description: "Clean build artifacts"

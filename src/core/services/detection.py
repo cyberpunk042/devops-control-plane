@@ -104,7 +104,10 @@ def match_stack(directory: Path, stacks: dict[str, Stack]) -> Stack | None:
 
 
 def detect_version(directory: Path, stack_name: str) -> str | None:
-    """Try to detect the version of a module from its config files."""
+    """Try to detect the version of a module from its config files.
+
+    Checks technology-specific marker files in order of specificity.
+    """
     # Python: pyproject.toml
     pyproject = directory / "pyproject.toml"
     if pyproject.is_file():
@@ -116,7 +119,7 @@ def detect_version(directory: Path, stack_name: str) -> str | None:
         except OSError:
             pass
 
-    # Node: package.json
+    # Node / TypeScript: package.json
     package_json = directory / "package.json"
     if package_json.is_file():
         try:
@@ -128,25 +131,95 @@ def detect_version(directory: Path, stack_name: str) -> str | None:
         except (OSError, json.JSONDecodeError):
             pass
 
+    # Go: go.mod  →  module version from the go directive
+    go_mod = directory / "go.mod"
+    if go_mod.is_file():
+        try:
+            content = go_mod.read_text(encoding="utf-8")
+            match = re.search(r"^go\s+(\d+\.\d+(?:\.\d+)?)", content, re.MULTILINE)
+            if match:
+                return match.group(1)
+        except OSError:
+            pass
+
+    # Rust: Cargo.toml
+    cargo = directory / "Cargo.toml"
+    if cargo.is_file():
+        try:
+            content = cargo.read_text(encoding="utf-8")
+            match = re.search(r'version\s*=\s*"([^"]+)"', content)
+            if match:
+                return match.group(1)
+        except OSError:
+            pass
+
+    # Elixir: mix.exs  →  version: "x.y.z"
+    mix = directory / "mix.exs"
+    if mix.is_file():
+        try:
+            content = mix.read_text(encoding="utf-8")
+            match = re.search(r'version:\s*"([^"]+)"', content)
+            if match:
+                return match.group(1)
+        except OSError:
+            pass
+
+    # Helm: Chart.yaml
+    chart = directory / "Chart.yaml"
+    if chart.is_file():
+        try:
+            content = chart.read_text(encoding="utf-8")
+            match = re.search(r"^version:\s*(.+)$", content, re.MULTILINE)
+            if match:
+                return match.group(1).strip().strip("\"'")
+        except OSError:
+            pass
+
     return None
 
 
 def detect_language(stack_name: str) -> str | None:
-    """Infer primary language from stack name."""
+    """Infer primary language from stack name.
+
+    Uses prefix matching so stack variants (e.g. python-flask,
+    java-maven) automatically resolve to their base language.
+    """
     lang_map = {
+        # ── Service stacks (languages) ──────────────────────────
         "python": "python",
         "node": "javascript",
+        "typescript": "typescript",
         "go": "go",
         "rust": "rust",
         "ruby": "ruby",
         "java": "java",
+        "dotnet": "csharp",
+        "swift": "swift",
+        "elixir": "elixir",
+        "zig": "zig",
+        "cpp": "cpp",
+        "c": "c",
+        "protobuf": "protobuf",
+        # ── Ops / infra stacks ──────────────────────────────────
+        "terraform": "hcl",
+        "helm": "yaml",
+        "kubernetes": "yaml",
         "docker-compose": None,
+        "static-site": "html",
+        # ── Docs ────────────────────────────────────────────────
         "markdown": None,
     }
+    # Exact match first
+    if stack_name in lang_map:
+        return lang_map[stack_name]
+    # Longest prefix match for variants (e.g. python-flask → python)
+    best_match: str | None = None
+    best_len = 0
     for prefix, lang in lang_map.items():
-        if stack_name.startswith(prefix):
-            return lang
-    return None
+        if stack_name.startswith(prefix + "-") and len(prefix) > best_len:
+            best_match = lang
+            best_len = len(prefix)
+    return best_match
 
 
 def detect_modules(
