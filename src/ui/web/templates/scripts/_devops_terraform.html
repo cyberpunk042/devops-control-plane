@@ -1,0 +1,245 @@
+<!-- DevOps Tab JS — Terraform Card
+     loadTerraformCard(), validate/plan/state/workspaces/generate modals.
+     Depends on: _devops_init.html (card registry)
+-->
+    // ── Terraform Card ─────────────────────────────────────────────────
+
+    async function loadTerraformCard() {
+        const badge = document.getElementById('devops-terraform-badge');
+        const detail = document.getElementById('devops-terraform-detail');
+        const cached = cardCached('terraform');
+        const data = cached || await api('/terraform/status').catch(e => ({ _err: e }));
+        if (data._err) {
+            badge.className = 'status-badge failed';
+            badge.innerHTML = '<span class="status-dot"></span>Error';
+            detail.innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(data._err.message)}</p>`;
+            return;
+        }
+        if (!cached) cardStore('terraform', data);
+
+        const cli = data.cli || {};
+        const hasTf = data.has_terraform;
+        const resources = data.resources || [];
+        const providers = data.providers || [];
+        const modules = data.modules || [];
+        const backend = data.backend;
+        const initialized = data.initialized;
+
+        if (!hasTf && !cli.available) {
+            badge.className = 'status-badge degraded';
+            badge.innerHTML = '<span class="status-dot"></span>N/A';
+            detail.innerHTML = `<div style="font-size:0.82rem;color:var(--text-secondary);line-height:1.5">
+                <p class="empty-state-sm">No Terraform configuration detected</p>
+                <div style="font-size:0.68rem;color:var(--text-muted);margin-top:var(--space-xs)">Create a <code>terraform/</code> directory with <code>.tf</code> files, or install Terraform CLI.</div>
+                <div style="margin-top:var(--space-md)"><button class="btn btn-sm btn-ghost" onclick="tfGenerate()" title="Generate main.tf, variables.tf, outputs.tf scaffold for a cloud provider">🏗️ Generate Scaffold</button></div>
+            </div>`;
+            return;
+        }
+
+        badge.className = 'status-badge ' + (hasTf ? 'ok' : 'degraded');
+        badge.innerHTML = `<span class="status-dot"></span>${hasTf ? resources.length + ' resources' : 'CLI only'}`;
+
+        let html = `<div style="font-size:0.85rem;color:var(--text-secondary);line-height:1.5">`;
+
+        // CLI status
+        html += `<div style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.3rem" title="Terraform CLI availability and version">CLI Status</div>`;
+        html += `<div style="display:flex;align-items:center;gap:0.4rem;padding:0.2rem 0.5rem;background:var(--bg-inset);border-radius:6px;border-left:3px solid ${cli.available?'var(--success)':'var(--warning)'}">
+            <span>${cli.available?'✅':'⚠️'}</span>
+            <span style="font-weight:600;color:var(--text-primary);font-size:0.75rem">terraform</span>
+            <span style="font-size:0.64rem;color:var(--text-muted)">${esc(cli.version||'not installed')}</span>
+            <span style="font-size:0.6rem;padding:0.05rem 0.3rem;border:1px solid ${initialized?'var(--success)':'var(--warning)'};border-radius:3px;color:${initialized?'var(--success)':'var(--warning)'}">${initialized?'initialized':'not initialized'}</span>
+        </div>`;
+
+        // Config summary
+        if (hasTf) {
+            html += `<div style="font-size:0.68rem;color:var(--text-muted);margin-top:var(--space-xs)">📄 ${(data.files||[]).length} .tf files · ${resources.length} resources</div>`;
+        }
+
+        // Providers
+        if (providers.length) {
+            html += `<div style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;margin:var(--space-sm) 0 0.3rem" title="Required Terraform providers">Providers (${providers.length})</div>`;
+            html += `<div style="display:flex;flex-wrap:wrap;gap:0.25rem">`;
+            providers.forEach(p => { html += `<span style="font-size:0.66rem;padding:0.1rem 0.4rem;border:1px solid var(--accent);border-radius:4px;color:var(--accent)">${esc(p)}</span>`; });
+            html += `</div>`;
+        }
+
+        // Modules
+        if (modules.length) {
+            html += `<div style="display:flex;align-items:center;gap:0.4rem;margin-top:var(--space-xs);font-size:0.72rem"><span>📦</span><span style="font-weight:600;color:var(--text-primary)">${modules.length} module${modules.length!==1?'s':''}</span></div>`;
+        }
+
+        // Backend
+        if (backend) {
+            html += `<div style="display:flex;align-items:center;gap:0.4rem;margin-top:0.15rem;font-size:0.72rem"><span>💾</span><span>Backend:</span><span style="font-weight:600;color:var(--accent)">${esc(backend.type||backend)}</span></div>`;
+        }
+
+        // Actions
+        html += `<div style="display:flex;gap:var(--space-sm);margin-top:var(--space-md);flex-wrap:wrap">
+            <button class="btn btn-sm btn-secondary" onclick="tfValidate()" ${!hasTf?'disabled':''} title="Validate Terraform configuration syntax and internal consistency">✅ Validate</button>
+            <button class="btn btn-sm btn-secondary" onclick="tfPlan()" ${!initialized?'disabled':''} title="Run terraform plan to preview infrastructure changes">📋 Plan</button>
+            <button class="btn btn-sm btn-secondary" onclick="tfState()" title="View resources tracked in the Terraform state file">📦 State</button>
+            <button class="btn btn-sm btn-secondary" onclick="tfWorkspaces()" title="List and view Terraform workspaces">🗂️ Workspaces</button>
+            <button class="btn btn-sm btn-ghost" onclick="tfGenerate()" title="Generate main.tf, variables.tf, outputs.tf scaffold">🏗️ Generate</button>
+        </div>`;
+        html += `</div>`;
+        detail.innerHTML = html;
+    }
+
+    async function tfValidate() {
+        modalOpen({
+            title: '✅ Terraform Validate',
+            body: `<p style="font-size:0.75rem;color:var(--text-muted);margin-bottom:var(--space-md)">Checks .tf syntax and internal consistency (provider refs, variable usage, etc.).</p>
+                <div id="tf-val-body" style="max-height:400px;overflow-y:auto"><span class="spinner"></span></div>`,
+            footerButtons: [
+                { label: 'Close', cls: 'btn-primary', onclick: 'modalClose()' },
+            ],
+        });
+        try {
+            const data = await api('/terraform/validate', { method: 'POST', body: '{}' });
+            const body = document.getElementById('tf-val-body');
+            const valid = data.valid;
+            let h = `<div style="font-size:0.82rem;font-weight:600;color:${valid?'var(--success)':'var(--error)'}">
+                ${valid ? '✅ Configuration is valid' : `❌ ${data.error_count||0} error(s), ${data.warning_count||0} warning(s)`}
+            </div>`;
+            const diags = data.diagnostics || [];
+            diags.forEach(d => {
+                const clr = d.severity === 'error' ? 'var(--error)' : 'var(--warning)';
+                h += `<div style="padding:0.3rem 0.5rem;margin-top:0.2rem;background:var(--bg-inset);border-radius:6px;border-left:3px solid ${clr};font-size:0.72rem">
+                    <div style="font-weight:600;color:${clr}">${d.severity === 'error'?'❌':'⚠️'} ${esc(d.summary||'')}</div>
+                    ${d.detail ? `<div style="font-size:0.68rem;color:var(--text-muted);margin-top:0.1rem">${esc(d.detail)}</div>` : ''}
+                </div>`;
+            });
+            body.innerHTML = h;
+        } catch (e) {
+            document.getElementById('tf-val-body').innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(e.message)}</p>`;
+        }
+    }
+
+    async function tfPlan() {
+        modalOpen({
+            title: '📋 Terraform Plan',
+            body: `<p style="font-size:0.75rem;color:var(--text-muted);margin-bottom:var(--space-md)">Previews what infrastructure changes would be applied without making them.</p>
+                <div id="tf-plan-body" style="max-height:450px;overflow-y:auto"><span class="spinner"></span></div>`,
+            footerButtons: [
+                { label: 'Close', cls: 'btn-primary', onclick: 'modalClose()' },
+            ],
+        });
+        try {
+            const data = await api('/terraform/plan', { method: 'POST', body: '{}' });
+            const body = document.getElementById('tf-plan-body');
+            if (data.error) { body.innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(data.error)}</p>`; return; }
+            const c = data.changes || {};
+            const total = (c.add||0) + (c.change||0) + (c.destroy||0);
+            let h = `<div style="font-size:0.82rem;font-weight:600;color:${total===0?'var(--success)':'var(--accent)'}">
+                ${total === 0 ? '✅ No changes — infrastructure is up-to-date' : `${total} change${total!==1?'s':''} planned`}
+            </div>`;
+            if (total > 0) {
+                h += `<div style="display:flex;gap:0.6rem;margin-top:var(--space-sm);font-size:0.78rem">
+                    <span style="color:var(--success)">+${c.add||0} add</span>
+                    <span style="color:var(--warning)">~${c.change||0} change</span>
+                    <span style="color:var(--error)">-${c.destroy||0} destroy</span>
+                </div>`;
+            }
+            if (data.output) {
+                h += `<pre style="margin-top:var(--space-sm);padding:var(--space-sm);background:var(--bg-primary);border-radius:var(--radius-sm);font-size:0.66rem;color:var(--text-secondary);overflow-x:auto;max-height:250px">${esc(data.output)}</pre>`;
+            }
+            body.innerHTML = h;
+        } catch (e) {
+            document.getElementById('tf-plan-body').innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(e.message)}</p>`;
+        }
+    }
+
+    async function tfState() {
+        modalOpen({
+            title: '📦 Terraform State',
+            body: `<p style="font-size:0.75rem;color:var(--text-muted);margin-bottom:var(--space-md)">Resources currently tracked in the state file — these are the live infrastructure objects Terraform manages.</p>
+                <div id="tf-state-body" style="max-height:450px;overflow-y:auto"><span class="spinner"></span></div>`,
+            footerButtons: [
+                { label: 'Close', cls: 'btn-primary', onclick: 'modalClose()' },
+            ],
+        });
+        try {
+            const data = await api('/terraform/state');
+            const body = document.getElementById('tf-state-body');
+            const res = data.resources || [];
+            if (!res.length) { body.innerHTML = '<p class="empty-state-sm">No resources in state — run <code>terraform apply</code> first.</p>'; return; }
+            let h = `<div style="font-size:0.72rem;color:var(--text-muted);margin-bottom:0.3rem">${data.count||res.length} resources</div>`;
+            res.forEach(r => {
+                h += `<div style="display:flex;gap:0.5rem;align-items:center;padding:0.3rem 0;border-bottom:1px solid var(--border-subtle);font-size:0.75rem">
+                    <span style="font-weight:600;color:var(--accent);font-family:var(--font-mono);font-size:0.68rem;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.type)}.${esc(r.name)}</span>
+                    <span style="color:var(--text-muted);font-size:0.64rem">${esc(r.provider||'')}</span>
+                </div>`;
+            });
+            body.innerHTML = h;
+        } catch (e) {
+            document.getElementById('tf-state-body').innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(e.message)}</p>`;
+        }
+    }
+
+    async function tfWorkspaces() {
+        modalOpen({
+            title: '🗂️ Terraform Workspaces',
+            body: `<p style="font-size:0.75rem;color:var(--text-muted);margin-bottom:var(--space-md)">Workspaces isolate state files — useful for managing multiple environments (dev, staging, prod).</p>
+                <div id="tf-ws-body" style="max-height:300px;overflow-y:auto"><span class="spinner"></span></div>`,
+            size: 'narrow',
+            footerButtons: [
+                { label: 'Close', cls: 'btn-primary', onclick: 'modalClose()' },
+            ],
+        });
+        try {
+            const data = await api('/terraform/workspaces');
+            const body = document.getElementById('tf-ws-body');
+            const wss = data.workspaces || [];
+            const current = data.current || '';
+            if (!wss.length) { body.innerHTML = '<p class="empty-state-sm">No workspaces found</p>'; return; }
+            body.innerHTML = wss.map(ws => `<div style="display:flex;gap:0.5rem;align-items:center;padding:0.35rem 0;border-bottom:1px solid var(--border-subtle);font-size:0.78rem">
+                <span style="font-weight:${ws===current?'700':'400'};color:${ws===current?'var(--accent)':'var(--text-primary)'}">${ws===current?'▸ ':''} ${esc(ws)}</span>
+                ${ws===current?'<span style="font-size:0.66rem;padding:0.1rem 0.3rem;background:var(--accent);color:#fff;border-radius:4px">current</span>':''}
+            </div>`).join('');
+        } catch (e) {
+            document.getElementById('tf-ws-body').innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(e.message)}</p>`;
+        }
+    }
+
+    function tfGenerate() {
+        const body = `<div class="modal-form-grid">` +
+            modalFormField({ name: 'tf-gen-provider', label: 'Cloud Provider', type: 'select', options: [
+                { value: 'aws', label: 'AWS' },
+                { value: 'google', label: 'Google Cloud' },
+                { value: 'azurerm', label: 'Azure' },
+                { value: 'digitalocean', label: 'DigitalOcean' },
+            ], fullWidth: true, hint: 'Primary cloud provider for the Terraform configuration' }) +
+            modalFormField({ name: 'tf-gen-backend', label: 'Backend', type: 'select', options: [
+                { value: 'local', label: 'Local' },
+                { value: 's3', label: 'S3 (AWS)' },
+                { value: 'gcs', label: 'GCS (Google)' },
+                { value: 'azurerm', label: 'Azure Blob' },
+            ], fullWidth: true, hint: 'Where Terraform stores the state file' }) +
+            `</div>`;
+
+        modalOpen({
+            title: '🏗️ Generate Terraform Scaffold',
+            body,
+            size: 'narrow',
+            footerButtons: [
+                { label: 'Cancel', cls: 'btn-ghost', onclick: 'modalClose()' },
+                { label: 'Generate', cls: 'btn-primary', id: 'tf-gen-btn', onclick: 'doTfGenerate()' },
+            ],
+        });
+    }
+
+    async function doTfGenerate() {
+        const provider = mfVal('tf-gen-provider');
+        const backend = mfVal('tf-gen-backend');
+        const btn = document.getElementById('tf-gen-btn'); btn.disabled = true; btn.textContent = 'Generating…';
+        try {
+            const data = await api('/terraform/generate', { method: 'POST', body: JSON.stringify({ provider, backend }) });
+            modalClose();
+            toast(`Generated ${(data.files||[]).length} Terraform files (${provider}) ✅`, 'success');
+            cardInvalidate('terraform'); loadTerraformCard();
+        } catch (e) {
+            modalError(e.message);
+            btn.disabled = false; btn.textContent = 'Generate';
+        }
+    }
+

@@ -156,6 +156,11 @@ toast(`Failed to load folders: ${e.message}`, 'error');
 }
 
 async function contentLoadFolder(folderPath) {
+// Guard unsaved editor changes
+if (typeof monacoIsDirty === 'function' && monacoIsDirty()) {
+    monacoGuardUnsaved(() => contentLoadFolder(folderPath));
+    return;
+}
 contentCurrentPath = folderPath;
 // Clear file preview state so hash reverts to folder format
 previewCurrentPath = '';
@@ -200,6 +205,11 @@ browser.innerHTML = `<p class="empty-state" style="color:var(--error)">❌ ${esc
 }
 
 function contentSwitchMode(mode) {
+// Guard unsaved editor changes
+if (typeof monacoIsDirty === 'function' && monacoIsDirty()) {
+    monacoGuardUnsaved(() => contentSwitchMode(mode));
+    return;
+}
 // Clean up archive modals & polls before switching away
 const previousMode = contentCurrentMode;
 if (previousMode === 'archive' && mode !== 'archive') {
@@ -337,7 +347,15 @@ const rawPath = subParts.slice(1).join('/');
 const atIdx = rawPath.lastIndexOf('@');
 if (atIdx > 0) {
 const filePath = rawPath.substring(0, atIdx);
-const viewMode = rawPath.substring(atIdx + 1);
+let viewMode = rawPath.substring(atIdx + 1);
+// Parse optional :LINE suffix (e.g. preview:42)
+let focusLine = 0;
+const colonIdx = viewMode.indexOf(':');
+if (colonIdx > 0) {
+    focusLine = parseInt(viewMode.substring(colonIdx + 1), 10) || 0;
+    viewMode = viewMode.substring(0, colonIdx);
+}
+window._contentFocusLine = focusLine;
 // Set the folder context from the file path (first segment)
 const folderRoot = filePath.split('/')[0];
 contentCurrentPath = folderRoot;

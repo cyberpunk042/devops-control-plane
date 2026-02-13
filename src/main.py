@@ -201,7 +201,7 @@ def detect(ctx: click.Context, as_json: bool, no_save: bool) -> None:
 
     if result.state_saved:
         click.echo()
-        click.secho("   💾 State saved to state/current.json", fg="cyan")
+        click.secho("   💾 State saved to .state/current.json", fg="cyan")
 
     click.echo()
 
@@ -329,7 +329,7 @@ def health(ctx: click.Context, as_json: bool) -> None:
 
     # Initialize components
     cb_registry = CircuitBreakerRegistry()
-    retry_path = project_root / "state" / "retry_queue.json"
+    retry_path = project_root / ".state" / "retry_queue.json"
     retry_q = RetryQueue(path=retry_path)
 
     system_health = check_system_health(

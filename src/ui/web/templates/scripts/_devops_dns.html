@@ -1,0 +1,203 @@
+<!-- DevOps Tab JS — DNS & CDN Card
+     loadDnsCard(), lookup/ssl/generate modals.
+     Depends on: _devops_init.html (card registry)
+-->
+    // ── DNS & CDN Card ─────────────────────────────────────────────────
+
+    async function loadDnsCard() {
+        const badge = document.getElementById('devops-dns-badge');
+        const detail = document.getElementById('devops-dns-detail');
+        const cached = cardCached('dns');
+        const data = cached || await api('/dns/status').catch(e => ({ _err: e }));
+        if (data._err) {
+            badge.className = 'status-badge failed';
+            badge.innerHTML = '<span class="status-dot"></span>Error';
+            detail.innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(data._err.message)}</p>`;
+            return;
+        }
+        if (!cached) cardStore('dns', data);
+
+        const providers = data.cdn_providers || [];
+        const domains = data.domains || [];
+        const certs = data.ssl_certs || [];
+        const hasSomething = providers.length > 0 || domains.length > 0 || (data.dns_files||[]).length > 0;
+
+        if (!hasSomething) {
+            badge.className = 'status-badge degraded';
+            badge.innerHTML = '<span class="status-dot"></span>None';
+            detail.innerHTML = `<div style="font-size:0.82rem;color:var(--text-secondary);line-height:1.5">
+                <p class="empty-state-sm">No DNS/CDN configuration detected</p>
+                <div style="font-size:0.68rem;color:var(--text-muted);margin-top:var(--space-xs)">Add DNS zone files, CDN config, or domain references to your project.</div>
+                <div style="margin-top:var(--space-md)"><button class="btn btn-sm btn-ghost" onclick="dnsGenerateModal()" title="Generate DNS zone records for a domain">🌐 Generate Records</button></div>
+            </div>`;
+            return;
+        }
+
+        badge.className = 'status-badge ok';
+        const parts = [];
+        if (providers.length) parts.push(`${providers.length} CDN`);
+        if (domains.length) parts.push(`${domains.length} domain${domains.length!==1?'s':''}`);
+        badge.innerHTML = `<span class="status-dot"></span>${parts.join(' · ')}`;
+
+        let html = `<div style="font-size:0.85rem;color:var(--text-secondary);line-height:1.5">`;
+
+        // CDN Providers
+        if (providers.length) {
+            html += `<div style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.3rem" title="Detected CDN/edge providers in your configuration">CDN Providers</div>`;
+            providers.forEach(p => {
+                html += `<div style="display:flex;align-items:center;gap:0.4rem;padding:0.15rem 0;font-size:0.72rem">
+                    <span style="font-size:0.6rem;padding:0.05rem 0.3rem;border:1px solid var(--success);border-radius:3px;color:var(--success)">${esc(p.name)}</span>
+                    ${p.type ? `<span style="font-size:0.64rem;color:var(--text-muted)">${esc(p.type)}</span>` : ''}
+                </div>`;
+            });
+        }
+
+        // Domains
+        if (domains.length) {
+            html += `<div style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;margin:var(--space-sm) 0 0.3rem" title="Domain names referenced in your project">Domains (${domains.length})</div>`;
+            domains.forEach(d => {
+                html += `<div style="font-size:0.72rem;padding:0.1rem 0">🔗 <code style="font-family:var(--font-mono);color:var(--accent);font-size:0.68rem">${esc(d)}</code></div>`;
+            });
+        }
+
+        // SSL Certs
+        if (certs.length) {
+            html += `<div style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;margin:var(--space-sm) 0 0.3rem" title="SSL/TLS certificate configurations detected">SSL Certificates (${certs.length})</div>`;
+            certs.forEach(c => {
+                html += `<div style="display:flex;align-items:center;gap:0.4rem;font-size:0.72rem;padding:0.1rem 0">
+                    <span>🔒</span>
+                    <span style="font-weight:600;color:var(--text-primary)">${esc(c.domain||c.name||'')}</span>
+                    ${c.issuer ? `<span style="font-size:0.64rem;color:var(--text-muted)">${esc(c.issuer)}</span>` : ''}
+                </div>`;
+            });
+        }
+
+        // Actions
+        html += `<div style="display:flex;gap:var(--space-sm);margin-top:var(--space-md);flex-wrap:wrap">
+            <button class="btn btn-sm btn-secondary" onclick="dnsLookupModal()" title="Query DNS records for any domain name">🔍 Lookup</button>
+            <button class="btn btn-sm btn-secondary" onclick="dnsSslCheck()" title="Check SSL certificate validity, issuer, and expiration for a domain">🔒 SSL Check</button>
+            <button class="btn btn-sm btn-ghost" onclick="dnsGenerateModal()" title="Generate DNS zone records (A, MX, SPF, DKIM) for a domain">🌐 Generate</button>
+        </div>`;
+        html += `</div>`;
+        detail.innerHTML = html;
+    }
+
+    function dnsLookupModal() {
+        modalOpen({
+            title: '🔍 DNS Lookup',
+            body: `<div class="form-group" style="margin-bottom:var(--space-sm)"><label>Domain</label>
+                <input type="text" id="dns-lookup-domain" placeholder="example.com" autocomplete="off" onkeydown="if(event.key==='Enter'){doDnsLookup()}">
+            </div>
+            <div id="dns-lookup-result" style="display:none;margin-top:var(--space-md);max-height:300px;overflow-y:auto"></div>`,
+            size: 'narrow',
+            footerButtons: [
+                { label: 'Close', cls: 'btn-ghost', onclick: 'modalClose()' },
+                { label: 'Lookup', cls: 'btn-primary', id: 'dns-lookup-btn', onclick: 'doDnsLookup()' },
+            ],
+        });
+        setTimeout(() => document.getElementById('dns-lookup-domain')?.focus(), 100);
+    }
+
+    async function doDnsLookup() {
+        const domain = document.getElementById('dns-lookup-domain').value.trim();
+        const res = document.getElementById('dns-lookup-result');
+        const btn = document.getElementById('dns-lookup-btn');
+        if (!domain) return;
+        btn.disabled = true; btn.textContent = 'Looking up…';
+        res.style.display = 'block'; res.innerHTML = '<span class="spinner"></span>';
+        try {
+            const data = await api(`/dns/lookup/${encodeURIComponent(domain)}`);
+            const records = data.records || [];
+            if (!records.length) { res.innerHTML = '<p class="empty-state-sm">No records found</p>'; }
+            else {
+                let h = '';
+                if (data.a_records?.length) h += `<div style="font-size:0.72rem;color:var(--text-muted);margin-bottom:0.3rem">A: ${data.a_records.join(', ')}</div>`;
+                if (data.cname) h += `<div style="font-size:0.72rem;color:var(--text-muted);margin-bottom:0.3rem">CNAME: ${esc(data.cname)}</div>`;
+                if (data.nameservers?.length) h += `<div style="font-size:0.72rem;color:var(--text-muted);margin-bottom:0.5rem">NS: ${data.nameservers.join(', ')}</div>`;
+                h += records.map(r => `<div style="display:flex;gap:0.5rem;padding:0.25rem 0;border-bottom:1px solid var(--border-subtle);font-size:0.78rem">
+                    <span style="font-weight:600;color:var(--accent);width:50px;flex-shrink:0">${esc(r.type)}</span>
+                    <span style="color:var(--text-secondary);font-family:var(--font-mono);font-size:0.72rem">${esc(r.value)}</span>
+                </div>`).join('');
+                res.innerHTML = h;
+            }
+        } catch (e) { res.innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(e.message)}</p>`; }
+        btn.disabled = false; btn.textContent = 'Lookup';
+    }
+
+    function dnsSslCheck() {
+        modalOpen({
+            title: '🔒 SSL Certificate Check',
+            body: `<div class="form-group" style="margin-bottom:var(--space-sm)"><label>Domain</label>
+                <input type="text" id="ssl-check-domain" placeholder="example.com" autocomplete="off" onkeydown="if(event.key==='Enter'){doSslCheck()}">
+            </div>
+            <div id="ssl-check-result" style="display:none;margin-top:var(--space-md)"></div>`,
+            size: 'narrow',
+            footerButtons: [
+                { label: 'Close', cls: 'btn-ghost', onclick: 'modalClose()' },
+                { label: 'Check', cls: 'btn-primary', id: 'ssl-check-btn', onclick: 'doSslCheck()' },
+            ],
+        });
+        setTimeout(() => document.getElementById('ssl-check-domain')?.focus(), 100);
+    }
+
+    async function doSslCheck() {
+        const domain = document.getElementById('ssl-check-domain').value.trim();
+        const res = document.getElementById('ssl-check-result');
+        const btn = document.getElementById('ssl-check-btn');
+        if (!domain) return;
+        btn.disabled = true; btn.textContent = 'Checking…';
+        res.style.display = 'block'; res.innerHTML = '<span class="spinner"></span>';
+        try {
+            const data = await api(`/dns/ssl/${encodeURIComponent(domain)}`);
+            const valid = data.valid;
+            const days = data.days_remaining;
+            res.innerHTML = `<div style="font-size:0.85rem;line-height:1.8">
+                <div>${valid?'✅':'❌'} Certificate ${valid?'valid':'invalid'}</div>
+                ${data.issuer?`<div>🏢 Issuer: ${esc(data.issuer)}</div>`:''}
+                ${data.expiry?`<div>📅 Expires: ${esc(data.expiry)}</div>`:''}
+                ${days!=null?`<div style="color:${days>30?'var(--success)':days>7?'var(--warning)':'var(--error)'}">⏳ ${days} days remaining</div>`:''}
+            </div>`;
+        } catch (e) { res.innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(e.message)}</p>`; }
+        btn.disabled = false; btn.textContent = 'Check';
+    }
+
+    function dnsGenerateModal() {
+        modalOpen({
+            title: '🌐 Generate DNS Records',
+            body: `<div class="form-group" style="margin-bottom:var(--space-sm)"><label>Domain</label><input type="text" id="dns-gen-domain" placeholder="example.com" autocomplete="off"></div>
+                <div class="form-group" style="margin-bottom:var(--space-sm)"><label>Target IP (optional)</label><input type="text" id="dns-gen-ip" placeholder="203.0.113.1" autocomplete="off"></div>
+                <div class="form-group" style="margin-bottom:var(--space-sm)"><label>Mail Provider</label>
+                    <select id="dns-gen-mail" style="width:100%"><option value="">None</option><option value="google">Google Workspace</option><option value="protonmail">ProtonMail</option></select></div>
+                <div id="dns-gen-result" style="display:none;margin-top:var(--space-md);max-height:250px;overflow-y:auto"></div>`,
+            size: 'narrow',
+            footerButtons: [
+                { label: 'Close', cls: 'btn-ghost', onclick: 'modalClose()' },
+                { label: 'Generate', cls: 'btn-primary', id: 'dns-gen-btn', onclick: 'doDnsGenerate()' },
+            ],
+        });
+        setTimeout(() => document.getElementById('dns-gen-domain')?.focus(), 100);
+    }
+
+    async function doDnsGenerate() {
+        const domain = document.getElementById('dns-gen-domain').value.trim();
+        const ip = document.getElementById('dns-gen-ip').value.trim();
+        const mail = document.getElementById('dns-gen-mail').value;
+        const res = document.getElementById('dns-gen-result');
+        if (!domain) return;
+        try {
+            const data = await api('/dns/generate', { method: 'POST', body: JSON.stringify({ domain, ip, mail }) });
+            const records = data.records || [];
+            res.style.display = 'block';
+            res.innerHTML = `<div style="font-size:0.78rem;font-weight:600;margin-bottom:0.3rem">${records.length} records generated</div>` +
+                records.map(r => `<div style="display:flex;gap:0.5rem;padding:0.25rem 0;border-bottom:1px solid var(--border-subtle);font-size:0.72rem">
+                    <span style="font-weight:600;color:var(--accent);width:40px;flex-shrink:0">${esc(r.type)}</span>
+                    <span style="width:60px;flex-shrink:0;color:var(--text-muted)">${esc(r.name)}</span>
+                    <span style="color:var(--text-secondary);font-family:var(--font-mono);font-size:0.68rem;flex:1">${esc(r.value)}</span>
+                </div>`).join('') +
+                `<pre style="margin-top:var(--space-sm);padding:var(--space-sm);background:var(--bg-primary);border-radius:var(--radius-sm);font-size:0.68rem;color:var(--text-muted);overflow-x:auto;max-height:150px">${esc(data.zone_file||'')}</pre>`;
+        } catch (e) {
+            res.style.display = 'block';
+            res.innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(e.message)}</p>`;
+        }
+    }
+

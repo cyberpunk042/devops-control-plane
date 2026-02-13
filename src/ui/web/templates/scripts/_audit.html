@@ -1,0 +1,23 @@
+<script>
+// ═══════════════════════════════════════════════════════════════
+//  _audit.html — Audit tab JS loader
+//
+//  Assembles the Audit tab JS from domain-specific modules via
+//  Jinja2 include directives. All modules share the same <script>
+//  scope, so functions and variables are mutually visible.
+//
+//  Module index:
+//    _audit_init     — Shared data store, file link helpers
+//    _audit_scores   — Master L0/L1/L2 score rendering
+//    _audit_cards_a  — Cards: System Profile, Dependencies, Structure, Clients
+//    _audit_cards_b  — Cards: Code Health, Repo Health, Risks, Import Graph
+//    _audit_modals   — Drill-down modals, batch dismiss, filters
+// ═══════════════════════════════════════════════════════════════
+
+    {% include 'scripts/_audit_init.html' %}
+    {% include 'scripts/_audit_scores.html' %}
+    {% include 'scripts/_audit_cards_a.html' %}
+    {% include 'scripts/_audit_cards_b.html' %}
+    {% include 'scripts/_audit_modals.html' %}
+
+</script>

@@ -1,0 +1,292 @@
+<!-- Integrations Tab JS — Terraform Card
+     _intLoadTerraformCard(), live data panels (state, plan, providers, outputs, graph),
+     actions (init, plan, apply, destroy, format), workspace switch, generate modal.
+     Depends on: _integrations_init.html (card registry)
+-->
+    // ── Terraform Card ─────────────────────────────────────────────────
+
+    async function _intLoadTerraformCard() {
+        const badge = document.getElementById('int-tf-badge');
+        const detail = document.getElementById('int-tf-detail');
+
+        try {
+            const cached = cardCached('terraform');
+            const data = cached || await api('/terraform/status');
+            if (!cached) cardStore('terraform', data);
+
+            // ── CLI not found ──
+            if (!data.cli || !data.cli.available) {
+                badge.className = 'status-badge failed';
+                badge.innerHTML = '<span class="status-dot"></span>Not installed';
+                detail.innerHTML = cardEmpty('🏗️', 'Terraform CLI not found.',
+                    { label: 'Install Terraform →', onclick: "window.open('https://developer.hashicorp.com/terraform/install','_blank')" });
+                detail.innerHTML += cardGenerateToolbar([
+                    { label: 'TF Config', icon: '🏗', onclick: '_tfGenerateModal()' },
+                ]);
+                return;
+            }
+
+            // ── No config ──
+            if (!data.has_terraform) {
+                badge.className = 'status-badge degraded';
+                badge.innerHTML = '<span class="status-dot"></span>No config';
+                let html = cardStatusGrid([
+                    { label: 'Terraform', value: (data.cli.version || '').split(' ')[0], cls: 'ok' },
+                    { label: 'Config', value: 'None', cls: 'warn' },
+                ]);
+                html += `<div style="margin-top:var(--space-sm);font-size:0.82rem;color:var(--text-muted)">No Terraform configuration found (*.tf files).</div>`;
+                html += cardGenerateToolbar([
+                    { label: 'TF Config', icon: '🏗', onclick: '_tfGenerateModal()' },
+                ]);
+                detail.innerHTML = html;
+                return;
+            }
+
+            // ── Has config ──
+            badge.className = 'status-badge ok';
+            const resCount = (data.resources || []).length;
+            badge.innerHTML = `<span class="status-dot"></span>${resCount} resource${resCount !== 1 ? 's' : ''}`;
+
+            // Status grid
+            const stats = [
+                { label: 'Terraform', value: (data.cli.version || '').split(' ')[0], cls: 'ok' },
+                { label: 'Resources', value: String(resCount) },
+            ];
+            if (data.providers && data.providers.length > 0) {
+                stats.push({ label: 'Providers', value: data.providers.map(p => typeof p === 'string' ? p : (p.name || p)).join(', ') });
+            }
+            if (data.backend) {
+                const bk = typeof data.backend === 'string' ? data.backend : (data.backend.type || 'configured');
+                stats.push({ label: 'Backend', value: bk });
+            }
+            let html = cardStatusGrid(stats);
+
+            // Detection list (TF files)
+            const tfFiles = data.files || [];
+            if (tfFiles.length > 0) {
+                const detections = tfFiles.slice(0, 10).map(f => {
+                    const fname = typeof f === 'string' ? f : (f.path || f.name || f);
+                    const display = typeof f === 'string' ? f : (f.name || f);
+                    return { icon: '📄', label: 'File', value: display, click: `openFileInEditor('${esc(fname)}','edit')` };
+                });
+                if (tfFiles.length > 10) detections.push({ icon: '…', label: '', value: `+${tfFiles.length - 10} more` });
+                html += cardDetectionList(detections);
+            }
+
+            // Live panel (tabbed)
+            const liveTabs = [
+                { key: 'state', label: '📋 State' },
+                { key: 'workspaces', label: '🗂 Workspaces' },
+                { key: 'outputs', label: '📤 Outputs' },
+            ];
+            html += cardLivePanel('int-tf-live', liveTabs, '_tfLiveTab');
+
+            // Action toolbar
+            html += cardActionToolbar([
+                { label: 'Validate', icon: '✅', onclick: "_tfAction('validate', this)" },
+                { label: 'Plan', icon: '📝', onclick: "_tfAction('plan', this)" },
+                { label: 'Init', icon: '📥', onclick: "_tfAction('init', this)" },
+                { label: 'Apply', icon: '🚀', onclick: "_tfAction('apply', this)", cls: 'btn-primary' },
+                { label: 'Format', icon: '🧹', onclick: "_tfAction('fmt', this)" },
+                { label: 'Destroy', icon: '💣', onclick: "_tfAction('destroy', this)", style: 'color:var(--error)' },
+            ]);
+            html += `<div id="int-tf-action-output" style="display:none;margin-top:var(--space-sm);background:var(--bg-inset);border:1px solid var(--border-subtle);border-radius:6px;padding:0.4rem 0.5rem;font-size:0.72rem;max-height:250px;overflow:auto;font-family:var(--font-mono,monospace);white-space:pre-wrap"></div>`;
+
+            // Generate toolbar
+            html += cardGenerateToolbar([
+                { label: 'TF Config', icon: '🏗', onclick: '_tfGenerateModal()' },
+            ]);
+
+            detail.innerHTML = html;
+
+        } catch (e) {
+            badge.className = 'status-badge failed';
+            badge.innerHTML = '<span class="status-dot"></span>Error';
+            detail.innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(e.message)}</p>`;
+        }
+    }
+    // ── Terraform: live data panels ────────────────────────────────────
+
+    async function _tfLiveTab(what, panelId) {
+        const panel = document.getElementById(panelId || 'int-tf-live');
+        if (!panel) return;
+        panel.style.display = 'block';
+        panel.innerHTML = '<span class="spinner"></span> Loading…';
+
+        try {
+            if (what === 'state') {
+                const data = await api('/terraform/state');
+                const list = data.resources || [];
+                if (list.length === 0) {
+                    panel.innerHTML = '<span style="color:var(--text-muted)">No resources in state (or not initialized).</span>';
+                } else {
+                    panel.innerHTML = cardDataTable(
+                        ['Type', 'Name', 'Provider'],
+                        list.map(r => [
+                            { text: r.type || '—' },
+                            { text: r.name || '—', cls: 'name' },
+                            { text: r.provider || '—', cls: 'muted' },
+                        ])
+                    );
+                }
+            } else if (what === 'workspaces') {
+                const data = await api('/terraform/workspaces');
+                const list = data.workspaces || [];
+                if (list.length === 0) {
+                    panel.innerHTML = '<span style="color:var(--text-muted)">No workspaces (or not initialized).</span>';
+                } else {
+                    panel.innerHTML = list.map(w =>
+                        `<div style="padding:0.2rem 0;border-bottom:1px solid var(--border-subtle);display:flex;align-items:center;gap:0.4rem">` +
+                        (w === data.current ? '<span style="color:var(--success)">● </span>' : '<span style="color:var(--text-muted)">○ </span>') +
+                        `<span style="flex:1">${esc(w)}</span>` +
+                        (w === data.current ? ' <span style="font-size:0.68rem;color:var(--text-muted)">(active)</span>' :
+                            `<button class="btn btn-sm btn-ghost" onclick="_tfSwitchWorkspace('${esc(w)}')" style="font-size:0.68rem;padding:0.1rem 0.3rem">⇄ Switch</button>`) +
+                        `</div>`
+                    ).join('');
+                }
+            } else if (what === 'outputs') {
+                const data = await api('/terraform/output');
+                const outputs = data.outputs || {};
+                const keys = Object.keys(outputs);
+                if (keys.length === 0) {
+                    panel.innerHTML = '<span style="color:var(--text-muted)">No outputs (or not applied).</span>';
+                } else {
+                    panel.innerHTML = cardDataTable(
+                        ['Name', 'Value'],
+                        keys.map(k => {
+                            const val = typeof outputs[k] === 'object' ? (outputs[k].value !== undefined ? outputs[k].value : JSON.stringify(outputs[k])) : outputs[k];
+                            return [
+                                { text: k, cls: 'name' },
+                                { text: String(val), cls: 'muted' },
+                            ];
+                        })
+                    );
+                }
+            }
+        } catch (e) {
+            panel.innerHTML = `<span style="color:var(--error)">Error: ${esc(e.message)}</span>`;
+        }
+    }
+
+    // Backward compat alias
+    function _intTfLive(what) { _tfLiveTab(what, 'int-tf-live'); }
+
+    // ── Terraform: actions ─────────────────────────────────────────────
+
+    async function _tfAction(action, btnEl) {
+        const output = document.getElementById('int-tf-action-output');
+        const origText = btnEl.textContent;
+        btnEl.disabled = true;
+        btnEl.textContent = '⏳…';
+
+        try {
+            let resultData;
+            if (action === 'validate') {
+                resultData = await api('/terraform/validate', { method: 'POST', body: '{}' });
+            } else if (action === 'plan') {
+                resultData = await api('/terraform/plan', { method: 'POST', body: '{}' });
+            } else if (action === 'init') {
+                resultData = await apiPost('/terraform/init', {});
+            } else if (action === 'apply') {
+                if (!confirm('Apply Terraform changes? This will modify infrastructure.')) { btnEl.textContent = origText; btnEl.disabled = false; return; }
+                resultData = await apiPost('/terraform/apply', {});
+            } else if (action === 'destroy') {
+                if (!confirm('⚠️ DESTROY all Terraform-managed infrastructure? This cannot be undone!')) { btnEl.textContent = origText; btnEl.disabled = false; return; }
+                resultData = await apiPost('/terraform/destroy', {});
+            } else if (action === 'fmt') {
+                resultData = await apiPost('/terraform/fmt', {});
+            }
+
+            btnEl.textContent = origText;
+            btnEl.disabled = false;
+
+            if (resultData && output) {
+                output.style.display = 'block';
+                if (resultData.error) {
+                    output.textContent = '❌ ' + resultData.error;
+                    output.style.color = 'var(--error)';
+                    toast(resultData.error, 'error');
+                } else {
+                    output.style.color = 'var(--text-secondary)';
+                    output.textContent = resultData.output || resultData.message || JSON.stringify(resultData, null, 2);
+                    toast(`✅ terraform ${action} complete`, 'success');
+                }
+            }
+        } catch (e) {
+            btnEl.textContent = origText;
+            btnEl.disabled = false;
+            if (output) {
+                output.style.display = 'block';
+                output.textContent = '❌ ' + e.message;
+                output.style.color = 'var(--error)';
+            }
+            toast('Terraform action failed: ' + e.message, 'error');
+        }
+    }
+
+    // ── Terraform: workspace switch ─────────────────────────────────
+
+    async function _tfSwitchWorkspace(workspace) {
+        try {
+            const data = await apiPost('/terraform/workspace/select', {workspace});
+            if (data.ok) { toast(`Switched to workspace: ${workspace}`, 'success'); _tfLiveTab('workspaces', 'int-tf-live'); }
+            else toast(data.error || 'Failed to switch workspace', 'error');
+        } catch (e) { toast(e.message, 'error'); }
+    }
+
+    // ── Terraform: generate modal ──────────────────────────────────────
+
+    async function _tfGenerateModal() {
+        const body = `<p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:var(--space-sm)">Generating Terraform configuration from project…</p>` +
+            modalPreview('Preview', '<span class="spinner"></span> Generating…', 'tf-gen-code');
+        modalOpen({
+            title: '🏗 Generate Terraform Config',
+            body,
+            footerButtons: [
+                { label: 'Cancel', cls: 'btn-secondary', onclick: 'modalClose()' },
+                { label: '💾 Write to disk', cls: 'btn-primary', id: 'tf-gen-write', disabled: true, onclick: '_tfWriteGen()' },
+            ],
+        });
+
+        try {
+            const data = await api('/terraform/generate', { method: 'POST', body: '{}' });
+            const code = document.getElementById('tf-gen-code');
+            const writeBtn = document.getElementById('tf-gen-write');
+            if (data.files && data.files.length > 0) {
+                const combined = data.files.map(f => `# --- ${f.path || 'file'} ---\n${f.content || ''}`).join('\n\n');
+                code.textContent = combined;
+                writeBtn.disabled = false;
+                writeBtn.dataset.files = JSON.stringify(data.files);
+            } else if (data.file) {
+                code.textContent = data.file.content || '(empty)';
+                writeBtn.disabled = false;
+                writeBtn.dataset.files = JSON.stringify([data.file]);
+            } else if (data.error) {
+                code.textContent = 'Error: ' + data.error;
+            } else {
+                code.textContent = JSON.stringify(data, null, 2);
+            }
+        } catch (e) {
+            const code = document.getElementById('tf-gen-code');
+            if (code) code.textContent = 'Error: ' + e.message;
+        }
+    }
+
+    async function _tfWriteGen() {
+        const writeBtn = document.getElementById('tf-gen-write');
+        if (!writeBtn || !writeBtn.dataset.files) return;
+        const origText = writeBtn.textContent;
+        writeBtn.disabled = true;
+        writeBtn.textContent = '⏳ Writing…';
+        try {
+            const files = JSON.parse(writeBtn.dataset.files);
+            for (const f of files) {
+                await api('/docker/generate/write', { method: 'POST', body: JSON.stringify({ file: f }) });
+            }
+            toast(`✅ Written ${files.length} file${files.length !== 1 ? 's' : ''}`, 'success');
+            writeBtn.textContent = '✅ Written';
+            cardInvalidate('terraform');
+            setTimeout(() => modalClose(), 1000);
+        } catch (e) { toast('Write failed: ' + e.message, 'error'); writeBtn.textContent = origText; writeBtn.disabled = false; }
+    }
+

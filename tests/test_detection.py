@@ -371,7 +371,7 @@ class TestDetectCLI:
         runner = CliRunner()
         result = runner.invoke(cli, ["--config", str(config), "detect"])
         assert result.exit_code == 0
-        assert (tmp_path / "state" / "current.json").is_file()
+        assert (tmp_path / ".state" / "current.json").is_file()
 
     def test_detect_then_status(self, tmp_path: Path):
         """After detection, status shows detected markers."""

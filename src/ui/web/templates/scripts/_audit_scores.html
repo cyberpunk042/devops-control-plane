@@ -1,0 +1,176 @@
+<!-- Audit Tab JS — Master Scores
+     L0/L1/L2 master score rendering, score cards, overall analysis summary.
+     Depends on: _audit_init.html (helpers)
+-->
+// ── Master Scores ──────────────────────────────────────────────
+
+async function loadAuditScores() {
+    const detail = document.getElementById('audit-scores-detail');
+    const badge = document.getElementById('audit-scores-badge');
+
+    const data = await cardLoad('audit:scores', '/audit/scores', badge, detail);
+    if (!data) return;
+    _renderScoresUI(data, detail, badge);
+}
+
+
+async function loadAuditScoresEnriched() {
+    const detail = document.getElementById('audit-scores-detail');
+    const badge = document.getElementById('audit-scores-badge');
+    const btn = document.getElementById('audit-enrich-btn');
+
+    // Show loading state
+    btn.disabled = true;
+    btn.textContent = '⏳ Enriching…';
+    detail.innerHTML = '<div style="text-align:center;padding:var(--space-lg)"><span class="spinner"></span><div style="margin-top:var(--space-sm);font-size:0.78rem;color:var(--text-muted)">Running full L2 analysis… this takes 5-25s</div></div>';
+
+    // Bust cache and fetch enriched
+    cardInvalidate('audit:scores:enriched');
+    const data = await api('/audit/scores/enriched?bust').catch(e => ({ _err: e }));
+
+    btn.disabled = false;
+    btn.textContent = '🔬 Enrich';
+
+    if (data._err) {
+        detail.innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(data._err.message)}</p>`;
+        return;
+    }
+
+    cardStore('audit:scores:enriched', data);
+    _renderScoresUI(data, detail, badge);
+}
+
+
+function _renderScoresUI(data, detail, badge) {
+    const cx = data.complexity || {};
+    const qu = data.quality || {};
+    const trend = data.trend || {};
+    const history = data.history || [];
+
+    const cxScore = cx.score ?? 0;
+    const quScore = qu.score ?? 0;
+    const cxPct = Math.round(cxScore * 10);
+    const quPct = Math.round(quScore * 10);
+    const enriched = qu.enriched || false;
+
+    // Color coding
+    const cxColor = cxScore <= 3 ? 'var(--success)' : cxScore <= 6 ? 'var(--warning)' : 'var(--danger)';
+    const quColor = quScore >= 7 ? 'var(--success)' : quScore >= 4 ? 'var(--warning)' : 'var(--danger)';
+
+    // Trend arrows
+    const trendIcon = (t, delta) => {
+        if (t === 'up') return `<span style="color:var(--success);font-size:0.72rem" title="Δ${delta > 0 ? '+' : ''}${delta}">▲ ${delta > 0 ? '+' : ''}${delta}</span>`;
+        if (t === 'down') return `<span style="color:var(--danger);font-size:0.72rem" title="Δ${delta}">▼ ${delta}</span>`;
+        if (t === 'stable') return `<span style="color:var(--text-muted);font-size:0.72rem" title="No change">● stable</span>`;
+        return '<span style="color:var(--text-muted);font-size:0.72rem">○ first run</span>';
+    };
+
+    // Enrichment tag
+    const enrichTag = enriched
+        ? '<span style="font-size:0.64rem;padding:1px 6px;border-radius:3px;background:#6366f122;color:#6366f1;border:1px solid #6366f144;margin-left:6px">L2 enriched</span>'
+        : '<span style="font-size:0.64rem;padding:1px 6px;border-radius:3px;background:var(--bg-secondary);color:var(--text-muted);margin-left:6px">L0+L1 only</span>';
+
+    // Sparkline from history
+    const sparkline = _renderSparkline(history);
+
+    let html = `
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-lg)">
+            <div>
+                <div style="display:flex;align-items:center;gap:var(--space-sm);margin-bottom:var(--space-sm)">
+                    <span style="font-size:1.3rem">🧩</span>
+                    <strong style="font-size:1.1rem">Complexity</strong>
+                    <span style="font-size:1.4rem;font-weight:700;color:${cxColor};margin-left:auto">${cxScore}/10</span>
+                </div>
+                <div style="display:flex;align-items:center;gap:var(--space-sm);margin-bottom:var(--space-sm)">
+                    <div style="flex:1;background:var(--bg-secondary);border-radius:var(--radius-sm);height:10px;overflow:hidden">
+                        <div style="width:${cxPct}%;height:100%;background:${cxColor};border-radius:var(--radius-sm);transition:width 0.6s ease"></div>
+                    </div>
+                    ${trendIcon(trend.complexity_trend, trend.complexity_delta)}
+                </div>
+                ${_renderBreakdown(cx.breakdown)}
+            </div>
+            <div>
+                <div style="display:flex;align-items:center;gap:var(--space-sm);margin-bottom:var(--space-sm)">
+                    <span style="font-size:1.3rem">⭐</span>
+                    <strong style="font-size:1.1rem">Quality</strong>
+                    ${enrichTag}
+                    <span style="font-size:1.4rem;font-weight:700;color:${quColor};margin-left:auto">${quScore}/10</span>
+                </div>
+                <div style="display:flex;align-items:center;gap:var(--space-sm);margin-bottom:var(--space-sm)">
+                    <div style="flex:1;background:var(--bg-secondary);border-radius:var(--radius-sm);height:10px;overflow:hidden">
+                        <div style="width:${quPct}%;height:100%;background:${quColor};border-radius:var(--radius-sm);transition:width 0.6s ease"></div>
+                    </div>
+                    ${trendIcon(trend.quality_trend, trend.quality_delta)}
+                </div>
+                ${_renderBreakdown(qu.breakdown)}
+            </div>
+        </div>
+        ${sparkline ? `<div style="margin-top:var(--space-md);padding-top:var(--space-md);border-top:1px solid var(--border)">${sparkline}</div>` : ''}
+    `;
+
+    badge.textContent = `${cxScore} | ${quScore}`;
+    badge.className = 'status-badge ' + (quScore >= 6 ? 'ok' : quScore >= 3 ? 'warn' : 'err');
+    detail.innerHTML = html;
+}
+
+
+function _renderBreakdown(breakdown) {
+    if (!breakdown) return '';
+    let rows = '';
+    for (const [key, item] of Object.entries(breakdown)) {
+        const label = key.replace(/_/g, ' ');
+        const score = item.score ?? 0;
+        const pct = Math.round(score * 10);
+        const weightPct = Math.round((item.weight || 0) * 100);
+        const color = score >= 7 ? 'var(--success)' : score >= 4 ? 'var(--warning)' : 'var(--danger)';
+        const sourceTag = item.source ? `<span style="font-size:0.58rem;color:#6366f1;margin-left:2px">${item.source}</span>` : '';
+        rows += `
+            <div style="display:flex;align-items:center;gap:var(--space-sm);margin-bottom:4px;font-size:0.78rem">
+                <span style="width:110px;text-transform:capitalize;color:var(--text-muted)">${label}${sourceTag}</span>
+                <div style="flex:1;background:var(--bg-primary);border-radius:3px;height:6px;overflow:hidden">
+                    <div style="width:${pct}%;height:100%;background:${color};border-radius:3px;transition:width 0.4s"></div>
+                </div>
+                <span style="width:38px;text-align:right;font-weight:600;color:${color}">${score}</span>
+                <span style="width:30px;text-align:right;color:var(--text-muted);font-size:0.68rem">${weightPct}%</span>
+            </div>
+        `;
+    }
+    return rows;
+}
+
+
+function _renderSparkline(history) {
+    if (!history || history.length < 2) return '';
+    const max = 10;
+    const width = Math.min(history.length * 12, 240);
+    const height = 32;
+    const padding = 2;
+
+    const cxPoints = history.map((h, i) => {
+        const x = padding + (i / (history.length - 1)) * (width - padding * 2);
+        const y = height - padding - (h.complexity / max) * (height - padding * 2);
+        return `${x},${y}`;
+    }).join(' ');
+
+    const quPoints = history.map((h, i) => {
+        const x = padding + (i / (history.length - 1)) * (width - padding * 2);
+        const y = height - padding - (h.quality / max) * (height - padding * 2);
+        return `${x},${y}`;
+    }).join(' ');
+
+    return `
+        <div style="display:flex;align-items:center;gap:var(--space-md)">
+            <span style="font-size:0.72rem;color:var(--text-muted)">📈 Score History (${history.length} snapshots)</span>
+            <svg width="${width}" height="${height}" style="flex-shrink:0">
+                <polyline points="${cxPoints}" fill="none" stroke="var(--warning)" stroke-width="1.5" opacity="0.7"/>
+                <polyline points="${quPoints}" fill="none" stroke="var(--success)" stroke-width="1.5" opacity="0.7"/>
+            </svg>
+            <span style="font-size:0.64rem;color:var(--text-muted)">
+                <span style="color:var(--warning)">━</span> complexity
+                <span style="color:var(--success);margin-left:6px">━</span> quality
+            </span>
+        </div>
+    `;
+}
+
+

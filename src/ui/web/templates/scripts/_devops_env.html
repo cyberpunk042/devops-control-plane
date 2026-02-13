@@ -1,0 +1,367 @@
+<!-- DevOps Tab JS — Environment & IaC Card
+     loadEnvCard(), drift modal, env activate, live data panels, generate actions.
+     Depends on: _devops_init.html (card registry)
+-->
+    // ── Environment & IaC Card ────────────────────────────────────────
+
+    async function loadEnvCard() {
+        const badge = document.getElementById('devops-env-badge');
+        const detail = document.getElementById('devops-env-detail');
+        const cached = cardCached('env');
+        const data = cached || await api('/env/card-status').catch(e => ({ _err: e }));
+        if (data._err) {
+            badge.className = 'status-badge failed';
+            badge.innerHTML = '<span class="status-dot"></span>Error';
+            detail.innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(data._err.message)}</p>`;
+            return;
+        }
+        if (!cached) cardStore('env', data);
+
+        const envs = data.environments || [];
+        const activeEnv = data.active || '';
+        const ghAvailable = data.github?.available || false;
+
+        // Badge
+        if (!envs.length) {
+            badge.className = 'status-badge degraded';
+            badge.innerHTML = '<span class="status-dot"></span>No envs';
+            detail.innerHTML = `<p class="empty-state-sm">No environments defined in project.yml</p>
+                <div style="font-size:0.72rem;color:var(--text-muted);margin-top:var(--space-xs)">
+                    Define environments in <code>project.yml</code> to enable environment management.
+                    Use the <strong>🧙 Setup</strong> tab to configure your project.
+                </div>`;
+            return;
+        }
+
+        // Check overall sync
+        const allInSync = envs.every(e => e.in_sync === true || e.in_sync === null);
+        badge.className = 'status-badge ' + (allInSync ? 'ok' : 'degraded');
+        badge.innerHTML = `<span class="status-dot"></span>${envs.length} env${envs.length !== 1 ? 's' : ''}${!allInSync ? ' ⚠️' : ''}`;
+
+        let html = `<div style="font-size:0.85rem;color:var(--text-secondary);line-height:1.5">`;
+
+        // Active environment indicator
+        if (activeEnv) {
+            html += `<div style="display:flex;align-items:center;gap:0.4rem;margin-bottom:var(--space-sm);font-size:0.85rem">
+                <span style="color:var(--success);font-weight:600">● Active:</span>
+                <code style="font-family:var(--font-mono);font-weight:700;color:var(--accent)">${esc(activeEnv)}</code>
+            </div>`;
+        }
+
+        // Environment rows
+        html += `<div style="display:flex;flex-direction:column;gap:0.35rem">`;
+        envs.forEach(env => {
+            const name = env.name;
+            const isActive = env.active;
+            const vaultIcon = env.vault_state === 'unlocked' ? '🔓' : env.vault_state === 'locked' ? '🔒' : '⬜';
+
+            // Tags
+            let tags = '';
+            if (isActive) tags += `<span style="font-size:0.7rem;padding:0.1rem 0.35rem;border-radius:3px;background:var(--success);color:#000;font-weight:700">ACTIVE</span>`;
+            if (env.default) tags += `<span style="font-size:0.7rem;padding:0.1rem 0.35rem;border-radius:3px;border:1px solid var(--accent);color:var(--accent)">DEFAULT</span>`;
+
+            // Sync indicator
+            let syncTag = '';
+            if (env.in_sync === true) {
+                syncTag = `<span title="Local keys and GitHub secrets are in sync" style="font-size:0.7rem;padding:0.1rem 0.35rem;border-radius:3px;border:1px solid var(--success);color:var(--success)">✅ synced</span>`;
+            } else if (env.in_sync === false) {
+                const driftCount = (env.local_only?.length || 0) + (env.gh_only?.length || 0);
+                syncTag = `<span title="${env.local_only?.length || 0} local-only, ${env.gh_only?.length || 0} github-only" style="font-size:0.7rem;padding:0.1rem 0.35rem;border-radius:3px;border:1px solid var(--warning);color:var(--warning)">⚠️ ${driftCount} drifted</span>`;
+            }
+
+            // GitHub env tag
+            let ghTag = '';
+            if (ghAvailable) {
+                ghTag = env.on_github
+                    ? `<span title="Exists as GitHub deployment environment" style="font-size:0.7rem;padding:0.1rem 0.35rem;border-radius:3px;border:1px solid var(--success);color:var(--success)">☁️ GitHub</span>`
+                    : `<span title="Not found on GitHub" style="font-size:0.7rem;padding:0.1rem 0.35rem;border-radius:3px;border:1px solid var(--text-muted);color:var(--text-muted)">☁️ —</span>`;
+            }
+
+            // Stats line
+            let stats = `<span title="Vault state: ${env.vault_state}">${vaultIcon}</span>`;
+            stats += ` <span style="font-size:0.75rem;color:var(--text-muted)">📁 ${env.local_keys} keys</span>`;
+            if (ghAvailable) {
+                stats += ` <span style="font-size:0.75rem;color:var(--text-muted)">· ☁️ ${env.gh_secrets}s + ${env.gh_variables}v</span>`;
+            }
+
+            html += `<div style="padding:0.4rem 0.55rem;background:var(--bg-inset);border-radius:6px;border:1px solid ${isActive ? 'var(--success)' : 'var(--border-subtle)'}">
+                <div style="display:flex;align-items:center;gap:0.5rem">
+                    <code style="font-family:var(--font-mono);font-weight:600;font-size:0.82rem;color:var(--text-primary);min-width:80px">${esc(name)}</code>
+                    <div style="display:flex;gap:0.3rem;flex:1;flex-wrap:wrap">${tags}${syncTag}${ghTag}</div>
+                    <button class="btn btn-sm btn-ghost" onclick="envDriftModal('${esc(name)}')" style="font-size:0.72rem;padding:0.2rem 0.5rem" title="Compare local vs GitHub secrets for this environment">🔍 Drift</button>
+                    ${!isActive ? `<button class="btn btn-sm btn-ghost" onclick="envActivate('${esc(name)}')" style="font-size:0.72rem;padding:0.2rem 0.5rem" title="Switch active environment to ${esc(name)}">⬆️ Activate</button>` : ''}
+                </div>
+                <div style="display:flex;align-items:center;gap:0.4rem;margin-top:0.25rem;font-size:0.75rem">${stats}</div>
+            </div>`;
+        });
+        html += `</div>`;
+
+        // GitHub environments status — env on GH but not in project.yml
+        if (ghAvailable) {
+            // drift is shown per-env inline above
+        } else if (data.github?.reason) {
+            html += `<div style="font-size:0.75rem;color:var(--text-muted);margin-top:var(--space-sm)">
+                ☁️ GitHub environments unavailable: ${esc(data.github.reason)}
+            </div>`;
+        }
+
+        // .env files summary
+        const envFiles = data.env_files || [];
+        if (envFiles.length) {
+            html += `<div style="font-size:0.75rem;color:var(--text-muted);margin-top:var(--space-sm)">
+                📄 ${envFiles.length} .env file${envFiles.length !== 1 ? 's' : ''} · ${data.total_vars || 0} total vars
+            </div>`;
+        }
+
+        // ── Live data panels ──
+        html += `<div style="margin-top:var(--space-sm)">
+            <div style="display:flex;gap:0.25rem;flex-wrap:wrap">
+                <button class="btn btn-sm btn-ghost" onclick="_envLive('vars')" style="font-size:0.72rem;padding:0.15rem 0.4rem">📝 Env Vars</button>
+                <button class="btn btn-sm btn-ghost" onclick="_envLive('validate')" style="font-size:0.72rem;padding:0.15rem 0.4rem">✅ Validate</button>
+                <button class="btn btn-sm btn-ghost" onclick="_envLive('diff')" style="font-size:0.72rem;padding:0.15rem 0.4rem">🔀 Diff</button>
+                <button class="btn btn-sm btn-ghost" onclick="_envLive('iac')" style="font-size:0.72rem;padding:0.15rem 0.4rem">🏗 IaC Status</button>
+                <button class="btn btn-sm btn-ghost" onclick="_envLive('infra')" style="font-size:0.72rem;padding:0.15rem 0.4rem">🌍 Infra Overview</button>
+            </div>
+            <div id="devops-env-live-panel" style="display:none;margin-top:0.3rem;background:var(--bg-inset);border:1px solid var(--border-subtle);border-radius:6px;padding:0.4rem 0.5rem;font-size:0.72rem;max-height:260px;overflow:auto;font-family:var(--font-mono,monospace)"></div>
+        </div>`;
+
+        // ── Generate toolbar ──
+        html += `<div style="margin-top:var(--space-md);padding-top:var(--space-sm);border-top:1px solid var(--border-subtle)">
+            <div style="font-size:0.68rem;font-weight:600;color:var(--text-muted);margin-bottom:0.3rem;text-transform:uppercase;letter-spacing:0.05em">Generate</div>
+            <div style="display:flex;gap:0.25rem;flex-wrap:wrap">
+                <button class="btn btn-sm btn-ghost" onclick="_envGenerate('example')" style="font-size:0.72rem;padding:0.15rem 0.4rem">📋 .env.example</button>
+                <button class="btn btn-sm btn-ghost" onclick="_envGenerate('env')" style="font-size:0.72rem;padding:0.15rem 0.4rem">📄 .env from template</button>
+            </div>
+        </div>`;
+
+        html += `</div>`;
+        detail.innerHTML = html;
+    }
+
+    /** Modal: compare local .env keys vs GitHub secrets for a specific environment. */
+    async function envDriftModal(envName) {
+        modalOpen({
+            title: `🔍 Drift: <code>${esc(envName)}</code> — Local ↔ GitHub`,
+            body: `<div id="env-drift-body" style="max-height:450px;overflow-y:auto"><span class="spinner"></span></div>`,
+            footerButtons: [
+                { label: 'Close', cls: 'btn-primary', onclick: 'modalClose()' },
+            ],
+        });
+
+        const body = document.getElementById('env-drift-body');
+        try {
+            // Fetch both in parallel
+            const [localRes, ghRes] = await Promise.allSettled([
+                api(`/vault/keys?env=${encodeURIComponent(envName)}`),
+                api(`/gh/secrets?env=${encodeURIComponent(envName)}`),
+            ]);
+
+            const localKeys = localRes.status === 'fulfilled'
+                ? (localRes.value.keys || []).map(k => k.name || k.key || k) : [];
+            const ghSecrets = ghRes.status === 'fulfilled'
+                ? (ghRes.value.secrets || []) : [];
+            const ghVars = ghRes.status === 'fulfilled'
+                ? (ghRes.value.variables || []) : [];
+            const ghAll = [...ghSecrets, ...ghVars];
+
+            const localSet = new Set(localKeys);
+            const ghSet = new Set(ghAll);
+
+            const inBoth = localKeys.filter(k => ghSet.has(k));
+            const localOnly = localKeys.filter(k => !ghSet.has(k));
+            const ghOnly = ghAll.filter(k => !localSet.has(k));
+
+            const inSync = localOnly.length === 0 && ghOnly.length === 0;
+
+            let h = `<div style="font-size:0.82rem;margin-bottom:var(--space-sm);font-weight:600;color:${inSync ? 'var(--success)' : 'var(--warning)'}">
+                ${inSync ? '✅ In sync' : '⚠️ Drift detected'}
+            </div>`;
+
+            h += `<div style="display:flex;gap:var(--space-lg);margin-bottom:var(--space-sm);font-size:0.72rem;color:var(--text-muted)">
+                <span>📁 Local: <strong>${localKeys.length}</strong> keys</span>
+                <span>☁️ GitHub: <strong>${ghSecrets.length}</strong> secrets + <strong>${ghVars.length}</strong> vars</span>
+                <span>✅ Synced: <strong>${inBoth.length}</strong></span>
+            </div>`;
+
+            if (localOnly.length) {
+                h += `<div style="font-weight:600;color:var(--warning);font-size:0.78rem;margin-top:var(--space-sm)">
+                    📁→☁️ Local only — not on GitHub (${localOnly.length}):
+                </div>`;
+                localOnly.forEach(k => {
+                    h += `<div style="font-size:0.72rem;padding:0.15rem 0;color:var(--warning)"><code>${esc(k)}</code></div>`;
+                });
+            }
+
+            if (ghOnly.length) {
+                h += `<div style="font-weight:600;color:var(--accent);font-size:0.78rem;margin-top:var(--space-sm)">
+                    ☁️→📁 GitHub only — not in local .env (${ghOnly.length}):
+                </div>`;
+                ghOnly.forEach(k => {
+                    h += `<div style="font-size:0.72rem;padding:0.15rem 0;color:var(--accent)"><code>${esc(k)}</code></div>`;
+                });
+            }
+
+            if (inBoth.length && !localOnly.length && !ghOnly.length) {
+                h += `<div style="font-size:0.72rem;color:var(--success);margin-top:var(--space-sm)">All ${inBoth.length} keys present in both local and GitHub ✅</div>`;
+            }
+
+            // State info
+            if (localRes.status === 'fulfilled' && localRes.value.state) {
+                h += `<div style="font-size:0.68rem;color:var(--text-muted);margin-top:var(--space-md);border-top:1px solid var(--border-subtle);padding-top:var(--space-sm)">
+                    Vault state: <strong>${esc(localRes.value.state)}</strong>
+                </div>`;
+            }
+
+            body.innerHTML = h;
+        } catch (e) {
+            body.innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(e.message)}</p>`;
+        }
+    }
+
+    /** Activate a different environment. */
+    async function envActivate(envName) {
+        try {
+            toast(`Activating ${envName}…`, 'info');
+            await api('/vault/activate-env', {
+                method: 'POST',
+                body: JSON.stringify({ name: envName }),
+            });
+            toast(`Environment "${envName}" is now active ✅`, 'success');
+            cardInvalidate('env');
+            loadEnvCard();
+        } catch (e) {
+            toast('Failed: ' + e.message, 'error');
+        }
+    }
+
+    // ── Environment: live data panels ──────────────────────────────────
+
+    async function _envLive(what) {
+        const panel = document.getElementById('devops-env-live-panel');
+        if (!panel) return;
+        panel.style.display = 'block';
+        panel.innerHTML = '<span class="spinner"></span> Loading…';
+
+        try {
+            if (what === 'vars') {
+                const data = await api('/infra/env/vars');
+                const vars = data.variables || {};
+                const keys = Object.keys(vars);
+                if (keys.length === 0) {
+                    panel.innerHTML = '<span style="color:var(--text-muted)">No .env variables found.</span>';
+                } else {
+                    let html = `<div style="font-weight:600;margin-bottom:0.3rem">📝 ${keys.length} variable${keys.length !== 1 ? 's' : ''} in ${esc(data.file || '.env')}</div>`;
+                    html += keys.map(k => `<div style="padding:0.15rem 0;border-bottom:1px solid var(--border-subtle);display:flex;gap:0.3rem">
+                        <code style="color:var(--accent);font-weight:500;min-width:140px">${esc(k)}</code>
+                        <span style="color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(vars[k])}</span>
+                    </div>`).join('');
+                    panel.innerHTML = html;
+                }
+
+            } else if (what === 'validate') {
+                const data = await api('/infra/env/validate');
+                if (data.valid || data.ok) {
+                    panel.innerHTML = `<div style="color:var(--success);font-weight:600">✅ .env validation passed</div>
+                        <div style="color:var(--text-muted);margin-top:0.2rem">${data.issue_count || 0} issues in ${esc(data.file || '.env')}</div>`;
+                } else {
+                    const issues = data.issues || [];
+                    let html = `<div style="color:var(--warning);font-weight:600;margin-bottom:0.3rem">⚠ ${issues.length} issue${issues.length !== 1 ? 's' : ''} found</div>`;
+                    html += issues.map(i => `<div style="padding:0.15rem 0;border-bottom:1px solid var(--border-subtle)">
+                        <span style="color:var(--warning)">⚠</span> ${esc(typeof i === 'string' ? i : i.message || JSON.stringify(i))}
+                    </div>`).join('');
+                    panel.innerHTML = html;
+                }
+
+            } else if (what === 'diff') {
+                const data = await api('/infra/env/diff');
+                if (data.error) {
+                    panel.innerHTML = `<span style="color:var(--text-muted)">${esc(data.error)}</span>`;
+                } else {
+                    const missing = data.missing || [];
+                    const extra = data.extra || [];
+                    let html = '';
+                    if (missing.length === 0 && extra.length === 0) {
+                        html = '<span style="color:var(--success)">✅ .env matches .env.example — no diff</span>';
+                    } else {
+                        if (missing.length > 0) {
+                            html += `<div style="font-weight:600;color:var(--error);margin-bottom:0.2rem">Missing from .env (${missing.length})</div>`;
+                            html += missing.map(k => `<div style="padding:0.1rem 0;color:var(--error)">- ${esc(k)}</div>`).join('');
+                        }
+                        if (extra.length > 0) {
+                            html += `<div style="font-weight:600;color:var(--warning);margin-top:0.3rem;margin-bottom:0.2rem">Extra in .env (${extra.length})</div>`;
+                            html += extra.map(k => `<div style="padding:0.1rem 0;color:var(--warning)">+ ${esc(k)}</div>`).join('');
+                        }
+                    }
+                    panel.innerHTML = html;
+                }
+
+            } else if (what === 'iac') {
+                const data = await api('/infra/iac/status');
+                if (!data.has_iac) {
+                    panel.innerHTML = '<span style="color:var(--text-muted)">No IaC configuration detected.</span>';
+                } else {
+                    const providers = data.providers || [];
+                    let html = `<div style="font-weight:600;margin-bottom:0.3rem">🏗 ${providers.length} IaC provider${providers.length !== 1 ? 's' : ''}</div>`;
+                    html += providers.map(p => `<div style="padding:0.3rem 0;border-bottom:1px solid var(--border-subtle)">
+                        <div style="display:flex;align-items:center;gap:0.4rem">
+                            <span style="font-weight:600;color:var(--text-primary)">${esc(p.name || p.id)}</span>
+                            <span style="font-size:0.65rem;color:${p.cli_available ? 'var(--success)' : 'var(--error)'}">${p.cli_available ? '✅ ' + esc(p.cli || '') : '❌ not installed'}</span>
+                        </div>
+                        ${(p.files_found || []).length > 0 ? `<div style="font-size:0.65rem;color:var(--text-muted);margin-top:0.1rem">Files: ${p.files_found.map(f => `<code>${esc(f)}</code>`).join(', ')}</div>` : ''}
+                    </div>`).join('');
+                    panel.innerHTML = html;
+                }
+
+            } else if (what === 'infra') {
+                const data = await api('/infra/status');
+                let html = '';
+                // env section
+                const env = data.env || {};
+                if (env.has_env) {
+                    html += `<div style="font-weight:600;margin-bottom:0.2rem">📄 Environment Files</div>`;
+                    html += `<div style="display:flex;gap:0.3rem;flex-wrap:wrap;margin-bottom:0.3rem">
+                        ${(env.files || []).map(f => `<span style="padding:0.1rem 0.3rem;border-radius:4px;background:var(--bg-inset);border:1px solid var(--border-subtle)">${esc(f.name)} (${f.var_count} vars)${f.exists ? '' : ' ❌'}</span>`).join('')}
+                    </div>`;
+                    html += `<div style="font-size:0.68rem;color:var(--text-muted)">Total: ${env.total_vars} vars · .env.example: ${env.has_example ? '✅' : '❌'}</div>`;
+                }
+                // iac section
+                const iac = data.iac || {};
+                if (iac.has_iac) {
+                    html += `<div style="font-weight:600;margin-top:0.4rem;margin-bottom:0.2rem">🏗 Infrastructure as Code</div>`;
+                    html += (iac.providers || []).map(p => `<div style="display:flex;gap:0.3rem;align-items:center;padding:0.1rem 0">
+                        <span style="color:${p.cli_available ? 'var(--success)' : 'var(--error)'}">●</span>
+                        <span>${esc(p.name || p.id)}</span>
+                        <span style="font-size:0.65rem;color:var(--text-muted)">${(p.dirs_found || []).join(', ')}</span>
+                    </div>`).join('');
+                }
+                panel.innerHTML = html || '<span style="color:var(--text-muted)">No infrastructure data.</span>';
+            }
+        } catch (e) {
+            panel.innerHTML = `<span style="color:var(--error)">Error: ${esc(e.message)}</span>`;
+        }
+    }
+
+    // ── Environment: generate actions ──────────────────────────────────
+
+    async function _envGenerate(what) {
+        const endpoint = what === 'example' ? '/infra/env/generate-example' : '/infra/env/generate-env';
+        const label = what === 'example' ? '.env.example' : '.env';
+        toast(`Generating ${label}…`, 'info');
+        try {
+            const data = await api(endpoint, { method: 'POST', body: '{}' });
+            if (data.error) {
+                toast(data.error, 'error');
+                return;
+            }
+            if (data.file) {
+                // Write to disk
+                const result = await api('/docker/generate/write', { method: 'POST', body: JSON.stringify({ file: data.file }) });
+                if (result.error) { toast(result.error, 'error'); }
+                else { toast(`✅ ${label} written`, 'success'); cardInvalidate('env'); }
+            } else {
+                toast(`✅ ${label} generated`, 'success');
+                cardInvalidate('env');
+            }
+        } catch (e) { toast('Failed: ' + e.message, 'error'); }
+    }
+

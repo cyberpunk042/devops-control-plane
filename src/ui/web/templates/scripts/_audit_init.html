@@ -1,0 +1,101 @@
+<!-- Audit Tab JS — Init & Helpers
+     Shared data store for modal drill-downs, file link helpers, modal open helpers.
+     Depends on: _globals.html (api, esc, toast, modalOpen)
+-->
+// ═══════════════════════════════════════════════════════════════
+//  Audit Tab — L0/L1/L2 analysis display
+// ═══════════════════════════════════════════════════════════════
+
+let _auditLoaded = false;
+
+// ── Shared data store for modal drill-downs ────────────────────
+window._auditData = {};
+
+
+
+// ── Helpers: file links & modal ────────────────────────────────
+
+function _auditFileLink(filePath, line) {
+    if (!filePath) return '';
+    const label = filePath + (line ? `:${line}` : '');
+    const lineParam = line ? `:${line}` : '';
+    const escapedPath = filePath.replace(/'/g, "\\'");
+    return `<a href="#content/docs/${encodeURIComponent(filePath)}@preview${lineParam}" class="audit-file-link" onclick="_auditNavToFile('${escapedPath}',${line||0});return false" title="Open in Content Vault" style="font-family:var(--font-mono);font-size:0.72rem;color:var(--accent);text-decoration:none;cursor:pointer;word-break:break-all">${esc(label)}</a>`;
+}
+
+function _auditNavToFile(path, line) {
+    // Close modal first
+    const modal = document.getElementById('audit-modal-overlay');
+    if (modal) modal.remove();
+    const linePart = line ? ':' + line : '';
+    switchTab('content/docs/' + path + '@preview' + linePart);
+}
+
+function _auditModal(title, bodyHtml, width) {
+    const old = document.getElementById('audit-modal-overlay');
+    if (old) old.remove();
+
+    const overlay = document.createElement('div');
+    overlay.id = 'audit-modal-overlay';
+    overlay.className = 'vault-modal-overlay';
+    overlay.onclick = e => { if (e.target === overlay) overlay.remove(); };
+    overlay.innerHTML = `
+        <div class="vault-modal" style="max-width:${width||600}px;max-height:80vh;overflow-y:auto;overflow-x:hidden">
+            <div style="display:flex;align-items:center;margin-bottom:var(--space-md)">
+                <strong style="font-size:1rem;flex:1">${title}</strong>
+                <button onclick="document.getElementById('audit-modal-overlay').remove()" style="background:none;border:none;color:var(--text-muted);font-size:1.2rem;cursor:pointer;padding:4px 8px">✕</button>
+            </div>
+            <div id="audit-modal-body">${bodyHtml}</div>
+        </div>
+    `;
+    document.body.appendChild(overlay);
+    const escHandler = e => { if (e.key === 'Escape') { overlay.remove(); document.removeEventListener('keydown', escHandler); } };
+    document.addEventListener('keydown', escHandler);
+}
+
+async function loadAuditTab(force) {
+    if (_auditLoaded && !force) return;
+    _auditLoaded = true;
+
+
+
+    // Bust server cache if forced
+    if (force) {
+        for (const key of ['audit:system', 'audit:deps', 'audit:structure', 'audit:clients', 'audit:scores']) {
+            cardInvalidate(key);
+            api('/devops/cache/bust', {
+                method: 'POST',
+                body: JSON.stringify({ card: key }),
+            }).catch(() => {});
+        }
+    }
+
+    // Load all cards in parallel
+    await Promise.all([
+        loadAuditScores(),
+        loadAuditSystemCard(),
+        loadAuditDepsCard(),
+        loadAuditStructureCard(),
+        loadAuditClientsCard(),
+    ]);
+
+    // Auto-load L2 cards that are already cached
+    _autoLoadL2Cards();
+}
+
+
+async function _autoLoadL2Cards() {
+    // Check if any L2 cards have cached data and load them silently
+    for (const [key, fn] of [
+        ['audit:l2:quality', loadAuditHealthCard],
+        ['audit:l2:repo', loadAuditRepoCard],
+        ['audit:l2:risks', loadAuditRisksCard],
+        ['audit:l2:structure', loadAuditL2StructureCard],
+    ]) {
+        if (cardCached(key)) {
+            fn();
+        }
+    }
+}
+
+

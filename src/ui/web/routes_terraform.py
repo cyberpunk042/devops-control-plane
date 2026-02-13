@@ -85,3 +85,66 @@ def tf_generate():  # type: ignore[no-untyped-def]
     if "error" in result:
         return jsonify(result), 400
     return jsonify(result)
+
+
+# ── Extended operations ─────────────────────────────────────────────
+
+
+@terraform_bp.route("/terraform/init", methods=["POST"])
+def tf_init():  # type: ignore[no-untyped-def]
+    """Initialize Terraform."""
+    data = request.get_json(silent=True) or {}
+    upgrade = data.get("upgrade", False)
+    result = terraform_ops.terraform_init(_project_root(), upgrade=upgrade)
+    if not result.get("ok"):
+        return jsonify(result), 400
+    return jsonify(result)
+
+
+@terraform_bp.route("/terraform/apply", methods=["POST"])
+def tf_apply():  # type: ignore[no-untyped-def]
+    """Apply Terraform plan."""
+    result = terraform_ops.terraform_apply(_project_root())
+    if not result.get("ok"):
+        return jsonify(result), 400
+    return jsonify(result)
+
+
+@terraform_bp.route("/terraform/output")
+def tf_output():  # type: ignore[no-untyped-def]
+    """Get Terraform outputs."""
+    result = terraform_ops.terraform_output(_project_root())
+    if not result.get("ok"):
+        return jsonify(result), 400
+    return jsonify(result)
+
+
+@terraform_bp.route("/terraform/destroy", methods=["POST"])
+def tf_destroy():  # type: ignore[no-untyped-def]
+    """Destroy Terraform resources."""
+    result = terraform_ops.terraform_destroy(_project_root())
+    if not result.get("ok"):
+        return jsonify(result), 400
+    return jsonify(result)
+
+
+@terraform_bp.route("/terraform/workspace/select", methods=["POST"])
+def tf_workspace_select():  # type: ignore[no-untyped-def]
+    """Switch Terraform workspace."""
+    data = request.get_json(silent=True) or {}
+    workspace = data.get("workspace", "")
+    if not workspace:
+        return jsonify({"error": "Missing 'workspace' field"}), 400
+    result = terraform_ops.terraform_workspace_select(_project_root(), workspace)
+    if not result.get("ok"):
+        return jsonify(result), 400
+    return jsonify(result)
+
+
+@terraform_bp.route("/terraform/fmt", methods=["POST"])
+def tf_fmt():  # type: ignore[no-untyped-def]
+    """Format Terraform files."""
+    result = terraform_ops.terraform_fmt(_project_root())
+    if not result.get("ok"):
+        return jsonify(result), 400
+    return jsonify(result)

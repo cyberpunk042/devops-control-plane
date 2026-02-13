@@ -1,0 +1,508 @@
+<!-- Integrations Tab JS — Pages Configuration
+     configureSegment() modal, feature toggles, dynamic config fields,
+     custom CSS editor, build/deploy actions (buildSegment, buildAll, merge, deploy).
+     Depends on: _integrations_pages.html (Pages card context)
+-->
+        // Fetch builders list, current segment config, and feature registry in parallel
+        let builders = [];
+        let segConfig = {};
+        let featureCategories = [];
+        try {
+            const [bd, sd, fd] = await Promise.all([
+                api('/pages/builders').catch(() => ({ builders: [] })),
+                api('/pages/segments').catch(() => ({ segments: [] })),
+                api('/pages/features').catch(() => ({ categories: [] })),
+            ]);
+            builders = bd.builders || [];
+            const seg = (sd.segments || []).find(s => s.name === name);
+            if (seg) segConfig = seg.config || {};
+            featureCategories = fd.categories || [];
+        } catch (_) {}
+
+        const optionsHtml = builders.map(b => {
+            const sel = b.name === currentBuilder ? 'selected' : '';
+            const avail = b.available ? '' : ' (not installed)';
+            return `<option value="${esc(b.name)}" ${sel}>${esc(b.label)}${avail}</option>`;
+        }).join('');
+
+        const modal = document.createElement('div');
+        modal.className = 'vault-modal-overlay';
+        modal.id = 'vault-modal';
+        modal.onclick = (e) => { if (e.target === modal) closeVaultModal(); };
+        modal.innerHTML = `
+        <div class="vault-modal" style="max-width:620px;max-height:88vh;overflow-y:auto">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-md)">
+                <h3 style="margin:0">⚙️ Configure: <code style="color:#818cf8">${esc(name)}</code></h3>
+                <button class="btn btn-sm btn-ghost" onclick="closeVaultModal()" style="font-size:1rem;padding:0.1rem 0.4rem" title="Close">✕</button>
+            </div>
+
+            <!-- Source + path (read-only info) -->
+            <div style="display:flex;gap:var(--space-md);margin-bottom:var(--space-md);padding:0.5rem 0.75rem;background:var(--bg-inset);border-radius:6px;border:1px solid var(--border-subtle)">
+                <div style="flex:1">
+                    <span style="font-size:0.68rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em">Source</span>
+                    <div style="font-size:0.78rem;color:var(--text-secondary);font-family:var(--font-mono)">${esc(source)}</div>
+                </div>
+                <div style="flex:1">
+                    <span style="font-size:0.68rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em">URL Path</span>
+                    <div style="font-size:0.78rem;color:var(--text-secondary);font-family:var(--font-mono)">${esc(path)}</div>
+                </div>
+            </div>
+
+            <!-- Builder selection -->
+            <div class="form-group" style="margin-bottom:var(--space-md)">
+                <label style="font-size:0.75rem;color:var(--text-muted);display:block;margin-bottom:0.3rem">Builder</label>
+                <select id="cfg-builder" style="width:100%">${optionsHtml}</select>
+                <div id="cfg-builder-desc" style="font-size:0.72rem;color:var(--text-muted);margin-top:0.3rem"></div>
+            </div>
+
+            <!-- Site identity -->
+            <div style="display:flex;gap:var(--space-sm);margin-bottom:var(--space-md)">
+                <div class="form-group" style="flex:2">
+                    <label style="font-size:0.75rem;color:var(--text-muted);display:block;margin-bottom:0.3rem">Site Title</label>
+                    <input type="text" id="cfg-title" value="${esc(segConfig.title || name.charAt(0).toUpperCase() + name.slice(1))}" style="width:100%" placeholder="My Documentation" autocomplete="off">
+                </div>
+                <div class="form-group" style="flex:3">
+                    <label style="font-size:0.75rem;color:var(--text-muted);display:block;margin-bottom:0.3rem">Tagline</label>
+                    <input type="text" id="cfg-tagline" value="${esc(segConfig.tagline || '')}" style="width:100%" placeholder="A brief description of this site" autocomplete="off">
+                </div>
+            </div>
+
+            <!-- Feature registry (dynamic, builder-specific) -->
+            <div id="cfg-features" style="margin-bottom:var(--space-md)"></div>
+
+            <div id="cfg-error" style="display:none;color:var(--error);font-size:0.82rem;margin-bottom:var(--space-sm)"></div>
+            <div style="display:flex;gap:var(--space-sm);justify-content:flex-end;padding-top:var(--space-sm);border-top:1px solid var(--border-subtle)">
+                <button class="btn btn-sm btn-ghost" onclick="closeVaultModal()" type="button">Cancel</button>
+                <button class="btn btn-sm btn-secondary" id="cfg-save-btn" type="button">Save</button>
+                <button class="btn btn-sm btn-primary" id="cfg-save-build-btn" type="button">Save & Build</button>
+            </div>
+        </div>`;
+        document.body.appendChild(modal);
+
+        const sel = document.getElementById('cfg-builder');
+        const descEl = document.getElementById('cfg-builder-desc');
+        const featuresEl = document.getElementById('cfg-features');
+
+        // ── Render feature toggles from API registry ──
+        function renderFeatures() {
+            const builder = sel.value;
+            if (builder !== 'docusaurus' || featureCategories.length === 0) {
+                // Non-Docusaurus: show builder info + pipeline + config fields
+                const builderInfo = builders.find(b => b.name === builder);
+                if (!builderInfo) { featuresEl.innerHTML = ''; return; }
+
+                let html = `
+                <div style="margin-bottom:0.5rem">
+                    <div style="font-size:0.68rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.06em;padding:0.4rem 0.75rem;background:var(--bg-inset);border:1px solid var(--border-subtle);border-radius:6px 6px 0 0;border-bottom:none">Pipeline</div>
+                    <div style="border:1px solid var(--border-subtle);border-radius:0 0 6px 6px;padding:0.5rem 0.75rem;background:rgba(15,17,26,0.4)">
+                        <div style="font-size:0.75rem;color:var(--text-secondary);margin-bottom:0.5rem">${esc(builderInfo.description || '')}</div>`;
+
+                if (builderInfo.stages && builderInfo.stages.length) {
+                    html += `<div style="display:flex;gap:0.3rem;align-items:center;flex-wrap:wrap">`;
+                    builderInfo.stages.forEach((stage, i) => {
+                        if (i > 0) html += `<span style="color:var(--text-muted);font-size:0.55rem">→</span>`;
+                        html += `<span style="font-size:0.72rem;padding:0.15rem 0.5rem;border-radius:4px;background:rgba(99,102,241,0.08);border:1px solid rgba(99,102,241,0.2);color:#818cf8">${esc(stage.label || stage.name)}</span>`;
+                    });
+                    html += `</div>`;
+                }
+
+                if (builderInfo.install_hint) {
+                    html += `<div style="font-size:0.68rem;color:var(--text-muted);margin-top:0.5rem;font-style:italic">Requires: <code style="font-size:0.68rem">${esc(builderInfo.install_hint)}</code></div>`;
+                }
+
+                html += `</div></div>`;
+
+                // ── Dynamic config fields from builder schema ──
+                const fields = builderInfo.config_fields || [];
+                if (fields.length > 0) {
+                    // Group by category
+                    const cats = {};
+                    for (const f of fields) {
+                        const cat = f.category || 'Configuration';
+                        if (!cats[cat]) cats[cat] = [];
+                        cats[cat].push(f);
+                    }
+
+                    for (const [catName, catFields] of Object.entries(cats)) {
+                        html += `
+                        <div style="margin-bottom:0.5rem">
+                            <div style="font-size:0.68rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.06em;padding:0.4rem 0.75rem;background:var(--bg-inset);border:1px solid var(--border-subtle);border-radius:6px 6px 0 0;border-bottom:none">${esc(catName)}</div>
+                            <div style="border:1px solid var(--border-subtle);border-radius:0 0 6px 6px;padding:0.5rem 0.75rem;background:rgba(15,17,26,0.4)">`;
+
+                        for (const f of catFields) {
+                            const curVal = segConfig[f.key] !== undefined ? segConfig[f.key] : (f.default || '');
+                            const reqBadge = f.required ? `<span style="color:var(--error);margin-left:0.2rem">*</span>` : '';
+
+                            html += `<div style="margin-bottom:0.6rem">
+                                <label style="font-size:0.72rem;color:var(--text-secondary);display:block;margin-bottom:0.2rem;font-weight:500">${esc(f.label)}${reqBadge}</label>`;
+
+                            if (f.type === 'select' && f.options) {
+                                const opts = Object.entries(f.options).map(([k, v]) =>
+                                    `<option value="${esc(k)}" ${k === String(curVal) ? 'selected' : ''}>${esc(v)}</option>`
+                                ).join('');
+                                html += `<select class="cfg-builder-field" data-key="${esc(f.key)}" style="width:100%;font-size:0.72rem;padding:0.3rem 0.4rem;background:#0d0f17;color:#a0aec0;border:1px solid var(--border-subtle);border-radius:4px">${opts}</select>`;
+                            } else if (f.type === 'textarea') {
+                                const displayVal = typeof curVal === 'object' ? JSON.stringify(curVal, null, 2) : String(curVal);
+                                html += `<textarea class="cfg-builder-field" data-key="${esc(f.key)}" rows="3" style="width:100%;font-family:var(--font-mono);font-size:0.68rem;background:#0d0f17;color:#a0aec0;border:1px solid var(--border-subtle);border-radius:4px;padding:0.4rem;resize:vertical;line-height:1.5" placeholder="${esc(f.placeholder || '')}">${esc(displayVal)}</textarea>`;
+                            } else if (f.type === 'number') {
+                                html += `<input type="number" class="cfg-builder-field" data-key="${esc(f.key)}" value="${esc(String(curVal))}" style="width:100%;font-size:0.72rem;padding:0.3rem 0.4rem;background:#0d0f17;color:#a0aec0;border:1px solid var(--border-subtle);border-radius:4px" placeholder="${esc(f.placeholder || '')}">`;
+                            } else if (f.type === 'bool') {
+                                const checked = curVal === true || curVal === 'true';
+                                html += `<label style="display:inline-flex;align-items:center;gap:0.4rem;cursor:pointer">
+                                    <span class="toggle-switch" style="position:relative;display:inline-block;width:36px;height:20px;flex-shrink:0">
+                                        <input type="checkbox" class="cfg-builder-field" data-key="${esc(f.key)}" ${checked ? 'checked' : ''} style="opacity:0;width:0;height:0;position:absolute">
+                                        <span style="position:absolute;cursor:pointer;inset:0;background:${checked ? 'var(--accent)' : '#2a2d3a'};border-radius:20px;transition:0.2s"></span>
+                                    </span>
+                                </label>`;
+                            } else {
+                                html += `<input type="text" class="cfg-builder-field" data-key="${esc(f.key)}" value="${esc(String(curVal))}" style="width:100%;font-size:0.72rem;padding:0.3rem 0.4rem;background:#0d0f17;color:#a0aec0;border:1px solid var(--border-subtle);border-radius:4px" placeholder="${esc(f.placeholder || '')}" autocomplete="off">`;
+                            }
+
+                            if (f.description) {
+                                html += `<div style="font-size:0.62rem;color:var(--text-muted);margin-top:0.15rem;line-height:1.3">${esc(f.description)}</div>`;
+                            }
+                            html += `</div>`;
+                        }
+
+                        html += `</div></div>`;
+                    }
+                }
+
+                featuresEl.innerHTML = html;
+
+                // Wire toggle switch visual update for bool fields
+                featuresEl.querySelectorAll('.cfg-builder-field[type="checkbox"]').forEach(cb => {
+                    cb.addEventListener('change', () => {
+                        const track = cb.nextElementSibling;
+                        track.style.background = cb.checked ? 'var(--accent)' : '#2a2d3a';
+                    });
+                });
+                return;
+            }
+
+            const currentFeatures = segConfig.features || {};
+            let html = '';
+
+            for (const cat of featureCategories) {
+                html += `
+                <div style="margin-bottom:0.5rem">
+                    <div style="font-size:0.68rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.06em;padding:0.4rem 0.75rem;background:var(--bg-inset);border:1px solid var(--border-subtle);border-radius:6px 6px 0 0;border-bottom:none">${esc(cat.label)}</div>
+                    <div style="border:1px solid var(--border-subtle);border-radius:0 0 6px 6px;padding:0.3rem 0;background:rgba(15,17,26,0.4)">`;
+
+                for (const feat of cat.features) {
+                    const isEnabled = currentFeatures[feat.key] !== undefined
+                        ? currentFeatures[feat.key]
+                        : feat.default;
+                    const depBadge = feat.has_deps
+                        ? `<span style="font-size:0.58rem;padding:0.05rem 0.25rem;background:rgba(99,102,241,0.12);border:1px solid rgba(99,102,241,0.25);border-radius:3px;color:#818cf8;margin-left:0.3rem">+deps</span>`
+                        : '';
+
+                    if (feat.options) {
+                        // Dropdown select for features with options
+                        const currentVal = segConfig[feat.key] || Object.keys(feat.options)[0];
+                        const optionsHtml = Object.entries(feat.options).map(([k, v]) =>
+                            `<option value="${esc(k)}" ${k === currentVal ? 'selected' : ''}>${esc(v)}</option>`
+                        ).join('');
+                        html += `
+                        <div style="display:flex;align-items:center;gap:0.6rem;padding:0.4rem 0.75rem">
+                            <div style="flex:1;min-width:0">
+                                <div style="display:flex;align-items:center;gap:0.15rem">
+                                    <span style="font-size:0.78rem;font-weight:500;color:var(--text-primary)">${feat.label}</span>
+                                    ${depBadge}
+                                </div>
+                                <div style="font-size:0.66rem;color:var(--text-muted);line-height:1.3;margin-top:0.1rem">${esc(feat.description)}</div>
+                            </div>
+                            <select class="cfg-feature-select" data-key="${feat.key}" style="font-size:0.72rem;padding:0.2rem 0.4rem;background:#0d0f17;color:#a0aec0;border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer">
+                                ${optionsHtml}
+                            </select>
+                        </div>`;
+                    } else {
+                        // Standard toggle switch
+                        html += `
+                        <label style="display:flex;align-items:center;gap:0.6rem;padding:0.4rem 0.75rem;cursor:pointer;transition:background 0.15s" onmouseover="this.style.background='rgba(99,102,241,0.04)'" onmouseout="this.style.background='transparent'">
+                            <span class="toggle-switch" style="position:relative;display:inline-block;width:36px;height:20px;flex-shrink:0">
+                                <input type="checkbox" class="cfg-feature" data-key="${feat.key}" ${isEnabled ? 'checked' : ''} style="opacity:0;width:0;height:0;position:absolute">
+                                <span style="position:absolute;cursor:pointer;inset:0;background:${isEnabled ? 'var(--accent)' : '#2a2d3a'};border-radius:20px;transition:0.2s"></span>
+                            </span>
+                            <div style="flex:1;min-width:0">
+                                <div style="display:flex;align-items:center;gap:0.15rem">
+                                    <span style="font-size:0.78rem;font-weight:500;color:var(--text-primary)">${feat.label}</span>
+                                    ${depBadge}
+                                </div>
+                                <div style="font-size:0.66rem;color:var(--text-muted);line-height:1.3;margin-top:0.1rem">${esc(feat.description)}</div>
+                            </div>
+                        </label>`;
+                    }
+                }
+
+                html += `</div></div>`;
+            }
+
+            // ── Custom CSS editor ──
+            const customCss = segConfig.custom_css || '';
+            html += `
+            <div style="margin-top:0.5rem">
+                <div style="font-size:0.68rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.06em;padding:0.4rem 0.75rem;background:var(--bg-inset);border:1px solid var(--border-subtle);border-radius:6px 6px 0 0;border-bottom:none">Custom CSS</div>
+                <div style="border:1px solid var(--border-subtle);border-radius:0 0 6px 6px;padding:0.5rem 0.75rem;background:rgba(15,17,26,0.4)">
+                    <textarea id="cfg-custom-css" rows="3" style="width:100%;font-family:var(--font-mono);font-size:0.68rem;background:#0d0f17;color:#a0aec0;border:1px solid var(--border-subtle);border-radius:4px;padding:0.4rem;resize:vertical;line-height:1.5" placeholder=":root { --ifm-color-primary: #yourcolor; }">${esc(customCss)}</textarea>
+                    <div style="font-size:0.62rem;color:var(--text-muted);margin-top:0.2rem">Appended after the default theme CSS. Use Infima CSS variables for Docusaurus theming.</div>
+                </div>
+            </div>
+            <div style="margin-top:0.5rem">
+                <div style="font-size:0.68rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.06em;padding:0.4rem 0.75rem;background:var(--bg-inset);border:1px solid var(--border-subtle);border-radius:6px 6px 0 0;border-bottom:none">Navbar Items</div>
+                <div style="border:1px solid var(--border-subtle);border-radius:0 0 6px 6px;padding:0.5rem 0.75rem;background:rgba(15,17,26,0.4)">
+                    <textarea id="cfg-navbar-items" rows="3" style="width:100%;font-family:var(--font-mono);font-size:0.68rem;background:#0d0f17;color:#a0aec0;border:1px solid var(--border-subtle);border-radius:4px;padding:0.4rem;resize:vertical;line-height:1.5" placeholder='[{"label":"API","href":"https://api.example.com","position":"right"}]'>${esc(JSON.stringify(segConfig.navbar_items || [], null, 2))}</textarea>
+                    <div style="font-size:0.62rem;color:var(--text-muted);margin-top:0.2rem">JSON array of extra navbar items. Each: <code style="font-size:0.6rem">{label, href, position}</code> or <code style="font-size:0.6rem">{label, to, position}</code>.</div>
+                </div>
+            </div>
+            <div style="margin-top:0.5rem">
+                <div style="font-size:0.68rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.06em;padding:0.4rem 0.75rem;background:var(--bg-inset);border:1px solid var(--border-subtle);border-radius:6px 6px 0 0;border-bottom:none">Extra Sidebars</div>
+                <div style="border:1px solid var(--border-subtle);border-radius:0 0 6px 6px;padding:0.5rem 0.75rem;background:rgba(15,17,26,0.4)">
+                    <textarea id="cfg-extra-sidebars" rows="2" style="width:100%;font-family:var(--font-mono);font-size:0.68rem;background:#0d0f17;color:#a0aec0;border:1px solid var(--border-subtle);border-radius:4px;padding:0.4rem;resize:vertical;line-height:1.5" placeholder='{"api":"api","guides":"guides"}'>${esc(JSON.stringify(segConfig.extra_sidebars || {}, null, 2))}</textarea>
+                    <div style="font-size:0.62rem;color:var(--text-muted);margin-top:0.2rem">JSON object mapping sidebar IDs to directory names. Default sidebar <code style="font-size:0.6rem">docs</code> always exists.</div>
+                </div>
+            </div>
+            <div style="margin-top:0.5rem">
+                <div style="font-size:0.68rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.06em;padding:0.4rem 0.75rem;background:var(--bg-inset);border:1px solid var(--border-subtle);border-radius:6px 6px 0 0;border-bottom:none">Extra npm Packages</div>
+                <div style="border:1px solid var(--border-subtle);border-radius:0 0 6px 6px;padding:0.5rem 0.75rem;background:rgba(15,17,26,0.4)">
+                    <textarea id="cfg-extra-packages" rows="2" style="width:100%;font-family:var(--font-mono);font-size:0.68rem;background:#0d0f17;color:#a0aec0;border:1px solid var(--border-subtle);border-radius:4px;padding:0.4rem;resize:vertical;line-height:1.5" placeholder='{"lodash":"^4.17.21","dayjs":"^1.11.0"}'>${esc(JSON.stringify(segConfig.extra_packages || {}, null, 2))}</textarea>
+                    <div style="font-size:0.62rem;color:var(--text-muted);margin-top:0.2rem">JSON object of additional npm packages. Format: <code style="font-size:0.6rem">{"package": "version"}</code>. Added to dependencies in package.json.</div>
+                </div>
+            </div>`;
+
+            featuresEl.innerHTML = html;
+
+            // Wire toggle switch visual update
+            featuresEl.querySelectorAll('.cfg-feature').forEach(cb => {
+                cb.addEventListener('change', () => {
+                    const track = cb.nextElementSibling;
+                    track.style.background = cb.checked ? 'var(--accent)' : '#2a2d3a';
+                });
+            });
+        }
+
+        function updateDesc() {
+            const b = builders.find(x => x.name === sel.value);
+            if (b) {
+                let info = b.description;
+                if (!b.available) info += ' ⚠️ Not installed.';
+                descEl.textContent = info;
+            }
+            renderFeatures();
+        }
+        sel.addEventListener('change', updateDesc);
+        updateDesc();
+
+        function gatherConfig() {
+            const config = { ...segConfig };
+            config.title = document.getElementById('cfg-title').value.trim() || name;
+            const tagline = document.getElementById('cfg-tagline').value.trim();
+            if (tagline) config.tagline = tagline;
+
+            if (sel.value === 'docusaurus') {
+                const features = {};
+                document.querySelectorAll('.cfg-feature').forEach(cb => {
+                    features[cb.dataset.key] = cb.checked;
+                });
+                config.features = features;
+                // Gather select-based feature values (e.g. prism_theme)
+                document.querySelectorAll('.cfg-feature-select').forEach(sel => {
+                    config[sel.dataset.key] = sel.value;
+                });
+                const cssEl = document.getElementById('cfg-custom-css');
+                if (cssEl) config.custom_css = cssEl.value;
+                // Navbar items (JSON array)
+                const navEl = document.getElementById('cfg-navbar-items');
+                if (navEl) {
+                    try { const v = JSON.parse(navEl.value); if (Array.isArray(v)) config.navbar_items = v; }
+                    catch(_) { /* keep previous */ }
+                }
+                // Extra sidebars (JSON object)
+                const sbEl = document.getElementById('cfg-extra-sidebars');
+                if (sbEl) {
+                    try { const v = JSON.parse(sbEl.value); if (v && typeof v === 'object' && !Array.isArray(v)) config.extra_sidebars = v; }
+                    catch(_) { /* keep previous */ }
+                }
+                // Extra npm packages (JSON object)
+                const pkgEl = document.getElementById('cfg-extra-packages');
+                if (pkgEl) {
+                    try { const v = JSON.parse(pkgEl.value); if (v && typeof v === 'object' && !Array.isArray(v)) config.extra_packages = v; }
+                    catch(_) { /* keep previous */ }
+                }
+            } else {
+                // Gather builder-specific config fields
+                document.querySelectorAll('.cfg-builder-field').forEach(el => {
+                    const key = el.dataset.key;
+                    if (!key) return;
+                    if (el.type === 'checkbox') {
+                        config[key] = el.checked;
+                    } else if (el.type === 'number') {
+                        const n = parseInt(el.value, 10);
+                        config[key] = isNaN(n) ? el.value : n;
+                    } else {
+                        const val = el.value.trim();
+                        if (val) {
+                            config[key] = val;
+                        } else {
+                            delete config[key];  // Don't save empty strings
+                        }
+                    }
+                });
+            }
+            return config;
+        }
+
+        document.getElementById('cfg-save-btn').onclick = async () => {
+            try {
+                await api('/pages/segments/' + encodeURIComponent(name), {
+                    method: 'PUT',
+                    body: JSON.stringify({ builder: sel.value, config: gatherConfig() }),
+                });
+                closeVaultModal();
+                toast(`Segment '${name}' updated`, 'success');
+                await loadPagesCard();
+            } catch (e) {
+                document.getElementById('cfg-error').textContent = e.message;
+                document.getElementById('cfg-error').style.display = 'block';
+            }
+        };
+
+        document.getElementById('cfg-save-build-btn').onclick = async () => {
+            const btn = document.getElementById('cfg-save-build-btn');
+            btn.disabled = true;
+            btn.textContent = 'Saving…';
+            try {
+                await api('/pages/segments/' + encodeURIComponent(name), {
+                    method: 'PUT',
+                    body: JSON.stringify({ builder: sel.value, config: gatherConfig() }),
+                });
+                closeVaultModal();
+                toast(`Segment '${name}' updated`, 'success');
+                buildSegmentStream(name);
+            } catch (e) {
+                document.getElementById('cfg-error').textContent = e.message;
+                document.getElementById('cfg-error').style.display = 'block';
+                btn.disabled = false;
+                btn.textContent = 'Save & Build';
+            }
+        };
+    }
+
+    async function buildSegment(name) {
+        toast(`Building '${name}'…`, 'info');
+        try {
+            const data = await api('/pages/build/' + encodeURIComponent(name), { method: 'POST' });
+            if (data.ok) {
+                toast(`Built '${name}' in ${data.duration_ms}ms`, 'success');
+            } else {
+                toast(`Build failed: ${data.error}`, 'error');
+            }
+            await loadPagesCard();
+        } catch (e) {
+            toast('Build failed: ' + e.message, 'error');
+        }
+    }
+
+    async function buildAllSegments() {
+        // Fetch current segments
+        let segments = [];
+        try {
+            const data = await api('/pages/segments');
+            segments = (data.segments || []).map(s => s.name);
+        } catch (e) {
+            toast('Failed to load segments: ' + e.message, 'error');
+            return;
+        }
+        if (segments.length === 0) {
+            toast('No segments to build', 'info');
+            return;
+        }
+
+        const results = [];
+
+        for (let i = 0; i < segments.length; i++) {
+            const name = segments[i];
+            toast(`Building ${i+1}/${segments.length}: ${name}…`, 'info');
+
+            // Build with streaming — wait for it to complete
+            const ok = await new Promise(resolve => {
+                buildSegmentStream(name, {
+                    onComplete: (ok) => {
+                        results.push({ segment: name, ok });
+                        if (ok && i < segments.length - 1) {
+                            // Auto-close successful builds to proceed to next
+                            setTimeout(() => { closeBuildModal(); resolve(ok); }, 1200);
+                        } else {
+                            // On failure or last build: keep modal open, wait for user close
+                            if (!ok) {
+                                // Wait for user to close the modal, then resolve
+                                const waitForClose = setInterval(() => {
+                                    if (!document.getElementById('build-modal')) {
+                                        clearInterval(waitForClose);
+                                        resolve(ok);
+                                    }
+                                }, 200);
+                            } else {
+                                resolve(ok);
+                            }
+                        }
+                    }
+                });
+            });
+        }
+
+        // Summary
+        const failed = results.filter(r => !r.ok).map(r => r.segment);
+        if (failed.length === 0) {
+            toast(`All ${segments.length} segments built successfully`, 'success');
+        } else {
+            toast(`${failed.length}/${segments.length} failed: ${failed.join(', ')}`, 'error');
+        }
+        await loadPagesCard();
+    }
+
+    async function mergeSegments() {
+        toast('Merging segments…', 'info');
+        try {
+            const data = await api('/pages/merge', { method: 'POST' });
+            if (data.ok) {
+                toast(`Merged ${data.segments_merged.length} segment(s)`, 'success');
+            } else {
+                toast(`Merge had errors: ${data.errors.join('; ')}`, 'error');
+            }
+        } catch (e) {
+            toast('Merge failed: ' + e.message, 'error');
+        }
+    }
+
+    async function deployPages() {
+        if (!confirm('Deploy to gh-pages?\n\nThis will merge all built segments and force-push to the remote gh-pages branch.')) return;
+
+        // Auto-merge before deploying
+        toast('Merging segments…', 'info');
+        try {
+            const mergeData = await api('/pages/merge', { method: 'POST' });
+            if (!mergeData.ok) {
+                toast(`Merge failed: ${mergeData.errors.join('; ')}`, 'error');
+                return;
+            }
+            toast(`Merged ${mergeData.segments_merged.length} segment(s)`, 'success');
+        } catch (e) {
+            toast('Merge failed: ' + e.message, 'error');
+            return;
+        }
+
+        // Now deploy
+        toast('Deploying to gh-pages…', 'info');
+        try {
+            const data = await api('/pages/deploy', { method: 'POST' });
+            if (data.ok) {
+                toast('Deployed to gh-pages!', 'success');
+            } else {
+                toast('Deploy failed: ' + data.error, 'error');
+            }
+        } catch (e) {
+            toast('Deploy failed: ' + e.message, 'error');
+        }
+    }
+

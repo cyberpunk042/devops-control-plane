@@ -1,0 +1,355 @@
+<!-- Wizard JS — Core Helpers
+     Form state collection, module/domain/environment/content/encryption key helpers,
+     detection logic, integration step setup.
+     Depends on: _wizard_init.html (state)
+-->
+    // ── Collect form state ──────────────────────────────────────────
+
+    function _wizardCollectWelcome() {
+        if (!_wizardConfig) return;
+        const name = document.getElementById('wiz-name');
+        const desc = document.getElementById('wiz-desc');
+        const repo = document.getElementById('wiz-repo');
+        if (name) _wizardConfig.name = name.value.trim();
+        if (desc) _wizardConfig.description = desc.value.trim();
+        if (repo) _wizardConfig.repository = repo.value.trim();
+    }
+
+    // ── Module helpers ──────────────────────────────────────────────
+
+    function _wizardModuleRow(m, i) {
+        const stackIcons = {
+            'python-lib': '🐍', 'python-cli': '🐍', 'python-flask': '🐍',
+            'node': '📦', 'docker-compose': '🐳', 'markdown': '📝',
+        };
+        const icon = stackIcons[m.stack] || '📁';
+        return `
+            <div style="display:flex;align-items:center;gap:0.5rem;padding:0.5rem 0.75rem;background:var(--bg-inset);border:1px solid var(--border-subtle);border-radius:8px;font-size:0.85rem">
+                <span style="font-size:1rem">${icon}</span>
+                <div style="flex:1;min-width:0">
+                    <div style="font-weight:600">${esc(m.name)}</div>
+                    <div style="display:flex;gap:0.75rem;font-size:0.75rem;color:var(--text-muted)">
+                        <span><code>${esc(m.path)}</code></span>
+                        <span>Stack: ${esc(m.stack || '—')}</span>
+                        ${m.domain ? `<span>Domain: ${esc(m.domain)}</span>` : ''}
+                    </div>
+                    ${m.description ? `<div style="font-size:0.75rem;color:var(--text-muted);margin-top:0.15rem">${esc(m.description)}</div>` : ''}
+                </div>
+                <button class="btn btn-secondary btn-sm" onclick="wizardRemoveModule(${i})" title="Remove"
+                    style="font-size:0.7rem;padding:0.15rem 0.4rem;color:var(--error);opacity:0.6">✕</button>
+            </div>
+        `;
+    }
+
+    function wizardAddModule() {
+        if (!_wizardConfig) return;
+        const name = document.getElementById('wiz-mod-name');
+        const path = document.getElementById('wiz-mod-path');
+        const stack = document.getElementById('wiz-mod-stack');
+
+        const n = name ? name.value.trim() : '';
+        const p = path ? path.value.trim() : '';
+        if (!n || !p) { toast('Name and path are required.', 'warning'); return; }
+
+        if (!_wizardConfig.modules) _wizardConfig.modules = [];
+        _wizardConfig.modules.push({
+            name: n,
+            path: p,
+            stack: stack ? stack.value.trim() : '',
+            domain: _wizardConfig.domains?.[0] || 'service',
+        });
+        wizardDirty = true;
+        renderWizard();
+    }
+
+    function wizardRemoveModule(i) {
+        if (!_wizardConfig || !_wizardConfig.modules) return;
+        _wizardConfig.modules.splice(i, 1);
+        wizardDirty = true;
+        renderWizard();
+    }
+
+    // ── Domain helpers ──────────────────────────────────────────────
+
+    function wizardAddDomain() {
+        if (!_wizardConfig) return;
+        const input = document.getElementById('wiz-new-domain');
+        const val = input ? input.value.trim().toLowerCase() : '';
+        if (!val) return;
+        if (!_wizardConfig.domains) _wizardConfig.domains = [];
+        if (_wizardConfig.domains.includes(val)) { toast('Domain already exists.', 'warning'); return; }
+        _wizardConfig.domains.push(val);
+        wizardDirty = true;
+        renderWizard();
+    }
+
+    function wizardRemoveDomain(el, domain) {
+        if (!_wizardConfig || !_wizardConfig.domains) return;
+        _wizardConfig.domains = _wizardConfig.domains.filter(d => d !== domain);
+        wizardDirty = true;
+        renderWizard();
+    }
+
+    // ── Environment helpers ─────────────────────────────────────────
+
+    function wizardAddEnv() {
+        if (!_wizardConfig) return;
+        const nameInput = document.getElementById('wiz-new-env-name');
+        const descInput = document.getElementById('wiz-new-env-desc');
+        const n = nameInput ? nameInput.value.trim() : '';
+        if (!n) { toast('Environment name is required.', 'warning'); return; }
+        if (!_wizardConfig.environments) _wizardConfig.environments = [];
+        if (_wizardConfig.environments.some(e => e.name === n)) {
+            toast('Environment already exists.', 'warning'); return;
+        }
+        _wizardConfig.environments.push({
+            name: n,
+            description: descInput ? descInput.value.trim() : '',
+            default: _wizardConfig.environments.length === 0,
+        });
+        wizardDirty = true;
+        renderWizard();
+    }
+
+    function wizardRemoveEnv(i) {
+        if (!_wizardConfig || !_wizardConfig.environments) return;
+        const env = _wizardConfig.environments[i];
+        if (!env) return;
+
+        // Show a confirmation modal with cleanup options
+        const envName = env.name;
+        const envFile = _wizEnvFile(envName);
+
+        const modal = document.createElement('div');
+        modal.className = 'vault-modal-overlay';
+        modal.id = 'env-cleanup-modal';
+        modal.innerHTML = `
+            <div class="vault-modal" style="max-width:440px">
+                <h3 style="margin-bottom:0.75rem">🗑️ Remove Environment: <code>${esc(envName)}</code></h3>
+                <p style="color:var(--text-secondary);font-size:0.85rem;line-height:1.5;margin-bottom:1rem">
+                    This will remove <strong>${esc(envName)}</strong> from <code>project.yml</code>.
+                    You can also clean up associated files and the GitHub environment.
+                </p>
+
+                <div style="display:flex;flex-direction:column;gap:0.5rem;margin-bottom:1.25rem;padding:0.75rem;background:var(--bg-inset);border:1px solid var(--border-subtle);border-radius:8px">
+                    <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.85rem;cursor:pointer">
+                        <input type="checkbox" id="cleanup-files" checked>
+                        <span>Delete local files (<code>.env.${esc(envName)}</code>, <code>.env.${esc(envName)}.vault</code>)</span>
+                    </label>
+                    <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.85rem;cursor:pointer">
+                        <input type="checkbox" id="cleanup-github" checked>
+                        <span>Delete GitHub environment <code>${esc(envName)}</code></span>
+                    </label>
+                </div>
+
+                <div style="display:flex;gap:0.5rem;justify-content:flex-end">
+                    <button class="btn btn-secondary btn-sm" onclick="document.getElementById('env-cleanup-modal').remove()"
+                        style="font-size:0.82rem">Cancel</button>
+                    <button class="btn btn-sm" id="btn-confirm-cleanup"
+                        style="font-size:0.82rem;background:var(--error);color:#fff;border:none"
+                        onclick="wizardConfirmRemoveEnv(${i})">🗑️ Remove</button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+    }
+
+    async function wizardConfirmRemoveEnv(i) {
+        if (!_wizardConfig || !_wizardConfig.environments) return;
+        const env = _wizardConfig.environments[i];
+        if (!env) return;
+
+        const envName = env.name;
+        const deleteFiles = document.getElementById('cleanup-files')?.checked ?? true;
+        const deleteGithub = document.getElementById('cleanup-github')?.checked ?? false;
+
+        // Disable button, show spinner
+        const btn = document.getElementById('btn-confirm-cleanup');
+        if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner" style="width:12px;height:12px"></span> Cleaning up…';
+        }
+
+        // Run cleanup if any options selected
+        const msgs = [];
+        if (deleteFiles || deleteGithub) {
+            try {
+                const result = await api('/env/cleanup', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        name: envName,
+                        delete_files: deleteFiles,
+                        delete_github: deleteGithub,
+                    }),
+                });
+
+                if (result.files && result.files.length > 0) {
+                    msgs.push(`Deleted: ${result.files.join(', ')}`);
+                }
+                if (result.github) {
+                    if (result.github.success) {
+                        msgs.push(`GitHub env "${envName}" deleted`);
+                    } else if (result.github.error) {
+                        msgs.push(`GitHub: ${result.github.error}`);
+                    }
+                }
+            } catch (e) {
+                toast(`Cleanup error: ${e.message}`, 'error');
+            }
+        }
+
+        // Remove from config
+        _wizardConfig.environments.splice(i, 1);
+        wizardDirty = true;
+
+        // Close modal
+        document.getElementById('env-cleanup-modal')?.remove();
+
+        // Show results
+        const summary = msgs.length > 0 ? ` (${msgs.join('; ')})` : '';
+        toast(`🗑️ Environment "${envName}" removed${summary}`, 'success');
+
+        renderWizard();
+    }
+
+    // ── Content folder helpers ──────────────────────────────────────
+
+    function wizardToggleContentFolder(name, checked, labelEl) {
+        if (!_wizardConfig) return;
+        if (!_wizardConfig._contentFolders) _wizardConfig._contentFolders = [];
+
+        if (checked) {
+            if (!_wizardConfig._contentFolders.includes(name)) {
+                _wizardConfig._contentFolders.push(name);
+            }
+        } else {
+            _wizardConfig._contentFolders = _wizardConfig._contentFolders.filter(f => f !== name);
+        }
+        wizardDirty = true;
+
+        // Live-update the UI without full re-render
+        if (labelEl) {
+            labelEl.style.borderColor = checked ? 'var(--accent)' : 'var(--border-subtle)';
+            const statusSpan = labelEl.querySelector(`[data-folder-status="${name}"]`);
+            if (statusSpan) {
+                statusSpan.textContent = checked ? '✅ Active' : '—';
+                statusSpan.style.color = checked ? 'var(--accent)' : 'var(--text-muted)';
+            }
+            // Fix mouseleave handler
+            labelEl.onmouseleave = function() {
+                this.style.borderColor = checked ? 'var(--accent)' : 'var(--border-subtle)';
+            };
+        }
+    }
+
+    // ── Encryption key helpers ──────────────────────────────────────
+
+    async function wizardGenerateEncKey() {
+        try {
+            const result = await api('/content/setup-enc-key', {
+                method: 'POST',
+                body: JSON.stringify({ generate: true }),
+            });
+            const input = document.getElementById('wiz-enc-key-input');
+            if (input) input.value = result.key_value || '(generated)';
+            toast('🔑 Encryption key generated and saved!', 'success');
+            // Refresh the secrets step to show the updated status
+            setTimeout(() => renderWizard(), 500);
+        } catch (e) {
+            toast(`Failed: ${e.message}`, 'error');
+        }
+    }
+
+    /** Save auto-detected GITHUB_REPOSITORY to .env (local only). */
+    async function wizardSaveGhRepo(repoValue, btnEl) {
+        if (btnEl) {
+            btnEl.disabled = true;
+            btnEl.innerHTML = '<span class="spinner" style="width:12px;height:12px"></span>';
+        }
+        try {
+            await api('/secret/set', {
+                method: 'POST',
+                body: JSON.stringify({
+                    name: 'GITHUB_REPOSITORY',
+                    value: repoValue,
+                    target: 'local',
+                }),
+            });
+            toast(`GITHUB_REPOSITORY saved to .env`, 'success');
+
+            // Update the row in-place
+            const row = document.getElementById('wiz-gh-repo-row');
+            if (row) {
+                row.style.borderColor = 'var(--success)';
+                row.innerHTML = `
+                    <span>✅</span>
+                    <code style="font-size:0.8rem;font-weight:500">GITHUB_REPOSITORY</code>
+                    <span style="flex:1;color:var(--text-muted);font-size:0.78rem">${esc(repoValue)}</span>
+                    <span style="font-size:0.78rem;color:var(--success);font-weight:500">configured</span>
+                `;
+            }
+        } catch (e) {
+            toast(`Failed: ${e.message}`, 'error');
+            if (btnEl) {
+                btnEl.disabled = false;
+                btnEl.innerHTML = '💾 Save to .env';
+            }
+        }
+    }
+
+    async function wizardSaveEncKey() {
+        const input = document.getElementById('wiz-enc-key-input');
+        const keyVal = input ? input.value.trim() : '';
+        if (!keyVal || keyVal.length < 8) {
+            toast('Key must be at least 8 characters.', 'warning');
+            if (input) input.focus();
+            return;
+        }
+
+        try {
+            await api('/content/setup-enc-key', {
+                method: 'POST',
+                body: JSON.stringify({ key: keyVal }),
+            });
+            toast('🔑 Encryption key saved!', 'success');
+            setTimeout(() => renderWizard(), 500);
+        } catch (e) {
+            toast(`Failed: ${e.message}`, 'error');
+        }
+    }
+
+    // ── Detection ───────────────────────────────────────────────────
+
+    async function wizardDetect() {
+        const list = document.getElementById('wizard-modules-list');
+        if (!list) return;
+        list.innerHTML = '<div style="text-align:center;padding:1rem"><span class="spinner"></span> Scanning project…</div>';
+
+        try {
+            await api('/detect', { method: 'POST' });
+            const data = await api('/status');
+            const modules = data.modules || [];
+
+            if (!_wizardConfig) _wizardConfig = {};
+            _wizardConfig.modules = modules.map(m => ({
+                name: m.name,
+                path: m.path,
+                domain: m.domain || 'service',
+                stack: m.stack || '',
+                description: m.description || '',
+            }));
+
+            wizardDirty = true;
+            list.innerHTML = _wizardConfig.modules.map((m, i) => _wizardModuleRow(m, i)).join('');
+
+            if (modules.length === 0) {
+                list.innerHTML = '<p style="color:var(--text-muted);padding:1rem;text-align:center">No modules detected. Add them manually below.</p>';
+            } else {
+                toast(`Found ${modules.length} module${modules.length > 1 ? 's' : ''}!`, 'success');
+            }
+        } catch (e) {
+            list.innerHTML = `<p style="color:var(--error);padding:0.5rem">${esc(e.message)}</p>`;
+        }
+    }
+
+// ── Integration step helpers ────────────────────────────────────

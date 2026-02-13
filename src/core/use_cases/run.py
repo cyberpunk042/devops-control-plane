@@ -182,7 +182,7 @@ def run_automation(
     save_state(state, state_path)
 
     # ── Write audit log ──────────────────────────────────────────
-    audit_path = project_root / "state" / "audit.ndjson"
+    audit_path = project_root / ".state" / "audit.ndjson"
     audit_writer = AuditWriter(audit_path)
     write_audit_entries(report, audit_writer)
 

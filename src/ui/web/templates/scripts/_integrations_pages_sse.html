@@ -1,0 +1,461 @@
+<!-- Integrations Tab JS — Pages SSE & Helpers
+     SSE build streaming, batched log rendering, build progress tracking,
+     CI workflow generation, shared helpers (timeSince).
+     Depends on: _integrations_pages.html (Pages card context)
+-->
+    // ── SSE Build Streaming ──────────────────────────────────────────────
+
+    let _buildAbort = null;
+    let _buildTimerIds = {};
+    let _activeBuild = null;  // { name, stage, startTs } — persistent status
+
+    function _updateSegmentRowStatus(name, stage, done) {
+        // Update the segment row in the Pages card to show build progress
+        const rows = document.querySelectorAll('[data-segment-row]');
+        for (const row of rows) {
+            if (row.dataset.segmentRow === name) {
+                const statusEl = row.querySelector('.segment-build-status');
+                if (!statusEl) break;
+                if (done) {
+                    statusEl.innerHTML = '';
+                    statusEl.style.display = 'none';
+                } else {
+                    statusEl.innerHTML = `<span onclick="showBuildModal()" style="display:inline-flex;align-items:center;gap:0.25rem;font-size:0.65rem;color:#818cf8;cursor:pointer" title="Click to view build log"><span style="animation:pulse 1.2s infinite;font-size:0.5rem">●</span> ${stage || 'building…'} 👁</span>`;
+                    statusEl.style.display = 'inline';
+                }
+                break;
+            }
+        }
+    }
+
+    function showBuildModal() {
+        const modal = document.getElementById('build-modal');
+        if (modal) modal.style.display = '';
+    }
+
+    function abortBuild() {
+        // Actually kill the build SSE stream and clean up
+        if (_buildAbort) { try { _buildAbort.abort(); } catch(_){} _buildAbort = null; }
+        for (const id of Object.values(_buildTimerIds)) clearInterval(id);
+        _buildTimerIds = {};
+        if (_activeBuild) { _updateSegmentRowStatus(_activeBuild.name, null, true); _activeBuild = null; }
+        const modal = document.getElementById('build-modal');
+        if (modal) modal.remove();
+        loadPagesCard();
+    }
+
+    function closeBuildModal() {
+        const modal = document.getElementById('build-modal');
+        if (_activeBuild) {
+            // Build still running — just hide the modal, keep the SSE stream alive
+            if (modal) modal.style.display = 'none';
+        } else {
+            // Build finished or no build — full cleanup
+            if (_buildAbort) { try { _buildAbort.abort(); } catch(_){} _buildAbort = null; }
+            for (const id of Object.values(_buildTimerIds)) clearInterval(id);
+            _buildTimerIds = {};
+            if (modal) modal.remove();
+            loadPagesCard();
+        }
+    }
+
+    function buildSegmentStream(name, opts) {
+        opts = opts || {};
+        const isClean = !!opts.clean;
+        const isWipe = !!opts.wipe;
+        const noMinify = !!opts.noMinify;
+        const onComplete = opts.onComplete || null;
+        // Kill any previous build
+        if (_buildAbort) { try { _buildAbort.abort(); } catch(_){} }
+        if (_activeBuild) { _updateSegmentRowStatus(_activeBuild.name, null, true); }
+        for (const id of Object.values(_buildTimerIds)) clearInterval(id);
+        _buildTimerIds = {};
+        const oldModal = document.getElementById('build-modal');
+        if (oldModal) oldModal.remove();
+        _buildAbort = new AbortController();
+        _activeBuild = { name, stage: null, startTs: performance.now() };
+        _updateSegmentRowStatus(name, 'starting…', false);
+
+        const buildIcon = isWipe ? '🔄' : isClean ? '🧹' : noMinify ? '🚀' : '🔨';
+        const buildLabel = isWipe ? 'Full Rebuild' : isClean ? 'Clean Build' : noMinify ? 'Build (no minify)' : 'Building';
+
+        const modal = document.createElement('div');
+        modal.className = 'vault-modal-overlay';
+        modal.id = 'build-modal';
+        modal.onclick = (e) => { if (e.target === modal) closeBuildModal(); };
+        modal.innerHTML = `
+        <div class="vault-modal" style="max-width:760px;max-height:92vh;overflow-y:auto">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-md)">
+                <h3 style="margin:0">${buildIcon} ${buildLabel}: <code style="font-size:0.9em;color:#818cf8">${esc(name)}</code></h3>
+                <button class="btn btn-sm btn-ghost" onclick="closeBuildModal()" style="font-size:1.1rem;padding:0.1rem 0.4rem" title="Close">✕</button>
+            </div>
+            <div id="build-pipeline-timer" style="font-size:0.72rem;color:var(--text-muted);margin-bottom:var(--space-sm)">⏱ Elapsed: 0.0s</div>
+            <div id="build-stages" style="display:flex;flex-direction:column;gap:0.5rem;margin-bottom:var(--space-md)">
+                <div style="color:var(--text-muted);font-size:0.78rem;padding:0.5rem">Connecting…</div>
+            </div>
+            <div id="build-status" style="font-size:0.82rem;padding:0.5rem 0">
+                <span style="color:var(--text-muted)">⏳ Waiting for pipeline…</span>
+            </div>
+            <div id="build-actions" style="display:flex;gap:var(--space-sm);justify-content:flex-end;padding-top:var(--space-sm);border-top:1px solid var(--border-subtle)">
+                <button id="build-cancel-btn" class="btn btn-sm" onclick="abortBuild()" style="background:var(--error);color:white;border:none">⛔ Abort Build</button>
+                <button class="btn btn-sm btn-ghost" onclick="closeBuildModal()" title="Hide modal (build keeps running)">Minimize</button>
+            </div>
+        </div>`;
+        document.body.appendChild(modal);
+
+        const stagesEl = document.getElementById('build-stages');
+        const statusEl = document.getElementById('build-status');
+        const actionsEl = document.getElementById('build-actions');
+        const timerEl = document.getElementById('build-pipeline-timer');
+
+        // Per-stage state: { el, label, logEl, logCount, lineCount, startTs }
+        const stages = {};
+        let currentStage = '';
+        const pipelineStart = performance.now();
+
+        // Live pipeline timer
+        const pipelineTimerId = setInterval(() => {
+            const elapsed = ((performance.now() - pipelineStart) / 1000).toFixed(1);
+            timerEl.textContent = `⏱ Elapsed: ${elapsed}s`;
+        }, 100);
+        _buildTimerIds['_pipeline'] = pipelineTimerId;
+
+        function _fmtMs(ms) { return ms < 1000 ? ms + 'ms' : (ms / 1000).toFixed(1) + 's'; }
+
+        function _makeStageCard(stageName, label) {
+            const wrapper = document.createElement('div');
+            wrapper.id = 'build-stage-' + stageName;
+            wrapper.style.cssText = 'border:1px solid var(--border-subtle);border-radius:8px;overflow:hidden;transition:border-color 0.2s';
+
+            // Header row
+            const header = document.createElement('div');
+            header.className = 'stage-header';
+            header.style.cssText = 'display:flex;align-items:center;gap:0.5rem;padding:0.5rem 0.75rem;background:var(--bg-inset);cursor:pointer;user-select:none';
+            header.innerHTML = `
+                <span class="stage-icon" style="min-width:1.2rem;text-align:center;font-size:0.85rem">○</span>
+                <span class="stage-label" style="font-weight:600;font-size:0.82rem;color:var(--text-muted)">${esc(label)}</span>
+                <span class="stage-detail" style="margin-left:auto;font-size:0.68rem;color:var(--text-muted)"></span>
+                <span class="stage-lines" style="font-size:0.6rem;color:var(--text-muted);background:var(--bg-elevated);padding:0 0.25rem;border-radius:3px;display:none">0</span>
+                <span class="stage-toggle" style="font-size:0.6rem;color:var(--text-muted);transition:transform 0.15s">▶</span>`;
+            wrapper.appendChild(header);
+
+            // Log area (hidden by default, auto-shown on run)
+            const logArea = document.createElement('div');
+            logArea.className = 'stage-log';
+            logArea.style.cssText = 'display:none;background:#0d0f17;padding:0.5rem 0.75rem;font-family:var(--font-mono);font-size:0.66rem;max-height:200px;overflow-y:auto;line-height:1.5;color:#8892a8;white-space:pre-wrap;border-top:1px solid #1a1f2e';
+            wrapper.appendChild(logArea);
+
+            // Toggle log on header click
+            header.onclick = () => {
+                const showing = logArea.style.display !== 'none';
+                logArea.style.display = showing ? 'none' : 'block';
+                header.querySelector('.stage-toggle').textContent = showing ? '▶' : '▼';
+                if (!showing) logArea.scrollTop = logArea.scrollHeight;
+            };
+
+            return wrapper;
+        }
+
+        function _setStageStatus(stageName, status, detail) {
+            const info = stages[stageName];
+            if (!info) return;
+            const wrapper = info.el;
+            const iconEl = wrapper.querySelector('.stage-icon');
+            const labelEl = wrapper.querySelector('.stage-label');
+            const detailEl = wrapper.querySelector('.stage-detail');
+
+            const icons = { pending: '○', running: '⟳', done: '✅', error: '❌', skipped: '⊘' };
+            const colors = { pending: 'var(--text-muted)', running: '#818cf8', done: 'var(--success)', error: 'var(--error)', skipped: 'var(--text-muted)' };
+            const borders = { pending: 'var(--border-subtle)', running: '#818cf8', done: '#22c55e40', error: '#ef444460', skipped: 'var(--border-subtle)' };
+            const bgs = { running: 'rgba(129,140,248,0.04)', error: 'rgba(239,68,68,0.04)' };
+
+            iconEl.textContent = icons[status] || '○';
+            if (status === 'running') iconEl.style.animation = 'spin 1s linear infinite';
+            else iconEl.style.animation = '';
+            labelEl.style.color = colors[status] || 'var(--text-muted)';
+            detailEl.textContent = detail || '';
+            wrapper.style.borderColor = borders[status] || 'var(--border-subtle)';
+            wrapper.querySelector('.stage-header').style.background = bgs[status] || 'var(--bg-inset)';
+        }
+
+        // ── Batched log rendering (prevents UI freeze) ──
+        const _logBuffers = {};  // stageName → { lines: [], rafId: null, timer: null }
+
+        function _addStageLine(stageName, line) {
+            const info = stages[stageName];
+            if (!info) return;
+            info.lineCount++;
+
+            // Buffer the line instead of writing to DOM immediately
+            if (!_logBuffers[stageName]) {
+                _logBuffers[stageName] = { lines: [], scheduled: false };
+            }
+            _logBuffers[stageName].lines.push(line);
+
+            // Schedule a flush if not already scheduled
+            if (!_logBuffers[stageName].scheduled) {
+                _logBuffers[stageName].scheduled = true;
+                requestAnimationFrame(() => _flushStageLog(stageName));
+            }
+        }
+
+        function _flushStageLog(stageName) {
+            const buf = _logBuffers[stageName];
+            if (!buf || buf.lines.length === 0) {
+                if (buf) buf.scheduled = false;
+                return;
+            }
+            const info = stages[stageName];
+            if (!info) { buf.lines = []; buf.scheduled = false; return; }
+
+            // Batch write all buffered lines at once
+            info.logEl.textContent += buf.lines.join('\n') + '\n';
+            buf.lines = [];
+            buf.scheduled = false;
+
+            // Single scroll + counter update
+            info.logEl.scrollTop = info.logEl.scrollHeight;
+            const linesEl = info.el.querySelector('.stage-lines');
+            linesEl.style.display = 'inline';
+            linesEl.textContent = info.lineCount;
+        }
+
+        function _flushAllStageLogs() {
+            for (const name of Object.keys(_logBuffers)) {
+                _flushStageLog(name);
+            }
+        }
+
+        function _expandStageLog(stageName) {
+            const info = stages[stageName];
+            if (!info) return;
+            info.logEl.style.display = 'block';
+            info.el.querySelector('.stage-toggle').textContent = '▼';
+        }
+
+        function _collapseStageLog(stageName) {
+            const info = stages[stageName];
+            if (!info) return;
+            info.logEl.style.display = 'none';
+            info.el.querySelector('.stage-toggle').textContent = '▶';
+        }
+
+        function _startStageTimer(stageName) {
+            const info = stages[stageName];
+            if (!info) return;
+            info.startTs = performance.now();
+            const tid = setInterval(() => {
+                const elapsed = ((performance.now() - info.startTs) / 1000).toFixed(1);
+                info.el.querySelector('.stage-detail').textContent = elapsed + 's…';
+            }, 100);
+            _buildTimerIds[stageName] = tid;
+        }
+
+        function _stopStageTimer(stageName) {
+            if (_buildTimerIds[stageName]) {
+                clearInterval(_buildTimerIds[stageName]);
+                delete _buildTimerIds[stageName];
+            }
+        }
+
+        // ── SSE connection ────────────────────────────────────────
+        const params = [];
+        if (isClean) params.push('clean=true');
+        if (isWipe) params.push('wipe=true');
+        if (noMinify) params.push('no_minify=true');
+        const qs = params.length ? '?' + params.join('&') : '';
+        const buildUrl = '/api/pages/build-stream/' + encodeURIComponent(name) + qs;
+        fetch(buildUrl, {
+            method: 'POST',
+            signal: _buildAbort.signal,
+        })
+        .then(response => {
+            if (!response.ok) throw new Error(`Server ${response.status}: ${response.statusText}`);
+            stagesEl.innerHTML = '';
+            statusEl.innerHTML = '<span style="color:#818cf8">🔨 Pipeline starting…</span>';
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+
+            function read() {
+                reader.read().then(({ done, value }) => {
+                    if (done) {
+                        _flushAllStageLogs();
+                        if (!statusEl.querySelector('.build-final')) {
+                            statusEl.innerHTML = '<span style="color:var(--warning)" class="build-final">⚠️ Stream ended unexpectedly</span>';
+                            if (currentStage && stages[currentStage]) _expandStageLog(currentStage);
+                        }
+                        clearInterval(pipelineTimerId);
+                        for (const id of Object.values(_buildTimerIds)) clearInterval(id);
+                        loadPagesCard();
+                        return;
+                    }
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop();
+
+                    for (const line of lines) {
+                        if (!line.startsWith('data: ')) continue;
+                        let evt;
+                        try { evt = JSON.parse(line.slice(6)); } catch(e) { continue; }
+
+                        if (evt.type === 'pipeline_start') {
+                            stagesEl.innerHTML = '';
+                            statusEl.innerHTML = '<span style="color:#818cf8">🔨 Building…</span>';
+                            for (const s of (evt.stages || [])) {
+                                const card = _makeStageCard(s.name, s.label || s.name);
+                                stagesEl.appendChild(card);
+                                stages[s.name] = {
+                                    el: card,
+                                    label: s.label || s.name,
+                                    logEl: card.querySelector('.stage-log'),
+                                    lineCount: 0,
+                                    startTs: 0,
+                                };
+                                _setStageStatus(s.name, 'pending', '');
+                            }
+
+                        } else if (evt.type === 'stage_start') {
+                            // collapse previous stage log
+                            if (currentStage && currentStage !== evt.stage) _collapseStageLog(currentStage);
+                            currentStage = evt.stage;
+                            _setStageStatus(evt.stage, 'running', 'starting…');
+                            _expandStageLog(evt.stage);
+                            _startStageTimer(evt.stage);
+                            statusEl.innerHTML = `<span style="color:#818cf8">▶ ${esc(evt.label || evt.stage)}</span>`;
+                            if (_activeBuild) { _activeBuild.stage = evt.label || evt.stage; }
+                            _updateSegmentRowStatus(name, evt.label || evt.stage, false);
+
+                        } else if (evt.type === 'log') {
+                            _addStageLine(currentStage, evt.line || '');
+
+                        } else if (evt.type === 'stage_done') {
+                            _flushAllStageLogs();
+                            _stopStageTimer(evt.stage);
+                            _setStageStatus(evt.stage, 'done', _fmtMs(evt.duration_ms || 0));
+                            _collapseStageLog(evt.stage);
+
+                        } else if (evt.type === 'stage_error') {
+                            _flushAllStageLogs();
+                            _stopStageTimer(evt.stage);
+                            // Show first line in status badge, rest in log
+                            const errLines = (evt.error || 'failed').split('\n');
+                            _setStageStatus(evt.stage, 'error', esc(errLines[0]));
+                            for (const eLine of errLines) {
+                                _addStageLine(evt.stage, `❌ ${eLine}`);
+                            }
+                            _expandStageLog(evt.stage);
+
+                        } else if (evt.type === 'pipeline_done') {
+                            _flushAllStageLogs();
+                            clearInterval(pipelineTimerId);
+                            for (const id of Object.values(_buildTimerIds)) clearInterval(id);
+                            _buildTimerIds = {};
+
+                            const totalT = _fmtMs(evt.total_ms || 0);
+                            timerEl.textContent = `⏱ Total: ${totalT}`;
+
+                            if (currentStage) _collapseStageLog(currentStage);
+
+                            // Update skipped stages
+                            if (evt.stages) {
+                                for (const s of evt.stages) {
+                                    if (s.status === 'skipped') _setStageStatus(s.name, 'skipped', 'skipped');
+                                }
+                            }
+
+                            if (evt.ok) {
+                                statusEl.innerHTML = `<span style="color:var(--success)" class="build-final">✅ Pipeline complete — ${totalT}</span>`;
+                                if (evt.serve_url) {
+                                    actionsEl.innerHTML = `
+                                        <a href="${esc(evt.serve_url)}" target="_blank" class="btn btn-sm btn-primary" style="text-decoration:none;display:inline-flex;align-items:center;gap:0.25rem">🌐 View Site</a>
+                                        <button class="btn btn-sm btn-secondary" onclick="closeBuildModal()">Close</button>`;
+                                }
+                            } else {
+                                const rawErr = evt.error || (evt.stages || []).filter(s => s.status === 'error').map(s => s.error).join(', ') || 'unknown';
+                                const errFirst = rawErr.split('\n')[0];
+                                statusEl.innerHTML = `<span style="color:var(--error)" class="build-final">❌ Pipeline failed: ${esc(errFirst)}</span>`;
+                                actionsEl.innerHTML = `
+                                    <button class="btn btn-sm" onclick="closeBuildModal(); buildSegmentStream('${esc(name)}')" style="background:#818cf8;color:white;border:none">🔄 Retry</button>
+                                    <button class="btn btn-sm" onclick="closeBuildModal(); buildSegmentStream('${esc(name)}', {clean:true})" style="background:var(--warning);color:white;border:none">🧹 Clean Retry</button>
+                                    <button class="btn btn-sm" onclick="closeBuildModal(); buildSegmentStream('${esc(name)}', {wipe:true})" style="background:var(--error);color:white;border:none">🔄 Full Rebuild</button>
+                                    <button class="btn btn-sm btn-secondary" onclick="closeBuildModal()">Close</button>`;
+                                // expand failed stages
+                                if (evt.stages) {
+                                    for (const s of evt.stages) {
+                                        if (s.status === 'error') _expandStageLog(s.name);
+                                    }
+                                }
+                            }
+                            loadPagesCard();
+                            _activeBuild = null;
+                            _updateSegmentRowStatus(name, null, true);
+                            if (onComplete) onComplete(evt.ok);
+
+                        } else if (evt.type === 'error') {
+                            statusEl.innerHTML = `<span style="color:var(--error)" class="build-final">❌ ${esc(evt.message || 'error')}</span>`;
+                            if (onComplete) onComplete(false);
+                        }
+                    }
+                    read();
+                }).catch(err => {
+                    if (err.name === 'AbortError') { if (onComplete) onComplete(false); return; }
+                    clearInterval(pipelineTimerId);
+                    statusEl.innerHTML = `<span style="color:var(--error)" class="build-final">⚠️ Stream interrupted: ${esc(err.message)}</span>`;
+                    actionsEl.innerHTML = `<button class="btn btn-sm btn-secondary" onclick="closeBuildModal()">Close</button>`;
+                    if (currentStage) _expandStageLog(currentStage);
+                    loadPagesCard();
+                    if (onComplete) onComplete(false);
+                });
+            }
+            read();
+        })
+        .catch(err => {
+            if (err.name === 'AbortError') { if (onComplete) onComplete(false); return; }
+            clearInterval(pipelineTimerId);
+            statusEl.innerHTML = `<span style="color:var(--error)" class="build-final">❌ Connection failed: ${esc(err.message)}</span>`;
+            if (onComplete) onComplete(false);
+        });
+    }
+
+    // ── Preview Management (removed) ─────────────────────────────────────
+    // Random-port preview servers have been replaced by integrated hosting.
+    // Built sites are served at /pages/site/<segment>/ by Flask directly.
+    // The preview API endpoints still exist for dev-server use cases.
+
+    // ── CI Workflow Generation ───────────────────────────────────────────
+
+    async function generateCI() {
+        toast('Generating deploy workflow…', 'info');
+        try {
+            const data = await api('/pages/generate-ci', { method: 'POST', body: '{}' });
+            if (data.ok) {
+                toast(`Workflow created: ${data.path}`, 'success');
+            } else {
+                toast('CI generation failed: ' + data.error, 'error');
+            }
+        } catch (e) {
+            toast('CI generation failed: ' + e.message, 'error');
+        }
+    }
+
+
+    // (installBuilder is now defined above via _installBuilderAsync)
+
+    // ── Helpers ──────────────────────────────────────────────────────────
+
+    function _timeAgo(dateStr) {
+        if (!dateStr) return '';
+        const d = new Date(dateStr);
+        const now = new Date();
+        const sec = Math.floor((now - d) / 1000);
+        if (sec < 60) return 'just now';
+        const min = Math.floor(sec / 60);
+        if (min < 60) return min + 'm ago';
+        const hr = Math.floor(min / 60);
+        if (hr < 24) return hr + 'h ago';
+        const days = Math.floor(hr / 24);
+        if (days < 30) return days + 'd ago';
+        const months = Math.floor(days / 30);
+        return months + 'mo ago';

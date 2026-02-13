@@ -1,0 +1,328 @@
+<script>
+    // ── Setup Wizard — integration & tool configuration ─────────────
+    // Multi-step modal: Detect → Select → Install → Done
+
+    let _wizardData = null;
+    let _wizardSelections = {};  // Persists card selections across steps
+
+    async function openSetupWizard() {
+        // Show modal immediately with loading state
+        const modal = document.createElement('div');
+        modal.className = 'vault-modal-overlay'; modal.id = 'setup-wizard-modal';
+        modal.innerHTML = `<div class="vault-modal" style="max-width:600px">
+            <div class="vault-modal-header">
+                <span class="vault-modal-title">🧙 Setup Wizard</span>
+                <button class="vault-modal-close" onclick="document.getElementById('setup-wizard-modal')?.remove()">✕</button>
+            </div>
+            <div class="vault-modal-body" id="setup-wizard-body" style="min-height:200px;display:flex;align-items:center;justify-content:center">
+                <div style="text-align:center">
+                    <span class="spinner"></span>
+                    <div style="margin-top:var(--space-sm);color:var(--text-muted);font-size:0.82rem">Detecting environment…</div>
+                </div>
+            </div>
+        </div>`;
+        document.body.appendChild(modal);
+        modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
+
+        // Fetch detection data
+        try {
+            _wizardData = await api('/wizard/detect');
+        } catch (e) {
+            document.getElementById('setup-wizard-body').innerHTML = `
+                <div style="text-align:center;color:var(--error)">
+                    <div style="font-size:1.5rem;margin-bottom:0.5rem">❌</div>
+                    Detection failed: ${esc(e.message)}
+                </div>`;
+            return;
+        }
+
+        _wizardRenderStep1();
+    }
+
+    // ── Step 1: Detection Results ───────────────────────────────────
+
+    function _wizardRenderStep1() {
+        const d = _wizardData;
+        const body = document.getElementById('setup-wizard-body');
+
+        // Count tools
+        const toolEntries = Object.entries(d.tools);
+        const toolsAvail = toolEntries.filter(([,v]) => v).length;
+        const toolsTotal = toolEntries.length;
+
+        // Detected integrations
+        const intEntries = Object.entries(d.integrations);
+        const intDetected = intEntries.filter(([,v]) => v.detected).length;
+
+        // File markers
+        const fileEntries = Object.entries(d.files);
+        const filesFound = fileEntries.filter(([,v]) => v).length;
+
+        body.innerHTML = `
+        <div style="font-size:0.85rem;line-height:1.6">
+            <div style="display:flex;align-items:center;gap:0.6rem;margin-bottom:var(--space-md)">
+                <span style="font-size:2rem">🔍</span>
+                <div>
+                    <div style="font-weight:700;font-size:1rem">Environment Detected</div>
+                    <div style="font-size:0.78rem;color:var(--text-muted)">
+                        ${toolsAvail}/${toolsTotal} tools · ${filesFound} project markers · ${intDetected}/${intEntries.length} integrations ready
+                    </div>
+                </div>
+            </div>
+
+            <div style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.4rem">Tools</div>
+            <div style="display:flex;flex-wrap:wrap;gap:0.3rem;margin-bottom:var(--space-md)">
+                ${toolEntries.map(([k,v]) => `<span style="font-size:0.72rem;padding:0.15rem 0.5rem;border-radius:4px;border:1px solid ${v ? 'var(--success)' : 'var(--border-subtle)'};color:${v ? 'var(--success)' : 'var(--text-muted)'};background:${v ? 'color-mix(in srgb, var(--success) 8%, transparent)' : 'var(--bg-inset)'}">${v ? '✓' : '✗'} ${esc(k)}</span>`).join('')}
+            </div>
+
+            <div style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.4rem">Project Files</div>
+            <div style="display:flex;flex-wrap:wrap;gap:0.3rem;margin-bottom:var(--space-md)">
+                ${fileEntries.map(([k,v]) => `<span style="font-size:0.72rem;padding:0.15rem 0.5rem;border-radius:4px;border:1px solid ${v ? 'var(--accent)' : 'var(--border-subtle)'};color:${v ? 'var(--accent)' : 'var(--text-muted)'};background:${v ? 'color-mix(in srgb, var(--accent) 8%, transparent)' : 'var(--bg-inset)'}">${v ? '●' : '○'} ${esc(k.replace(/_/g, ' '))}</span>`).join('')}
+            </div>
+
+            <div style="display:flex;gap:var(--space-sm);justify-content:flex-end;margin-top:var(--space-md)">
+                <button class="btn btn-sm btn-secondary" onclick="document.getElementById('setup-wizard-modal')?.remove()">Cancel</button>
+                <button class="btn btn-sm btn-primary" onclick="_wizardRenderStep2()">Next: Configure →</button>
+            </div>
+        </div>`;
+    }
+
+    // ── Step 2: Integration & DevOps Card Selection ─────────────────
+
+    function _wizardRenderStep2() {
+        const d = _wizardData;
+        const body = document.getElementById('setup-wizard-body');
+        const prefs = d.current_prefs;
+
+        let intRows = '';
+        for (const [key, info] of Object.entries(d.integrations)) {
+            const cur = prefs[key] || info.suggest;
+            const detected = info.detected;
+            const needsTools = (info.tools_needed || []).length > 0;
+            intRows += `<div style="display:flex;align-items:center;gap:0.5rem;padding:0.4rem 0.6rem;border-bottom:1px solid var(--border-subtle)">
+                <span style="width:1.5rem;text-align:center">${detected ? '✅' : needsTools ? '⚠️' : '➖'}</span>
+                <span style="flex:1;font-size:0.85rem;font-weight:500">${info.label}</span>
+                ${needsTools ? `<span style="font-size:0.68rem;color:var(--warning)">needs: ${info.tools_needed.join(', ')}</span>` : ''}
+                <select id="wiz-${key.replace(':','-')}" style="font-size:0.78rem;padding:0.2rem 0.4rem;border-radius:4px;border:1px solid var(--border-subtle);background:var(--bg-inset);color:var(--text-primary)">
+                    <option value="auto" ${cur==='auto'?'selected':''}>Auto</option>
+                    <option value="manual" ${cur==='manual'?'selected':''}>Manual</option>
+                    <option value="hidden" ${cur==='hidden'?'selected':''}>Hidden</option>
+                </select>
+            </div>`;
+        }
+
+        let devRows = '';
+        for (const [key, info] of Object.entries(d.devops_cards)) {
+            const cur = prefs[key] || info.suggest;
+            const detected = info.detected !== false;
+            const needsTools = (info.tools_needed || []).length > 0;
+            devRows += `<div style="display:flex;align-items:center;gap:0.5rem;padding:0.4rem 0.6rem;border-bottom:1px solid var(--border-subtle)">
+                <span style="width:1.5rem;text-align:center">${detected ? '✅' : needsTools ? '⚠️' : '➖'}</span>
+                <span style="flex:1;font-size:0.85rem;font-weight:500">${info.label}</span>
+                ${needsTools ? `<span style="font-size:0.68rem;color:var(--warning)">needs: ${info.tools_needed.join(', ')}</span>` : ''}
+                <select id="wiz-${key}" style="font-size:0.78rem;padding:0.2rem 0.4rem;border-radius:4px;border:1px solid var(--border-subtle);background:var(--bg-inset);color:var(--text-primary)">
+                    <option value="auto" ${cur==='auto'?'selected':''}>Auto</option>
+                    <option value="manual" ${cur==='manual'?'selected':''}>Manual</option>
+                    <option value="hidden" ${cur==='hidden'?'selected':''}>Hidden</option>
+                </select>
+            </div>`;
+        }
+
+        body.innerHTML = `
+        <div style="font-size:0.85rem;line-height:1.6">
+            <div style="display:flex;align-items:center;gap:0.6rem;margin-bottom:var(--space-md)">
+                <span style="font-size:2rem">⚙️</span>
+                <div>
+                    <div style="font-weight:700;font-size:1rem">Configure Cards</div>
+                    <div style="font-size:0.78rem;color:var(--text-muted)">
+                        Choose which cards to auto-load, manually load, or hide
+                    </div>
+                </div>
+            </div>
+
+            <div style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;margin:var(--space-sm) 0 0.3rem">
+                Integrations Tab
+            </div>
+            <div style="background:var(--bg-inset);border:1px solid var(--border-subtle);border-radius:8px;overflow:hidden;margin-bottom:var(--space-md)">
+                ${intRows}
+            </div>
+
+            <div style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;margin:var(--space-sm) 0 0.3rem">
+                DevOps Tab
+            </div>
+            <div style="background:var(--bg-inset);border:1px solid var(--border-subtle);border-radius:8px;overflow:hidden;margin-bottom:var(--space-md);max-height:200px;overflow-y:auto">
+                ${devRows}
+            </div>
+
+            <div style="display:flex;align-items:center;gap:var(--space-sm);margin-bottom:var(--space-sm)">
+                <button class="btn btn-sm btn-ghost" onclick="_wizardApplySuggested()" title="Set all cards to detected suggestion">🔮 Apply Suggestions</button>
+            </div>
+
+            <div style="display:flex;gap:var(--space-sm);justify-content:flex-end;margin-top:var(--space-md)">
+                <button class="btn btn-sm btn-secondary" onclick="_wizardRenderStep1()">← Back</button>
+                <button class="btn btn-sm btn-primary" onclick="_wizardRenderStep3()">Next: Tools →</button>
+            </div>
+        </div>`;
+    }
+
+    function _wizardApplySuggested() {
+        const d = _wizardData;
+        // Apply suggestions to the selects
+        for (const [key, info] of Object.entries(d.integrations)) {
+            const sel = document.getElementById('wiz-' + key.replace(':','-'));
+            if (sel) sel.value = info.suggest;
+        }
+        for (const [key, info] of Object.entries(d.devops_cards)) {
+            const sel = document.getElementById('wiz-' + key);
+            if (sel) sel.value = info.suggest;
+        }
+        toast('Suggestions applied — review and save', 'info');
+    }
+
+    // ── Step 3: Missing Tools ──────────────────────────────────────
+
+    function _wizardRenderStep3() {
+        const d = _wizardData;
+        const body = document.getElementById('setup-wizard-body');
+
+        // Collect selections from Step 2 selects (before we replace the DOM)
+        _wizardSelections = {};
+        for (const key of Object.keys(d.integrations)) {
+            const sel = document.getElementById('wiz-' + key.replace(':','-'));
+            _wizardSelections[key] = sel ? sel.value : 'auto';
+        }
+        for (const key of Object.keys(d.devops_cards)) {
+            const sel = document.getElementById('wiz-' + key);
+            _wizardSelections[key] = sel ? sel.value : 'auto';
+        }
+
+        // Collect all missing tools from selected (non-hidden) integrations
+        const missingTools = new Set();
+        for (const [key, info] of Object.entries(d.integrations)) {
+            if (_wizardSelections[key] !== 'hidden') {
+                (info.tools_needed || []).forEach(t => missingTools.add(t));
+            }
+        }
+        for (const [key, info] of Object.entries(d.devops_cards)) {
+            if (_wizardSelections[key] !== 'hidden') {
+                (info.tools_needed || []).forEach(t => missingTools.add(t));
+            }
+        }
+
+        // Also add security tools if not available
+        const secTools = ['pip-audit', 'bandit', 'safety', 'ruff', 'mypy', 'pytest'];
+        const missingSec = secTools.filter(t => !d.tools[t]);
+
+        let toolsHtml = '';
+        if (missingTools.size > 0) {
+            toolsHtml += `<div style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.4rem">Required by Enabled Cards</div>`;
+            for (const tool of missingTools) {
+                toolsHtml += `<div style="display:flex;align-items:center;gap:0.5rem;padding:0.4rem 0.6rem;border-bottom:1px solid var(--border-subtle)" id="wiz-tool-row-${tool}">
+                    <span style="width:1.5rem;text-align:center;color:var(--error)">✗</span>
+                    <span style="flex:1;font-size:0.85rem;font-weight:500">${esc(tool)}</span>
+                    <button class="btn btn-sm btn-secondary" style="font-size:0.72rem" onclick="_wizardInstallTool('${esc(tool)}', this)">📦 Install</button>
+                </div>`;
+            }
+        }
+
+        if (missingSec.length > 0) {
+            toolsHtml += `<div style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;margin:var(--space-sm) 0 0.4rem">Optional: Security & Quality</div>`;
+            for (const tool of missingSec) {
+                toolsHtml += `<div style="display:flex;align-items:center;gap:0.5rem;padding:0.4rem 0.6rem;border-bottom:1px solid var(--border-subtle)" id="wiz-tool-row-${tool}">
+                    <span style="width:1.5rem;text-align:center;color:var(--text-muted)">○</span>
+                    <span style="flex:1;font-size:0.85rem;font-weight:500">${esc(tool)}</span>
+                    <button class="btn btn-sm btn-ghost" style="font-size:0.72rem" onclick="_wizardInstallTool('${esc(tool)}', this)">📦 Install</button>
+                </div>`;
+            }
+        }
+
+        if (!toolsHtml) {
+            toolsHtml = `<div style="text-align:center;padding:var(--space-lg);color:var(--success)">
+                <div style="font-size:1.5rem;margin-bottom:0.5rem">✅</div>
+                <div style="font-weight:600">All required tools are installed!</div>
+            </div>`;
+        }
+
+        body.innerHTML = `
+        <div style="font-size:0.85rem;line-height:1.6">
+            <div style="display:flex;align-items:center;gap:0.6rem;margin-bottom:var(--space-md)">
+                <span style="font-size:2rem">📦</span>
+                <div>
+                    <div style="font-weight:700;font-size:1rem">Missing Tools</div>
+                    <div style="font-size:0.78rem;color:var(--text-muted)">
+                        Install tools needed by your enabled integrations
+                    </div>
+                </div>
+            </div>
+
+            <div style="background:var(--bg-inset);border:1px solid var(--border-subtle);border-radius:8px;overflow:hidden;margin-bottom:var(--space-md)">
+                ${toolsHtml}
+            </div>
+
+            <div style="display:flex;gap:var(--space-sm);justify-content:flex-end;margin-top:var(--space-md)">
+                <button class="btn btn-sm btn-secondary" onclick="_wizardRenderStep2()">← Back</button>
+                <button class="btn btn-sm btn-primary" onclick="_wizardSaveAndFinish()">💾 Save & Finish</button>
+            </div>
+        </div>`;
+    }
+
+    async function _wizardInstallTool(tool, btnEl) {
+        btnEl.disabled = true;
+        btnEl.textContent = '⏳ Installing…';
+        try {
+            const data = await api('/audit/install-tool', {
+                method: 'POST',
+                body: JSON.stringify({ tool }),
+            });
+            if (data.ok || data.already_installed) {
+                const row = document.getElementById('wiz-tool-row-' + tool);
+                if (row) {
+                    const icon = row.querySelector('span');
+                    if (icon) { icon.textContent = '✓'; icon.style.color = 'var(--success)'; }
+                }
+                btnEl.textContent = '✅ Installed';
+                btnEl.style.color = 'var(--success)';
+                // Update detection data
+                if (_wizardData) _wizardData.tools[tool] = true;
+            } else if (data.needs_sudo) {
+                btnEl.textContent = '🔒 Needs sudo';
+                btnEl.disabled = false;
+                toast(`${tool} requires sudo — install manually`, 'warning');
+            } else {
+                btnEl.textContent = '❌ Failed';
+                toast(`Install failed: ${data.error || 'unknown'}`, 'error');
+            }
+        } catch (e) {
+            btnEl.textContent = '❌ Failed';
+            toast(`Install failed: ${e.message}`, 'error');
+        }
+    }
+
+    // ── Save & Finish ──────────────────────────────────────────────
+
+    async function _wizardSaveAndFinish() {
+        const prefs = { ..._wizardSelections };
+
+        try {
+            await api('/devops/prefs', { method: 'PUT', body: JSON.stringify(prefs) });
+            toast('Setup wizard complete — preferences saved!', 'success');
+            document.getElementById('setup-wizard-modal')?.remove();
+
+            // Reset cached prefs so tabs reload with new settings
+            if (typeof _devopsPrefs !== 'undefined') _devopsPrefs = null;
+            if (typeof _intPrefs !== 'undefined') _intPrefs = null;
+            if (typeof _devopsLoaded !== 'undefined') _devopsLoaded = false;
+            if (typeof _intLoaded !== 'undefined') _intLoaded = false;
+
+            // Reload current tab
+            const current = document.querySelector('.tab-btn.active');
+            if (current) {
+                const tabId = current.dataset.tab || current.getAttribute('data-tab');
+                if (tabId === 'devops') loadDevopsTab();
+                else if (tabId === 'integrations') loadIntegrationsTab();
+            }
+        } catch (e) {
+            toast('Failed to save: ' + e.message, 'error');
+        }
+    }
+</script>

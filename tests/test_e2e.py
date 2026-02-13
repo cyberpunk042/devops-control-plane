@@ -92,7 +92,7 @@ def project_dir(tmp_path: Path) -> Path:
         (stack_dir / "stack.yml").write_text("\n".join(lines) + "\n")
 
     # State directory
-    (tmp_path / "state").mkdir(exist_ok=True)
+    (tmp_path / ".state").mkdir(exist_ok=True)
 
     return tmp_path
 
@@ -175,7 +175,7 @@ class TestLifecycle:
         invoke(runner, project_dir, ["run", "lint", "--mock"])
 
         # Check audit file exists
-        audit_file = project_dir / "state" / "audit.ndjson"
+        audit_file = project_dir / ".state" / "audit.ndjson"
         assert audit_file.is_file()
         lines = audit_file.read_text().strip().split("\n")
         assert len(lines) >= 1

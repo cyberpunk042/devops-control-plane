@@ -1,0 +1,283 @@
+<!-- Integrations Tab JS — GitHub Card
+     loadGitHubCard(), live tab handler, create environment modal, push secrets.
+     Depends on: _integrations_init.html (card registry)
+-->
+    // ── GitHub Card ─────────────────────────────────────────────────────
+
+    async function loadGitHubCard() {
+        const badge = document.getElementById('int-gh-badge');
+        const detail = document.getElementById('int-gh-detail');
+
+        try {
+            const cached = cardCached('github');
+            const data = cached || await api('/integrations/gh/status');
+            if (!cached) cardStore('github', data);
+
+            // ── Not installed ──
+            if (!data.available) {
+                badge.className = 'status-badge failed';
+                badge.innerHTML = '<span class="status-dot"></span>No gh CLI';
+                detail.innerHTML = cardEmpty('🐙', 'The gh CLI is not installed.',
+                    { label: 'Install GitHub CLI →', onclick: "window.open('https://cli.github.com/','_blank')" });
+                return;
+            }
+
+            // ── Not authenticated ──
+            if (!data.authenticated) {
+                badge.className = 'status-badge degraded';
+                badge.innerHTML = '<span class="status-dot"></span>Not auth';
+
+                let html = cardStatusGrid([
+                    { label: 'CLI', value: data.version || 'installed', cls: 'ok' },
+                    { label: 'Auth', value: 'Not authenticated', cls: 'warn' },
+                ]);
+                html += `<div style="margin-top:var(--space-sm);font-size:0.82rem;color:var(--warning)">` +
+                    `⚠ Run <code style="font-family:var(--font-mono);background:var(--bg-inset);padding:1px 6px;border-radius:4px">gh auth login</code> in your terminal.</div>`;
+                html += `<div style="font-size:0.78rem;color:var(--text-muted);margin-top:var(--space-xs)">` +
+                    `Once authenticated: Pull requests, Actions, Environments, Secrets management.</div>`;
+                detail.innerHTML = html;
+                return;
+            }
+
+            // ── Connected ──
+            badge.className = 'status-badge ok';
+            badge.innerHTML = '<span class="status-dot"></span>Connected';
+
+            // Status grid
+            const stats = [
+                { label: 'CLI', value: data.version || '✓', cls: 'ok' },
+                { label: 'Auth', value: 'Connected', cls: 'ok' },
+            ];
+            if (data.repo) stats.push({ label: 'Repo', value: data.repo });
+            let html = cardStatusGrid(stats);
+
+            // Detection
+            const detections = [];
+            if (data.repo) detections.push({
+                icon: '🔗', label: 'Repository',
+                value: data.repo,
+                click: `window.open('https://github.com/${data.repo}','_blank')`
+            });
+            if (detections.length) html += cardDetectionList(detections);
+
+            // Live panel (PRs, Runs, Environments, Secrets)
+            html += cardLivePanel('int-gh-live', [
+                { key: 'prs', label: '🔀 Pull Requests' },
+                { key: 'runs', label: '▶ Action Runs' },
+                { key: 'envs', label: '🌍 Environments' },
+                { key: 'secrets', label: '🔑 Secrets & Vars' },
+            ], '_ghLiveTab');
+
+            // Actions
+            html += cardActionToolbar([
+                { label: 'New Environment', icon: '➕', onclick: '_ghCreateEnvModal()' },
+                { label: 'Push Secrets', icon: '⬆', onclick: '_ghPushSecrets(this)' },
+            ]);
+
+            detail.innerHTML = html;
+
+            // Auto-load PRs tab
+            setTimeout(() => {
+                const firstTab = document.querySelector('#int-gh-live')?.parentElement?.querySelector('.card-live-tab');
+                if (firstTab) firstTab.click();
+            }, 50);
+
+        } catch (e) {
+            badge.className = 'status-badge failed';
+            badge.innerHTML = '<span class="status-dot"></span>Error';
+            detail.innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(e.message)}</p>`;
+        }
+    }
+
+    // ── GitHub: Live tab handler ────────────────────────────────────────
+
+    async function _ghLiveTab(what, panelId) {
+        const panel = document.getElementById(panelId);
+        if (!panel) return;
+        panel.innerHTML = '<span class="spinner"></span> Loading…';
+
+        try {
+            if (what === 'prs') {
+                const data = await api('/gh/pulls');
+                if (!data.available || !data.pulls || data.pulls.length === 0) {
+                    panel.innerHTML = `<span style="color:var(--text-muted)">No open pull requests</span>`;
+                    return;
+                }
+                panel.innerHTML = cardDataTable(
+                    ['#', 'Title', 'Branch'],
+                    data.pulls.slice(0, 10).map(pr => [
+                        { text: `#${pr.number}`, cls: 'mono clickable', click: `window.open('${pr.url}','_blank')` },
+                        { text: pr.title, cls: 'name' },
+                        { text: pr.headRefName },
+                    ])
+                );
+
+            } else if (what === 'runs') {
+                const data = await api('/gh/actions/runs?n=10');
+                const runs = data.runs || data.workflow_runs || [];
+                if (runs.length === 0) {
+                    panel.innerHTML = `<span style="color:var(--text-muted)">No recent workflow runs</span>`;
+                    return;
+                }
+                panel.innerHTML = cardDataTable(
+                    ['', 'Workflow', 'Status', 'Branch'],
+                    runs.slice(0, 10).map(r => {
+                        const status = r.conclusion || r.status || 'pending';
+                        const dotCls = status === 'success' ? 'ok' : status === 'failure' ? 'err' : 'warn';
+                        return [
+                            { text: status === 'success' ? '✓' : status === 'failure' ? '✗' : '●' },
+                            { text: r.name || r.workflow_name || '—', cls: 'name' },
+                            { text: status },
+                            { text: r.head_branch || '—' },
+                        ];
+                    })
+                );
+
+            } else if (what === 'envs') {
+                const data = await api('/gh/environments');
+                const envs = data.environments || [];
+                if (envs.length === 0) {
+                    panel.innerHTML = `<span style="color:var(--text-muted)">No deployment environments configured. ` +
+                        `<button class="btn btn-sm btn-ghost" onclick="_ghCreateEnvModal()" style="font-size:0.68rem">➕ Create one</button></span>`;
+                    return;
+                }
+                panel.innerHTML = cardDataTable(
+                    ['', 'Environment'],
+                    envs.map(e => [
+                        { text: '●', cls: 'mono' },
+                        { text: typeof e === 'string' ? e : (e.name || String(e)), cls: 'name' },
+                    ])
+                );
+
+            } else if (what === 'secrets') {
+                const data = await api('/gh/secrets');
+                const secrets = data.secrets || [];
+                const vars = data.variables || [];
+
+                if (secrets.length + vars.length === 0) {
+                    panel.innerHTML = `<span style="color:var(--text-muted)">No secrets or variables configured on GitHub</span>`;
+                    return;
+                }
+
+                let html = '';
+                if (secrets.length > 0) {
+                    html += `<div style="font-size:0.64rem;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted);padding:4px 0">Secrets (${secrets.length})</div>`;
+                    html += cardDataTable(
+                        ['', 'Name'],
+                        secrets.map(s => [
+                            { text: '🔒' },
+                            { text: typeof s === 'string' ? s : (s.name || String(s)), cls: 'name' },
+                        ])
+                    );
+                }
+                if (vars.length > 0) {
+                    html += `<div style="font-size:0.64rem;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted);padding:4px 0;margin-top:8px">Variables (${vars.length})</div>`;
+                    html += cardDataTable(
+                        ['', 'Name', 'Value'],
+                        vars.map(v => {
+                            const name = typeof v === 'string' ? v : (v.name || String(v));
+                            const val = typeof v === 'object' ? (v.value || '') : '';
+                            return [
+                                { text: '📋' },
+                                { text: name, cls: 'name' },
+                                { text: val ? (val.length > 30 ? val.substring(0, 30) + '…' : val) : '—' },
+                            ];
+                        })
+                    );
+                }
+                panel.innerHTML = html;
+            }
+        } catch (e) {
+            panel.innerHTML = `<span style="color:var(--error)">${esc(e.message)}</span>`;
+        }
+    }
+
+    // ── GitHub: Create Environment Modal ────────────────────────────────
+
+    function _ghCreateEnvModal() {
+        const body =
+            `<p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:var(--space-md)">` +
+            `Create a deployment environment on GitHub for managing secrets and deployment rules.</p>` +
+            `<div class="modal-form-grid">` +
+            modalFormField({
+                name: 'gh-env-name', label: 'Environment Name', type: 'text',
+                placeholder: 'e.g. staging, production', required: true, fullWidth: true,
+            }) +
+            `</div>`;
+
+        modalOpen({
+            title: '➕ Create GitHub Environment',
+            body,
+            size: 'narrow',
+            footerButtons: [
+                { label: 'Cancel', cls: 'btn-secondary', onclick: 'modalClose()' },
+                { label: 'Create', cls: 'btn-primary', id: 'gh-env-create-btn', onclick: '_ghDoCreateEnv()' },
+            ],
+        });
+
+        setTimeout(() => {
+            const input = document.getElementById('mf-gh-env-name');
+            if (input) {
+                input.focus();
+                input.addEventListener('keydown', e => { if (e.key === 'Enter') _ghDoCreateEnv(); });
+            }
+        }, 100);
+    }
+
+    async function _ghDoCreateEnv() {
+        const name = mfVal('gh-env-name').trim();
+        if (!name) { modalError('Environment name is required.'); return; }
+
+        const btn = document.getElementById('gh-env-create-btn');
+        if (btn) { btn.disabled = true; btn.textContent = '⏳ Creating…'; }
+
+        try {
+            const result = await api('/gh/environment/create', {
+                method: 'POST',
+                body: JSON.stringify({ name })
+            });
+
+            if (result.error) {
+                modalError(result.error);
+                if (btn) { btn.disabled = false; btn.textContent = 'Create'; }
+            } else {
+                modalClose();
+                toast(`Environment "${name}" created`, 'success');
+                _ghLiveTab('envs', 'int-gh-live');
+            }
+        } catch (e) {
+            modalError(e.message);
+            if (btn) { btn.disabled = false; btn.textContent = 'Create'; }
+        }
+    }
+
+    // ── GitHub: Push secrets ────────────────────────────────────────────
+
+    async function _ghPushSecrets(btnEl) {
+        const origText = btnEl.textContent;
+        btnEl.disabled = true;
+        btnEl.textContent = '⏳…';
+
+        try {
+            const result = await api('/secrets/push', {
+                method: 'POST',
+                body: JSON.stringify({ push_to_github: true, save_to_env: true })
+            });
+
+            btnEl.textContent = origText;
+            btnEl.disabled = false;
+
+            if (result.error) {
+                toast(result.error, 'error');
+            } else {
+                const pushed = (result.pushed || []).length;
+                toast(`Pushed ${pushed} secret${pushed !== 1 ? 's' : ''} to GitHub`, 'success');
+                _ghLiveTab('secrets', 'int-gh-live');
+            }
+        } catch (e) {
+            btnEl.textContent = origText;
+            btnEl.disabled = false;
+            toast('Push failed: ' + e.message, 'error');
+        }
+    }
+

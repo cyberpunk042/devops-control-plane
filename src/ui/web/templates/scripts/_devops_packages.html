@@ -1,0 +1,160 @@
+<!-- DevOps Tab JS — Packages Card
+     loadPackagesCard(), outdated/audit/list modals, install/update actions.
+     Depends on: _devops_init.html (card registry)
+-->
+    // ── Packages Card ─────────────────────────────────────────────────
+
+    async function loadPackagesCard() {
+        const badge = document.getElementById('devops-packages-badge');
+        const detail = document.getElementById('devops-packages-detail');
+        const cached = cardCached('packages');
+        const data = cached || await api('/packages/status').catch(e => ({ _err: e }));
+        if (data._err) {
+            badge.className = 'status-badge failed';
+            badge.innerHTML = '<span class="status-dot"></span>Error';
+            detail.innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(data._err.message)}</p>`;
+            return;
+        }
+        if (!cached) cardStore('packages', data);
+
+        const managers = data.managers || [];
+        const hasPkgs = data.has_packages;
+
+        if (!hasPkgs) {
+            badge.className = 'status-badge degraded';
+            badge.innerHTML = '<span class="status-dot"></span>None';
+            detail.innerHTML = `<div style="font-size:0.82rem;color:var(--text-secondary);line-height:1.5">
+                <p class="empty-state-sm">No package managers detected</p>
+                <div style="font-size:0.68rem;color:var(--text-muted);margin-top:var(--space-xs)">No requirements.txt, package.json, Cargo.toml, or go.mod found.</div>
+            </div>`;
+            return;
+        }
+
+        badge.className = 'status-badge ok';
+        badge.innerHTML = `<span class="status-dot"></span>${data.total_managers || managers.length} manager${managers.length!==1?'s':''}`;
+
+        let html = `<div style="font-size:0.85rem;color:var(--text-secondary);line-height:1.5">`;
+
+        // Package managers
+        html += `<div style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.3rem" title="Detected package managers and their CLI availability">Package Managers</div>`;
+        managers.forEach(m => {
+            const deps = m.dependency_files || [];
+            const locks = m.lock_files || [];
+            html += `<div style="padding:0.2rem 0.5rem;margin-bottom:0.15rem;background:var(--bg-inset);border-radius:6px;border-left:3px solid ${m.cli_available?'var(--success)':'var(--warning)'}">
+                <div style="display:flex;align-items:center;gap:0.4rem;font-size:0.72rem">
+                    <span>${m.cli_available?'✅':'⚠️'}</span>
+                    <span style="font-weight:600;color:var(--text-primary)">${esc(m.name)}</span>
+                    ${!m.cli_available ? `<code style="font-family:var(--font-mono);font-size:0.58rem;color:var(--warning);cursor:pointer;padding:0.05rem 0.3rem;border:1px dashed var(--warning);border-radius:3px" title="CLI not found — click to copy install hint" onclick="navigator.clipboard.writeText('${esc(m.install_hint||m.name)}');toast('Copied install command','success')">${esc(m.install_hint||'install '+m.name)}</code>` : ''}
+                </div>
+                ${deps.length || locks.length ? `<div style="font-size:0.64rem;color:var(--text-muted);margin-top:0.1rem">${deps.length} dep file${deps.length!==1?'s':''} · ${locks.length} lock file${locks.length!==1?'s':''}</div>` : ''}
+            </div>`;
+        });
+
+        // Actions
+        html += `<div style="display:flex;gap:var(--space-sm);margin-top:var(--space-md);flex-wrap:wrap">
+            <button class="btn btn-sm btn-secondary" onclick="pkgOutdated()" title="Check for outdated packages — shows current vs latest version">📋 Outdated</button>
+            <button class="btn btn-sm btn-secondary" onclick="pkgAudit()" title="Run security audit on installed dependencies for known vulnerabilities">🛡️ Audit</button>
+            <button class="btn btn-sm btn-secondary" onclick="pkgList()" title="List all installed packages with versions">📦 List</button>
+            <button class="btn btn-sm btn-ghost" onclick="pkgInstall()" title="Run install command (pip install, npm install, etc.)">⬇️ Install</button>
+            <button class="btn btn-sm btn-ghost" onclick="pkgUpdate()" title="Update all packages to latest compatible versions">⬆️ Update</button>
+        </div>`;
+        html += `</div>`;
+        detail.innerHTML = html;
+    }
+
+    async function pkgOutdated() {
+        modalOpen({
+            title: '📋 Outdated Packages',
+            body: `<div id="pkg-outdated-body" style="max-height:400px;overflow-y:auto"><span class="spinner"></span></div>`,
+            footerButtons: [
+                { label: 'Close', cls: 'btn-primary', onclick: 'modalClose()' },
+            ],
+        });
+        try {
+            const data = await api('/packages/outdated');
+            const body = document.getElementById('pkg-outdated-body');
+            if (data.error) { body.innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(data.error)}</p>`; return; }
+            const outdated = data.outdated || [];
+            if (!outdated.length) { body.innerHTML = '<p class="empty-state-sm" style="color:var(--success)">✅ All packages up to date</p>'; return; }
+            body.innerHTML = `<div style="font-size:0.78rem;margin-bottom:var(--space-sm)">${outdated.length} outdated package${outdated.length!==1?'s':''} (${esc(data.manager||'')})</div>` +
+                outdated.map(p => `<div style="display:flex;gap:0.5rem;align-items:center;padding:0.3rem 0;border-bottom:1px solid var(--border-subtle);font-size:0.78rem">
+                    <span style="font-weight:600;color:var(--text-primary);flex:1">${esc(p.name)}</span>
+                    <span style="color:var(--text-muted);font-size:0.72rem">${esc(p.current||'?')}</span>
+                    <span style="color:var(--text-muted);font-size:0.72rem">→</span>
+                    <span style="color:var(--accent);font-size:0.72rem;font-weight:600">${esc(p.latest||p.wanted||'?')}</span>
+                </div>`).join('');
+        } catch (e) {
+            document.getElementById('pkg-outdated-body').innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(e.message)}</p>`;
+        }
+    }
+
+    async function pkgAudit() {
+        modalOpen({
+            title: '🛡️ Security Audit',
+            body: `<div id="pkg-audit-body" style="max-height:400px;overflow-y:auto"><span class="spinner"></span></div>`,
+            footerButtons: [
+                { label: 'Close', cls: 'btn-primary', onclick: 'modalClose()' },
+            ],
+        });
+        try {
+            const data = await api('/packages/audit');
+            const body = document.getElementById('pkg-audit-body');
+            if (data.error) { body.innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(data.error)}</p>`; return; }
+            const vulns = data.vulnerabilities || 0;
+            const clr = vulns === 0 ? 'var(--success)' : 'var(--error)';
+            let h = `<div style="font-size:0.82rem;margin-bottom:var(--space-sm);font-weight:600;color:${clr}">
+                ${vulns === 0 ? '✅ No vulnerabilities found' : `⚠️ ${vulns} vulnerability${vulns!==1?'ies':'y'} found`}
+            </div>`;
+            h += `<div style="font-size:0.72rem;color:var(--text-muted);margin-bottom:var(--space-sm)">Manager: ${esc(data.manager||'auto')}</div>`;
+            if (data.output) {
+                h += `<pre style="padding:var(--space-sm);background:var(--bg-primary);border-radius:var(--radius-sm);font-size:0.68rem;color:var(--text-secondary);overflow-x:auto;max-height:250px">${esc(data.output)}</pre>`;
+            }
+            body.innerHTML = h;
+        } catch (e) {
+            document.getElementById('pkg-audit-body').innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(e.message)}</p>`;
+        }
+    }
+
+    async function pkgList() {
+        modalOpen({
+            title: '📦 Installed Packages',
+            body: `<div id="pkg-list-body" style="max-height:400px;overflow-y:auto"><span class="spinner"></span></div>`,
+            footerButtons: [
+                { label: 'Close', cls: 'btn-primary', onclick: 'modalClose()' },
+            ],
+        });
+        try {
+            const data = await api('/packages/list');
+            const body = document.getElementById('pkg-list-body');
+            if (data.error) { body.innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(data.error)}</p>`; return; }
+            const pkgs = data.packages || [];
+            if (!pkgs.length) { body.innerHTML = '<p class="empty-state-sm">No packages found</p>'; return; }
+            body.innerHTML = `<div style="font-size:0.78rem;margin-bottom:var(--space-sm)">${pkgs.length} package${pkgs.length!==1?'s':''} (${esc(data.manager||'')})</div>` +
+                pkgs.map(p => `<div style="display:flex;gap:0.5rem;align-items:center;padding:0.2rem 0;border-bottom:1px solid var(--border-subtle);font-size:0.72rem">
+                    <span style="font-weight:600;color:var(--text-primary);flex:1">${esc(p.name)}</span>
+                    <span style="color:var(--text-muted);font-family:var(--font-mono);font-size:0.68rem">${esc(p.version||'')}</span>
+                </div>`).join('');
+        } catch (e) {
+            document.getElementById('pkg-list-body').innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(e.message)}</p>`;
+        }
+    }
+
+    async function pkgInstall() {
+        toast('Installing dependencies…', 'info');
+        try {
+            const data = await api('/packages/install', { method: 'POST', body: '{}' });
+            if (data.error) { toast('Install failed: ' + data.error, 'error'); return; }
+            toast('Dependencies installed ✅', 'success');
+        } catch (e) { toast('Install failed: ' + e.message, 'error'); }
+    }
+
+    async function pkgUpdate() {
+        toast('Updating packages…', 'info');
+        try {
+            const data = await api('/packages/update', { method: 'POST', body: '{}' });
+            if (data.error) { toast('Update failed: ' + data.error, 'error'); return; }
+            toast('Packages updated ✅', 'success');
+        } catch (e) { toast('Update failed: ' + e.message, 'error'); }
+    }
+
+

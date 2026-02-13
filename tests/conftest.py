@@ -22,6 +22,6 @@ def fixtures_dir() -> Path:
 @pytest.fixture
 def tmp_state_dir(tmp_path: Path) -> Path:
     """Return a temporary directory for state files."""
-    state_dir = tmp_path / "state"
+    state_dir = tmp_path / ".state"
     state_dir.mkdir()
     return state_dir

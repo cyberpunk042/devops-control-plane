@@ -72,6 +72,49 @@ def security_status():  # type: ignore[no-untyped-def]
     return jsonify(get_cached(root, "security", _compute, force=force))
 
 
+@security_bp2.route("/security/posture-summary")
+def security_posture_summary():  # type: ignore[no-untyped-def]
+    """Read-only: return cached security data if available, else empty.
+
+    This endpoint NEVER triggers a scan — it only reads the server-side
+    devops_cache.  Used by the DevOps tab Security card to show a
+    lightweight summary without blocking on pip-audit / secret scanning.
+
+    Tries two cache sources in order:
+    1. ``security`` — from a previous /security/status call
+    2. ``audit:l2:risks`` — from the Audit tab's Risks card
+    """
+    from src.core.services.devops_cache import _load_cache
+
+    root = _project_root()
+    cache = _load_cache(root)
+
+    # 1. Try direct security cache
+    sec_entry = cache.get("security")
+    if sec_entry and "data" in sec_entry:
+        return jsonify(sec_entry["data"])
+
+    # 2. Fallback: extract from audit risks cache
+    risks_entry = cache.get("audit:l2:risks")
+    if risks_entry and "data" in risks_entry:
+        risk_data = risks_entry["data"]
+        # audit:l2:risks stores findings in a different shape — extract
+        # security-relevant data and map to the shape the DevOps card expects
+        all_findings = risk_data.get("findings", [])
+        sec_findings = [
+            f for f in all_findings
+            if f.get("category") in ("secrets", "security")
+        ]
+        return jsonify({
+            "findings": sec_findings,
+            "finding_count": len(sec_findings),
+            "posture": {},  # No posture from audit cache
+            "_source": "audit:l2:risks",
+        })
+
+    return jsonify({"empty": True})
+
+
 # ── Detect ──────────────────────────────────────────────────────────
 
 

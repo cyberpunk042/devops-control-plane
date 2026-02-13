@@ -1,0 +1,124 @@
+<!-- Wizard JS — Navigation & Save
+     Step navigation (next/prev), save config, activate environment, advanced actions.
+     Depends on: _wizard_init.html (state), _wizard_helpers.html (form state collection)
+-->
+    // ── Navigation ──────────────────────────────────────────────────
+
+    function wizardNext() {
+        // Collect current state before advancing
+        if (wizardSteps[currentWizardStep].id === 'welcome') {
+            _wizardCollectWelcome();
+            if (!_wizardConfig || !_wizardConfig.name) {
+                toast('Project name is required.', 'warning');
+                const nameInput = document.getElementById('wiz-name');
+                if (nameInput) nameInput.focus();
+                return;
+            }
+        }
+        if (wizardSteps[currentWizardStep].id === 'integrations') {
+            _wizCollectIntegrations();
+        }
+
+        if (currentWizardStep < wizardSteps.length - 1) {
+            currentWizardStep++;
+            renderWizard();
+        }
+    }
+
+    function wizardPrev() {
+        // Collect state before going back
+        if (wizardSteps[currentWizardStep].id === 'welcome') {
+            _wizardCollectWelcome();
+        }
+        if (wizardSteps[currentWizardStep].id === 'integrations') {
+            _wizCollectIntegrations();
+        }
+        if (currentWizardStep > 0) {
+            currentWizardStep--;
+            renderWizard();
+        }
+    }
+
+    function wizardGoTo(idx) {
+        // Collect state from current step
+        if (wizardSteps[currentWizardStep].id === 'welcome') {
+            _wizardCollectWelcome();
+        }
+        if (wizardSteps[currentWizardStep].id === 'integrations') {
+            _wizCollectIntegrations();
+        }
+        if (idx >= 0 && idx < wizardSteps.length) {
+            currentWizardStep = idx;
+            renderWizard();
+        }
+    }
+
+    async function wizardFinish() {
+        // Collect any final state
+        _wizardCollectWelcome();
+
+        if (!_wizardConfig || !_wizardConfig.name) {
+            toast('Project name is required. Go back to step 1.', 'warning');
+            return;
+        }
+
+        try {
+            await api('/config', {
+                method: 'POST',
+                body: JSON.stringify({ config: _wizardConfig }),
+            });
+            wizardDirty = false;
+
+            // ── Save integration preferences ───────────────────────
+            if (_wizardConfig._integrationPrefs) {
+                try {
+                    // Merge with existing prefs (don't overwrite core DevOps prefs
+                    // that the user hasn't touched in the wizard)
+                    const existing = await api('/devops/prefs');
+                    const merged = { ...existing, ..._wizardConfig._integrationPrefs };
+                    await api('/devops/prefs', {
+                        method: 'PUT',
+                        body: JSON.stringify(merged),
+                    });
+                    toast('🔌 Integration preferences saved!', 'info');
+
+                    // Invalidate cached prefs in tabs
+                    if (typeof _devopsPrefs !== 'undefined') _devopsPrefs = null;
+                    if (typeof _intPrefs !== 'undefined') _intPrefs = null;
+                    if (typeof _devopsLoaded !== 'undefined') _devopsLoaded = false;
+                    if (typeof _intLoaded !== 'undefined') _intLoaded = false;
+                } catch (prefErr) {
+                    console.warn('Integration pref save failed:', prefErr);
+                }
+            }
+
+            // ── Seed environment files if entering multi-env mode ────
+            const envs = _wizardConfig.environments || [];
+            if (envs.length > 1) {
+                const defaultEnv = envs.find(e => e.default) || envs[0];
+                try {
+                    const seedResult = await api('/env/seed', {
+                        method: 'POST',
+                        body: JSON.stringify({
+                            environments: envs.map(e => e.name),
+                            default: defaultEnv.name,
+                        }),
+                    });
+                    if (seedResult.seeded && seedResult.seeded.length > 0) {
+                        toast(`📁 Seeded: ${seedResult.seeded.map(n => '.env.' + n).join(', ')}`, 'info');
+                    }
+                } catch (seedErr) {
+                    console.warn('Env seed failed:', seedErr);
+                }
+            }
+
+            // Invalidate cached environment state so other tabs re-fetch
+            projectEnvironments = [];
+            selectedEnv = '';
+            secretsLoaded = false;
+
+            toast('✅ Configuration saved to project.yml!', 'success');
+            switchTab('dashboard');
+        } catch (e) {
+            toast(`Save failed: ${e.message}`, 'error');
+        }

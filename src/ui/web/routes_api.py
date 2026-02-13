@@ -161,7 +161,7 @@ def api_health():  # type: ignore[no-untyped-def]
 
 @api_bp.route("/audit")
 def api_audit():  # type: ignore[no-untyped-def]
-    """Recent audit log entries."""
+    """Recent audit log entries (CLI operations from audit.ndjson)."""
     from src.core.persistence.audit import AuditWriter
 
     n = request.args.get("n", 20, type=int)
@@ -171,6 +171,20 @@ def api_audit():  # type: ignore[no-untyped-def]
     return jsonify({
         "total": audit.entry_count(),
         "entries": [e.model_dump(mode="json") for e in entries],
+    })
+
+
+@api_bp.route("/audit/activity")
+def api_audit_activity():  # type: ignore[no-untyped-def]
+    """Recent audit scan activity (DevOps + Audit tab scans)."""
+    from src.core.services import devops_cache
+
+    n = request.args.get("n", 100, type=int)
+    entries = devops_cache.load_activity(_project_root(), n=n)
+
+    return jsonify({
+        "total": len(entries),
+        "entries": entries,
     })
 
 

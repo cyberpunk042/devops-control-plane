@@ -2,11 +2,11 @@
 ProjectState — the root state model.
 
 This is the single document that captures everything about the current
-project state. It's serialized to state/current.json and loaded on
+project state. It's serialized to .state/current.json and loaded on
 every operation.
 
 Equivalent to the continuity-orchestrator's State model
-(state/current.json), generalized for any project domain.
+(.state/current.json), generalized for any project domain.
 """
 
 from __future__ import annotations
@@ -58,7 +58,7 @@ class OperationRecord(BaseModel):
 
 
 class ProjectState(BaseModel):
-    """Root state model — serialized to state/current.json.
+    """Root state model — serialized to .state/current.json.
 
     This is the observed reality of the project at a point in time.
     It's disposable and reproducible: delete it and the engine

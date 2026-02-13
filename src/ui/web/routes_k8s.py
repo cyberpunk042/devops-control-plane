@@ -82,3 +82,221 @@ def k8s_generate_manifests():  # type: ignore[no-untyped-def]
     if "error" in result:
         return jsonify(result), 400
     return jsonify(result)
+
+
+# ── Act: Cluster operations ─────────────────────────────────────────
+
+
+@k8s_bp.route("/k8s/pod-logs")
+def k8s_pod_logs():  # type: ignore[no-untyped-def]
+    """Get logs from a pod."""
+    pod = request.args.get("pod", "")
+    ns = request.args.get("namespace", "default")
+    tail = request.args.get("tail", 100, type=int)
+    container = request.args.get("container", "")
+    if not pod:
+        return jsonify({"error": "Missing 'pod' parameter"}), 400
+    result = k8s_ops.k8s_pod_logs(namespace=ns, pod=pod, tail=tail, container=container)
+    if not result.get("ok"):
+        return jsonify(result), 400
+    return jsonify(result)
+
+
+@k8s_bp.route("/k8s/apply", methods=["POST"])
+def k8s_apply():  # type: ignore[no-untyped-def]
+    """Apply Kubernetes manifests."""
+    data = request.get_json(silent=True) or {}
+    file_path = data.get("path", "")
+    ns = data.get("namespace", "")
+    result = k8s_ops.k8s_apply(_project_root(), file_path, namespace=ns)
+    if not result.get("ok"):
+        return jsonify(result), 400
+    return jsonify(result)
+
+
+@k8s_bp.route("/k8s/delete", methods=["POST"])
+def k8s_delete():  # type: ignore[no-untyped-def]
+    """Delete a Kubernetes resource."""
+    data = request.get_json(silent=True) or {}
+    kind = data.get("kind", "")
+    name = data.get("name", "")
+    ns = data.get("namespace", "default")
+    if not kind or not name:
+        return jsonify({"error": "Missing 'kind' or 'name'"}), 400
+    result = k8s_ops.k8s_delete_resource(kind, name, namespace=ns)
+    if not result.get("ok"):
+        return jsonify(result), 400
+    return jsonify(result)
+
+
+@k8s_bp.route("/k8s/scale", methods=["POST"])
+def k8s_scale():  # type: ignore[no-untyped-def]
+    """Scale a deployment/statefulset."""
+    data = request.get_json(silent=True) or {}
+    name = data.get("name", "")
+    replicas = data.get("replicas", 1)
+    ns = data.get("namespace", "default")
+    kind = data.get("kind", "deployment")
+    if not name:
+        return jsonify({"error": "Missing 'name'"}), 400
+    result = k8s_ops.k8s_scale(name, replicas, namespace=ns, kind=kind)
+    if not result.get("ok"):
+        return jsonify(result), 400
+    return jsonify(result)
+
+
+@k8s_bp.route("/k8s/events")
+def k8s_events():  # type: ignore[no-untyped-def]
+    """Get recent cluster events."""
+    ns = request.args.get("namespace", "default")
+    result = k8s_ops.k8s_events(namespace=ns)
+    if not result.get("ok"):
+        return jsonify(result), 400
+    return jsonify(result)
+
+
+@k8s_bp.route("/k8s/describe")
+def k8s_describe():  # type: ignore[no-untyped-def]
+    """Describe a Kubernetes resource."""
+    kind = request.args.get("kind", "")
+    name = request.args.get("name", "")
+    ns = request.args.get("namespace", "default")
+    if not kind or not name:
+        return jsonify({"error": "Missing 'kind' or 'name'"}), 400
+    result = k8s_ops.k8s_describe(kind, name, namespace=ns)
+    if not result.get("ok"):
+        return jsonify(result), 400
+    return jsonify(result)
+
+
+@k8s_bp.route("/k8s/namespaces")
+def k8s_namespaces():  # type: ignore[no-untyped-def]
+    """List Kubernetes namespaces."""
+    result = k8s_ops.k8s_namespaces()
+    if not result.get("ok"):
+        return jsonify(result), 400
+    return jsonify(result)
+
+
+# ── Helm ────────────────────────────────────────────────────────────
+
+
+@k8s_bp.route("/k8s/helm/list")
+def helm_list():  # type: ignore[no-untyped-def]
+    """List installed Helm releases."""
+    ns = request.args.get("namespace", "")
+    result = k8s_ops.helm_list(_project_root(), namespace=ns)
+    return jsonify(result)
+
+
+@k8s_bp.route("/k8s/helm/values")
+def helm_values():  # type: ignore[no-untyped-def]
+    """Get values for a Helm release."""
+    release = request.args.get("release", "")
+    ns = request.args.get("namespace", "")
+    if not release:
+        return jsonify({"error": "Missing 'release' parameter"}), 400
+    result = k8s_ops.helm_values(_project_root(), release, namespace=ns)
+    if "error" in result:
+        return jsonify(result), 400
+    return jsonify(result)
+
+
+@k8s_bp.route("/k8s/helm/install", methods=["POST"])
+def helm_install():  # type: ignore[no-untyped-def]
+    """Install a Helm chart."""
+    data = request.get_json(silent=True) or {}
+    release = data.get("release", "")
+    chart = data.get("chart", "")
+    if not release or not chart:
+        return jsonify({"error": "Missing 'release' or 'chart'"}), 400
+    result = k8s_ops.helm_install(
+        _project_root(),
+        release,
+        chart,
+        namespace=data.get("namespace", ""),
+        values_file=data.get("values_file", ""),
+        set_values=data.get("set_values"),
+        dry_run=data.get("dry_run", False),
+    )
+    if "error" in result:
+        return jsonify(result), 400
+    return jsonify(result)
+
+
+@k8s_bp.route("/k8s/helm/upgrade", methods=["POST"])
+def helm_upgrade():  # type: ignore[no-untyped-def]
+    """Upgrade a Helm release."""
+    data = request.get_json(silent=True) or {}
+    release = data.get("release", "")
+    chart = data.get("chart", "")
+    if not release or not chart:
+        return jsonify({"error": "Missing 'release' or 'chart'"}), 400
+    result = k8s_ops.helm_upgrade(
+        _project_root(),
+        release,
+        chart,
+        namespace=data.get("namespace", ""),
+        values_file=data.get("values_file", ""),
+        set_values=data.get("set_values"),
+        dry_run=data.get("dry_run", False),
+    )
+    if "error" in result:
+        return jsonify(result), 400
+    return jsonify(result)
+
+
+@k8s_bp.route("/k8s/helm/template", methods=["POST"])
+def helm_template():  # type: ignore[no-untyped-def]
+    """Render Helm templates locally."""
+    data = request.get_json(silent=True) or {}
+    release = data.get("release", "")
+    chart = data.get("chart", "")
+    if not release or not chart:
+        return jsonify({"error": "Missing 'release' or 'chart'"}), 400
+    result = k8s_ops.helm_template(
+        _project_root(),
+        release,
+        chart,
+        namespace=data.get("namespace", ""),
+        values_file=data.get("values_file", ""),
+    )
+    if "error" in result:
+        return jsonify(result), 400
+    return jsonify(result)
+
+
+# ── Skaffold ────────────────────────────────────────────────────────
+
+
+@k8s_bp.route("/k8s/skaffold/status")
+def skaffold_status():  # type: ignore[no-untyped-def]
+    """Detect Skaffold configuration."""
+    result = k8s_ops.skaffold_status(_project_root())
+    return jsonify(result)
+
+
+# ── Multi-Environment ──────────────────────────────────────────────
+
+
+@k8s_bp.route("/k8s/env-namespaces")
+def k8s_env_namespaces():  # type: ignore[no-untyped-def]
+    """Map project environments to K8s namespaces."""
+    result = k8s_ops.k8s_env_namespaces(_project_root())
+    return jsonify(result)
+
+
+# ── K8s Wizard ─────────────────────────────────────────────────────
+
+
+@k8s_bp.route("/k8s/generate/wizard", methods=["POST"])
+def k8s_generate_wizard():  # type: ignore[no-untyped-def]
+    """Generate K8s manifests from wizard resource definitions."""
+    data = request.get_json(silent=True) or {}
+    resources = data.get("resources", [])
+    if not resources:
+        return jsonify({"error": "At least one resource is required"}), 400
+    result = k8s_ops.generate_k8s_wizard(_project_root(), resources)
+    if "error" in result:
+        return jsonify(result), 400
+    return jsonify(result)

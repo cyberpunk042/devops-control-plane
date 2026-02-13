@@ -29,7 +29,7 @@ htmlcov/
 coverage.xml
 
 # ── Runtime state (generated, disposable) ────────────────────────────
-state/
+.state/
 
 # ── Backups & large files (local-only, never committed) ──────────────
 .backup/

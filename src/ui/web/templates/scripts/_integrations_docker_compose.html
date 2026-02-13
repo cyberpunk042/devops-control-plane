@@ -1,0 +1,462 @@
+<!-- Integrations Tab JS — Docker Compose Wizard
+     Compose wizard helpers, service configuration, port/volume/env management,
+     operational actions (up, down, restart, build, logs).
+     Depends on: _integrations_docker.html (Docker card context)
+-->
+    // ── Compose Wizard helpers ─────────────────────────────────────────
+
+    function _cwAddService() {
+        const idx = window._cwServices.length;
+        window._cwServices.push({
+            name: `service-${idx + 1}`,
+            image: '',
+            build_context: '',
+            dockerfile: '',
+            ports: [],
+            volumes: [],
+            environment: {},
+            depends_on: [],
+            restart: 'unless-stopped',
+            command: '',
+            networks: [],
+        });
+        window._cwActiveIdx = idx;
+        _cwRenderTabs();
+        _cwRenderForm();
+    }
+
+    function _cwRemoveService(idx) {
+        if (window._cwServices.length <= 1) return;
+        window._cwServices.splice(idx, 1);
+        if (window._cwActiveIdx >= window._cwServices.length) {
+            window._cwActiveIdx = window._cwServices.length - 1;
+        }
+        _cwRenderTabs();
+        _cwRenderForm();
+        _cwRefreshPreview();
+    }
+
+    function _cwSelectService(idx) {
+        _cwSaveCurrentForm();
+        window._cwActiveIdx = idx;
+        _cwRenderTabs();
+        _cwRenderForm();
+    }
+
+    function _cwRenderTabs() {
+        const container = document.getElementById('cw-svc-tabs');
+        if (!container) return;
+        container.innerHTML = window._cwServices.map((s, i) => {
+            const active = i === window._cwActiveIdx;
+            return `<button class="btn btn-sm ${active ? 'btn-primary' : 'btn-ghost'}" onclick="_cwSelectService(${i})"
+                style="font-size:0.72rem;padding:0.15rem 0.4rem;font-family:var(--font-mono);position:relative">
+                ${esc(s.name || 'service')}
+                ${window._cwServices.length > 1 ? `<span onclick="event.stopPropagation();_cwRemoveService(${i})"
+                    style="margin-left:0.3rem;cursor:pointer;color:var(--error);font-size:0.65rem" title="Remove">✕</span>` : ''}
+            </button>`;
+        }).join('');
+    }
+
+    function _cwRenderForm() {
+        const form = document.getElementById('cw-svc-form');
+        if (!form) return;
+        const svc = window._cwServices[window._cwActiveIdx];
+        if (!svc) return;
+
+        const otherNames = window._cwServices.filter((_, i) => i !== window._cwActiveIdx).map(s => s.name);
+
+        form.innerHTML = `
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.5rem 0.75rem">
+            <!-- Service Name -->
+            <div>
+                <label style="font-size:0.72rem;font-weight:600;color:var(--text-muted)">Service Name *</label>
+                <input type="text" value="${esc(svc.name)}" onchange="_cwField('name',this.value)"
+                    style="width:100%;padding:0.3rem 0.45rem;font-size:0.78rem;background:var(--bg-primary);border:1px solid var(--border);border-radius:5px;color:var(--text-primary);font-family:var(--font-mono)">
+            </div>
+            <!-- Image -->
+            <div>
+                <label style="font-size:0.72rem;font-weight:600;color:var(--text-muted)">Image <span style="font-weight:400">(or leave empty for build)</span></label>
+                <input type="text" value="${esc(svc.image)}" onchange="_cwField('image',this.value)" placeholder="e.g. postgres:16-alpine"
+                    style="width:100%;padding:0.3rem 0.45rem;font-size:0.78rem;background:var(--bg-primary);border:1px solid var(--border);border-radius:5px;color:var(--text-primary);font-family:var(--font-mono)">
+            </div>
+            <!-- Build Context -->
+            <div>
+                <label style="font-size:0.72rem;font-weight:600;color:var(--text-muted)">Build Context</label>
+                <input type="text" value="${esc(svc.build_context)}" onchange="_cwField('build_context',this.value)" placeholder="e.g. . or ./backend"
+                    style="width:100%;padding:0.3rem 0.45rem;font-size:0.78rem;background:var(--bg-primary);border:1px solid var(--border);border-radius:5px;color:var(--text-primary);font-family:var(--font-mono)">
+            </div>
+            <!-- Dockerfile -->
+            <div>
+                <label style="font-size:0.72rem;font-weight:600;color:var(--text-muted)">Dockerfile</label>
+                <input type="text" value="${esc(svc.dockerfile)}" onchange="_cwField('dockerfile',this.value)" placeholder="Dockerfile"
+                    style="width:100%;padding:0.3rem 0.45rem;font-size:0.78rem;background:var(--bg-primary);border:1px solid var(--border);border-radius:5px;color:var(--text-primary);font-family:var(--font-mono)">
+            </div>
+            <!-- Restart -->
+            <div>
+                <label style="font-size:0.72rem;font-weight:600;color:var(--text-muted)">Restart Policy</label>
+                <select onchange="_cwField('restart',this.value)" style="width:100%;padding:0.3rem 0.45rem;font-size:0.78rem;background:var(--bg-primary);border:1px solid var(--border);border-radius:5px;color:var(--text-primary)">
+                    ${['unless-stopped','always','on-failure','no'].map(r =>
+                        `<option value="${r}" ${svc.restart === r ? 'selected' : ''}>${r}</option>`
+                    ).join('')}
+                </select>
+            </div>
+            <!-- Command -->
+            <div>
+                <label style="font-size:0.72rem;font-weight:600;color:var(--text-muted)">Command</label>
+                <input type="text" value="${esc(svc.command)}" onchange="_cwField('command',this.value)" placeholder="e.g. npm start"
+                    style="width:100%;padding:0.3rem 0.45rem;font-size:0.78rem;background:var(--bg-primary);border:1px solid var(--border);border-radius:5px;color:var(--text-primary);font-family:var(--font-mono)">
+            </div>
+        </div>
+
+        <!-- Depends On -->
+        ${otherNames.length > 0 ? `
+        <div style="margin-top:0.5rem">
+            <label style="font-size:0.72rem;font-weight:600;color:var(--text-muted)">Depends On</label>
+            <div style="display:flex;gap:0.25rem;flex-wrap:wrap;margin-top:0.15rem">
+                ${otherNames.map(n => {
+                    const checked = (svc.depends_on || []).includes(n);
+                    return `<label style="font-size:0.72rem;display:flex;align-items:center;gap:0.2rem;padding:0.1rem 0.3rem;border-radius:4px;background:var(--bg-primary);border:1px solid var(--border-subtle);cursor:pointer">
+                        <input type="checkbox" ${checked ? 'checked' : ''} onchange="_cwToggleDep('${esc(n)}', this.checked)"> ${esc(n)}
+                    </label>`;
+                }).join('')}
+            </div>
+        </div>` : ''}
+
+        <!-- Ports -->
+        <div style="margin-top:0.6rem">
+            <div style="display:flex;align-items:center;gap:0.3rem;margin-bottom:0.15rem">
+                <label style="font-size:0.72rem;font-weight:600;color:var(--text-muted)">Ports</label>
+                <button class="btn btn-sm btn-ghost" onclick="_cwAddListItem('ports','8080:8080')" style="font-size:0.65rem;padding:0 0.3rem;color:var(--accent)">+ Add</button>
+            </div>
+            <div id="cw-ports" style="display:flex;flex-direction:column;gap:0.2rem">
+                ${(svc.ports || []).map((p, i) => `
+                    <div style="display:flex;gap:0.25rem;align-items:center">
+                        <input type="text" value="${esc(p)}" onchange="_cwUpdateListItem('ports',${i},this.value)" placeholder="host:container"
+                            style="flex:1;padding:0.25rem 0.4rem;font-size:0.75rem;background:var(--bg-primary);border:1px solid var(--border);border-radius:5px;color:var(--text-primary);font-family:var(--font-mono)">
+                        <button onclick="_cwRemoveListItem('ports',${i})" style="background:none;border:none;cursor:pointer;color:var(--error);font-size:0.75rem;padding:0.1rem">✕</button>
+                    </div>
+                `).join('')}
+            </div>
+        </div>
+
+        <!-- Volumes -->
+        <div style="margin-top:0.5rem">
+            <div style="display:flex;align-items:center;gap:0.3rem;margin-bottom:0.15rem">
+                <label style="font-size:0.72rem;font-weight:600;color:var(--text-muted)">Volumes</label>
+                <button class="btn btn-sm btn-ghost" onclick="_cwAddListItem('volumes','./data:/data')" style="font-size:0.65rem;padding:0 0.3rem;color:var(--accent)">+ Add</button>
+            </div>
+            <div id="cw-volumes" style="display:flex;flex-direction:column;gap:0.2rem">
+                ${(svc.volumes || []).map((v, i) => `
+                    <div style="display:flex;gap:0.25rem;align-items:center">
+                        <input type="text" value="${esc(v)}" onchange="_cwUpdateListItem('volumes',${i},this.value)" placeholder="host:container"
+                            style="flex:1;padding:0.25rem 0.4rem;font-size:0.75rem;background:var(--bg-primary);border:1px solid var(--border);border-radius:5px;color:var(--text-primary);font-family:var(--font-mono)">
+                        <button onclick="_cwRemoveListItem('volumes',${i})" style="background:none;border:none;cursor:pointer;color:var(--error);font-size:0.75rem;padding:0.1rem">✕</button>
+                    </div>
+                `).join('')}
+            </div>
+        </div>
+
+        <!-- Environment Variables -->
+        <div style="margin-top:0.5rem">
+            <div style="display:flex;align-items:center;gap:0.3rem;margin-bottom:0.15rem">
+                <label style="font-size:0.72rem;font-weight:600;color:var(--text-muted)">Environment Variables</label>
+                <button class="btn btn-sm btn-ghost" onclick="_cwAddEnvVar()" style="font-size:0.65rem;padding:0 0.3rem;color:var(--accent)">+ Add</button>
+            </div>
+            <div id="cw-env-vars" style="display:flex;flex-direction:column;gap:0.2rem">
+                ${Object.entries(svc.environment || {}).map(([k, v], i) => `
+                    <div style="display:flex;gap:0.25rem;align-items:center">
+                        <input type="text" value="${esc(k)}" data-env-key="${i}" onchange="_cwUpdateEnvKey(${i},this.value)" placeholder="KEY"
+                            style="width:40%;padding:0.25rem 0.4rem;font-size:0.75rem;background:var(--bg-primary);border:1px solid var(--border);border-radius:5px;color:var(--text-primary);font-family:var(--font-mono)">
+                        <span style="color:var(--text-muted);font-size:0.75rem">=</span>
+                        <input type="text" value="${esc(v)}" onchange="_cwUpdateEnvVal('${esc(k)}',this.value)" placeholder="value"
+                            style="flex:1;padding:0.25rem 0.4rem;font-size:0.75rem;background:var(--bg-primary);border:1px solid var(--border);border-radius:5px;color:var(--text-primary);font-family:var(--font-mono)">
+                        <button onclick="_cwRemoveEnvVar('${esc(k)}')" style="background:none;border:none;cursor:pointer;color:var(--error);font-size:0.75rem;padding:0.1rem">✕</button>
+                    </div>
+                `).join('')}
+            </div>
+        </div>
+
+        <!-- Networks -->
+        <div style="margin-top:0.5rem">
+            <div style="display:flex;align-items:center;gap:0.3rem;margin-bottom:0.15rem">
+                <label style="font-size:0.72rem;font-weight:600;color:var(--text-muted)">Networks</label>
+                <button class="btn btn-sm btn-ghost" onclick="_cwAddListItem('networks','default')" style="font-size:0.65rem;padding:0 0.3rem;color:var(--accent)">+ Add</button>
+            </div>
+            <div id="cw-networks" style="display:flex;flex-direction:column;gap:0.2rem">
+                ${(svc.networks || []).map((n, i) => `
+                    <div style="display:flex;gap:0.25rem;align-items:center">
+                        <input type="text" value="${esc(n)}" onchange="_cwUpdateListItem('networks',${i},this.value)" placeholder="network name"
+                            style="flex:1;padding:0.25rem 0.4rem;font-size:0.75rem;background:var(--bg-primary);border:1px solid var(--border);border-radius:5px;color:var(--text-primary);font-family:var(--font-mono)">
+                        <button onclick="_cwRemoveListItem('networks',${i})" style="background:none;border:none;cursor:pointer;color:var(--error);font-size:0.75rem;padding:0.1rem">✕</button>
+                    </div>
+                `).join('')}
+            </div>
+        </div>`;
+    }
+
+    function _cwField(field, value) {
+        const svc = window._cwServices[window._cwActiveIdx];
+        if (svc) {
+            svc[field] = value;
+            // Update tab label when name changes
+            if (field === 'name') _cwRenderTabs();
+        }
+    }
+
+    function _cwToggleDep(name, checked) {
+        const svc = window._cwServices[window._cwActiveIdx];
+        if (!svc) return;
+        if (!svc.depends_on) svc.depends_on = [];
+        if (checked && !svc.depends_on.includes(name)) svc.depends_on.push(name);
+        if (!checked) svc.depends_on = svc.depends_on.filter(d => d !== name);
+    }
+
+    function _cwAddListItem(field, defaultVal) {
+        const svc = window._cwServices[window._cwActiveIdx];
+        if (!svc) return;
+        if (!svc[field]) svc[field] = [];
+        svc[field].push(defaultVal);
+        _cwRenderForm();
+    }
+
+    function _cwUpdateListItem(field, idx, value) {
+        const svc = window._cwServices[window._cwActiveIdx];
+        if (svc && svc[field]) svc[field][idx] = value;
+    }
+
+    function _cwRemoveListItem(field, idx) {
+        const svc = window._cwServices[window._cwActiveIdx];
+        if (svc && svc[field]) {
+            svc[field].splice(idx, 1);
+            _cwRenderForm();
+        }
+    }
+
+    function _cwAddEnvVar() {
+        const svc = window._cwServices[window._cwActiveIdx];
+        if (!svc) return;
+        if (!svc.environment || Array.isArray(svc.environment)) svc.environment = {};
+        const key = `KEY_${Object.keys(svc.environment).length + 1}`;
+        svc.environment[key] = '';
+        _cwRenderForm();
+    }
+
+    function _cwUpdateEnvKey(idx, newKey) {
+        const svc = window._cwServices[window._cwActiveIdx];
+        if (!svc || !svc.environment) return;
+        const entries = Object.entries(svc.environment);
+        if (idx < entries.length) {
+            const [oldKey, val] = entries[idx];
+            delete svc.environment[oldKey];
+            svc.environment[newKey] = val;
+        }
+    }
+
+    function _cwUpdateEnvVal(key, newVal) {
+        const svc = window._cwServices[window._cwActiveIdx];
+        if (svc && svc.environment) svc.environment[key] = newVal;
+    }
+
+    function _cwRemoveEnvVar(key) {
+        const svc = window._cwServices[window._cwActiveIdx];
+        if (svc && svc.environment) {
+            delete svc.environment[key];
+            _cwRenderForm();
+        }
+    }
+
+    function _cwSaveCurrentForm() {
+        // Fields are saved via onchange — nothing extra needed
+    }
+
+    async function _cwRefreshPreview() {
+        _cwSaveCurrentForm();
+        const preview = document.getElementById('cw-preview');
+        if (!preview) return;
+
+        const validServices = window._cwServices.filter(s => (s.name || '').trim());
+        if (validServices.length === 0) {
+            preview.textContent = 'Add a service to begin…';
+            return;
+        }
+
+        preview.innerHTML = '<span class="spinner"></span> Generating…';
+
+        try {
+            const data = await apiPost('/docker/generate/compose-wizard', {
+                project_name: document.getElementById('cw-project-name')?.value || '',
+                services: validServices,
+            });
+
+            if (data.file) {
+                preview.textContent = data.file.content || '(empty)';
+                window._cwGenerated = data.file;
+                const writeBtn = document.getElementById('cw-write');
+                const openBtn = document.getElementById('cw-open-editor');
+                if (writeBtn) writeBtn.disabled = false;
+                if (openBtn) openBtn.style.display = 'inline-flex';
+            } else {
+                preview.textContent = data.error || 'Could not generate.';
+            }
+        } catch (e) {
+            preview.textContent = 'Error: ' + e.message;
+        }
+    }
+
+    async function _cwWriteToDisk() {
+        if (!window._cwGenerated) { await _cwRefreshPreview(); }
+        if (!window._cwGenerated) return;
+
+        const writeBtn = document.getElementById('cw-write');
+        if (writeBtn) { writeBtn.disabled = true; writeBtn.textContent = '⏳ Writing…'; }
+
+        try {
+            const result = await api('/docker/generate/write', {
+                method: 'POST',
+                body: JSON.stringify({ file: window._cwGenerated }),
+            });
+
+            if (result.error) {
+                toast(result.error, 'error');
+                if (writeBtn) { writeBtn.textContent = '💾 Write to disk'; writeBtn.disabled = false; }
+            } else {
+                toast(`✅ Written to ${window._cwGenerated.path || 'disk'}`, 'success');
+                if (writeBtn) writeBtn.textContent = '✅ Written';
+                cardInvalidate('docker');
+                setTimeout(() => {
+                    modalClose();
+                    loadDockerCard();
+                }, 1000);
+            }
+        } catch (e) {
+            toast('Write failed: ' + e.message, 'error');
+            if (writeBtn) { writeBtn.textContent = '💾 Write to disk'; writeBtn.disabled = false; }
+        }
+    }
+
+    function _cwOpenInEditor() {
+        if (!window._cwGenerated) return;
+        modalClose();
+        openFileInEditor(window._cwGenerated.path || 'docker-compose.yml', 'edit');
+    }
+
+    // Generate Dockerfile for a specific stack (called from stack buttons)
+    async function _dockerGenDockerfile(stackName) {
+        const preview = document.getElementById('dg-preview-wrap');
+        const code = document.getElementById('dg-preview-code');
+        const writeBtn = document.getElementById('dg-write');
+        if (!code) return;
+
+        if (preview) preview.style.display = 'block';
+        code.innerHTML = '<span class="spinner"></span> Generating Dockerfile for ' + esc(stackName) + '…';
+        if (writeBtn) { writeBtn.style.display = 'inline-flex'; writeBtn.disabled = true; }
+
+        try {
+            const data = await api('/docker/generate/dockerfile', {
+                method: 'POST',
+                body: JSON.stringify({ stack: stackName })
+            });
+            if (data.file) {
+                code.textContent = data.file.content || '(empty)';
+                if (writeBtn) {
+                    writeBtn.disabled = false;
+                    writeBtn.dataset.file = JSON.stringify(data.file);
+                }
+            } else {
+                code.textContent = data.error || 'No template available for this stack.';
+            }
+        } catch (e) {
+            code.textContent = 'Error: ' + e.message;
+        }
+    }
+
+    // Write generated file to disk
+    async function _dockerWriteGen() {
+        const writeBtn = document.getElementById('dg-write');
+        if (!writeBtn || !writeBtn.dataset.file) return;
+
+        const origText = writeBtn.textContent;
+        writeBtn.disabled = true;
+        writeBtn.textContent = '⏳ Writing…';
+
+        try {
+            const fileData = JSON.parse(writeBtn.dataset.file);
+            const result = await api('/docker/generate/write', {
+                method: 'POST',
+                body: JSON.stringify({ file: fileData })
+            });
+
+            if (result.error) {
+                modalError(result.error);
+                writeBtn.textContent = origText;
+                writeBtn.disabled = false;
+            } else {
+                toast(`✅ Written to ${fileData.path || 'disk'}`, 'success');
+                writeBtn.textContent = '✅ Written';
+                cardInvalidate('docker');
+                setTimeout(() => {
+                    modalClose();
+                    loadDockerCard();
+                }, 1000);
+            }
+        } catch (e) {
+            toast('Write failed: ' + e.message, 'error');
+            writeBtn.textContent = origText;
+            writeBtn.disabled = false;
+        }
+    }
+
+    // ── Docker: operational actions ────────────────────────────────────
+
+    async function _intDockerAction(action, btnEl) {
+        const output = document.getElementById('int-docker-action-output');
+        const origText = btnEl.textContent;
+        btnEl.disabled = true;
+        btnEl.textContent = '⏳…';
+
+        try {
+            let resultData;
+            if (action === 'up') {
+                resultData = await api('/docker/up', { method: 'POST', body: '{}' });
+            } else if (action === 'down') {
+                resultData = await api('/docker/down', { method: 'POST', body: '{}' });
+            } else if (action === 'restart') {
+                resultData = await api('/docker/restart', { method: 'POST', body: '{}' });
+            } else if (action === 'build') {
+                resultData = await api('/docker/build', { method: 'POST', body: '{}' });
+            } else if (action === 'build-nc') {
+                resultData = await api('/docker/build', { method: 'POST', body: JSON.stringify({no_cache: true}) });
+            } else if (action === 'prune') {
+                resultData = await api('/docker/prune', { method: 'POST', body: '{}' });
+            }
+
+            btnEl.textContent = origText;
+            btnEl.disabled = false;
+
+            if (resultData && output) {
+                output.style.display = 'block';
+                if (resultData.error) {
+                    output.textContent = '❌ ' + resultData.error;
+                    output.style.color = 'var(--error)';
+                    toast(resultData.error, 'error');
+                } else {
+                    output.style.color = 'var(--text-secondary)';
+                    output.textContent = resultData.output || resultData.message || JSON.stringify(resultData, null, 2);
+                    toast(`✅ docker ${action} complete`, 'success');
+                    // Refresh the card data
+                    cardInvalidate('docker');
+                    setTimeout(() => loadDockerCard(), 800);
+                }
+            }
+        } catch (e) {
+            btnEl.textContent = origText;
+            btnEl.disabled = false;
+            if (output) {
+                output.style.display = 'block';
+                output.textContent = '❌ ' + e.message;
+                output.style.color = 'var(--error)';
+            }
+            toast('Docker action failed: ' + e.message, 'error');
+        }
+    }
+

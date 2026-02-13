@@ -1,7 +1,7 @@
 """
 Server-side cache for DevOps status endpoints.
 
-Caches results to ``state/devops_cache.json`` with mtime-based
+Caches results to ``.state/devops_cache.json`` with mtime-based
 change detection.  Results are returned instantly when nothing
 relevant has changed on disk.
 
@@ -19,12 +19,17 @@ from typing import Any, Callable
 
 logger = logging.getLogger(__name__)
 
-_CACHE_FILE = "state/devops_cache.json"
-_PREFS_FILE = "state/devops_prefs.json"
+_CACHE_FILE = ".state/devops_cache.json"
+_PREFS_FILE = ".state/devops_prefs.json"
+_ACTIVITY_FILE = ".state/audit_activity.json"
+_ACTIVITY_MAX = 200  # keep last N entries
 
 # ── Default card preferences ────────────────────────────────────
+# Covers both DevOps tab cards and Integrations tab cards.
+# Values: "auto" | "manual" | "hidden"
 
 _DEFAULT_PREFS: dict[str, str] = {
+    # DevOps tab
     "security": "auto",
     "testing": "auto",
     "quality": "auto",
@@ -33,7 +38,15 @@ _DEFAULT_PREFS: dict[str, str] = {
     "docs": "auto",
     "k8s": "auto",
     "terraform": "auto",
-    "dns": "auto",
+    "dns": "hidden",       # No integration card yet — hide by default
+    # Integrations tab
+    "int:git": "auto",
+    "int:github": "auto",
+    "int:ci": "auto",
+    "int:docker": "auto",
+    "int:k8s": "auto",
+    "int:terraform": "auto",
+    "int:pages": "auto",
 }
 
 # ── Watch paths per card ────────────────────────────────────────
@@ -78,6 +91,29 @@ _WATCH_PATHS: dict[str, list[str]] = {
     "dns": [
         "netlify.toml", "vercel.json", "wrangler.toml",
         "CNAME", "cloudflare/",
+    ],
+    # ── Audit cache keys ────────────────────────────────────
+    "audit:system": [
+        "project.yml", "stacks/",
+    ],
+    "audit:deps": [
+        "pyproject.toml", "requirements.txt", "requirements-dev.txt",
+        "package.json", "package-lock.json",
+        "Cargo.toml", "go.mod", "Gemfile", "mix.exs",
+    ],
+    "audit:structure": [
+        "project.yml", "src/", "Dockerfile",
+        "docker-compose.yml", "docker-compose.yaml",
+        ".github/workflows/", "Makefile",
+    ],
+    "audit:clients": [
+        "pyproject.toml", "requirements.txt",
+        "package.json", "go.mod", "Cargo.toml",
+    ],
+    "audit:scores": [
+        "pyproject.toml", "requirements.txt",
+        "package.json", "project.yml",
+        "tests/", "docs/", ".gitignore",
     ],
 }
 
@@ -171,24 +207,40 @@ def get_cached(
 
     # ── Recompute ───────────────────────────────────────────────
     t0 = time.time()
-    data = compute_fn()
+    status = "ok"
+    error_msg = ""
+    caught_exc: Exception | None = None
+    try:
+        data = compute_fn()
+    except Exception as exc:
+        status = "error"
+        error_msg = str(exc)
+        data = {"error": error_msg}
+        caught_exc = exc
     elapsed = round(time.time() - t0, 3)
 
     now = time.time()
-    cache[card_key] = {
-        "data": data,
-        "cached_at": now,
-        "mtime": current_mtime if current_mtime > 0 else now,
-        "elapsed_s": elapsed,
-    }
-    _save_cache(project_root, cache)
+    if status == "ok":
+        cache[card_key] = {
+            "data": data,
+            "cached_at": now,
+            "mtime": current_mtime if current_mtime > 0 else now,
+            "elapsed_s": elapsed,
+        }
+        _save_cache(project_root, cache)
 
     data["_cache"] = {
         "computed_at": now,
         "fresh": False,
         "age_seconds": 0,
     }
-    logger.debug("cache MISS for %s (computed in %.2fs)", card_key, elapsed)
+
+    # ── Record activity ─────────────────────────────────────────
+    _record_activity(project_root, card_key, status, elapsed, data, error_msg, bust=force)
+
+    logger.debug("cache MISS for %s (computed in %.2fs, status=%s)", card_key, elapsed, status)
+    if caught_exc is not None:
+        raise caught_exc
     return data
 
 
@@ -205,18 +257,261 @@ def invalidate_all(project_root: Path) -> None:
     _save_cache(project_root, {})
 
 
+# ── Audit scan activity log ─────────────────────────────────────
+
+# Human-friendly labels for card keys
+_CARD_LABELS: dict[str, str] = {
+    "security": "🔐 Security Posture",
+    "testing": "🧪 Testing",
+    "quality": "🔧 Code Quality",
+    "packages": "📦 Packages",
+    "env": "⚙️ Environment",
+    "docs": "📚 Documentation",
+    "k8s": "☸️ Kubernetes",
+    "terraform": "🏗️ Terraform",
+    "dns": "🌐 DNS & CDN",
+    "audit:system": "🖥️ System Profile",
+    "audit:deps": "📦 Dependencies",
+    "audit:structure": "🏗️ Structure & Modules",
+    "audit:clients": "🔌 Clients & Services",
+    "audit:scores": "📊 Audit Scores",
+    "audit:scores:enriched": "📊 Enriched Scores",
+    "audit:l2:structure": "🔬 Structure Analysis",
+    "audit:l2:quality": "💎 Code Health",
+    "audit:l2:repo": "📁 Repo Health",
+    "audit:l2:risks": "⚠️ Risks & Issues",
+}
+
+
+def _activity_path(project_root: Path) -> Path:
+    return project_root / _ACTIVITY_FILE
+
+
+def _extract_summary(card_key: str, data: dict) -> str:
+    """Extract a one-line summary from the scan result for display."""
+    if "error" in data and isinstance(data["error"], str):
+        return f"Error: {data['error'][:100]}"
+
+    # Audit-specific summaries
+    if card_key == "audit:l2:risks":
+        findings = data.get("findings", [])
+        by_sev = {}
+        for f in findings:
+            s = f.get("severity", "info")
+            by_sev[s] = by_sev.get(s, 0) + 1
+        parts = [f"{c} {s}" for s, c in sorted(by_sev.items(), key=lambda x: {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}.get(x[0], 5))]
+        return f"{len(findings)} findings ({', '.join(parts)})" if parts else f"{len(findings)} findings"
+
+    if card_key == "audit:scores" or card_key == "audit:scores:enriched":
+        scores = data.get("scores", {})
+        if isinstance(scores, dict):
+            overall = scores.get("overall", scores.get("total"))
+            if overall is not None:
+                return f"Overall score: {overall}"
+
+    if card_key == "audit:system":
+        return f"{data.get('os', '?')} · Python {data.get('python_version', '?')}"
+
+    if card_key == "audit:deps":
+        deps = data.get("dependencies", data.get("packages", []))
+        if isinstance(deps, list):
+            return f"{len(deps)} dependencies found"
+
+    if card_key == "audit:l2:quality":
+        hotspots = data.get("hotspots", [])
+        return f"{len(hotspots)} hotspots" if hotspots else "No hotspots"
+
+    # DevOps card summaries
+    if card_key == "security":
+        score = data.get("score")
+        issues = data.get("issues", [])
+        return f"Score: {score}, {len(issues)} issues" if score is not None else f"{len(issues)} issues"
+
+    if card_key == "testing":
+        total = data.get("test_files", data.get("total_files", 0))
+        funcs = data.get("test_functions", data.get("total_functions", 0))
+        return f"{total} test files, {funcs} functions"
+
+    if card_key == "packages":
+        managers = data.get("managers", [])
+        return f"{len(managers)} package managers" if managers else "No package managers"
+
+    # Generic — try to find any count-like key
+    for key in ("total", "count", "items"):
+        if key in data:
+            return f"{data[key]} {key}"
+
+    return "completed"
+
+
+def _record_activity(
+    project_root: Path,
+    card_key: str,
+    status: str,
+    elapsed_s: float,
+    data: dict,
+    error_msg: str = "",
+    *,
+    bust: bool = False,
+) -> None:
+    """Record a scan computation in the activity log."""
+    import datetime
+
+    entry = {
+        "ts": time.time(),
+        "iso": datetime.datetime.now(datetime.UTC).isoformat(),
+        "card": card_key,
+        "label": _CARD_LABELS.get(card_key, card_key),
+        "status": status,
+        "duration_s": elapsed_s,
+        "summary": _extract_summary(card_key, data) if status == "ok" else error_msg,
+        "bust": bust,
+    }
+
+    path = _activity_path(project_root)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Load existing
+    entries: list[dict] = []
+    if path.exists():
+        try:
+            entries = json.loads(path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, IOError):
+            entries = []
+
+    entries.append(entry)
+
+    # Trim to max
+    if len(entries) > _ACTIVITY_MAX:
+        entries = entries[-_ACTIVITY_MAX:]
+
+    try:
+        path.write_text(json.dumps(entries, default=str), encoding="utf-8")
+    except IOError as e:
+        logger.warning("Failed to write audit activity: %s", e)
+
+
+def record_event(
+    project_root: Path,
+    label: str,
+    summary: str,
+    *,
+    detail: dict | None = None,
+    card: str = "event",
+) -> None:
+    """Record a user-initiated action in the audit activity log.
+
+    Unlike ``_record_activity`` (scan computations), this logs
+    arbitrary events like finding dismissals, so they appear
+    in the Debugging → Audit Log tab.
+    """
+    import datetime
+
+    entry = {
+        "ts": time.time(),
+        "iso": datetime.datetime.now(datetime.UTC).isoformat(),
+        "card": card,
+        "label": label,
+        "status": "ok",
+        "duration_s": 0,
+        "summary": summary,
+        "bust": False,
+    }
+    if detail:
+        entry["detail"] = detail
+
+    path = _activity_path(project_root)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    entries: list[dict] = []
+    if path.exists():
+        try:
+            entries = json.loads(path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, IOError):
+            entries = []
+
+    entries.append(entry)
+    if len(entries) > _ACTIVITY_MAX:
+        entries = entries[-_ACTIVITY_MAX:]
+
+    try:
+        path.write_text(json.dumps(entries, default=str), encoding="utf-8")
+    except IOError as e:
+        logger.warning("Failed to write audit event: %s", e)
+
+
+def load_activity(project_root: Path, n: int = 50) -> list[dict]:
+    """Load the latest N audit scan activity entries.
+
+    If no activity file exists yet but cached data does, seed
+    the activity log from existing cache metadata so the user
+    sees historical scan info rather than an empty log.
+    """
+    import datetime
+
+    path = _activity_path(project_root)
+    entries: list[dict] = []
+
+    if path.exists():
+        try:
+            entries = json.loads(path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, IOError):
+            entries = []
+
+    # ── Seed from cache if empty ────────────────────────────────
+    if not entries:
+        cache = _load_cache(project_root)
+        if cache:
+            for card_key, entry in cache.items():
+                cached_at = entry.get("cached_at", 0)
+                elapsed = entry.get("elapsed_s", 0)
+                if not cached_at:
+                    continue
+                iso = datetime.datetime.fromtimestamp(
+                    cached_at, tz=datetime.UTC
+                ).isoformat()
+                entries.append({
+                    "ts": cached_at,
+                    "iso": iso,
+                    "card": card_key,
+                    "label": _CARD_LABELS.get(card_key, card_key),
+                    "status": "ok",
+                    "duration_s": elapsed,
+                    "summary": "loaded from cache (historical)",
+                    "bust": False,
+                })
+            # Sort by timestamp
+            entries.sort(key=lambda e: e.get("ts", 0))
+            # Persist the seeded data
+            if entries:
+                try:
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_text(
+                        json.dumps(entries, default=str), encoding="utf-8"
+                    )
+                except IOError:
+                    pass
+
+    return entries[-n:]
+
+
+
 # ── Public API: preferences ─────────────────────────────────────
 
 
+# Valid pref values
+_VALID_PREFS = ("auto", "manual", "hidden", "visible")
+
+
 def load_prefs(project_root: Path) -> dict:
-    """Load card preferences (auto / manual / hidden per card)."""
+    """Load card preferences (auto / manual / visible / hidden per card)."""
     path = _prefs_path(project_root)
     prefs = dict(_DEFAULT_PREFS)
     if path.exists():
         try:
             user_prefs = json.loads(path.read_text(encoding="utf-8"))
             for key in _DEFAULT_PREFS:
-                if key in user_prefs and user_prefs[key] in ("auto", "manual", "hidden"):
+                if key in user_prefs and user_prefs[key] in _VALID_PREFS:
                     prefs[key] = user_prefs[key]
         except (json.JSONDecodeError, IOError):
             pass
@@ -227,7 +522,7 @@ def save_prefs(project_root: Path, prefs: dict) -> dict:
     """Save card preferences.  Returns the validated result."""
     valid: dict[str, str] = {}
     for key in _DEFAULT_PREFS:
-        if key in prefs and prefs[key] in ("auto", "manual", "hidden"):
+        if key in prefs and prefs[key] in _VALID_PREFS:
             valid[key] = prefs[key]
         else:
             valid[key] = _DEFAULT_PREFS[key]
@@ -236,3 +531,5 @@ def save_prefs(project_root: Path, prefs: dict) -> dict:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(valid, indent=2), encoding="utf-8")
     return valid
+
+

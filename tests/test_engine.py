@@ -369,10 +369,10 @@ class TestRunCLI:
         runner.invoke(cli, ["--config", str(config), "run", "test", "--mock"])
 
         # Check state was saved
-        assert (tmp_path / "state" / "current.json").is_file()
+        assert (tmp_path / ".state" / "current.json").is_file()
 
         # Check audit log was written
-        assert (tmp_path / "state" / "audit.ndjson").is_file()
+        assert (tmp_path / ".state" / "audit.ndjson").is_file()
 
     def test_run_then_status(self, tmp_path: Path):
         """After running, status shows last operation."""

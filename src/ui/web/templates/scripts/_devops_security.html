@@ -1,0 +1,285 @@
+<!-- DevOps Tab JS — Security Card
+     loadSecurityCard(), security live data panels.
+     Depends on: _devops_init.html (card registry)
+-->
+    // ── Security Card (lightweight summary — heavy scanning lives in Audit) ──
+
+    async function loadSecurityCard() {
+        const badge = document.getElementById('devops-security-badge');
+        const detail = document.getElementById('devops-security-detail');
+
+        // Try reading from client-side cache first (populated by a previous load)
+        const cached = cardCached('security');
+        // If not cached, try a lightweight API call that returns cache-only data
+        const data = cached || await api('/security/posture-summary').catch(e => ({ _err: e }));
+        if (data._err || data.empty) {
+            // No data yet — guide user to Audit tab
+            badge.className = 'status-badge';
+            badge.innerHTML = '<span class="status-dot"></span>—';
+            detail.innerHTML = `<div style="font-size:0.85rem;color:var(--text-secondary);line-height:1.6">
+                <div style="padding:1.2rem;background:var(--bg-inset);border:1px solid var(--border-subtle);border-radius:10px;text-align:center">
+                    <div style="font-size:1.5rem;margin-bottom:0.5rem">🔐</div>
+                    <div style="font-weight:600;margin-bottom:0.5rem">Security posture not yet loaded</div>
+                    <div style="font-size:0.78rem;color:var(--text-muted);margin-bottom:1rem">
+                        Load <strong>⚠️ Risks</strong> in the <strong>Audit</strong> tab to trigger a full security scan.
+                    </div>
+                    <button class="btn btn-sm btn-primary" onclick="switchTab('audit');setTimeout(()=>{const b=document.getElementById('audit-risks-trigger');if(b)b.click()},400)" style="font-size:0.82rem">
+                        📋 Open Audit → Risks
+                    </button>
+                </div>
+                <div style="display:flex;gap:var(--space-sm);margin-top:var(--space-md);flex-wrap:wrap;justify-content:center">
+                    <button class="btn btn-sm btn-secondary" onclick="secSensitiveFiles()" title="List sensitive files and check .gitignore coverage">📄 Sensitive Files</button>
+                    <button class="btn btn-sm btn-secondary" onclick="secGitignoreAnalysis()" title="Analyze .gitignore completeness">📋 .gitignore</button>
+                    <button class="btn btn-sm btn-ghost" onclick="secGenerateGitignore()" title="Auto-generate .gitignore">⚙️ Gen .gitignore</button>
+                </div>
+            </div>`;
+            return;
+        }
+        if (!cached) cardStore('security', data);
+
+        const posture = data.posture || {};
+        const score = posture.score ?? 0;
+        const grade = posture.grade || '?';
+        const cls = score >= 80 ? 'ok' : score >= 50 ? 'degraded' : 'failed';
+        const scoreColor = cls === 'ok' ? 'var(--success)' : cls === 'degraded' ? 'var(--warning)' : 'var(--error)';
+        badge.className = 'status-badge ' + cls;
+        badge.innerHTML = `<span class="status-dot"></span>${grade} (${score})`;
+
+        const findings = data.findings || [];
+        const checks = posture.checks || [];
+
+        let html = `<div style="font-size:0.85rem;color:var(--text-secondary);line-height:1.5">`;
+
+        // ── Score header with visual bar ────────────────────────────
+        html += `<div style="display:flex;align-items:center;gap:0.6rem;margin-bottom:var(--space-sm)">
+            <span style="font-size:1.8rem;font-weight:700;color:var(--text-primary)" title="Weighted average of all security checks (0–100)">${score}</span>
+            <div style="flex:1">
+                <div style="display:flex;align-items:center;gap:0.4rem;margin-bottom:0.2rem">
+                    <span style="font-size:0.78rem;padding:0.1rem 0.5rem;border-radius:4px;background:${scoreColor}22;color:${scoreColor};font-weight:600">${grade}</span>
+                    <span style="font-size:0.68rem;color:var(--text-muted)" title="Security posture score out of 100">/ 100</span>
+                </div>
+                <div style="height:4px;border-radius:2px;background:var(--bg-inset);overflow:hidden" title="Visual representation of security score">
+                    <div style="height:100%;width:${score}%;background:${scoreColor};border-radius:2px;transition:width 0.5s"></div>
+                </div>
+            </div>
+        </div>`;
+
+        // ── Posture checks — compact one-liner per check ──────────
+        if (checks.length > 0) {
+            html += `<div style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;margin:var(--space-sm) 0 0.3rem">Posture Checks</div>`;
+            checks.forEach(c => {
+                const cScore = c.score != null ? Math.round(c.score * 100) : '?';
+                const cColor = c.passed ? 'var(--success)' : cScore >= 60 ? 'var(--warning)' : 'var(--error)';
+                html += `<div style="display:flex;align-items:center;gap:0.4rem;padding:0.25rem 0.5rem;margin-bottom:0.2rem;background:var(--bg-inset);border-radius:6px;border-left:3px solid ${cColor};font-size:0.75rem">
+                    <span>${c.passed ? '✅' : '⚠️'}</span>
+                    <span style="font-weight:600;color:var(--text-primary);flex:1">${esc(c.name)}</span>
+                    <span style="font-size:0.64rem;color:${cColor};font-weight:600">${cScore}%</span>
+                </div>`;
+            });
+        }
+
+        // ── Findings summary — just counts + "see Audit for details" ─
+        if (findings.length > 0) {
+            const crit = findings.filter(f => f.severity === 'critical').length;
+            const high = findings.filter(f => f.severity === 'high').length;
+            const med  = findings.filter(f => f.severity === 'medium').length;
+            html += `<div style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;margin:var(--space-md) 0 0.3rem">Secrets Found</div>`;
+            html += `<div style="display:flex;gap:0.6rem;font-size:0.75rem;margin-bottom:0.3rem">
+                ${crit ? `<span style="color:var(--error)">${crit} critical</span>` : ''}
+                ${high ? `<span style="color:var(--warning)">${high} high</span>` : ''}
+                ${med  ? `<span style="color:var(--text-muted)">${med} medium</span>` : ''}
+            </div>`;
+            html += `<div style="font-size:0.72rem;color:var(--accent);cursor:pointer" onclick="switchTab('audit')">
+                → View ${findings.length} finding${findings.length !== 1 ? 's' : ''} in Audit tab
+            </div>`;
+        } else {
+            html += `<div style="font-size:0.75rem;color:var(--success);padding:0.2rem 0;margin-top:var(--space-sm)">✅ No hardcoded secrets found</div>`;
+        }
+
+        // ── Actions — link to Audit for scanning, keep lightweight tools ─
+        html += `<div style="display:flex;gap:var(--space-sm);margin-top:var(--space-md);flex-wrap:wrap">
+            <button class="btn btn-sm btn-primary" onclick="switchTab('audit');setTimeout(()=>{const b=document.getElementById('audit-risks-trigger');if(b)b.click()},400)" title="Open Audit tab to run a full security scan">📋 Open Audit → Risks</button>
+            <button class="btn btn-sm btn-secondary" onclick="secSensitiveFiles()" title="List sensitive files and check .gitignore coverage">📄 Sensitive Files</button>
+            <button class="btn btn-sm btn-secondary" onclick="secGitignoreAnalysis()" title="Analyze .gitignore completeness">📋 .gitignore</button>
+            <button class="btn btn-sm btn-ghost" onclick="secGenerateGitignore()" title="Auto-generate .gitignore">⚙️ Gen .gitignore</button>
+        </div>`;
+        // ── Live data panels ──
+        html += `<div style="margin-top:var(--space-sm)">
+            <div style="display:flex;gap:0.25rem;flex-wrap:wrap">
+                <button class="btn btn-sm btn-ghost" onclick="_secLive('scan')" style="font-size:0.72rem;padding:0.15rem 0.4rem">🔍 Run Scan</button>
+                <button class="btn btn-sm btn-ghost" onclick="_secLive('posture')" style="font-size:0.72rem;padding:0.15rem 0.4rem">🛡 Posture Detail</button>
+                <button class="btn btn-sm btn-ghost" onclick="_secLive('status')" style="font-size:0.72rem;padding:0.15rem 0.4rem">📊 Full Status</button>
+            </div>
+            <div id="devops-sec-live-panel" style="display:none;margin-top:0.3rem;background:var(--bg-inset);border:1px solid var(--border-subtle);border-radius:6px;padding:0.4rem 0.5rem;font-size:0.72rem;max-height:260px;overflow:auto;font-family:var(--font-mono,monospace)"></div>
+        </div>`;
+        html += `</div>`;
+        detail.innerHTML = html;
+    }
+
+    async function secSensitiveFiles() {
+        modalOpen({
+            title: '📄 Sensitive Files',
+            body: `<p style="font-size:0.75rem;color:var(--text-muted);margin-bottom:var(--space-md)">Files that typically contain credentials or private keys. Each file is checked against .gitignore — unprotected files (⚠️) risk being committed to version control.</p>
+                <div id="sec-files-body" style="max-height:400px;overflow-y:auto"><span class="spinner"></span></div>`,
+            footerButtons: [
+                { label: 'Close', cls: 'btn-primary', onclick: 'modalClose()' },
+            ],
+        });
+        try {
+            const data = await api('/security/files');
+            const body = document.getElementById('sec-files-body');
+            const files = data.files || [];
+            if (!files.length) { body.innerHTML = '<p class="empty-state-sm" style="color:var(--success)">✅ No sensitive files detected — your project is clean.</p>'; return; }
+            const unprotected = files.filter(f => !f.gitignored).length;
+            let h = `<div style="font-size:0.78rem;margin-bottom:var(--space-sm);display:flex;gap:0.6rem">
+                <span>${files.length} file${files.length!==1?'s':''} detected</span>
+                ${unprotected > 0 ? `<span style="color:var(--error);font-weight:600">⚠️ ${unprotected} NOT gitignored</span>` : '<span style="color:var(--success)">All gitignored ✅</span>'}
+            </div>`;
+            files.forEach(f => {
+                h += `<div style="display:flex;gap:0.5rem;align-items:center;padding:0.35rem 0;border-bottom:1px solid var(--border-subtle);font-size:0.78rem">
+                    <span style="flex-shrink:0" title="${f.gitignored ? 'Protected by .gitignore' : 'NOT in .gitignore — risk of committing!'}">${f.gitignored ? '✅' : '⚠️'}</span>
+                    <code style="font-family:var(--font-mono);color:var(--accent);font-size:0.72rem;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(f.path)}</code>
+                    <span style="color:var(--text-muted);font-size:0.66rem;flex-shrink:0;max-width:40%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(f.description||'')}">${esc(f.description||'')}</span>
+                </div>`;
+            });
+            body.innerHTML = h;
+        } catch (e) {
+            document.getElementById('sec-files-body').innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(e.message)}</p>`;
+        }
+    }
+
+    async function secGitignoreAnalysis() {
+        modalOpen({
+            title: '📋 .gitignore Analysis',
+            body: `<p style="font-size:0.75rem;color:var(--text-muted);margin-bottom:var(--space-md)">Checks whether your .gitignore includes the recommended patterns for all detected stacks (Python → __pycache__, .venv; Node → node_modules; etc.).</p>
+                <div id="sec-gi-body" style="max-height:400px;overflow-y:auto"><span class="spinner"></span></div>`,
+            footerButtons: [
+                { label: '⚙️ Generate', cls: 'btn-ghost', onclick: 'secGenerateGitignore();modalClose()' },
+                { label: 'Close', cls: 'btn-primary', onclick: 'modalClose()' },
+            ],
+        });
+        try {
+            const data = await api('/security/gitignore');
+            const body = document.getElementById('sec-gi-body');
+            const missing = data.missing_patterns || [];
+            const cov = data.coverage != null ? Math.round(data.coverage * 100) : '?';
+            let h = `<div style="font-size:0.82rem;line-height:1.8">
+                <div style="display:flex;align-items:center;gap:0.5rem">
+                    ${data.exists ? '✅' : '❌'} <strong>.gitignore</strong> ${data.exists ? 'exists' : 'missing — create one immediately!'}
+                </div>
+                <div style="display:flex;align-items:center;gap:0.5rem">
+                    <span>📊 Coverage:</span>
+                    <strong style="color:${cov >= 90 ? 'var(--success)' : cov >= 70 ? 'var(--warning)' : 'var(--error)'}">${cov}%</strong>
+                    <span style="font-size:0.72rem;color:var(--text-muted)">· ${data.current_patterns || 0} patterns defined</span>
+                </div>
+                <div style="height:4px;border-radius:2px;background:var(--bg-inset);overflow:hidden;margin-top:0.3rem">
+                    <div style="height:100%;width:${cov}%;background:${cov >= 90 ? 'var(--success)' : cov >= 70 ? 'var(--warning)' : 'var(--error)'};border-radius:2px"></div>
+                </div>`;
+            if (missing.length > 0) {
+                h += `<div style="margin-top:var(--space-md);font-weight:600;color:var(--warning)">⚠️ ${missing.length} recommended pattern${missing.length!==1?'s':''} missing:</div>
+                    <div style="font-size:0.68rem;color:var(--text-muted);margin-bottom:0.3rem">These patterns are recommended for your detected stacks. Without them, generated artifacts may be committed.</div>`;
+                missing.forEach(m => {
+                    h += `<div style="display:flex;gap:0.5rem;align-items:center;font-size:0.72rem;padding:0.25rem 0;border-bottom:1px solid var(--border-subtle)">
+                        <code style="color:var(--accent);font-weight:600;min-width:120px">${esc(m.pattern)}</code>
+                        <span style="color:var(--text-muted);font-size:0.68rem;flex:1">${esc(m.reason||m.category||'')}</span>
+                    </div>`;
+                });
+            } else {
+                h += `<div style="margin-top:var(--space-sm);color:var(--success)">✅ All recommended patterns are present — nothing to add.</div>`;
+            }
+            h += `</div>`;
+            body.innerHTML = h;
+        } catch (e) {
+            document.getElementById('sec-gi-body').innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(e.message)}</p>`;
+        }
+    }
+
+    async function secGenerateGitignore() {
+        toast('Generating .gitignore…', 'info');
+        try {
+            const data = await api('/security/generate/gitignore', { method: 'POST', body: '{}' });
+            if (data.error) { toast(data.error, 'error'); return; }
+            toast('.gitignore generated ✅', 'success');
+            cardInvalidate('security');
+        } catch (e) { toast('Failed: ' + e.message, 'error'); }
+    }
+
+    // ── Security: live data panels ─────────────────────────────────────
+
+    async function _secLive(what) {
+        const panel = document.getElementById('devops-sec-live-panel');
+        if (!panel) return;
+        panel.style.display = 'block';
+        panel.innerHTML = '<span class="spinner"></span> Loading… (scan may take a moment)';
+
+        try {
+            if (what === 'scan') {
+                const data = await api('/security/scan');
+                const findings = data.findings || [];
+                const count = data.count || findings.length;
+                if (count === 0) {
+                    panel.innerHTML = '<span style="color:var(--success)">✅ No hardcoded secrets found.</span>';
+                } else {
+                    let html = `<div style="font-weight:600;color:var(--warning);margin-bottom:0.3rem">🔍 ${count} finding${count !== 1 ? 's' : ''}</div>`;
+                    html += findings.slice(0, 25).map(f => {
+                        const sevColor = f.severity === 'critical' ? 'var(--error)' : f.severity === 'high' ? 'var(--warning)' : 'var(--text-muted)';
+                        return `<div style="padding:0.2rem 0;border-bottom:1px solid var(--border-subtle);display:flex;gap:0.3rem;align-items:center">
+                            <span style="font-size:0.68rem;padding:0.05rem 0.25rem;border-radius:3px;background:${sevColor}22;color:${sevColor};font-weight:600;text-transform:uppercase">${esc(f.severity || '?')}</span>
+                            <code style="font-size:0.68rem;color:var(--accent);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(f.file || f.path || '')}</code>
+                            <span style="color:var(--text-muted);font-size:0.65rem">${esc(f.rule || f.type || '')}</span>
+                        </div>`;
+                    }).join('');
+                    if (count > 25) html += `<div style="color:var(--text-muted);margin-top:0.3rem;font-size:0.68rem">… and ${count - 25} more</div>`;
+                    panel.innerHTML = html;
+                }
+
+            } else if (what === 'posture') {
+                const data = await api('/security/posture');
+                const score = data.score ?? data.overall_score ?? null;
+                const grade = data.grade || '';
+                const checks = data.checks || [];
+                let html = '';
+                if (score != null) {
+                    const color = score >= 80 ? 'var(--success)' : score >= 50 ? 'var(--warning)' : 'var(--error)';
+                    html += `<div style="font-size:0.82rem;font-weight:600;color:${color};margin-bottom:0.3rem">🛡 Security Posture: ${Math.round(score)} ${grade ? `(${esc(grade)})` : ''}</div>`;
+                }
+                if (checks.length > 0) {
+                    html += checks.map(c => {
+                        const cScore = c.score != null ? Math.round(c.score * 100) : '?';
+                        const cColor = c.passed ? 'var(--success)' : cScore >= 60 ? 'var(--warning)' : 'var(--error)';
+                        return `<div style="display:flex;align-items:center;gap:0.4rem;padding:0.2rem 0;border-bottom:1px solid var(--border-subtle)">
+                            <span>${c.passed ? '✅' : '⚠️'}</span>
+                            <span style="flex:1;font-weight:500">${esc(c.name || c.id || '')}</span>
+                            <span style="color:${cColor};font-weight:600;font-size:0.68rem">${cScore}%</span>
+                        </div>`;
+                    }).join('');
+                }
+                panel.innerHTML = html || '<span style="color:var(--text-muted)">No posture data.</span>';
+
+            } else if (what === 'status') {
+                const data = await api('/security/status');
+                const posture = data.posture || {};
+                const findings = data.findings || [];
+                const count = data.finding_count || findings.length;
+                const score = posture.score ?? posture.overall_score ?? null;
+                const grade = posture.grade || '';
+                let html = '';
+                if (score != null) {
+                    const color = score >= 80 ? 'var(--success)' : score >= 50 ? 'var(--warning)' : 'var(--error)';
+                    html += `<div style="font-size:0.82rem;font-weight:600;color:${color};margin-bottom:0.2rem">📊 Score: ${Math.round(score)} ${grade ? `(${esc(grade)})` : ''}</div>`;
+                }
+                html += `<div style="margin-bottom:0.2rem">${count === 0 ? '<span style="color:var(--success)">✅ No secrets detected</span>' : `<span style="color:var(--warning)">⚠ ${count} secret finding${count !== 1 ? 's' : ''}</span>`}</div>`;
+                if ((posture.checks || []).length > 0) {
+                    html += `<div style="font-size:0.68rem;font-weight:600;color:var(--text-muted);margin-top:0.2rem;text-transform:uppercase">Checks</div>`;
+                    html += posture.checks.map(c => {
+                        const cScore = c.score != null ? Math.round(c.score * 100) : '?';
+                        return `<div style="display:flex;gap:0.3rem;align-items:center;padding:0.1rem 0"><span>${c.passed ? '✅':'⚠️'}</span><span style="flex:1">${esc(c.name||'')}</span><span style="font-size:0.65rem;color:var(--text-muted)">${cScore}%</span></div>`;
+                    }).join('');
+                }
+                panel.innerHTML = html || '<span style="color:var(--text-muted)">No status data.</span>';
+            }
+        } catch (e) {
+            panel.innerHTML = `<span style="color:var(--error)">Error: ${esc(e.message)}</span>`;
+        }
+    }
+

@@ -1,3 +1,8 @@
+# project.yml — Control Plane Configuration
+#
+# Generated/updated by the Setup Wizard.
+# Manual edits are welcome.
+
 version: 1
 name: devops-control-plane
 description: A general-purpose project control plane for DevOps automation
@@ -43,30 +48,3 @@ content_folders:
 - docs
 external:
   ci: github-actions
-pages:
-  segments:
-  - name: docs
-    source: docs
-    builder: docusaurus
-    path: /docs
-    auto: true
-    config:
-      title: Docs
-      features:
-        mermaid: true
-        gfm: true
-        math: true
-        prism_extra: true
-        search: false
-        pwa: false
-        google_translate: true
-        dark_mode: true
-        github: true
-        faster: true
-        remark_tabs: false
-        remark_system_viewer: false
-      prism_theme: github/dracula
-      custom_css: ''
-      navbar_items: []
-      extra_sidebars: {}
-      extra_packages: {}

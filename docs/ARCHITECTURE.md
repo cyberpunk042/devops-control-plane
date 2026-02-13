@@ -52,7 +52,7 @@ three or more, the design is wrong — refactor.
 ## Data Flow
 
 ```
-project.yml  +  stacks/  +  state/
+project.yml  +  stacks/  +  .state/
         │
         ▼
    ┌──────────┐
@@ -178,8 +178,8 @@ devops-control-plane/
 │   ├── node/stack.yml
 │   └── docker-compose/stack.yml
 │
-├── state/                     # Generated state (disposable)
-│   ├── state.json             #   Current project state
+├── .state/                    # Generated state (disposable)
+│   ├── current.json           #   Current project state
 │   └── audit.ndjson           #   Append-only operation log
 │
 ├── tests/                     # pytest suite (324 tests)

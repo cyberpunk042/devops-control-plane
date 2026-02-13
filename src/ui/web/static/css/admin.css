@@ -199,6 +199,7 @@ body {
     border-radius: var(--radius-lg);
     padding: var(--space-lg);
     transition: all 0.2s ease;
+    min-width: 0;
 }
 
 .card:hover {
@@ -2142,4 +2143,845 @@ body {
     .wizard-step-label {
         display: none;
     }
+}
+
+/* ── Utility: Key-Value Grid ─────────────────────────────────────── */
+
+.kv-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.kv-row {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-sm);
+    padding: 4px 0;
+    border-bottom: 1px solid var(--border-subtle);
+    font-size: 0.82rem;
+}
+
+.kv-row:last-child {
+    border-bottom: none;
+}
+
+.kv-label {
+    color: var(--text-muted);
+    min-width: 120px;
+    flex-shrink: 0;
+    font-size: 0.78rem;
+}
+
+.kv-value {
+    color: var(--text-secondary);
+    word-break: break-word;
+}
+
+/* ── Utility: Mini Table ─────────────────────────────────────────── */
+
+.mini-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.78rem;
+    table-layout: fixed;
+}
+
+.mini-table th {
+    text-align: left;
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+    padding: 4px 8px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-secondary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.mini-table td {
+    padding: 4px 8px;
+    border-bottom: 1px solid var(--border-subtle);
+    color: var(--text-secondary);
+    vertical-align: top;
+    word-break: break-word;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.mini-table tr:hover td {
+    background: var(--bg-secondary);
+}
+
+/* ── Code line numbers ───────────────────────────────────────────── */
+
+.content-code-lines {
+    display: table;
+    width: 100%;
+}
+
+.code-line {
+    display: table-row;
+}
+
+.code-line:hover {
+    background: var(--bg-secondary);
+}
+
+.line-num {
+    display: table-cell;
+    width: 1px;
+    padding: 0 12px 0 8px;
+    text-align: right;
+    color: var(--text-muted);
+    opacity: 0.5;
+    user-select: none;
+    font-size: 0.72rem;
+    border-right: 1px solid var(--border-subtle);
+    white-space: nowrap;
+}
+
+.line-text {
+    display: table-cell;
+    padding: 0 8px;
+    white-space: pre;
+}
+
+.code-line-focus {
+    background: rgba(59, 130, 246, 0.15);
+    animation: line-pulse 1.5s ease-out;
+}
+
+@keyframes line-pulse {
+    0% {
+        background: rgba(59, 130, 246, 0.35);
+    }
+
+    100% {
+        background: rgba(59, 130, 246, 0.15);
+    }
+}
+
+/* Monaco editor focus line decoration */
+.code-line-focus-monaco {
+    background: rgba(59, 130, 246, 0.2) !important;
+}
+
+/* ── Utility: Tags / Badges ──────────────────────────────────────── */
+
+.tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 10px;
+    border-radius: 20px;
+    font-size: 0.74rem;
+    background: var(--bg-secondary);
+    color: var(--text-secondary);
+    border: 1px solid var(--border-subtle);
+    white-space: nowrap;
+}
+
+.tag-ok {
+    background: var(--success-bg);
+    color: var(--success);
+    border-color: hsla(152, 69%, 40%, 0.2);
+}
+
+.tag-warn {
+    background: var(--warning-bg);
+    color: var(--warning);
+    border-color: hsla(38, 92%, 55%, 0.2);
+}
+
+.tag-muted {
+    background: var(--bg-inset);
+    color: var(--text-muted);
+    border-color: var(--border-subtle);
+}
+
+/* ═══════════════════════════════════════════════════════════════════ */
+/* ── PHASE 1: Standard Card Sections ─────────────────────────────── */
+/* ═══════════════════════════════════════════════════════════════════ */
+
+/* ── Status grid: 2–4 key metrics in a row ───────────────────────── */
+
+.card-status-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+    gap: var(--space-sm);
+    margin-bottom: var(--space-md);
+}
+
+.card-stat {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: var(--space-sm) var(--space-md);
+    background: var(--bg-inset);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    min-width: 0;
+}
+
+.card-stat-label {
+    font-size: 0.64rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.card-stat-value {
+    font-size: 0.88rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.card-stat-value.ok {
+    color: var(--success);
+}
+
+.card-stat-value.warn {
+    color: var(--warning);
+}
+
+.card-stat-value.err {
+    color: var(--error);
+}
+
+.card-stat-value.muted {
+    color: var(--text-muted);
+}
+
+/* ── Detection list: what files/tools were found ─────────────────── */
+
+.card-detection {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-bottom: var(--space-md);
+}
+
+.card-detect-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    padding: 4px var(--space-sm);
+    font-size: 0.8rem;
+    border-radius: var(--radius-sm);
+}
+
+.card-detect-row:hover {
+    background: var(--bg-inset);
+}
+
+.card-detect-icon {
+    width: 18px;
+    text-align: center;
+    flex-shrink: 0;
+    font-size: 0.75rem;
+}
+
+.card-detect-label {
+    color: var(--text-secondary);
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.card-detect-value {
+    color: var(--text-primary);
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    flex-shrink: 0;
+    max-width: 160px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.card-detect-value.clickable {
+    color: var(--accent);
+    cursor: pointer;
+    text-decoration: underline dotted;
+}
+
+.card-detect-value.clickable:hover {
+    color: var(--accent-hover);
+}
+
+/* ── Action toolbar: horizontal button bar ───────────────────────── */
+
+.card-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-xs);
+    margin-top: var(--space-md);
+    padding-top: var(--space-md);
+    border-top: 1px solid var(--border-subtle);
+}
+
+.card-action-output {
+    width: 100%;
+    margin-top: var(--space-sm);
+    padding: var(--space-sm) var(--space-md);
+    background: var(--bg-primary);
+    border-radius: var(--radius-sm);
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 120px;
+    overflow-y: auto;
+    display: none;
+}
+
+.card-action-output.visible {
+    display: block;
+    animation: fadeIn 0.2s ease;
+}
+
+/* ── Live panel: expandable tabbed content area ──────────────────── */
+
+.card-live {
+    margin-top: var(--space-md);
+    padding-top: var(--space-md);
+    border-top: 1px solid var(--border-subtle);
+}
+
+.card-live-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-bottom: var(--space-sm);
+}
+
+.card-live-tab {
+    padding: 3px 10px;
+    font-size: 0.7rem;
+    font-weight: 500;
+    border: 1px solid var(--border-subtle);
+    border-radius: 100px;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: all 0.15s ease;
+    font-family: var(--font-sans);
+}
+
+.card-live-tab:hover {
+    border-color: var(--accent);
+    color: var(--text-secondary);
+}
+
+.card-live-tab.active {
+    background: var(--accent-glow);
+    border-color: var(--accent);
+    color: var(--accent);
+}
+
+.card-live-panel {
+    background: var(--bg-inset);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    padding: var(--space-sm) var(--space-md);
+    min-height: 60px;
+    max-height: 300px;
+    overflow-y: auto;
+    font-size: 0.8rem;
+}
+
+/* ── Data table inside live panels ───────────────────────────────── */
+
+.card-data-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.card-data-table th {
+    font-size: 0.64rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-muted);
+    text-align: left;
+    padding: 4px 8px 6px 0;
+    border-bottom: 1px solid var(--border-subtle);
+    white-space: nowrap;
+}
+
+.card-data-table td {
+    font-size: 0.78rem;
+    padding: 5px 8px 5px 0;
+    border-bottom: 1px solid var(--border-subtle);
+    color: var(--text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 180px;
+}
+
+.card-data-table tr:last-child td {
+    border-bottom: none;
+}
+
+.card-data-table td.name {
+    color: var(--text-primary);
+    font-weight: 500;
+}
+
+.card-data-table td.mono {
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+}
+
+.card-data-table td.clickable {
+    color: var(--accent);
+    cursor: pointer;
+    text-decoration: underline dotted;
+}
+
+.card-data-table td.clickable:hover {
+    color: var(--accent-hover);
+}
+
+/* ── Status dot (inline) ─────────────────────────────────────────── */
+
+.card-dot {
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    margin-right: 4px;
+    vertical-align: middle;
+}
+
+.card-dot.ok {
+    background: var(--success);
+}
+
+.card-dot.warn {
+    background: var(--warning);
+}
+
+.card-dot.err {
+    background: var(--error);
+}
+
+.card-dot.muted {
+    background: var(--text-muted);
+}
+
+/* ── Empty state: actionable hints ───────────────────────────────── */
+
+.card-empty {
+    text-align: center;
+    padding: var(--space-lg) var(--space-md);
+    color: var(--text-muted);
+    font-size: 0.85rem;
+}
+
+.card-empty-icon {
+    font-size: 1.5rem;
+    margin-bottom: var(--space-sm);
+    opacity: 0.5;
+}
+
+.card-empty-text {
+    margin-bottom: var(--space-md);
+}
+
+.card-empty-action {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 5px 14px;
+    border-radius: var(--radius-sm);
+    background: var(--accent-glow);
+    border: 1px solid var(--accent);
+    color: var(--accent);
+    font-size: 0.78rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.card-empty-action:hover {
+    background: var(--accent);
+    color: white;
+}
+
+/* ── Generate section: wizard buttons ────────────────────────────── */
+
+.card-generate {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-xs);
+    margin-top: var(--space-md);
+    padding-top: var(--space-md);
+    border-top: 1px solid var(--border-subtle);
+}
+
+.card-gen-btn {
+    padding: 4px 12px;
+    font-size: 0.73rem;
+    font-weight: 500;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--bg-secondary);
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.15s ease;
+    font-family: var(--font-sans);
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.card-gen-btn:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+    background: var(--accent-glow);
+}
+
+/* ═══════════════════════════════════════════════════════════════════ */
+/* ── PHASE 1: Standard Modal System ──────────────────────────────── */
+/* ═══════════════════════════════════════════════════════════════════ */
+
+.modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(6px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    animation: fadeIn 0.2s ease;
+    padding: var(--space-xl);
+}
+
+.modal-box {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    width: 100%;
+    max-width: 640px;
+    max-height: calc(100vh - 4rem);
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 16px 64px rgba(0, 0, 0, 0.5);
+    animation: fadeIn 0.25s ease;
+}
+
+.modal-box.wide {
+    max-width: 780px;
+}
+
+.modal-box.narrow {
+    max-width: 440px;
+}
+
+/* ── Modal header ────────────────────────────────────────────────── */
+
+.modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--space-lg) var(--space-xl);
+    border-bottom: 1px solid var(--border-subtle);
+    flex-shrink: 0;
+}
+
+.modal-title {
+    font-size: 1rem;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+}
+
+.modal-close {
+    width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 1.1rem;
+    cursor: pointer;
+    border-radius: var(--radius-sm);
+    transition: all 0.15s ease;
+}
+
+.modal-close:hover {
+    background: var(--bg-inset);
+    color: var(--text-primary);
+}
+
+/* ── Modal body ──────────────────────────────────────────────────── */
+
+.modal-body {
+    padding: var(--space-xl);
+    overflow-y: auto;
+    flex: 1;
+}
+
+/* ── Form grid (2-column responsive) ─────────────────────────────── */
+
+.modal-form-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--space-md);
+}
+
+.modal-form-grid .full-width {
+    grid-column: 1 / -1;
+}
+
+.modal-form-group {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.modal-form-label {
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-secondary);
+}
+
+.modal-form-label .required {
+    color: var(--error);
+    margin-left: 2px;
+}
+
+.modal-form-input,
+.modal-form-select,
+.modal-form-textarea {
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 8px 12px;
+    color: var(--text-primary);
+    font-family: var(--font-sans);
+    font-size: 0.85rem;
+    width: 100%;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.modal-form-input:focus,
+.modal-form-select:focus,
+.modal-form-textarea:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-glow);
+}
+
+.modal-form-textarea {
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    min-height: 80px;
+    resize: vertical;
+}
+
+.modal-form-hint {
+    font-size: 0.68rem;
+    color: var(--text-muted);
+}
+
+.modal-form-error {
+    font-size: 0.68rem;
+    color: var(--error);
+}
+
+.modal-form-check {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    font-size: 0.82rem;
+    color: var(--text-secondary);
+    cursor: pointer;
+}
+
+.modal-form-check input[type="checkbox"] {
+    accent-color: var(--accent);
+    width: 16px;
+    height: 16px;
+}
+
+/* ── Preview panel (for generated output) ────────────────────────── */
+
+.modal-preview {
+    margin-top: var(--space-lg);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+}
+
+.modal-preview-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--space-sm) var(--space-md);
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border-subtle);
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-muted);
+}
+
+.modal-preview-body {
+    padding: var(--space-md);
+    background: var(--bg-primary);
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 300px;
+    overflow-y: auto;
+    line-height: 1.5;
+}
+
+/* ── Step indicator ──────────────────────────────────────────────── */
+
+.modal-steps {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    margin-bottom: var(--space-lg);
+    padding-bottom: var(--space-md);
+    border-bottom: 1px solid var(--border-subtle);
+}
+
+.modal-step {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--text-muted);
+    transition: color 0.15s ease;
+}
+
+.modal-step.active {
+    color: var(--accent);
+}
+
+.modal-step.done {
+    color: var(--success);
+}
+
+.modal-step-dot {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    border: 2px solid currentColor;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.6rem;
+    font-weight: 700;
+}
+
+.modal-step.active .modal-step-dot {
+    background: var(--accent-glow);
+    border-color: var(--accent);
+}
+
+.modal-step.done .modal-step-dot {
+    background: var(--success-bg);
+    border-color: var(--success);
+}
+
+.modal-step-arrow {
+    color: var(--border);
+    font-size: 0.65rem;
+}
+
+/* ── Modal footer ────────────────────────────────────────────────── */
+
+.modal-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--space-md) var(--space-xl);
+    border-top: 1px solid var(--border-subtle);
+    flex-shrink: 0;
+}
+
+.modal-footer-right {
+    display: flex;
+    gap: var(--space-sm);
+}
+
+.modal-footer-status {
+    font-size: 0.78rem;
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs);
+}
+
+/* ── Inline error in modal ───────────────────────────────────────── */
+
+.modal-inline-error {
+    padding: var(--space-sm) var(--space-md);
+    background: var(--error-bg);
+    border: 1px solid hsla(0, 72%, 58%, 0.2);
+    border-radius: var(--radius-sm);
+    color: var(--error);
+    font-size: 0.82rem;
+    margin-top: var(--space-md);
+    animation: fadeIn 0.2s ease;
+}
+
+/* ── btn-ghost (for icon-only or subtle actions) ─────────────────── */
+
+.btn-ghost {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: var(--radius-sm);
+    font-size: 0.82rem;
+    transition: all 0.15s ease;
+}
+
+.btn-ghost:hover {
+    background: var(--bg-inset);
+    color: var(--text-primary);
+}
+
+/* ── btn-danger ──────────────────────────────────────────────────── */
+
+.btn-danger {
+    background: var(--error-bg);
+    color: var(--error);
+    border: 1px solid hsla(0, 72%, 58%, 0.2);
+}
+
+.btn-danger:hover {
+    background: var(--error);
+    color: white;
 }

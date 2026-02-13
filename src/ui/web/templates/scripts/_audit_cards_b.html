@@ -1,0 +1,412 @@
+<!-- Audit Tab JS — Analysis Cards B
+     Code Health, Repo Health, Risks & Issues, Import Graph & Coupling.
+     Depends on: _audit_init.html (helpers, data store)
+-->
+// ── Code Health Card ───────────────────────────────────────────
+
+async function loadAuditHealthCard() {
+    const detail = document.getElementById('audit-health-detail');
+    const badge = document.getElementById('audit-health-badge');
+    const trigger = document.getElementById('audit-health-trigger');
+
+    if (trigger) trigger.disabled = true;
+    detail.innerHTML = '<div style="text-align:center;padding:var(--space-md)"><span class="spinner"></span><div style="font-size:0.74rem;color:var(--text-muted);margin-top:6px">Parsing Python AST…</div></div>';
+
+    const data = await cardLoad('audit:l2:quality', '/audit/code-health', badge, detail);
+    if (!data) return;
+
+    const summary = data.summary || {};
+    const hotspots = data.hotspots || [];
+    const naming = data.naming || {};
+    const files = data.file_scores || [];
+
+    let html = '';
+
+    // Overall score
+    const overall = summary.overall_score ?? 0;
+    const overallColor = overall >= 7 ? 'var(--success)' : overall >= 4 ? 'var(--warning)' : 'var(--danger)';
+    html += `<div style="display:flex;align-items:center;gap:var(--space-md);margin-bottom:var(--space-md);padding:12px 16px;border-radius:var(--radius-md);background:var(--bg-secondary)">
+        <div style="font-size:2rem;font-weight:700;color:${overallColor}">${overall}/10</div>
+        <div>
+            <div style="font-size:0.82rem;font-weight:600">Overall Code Health</div>
+            <div style="font-size:0.7rem;color:var(--text-muted)">${files.length} files analyzed</div>
+        </div>
+    </div>`;
+
+    // Dimension scores
+    const dimensions = summary.dimension_scores || {};
+    if (Object.keys(dimensions).length) {
+        html += `<div style="margin-bottom:var(--space-sm)"><strong style="font-size:0.82rem">📏 Dimension Scores</strong></div>`;
+        for (const [dim, score] of Object.entries(dimensions)) {
+            const pct = Math.round(score * 10);
+            const color = score >= 7 ? 'var(--success)' : score >= 4 ? 'var(--warning)' : 'var(--danger)';
+            html += `<div style="display:flex;align-items:center;gap:var(--space-sm);margin-bottom:4px;font-size:0.78rem">
+                <span style="width:120px;text-transform:capitalize;color:var(--text-muted)">${dim.replace(/_/g,' ')}</span>
+                <div style="flex:1;background:var(--bg-primary);border-radius:3px;height:6px;overflow:hidden">
+                    <div style="width:${pct}%;height:100%;background:${color};border-radius:3px;transition:width 0.4s"></div>
+                </div>
+                <span style="width:38px;text-align:right;font-weight:600;color:${color}">${score}</span>
+            </div>`;
+        }
+    }
+
+    // Hotspots
+    if (hotspots.length) {
+        const critical = hotspots.filter(h => h.severity === 'critical');
+        const warnings = hotspots.filter(h => h.severity === 'warning');
+        const info = hotspots.filter(h => h.severity === 'info');
+
+        html += `<div style="margin-top:var(--space-md);margin-bottom:var(--space-sm)"><strong style="font-size:0.82rem">🔥 Hotspots</strong>
+            <span style="font-size:0.7rem;color:var(--text-muted)"> (${critical.length} critical, ${warnings.length} warning, ${info.length} info)</span></div>`;
+
+        const showHotspots = hotspots.slice(0, 12);
+        for (const h of showHotspots) {
+            const sevColor = h.severity === 'critical' ? 'var(--danger)' : h.severity === 'warning' ? 'var(--warning)' : 'var(--text-muted)';
+            const sevIcon = h.severity === 'critical' ? '🔴' : h.severity === 'warning' ? '🟡' : 'ℹ️';
+            const fileLink = h.file ? _auditFileLink(h.file, h.lineno) : '';
+            const sym = h.symbol ? `<code style="font-size:0.7rem;background:var(--bg-primary);padding:1px 4px;border-radius:2px">${esc(h.symbol)}</code>` : '';
+            html += `<div style="padding:6px 10px;margin-bottom:4px;border-radius:var(--radius-sm);background:var(--bg-secondary);font-size:0.74rem;border-left:3px solid ${sevColor}">
+                ${sevIcon} <strong>${h.type}</strong>: ${h.detail || ''} ${sym}
+                <div style="margin-top:2px">${fileLink}</div>
+            </div>`;
+        }
+        if (hotspots.length > 12) {
+            html += `<div style="text-align:center;margin-top:var(--space-sm)"><button class="btn btn-sm btn-ghost" onclick='_auditShowHotspotModal(window._auditHotspots)' style="font-size:0.72rem">Show all ${hotspots.length} hotspots →</button></div>`;
+        }
+        // Store for modal access
+        window._auditHotspots = hotspots;
+    }
+
+    // Naming
+    if (naming.consistency_score !== undefined) {
+        html += `<div style="margin-top:var(--space-md);margin-bottom:var(--space-sm)"><strong style="font-size:0.82rem">🏷️ Naming Consistency</strong>
+            <span style="font-size:0.74rem;color:var(--text-muted)"> — ${naming.consistency_score}/10</span></div>`;
+        const violations = naming.violations || [];
+        if (violations.length) {
+            html += `<div style="font-size:0.74rem;color:var(--text-muted)">${violations.length} naming violations detected</div>`;
+        } else {
+            html += `<div style="font-size:0.74rem;color:var(--success)">✅ All names follow conventions</div>`;
+        }
+    }
+
+    badge.textContent = `${overall}/10`;
+    badge.className = 'status-badge ' + (overall >= 7 ? 'ok' : overall >= 4 ? 'warn' : 'err');
+    detail.innerHTML = html;
+}
+
+
+// ── Repo Health Card ───────────────────────────────────────────
+
+async function loadAuditRepoCard() {
+    const detail = document.getElementById('audit-repo-detail');
+    const badge = document.getElementById('audit-repo-badge');
+    const trigger = document.getElementById('audit-repo-trigger');
+
+    if (trigger) trigger.disabled = true;
+    detail.innerHTML = '<div style="text-align:center;padding:var(--space-md)"><span class="spinner"></span><div style="font-size:0.74rem;color:var(--text-muted);margin-top:6px">Inspecting git objects…</div></div>';
+
+    const data = await cardLoad('audit:l2:repo', '/audit/repo', badge, detail);
+    if (!data) return;
+
+    const objects = data.git_objects || {};
+    const history = data.history || {};
+    const largeFiles = data.large_files || {};
+    const health = data.health || {};
+
+    let html = '';
+
+    // Health score
+    const score = health.score ?? 0;
+    const scoreColor = score >= 7 ? 'var(--success)' : score >= 4 ? 'var(--warning)' : 'var(--danger)';
+    html += `<div style="display:flex;align-items:center;gap:var(--space-md);margin-bottom:var(--space-md);padding:12px 16px;border-radius:var(--radius-md);background:var(--bg-secondary)">
+        <div style="font-size:2rem;font-weight:700;color:${scoreColor}">${score}/10</div>
+        <div>
+            <div style="font-size:0.82rem;font-weight:600">Repository Health</div>
+            <div style="font-size:0.7rem;color:var(--text-muted)">${history.total_commits || 0} commits · ${history.authors || 0} author(s) · ${history.age_days || 0} days old</div>
+        </div>
+    </div>`;
+
+    // Health breakdown
+    const breakdown = health.breakdown || {};
+    if (Object.keys(breakdown).length) {
+        for (const [dim, dimScore] of Object.entries(breakdown)) {
+            const pct = Math.round(dimScore * 10);
+            const color = dimScore >= 7 ? 'var(--success)' : dimScore >= 4 ? 'var(--warning)' : 'var(--danger)';
+            html += `<div style="display:flex;align-items:center;gap:var(--space-sm);margin-bottom:4px;font-size:0.78rem">
+                <span style="width:120px;text-transform:capitalize;color:var(--text-muted)">${dim.replace(/_/g,' ')}</span>
+                <div style="flex:1;background:var(--bg-primary);border-radius:3px;height:6px;overflow:hidden">
+                    <div style="width:${pct}%;height:100%;background:${color};border-radius:3px;transition:width 0.4s"></div>
+                </div>
+                <span style="width:38px;text-align:right;font-weight:600;color:${color}">${dimScore}</span>
+            </div>`;
+        }
+    }
+
+    // Git objects
+    html += `<div style="margin-top:var(--space-md)"><strong style="font-size:0.82rem">📦 Git Objects</strong></div>`;
+    html += `<div class="kv-grid" style="margin-top:var(--space-sm)">`;
+    html += `<div class="kv-row"><span class="kv-label">Loose objects</span><span class="kv-value">${objects.count || 0}</span></div>`;
+    html += `<div class="kv-row"><span class="kv-label">Pack objects</span><span class="kv-value">${objects.packs || 0}</span></div>`;
+    const totalMB = ((objects.total_kb || 0) / 1024).toFixed(1);
+    html += `<div class="kv-row"><span class="kv-label">Total size</span><span class="kv-value">${totalMB} MB</span></div>`;
+    html += `</div>`;
+
+    // History
+    html += `<div style="margin-top:var(--space-md)"><strong style="font-size:0.82rem">📝 History</strong></div>`;
+    html += `<div class="kv-grid" style="margin-top:var(--space-sm)">`;
+    html += `<div class="kv-row"><span class="kv-label">Branches</span><span class="kv-value">${history.branch_count || 0}</span></div>`;
+    html += `<div class="kv-row"><span class="kv-label">Tags</span><span class="kv-value">${history.tag_count || 0}</span></div>`;
+    if (history.first_commit_date) html += `<div class="kv-row"><span class="kv-label">First commit</span><span class="kv-value" style="font-size:0.72rem">${history.first_commit_date}</span></div>`;
+    html += `</div>`;
+
+    // Large files
+    const large = largeFiles.large_files || [];
+    if (large.length) {
+        html += `<div style="margin-top:var(--space-md)"><strong style="font-size:0.82rem">📁 Large Files</strong> <span style="color:var(--text-muted);font-size:0.74rem">(${largeFiles.total_large})</span></div>`;
+        html += `<table class="mini-table" style="margin-top:var(--space-sm)"><thead><tr><th>File</th><th style="text-align:right">Size</th><th>Binary</th></tr></thead><tbody>`;
+        for (const f of large.slice(0, 10)) {
+            html += `<tr><td style="font-size:0.72rem">${f.path}</td><td style="text-align:right;font-size:0.72rem">${f.size_kb.toLocaleString()}KB</td><td>${f.is_binary ? '📎' : '📄'}</td></tr>`;
+        }
+        html += `</tbody></table>`;
+    }
+
+    // Suggestions
+    const suggestions = largeFiles.suggestions || [];
+    if (suggestions.length) {
+        html += `<div style="margin-top:var(--space-md)">`;
+        for (const s of suggestions) {
+            html += `<div style="padding:6px 10px;margin-bottom:4px;border-radius:var(--radius-sm);background:#f59e0b11;border-left:3px solid var(--warning);font-size:0.74rem">💡 ${s}</div>`;
+        }
+        html += `</div>`;
+    }
+
+    badge.textContent = `${score}/10`;
+    badge.className = 'status-badge ' + (score >= 7 ? 'ok' : score >= 4 ? 'warn' : 'err');
+    detail.innerHTML = html;
+}
+
+
+// ── Risks & Issues Card ────────────────────────────────────────
+
+async function loadAuditRisksCard() {
+    const detail = document.getElementById('audit-risks-detail');
+    const badge = document.getElementById('audit-risks-badge');
+    const trigger = document.getElementById('audit-risks-trigger');
+
+    if (trigger) trigger.disabled = true;
+    detail.innerHTML = '<div style="text-align:center;padding:var(--space-md)"><span class="spinner"></span><div style="font-size:0.74rem;color:var(--text-muted);margin-top:6px">Scanning security, dependencies, docs, tests…</div></div>';
+
+    const data = await cardLoad('audit:l2:risks', '/audit/risks', badge, detail);
+    if (!data) return;
+
+    const summary = data.summary || {};
+    const posture = data.posture || {};
+    const findings = data.findings || [];
+    const actions = data.action_items || [];
+    const byCategory = data.by_category || {};
+
+    let html = '';
+
+    // Posture score
+    const score = posture.score ?? 0;
+    const grade = posture.grade || '?';
+    const scoreColor = score >= 7 ? 'var(--success)' : score >= 4 ? 'var(--warning)' : 'var(--danger)';
+    const gradeColor = {'A':'var(--success)','B':'#22d3ee','C':'var(--warning)','D':'#f97316','F':'var(--danger)'}[grade] || 'var(--text-muted)';
+
+    html += `<div style="display:flex;align-items:center;gap:var(--space-md);margin-bottom:var(--space-md);padding:12px 16px;border-radius:var(--radius-md);background:var(--bg-secondary)">
+        <div style="font-size:2.2rem;font-weight:800;color:${gradeColor};width:48px;text-align:center">${grade}</div>
+        <div style="flex:1">
+            <div style="font-size:0.82rem;font-weight:600">Risk Posture: ${score}/10</div>
+            <div style="font-size:0.7rem;color:var(--text-muted)">${summary.total || 0} findings — ${summary.critical || 0} critical, ${summary.high || 0} high, ${summary.medium || 0} medium, ${summary.info || 0} info</div>
+        </div>
+        <div style="background:var(--bg-primary);border-radius:var(--radius-sm);height:8px;width:80px;overflow:hidden">
+            <div style="width:${Math.round(score*10)}%;height:100%;background:${scoreColor};border-radius:var(--radius-sm);transition:width 0.6s"></div>
+        </div>
+    </div>`;
+
+    // Category breakdown
+    if (Object.keys(byCategory).length) {
+        html += `<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:var(--space-md)">`;
+        const catIcons = { security: '🔐', dependencies: '📦', documentation: '📚', testing: '🧪', infrastructure: '⚙️' };
+        for (const [cat, count] of Object.entries(byCategory).sort((a,b) => b[1] - a[1])) {
+            html += `<span style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border-radius:var(--radius-sm);background:var(--bg-secondary);font-size:0.74rem">
+                ${catIcons[cat] || '📋'} ${cat} <strong>(${count})</strong>
+            </span>`;
+        }
+        html += `</div>`;
+    }
+
+    // Findings
+    if (findings.length) {
+        // Suppressed count comes from the scanner's # nosec tracking
+        const suppressed = data.summary?.suppressed || 0;
+        html += `<div style="margin-bottom:var(--space-sm);display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <strong style="font-size:0.82rem">📋 Findings</strong>
+            <span style="font-size:0.7rem;color:var(--text-muted)">click to inspect</span>
+            ${suppressed ? `<span style="font-size:0.66rem;color:var(--success);background:rgba(52,211,153,0.1);padding:1px 6px;border-radius:3px" title="Lines marked with # nosec in source code">✅ ${suppressed} suppressed via # nosec</span>` : ''}
+        </div>`;
+        const sevIcons = { critical: '🔴', high: '🟠', medium: '🟡', info: 'ℹ️' };
+        for (let idx = 0; idx < findings.length; idx++) {
+            const f = findings[idx];
+            const sevColor = f.severity === 'critical' ? 'var(--danger)' : f.severity === 'high' ? '#f97316' : f.severity === 'medium' ? 'var(--warning)' : 'var(--text-muted)';
+
+            // Build inline detail: show actual file/package data
+            let inlineDetail = `<div style="font-size:0.72rem;color:var(--text-muted);margin-top:2px">${f.detail}</div>`;
+            if (f.files && f.files.length) {
+                const preview = f.files.slice(0, 3);
+                let fileParts = '';
+                for (const af of preview) {
+                    if (af.pattern && af.pattern.includes('→')) {
+                        fileParts += `<div style="font-size:0.7rem;margin-top:2px;padding:2px 6px;background:var(--bg-primary);border-radius:2px;font-family:var(--font-mono)"><strong>${esc(af.file)}</strong> <span style="color:var(--text-muted)">${esc(af.pattern)}</span></div>`;
+                    } else if (af.line) {
+                        fileParts += `<div style="font-size:0.7rem;margin-top:2px">${_auditFileLink(af.file, af.line)} ${af.pattern ? `<span style="color:var(--text-muted);font-size:0.66rem">${esc(af.pattern)}</span>` : ''}</div>`;
+                    } else {
+                        fileParts += `<div style="font-size:0.7rem;margin-top:2px;font-family:var(--font-mono)">${esc(af.file)} ${af.pattern ? `<span style="color:var(--text-muted);font-size:0.66rem">${esc(af.pattern)}</span>` : ''}</div>`;
+                    }
+                }
+                if (f.files.length > 3) {
+                    fileParts += `<div style="font-size:0.66rem;color:var(--text-muted);margin-top:2px">…and ${f.files.length - 3} more</div>`;
+                }
+                inlineDetail += fileParts;
+            }
+
+            html += `<div style="padding:8px 12px;margin-bottom:4px;border-radius:var(--radius-sm);background:var(--bg-secondary);border-left:3px solid ${sevColor};font-size:0.78rem;cursor:pointer;transition:background 0.15s" onmouseenter="this.style.background='var(--bg-primary)'" onmouseleave="this.style.background='var(--bg-secondary)'" onclick='_auditShowFinding(window._auditFindings[${idx}])'>
+                <div style="display:flex;align-items:center;gap:6px">
+                    <span>${sevIcons[f.severity] || '📋'}</span>
+                    <strong>${f.title}</strong>
+                    <span style="font-size:0.64rem;color:var(--text-muted);margin-left:auto">${f.category} ▸</span>
+                </div>
+                ${inlineDetail}
+            </div>`;
+        }
+        // Store for modal access
+        window._auditFindings = findings;
+    }
+
+    // Action items
+    if (actions.length) {
+        html += `<div style="margin-top:var(--space-md);margin-bottom:var(--space-sm)"><strong style="font-size:0.82rem">🎯 Action Items</strong></div>`;
+        for (const a of actions) {
+            const priColor = a.priority <= 2 ? 'var(--danger)' : a.priority <= 3 ? 'var(--warning)' : 'var(--text-muted)';
+            html += `<div style="padding:6px 10px;margin-bottom:4px;border-radius:var(--radius-sm);font-size:0.74rem;display:flex;align-items:baseline;gap:8px">
+                <span style="font-weight:700;color:${priColor};font-size:0.68rem;min-width:24px">P${a.priority}</span>
+                <span>${a.action}</span>
+                <span style="font-size:0.64rem;color:var(--text-muted);margin-left:auto">${a.category}</span>
+            </div>`;
+        }
+    }
+
+    badge.textContent = `${grade} ${score}/10`;
+    badge.className = 'status-badge ' + (score >= 7 ? 'ok' : score >= 4 ? 'warn' : 'err');
+    detail.innerHTML = html;
+}
+
+
+// ── Import Graph & Coupling Card ───────────────────────────────
+
+async function loadAuditL2StructureCard() {
+    const detail = document.getElementById('audit-l2structure-detail');
+    const badge = document.getElementById('audit-l2structure-badge');
+    const trigger = document.getElementById('audit-l2structure-trigger');
+
+    if (trigger) trigger.disabled = true;
+    detail.innerHTML = '<div style="text-align:center;padding:var(--space-md)"><span class="spinner"></span><div style="font-size:0.74rem;color:var(--text-muted);margin-top:6px">Building import graph…</div></div>';
+
+    const data = await cardLoad('audit:l2:structure', '/audit/structure-analysis', badge, detail);
+    if (!data) return;
+
+    const graph = data.import_graph || {};
+    const modules = data.modules || [];
+    const crossDeps = data.cross_module_deps || [];
+    const stats = data.stats || {};
+    const libUsage = data.library_usage || {};
+
+    let html = '';
+
+    // Stats overview
+    html += `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(100px,1fr));gap:var(--space-sm);margin-bottom:var(--space-md)">`;
+    const statItems = [
+        ['📄', 'Files', stats.total_files || graph.total_nodes || 0],
+        ['📝', 'Lines', (stats.total_lines || 0).toLocaleString()],
+        ['🔗', 'Internal', graph.internal_edge_count || 0],
+        ['📦', 'External', graph.external_edge_count || 0],
+        ['🏗️', 'Modules', modules.length],
+    ];
+    for (const [icon, label, value] of statItems) {
+        html += `<div style="text-align:center;padding:8px;border-radius:var(--radius-sm);background:var(--bg-secondary)">
+            <div style="font-size:1.2rem">${icon}</div>
+            <div style="font-size:1.1rem;font-weight:700">${value}</div>
+            <div style="font-size:0.68rem;color:var(--text-muted)">${label}</div>
+        </div>`;
+    }
+    html += `</div>`;
+
+    // Cross-module deps (top 10)
+    if (crossDeps.length) {
+        // Store cross deps for modal access
+        window._auditData.crossDeps = crossDeps;
+        html += `<div style="margin-bottom:var(--space-sm)"><strong style="font-size:0.82rem">🔗 Cross-Module Dependencies</strong>
+            <span style="font-size:0.7rem;color:var(--text-muted)"> (${crossDeps.length} relationships)</span></div>`;
+        const strengthColors = { strong: 'var(--danger)', moderate: 'var(--warning)', weak: 'var(--text-muted)' };
+        for (let di = 0; di < Math.min(crossDeps.length, 10); di++) {
+            const dep = crossDeps[di];
+            const color = strengthColors[dep.strength] || 'var(--text-muted)';
+            const fileCount = (dep.files_involved || []).length;
+            html += `<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;font-size:0.74rem;cursor:pointer" onclick="_auditShowCrossDep(${di})" title="Click to see ${fileCount} files">
+                <span style="font-family:var(--font-mono);font-size:0.7rem;word-break:break-all">${dep.from_module || '?'}</span>
+                <span style="color:${color}">→</span>
+                <span style="font-family:var(--font-mono);font-size:0.7rem;word-break:break-all">${dep.to_module || '?'}</span>
+                <span style="margin-left:auto;font-weight:600;color:${color}">${dep.import_count || 0}</span>
+                <span style="font-size:0.64rem;color:var(--text-muted);min-width:60px">${dep.strength}</span>
+            </div>`;
+        }
+        if (crossDeps.length > 10) {
+            html += `<div style="font-size:0.72rem;color:var(--text-muted);margin-top:4px">…and ${crossDeps.length - 10} more</div>`;
+        }
+    }
+
+    // Module boundaries
+    if (modules.length) {
+        html += `<details style="margin-top:var(--space-md)">
+            <summary style="cursor:pointer;font-size:0.82rem;font-weight:600;color:var(--text-muted)">📊 Module Boundaries (${modules.length})</summary>
+            <div style="overflow-x:auto;margin-top:var(--space-sm)">
+            <table class="mini-table">
+            <thead><tr><th>Module</th><th>Files</th><th>Exposure</th><th>Exports</th></tr></thead>
+            <tbody>`;
+        for (const m of modules.sort((a,b) => (b.files||0) - (a.files||0))) {
+            const exposure = m.exposure_ratio ?? 0;
+            const expColor = exposure > 0.5 ? 'var(--warning)' : 'var(--success)';
+            html += `<tr>
+                <td style="font-size:0.72rem;font-family:var(--font-mono);word-break:break-all">${m.module || '?'}</td>
+                <td style="text-align:right">${m.files || 0}</td>
+                <td style="text-align:right;color:${expColor}">${(exposure * 100).toFixed(0)}%</td>
+                <td style="text-align:right">${(m.init_exports || []).length}</td>
+            </tr>`;
+        }
+        html += `</tbody></table></div></details>`;
+    }
+
+    // Library usage
+    const libEntries = Object.entries(libUsage);
+    if (libEntries.length) {
+        html += `<details style="margin-top:var(--space-md)">
+            <summary style="cursor:pointer;font-size:0.82rem;font-weight:600;color:var(--text-muted)">📦 Library Usage Map (${libEntries.length} libraries)</summary>
+            <div style="margin-top:var(--space-sm)">`;
+        for (const [lib, sites] of libEntries.sort((a,b) => (b[1].length||0) - (a[1].length||0)).slice(0, 15)) {
+            const siteCount = Array.isArray(sites) ? sites.length : 0;
+            html += `<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;font-size:0.74rem">
+                <span style="font-weight:600;min-width:120px">${lib}</span>
+                <div style="flex:1;background:var(--bg-primary);border-radius:3px;height:6px;overflow:hidden">
+                    <div style="width:${Math.min(100, siteCount * 5)}%;height:100%;background:var(--primary);border-radius:3px"></div>
+                </div>
+                <span style="font-size:0.72rem;color:var(--text-muted);min-width:50px;text-align:right">${siteCount} files</span>
+            </div>`;
+        }
+        html += `</div></details>`;
+    }
+
+    badge.textContent = `${graph.total_nodes || 0} files`;
+    badge.className = 'status-badge ok';
+    detail.innerHTML = html;
+}
+

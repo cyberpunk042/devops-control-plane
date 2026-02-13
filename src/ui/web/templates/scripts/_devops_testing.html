@@ -1,0 +1,277 @@
+<!-- DevOps Tab JS — Testing Card
+     loadTestingCard(), test gen template modal.
+     Depends on: _devops_init.html (card registry)
+-->
+    // ── Testing Card ───────────────────────────────────────────────────
+
+    async function loadTestingCard() {
+        const badge = document.getElementById('devops-testing-badge');
+        const detail = document.getElementById('devops-testing-detail');
+        const cached = cardCached('testing');
+        const data = cached || await api('/testing/status').catch(e => ({ _err: e }));
+        if (data._err) {
+            badge.className = 'status-badge failed';
+            badge.innerHTML = '<span class="status-dot"></span>Error';
+            detail.innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(data._err.message)}</p>`;
+            return;
+        }
+        if (!cached) cardStore('testing', data);
+
+        const frameworks = data.frameworks || [];
+        const stats = data.stats || {};
+        const testFiles = stats.test_files || 0;
+        const testFunctions = stats.test_functions || 0;
+        const testClasses = stats.test_classes || 0;
+        const sourceFiles = stats.source_files || 0;
+        const ratioRaw = stats.test_ratio;
+        const ratioDisp = ratioRaw != null ? (typeof ratioRaw === 'number' ? ratioRaw.toFixed(2) : ratioRaw) : '—';
+        const covTools = data.coverage_tools || [];
+
+        if (!frameworks.length) {
+            badge.className = 'status-badge degraded';
+            badge.innerHTML = '<span class="status-dot"></span>No framework';
+            detail.innerHTML = `<div style="font-size:0.82rem;color:var(--text-secondary);line-height:1.5">
+                <p class="empty-state-sm">No test framework detected</p>
+                <div style="font-size:0.68rem;color:var(--text-muted);margin-top:var(--space-xs)">
+                    Supported: pytest, jest, vitest, mocha, cargo test. Add a config file or test directory to get started.
+                </div>
+                <div style="margin-top:var(--space-md)">
+                    <button class="btn btn-sm btn-ghost" onclick="testGenTemplate()" title="Generate a test template file for a specific module">⚙️ Generate Template</button>
+                </div>
+            </div>`;
+            return;
+        }
+
+        badge.className = 'status-badge ok';
+        badge.innerHTML = `<span class="status-dot"></span>${testFunctions} tests`;
+
+        let html = `<div style="font-size:0.85rem;color:var(--text-secondary);line-height:1.5">`;
+
+        // ── Detected frameworks with details ────────────────────────
+        html += `<div style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.3rem" title="Test frameworks detected in your project">Frameworks</div>`;
+        frameworks.forEach(fw => {
+            html += `<div style="display:flex;align-items:center;gap:0.4rem;padding:0.25rem 0.5rem;margin-bottom:0.2rem;background:var(--bg-inset);border-radius:6px;border-left:3px solid var(--success)">
+                <span style="font-weight:600;color:var(--text-primary);font-size:0.75rem">${esc(fw.name)}</span>
+                <span style="font-size:0.64rem;color:var(--text-muted);flex:1" title="How this framework was detected">${esc(fw.detected_by || '')}</span>
+                ${fw.stack ? `<span style="font-size:0.6rem;padding:0.05rem 0.3rem;border:1px solid var(--accent);border-radius:3px;color:var(--accent)" title="Language stack">${esc(fw.stack)}</span>` : ''}
+            </div>`;
+        });
+
+        // ── Stats with visual ratio bar ─────────────────────────────
+        html += `<div style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;margin:var(--space-sm) 0 0.3rem" title="Counts of test infrastructure in your codebase">Test Inventory</div>`;
+        html += `<div style="display:flex;gap:0.8rem;font-size:0.78rem;margin-bottom:0.3rem">
+            <span title="Total test functions/methods detected"><span style="font-weight:700;color:var(--text-primary);font-size:0.9rem">${testFunctions}</span> <span style="color:var(--text-muted);font-size:0.7rem">functions</span></span>
+            <span title="Test classes detected"><span style="font-weight:700;color:var(--text-primary)">${testClasses}</span> <span style="color:var(--text-muted);font-size:0.7rem">classes</span></span>
+            <span title="Test files detected"><span style="font-weight:700;color:var(--text-primary)">${testFiles}</span> <span style="color:var(--text-muted);font-size:0.7rem">files</span></span>
+        </div>`;
+        // Test ratio bar
+        const ratioNum = typeof ratioRaw === 'number' ? ratioRaw : 0;
+        const ratioPct = Math.min(ratioNum * 100, 100);
+        const ratioColor = ratioPct >= 50 ? 'var(--success)' : ratioPct >= 25 ? 'var(--warning)' : 'var(--error)';
+        html += `<div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.2rem">
+            <span style="font-size:0.68rem;color:var(--text-muted);min-width:60px" title="Ratio of test files to source files — higher is better">Test ratio:</span>
+            <div style="flex:1;height:4px;border-radius:2px;background:var(--bg-inset);overflow:hidden">
+                <div style="height:100%;width:${ratioPct}%;background:${ratioColor};border-radius:2px;transition:width 0.5s"></div>
+            </div>
+            <span style="font-size:0.68rem;font-weight:600;color:${ratioColor}">${ratioDisp}</span>
+        </div>`;
+        if (sourceFiles > 0) {
+            html += `<div style="font-size:0.64rem;color:var(--text-muted)">${testFiles} test files / ${sourceFiles} source files</div>`;
+        }
+
+        // ── Coverage tools ──────────────────────────────────────────
+        if (covTools.length) {
+            html += `<div style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;margin:var(--space-sm) 0 0.3rem" title="Coverage tools configured for measuring test coverage">Coverage Tools</div>`;
+            covTools.forEach(t => {
+                html += `<div style="display:flex;align-items:center;gap:0.4rem;font-size:0.72rem;padding:0.15rem 0">
+                    <span>📊</span>
+                    <span style="font-weight:600;color:var(--text-primary)">${esc(t.name)}</span>
+                    ${t.config ? `<span style="font-size:0.64rem;color:var(--text-muted)" title="Configuration file">${esc(t.config)}</span>` : ''}
+                </div>`;
+            });
+        } else {
+            html += `<div style="font-size:0.68rem;color:var(--text-muted);margin-top:var(--space-xs)" title="No coverage.py, istanbul, or similar tool detected">📊 No coverage tool configured</div>`;
+        }
+
+        // ── Actions ─────────────────────────────────────────────────
+        html += `<div style="display:flex;gap:var(--space-sm);margin-top:var(--space-md);flex-wrap:wrap">
+            <button class="btn btn-sm btn-secondary" onclick="runTests()" title="Execute test suite and show pass/fail/skip results in a modal">▶️ Run Tests</button>
+            <button class="btn btn-sm btn-secondary" onclick="testCoverage()" title="Run tests with coverage and show per-file coverage breakdown">📊 Coverage</button>
+            <button class="btn btn-sm btn-secondary" onclick="testInventory()" title="List all test files with function/class counts per file">📋 Inventory</button>
+            <button class="btn btn-sm btn-ghost" onclick="testGenTemplate()" title="Generate a test file template for a specific module (Python/Node/Rust)">⚙️ Gen Template</button>
+        </div>`;
+        html += `</div>`;
+        detail.innerHTML = html;
+    }
+
+    async function runTests() {
+        modalOpen({
+            title: '▶️ Test Results',
+            body: `<p style="font-size:0.75rem;color:var(--text-muted);margin-bottom:var(--space-md)">Executing test suite… Results will appear below.</p>
+                <div id="test-run-body" style="max-height:450px;overflow-y:auto"><span class="spinner"></span></div>`,
+            footerButtons: [
+                { label: 'Close', cls: 'btn-primary', onclick: 'modalClose()' },
+            ],
+        });
+        try {
+            const data = await api('/testing/run', { method: 'POST', body: '{}' });
+            const body = document.getElementById('test-run-body');
+            if (data.error) { body.innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(data.error)}</p>`; return; }
+            const p = data.passed || 0, f = data.failed || 0, e = data.errors || 0, s = data.skipped || 0;
+            const dur = data.duration_seconds ? data.duration_seconds.toFixed(1) + 's' : '—';
+            const total = p + f + e;
+            const allGood = f === 0 && e === 0;
+            let h = `<div style="display:flex;align-items:center;gap:0.6rem;margin-bottom:var(--space-sm)">
+                <span style="font-size:1.4rem;font-weight:700;color:${allGood ? 'var(--success)' : 'var(--error)'}">${allGood ? '✅' : '❌'}</span>
+                <div>
+                    <div style="font-size:0.85rem;font-weight:600;color:var(--text-primary)">${allGood ? 'All tests passed' : `${f} test${f!==1?'s':''} failed`}</div>
+                    <div style="font-size:0.72rem;color:var(--text-muted)">Duration: ${dur} · Total: ${total}</div>
+                </div>
+            </div>`;
+            // Breakdown bar
+            if (total > 0) {
+                const pPct = (p/total*100).toFixed(1), fPct = (f/total*100).toFixed(1), ePct = (e/total*100).toFixed(1);
+                h += `<div style="display:flex;height:6px;border-radius:3px;overflow:hidden;margin-bottom:var(--space-sm)">
+                    <div style="width:${pPct}%;background:var(--success)" title="${p} passed"></div>
+                    <div style="width:${fPct}%;background:var(--error)" title="${f} failed"></div>
+                    <div style="width:${ePct}%;background:var(--warning)" title="${e} errors"></div>
+                </div>`;
+            }
+            // Stats row
+            h += `<div style="display:flex;gap:0.8rem;font-size:0.78rem;margin-bottom:var(--space-sm)">
+                <span style="color:var(--success)">✅ ${p} passed</span>
+                <span style="color:var(--error)">❌ ${f} failed</span>
+                <span style="color:var(--warning)">⚠️ ${e} errors</span>
+                <span style="color:var(--text-muted)">⏭️ ${s} skipped</span>
+            </div>`;
+            // Failures detail
+            const failures = data.failures || [];
+            if (failures.length > 0) {
+                h += `<div style="font-size:0.72rem;font-weight:600;color:var(--error);margin-top:var(--space-sm)">Failures:</div>`;
+                failures.forEach(fl => {
+                    h += `<div style="padding:0.35rem 0.5rem;margin-top:0.25rem;background:var(--bg-inset);border-radius:6px;border-left:3px solid var(--error)">
+                        <div style="font-size:0.72rem;font-weight:600;color:var(--text-primary)">${esc(fl.name||'')}</div>
+                        <pre style="font-size:0.64rem;color:var(--text-muted);margin-top:0.15rem;white-space:pre-wrap;max-height:80px;overflow-y:auto">${esc(fl.output||'')}</pre>
+                    </div>`;
+                });
+            }
+            body.innerHTML = h;
+        } catch (err) {
+            document.getElementById('test-run-body').innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(err.message)}</p>`;
+        }
+    }
+
+    async function testCoverage() {
+        modalOpen({
+            title: '📊 Test Coverage',
+            body: `<p style="font-size:0.75rem;color:var(--text-muted);margin-bottom:var(--space-md)">Running tests with coverage instrumentation… Per-file results will appear below.</p>
+                <div id="test-cov-body" style="max-height:450px;overflow-y:auto"><span class="spinner"></span></div>`,
+            size: 'wide',
+            footerButtons: [
+                { label: 'Close', cls: 'btn-primary', onclick: 'modalClose()' },
+            ],
+        });
+        try {
+            const data = await api('/testing/coverage', { method: 'POST', body: '{}' });
+            const body = document.getElementById('test-cov-body');
+            if (data.error) { body.innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(data.error)}</p>`; return; }
+            const pct = data.coverage_percent != null ? Math.round(data.coverage_percent) : '?';
+            const covColor = pct >= 80 ? 'var(--success)' : pct >= 50 ? 'var(--warning)' : 'var(--error)';
+            let h = `<div style="display:flex;align-items:center;gap:0.6rem;margin-bottom:var(--space-sm)">
+                <span style="font-size:1.5rem;font-weight:700;color:${covColor}">${pct}%</span>
+                <div style="flex:1">
+                    <div style="height:6px;border-radius:3px;background:var(--bg-inset);overflow:hidden">
+                        <div style="height:100%;width:${pct}%;background:${covColor};border-radius:3px"></div>
+                    </div>
+                </div>
+                <span style="font-size:0.72rem;color:var(--text-muted)">${esc(data.tool || '')}</span>
+            </div>`;
+            // Per-file table
+            const files = data.files || [];
+            if (files.length > 0) {
+                h += `<div style="font-size:0.72rem;font-weight:600;color:var(--text-muted);margin-bottom:0.3rem">Per-File Breakdown</div>`;
+                files.forEach(f => {
+                    const pctFile = f.cover != null ? Math.round(f.cover) : '?';
+                    const fColor = pctFile >= 80 ? 'var(--success)' : pctFile >= 50 ? 'var(--warning)' : 'var(--error)';
+                    h += `<div style="display:flex;gap:0.4rem;align-items:center;padding:0.25rem 0;border-bottom:1px solid var(--border-subtle);font-size:0.72rem">
+                        <code style="font-family:var(--font-mono);color:var(--accent);font-size:0.68rem;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(f.name)}</code>
+                        <span style="color:var(--text-muted);font-size:0.64rem">${f.stmts||0} stmts · ${f.miss||0} miss</span>
+                        <span style="font-weight:600;color:${fColor};min-width:35px;text-align:right">${pctFile}%</span>
+                    </div>`;
+                });
+            }
+            body.innerHTML = h;
+        } catch (err) {
+            document.getElementById('test-cov-body').innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(err.message)}</p>`;
+        }
+    }
+
+    async function testInventory() {
+        modalOpen({
+            title: '📋 Test Inventory',
+            body: `<p style="font-size:0.75rem;color:var(--text-muted);margin-bottom:var(--space-md)">Every test file in your project — with function, class, and line counts, grouped by framework.</p>
+                <div id="test-inv-body" style="max-height:450px;overflow-y:auto"><span class="spinner"></span></div>`,
+            size: 'wide',
+            footerButtons: [
+                { label: 'Close', cls: 'btn-primary', onclick: 'modalClose()' },
+            ],
+        });
+        try {
+            const data = await api('/testing/inventory');
+            const body = document.getElementById('test-inv-body');
+            const files = data.files || [];
+            if (!files.length) { body.innerHTML = '<p class="empty-state-sm">No test files found — create one with Generate Template.</p>'; return; }
+            let h = `<div style="display:flex;gap:0.6rem;font-size:0.78rem;margin-bottom:var(--space-sm)">
+                <span><strong>${data.total_files||files.length}</strong> files</span>
+                <span><strong>${data.total_functions||0}</strong> functions</span>
+            </div>`;
+            files.forEach(f => {
+                h += `<div style="display:flex;gap:0.5rem;align-items:center;padding:0.3rem 0;border-bottom:1px solid var(--border-subtle);font-size:0.75rem">
+                    <code style="font-family:var(--font-mono);color:var(--accent);font-size:0.68rem;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(f.path)}">${esc(f.path)}</code>
+                    <span style="color:var(--text-muted);flex-shrink:0;font-size:0.68rem" title="Functions · Classes · Lines">${f.functions||0} fn · ${f.classes||0} cls${f.lines ? ' · '+f.lines+' ln' : ''}</span>
+                    ${f.framework ? `<span style="font-size:0.6rem;padding:0.05rem 0.3rem;border:1px solid var(--border-subtle);border-radius:3px;color:var(--text-muted)" title="Detected framework">${esc(f.framework)}</span>` : ''}
+                </div>`;
+            });
+            body.innerHTML = h;
+        } catch (e) {
+            document.getElementById('test-inv-body').innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(e.message)}</p>`;
+        }
+    }
+
+    function testGenTemplate() {
+        const body = `<div class="modal-form-grid">` +
+            modalFormField({ name: 'tgen-module', label: 'Module name', type: 'text', placeholder: 'src.core.services.my_module', required: true, fullWidth: true, hint: 'Dot-separated Python module path or JS/TS file path' }) +
+            modalFormField({ name: 'tgen-stack', label: 'Stack', type: 'select', options: [
+                { value: 'python', label: 'Python (pytest)' },
+                { value: 'node', label: 'Node.js (jest/vitest)' },
+                { value: 'rust', label: 'Rust (cargo test)' },
+            ], fullWidth: true, hint: 'Determines the testing conventions used in the generated template' }) +
+            `</div>`;
+
+        modalOpen({
+            title: '⚙️ Generate Test Template',
+            body,
+            size: 'narrow',
+            footerButtons: [
+                { label: 'Cancel', cls: 'btn-ghost', onclick: 'modalClose()' },
+                { label: 'Generate', cls: 'btn-primary', id: 'tgen-btn', onclick: 'doTestGenTemplate()' },
+            ],
+        });
+        setTimeout(() => document.getElementById('mf-tgen-module')?.focus(), 100);
+    }
+
+    async function doTestGenTemplate() {
+        const mod = mfVal('tgen-module').trim();
+        const stack = mfVal('tgen-stack');
+        if (!mod) { modalError('Module name is required'); return; }
+        const btn = document.getElementById('tgen-btn'); btn.disabled = true; btn.textContent = 'Generating…';
+        try {
+            const data = await api('/testing/generate/template', { method: 'POST', body: JSON.stringify({ module: mod, stack }) });
+            modalClose();
+            toast(`Test template generated: ${data.file?.path || ''} ✅`, 'success');
+        } catch (e) {
+            modalError(e.message);
+            btn.disabled = false; btn.textContent = 'Generate';
+        }
+    }
+

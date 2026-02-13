@@ -275,8 +275,13 @@ toggleHtml += `<button class="btn btn-sm ${previewEditMode ? 'btn-primary' : 'bt
 toggle.innerHTML = toggleHtml;
 
 if (previewEditMode) {
-body.innerHTML = `<textarea id="content-editor" class="content-editor"
-    spellcheck="false">${esc(data.content)}</textarea>`;
+body.innerHTML = `<div id="monaco-editor-container" style="border:1px solid var(--border);border-radius:var(--radius-sm);overflow:hidden"></div>`;
+monacoCreate('monaco-editor-container', {
+    content: data.content,
+    filePath: path,
+    readOnly: false,
+    minHeight: 400,
+});
 editBar.style.display = 'flex';
 editBar.innerHTML = `
 <button class="btn btn-secondary btn-sm" onclick="contentDiscardEdit()">↩️ Discard</button>
@@ -290,8 +295,17 @@ body.innerHTML = `<div class="content-preview-rendered notranslate" translate="n
 _attachPreviewLinkHandlers(body);
 editBar.style.display = 'none';
 } else {
-body.innerHTML = `
-<pre class="content-preview-code notranslate" translate="no"><code>${esc(data.content)}</code></pre>`;
+// Raw code view — Monaco read-only
+body.innerHTML = `<div id="monaco-editor-container" style="border:1px solid var(--border);border-radius:var(--radius-sm);overflow:hidden"></div>`;
+const focusLine = window._contentFocusLine || 0;
+window._contentFocusLine = 0;
+monacoCreate('monaco-editor-container', {
+    content: data.content,
+    filePath: path,
+    readOnly: true,
+    minHeight: 300,
+    focusLine: focusLine,
+});
 editBar.style.display = 'none';
 }
 
@@ -316,12 +330,15 @@ document.getElementById('content-preview-body').innerHTML =
 }
 
 function contentSetPreviewMode(mode) {
-if (mode === 'edit') {
-previewEditMode = true;
-} else {
-previewEditMode = false;
-previewRawMode = (mode === 'raw');
-}
-contentPreviewFile(previewCurrentPath, previewCurrentName);
-contentUpdateHash();
+monacoGuardUnsaved(() => {
+    monacoDispose();
+    if (mode === 'edit') {
+    previewEditMode = true;
+    } else {
+    previewEditMode = false;
+    previewRawMode = (mode === 'raw');
+    }
+    contentPreviewFile(previewCurrentPath, previewCurrentName);
+    contentUpdateHash();
+});
 }

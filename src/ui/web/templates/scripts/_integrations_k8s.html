@@ -1,0 +1,722 @@
+<!-- Integrations Tab JS — Kubernetes Card
+     _intLoadK8sCard(), live data panels (pods, services, deployments, events, logs),
+     actions (apply, rollout, scale), modals (pod logs, apply, scale, describe,
+     delete, generate manifests, Helm values/install, manifest wizard).
+     Depends on: _integrations_init.html (card registry)
+-->
+    // ── Kubernetes Card ─────────────────────────────────────────────────
+
+    async function _intLoadK8sCard() {
+        const badge = document.getElementById('int-k8s-badge');
+        const detail = document.getElementById('int-k8s-detail');
+
+        try {
+            const cached = cardCached('k8s');
+            const data = cached || await api('/k8s/status');
+            if (!cached) cardStore('k8s', data);
+
+            // ── kubectl not found ──
+            if (!data.kubectl || !data.kubectl.available) {
+                badge.className = 'status-badge failed';
+                badge.innerHTML = '<span class="status-dot"></span>No kubectl';
+                detail.innerHTML = cardEmpty('☸️', '<code>kubectl</code> not found.',
+                    { label: 'Install kubectl →', onclick: "window.open('https://kubernetes.io/docs/tasks/tools/','_blank')" });
+                detail.innerHTML += cardGenerateToolbar([
+                    { label: 'K8s Manifests', icon: '☸', onclick: "_k8sGenerateModal()" },
+                    { label: 'K8s Wizard', icon: '🧙', onclick: "_k8sWizardModal()" },
+                ]);
+                return;
+            }
+
+            // ── No manifests ──
+            if (!data.has_k8s) {
+                badge.className = 'status-badge degraded';
+                badge.innerHTML = '<span class="status-dot"></span>No manifests';
+                let html = cardStatusGrid([
+                    { label: 'kubectl', value: (data.kubectl.version || '').split(',')[0], cls: 'ok' },
+                    { label: 'Manifests', value: 'None', cls: 'warn' },
+                ]);
+                html += `<div style="margin-top:var(--space-sm);font-size:0.82rem;color:var(--text-muted)">No Kubernetes manifests detected in this project.</div>`;
+                html += cardGenerateToolbar([
+                    { label: 'K8s Manifests', icon: '☸', onclick: "_k8sGenerateModal()" },
+                    { label: 'K8s Wizard', icon: '🧙', onclick: "_k8sWizardModal()" },
+                ]);
+                detail.innerHTML = html;
+                return;
+            }
+
+            // ── Full card — has manifests ──
+            badge.className = 'status-badge ok';
+            badge.innerHTML = `<span class="status-dot"></span>${data.total_resources || 0} resource${(data.total_resources || 0) !== 1 ? 's' : ''}`;
+
+            // Status grid
+            const stats = [
+                { label: 'kubectl', value: (data.kubectl.version || '').split(',')[0], cls: 'ok' },
+                { label: 'Resources', value: String(data.total_resources || 0) },
+            ];
+            if (data.helm_charts && data.helm_charts.length > 0) stats.push({ label: 'Helm', value: `${data.helm_charts.length} chart${data.helm_charts.length > 1 ? 's' : ''}` });
+            if (data.kustomize && data.kustomize.exists) stats.push({ label: 'Kustomize', value: '✓', cls: 'ok' });
+            let html = cardStatusGrid(stats);
+
+            // Detection list
+            const detections = [];
+            (data.manifest_dirs || []).forEach(d => detections.push({ icon: '📁', label: 'Manifests', value: d, click: `openFileInEditor('${esc(d)}','raw')` }));
+            (data.helm_charts || []).forEach(h => detections.push({ icon: '⎈', label: 'Helm Chart', value: h.name, click: `openFileInEditor('${esc(h.path)}/Chart.yaml','raw')` }));
+            if (data.kustomize && data.kustomize.exists) detections.push({ icon: '🔧', label: 'Kustomize', value: data.kustomize.path, click: `openFileInEditor('${esc(data.kustomize.path)}','raw')` });
+            if (detections.length) html += cardDetectionList(detections);
+
+            // Resource summary chips
+            if (data.resource_summary && Object.keys(data.resource_summary).length > 0) {
+                html += `<div style="margin-top:var(--space-sm);display:flex;flex-wrap:wrap;gap:0.25rem">` +
+                    Object.entries(data.resource_summary).map(([kind, count]) =>
+                        `<span style="font-size:0.72rem;padding:0.1rem 0.35rem;border-radius:4px;background:var(--bg-inset);border:1px solid var(--border-subtle);font-family:var(--font-mono)">${esc(kind)}: ${count}</span>`
+                    ).join('') + `</div>`;
+            }
+
+            // Live panel (tabbed)
+            const liveTabs = [
+                { key: 'pods', label: '🫛 Pods' },
+                { key: 'services', label: '🔗 Services' },
+                { key: 'deployments', label: '📦 Deploys' },
+                { key: 'cluster', label: '🖥 Cluster' },
+                { key: 'events', label: '📣 Events' },
+                { key: 'namespaces', label: '🏢 Namespaces' },
+                { key: 'helm', label: '⎈ Helm' },
+                { key: 'skaffold', label: '🛤 Skaffold' },
+                { key: 'envmap', label: '🗺 Env Map' },
+            ];
+            html += cardLivePanel('int-k8s-live', liveTabs, '_k8sLiveTab');
+
+            // Action toolbar
+            html += cardActionToolbar([
+                { label: 'Validate', icon: '✅', onclick: "_k8sAction('validate', this)" },
+                { label: 'Apply', icon: '🚀', onclick: "_k8sApplyModal()", cls: 'btn-primary' },
+                { label: 'Scale', icon: '⚖️', onclick: "_k8sScaleModal()" },
+                { label: 'Logs', icon: '📜', onclick: "_k8sPodLogsModal()" },
+                { label: 'Describe', icon: '🔍', onclick: "_k8sDescribeModal()" },
+                { label: 'Delete', icon: '🗑', onclick: "_k8sDeleteModal()" },
+                { label: 'Helm', icon: '⎈', onclick: "_k8sHelmInstallModal()" },
+            ]);
+            html += `<div id="int-k8s-action-output" style="display:none;margin-top:var(--space-sm);background:var(--bg-inset);border:1px solid var(--border-subtle);border-radius:6px;padding:0.4rem 0.5rem;font-size:0.72rem;max-height:200px;overflow:auto;font-family:var(--font-mono,monospace);white-space:pre-wrap"></div>`;
+
+            // Generate toolbar
+            html += cardGenerateToolbar([
+                { label: 'K8s Manifests', icon: '☸', onclick: "_k8sGenerateModal()" },
+                { label: 'K8s Wizard', icon: '🧙', onclick: "_k8sWizardModal()" },
+            ]);
+
+            detail.innerHTML = html;
+
+        } catch (e) {
+            badge.className = 'status-badge failed';
+            badge.innerHTML = '<span class="status-dot"></span>Error';
+            detail.innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(e.message)}</p>`;
+        }
+    }
+
+    // ── K8s: live data panels ──────────────────────────────────────────
+
+    async function _k8sLiveTab(what, panelId) {
+        const panel = document.getElementById(panelId);
+        if (!panel) return;
+        panel.innerHTML = '<span class="spinner"></span> Loading…';
+
+        try {
+            if (what === 'cluster') {
+                const data = await api('/k8s/cluster');
+                if (!data.connected) { panel.innerHTML = '<span style="color:var(--warning)">⚠ Not connected to a cluster</span>'; return; }
+                let html = `<div style="margin-bottom:0.3rem"><strong>Context:</strong> ${esc(data.context || '—')}</div>`;
+                if (data.nodes && data.nodes.length > 0) {
+                    html += cardDataTable(
+                        ['', 'Node', 'Status', 'Roles', 'Version'],
+                        data.nodes.map(n => [
+                            { text: '●', cls: n.status === 'Ready' ? 'ok' : 'muted' },
+                            { text: n.name, cls: 'name' },
+                            { text: n.status || '—' },
+                            { text: n.roles || '—' },
+                            { text: n.version || '—' },
+                        ])
+                    );
+                }
+                if (data.namespaces && data.namespaces.length > 0) {
+                    html += `<div style="margin-top:0.3rem;font-size:0.68rem;color:var(--text-muted)">Namespaces: ${data.namespaces.join(', ')}</div>`;
+                }
+                panel.innerHTML = html;
+
+            } else if (what === 'events') {
+                const data = await api('/k8s/events');
+                const events = data.events || [];
+                if (events.length === 0) { panel.innerHTML = '<span style="color:var(--text-muted)">No events found.</span>'; return; }
+                panel.innerHTML = cardDataTable(
+                    ['', 'Object', 'Reason', 'Message'],
+                    events.slice(-30).map(ev => [
+                        { text: ev.type === 'Normal' ? '●' : '⚠', cls: ev.type === 'Normal' ? 'ok' : 'muted' },
+                        { text: ev.object || '—' },
+                        { text: ev.reason || '—' },
+                        { text: ev.message || '—' },
+                    ])
+                );
+
+            } else if (what === 'namespaces') {
+                const data = await api('/k8s/namespaces');
+                const ns = data.namespaces || [];
+                if (ns.length === 0) { panel.innerHTML = '<span style="color:var(--text-muted)">No namespaces found.</span>'; return; }
+                panel.innerHTML = cardDataTable(
+                    ['Name', 'Status'],
+                    ns.map(n => [
+                        { text: n.name || '—', cls: 'name' },
+                        { text: n.status || '—', cls: n.status === 'Active' ? 'ok' : 'muted' },
+                    ])
+                );
+
+            } else if (what === 'helm') {
+                const data = await api('/k8s/helm/list');
+                if (!data.available) { panel.innerHTML = '<span style="color:var(--warning)">⚠ Helm CLI not found. <a href="https://helm.sh/docs/intro/install/" target="_blank" rel="noopener" style="color:var(--accent)">Install Helm →</a></span>'; return; }
+                const releases = data.releases || [];
+                if (releases.length === 0) { panel.innerHTML = '<span style="color:var(--text-muted)">No Helm releases found.' + (data.error ? ` (${esc(data.error)})` : '') + '</span>'; return; }
+                panel.innerHTML = cardDataTable(
+                    ['Name', 'Namespace', 'Status', 'Chart', 'Rev'],
+                    releases.map(r => [
+                        { text: r.name || '—', cls: 'name', click: `_intK8sHelmValues('${esc(r.name)}','${esc(r.namespace||'')}')` },
+                        { text: r.namespace || '—' },
+                        { text: r.status || '—', cls: r.status === 'deployed' ? 'ok' : 'muted' },
+                        { text: r.chart || '—' },
+                        { text: String(r.revision || '—') },
+                    ])
+                );
+
+            } else if (what === 'skaffold') {
+                const data = await api('/k8s/skaffold/status');
+                let html = '';
+                if (!data.available && !data.has_skaffold) {
+                    html = '<span style="color:var(--text-muted)">Skaffold not detected. No config files found and CLI not available.</span>';
+                } else {
+                    html += `<div style="margin-bottom:0.3rem"><strong>CLI:</strong> ${data.available ? '<span style="color:var(--success)">✅ Available</span>' : '<span style="color:var(--warning)">⚠ Not installed</span>'}</div>`;
+                    if (data.configs && data.configs.length > 0) {
+                        html += data.configs.map(c =>
+                            `<div style="padding:0.2rem 0;border-bottom:1px solid var(--border-subtle)">` +
+                            `<code style="color:var(--accent);cursor:pointer;text-decoration:underline dotted" onclick="openFileInEditor('${esc(c.path)}','edit')">${esc(c.path)}</code>` +
+                            ` <span style="color:var(--text-muted);font-size:0.68rem">(${esc(c.api_version || '?')})</span>` +
+                            (c.profiles && c.profiles.length > 0 ? ` · Profiles: ${c.profiles.map(p => `<code style="font-size:0.68rem">${esc(p)}</code>`).join(', ')}` : '') +
+                            `</div>`
+                        ).join('');
+                    } else {
+                        html += '<div style="color:var(--text-muted)">No skaffold.yaml found.</div>';
+                    }
+                }
+                panel.innerHTML = html;
+
+            } else if (what === 'envmap') {
+                const data = await api('/k8s/env-namespaces');
+                const envs = data.environments || [];
+                if (envs.length === 0) { panel.innerHTML = '<span style="color:var(--text-muted)">No environments defined in project.yml.</span>'; return; }
+                panel.innerHTML = cardDataTable(
+                    ['Environment', 'Namespace', 'Overlay', 'Values'],
+                    envs.map(e => [
+                        { text: e.name + (e.default ? ' ⭐' : ''), cls: 'name' },
+                        { text: e.namespace },
+                        e.has_overlay
+                            ? { text: e.overlay_path, click: `openFileInEditor('${esc(e.overlay_path)}','raw')` }
+                            : { text: '—' },
+                        e.values_file
+                            ? { text: e.values_file, click: `openFileInEditor('${esc(e.values_file)}','edit')` }
+                            : { text: '—' },
+                    ])
+                );
+
+            } else {
+                // pods, services, deployments (catch-all)
+                const data = await api(`/k8s/resources?kind=${what}`);
+                if (!data.ok) { panel.innerHTML = `<span style="color:var(--warning)">${esc(data.error || 'Could not list ' + what)}</span>`; return; }
+                const list = data.resources || [];
+                if (list.length === 0) { panel.innerHTML = `<span style="color:var(--text-muted)">No ${what} found.</span>`; return; }
+                panel.innerHTML = cardDataTable(
+                    ['', 'Name', 'Namespace', 'Status', 'Age'],
+                    list.map(r => [
+                        { text: '●', cls: (r.status || '').toLowerCase().includes('running') || (r.status || '').toLowerCase().includes('active') ? 'ok' : 'muted' },
+                        { text: r.name, cls: 'name' },
+                        { text: r.namespace || '—' },
+                        { text: r.status || '—' },
+                        { text: r.age || '—' },
+                    ])
+                );
+            }
+        } catch (e) {
+            panel.innerHTML = `<span style="color:var(--error)">Error: ${esc(e.message)}</span>`;
+        }
+    }
+    // Backward compat alias
+    function _intK8sLive(what) { _k8sLiveTab(what, 'int-k8s-live'); }
+
+    // ── K8s: actions ───────────────────────────────────────────────────
+
+    async function _k8sAction(action, btnEl) {
+        const output = document.getElementById('int-k8s-action-output');
+        const origText = btnEl.textContent;
+        btnEl.disabled = true;
+        btnEl.textContent = '⏳…';
+
+        try {
+            let resultData;
+            if (action === 'validate') {
+                resultData = await api('/k8s/validate');
+            }
+
+            btnEl.textContent = origText;
+            btnEl.disabled = false;
+
+            if (resultData && output) {
+                output.style.display = 'block';
+                if (resultData.ok) {
+                    const w = resultData.warnings || 0;
+                    const e = resultData.errors || 0;
+                    output.style.color = e > 0 ? 'var(--error)' : w > 0 ? 'var(--warning)' : 'var(--success)';
+                    let text = `✅ ${resultData.files_checked || 0} files checked — ${e} error${e !== 1 ? 's' : ''}, ${w} warning${w !== 1 ? 's' : ''}`;
+                    if (resultData.issues && resultData.issues.length > 0) {
+                        text += '\n\n' + resultData.issues.map(i =>
+                            `${i.severity === 'error' ? '❌' : '⚠'} ${i.file}:${i.line || '?'} — ${i.message}`
+                        ).join('\n');
+                    }
+                    output.textContent = text;
+                    toast(e > 0 ? `${e} validation error(s)` : '✅ Manifests valid', e > 0 ? 'error' : 'success');
+                } else {
+                    output.textContent = '❌ ' + (resultData.error || 'Validation failed');
+                    output.style.color = 'var(--error)';
+                }
+            }
+        } catch (e) {
+            btnEl.textContent = origText;
+            btnEl.disabled = false;
+            if (output) {
+                output.style.display = 'block';
+                output.textContent = '❌ ' + e.message;
+                output.style.color = 'var(--error)';
+            }
+            toast('K8s action failed: ' + e.message, 'error');
+        }
+    }
+
+    // ── K8s: pod logs modal ─────────────────────────────────────────
+
+    function _k8sPodLogsModal() {
+        const body = `<div class="modal-form-grid">` +
+            modalFormField({name: 'k8s-log-pod', label: 'Pod Name', type: 'text', placeholder: 'pod-name', required: true}) +
+            modalFormField({name: 'k8s-log-ns', label: 'Namespace', type: 'text', value: 'default', placeholder: 'default'}) +
+            modalFormField({name: 'k8s-log-tail', label: 'Tail', type: 'select', options: [
+                {value:'50', label:'50'}, {value:'100', label:'100'}, {value:'250', label:'250'}, {value:'500', label:'500'}
+            ], value: '100'}) +
+            `</div>` +
+            `<pre id="k8s-log-output" style="display:none;max-height:300px;overflow:auto;background:var(--bg-inset);border:1px solid var(--border-subtle);border-radius:6px;padding:0.4rem;font-size:0.72rem;white-space:pre-wrap;font-family:var(--font-mono)"></pre>`;
+        modalOpen({
+            title: '📜 Pod Logs',
+            body,
+            footerButtons: [
+                { label: '📜 Fetch', cls: 'btn-primary', onclick: '_k8sFetchPodLogs()' },
+                { label: 'Close', cls: 'btn-secondary', onclick: 'modalClose()' },
+            ],
+        });
+    }
+
+    async function _k8sFetchPodLogs() {
+        const pod = document.getElementById('mf-k8s-log-pod')?.value?.trim();
+        const ns = document.getElementById('mf-k8s-log-ns')?.value?.trim() || 'default';
+        const tail = document.getElementById('mf-k8s-log-tail')?.value || '100';
+        const output = document.getElementById('k8s-log-output');
+        if (!pod || !output) { toast('Enter pod name', 'warning'); return; }
+        output.style.display = 'block';
+        output.innerHTML = '<span class="spinner"></span> Loading…';
+        try {
+            const data = await api(`/k8s/pod-logs?pod=${encodeURIComponent(pod)}&namespace=${encodeURIComponent(ns)}&tail=${tail}`);
+            output.textContent = data.logs || '(no output)';
+            output.scrollTop = output.scrollHeight;
+        } catch (e) { output.innerHTML = `<span style="color:var(--error)">${esc(e.message)}</span>`; }
+    }
+
+    // ── K8s: apply modal ───────────────────────────────────────────
+
+    function _k8sApplyModal() {
+        const body = `<div class="modal-form-grid">` +
+            modalFormField({name: 'k8s-apply-path', label: 'Path (relative)', type: 'text', placeholder: 'k8s/', fullWidth: true}) +
+            modalFormField({name: 'k8s-apply-ns', label: 'Namespace (optional)', type: 'text', placeholder: 'default'}) +
+            `</div>` +
+            `<pre id="k8s-apply-output" style="display:none;margin-top:var(--space-sm);max-height:120px;overflow:auto;background:var(--bg-inset);border:1px solid var(--border-subtle);border-radius:6px;padding:0.4rem;font-size:0.72rem;white-space:pre-wrap;font-family:var(--font-mono)"></pre>`;
+        modalOpen({
+            title: '🚀 Apply Manifests',
+            body,
+            size: 'narrow',
+            footerButtons: [
+                { label: 'Cancel', cls: 'btn-secondary', onclick: 'modalClose()' },
+                { label: '🚀 Apply', cls: 'btn-primary', onclick: '_k8sDoApply()' },
+            ],
+        });
+    }
+
+    async function _k8sDoApply() {
+        const path = document.getElementById('mf-k8s-apply-path')?.value?.trim() || '';
+        const ns = document.getElementById('mf-k8s-apply-ns')?.value?.trim() || '';
+        const output = document.getElementById('k8s-apply-output');
+        if (!output) return;
+        output.style.display = 'block';
+        output.innerHTML = '<span class="spinner"></span> Applying…';
+        try {
+            const data = await apiPost('/k8s/apply', {path, namespace: ns});
+            if (data.ok) { output.textContent = data.output || 'Applied successfully'; toast('Applied', 'success'); }
+            else { output.innerHTML = `<span style="color:var(--error)">${esc(data.error||'Apply failed')}</span>`; }
+        } catch (e) { output.innerHTML = `<span style="color:var(--error)">${esc(e.message)}</span>`; }
+    }
+
+    // ── K8s: scale modal ───────────────────────────────────────────
+
+    function _k8sScaleModal() {
+        const body = `<div class="modal-form-grid">` +
+            modalFormField({name: 'k8s-scale-name', label: 'Deployment Name', type: 'text', placeholder: 'my-app', required: true}) +
+            modalFormField({name: 'k8s-scale-replicas', label: 'Replicas', type: 'number', value: '2'}) +
+            modalFormField({name: 'k8s-scale-ns', label: 'Namespace', type: 'text', value: 'default'}) +
+            `</div>` +
+            `<div id="k8s-scale-output" style="display:none;margin-top:var(--space-sm);padding:0.3rem;background:var(--bg-inset);border-radius:4px;font-size:0.72rem;font-family:var(--font-mono)"></div>`;
+        modalOpen({
+            title: '⚖️ Scale Deployment',
+            body,
+            size: 'narrow',
+            footerButtons: [
+                { label: 'Cancel', cls: 'btn-secondary', onclick: 'modalClose()' },
+                { label: '⚖️ Scale', cls: 'btn-primary', onclick: '_k8sDoScale()' },
+            ],
+        });
+    }
+
+    async function _k8sDoScale() {
+        const name = document.getElementById('mf-k8s-scale-name')?.value?.trim();
+        const replicas = parseInt(document.getElementById('mf-k8s-scale-replicas')?.value || '2');
+        const ns = document.getElementById('mf-k8s-scale-ns')?.value?.trim() || 'default';
+        const output = document.getElementById('k8s-scale-output');
+        if (!name) { toast('Enter deployment name', 'warning'); return; }
+        if (output) { output.style.display = 'block'; output.innerHTML = '<span class="spinner"></span> Scaling…'; }
+        try {
+            const data = await apiPost('/k8s/scale', {name, replicas, namespace: ns});
+            if (data.ok) { if (output) output.textContent = data.output || 'Scaled'; toast(`Scaled ${name} to ${replicas}`, 'success'); }
+            else { if (output) output.innerHTML = `<span style="color:var(--error)">${esc(data.error)}</span>`; }
+        } catch (e) { if (output) output.innerHTML = `<span style="color:var(--error)">${esc(e.message)}</span>`; }
+    }
+
+    // ── K8s: describe modal ─────────────────────────────────────────
+
+    function _k8sDescribeModal() {
+        const kindOptions = [{value:'pod',label:'Pod'},{value:'deployment',label:'Deployment'},{value:'service',label:'Service'},
+            {value:'ingress',label:'Ingress'},{value:'configmap',label:'ConfigMap'},{value:'secret',label:'Secret'}];
+        const body = `<div class="modal-form-grid">` +
+            modalFormField({name: 'k8s-desc-kind', label: 'Kind', type: 'select', options: kindOptions, value: 'pod'}) +
+            modalFormField({name: 'k8s-desc-name', label: 'Name', type: 'text', placeholder: 'resource-name', required: true}) +
+            modalFormField({name: 'k8s-desc-ns', label: 'Namespace', type: 'text', value: 'default', placeholder: 'namespace'}) +
+            `</div>` +
+            `<pre id="k8s-desc-output" style="display:none;max-height:350px;overflow:auto;background:var(--bg-inset);border:1px solid var(--border-subtle);border-radius:6px;padding:0.5rem;font-size:0.68rem;white-space:pre-wrap;font-family:var(--font-mono)"></pre>`;
+        modalOpen({
+            title: '🔍 Describe Resource',
+            body,
+            footerButtons: [
+                { label: '🔍 Describe', cls: 'btn-primary', onclick: '_k8sDoDescribe()' },
+                { label: 'Close', cls: 'btn-secondary', onclick: 'modalClose()' },
+            ],
+        });
+    }
+
+    async function _k8sDoDescribe() {
+        const kind = document.getElementById('mf-k8s-desc-kind')?.value || 'pod';
+        const name = document.getElementById('mf-k8s-desc-name')?.value?.trim();
+        const ns = document.getElementById('mf-k8s-desc-ns')?.value?.trim() || 'default';
+        const output = document.getElementById('k8s-desc-output');
+        if (!name || !output) { toast('Enter resource name', 'warning'); return; }
+        output.style.display = 'block';
+        output.innerHTML = '<span class="spinner"></span> Loading…';
+        try {
+            const data = await api(`/k8s/describe?kind=${encodeURIComponent(kind)}&name=${encodeURIComponent(name)}&namespace=${encodeURIComponent(ns)}`);
+            output.textContent = data.description || '(no output)';
+        } catch (e) { output.innerHTML = `<span style="color:var(--error)">${esc(e.message)}</span>`; }
+    }
+
+    // ── K8s: delete modal ──────────────────────────────────────────
+
+    function _k8sDeleteModal() {
+        const kindOptions = [{value:'pod',label:'Pod'},{value:'deployment',label:'Deployment'},{value:'service',label:'Service'},
+            {value:'configmap',label:'ConfigMap'},{value:'secret',label:'Secret'}];
+        const body = `<div class="modal-form-grid">` +
+            modalFormField({name: 'k8s-del-kind', label: 'Kind', type: 'select', options: kindOptions, value: 'pod'}) +
+            modalFormField({name: 'k8s-del-name', label: 'Name', type: 'text', placeholder: 'resource-name', required: true}) +
+            modalFormField({name: 'k8s-del-ns', label: 'Namespace', type: 'text', value: 'default', placeholder: 'namespace'}) +
+            `</div>` +
+            `<div id="k8s-del-output" style="display:none;padding:0.3rem;font-size:0.72rem;font-family:var(--font-mono)"></div>`;
+        modalOpen({
+            title: '🗑 Delete Resource',
+            body,
+            size: 'narrow',
+            footerButtons: [
+                { label: 'Cancel', cls: 'btn-secondary', onclick: 'modalClose()' },
+                { label: '🗑 Delete', cls: 'btn-primary', onclick: '_k8sDoDelete()', style: 'background:var(--error)' },
+            ],
+        });
+    }
+
+    async function _k8sDoDelete() {
+        const kind = document.getElementById('mf-k8s-del-kind')?.value || 'pod';
+        const name = document.getElementById('mf-k8s-del-name')?.value?.trim();
+        const ns = document.getElementById('mf-k8s-del-ns')?.value?.trim() || 'default';
+        const output = document.getElementById('k8s-del-output');
+        if (!name) { toast('Enter resource name', 'warning'); return; }
+        if (!confirm(`Delete ${kind}/${name} in namespace ${ns}?`)) return;
+        if (output) { output.style.display = 'block'; output.innerHTML = '<span class="spinner"></span> Deleting…'; }
+        try {
+            const data = await apiPost('/k8s/delete', {kind, name, namespace: ns});
+            if (data.ok) { if (output) output.innerHTML = `<span style="color:var(--success)">${esc(data.output || 'Deleted')}</span>`; toast(`Deleted ${kind}/${name}`, 'success'); }
+            else { if (output) output.innerHTML = `<span style="color:var(--error)">${esc(data.error)}</span>`; }
+        } catch (e) { if (output) output.innerHTML = `<span style="color:var(--error)">${esc(e.message)}</span>`; }
+    }
+
+    // ── K8s: generate manifests modal ──────────────────────────────────
+
+    function _mfRaw(label, inputHtml) {
+        // Lightweight inline form field helper for custom-ID inputs
+        return `<div class="modal-form-group"><label class="modal-form-label">${label}</label>${inputHtml}</div>`;
+    }
+
+    function _k8sGenerateModal() {
+        const body = `<div class="modal-form-grid">` +
+            _mfRaw('App Name *', '<input class="modal-form-input" id="k8s-gen-name" type="text" placeholder="my-app">') +
+            _mfRaw('Image', '<input class="modal-form-input" id="k8s-gen-image" type="text" placeholder="my-app:latest">') +
+            _mfRaw('Port', '<input class="modal-form-input" id="k8s-gen-port" type="number" value="8080">') +
+            _mfRaw('Replicas', '<input class="modal-form-input" id="k8s-gen-replicas" type="number" value="2">') +
+            _mfRaw('Service Type', '<select class="modal-form-select" id="k8s-gen-svctype"><option value="ClusterIP" selected>ClusterIP</option><option value="NodePort">NodePort</option><option value="LoadBalancer">LoadBalancer</option></select>') +
+            _mfRaw('Namespace', '<input class="modal-form-input" id="k8s-gen-ns" type="text" placeholder="default">') +
+            `</div>` +
+            modalPreview('Preview', '', 'k8s-gen-code');
+        modalOpen({
+            title: '☸ Generate K8s Manifests',
+            body,
+            footerButtons: [
+                { label: 'Cancel', cls: 'btn-secondary', onclick: 'modalClose()' },
+                { label: '📋 Preview', cls: 'btn-primary', id: 'k8s-gen-preview-btn', onclick: '_k8sDoGenerate()' },
+                { label: '💾 Write to disk', cls: 'btn-primary', id: 'k8s-gen-write', disabled: true, onclick: '_k8sWriteGen()', style: 'display:none' },
+            ],
+        });
+        document.getElementById('k8s-gen-name')?.focus();
+    }
+
+    async function _k8sDoGenerate() {
+        const name = document.getElementById('k8s-gen-name').value.trim();
+        if (!name) { toast('App name is required', 'error'); return; }
+        const code = document.getElementById('k8s-gen-code');
+        const writeBtn = document.getElementById('k8s-gen-write');
+        const previewBtn = document.getElementById('k8s-gen-preview-btn');
+        code.style.display = 'block';
+        code.innerHTML = '<span class="spinner"></span> Generating…';
+        previewBtn.disabled = true;
+
+        try {
+            const payload = {
+                name,
+                image: document.getElementById('k8s-gen-image').value.trim(),
+                port: parseInt(document.getElementById('k8s-gen-port').value) || 8080,
+                replicas: parseInt(document.getElementById('k8s-gen-replicas').value) || 2,
+                service_type: document.getElementById('k8s-gen-svctype').value,
+                namespace: document.getElementById('k8s-gen-ns').value.trim(),
+            };
+            const data = await api('/k8s/generate/manifests', { method: 'POST', body: JSON.stringify(payload) });
+            previewBtn.disabled = false;
+            if (data.files && data.files.length > 0) {
+                const combined = data.files.map(f => `# --- ${f.path || 'file'} ---\n${f.content || ''}`).join('\n\n');
+                code.textContent = combined;
+                writeBtn.style.display = 'inline-flex';
+                writeBtn.disabled = false;
+                writeBtn.dataset.files = JSON.stringify(data.files);
+            } else if (data.file) {
+                code.textContent = data.file.content || '(empty)';
+                writeBtn.style.display = 'inline-flex';
+                writeBtn.disabled = false;
+                writeBtn.dataset.files = JSON.stringify([data.file]);
+            } else {
+                code.textContent = data.error || JSON.stringify(data, null, 2);
+            }
+        } catch (e) { code.textContent = 'Error: ' + e.message; previewBtn.disabled = false; }
+    }
+
+    async function _k8sWriteGen() {
+        const writeBtn = document.getElementById('k8s-gen-write');
+        if (!writeBtn || !writeBtn.dataset.files) return;
+        const origText = writeBtn.textContent;
+        writeBtn.disabled = true;
+        writeBtn.textContent = '⏳ Writing…';
+        try {
+            const files = JSON.parse(writeBtn.dataset.files);
+            for (const f of files) {
+                await api('/docker/generate/write', { method: 'POST', body: JSON.stringify({ file: f }) });
+            }
+            toast(`✅ Written ${files.length} file${files.length !== 1 ? 's' : ''}`, 'success');
+            writeBtn.textContent = '✅ Written';
+            cardInvalidate('k8s');
+            setTimeout(() => modalClose(), 1000);
+        } catch (e) { toast('Write failed: ' + e.message, 'error'); writeBtn.textContent = origText; writeBtn.disabled = false; }
+    }
+
+    // ── K8s: Helm values viewer ────────────────────────────────────────
+
+    async function _intK8sHelmValues(release, namespace) {
+        const panel = document.getElementById('int-k8s-live');
+        if (!panel) return;
+        panel.style.display = 'block';
+        panel.innerHTML = `<span class="spinner"></span> Loading values for ${esc(release)}…`;
+        try {
+            const data = await api(`/k8s/helm/values?release=${encodeURIComponent(release)}&namespace=${encodeURIComponent(namespace)}`);
+            if (data.error) {
+                panel.innerHTML = `<span style="color:var(--error)">${esc(data.error)}</span>`;
+            } else {
+                panel.innerHTML = `<div style="margin-bottom:0.3rem"><strong>Values for ${esc(release)}</strong></div><pre style="white-space:pre-wrap;margin:0">${esc(data.values || '(no values)')}</pre>`;
+            }
+        } catch (e) { panel.innerHTML = `<span style="color:var(--error)">Error: ${esc(e.message)}</span>`; }
+    }
+
+    // ── K8s: Helm install/upgrade modal ───────────────────────────────
+
+    function _k8sHelmInstallModal() {
+        const body = `<div class="modal-form-grid">` +
+            _mfRaw('Release Name *', '<input class="modal-form-input" id="helm-release" type="text" placeholder="my-release">') +
+            _mfRaw('Chart *', '<input class="modal-form-input" id="helm-chart" type="text" placeholder="./charts/my-chart or stable/nginx">') +
+            _mfRaw('Namespace', '<input class="modal-form-input" id="helm-ns" type="text" placeholder="default">') +
+            _mfRaw('Values File', '<input class="modal-form-input" id="helm-values" type="text" placeholder="values.yaml">') +
+            `</div>` +
+            `<label style="font-size:0.72rem;display:flex;align-items:center;gap:0.3rem;margin-bottom:var(--space-sm)">` +
+            `<input type="checkbox" id="helm-dryrun"> Dry run (preview only)</label>` +
+            `<pre id="helm-output" style="display:none;max-height:250px;overflow:auto;background:var(--bg-inset);border:1px solid var(--border-subtle);border-radius:6px;padding:0.5rem;font-size:0.72rem;white-space:pre-wrap;font-family:var(--font-mono)"></pre>`;
+        modalOpen({
+            title: '⎈ Helm Install / Upgrade',
+            body,
+            footerButtons: [
+                { label: 'Cancel', cls: 'btn-secondary', onclick: 'modalClose()' },
+                { label: '🚀 Install', cls: 'btn-primary', onclick: "_k8sHelmDoInstall('install')" },
+                { label: '⬆ Upgrade', cls: 'btn-ghost', onclick: "_k8sHelmDoInstall('upgrade')" },
+                { label: '📋 Template', cls: 'btn-ghost', onclick: "_k8sHelmDoInstall('template')" },
+            ],
+        });
+    }
+
+    async function _k8sHelmDoInstall(action) {
+        const release = document.getElementById('helm-release').value.trim();
+        const chart = document.getElementById('helm-chart').value.trim();
+        if (!release || !chart) { toast('Release and chart are required', 'error'); return; }
+        const output = document.getElementById('helm-output');
+        output.style.display = 'block';
+        output.innerHTML = '<span class="spinner"></span> Running…';
+        const payload = {
+            release, chart,
+            namespace: document.getElementById('helm-ns').value.trim(),
+            values_file: document.getElementById('helm-values').value.trim(),
+            dry_run: document.getElementById('helm-dryrun').checked,
+        };
+        try {
+            const ep = action === 'template' ? '/k8s/helm/template' : action === 'upgrade' ? '/k8s/helm/upgrade' : '/k8s/helm/install';
+            const data = await apiPost(ep, payload);
+            if (data.error) { output.innerHTML = `<span style="color:var(--error)">${esc(data.error)}</span>`; }
+            else { output.textContent = data.output || 'Done.'; toast(`✅ Helm ${action} completed`, 'success'); }
+        } catch (e) { output.innerHTML = `<span style="color:var(--error)">Error: ${esc(e.message)}</span>`; }
+    }
+
+    // ── K8s: manifest wizard ──────────────────────────────────────────
+
+    const _KW_KINDS = ['Deployment','Service','ConfigMap','Ingress','Namespace','Secret','Job','CronJob','StatefulSet','DaemonSet'];
+
+    function _k8sWizardModal() {
+        const body =
+            `<div style="display:flex;align-items:center;gap:0.25rem;margin-bottom:var(--space-sm);flex-wrap:wrap">` +
+            `<div id="kw-res-tabs" style="display:flex;gap:0.2rem;flex-wrap:wrap"></div>` +
+            `<button class="btn btn-sm btn-ghost" onclick="_kwAddResource()" style="font-size:0.72rem;padding:0.1rem 0.35rem;color:var(--accent)">+ Add Resource</button>` +
+            `</div>` +
+            `<div id="kw-res-form" style="border:1px solid var(--border-subtle);border-radius:8px;padding:var(--space-sm);background:var(--bg-inset)"></div>` +
+            `<div style="margin-top:var(--space-sm)">` +
+            `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.2rem">` +
+            `<span style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase">Preview</span>` +
+            `<button class="btn btn-sm btn-ghost" onclick="_kwRefreshPreview()" style="font-size:0.68rem;padding:0.1rem 0.3rem">🔄 Refresh</button>` +
+            `</div>` +
+            modalPreview('Preview', 'Add a resource…', 'kw-preview') +
+            `</div>`;
+        modalOpen({
+            title: '🧙 K8s Manifest Wizard',
+            body,
+            footerButtons: [
+                { label: 'Cancel', cls: 'btn-secondary', onclick: 'modalClose()' },
+                { label: '💾 Write to disk', cls: 'btn-primary', id: 'kw-write', disabled: true, onclick: '_kwWriteToDisk()' },
+            ],
+        });
+        window._kwRes = []; window._kwIdx = -1; window._kwGen = null;
+        _kwAddResource();
+    }
+
+    function _kwAddResource() {
+        window._kwRes.push({ kind:'Deployment', name:`res-${window._kwRes.length+1}`, namespace:'default', spec:{image:'',port:8080,replicas:1} });
+        window._kwIdx = window._kwRes.length - 1;
+        _kwRenderTabs(); _kwRenderForm();
+    }
+    function _kwRemoveResource(i) {
+        if (window._kwRes.length <= 1) return;
+        window._kwRes.splice(i, 1);
+        if (window._kwIdx >= window._kwRes.length) window._kwIdx = window._kwRes.length - 1;
+        _kwRenderTabs(); _kwRenderForm();
+    }
+    function _kwSelectResource(i) { window._kwIdx = i; _kwRenderTabs(); _kwRenderForm(); }
+
+    function _kwRenderTabs() {
+        const c = document.getElementById('kw-res-tabs'); if(!c) return;
+        c.innerHTML = window._kwRes.map((r,i) => `<button class="btn btn-sm ${i===window._kwIdx?'btn-primary':'btn-ghost'}" onclick="_kwSelectResource(${i})" style="font-size:0.72rem;padding:0.15rem 0.4rem;font-family:var(--font-mono)">${esc(r.kind)}:${esc(r.name)}${window._kwRes.length>1?`<span onclick="event.stopPropagation();_kwRemoveResource(${i})" style="margin-left:0.3rem;cursor:pointer;color:var(--error);font-size:0.65rem">✕</span>`:''}</button>`).join('');
+    }
+
+    function _kwRenderForm() {
+        const form = document.getElementById('kw-res-form'); if(!form) return;
+        const r = window._kwRes[window._kwIdx]; if(!r) return;
+        let extra = '';
+        if (['Deployment','StatefulSet','DaemonSet'].includes(r.kind)) {
+            extra = _mfRaw('Image', `<input class="modal-form-input" type="text" value="${esc(r.spec.image||'')}" onchange="_kwS('image',this.value)" placeholder="app:latest">`) +
+            _mfRaw('Port', `<input class="modal-form-input" type="number" value="${r.spec.port||8080}" onchange="_kwS('port',+this.value||8080)">`) +
+            _mfRaw('Replicas', `<input class="modal-form-input" type="number" value="${r.spec.replicas||1}" onchange="_kwS('replicas',+this.value||1)">`);
+        } else if (r.kind==='Service') {
+            extra = _mfRaw('Port', `<input class="modal-form-input" type="number" value="${r.spec.port||80}" onchange="_kwS('port',+this.value||80)">`) +
+            _mfRaw('Type', `<select class="modal-form-select" onchange="_kwS('type',this.value)">${['ClusterIP','NodePort','LoadBalancer'].map(t=>`<option value="${t}" ${(r.spec.type||'ClusterIP')===t?'selected':''}>${t}</option>`).join('')}</select>`);
+        } else if (r.kind==='Ingress') {
+            extra = _mfRaw('Host', `<input class="modal-form-input" type="text" value="${esc(r.spec.host||'')}" onchange="_kwS('host',this.value)" placeholder="app.example.com">`) +
+            _mfRaw('Port', `<input class="modal-form-input" type="number" value="${r.spec.port||80}" onchange="_kwS('port',+this.value||80)">`);
+        }
+        form.innerHTML = `<div class="modal-form-grid">` +
+            _mfRaw('Kind *', `<select class="modal-form-select" onchange="_kwF('kind',this.value);_kwRenderTabs();_kwRenderForm()">${_KW_KINDS.map(k=>`<option value="${k}" ${r.kind===k?'selected':''}>${k}</option>`).join('')}</select>`) +
+            _mfRaw('Name *', `<input class="modal-form-input" type="text" value="${esc(r.name)}" onchange="_kwF('name',this.value);_kwRenderTabs()">`) +
+            _mfRaw('Namespace', `<input class="modal-form-input" type="text" value="${esc(r.namespace)}" onchange="_kwF('namespace',this.value)">`) +
+            extra +
+            `</div>`;
+    }
+    function _kwF(f,v) { const r=window._kwRes[window._kwIdx]; if(r) r[f]=v; }
+    function _kwS(f,v) { const r=window._kwRes[window._kwIdx]; if(r){if(!r.spec)r.spec={}; r.spec[f]=v;} }
+
+    async function _kwRefreshPreview() {
+        const preview = document.getElementById('kw-preview'); if(!preview) return;
+        const valid = window._kwRes.filter(r=>(r.name||'').trim()&&(r.kind||'').trim());
+        if(!valid.length) { preview.textContent='Add a resource…'; return; }
+        preview.innerHTML = '<span class="spinner"></span> Generating…';
+        try {
+            const data = await apiPost('/k8s/generate/wizard', {resources:valid});
+            if (data.files && data.files.length) {
+                preview.textContent = data.files.map(f=>`# --- ${f.path||'file'} ---\n${f.content||''}`).join('\n\n');
+                window._kwGen = data.files;
+                const w=document.getElementById('kw-write'); if(w)w.disabled=false;
+            } else { preview.textContent = data.error||'Could not generate.'; }
+        } catch(e) { preview.textContent='Error: '+e.message; }
+    }
+
+    async function _kwWriteToDisk() {
+        if(!window._kwGen) { await _kwRefreshPreview(); }
+        if(!window._kwGen) return;
+        const w=document.getElementById('kw-write');
+        if(w){w.disabled=true;w.textContent='⏳ Writing…';}
+        try {
+            for (const f of window._kwGen) await api('/docker/generate/write',{method:'POST',body:JSON.stringify({file:f})});
+            toast(`✅ Written ${window._kwGen.length} manifest${window._kwGen.length!==1?'s':''}`, 'success');
+            if(w) w.textContent='✅ Written';
+            cardInvalidate('k8s');
+            setTimeout(()=>modalClose(),1000);
+        } catch(e) { toast('Write failed: '+e.message,'error'); if(w){w.textContent='💾 Write to disk';w.disabled=false;} }
+    }
+

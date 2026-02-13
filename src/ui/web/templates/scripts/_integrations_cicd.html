@@ -1,0 +1,277 @@
+<!-- Integrations Tab JS — CI/CD Card
+     loadCICard(), live tab handler (runs, workflows, coverage), generate modal.
+     Depends on: _integrations_init.html (card registry)
+-->
+    // ── CI/CD Card ──────────────────────────────────────────────────────
+
+    async function loadCICard() {
+        const badge = document.getElementById('int-ci-badge');
+        const detail = document.getElementById('int-ci-detail');
+
+        try {
+            // Load CI status (local detection — independent of GitHub)
+            let ciStatus = null;
+            try { ciStatus = await api('/ci/status'); } catch (_) {}
+
+            // Load runs
+            const cached = cardCached('ci');
+            const data = cached || await api('/gh/actions/runs?n=5');
+            if (!cached) cardStore('ci', data);
+
+            // ── Badge logic ──
+            if (!data.available) {
+                badge.className = 'status-badge degraded';
+                badge.innerHTML = '<span class="status-dot"></span>N/A';
+                if (ciStatus && ciStatus.has_ci) {
+                    badge.innerHTML = `<span class="status-dot"></span>${ciStatus.total_workflows} workflow${ciStatus.total_workflows !== 1 ? 's' : ''}`;
+                }
+            } else if (!data.runs || data.runs.length === 0) {
+                badge.className = 'status-badge degraded';
+                badge.innerHTML = '<span class="status-dot"></span>No runs';
+            } else {
+                const latest = data.runs[0];
+                const conclusion = latest.conclusion || latest.status;
+                if (conclusion === 'success') { badge.className = 'status-badge ok'; badge.innerHTML = '<span class="status-dot"></span>Passing'; }
+                else if (conclusion === 'failure') { badge.className = 'status-badge failed'; badge.innerHTML = '<span class="status-dot"></span>Failing'; }
+                else if (latest.status === 'in_progress' || latest.status === 'queued') { badge.className = 'status-badge degraded'; badge.innerHTML = '<span class="status-dot"></span>Running'; }
+                else { badge.className = 'status-badge degraded'; badge.innerHTML = `<span class="status-dot"></span>${esc(conclusion || 'Unknown')}`; }
+            }
+
+            // ── Status grid ──
+            const stats = [];
+            if (data.runs && data.runs.length > 0) {
+                const latest = data.runs[0];
+                const conclusion = latest.conclusion || latest.status || 'unknown';
+                const clsMap = { success: 'ok', failure: 'err', in_progress: 'warn', queued: 'muted' };
+                stats.push({ label: 'Latest', value: conclusion, cls: clsMap[conclusion] || 'muted' });
+            }
+            if (ciStatus && ciStatus.has_ci) {
+                const providers = ciStatus.providers || [];
+                stats.push({ label: 'Providers', value: providers.map(p => p.name).join(', ') || '—' });
+                stats.push({ label: 'Workflows', value: String(ciStatus.total_workflows || 0) });
+            }
+            let html = stats.length > 0 ? cardStatusGrid(stats) : '';
+
+            // ── Detection list ──
+            if (ciStatus && ciStatus.has_ci) {
+                const providers = ciStatus.providers || [];
+                html += cardDetectionList(providers.map(p => ({
+                    icon: '⚙️', label: p.name,
+                    value: `${p.workflows} workflow${p.workflows !== 1 ? 's' : ''}`
+                })));
+            } else if (ciStatus && !ciStatus.has_ci) {
+                html += `<div style="font-size:0.78rem;color:var(--text-muted);margin-bottom:var(--space-sm)">No CI configuration detected — use Generate below to create one.</div>`;
+            }
+
+            // ── Live panel (Runs, Workflows, Coverage) ──
+            html += cardLivePanel('int-ci-live', [
+                { key: 'runs', label: '▶ Runs' },
+                { key: 'workflows', label: '📋 Workflows' },
+                { key: 'coverage', label: '📊 Coverage' },
+            ], '_ciLiveTab');
+
+            // ── Trigger ──
+            let triggerItems = [];
+            try {
+                const wfData = await api('/gh/actions/workflows');
+                if (wfData.available && wfData.workflows && wfData.workflows.length > 0) {
+                    // Build trigger section with workflow selector
+                    const opts = wfData.workflows.map(w => `<option value="${esc(w.name)}.yml">${esc(w.name)}</option>`).join('');
+                    html += `<div style="display:flex;gap:var(--space-sm);margin-top:var(--space-sm);align-items:center">` +
+                        `<select id="int-ci-workflow" style="font-size:0.78rem;padding:0.2rem 0.4rem;background:var(--bg-inset);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-secondary);flex:1">${opts}</select>` +
+                        `</div>`;
+                    triggerItems.push({ label: 'Trigger', icon: '🚀', onclick: 'triggerWorkflow()' });
+                }
+            } catch (_) {}
+
+            // ── Actions ──
+            if (triggerItems.length > 0) html += cardActionToolbar(triggerItems);
+
+            // ── Generate ──
+            html += cardGenerateToolbar([
+                { label: 'CI Workflow', icon: '🔄', onclick: "_ciGenerate('ci')" },
+                { label: 'Lint Workflow', icon: '🧹', onclick: "_ciGenerate('lint')" },
+            ]);
+
+            detail.innerHTML = html;
+
+            // Auto-load runs tab
+            setTimeout(() => {
+                const firstTab = document.querySelector('#int-ci-live')?.parentElement?.querySelector('.card-live-tab');
+                if (firstTab) firstTab.click();
+            }, 50);
+
+        } catch (e) {
+            badge.className = 'status-badge failed';
+            badge.innerHTML = '<span class="status-dot"></span>Error';
+            detail.innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(e.message)}</p>`;
+        }
+    }
+
+    async function triggerWorkflow() {
+        const sel = document.getElementById('int-ci-workflow');
+        if (!sel) return;
+        const wf = sel.value;
+        try {
+            const result = await api('/gh/actions/dispatch', { method: 'POST', body: JSON.stringify({ workflow: wf }) });
+            if (result.error) { toast(result.error, 'error'); }
+            else { toast(`🚀 Dispatched ${wf}`, 'success'); cardInvalidate('ci'); setTimeout(() => loadCICard(), 2000); }
+        } catch (e) { toast('Dispatch failed: ' + e.message, 'error'); }
+    }
+
+    // ── CI/CD: live tab handler ─────────────────────────────────────────
+
+    async function _ciLiveTab(what, panelId) {
+        const panel = document.getElementById(panelId);
+        if (!panel) return;
+        panel.innerHTML = '<span class="spinner"></span> Loading…';
+
+        try {
+            if (what === 'runs') {
+                const data = await api('/gh/actions/runs?n=10');
+                const runs = data.runs || data.workflow_runs || [];
+                if (runs.length === 0) {
+                    panel.innerHTML = `<span style="color:var(--text-muted)">No workflow runs found</span>`;
+                    return;
+                }
+                panel.innerHTML = cardDataTable(
+                    ['', 'Workflow', 'Branch', 'When'],
+                    runs.slice(0, 10).map(run => {
+                        const icon = run.conclusion === 'success' ? '✅' : run.conclusion === 'failure' ? '❌' : run.status === 'in_progress' ? '🔄' : run.status === 'queued' ? '⏳' : '⚪';
+                        return [
+                            { text: icon },
+                            { text: run.name || '—', cls: 'name' + (run.url ? ' clickable' : ''), click: run.url ? `window.open('${run.url}','_blank')` : '' },
+                            { text: run.headBranch || run.head_branch || '—' },
+                            { text: _timeAgo(run.createdAt || run.created_at) },
+                        ];
+                    })
+                );
+
+            } else if (what === 'workflows') {
+                const data = await api('/ci/workflows');
+                const wfs = data.workflows || [];
+                if (wfs.length === 0) {
+                    panel.innerHTML = `<span style="color:var(--text-muted)">No CI workflow files found</span>`;
+                    return;
+                }
+                panel.innerHTML = wfs.map(wf => {
+                    const jobs = wf.jobs || [];
+                    const triggers = (wf.triggers || []).join(', ');
+                    const issues = wf.issues || [];
+                    return `<div style="padding:0.3rem 0;border-bottom:1px solid var(--border-subtle)">` +
+                        `<div style="display:flex;align-items:center;gap:0.4rem">` +
+                        `<span style="font-weight:600;color:var(--text-primary)">${esc(wf.name || '—')}</span>` +
+                        `<span style="font-size:0.68rem;color:var(--text-muted)">${esc(wf.file || '')}</span></div>` +
+                        `<div style="font-size:0.68rem;color:var(--text-muted);margin-top:0.1rem">` +
+                        `Triggers: ${esc(triggers || 'none')} · ${jobs.length} job${jobs.length !== 1 ? 's' : ''}</div>` +
+                        jobs.map(j => `<div style="margin-left:0.6rem;font-size:0.68rem;color:var(--text-secondary);margin-top:0.1rem">` +
+                            `→ ${esc(j.name || j.id)} <span style="color:var(--text-muted)">(${esc(j.runs_on || '')}${j.steps_count ? ` · ${j.steps_count} steps` : ''})</span></div>`
+                        ).join('') +
+                        (issues.length > 0 ? `<div style="font-size:0.68rem;color:var(--warning);margin-top:0.15rem">${issues.map(i => `⚠ ${esc(i)}`).join('<br>')}</div>` : '') +
+                        `</div>`;
+                }).join('');
+
+            } else if (what === 'coverage') {
+                const data = await api('/ci/coverage');
+                const pct = data.coverage_pct != null ? data.coverage_pct : null;
+                const covered = data.covered || [];
+                const uncovered = data.uncovered || [];
+                const details = data.details || {};
+                let html = '';
+
+                if (pct != null) {
+                    const color = pct >= 80 ? 'var(--success)' : pct >= 50 ? 'var(--warning)' : 'var(--error)';
+                    html += `<div style="font-size:0.82rem;font-weight:600;color:${color};margin-bottom:0.3rem">${pct.toFixed(0)}% CI Coverage</div>`;
+                }
+                if (covered.length > 0) {
+                    html += cardDataTable(
+                        ['', 'Module', 'Note'],
+                        covered.map(m => {
+                            const d = details[m];
+                            return [
+                                { text: '✓', cls: 'mono' },
+                                { text: m, cls: 'name' },
+                                { text: d ? (d.reason || '') : '' },
+                            ];
+                        })
+                    );
+                }
+                if (uncovered.length > 0) {
+                    html += `<div style="font-size:0.64rem;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted);padding:4px 0;margin-top:8px">Uncovered (${uncovered.length})</div>`;
+                    html += cardDataTable(
+                        ['', 'Module', 'Note'],
+                        uncovered.map(m => {
+                            const d = details[m];
+                            return [
+                                { text: '✗', cls: 'mono' },
+                                { text: m, cls: 'name' },
+                                { text: d ? (d.reason || '') : '' },
+                            ];
+                        })
+                    );
+                }
+                panel.innerHTML = html || '<span style="color:var(--text-muted)">No coverage data.</span>';
+            }
+        } catch (e) {
+            panel.innerHTML = `<span style="color:var(--error)">${esc(e.message)}</span>`;
+        }
+    }
+
+    // ── CI/CD: generate modal ──────────────────────────────────────────
+
+    async function _ciGenerate(what) {
+        const title = what === 'ci' ? '🔄 Generate CI Workflow' : '🧹 Generate Lint Workflow';
+        const endpoint = what === 'ci' ? '/ci/generate/ci' : '/ci/generate/lint';
+
+        modalOpen({
+            title,
+            body: `<p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:var(--space-sm)">Generating from detected project stacks…</p>` +
+                  modalPreview('Generated YAML', 'Loading…', 'ci-gen-code'),
+            footerButtons: [
+                { label: 'Cancel', cls: 'btn-secondary', onclick: 'modalClose()' },
+                { label: '💾 Write to disk', cls: 'btn-primary', id: 'ci-gen-write', disabled: true, onclick: '_ciWriteGen()' },
+            ],
+        });
+
+        try {
+            const data = await api(endpoint, { method: 'POST', body: '{}' });
+            const code = document.getElementById('ci-gen-code');
+            const writeBtn = document.getElementById('ci-gen-write');
+            if (data.file) {
+                if (code) code.textContent = data.file.content || '(empty)';
+                if (writeBtn) { writeBtn.disabled = false; writeBtn.dataset.file = JSON.stringify(data.file); }
+            } else if (data.error) {
+                if (code) code.textContent = 'Error: ' + data.error;
+            } else {
+                if (code) code.textContent = JSON.stringify(data, null, 2);
+            }
+        } catch (e) {
+            const code = document.getElementById('ci-gen-code');
+            if (code) code.textContent = 'Error: ' + e.message;
+        }
+    }
+
+    async function _ciWriteGen() {
+        const writeBtn = document.getElementById('ci-gen-write');
+        if (!writeBtn || !writeBtn.dataset.file) return;
+        writeBtn.disabled = true;
+        writeBtn.textContent = '⏳ Writing…';
+        try {
+            const fileData = JSON.parse(writeBtn.dataset.file);
+            const result = await api('/docker/generate/write', { method: 'POST', body: JSON.stringify({ file: fileData }) });
+            if (result.error) {
+                modalError(result.error);
+                writeBtn.textContent = '💾 Write to disk';
+                writeBtn.disabled = false;
+            } else {
+                toast(`Written to ${fileData.path || 'disk'}`, 'success');
+                writeBtn.textContent = '✅ Written';
+                setTimeout(() => modalClose(), 1000);
+            }
+        } catch (e) {
+            modalError(e.message);
+            writeBtn.textContent = '💾 Write to disk';
+            writeBtn.disabled = false;
+        }
+    }
+

@@ -1,0 +1,202 @@
+<!-- DevOps Tab JS — Quality Card
+     loadQualityCard(), run category modal, gen config modal.
+     Depends on: _devops_init.html (card registry)
+-->
+    // ── Quality Card ──────────────────────────────────────────────────
+
+    async function loadQualityCard() {
+        const badge = document.getElementById('devops-quality-badge');
+        const detail = document.getElementById('devops-quality-detail');
+        const cached = cardCached('quality');
+        const data = cached || await api('/quality/status').catch(e => ({ _err: e }));
+        if (data._err) {
+            badge.className = 'status-badge failed';
+            badge.innerHTML = '<span class="status-dot"></span>Error';
+            detail.innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(data._err.message)}</p>`;
+            return;
+        }
+        if (!cached) cardStore('quality', data);
+
+        const tools = data.tools || [];
+        const cats = data.categories || {};
+        const hasQuality = data.has_quality;
+
+        if (!hasQuality) {
+            badge.className = 'status-badge degraded';
+            badge.innerHTML = '<span class="status-dot"></span>None';
+            detail.innerHTML = `<div style="font-size:0.82rem;color:var(--text-secondary);line-height:1.5">
+                <p class="empty-state-sm">No quality tools detected</p>
+                <div style="font-size:0.68rem;color:var(--text-muted);margin-top:var(--space-xs)">Install a linter, formatter, or type checker to enable quality checks.</div>
+                <div style="margin-top:var(--space-md)"><button class="btn btn-sm btn-ghost" onclick="qualityGenConfig()" title="Generate linter/formatter configuration files for your stack">⚙️ Generate Config</button></div>
+            </div>`;
+            return;
+        }
+
+        const relevant = tools.filter(t => t.relevant);
+        const available = relevant.filter(t => t.cli_available);
+        badge.className = 'status-badge ' + (available.length >= 2 ? 'ok' : 'degraded');
+        badge.innerHTML = `<span class="status-dot"></span>${available.length}/${relevant.length} tools`;
+
+        let html = `<div style="font-size:0.85rem;color:var(--text-secondary);line-height:1.5">`;
+
+        // Category summary
+        html += `<div style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.3rem" title="Quality tool categories detected in your project">Categories</div>`;
+        const catLabels = { lint: '🔍 Lint', typecheck: '🔎 Type', test: '🧪 Test', format: '✨ Format' };
+        html += `<div style="display:flex;flex-wrap:wrap;gap:0.25rem;margin-bottom:var(--space-sm)">`;
+        for (const [cat, label] of Object.entries(catLabels)) {
+            const count = cats[cat] || 0;
+            const clr = count > 0 ? 'var(--success)' : 'var(--text-muted)';
+            html += `<span style="font-size:0.66rem;padding:0.1rem 0.4rem;border:1px solid ${clr};border-radius:4px;color:${clr}" title="${count} ${cat} tool${count!==1?'s':''} detected">${label}: ${count}</span>`;
+        }
+        html += `</div>`;
+
+        // Tool list
+        html += `<div style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.3rem" title="Quality tools relevant to your project stack">Tools (${relevant.length})</div>`;
+        relevant.forEach(t => {
+            html += `<div style="display:flex;gap:0.4rem;align-items:center;padding:0.15rem 0;font-size:0.72rem" title="${esc(t.config_file||'No config file')}">
+                <span>${t.cli_available ? '✅' : '❌'}</span>
+                <span style="font-weight:600;color:var(--text-primary);min-width:60px">${esc(t.name)}</span>
+                <span style="font-size:0.6rem;padding:0.05rem 0.3rem;border:1px solid var(--border-subtle);border-radius:3px;color:var(--text-muted)">${esc(t.category)}</span>
+                ${t.config_found ? `<code style="font-family:var(--font-mono);font-size:0.6rem;color:var(--accent)" title="Config: ${esc(t.config_file||'')}">📄</code>` : ''}
+                ${!t.cli_available && t.install_hint ? `<code onclick="navigator.clipboard.writeText('${esc(t.install_hint)}');toast('Copied: ${esc(t.install_hint)}','success')" style="font-family:var(--font-mono);font-size:0.58rem;color:var(--warning);cursor:pointer;padding:0.05rem 0.3rem;border:1px dashed var(--warning);border-radius:3px" title="Click to copy install command">${esc(t.install_hint)}</code>` : !t.cli_available ? `<span style="font-size:0.6rem;color:var(--warning)">not installed</span>` : ''}
+            </div>`;
+        });
+
+        // Actions
+        html += `<div style="display:flex;gap:var(--space-sm);margin-top:var(--space-md);flex-wrap:wrap">
+            <button class="btn btn-sm btn-secondary" onclick="qualityRunCategory('lint')" title="Run all lint tools and show results">🔍 Lint</button>
+            <button class="btn btn-sm btn-secondary" onclick="qualityRunCategory('typecheck')" title="Run type-checking tools (mypy, pyright, tsc)">🔎 Typecheck</button>
+            <button class="btn btn-sm btn-secondary" onclick="qualityRunCategory('format')" title="Run code formatters (black, prettier, rustfmt)">✨ Format</button>
+            <button class="btn btn-sm btn-secondary" onclick="qualityRunCategory('test')" title="Run test-category quality checks">🧪 Test</button>
+            <button class="btn btn-sm btn-ghost" onclick="qualityGenConfig()" title="Generate linter/formatter config files">⚙️ Gen Config</button>
+        </div>`;
+        html += `</div>`;
+        detail.innerHTML = html;
+    }
+
+    async function qualityRunCategory(category) {
+        const labels = { lint: 'Lint', typecheck: 'Typecheck', format: 'Format', test: 'Test' };
+        const label = labels[category] || category;
+
+        modalOpen({
+            title: `🔧 ${label} Results`,
+            body: `<div style="display:flex;gap:var(--space-sm);margin-bottom:var(--space-md)">
+                    <button class="btn btn-sm btn-primary" id="qual-run-btn" onclick="doQualityRun('${category}',false)">▶️ Run</button>
+                    ${category === 'lint' || category === 'format' ?
+                        `<button class="btn btn-sm btn-secondary" id="qual-fix-btn" onclick="doQualityRun('${category}',true)">🔧 Auto-Fix</button>` : ''}
+                </div>
+                <div id="qual-run-body" style="max-height:400px;overflow-y:auto">
+                    <p class="empty-state-sm">Click Run to execute ${label.toLowerCase()} checks</p>
+                </div>`,
+            size: 'wide',
+            footerButtons: [
+                { label: 'Close', cls: 'btn-primary', onclick: 'modalClose()' },
+            ],
+        });
+    }
+
+    async function doQualityRun(category, fix) {
+        const body = document.getElementById('qual-run-body');
+        const runBtn = document.getElementById('qual-run-btn');
+        const fixBtn = document.getElementById('qual-fix-btn');
+        body.innerHTML = '<span class="spinner"></span> Running…';
+        if (runBtn) runBtn.disabled = true;
+        if (fixBtn) fixBtn.disabled = true;
+
+        try {
+            const data = await api(`/quality/${category}`, {
+                method: 'POST',
+                body: JSON.stringify({ fix })
+            });
+
+            if (data.error) {
+                body.innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(data.error)}</p>`;
+                return;
+            }
+
+            const results = data.results || [];
+            const allPassed = data.all_passed;
+
+            let h = `<div style="font-size:0.82rem;margin-bottom:var(--space-sm);font-weight:600;color:${allPassed ? 'var(--success)' : 'var(--error)'}">
+                ${allPassed ? '✅ All checks passed' : '❌ Issues found'}
+            </div>`;
+
+            results.forEach(r => {
+                const passed = r.exit_code === 0;
+                h += `<div style="margin-bottom:var(--space-md);border:1px solid var(--border-subtle);border-radius:var(--radius-sm);overflow:hidden">
+                    <div style="display:flex;align-items:center;gap:0.5rem;padding:0.4rem 0.6rem;background:var(--bg-inset);font-size:0.78rem">
+                        <span>${passed ? '✅' : '❌'}</span>
+                        <span style="font-weight:600;color:var(--text-primary)">${esc(r.tool)}</span>
+                        <span style="color:var(--text-muted);font-size:0.68rem">exit ${r.exit_code}</span>
+                        ${r.fixable ? '<span style="font-size:0.65rem;padding:0.1rem 0.3rem;background:var(--warning-bg);color:var(--warning);border-radius:3px">fixable</span>' : ''}
+                    </div>`;
+                if (r.stdout) {
+                    h += `<pre style="margin:0;padding:0.4rem 0.6rem;font-size:0.68rem;color:var(--text-secondary);overflow-x:auto;max-height:150px;border-top:1px solid var(--border-subtle);background:var(--bg-primary)">${esc(r.stdout)}</pre>`;
+                }
+                if (r.stderr) {
+                    h += `<pre style="margin:0;padding:0.4rem 0.6rem;font-size:0.68rem;color:var(--error);overflow-x:auto;max-height:100px;border-top:1px solid var(--border-subtle);background:var(--bg-primary)">${esc(r.stderr)}</pre>`;
+                }
+                h += `</div>`;
+            });
+
+            body.innerHTML = h;
+        } catch (e) {
+            body.innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(e.message)}</p>`;
+        } finally {
+            if (runBtn) runBtn.disabled = false;
+            if (fixBtn) fixBtn.disabled = false;
+        }
+    }
+
+    function qualityGenConfig() {
+        modalOpen({
+            title: '⚙️ Generate Quality Config',
+            body: `<div class="form-group" style="margin-bottom:var(--space-sm)">
+                    <label>Stack</label>
+                    <select id="qgen-stack" style="width:100%">
+                        <option value="python">Python</option>
+                        <option value="node">Node.js</option>
+                        <option value="typescript">TypeScript</option>
+                        <option value="rust">Rust</option>
+                    </select>
+                </div>
+                <div id="qgen-result" style="display:none;margin-top:var(--space-md);max-height:250px;overflow-y:auto"></div>`,
+            size: 'narrow',
+            footerButtons: [
+                { label: 'Cancel', cls: 'btn-ghost', onclick: 'modalClose()' },
+                { label: 'Generate', cls: 'btn-primary', id: 'qgen-btn', onclick: 'doQualityGenConfig()' },
+            ],
+        });
+    }
+
+    async function doQualityGenConfig() {
+        const stack = document.getElementById('qgen-stack').value;
+        const btn = document.getElementById('qgen-btn');
+        const result = document.getElementById('qgen-result');
+        btn.disabled = true; btn.textContent = 'Generating…';
+
+        try {
+            const data = await api('/quality/generate/config', {
+                method: 'POST',
+                body: JSON.stringify({ stack })
+            });
+            if (data.error) {
+                modalError(data.error);
+                btn.disabled = false; btn.textContent = 'Generate';
+                return;
+            }
+            const files = data.files || [];
+            result.style.display = 'block';
+            result.innerHTML = `<div style="font-size:0.78rem;font-weight:600;margin-bottom:0.3rem">${files.length} config file${files.length!==1?'s':''} generated</div>` +
+                files.map(f => `<div style="display:flex;gap:0.5rem;padding:0.3rem 0;border-bottom:1px solid var(--border-subtle);font-size:0.78rem">
+                    <code style="font-family:var(--font-mono);color:var(--accent);font-size:0.72rem;flex:1">${esc(f.path)}</code>
+                    <span style="color:var(--text-muted);font-size:0.68rem">${esc(f.reason||'')}</span>
+                </div>`).join('');
+            toast(`Generated ${files.length} quality config files ✅`, 'success');
+            cardInvalidate('quality');
+        } catch (e) {
+            modalError(e.message);
+        }
+        btn.disabled = false; btn.textContent = 'Generate';
+    }
+

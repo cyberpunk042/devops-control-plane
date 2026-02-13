@@ -15,7 +15,7 @@ class TestStateFile:
 
     def test_save_and_load(self, tmp_path: Path):
         """State roundtrips through save/load."""
-        path = tmp_path / "state" / "current.json"
+        path = tmp_path / ".state" / "current.json"
         state = ProjectState(project_name="test-project")
         state.set_module_state("api", detected=True, stack="python")
         state.set_adapter_state("docker", available=True, version="24.0")

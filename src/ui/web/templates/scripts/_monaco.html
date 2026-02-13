@@ -1,0 +1,310 @@
+<!-- Monaco Editor Integration -->
+<script>
+// ── Monaco: AMD loader config ──────────────────────────────────
+(function() {
+    if (typeof require !== 'undefined' && require.config) {
+        require.config({
+            paths: { vs: 'https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs' }
+        });
+    }
+})();
+
+let _monacoReady = false;
+let _monacoReadyCallbacks = [];
+let _monacoEditor = null;  // current active editor instance
+let _monacoOrigContent = '';  // original content for dirty check
+let _monacoIsEditable = false;  // whether current editor is in edit mode
+
+/**
+ * Ensure Monaco is loaded, then call cb(monaco).
+ */
+function monacoReady(cb) {
+    if (_monacoReady) { cb(window.monaco); return; }
+    _monacoReadyCallbacks.push(cb);
+    if (_monacoReadyCallbacks.length > 1) return; // already loading
+
+    require(['vs/editor/editor.main'], function() {
+        // Define the dark theme to match admin UI
+        monaco.editor.defineTheme('admin-dark', {
+            base: 'vs-dark',
+            inherit: true,
+            rules: [],
+            colors: {
+                'editor.background': '#16181d',
+                'editor.foreground': '#c9d1d9',
+                'editorLineNumber.foreground': '#484f58',
+                'editorLineNumber.activeForeground': '#8b949e',
+                'editor.lineHighlightBackground': '#1c2028',
+                'editor.selectionBackground': '#264f78',
+                'editorCursor.foreground': '#58a6ff',
+                'editorIndentGuide.background': '#21262d',
+                'editorGutter.background': '#0d1117',
+            }
+        });
+        _monacoReady = true;
+        for (const fn of _monacoReadyCallbacks) fn(window.monaco);
+        _monacoReadyCallbacks = [];
+    });
+}
+
+/**
+ * Detect Monaco language from file name/path.
+ */
+function monacoLang(filePath) {
+    if (!filePath) return 'plaintext';
+    const ext = filePath.split('.').pop().toLowerCase();
+    const map = {
+        py: 'python', pyi: 'python',
+        js: 'javascript', mjs: 'javascript', cjs: 'javascript',
+        ts: 'typescript', tsx: 'typescript',
+        jsx: 'javascript',
+        json: 'json', jsonc: 'json',
+        yaml: 'yaml', yml: 'yaml',
+        toml: 'ini',       // closest match
+        ini: 'ini', cfg: 'ini', conf: 'ini',
+        md: 'markdown', mdx: 'markdown',
+        html: 'html', htm: 'html',
+        css: 'css', scss: 'scss', less: 'less',
+        sh: 'shell', bash: 'shell', zsh: 'shell',
+        dockerfile: 'dockerfile',
+        sql: 'sql',
+        xml: 'xml', svg: 'xml',
+        go: 'go',
+        rs: 'rust',
+        c: 'c', h: 'c',
+        cpp: 'cpp', hpp: 'cpp', cc: 'cpp',
+        java: 'java',
+        rb: 'ruby',
+        php: 'php',
+        r: 'r',
+        tf: 'hcl',
+        graphql: 'graphql', gql: 'graphql',
+        lua: 'lua',
+        makefile: 'shell',
+    };
+    // Check basename for special files
+    const basename = filePath.split('/').pop().toLowerCase();
+    if (basename === 'dockerfile' || basename.startsWith('dockerfile.')) return 'dockerfile';
+    if (basename === 'makefile' || basename === 'gnumakefile') return 'shell';
+    if (basename === '.env' || basename.startsWith('.env.')) return 'ini';
+    if (basename === '.gitignore' || basename === '.dockerignore') return 'plaintext';
+
+    return map[ext] || 'plaintext';
+}
+
+/**
+ * Create a Monaco editor in the given container.
+ */
+function monacoCreate(containerId, opts = {}) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+
+    const lang = opts.language || monacoLang(opts.filePath || '');
+    const content = opts.content || '';
+    const readOnly = opts.readOnly !== false;
+    const lineCount = content.split('\n').length;
+    const lineH = 19;
+    const minH = opts.minHeight || 300;
+    const maxH = Math.max(minH, Math.min(lineCount * lineH + 20, window.innerHeight * 0.75));
+    container.style.height = maxH + 'px';
+    container.style.minHeight = minH + 'px';
+
+    // Track original content for dirty check
+    _monacoOrigContent = content;
+    _monacoIsEditable = !readOnly;
+
+    monacoReady((monaco) => {
+        // Dispose previous editor if any
+        if (_monacoEditor) {
+            try { _monacoEditor.dispose(); } catch {}
+            _monacoEditor = null;
+        }
+
+        _monacoEditor = monaco.editor.create(container, {
+            value: content,
+            language: lang,
+            theme: 'admin-dark',
+            readOnly: readOnly,
+            automaticLayout: true,
+            minimap: { enabled: lineCount > 100 },
+            scrollBeyondLastLine: false,
+            fontSize: 13,
+            lineNumbers: 'on',
+            renderLineHighlight: readOnly ? 'none' : 'line',
+            wordWrap: 'on',
+            padding: { top: 8 },
+            folding: true,
+            glyphMargin: false,
+            overviewRulerLanes: 0,
+            hideCursorInOverviewRuler: true,
+            scrollbar: {
+                verticalScrollbarSize: 8,
+                horizontalScrollbarSize: 8,
+            },
+        });
+
+        // Ctrl+S → save in editable mode
+        if (!readOnly) {
+            _monacoEditor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
+                _monacoTriggerSave();
+            });
+        }
+
+        // Focus on specific line
+        if (opts.focusLine && opts.focusLine > 0) {
+            setTimeout(() => {
+                _monacoEditor.revealLineInCenter(opts.focusLine);
+                _monacoEditor.setPosition({ lineNumber: opts.focusLine, column: 1 });
+                _monacoEditor.createDecorationsCollection([{
+                    range: new monaco.Range(opts.focusLine, 1, opts.focusLine, 1),
+                    options: {
+                        isWholeLine: true,
+                        className: 'code-line-focus-monaco',
+                    }
+                }]);
+            }, 100);
+        }
+    });
+}
+
+/**
+ * Check if the editor has unsaved changes.
+ */
+function monacoIsDirty() {
+    if (!_monacoEditor || !_monacoIsEditable) return false;
+    return _monacoEditor.getValue() !== _monacoOrigContent;
+}
+
+/**
+ * Get the current editor content (for save functions).
+ */
+function contentEditorGetValue() {
+    if (_monacoEditor) return _monacoEditor.getValue();
+    const ta = document.getElementById('content-editor');
+    return ta ? ta.value : '';
+}
+
+/**
+ * Guard against unsaved changes.
+ * If dirty, shows modal with Save & Continue / Discard / Cancel.
+ * If clean, calls onProceed immediately.
+ *
+ * @param {Function} onProceed - called after save/discard (no args)
+ * @returns {boolean} true if clean (proceeded immediately), false if modal shown
+ */
+function monacoGuardUnsaved(onProceed) {
+    if (!monacoIsDirty()) {
+        onProceed();
+        return true;
+    }
+
+    // Show unsaved changes modal
+    const existing = document.getElementById('monaco-unsaved-modal');
+    if (existing) existing.remove();
+
+    const overlay = document.createElement('div');
+    overlay.id = 'monaco-unsaved-modal';
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px)';
+
+    overlay.innerHTML = `
+    <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;max-width:420px;width:90%;box-shadow:0 20px 60px rgba(0,0,0,0.4)">
+        <div style="font-size:1.1rem;font-weight:700;margin-bottom:0.75rem;display:flex;align-items:center;gap:0.5rem">
+            ⚠️ Unsaved Changes
+        </div>
+        <p style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:1.25rem">
+            You have unsaved edits in <strong>${esc(previewCurrentName || 'this file')}</strong>. What would you like to do?
+        </p>
+        <div style="display:flex;gap:0.5rem;justify-content:flex-end;flex-wrap:wrap">
+            <button class="btn btn-secondary btn-sm" id="monaco-unsaved-cancel" style="font-size:0.82rem">Cancel</button>
+            <button class="btn btn-sm" id="monaco-unsaved-discard" style="font-size:0.82rem;background:var(--danger);color:#fff;border:none">🗑️ Discard</button>
+            <button class="btn btn-primary btn-sm" id="monaco-unsaved-save" style="font-size:0.82rem">💾 Save & Continue</button>
+        </div>
+    </div>`;
+
+    document.body.appendChild(overlay);
+
+    // Cancel — just close
+    document.getElementById('monaco-unsaved-cancel').onclick = () => overlay.remove();
+
+    // Discard — reset dirty state and proceed
+    document.getElementById('monaco-unsaved-discard').onclick = () => {
+        _monacoOrigContent = _monacoEditor ? _monacoEditor.getValue() : '';
+        overlay.remove();
+        monacoDispose();
+        onProceed();
+    };
+
+    // Save & Continue — save, then proceed
+    document.getElementById('monaco-unsaved-save').onclick = async () => {
+        const saveBtn = document.getElementById('monaco-unsaved-save');
+        saveBtn.disabled = true;
+        saveBtn.textContent = '⏳ Saving…';
+        try {
+            const content = contentEditorGetValue();
+            // Determine if encrypted
+            if (previewCurrentPath.endsWith('.enc')) {
+                await api('/content/save-encrypted', {
+                    method: 'POST',
+                    body: JSON.stringify({ path: previewCurrentPath, content, key: encPreviewKey || undefined }),
+                });
+            } else {
+                await api('/content/save', {
+                    method: 'POST',
+                    body: JSON.stringify({ path: previewCurrentPath, content }),
+                });
+            }
+            _monacoOrigContent = content;
+            toast('File saved!', 'success');
+            overlay.remove();
+            monacoDispose();
+            onProceed();
+        } catch (e) {
+            toast(`Save failed: ${e.message}`, 'error');
+            saveBtn.disabled = false;
+            saveBtn.textContent = '💾 Save & Continue';
+        }
+    };
+
+    // ESC to cancel
+    overlay.addEventListener('keydown', (e) => { if (e.key === 'Escape') overlay.remove(); });
+    overlay.querySelector('button').focus();
+
+    return false;
+}
+
+/**
+ * Dispose the current editor (call when closing preview).
+ */
+function monacoDispose() {
+    if (_monacoEditor) {
+        try { _monacoEditor.dispose(); } catch {}
+        _monacoEditor = null;
+    }
+    _monacoOrigContent = '';
+    _monacoIsEditable = false;
+}
+
+/**
+ * Trigger save from Monaco Ctrl+S.
+ * Delegates to the correct save function (encrypted vs unencrypted).
+ */
+function _monacoTriggerSave() {
+    if (!_monacoEditor || !_monacoIsEditable) return;
+    // Check which save function exists and file type
+    if (typeof previewCurrentPath !== 'undefined' && previewCurrentPath.endsWith('.enc')) {
+        if (typeof contentSaveEncEdit === 'function') contentSaveEncEdit();
+    } else {
+        if (typeof contentSaveEdit === 'function') contentSaveEdit();
+    }
+}
+
+// ── Page-level Ctrl+S interceptor ──────────────────────────────
+document.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+        if (_monacoEditor && _monacoIsEditable) {
+            e.preventDefault();
+            _monacoTriggerSave();
+        }
+    }
+});
+</script>

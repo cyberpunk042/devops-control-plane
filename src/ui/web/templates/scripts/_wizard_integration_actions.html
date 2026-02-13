@@ -1,0 +1,357 @@
+<!-- Wizard JS — Integration Actions
+     Docker/K8s live panels, operational actions, delete config, apply sub-wizard
+     form to backend, tool install helper.
+     Depends on: _wizard_integrations.html (sub-wizard context)
+-->
+
+async function _wizDockerLive(what) {
+    const panel = document.getElementById('wiz-docker-live-panel');
+    if (!panel) return;
+    panel.style.display = 'block';
+    panel.innerHTML = '<span class="spinner"></span> Loading…';
+
+    try {
+        if (what === 'containers') {
+            const data = await api('/docker/containers?all=true');
+            const list = data.containers || [];
+            if (list.length === 0) {
+                panel.innerHTML = '<span style="color:var(--text-muted)">No containers found.</span>';
+            } else {
+                panel.innerHTML = list.map(c =>
+                    `<div style="display:flex;gap:0.5rem;padding:0.15rem 0;border-bottom:1px solid var(--border-subtle)">` +
+                    `<span style="color:${c.state === 'running' ? 'var(--success)' : 'var(--text-muted)'};width:1rem">●</span>` +
+                    `<span style="flex:1;overflow:hidden;text-overflow:ellipsis">${esc(c.name || c.names || '—')}</span>` +
+                    `<span style="color:var(--text-muted)">${esc(c.status || c.state || '—')}</span>` +
+                    `<span style="color:var(--text-muted)">${esc(c.image || '—')}</span>` +
+                    `</div>`
+                ).join('');
+            }
+        } else if (what === 'images') {
+            const data = await api('/docker/images');
+            const list = data.images || [];
+            if (list.length === 0) {
+                panel.innerHTML = '<span style="color:var(--text-muted)">No images found.</span>';
+            } else {
+                panel.innerHTML = list.map(img =>
+                    `<div style="display:flex;gap:0.5rem;padding:0.15rem 0;border-bottom:1px solid var(--border-subtle)">` +
+                    `<span style="flex:1;overflow:hidden;text-overflow:ellipsis">${esc(img.repository || img.tag || '—')}</span>` +
+                    `<span style="color:var(--text-muted)">${esc(img.tag || img.id || '—')}</span>` +
+                    `<span style="color:var(--text-muted)">${esc(img.size || '—')}</span>` +
+                    `</div>`
+                ).join('');
+            }
+        } else if (what === 'compose') {
+            const data = await api('/docker/compose/status');
+            const services = data.services || [];
+            if (services.length === 0 && !data.error) {
+                panel.innerHTML = '<span style="color:var(--text-muted)">No compose services found.</span>';
+            } else if (data.error) {
+                panel.innerHTML = `<span style="color:var(--error)">${esc(data.error)}</span>`;
+            } else {
+                panel.innerHTML = services.map(s =>
+                    `<div style="display:flex;gap:0.5rem;padding:0.15rem 0;border-bottom:1px solid var(--border-subtle)">` +
+                    `<span style="color:${s.state === 'running' ? 'var(--success)' : 'var(--text-muted)'};width:1rem">●</span>` +
+                    `<span style="flex:1">${esc(s.name || s.service || '—')}</span>` +
+                    `<span style="color:var(--text-muted)">${esc(s.state || s.status || '—')}</span>` +
+                    `</div>`
+                ).join('');
+            }
+        }
+    } catch (e) {
+        panel.innerHTML = `<span style="color:var(--error)">Error: ${esc(e.message)}</span>`;
+    }
+}
+
+// ── Docker operational actions ─────────────────────────────────
+
+async function _wizDockerAction(action, btnEl) {
+    const output = document.getElementById('wiz-docker-action-output');
+    const origText = btnEl.textContent;
+    btnEl.disabled = true;
+    btnEl.textContent = '⏳…';
+
+    try {
+        let data;
+        if (action === 'up') {
+            data = await api('/docker/up', { method: 'POST', body: '{}' });
+        } else if (action === 'down') {
+            data = await api('/docker/down', { method: 'POST', body: '{}' });
+        } else if (action === 'restart') {
+            data = await api('/docker/restart', { method: 'POST', body: '{}' });
+        } else if (action === 'build') {
+            data = await api('/docker/build', { method: 'POST', body: '{}' });
+        } else if (action === 'build-nc') {
+            data = await api('/docker/build', { method: 'POST', body: JSON.stringify({ no_cache: true }) });
+        } else if (action === 'prune') {
+            data = await api('/docker/prune', { method: 'POST', body: '{}' });
+        } else if (action === 'logs') {
+            data = await api('/docker/logs?service=app&tail=50');
+        }
+
+        btnEl.textContent = origText;
+        btnEl.disabled = false;
+
+        if (data && output) {
+            output.style.display = 'block';
+            if (data.error) {
+                output.textContent = '❌ ' + data.error;
+                output.style.color = 'var(--error)';
+                toast(data.error, 'error');
+            } else {
+                output.style.color = 'var(--text-secondary)';
+                output.textContent = data.output || data.logs || data.message || JSON.stringify(data, null, 2);
+                toast(`✅ ${action} complete`, 'success');
+            }
+        }
+    } catch (e) {
+        btnEl.textContent = origText;
+        btnEl.disabled = false;
+        if (output) {
+            output.style.display = 'block';
+            output.textContent = '❌ ' + e.message;
+            output.style.color = 'var(--error)';
+        }
+        toast('Docker action failed: ' + e.message, 'error');
+    }
+}
+
+// ── K8s live panels ────────────────────────────────────────────
+
+async function _wizK8sLive(what) {
+    const panel = document.getElementById('wiz-k8s-live-panel');
+    if (!panel) return;
+    panel.style.display = 'block';
+    panel.innerHTML = '<span class="spinner"></span> Loading…';
+
+    try {
+        if (what === 'validate') {
+            const data = await api('/k8s/validate');
+            if (data.valid) {
+                panel.innerHTML = '<span style="color:var(--success)">✅ All manifests are valid.</span>';
+            } else {
+                panel.innerHTML = `<span style="color:var(--error)">❌ Validation issues:</span><br>` +
+                    (data.errors || []).map(e => `<div style="color:var(--error);margin-left:0.5rem">• ${esc(e)}</div>`).join('');
+            }
+        } else {
+            const data = await api(`/k8s/resources?kind=${what}`);
+            const items = data.items || data.resources || [];
+            if (items.length === 0) {
+                panel.innerHTML = `<span style="color:var(--text-muted)">No ${what} found.</span>`;
+            } else {
+                panel.innerHTML = items.map(item => {
+                    const name = item.metadata?.name || item.name || '—';
+                    const ns = item.metadata?.namespace || item.namespace || '';
+                    const status = item.status?.phase || item.status || '';
+                    return `<div style="display:flex;gap:0.5rem;padding:0.15rem 0;border-bottom:1px solid var(--border-subtle)">` +
+                        `<span style="flex:1">${esc(name)}</span>` +
+                        (ns ? `<span style="color:var(--text-muted)">${esc(ns)}</span>` : '') +
+                        (status ? `<span style="color:${status === 'Running' ? 'var(--success)' : 'var(--text-muted)'}">${esc(status)}</span>` : '') +
+                        `</div>`;
+                }).join('');
+            }
+        }
+    } catch (e) {
+        panel.innerHTML = `<span style="color:var(--error)">Error: ${esc(e.message)}</span>`;
+    }
+}
+
+// ── Delete config with confirmation ────────────────────────────
+
+async function _wizDeleteConfig(target, btnEl) {
+    const labels = {
+        docker: 'Docker config (Dockerfile, docker-compose.yml)',
+        k8s: 'Kubernetes manifests (k8s/)',
+        ci: 'CI workflow (.github/workflows/ci.yml)',
+        terraform: 'Terraform config (terraform/)',
+        all: 'ALL generated configs',
+    };
+    const label = labels[target] || target;
+
+    if (!confirm(`⚠️ Delete ${label}?\n\nThis cannot be undone.`)) return;
+
+    btnEl.disabled = true;
+    btnEl.textContent = '⏳…';
+
+    try {
+        const data = await api('/wizard/config', {
+            method: 'DELETE',
+            body: JSON.stringify({ target }),
+        });
+        if (data.ok || (data.deleted && data.deleted.length > 0)) {
+            toast(`🗑 Deleted: ${data.deleted.join(', ')}`, 'success');
+            // Re-detect and re-render
+            await _wizRedetect();
+        } else if (data.deleted && data.deleted.length === 0) {
+            toast('Nothing to delete.', 'info');
+            btnEl.textContent = '🗑 Delete';
+            btnEl.disabled = false;
+        } else {
+            toast(data.errors?.join('; ') || 'Delete failed', 'error');
+            btnEl.textContent = '🗑 Delete';
+            btnEl.disabled = false;
+        }
+    } catch (e) {
+        toast('Delete failed: ' + e.message, 'error');
+        btnEl.textContent = '🗑 Delete';
+        btnEl.disabled = false;
+    }
+}
+
+
+/** Re-run detection and re-render */
+async function _wizRedetect() {
+    toast('🔄 Re-detecting…', 'info');
+    try {
+        _wizIntDetection = await api('/wizard/detect');
+        _wizRenderIntegrations();
+        toast('✅ Updated!', 'success');
+    } catch (e) { toast('Detection failed: ' + e.message, 'error'); }
+}
+
+// ── Apply sub-wizard form → backend ────────────────────────────
+
+async function _wizApplySetup(key, btnEl) {
+    btnEl.disabled = true;
+    btnEl.textContent = '⏳ Applying…';
+
+    const $ = id => {
+        const el = document.getElementById(id);
+        if (!el) return undefined;
+        if (el.type === 'checkbox') return el.checked;
+        return el.value.trim();
+    };
+
+    let payload = { integration: key };
+
+    if (key === 'int:docker') {
+        payload.action = 'setup_docker';
+        payload.base_image = $('wiz-docker-base');
+        payload.workdir = $('wiz-docker-workdir');
+        payload.install_cmd = $('wiz-docker-install');
+        payload.port = $('wiz-docker-port');
+        payload.cmd = $('wiz-docker-cmd');
+        payload.compose = $('wiz-docker-compose');
+        payload.overwrite = $('wiz-docker-overwrite') || false;
+    } else if (key === 'k8s') {
+        payload.action = 'setup_k8s';
+        payload.app_name = $('wiz-k8s-name');
+        payload.image = $('wiz-k8s-image');
+        payload.port = $('wiz-k8s-port');
+        payload.replicas = $('wiz-k8s-replicas');
+        payload.namespace = $('wiz-k8s-namespace');
+        payload.service_type = $('wiz-k8s-service-type');
+    } else if (key === 'int:ci') {
+        payload.action = 'setup_ci';
+        payload.branches = $('wiz-ci-branches');
+        payload.python_version = $('wiz-ci-python');
+        payload.install_cmd = $('wiz-ci-install');
+        payload.test_cmd = $('wiz-ci-test');
+        payload.lint = $('wiz-ci-lint');
+        payload.lint_cmd = $('wiz-ci-lint-cmd');
+        payload.overwrite = $('wiz-ci-overwrite') || false;
+    } else if (key === 'terraform') {
+        payload.action = 'setup_terraform';
+        payload.provider = $('wiz-tf-provider');
+        payload.region = $('wiz-tf-region');
+        payload.project_name = $('wiz-tf-project');
+        payload.backend = $('wiz-tf-backend');
+        payload.overwrite = $('wiz-tf-overwrite') || false;
+    } else if (key === 'int:git') {
+        payload.action = 'setup_git';
+        payload.remote = $('wiz-git-remote');
+    } else {
+        btnEl.textContent = '✅ Apply';
+        btnEl.disabled = false;
+        toast('No setup action for this integration.', 'info');
+        return;
+    }
+
+    try {
+        const data = await api('/wizard/setup', {
+            method: 'POST',
+            body: JSON.stringify(payload),
+        });
+        if (data.ok) {
+            btnEl.textContent = '✅ Done!';
+            btnEl.style.color = 'var(--success)';
+            toast(data.message || 'Setup complete!', 'success');
+            if (data.files_created) {
+                data.files_created.forEach(f => toast('📄 Created: ' + f, 'info'));
+            }
+            const safeId = key.replace(':', '-');
+            const cb = document.getElementById('wiz-int-' + safeId);
+            if (cb && !cb.checked) { cb.checked = true; _wizToggleBorder(safeId, true); }
+            // Re-detect to update status badges
+            setTimeout(() => _wizRedetect(), 500);
+        } else {
+            btnEl.textContent = '❌ Failed';
+            btnEl.disabled = false;
+            toast(data.error || 'Setup failed', 'error');
+            if (data.stderr) console.error('stderr:', data.stderr);
+            if (data.details) toast(data.details, 'warning', 6000);
+        }
+    } catch (e) {
+        btnEl.textContent = '❌ Error';
+        btnEl.disabled = false;
+        toast('Setup failed: ' + e.message, 'error');
+    }
+}
+
+// ── Tool install helper ────────────────────────────────────────
+
+async function _wizInstallTool(tool, btnEl) {
+    btnEl.disabled = true;
+    btnEl.textContent = '⏳…';
+    try {
+        const data = await api('/audit/install-tool', {
+            method: 'POST',
+            body: JSON.stringify({ tool }),
+        });
+        if (data.ok || data.already_installed) {
+            const row = document.getElementById('wiz-int-tool-' + tool);
+            if (row) {
+                const icon = row.querySelector('span');
+                if (icon) { icon.textContent = '✓'; icon.style.color = 'var(--success)'; }
+            }
+            btnEl.textContent = '✅';
+            btnEl.style.color = 'var(--success)';
+            if (_wizIntDetection) _wizIntDetection.tools[tool] = true;
+            toast(tool + ' installed!', 'success');
+        } else if (data.needs_sudo) {
+            btnEl.textContent = '🔒 Sudo';
+            btnEl.disabled = false;
+            toast(tool + ' requires sudo — run: sudo apt install ' + tool, 'warning');
+        } else {
+            btnEl.textContent = '❌';
+            toast('Install failed: ' + (data.error || 'unknown'), 'error');
+            btnEl.disabled = false;
+        }
+    } catch (e) {
+        btnEl.textContent = '❌';
+        toast('Install failed: ' + e.message, 'error');
+        btnEl.disabled = false;
+    }
+}
+
+/** Collect integration checkbox states into _wizardConfig._integrationPrefs */
+function _wizCollectIntegrations() {
+    if (!_wizIntDetection || !_wizardConfig) return;
+    const prefs = {};
+    for (const key of Object.keys(_wizIntDetection.integrations)) {
+        const cb = document.getElementById('wiz-int-' + key.replace(':', '-'));
+        prefs[key] = (cb && cb.checked) ? 'visible' : 'auto';
+    }
+    for (const [key, info] of Object.entries(_wizIntDetection.devops_cards)) {
+        if (!info.tools_needed && info.detected === true) continue;
+        const cb = document.getElementById('wiz-int-' + key);
+        const val = (cb && cb.checked) ? 'visible' : 'auto';
+        prefs[key] = val;
+        // Also set int:* key for Integration tab cards (k8s → int:k8s, etc.)
+        if (!key.startsWith('int:')) {
+            prefs['int:' + key] = val;
+        }
+    }
+    _wizardConfig._integrationPrefs = prefs;
+}
+
+

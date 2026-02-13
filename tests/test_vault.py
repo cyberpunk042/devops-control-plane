@@ -43,7 +43,7 @@ def project_dir(tmp_path: Path) -> Path:
     """Create a temp project dir with a .env file."""
     env_file = tmp_path / ".env"
     env_file.write_text(
-        'DATABASE_URL="postgres://localhost/mydb"\n'
+        'DATABASE_URL="postgres://localhost/mydb"\n'  # nosec: Testing Key
         'SECRET_KEY="s3cr3t-k3y-v4lue"\n'
         "DEBUG=true\n"
         "# This is a comment\n"
@@ -298,7 +298,7 @@ class TestListEnvKeys:
         # Masked: first 2 chars + dots + last char
         assert "•" in db_key["masked"]
         # Original value should NOT appear
-        assert "postgres://localhost/mydb" not in db_key["masked"]
+        assert "postgres://localhost/mydb" not in db_key["masked"]  # nosec: Testing Key
 
     def test_empty_var(self, project_dir: Path) -> None:
         from src.ui.web.vault import list_env_keys

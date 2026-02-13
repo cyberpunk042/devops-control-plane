@@ -15,30 +15,62 @@
     <div class="grid">
         <!-- Audit log viewer -->
         <div class="card full-width" id="debug-audit">
-            <h2 class="card-title" style="margin-bottom:var(--space-md)">Audit Log</h2>
-            <div id="debug-audit-list" class="activity-list">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-md)">
+                <h2 class="card-title" style="margin:0">Audit Log</h2>
+                <div style="display:flex;gap:0.4rem">
+                    <button class="btn btn-sm btn-ghost debug-audit-toggle active" data-mode="scans" onclick="debugAuditToggle('scans')" style="font-size:0.7rem" title="Scan activity from Audit & DevOps tabs">🔬 Scan Activity</button>
+                    <button class="btn btn-sm btn-ghost debug-audit-toggle" data-mode="ops" onclick="debugAuditToggle('ops')" style="font-size:0.7rem" title="CLI operation log from audit.ndjson">⚡ CLI Operations</button>
+                </div>
+            </div>
+            <div id="debug-audit-scans" class="activity-list">
                 <div class="activity-item" style="color:var(--text-muted)">
-                    <span class="spinner"></span>&nbsp; Loading audit log...
+                    <span class="spinner"></span>&nbsp; Loading scan activity...
+                </div>
+            </div>
+            <div id="debug-audit-ops" class="activity-list" style="display:none">
+                <div class="activity-item" style="color:var(--text-muted)">
+                    <span class="spinner"></span>&nbsp; Loading CLI operations...
                 </div>
             </div>
         </div>
 
         <!-- State inspector -->
         <div class="card full-width" id="debug-state" style="display:none">
-            <h2 class="card-title" style="margin-bottom:var(--space-md)">State Inspector</h2>
-            <pre class="terminal" id="debug-state-json" translate="no">Loading...</pre>
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-md)">
+                <h2 class="card-title" style="margin:0">State Inspector</h2>
+                <div style="display:flex;gap:0.4rem">
+                    <button class="btn btn-sm btn-ghost debug-view-toggle active" data-panel="state" data-mode="preview" onclick="debugToggleView('state','preview')" style="font-size:0.7rem" title="Structured preview">📊 Preview</button>
+                    <button class="btn btn-sm btn-ghost debug-view-toggle" data-panel="state" data-mode="source" onclick="debugToggleView('state','source')" style="font-size:0.7rem" title="View JSON source in editor">{ } Source</button>
+                </div>
+            </div>
+            <div id="debug-state-preview"></div>
+            <div id="debug-state-editor" style="display:none;height:500px;border-radius:var(--radius-md);overflow:hidden;border:1px solid var(--border)"></div>
         </div>
 
         <!-- Health details -->
         <div class="card full-width" id="debug-health" style="display:none">
-            <h2 class="card-title" style="margin-bottom:var(--space-md)">Health Details</h2>
-            <pre class="terminal" id="debug-health-json" translate="no">Loading...</pre>
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-md)">
+                <h2 class="card-title" style="margin:0">Health Details</h2>
+                <div style="display:flex;gap:0.4rem">
+                    <button class="btn btn-sm btn-ghost debug-view-toggle active" data-panel="health" data-mode="preview" onclick="debugToggleView('health','preview')" style="font-size:0.7rem" title="Structured preview">📊 Preview</button>
+                    <button class="btn btn-sm btn-ghost debug-view-toggle" data-panel="health" data-mode="source" onclick="debugToggleView('health','source')" style="font-size:0.7rem" title="View JSON source in editor">{ } Source</button>
+                </div>
+            </div>
+            <div id="debug-health-preview"></div>
+            <div id="debug-health-editor" style="display:none;height:500px;border-radius:var(--radius-md);overflow:hidden;border:1px solid var(--border)"></div>
         </div>
 
         <!-- Config dump -->
         <div class="card full-width" id="debug-config" style="display:none">
-            <h2 class="card-title" style="margin-bottom:var(--space-md)">Configuration</h2>
-            <pre class="terminal" id="debug-config-json" translate="no">Loading...</pre>
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-md)">
+                <h2 class="card-title" style="margin:0">Configuration</h2>
+                <div style="display:flex;gap:0.4rem">
+                    <button class="btn btn-sm btn-ghost debug-view-toggle active" data-panel="config" data-mode="preview" onclick="debugToggleView('config','preview')" style="font-size:0.7rem" title="Structured preview">📊 Preview</button>
+                    <button class="btn btn-sm btn-ghost debug-view-toggle" data-panel="config" data-mode="source" onclick="debugToggleView('config','source')" style="font-size:0.7rem" title="View JSON source in editor">{ } Source</button>
+                </div>
+            </div>
+            <div id="debug-config-preview"></div>
+            <div id="debug-config-editor" style="display:none;height:500px;border-radius:var(--radius-md);overflow:hidden;border:1px solid var(--border)"></div>
         </div>
     </div>
 </div>

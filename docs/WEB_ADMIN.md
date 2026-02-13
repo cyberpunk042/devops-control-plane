@@ -105,32 +105,100 @@ Diagnostic tools:
 
 ## Template Architecture
 
-The web admin uses a **partial-per-tab** pattern borrowed from production SPAs:
+The web admin uses a **partial-per-tab** pattern with a **loader pattern** for
+large tabs. Each loader is a thin `<script>` block with Jinja2 `{% include %}`
+directives that pull in domain-specific modules sharing the same script scope.
+
+> **File size rule**: No template file over **500 lines** (700 max for justified
+> exceptions like tightly-coupled modal clusters).
 
 ```
 templates/
-├── dashboard.html              # Master layout (includes everything)
-├── partials/                   # HTML structure
-│   ├── _head.html              #   <head>, CSS, meta
-│   ├── _nav.html               #   Tab bar + vault toggle
-│   ├── _tab_dashboard.html     #   📊 Dashboard
-│   ├── _tab_wizard.html        #   🧙 Setup
-│   ├── _tab_secrets.html       #   🔐 Secrets
-│   ├── _tab_commands.html      #   ⚡ Commands
-│   ├── _tab_content.html       #   📁 Content
-│   ├── _tab_integrations.html  #   🔌 Integrations
-│   └── _tab_debugging.html     #   🐛 Debugging
-└── scripts/                    # JS logic
-    ├── _globals.html           #   Shared helpers, API client
-    ├── _tabs.html              #   Tab switching, hash-based deep linking
-    ├── _theme.html             #   Dark/light toggle
-    ├── _boot.html              #   Init on DOMContentLoaded
-    ├── _dashboard.html         #   Dashboard tab logic
-    ├── _wizard.html            #   Wizard step navigation
-    ├── _secrets*.html          #   Secrets (form, keys, vault, render, sync)
-    ├── _commands.html          #   Command execution
-    ├── _content*.html          #   Content (browser, preview, upload, archive)
-    └── _integrations.html      #   Git, GitHub, Pages
+├── dashboard.html                      # Master layout (includes everything)
+├── partials/                           # HTML structure (one per tab)
+│   ├── _head.html                      #   <head>, CSS, meta
+│   ├── _nav.html                       #   Tab bar + vault toggle
+│   ├── _tab_dashboard.html             #   📊 Dashboard
+│   ├── _tab_wizard.html                #   🧙 Setup
+│   ├── _tab_secrets.html               #   🔐 Secrets
+│   ├── _tab_commands.html              #   ⚡ Commands
+│   ├── _tab_content.html               #   📁 Content (+ _content_modals.html)
+│   ├── _tab_integrations.html          #   🔌 Integrations
+│   ├── _tab_devops.html                #   🛠 DevOps
+│   ├── _tab_audit.html                 #   🔍 Audit
+│   └── _tab_debugging.html             #   🐛 Debugging
+│
+└── scripts/                            # JS logic
+    ├── _globals.html                   # Shared helpers, API client, modal system
+    ├── _tabs.html                      # Tab switching, hash-based deep linking
+    ├── _theme.html                     # Dark/light toggle
+    ├── _boot.html                      # Init on DOMContentLoaded
+    ├── _lang.html                      # i18n / Google Translate
+    ├── _monaco.html                    # Monaco editor integration
+    ├── _dashboard.html                 # Dashboard tab
+    ├── _commands.html                  # Commands tab
+    ├── _setup_wizard.html              # Setup wizard (standalone)
+    ├── _debugging.html                 # Debugging tab
+    │
+    ├── _content.html                   # LOADER → 10 modules
+    │   ├── _content_init.html          #   State, constants, categories
+    │   ├── _content_nav.html           #   Folder bar, mode switch, hash nav
+    │   ├── _content_archive.html       #   Archive panel, tree, export
+    │   ├── _content_archive_modals.html #  Archive modal handlers
+    │   ├── _content_archive_actions.html # Archive non-modal actions
+    │   ├── _content_browser.html       #   File browser, search, gallery
+    │   ├── _content_actions.html       #   File CRUD, encrypt, release
+    │   ├── _content_preview.html       #   Plain file preview + edit
+    │   ├── _content_preview_enc.html   #   Encrypted preview + rename/move
+    │   └── _content_upload.html        #   Upload, drag-drop, enc key setup
+    │
+    ├── _secrets.html                   # LOADER → 6 modules
+    │   ├── _secrets_init.html          #   State, tier logic, tab load
+    │   ├── _secrets_render.html        #   Status bars, file list, form
+    │   ├── _secrets_form.html          #   Target selector, dirty tracking
+    │   ├── _secrets_sync.html          #   Save/push, sync, remove, refresh
+    │   ├── _secrets_keys.html          #   Key management, add/create modal
+    │   └── _secrets_vault.html         #   Vault lock/unlock modals
+    │
+    ├── _integrations.html              # LOADER → 11 modules
+    │   ├── _integrations_init.html     #   State, prefs, card metadata, tab load
+    │   ├── _integrations_git.html      #   Git card + actions
+    │   ├── _integrations_github.html   #   GitHub card + live panels + modals
+    │   ├── _integrations_cicd.html     #   CI/CD card + live panels + generate
+    │   ├── _integrations_docker.html   #   Docker card + live panels + modals
+    │   ├── _integrations_docker_compose.html # Compose wizard + ops
+    │   ├── _integrations_k8s.html      #   K8s card + live panels + all modals
+    │   ├── _integrations_terraform.html #  Terraform card + live panels + modals
+    │   ├── _integrations_pages.html    #   Pages card + segment wizard
+    │   ├── _integrations_pages_config.html # Pages config modal + build/deploy
+    │   └── _integrations_pages_sse.html #  SSE streaming + CI gen + helpers
+    │
+    ├── _devops.html                    # LOADER → 10 modules
+    │   ├── _devops_init.html           #   State, prefs, card metadata, tab load
+    │   ├── _devops_security.html       #   Security card + live panels
+    │   ├── _devops_testing.html        #   Testing card + test gen modal
+    │   ├── _devops_docs.html           #   Documentation card + live panels
+    │   ├── _devops_k8s.html            #   K8s card + modals
+    │   ├── _devops_terraform.html      #   Terraform card + modals
+    │   ├── _devops_dns.html            #   DNS & CDN card + modals
+    │   ├── _devops_quality.html        #   Quality card + modals
+    │   ├── _devops_packages.html       #   Packages card + modals
+    │   └── _devops_env.html            #   Environment & IaC card + live panels
+    │
+    ├── _wizard.html                    # LOADER → 6 modules
+    │   ├── _wizard_init.html           #   Config load, state, render entry
+    │   ├── _wizard_steps.html          #   All 6 step renderers
+    │   ├── _wizard_helpers.html        #   Module/domain/env/content helpers
+    │   ├── _wizard_integrations.html   #   Integration sub-wizard UI + forms
+    │   ├── _wizard_integration_actions.html # Docker/K8s live panels, backend
+    │   └── _wizard_nav.html            #   Navigation, save, activate
+    │
+    └── _audit.html                     # LOADER → 5 modules
+        ├── _audit_init.html            #   Shared data store, helpers
+        ├── _audit_scores.html          #   Master L0/L1/L2 score rendering
+        ├── _audit_cards_a.html         #   System Profile, Deps, Structure, Clients
+        ├── _audit_cards_b.html         #   Code Health, Repo Health, Risks, Imports
+        └── _audit_modals.html          #   Drill-down modals, batch dismiss
 ```
 
 **Iron rule**: No business logic in templates. All actions call API endpoints.

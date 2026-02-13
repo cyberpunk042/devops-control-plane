@@ -2,11 +2,23 @@
     // ── Debugging tab ───────────────────────────────────────────────────
 
     let debugCurrentMode = 'audit';
+    let _debugEditors = {};   // panel → monaco editor instance
+    let _debugData = {};      // panel → raw JSON data
+    let _debugViewMode = {};  // panel → 'preview' | 'source'
+    let _debugAuditMode = 'scans'; // 'scans' or 'ops'
 
     function debugSwitchMode(mode) {
         debugCurrentMode = mode;
-        document.querySelectorAll('#tab-debugging .content-mode').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('#tab-debugging .debug-modes > .content-mode').forEach(b => b.classList.remove('active'));
         event.target.classList.add('active');
+
+        // Dispose any active Monaco editors when switching away
+        for (const [key, ed] of Object.entries(_debugEditors)) {
+            if (key !== mode && ed) {
+                try { ed.dispose(); } catch {}
+                _debugEditors[key] = null;
+            }
+        }
 
         // Show/hide panels
         ['audit', 'state', 'health', 'config'].forEach(m => {
@@ -19,73 +31,357 @@
         if (mode === 'config') loadDebugConfig();
     }
 
-    async function loadDebugTab() {
-        loadDebugAudit();
+    function debugAuditToggle(mode) {
+        _debugAuditMode = mode;
+        document.querySelectorAll('.debug-audit-toggle').forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.mode === mode);
+        });
+        document.getElementById('debug-audit-scans').style.display = mode === 'scans' ? '' : 'none';
+        document.getElementById('debug-audit-ops').style.display = mode === 'ops' ? '' : 'none';
+
+        if (mode === 'ops') loadDebugAuditOps();
+        if (mode === 'scans') loadDebugAuditScans();
     }
 
-    async function loadDebugAudit() {
+    function debugToggleView(panel, mode) {
+        _debugViewMode[panel] = mode;
+
+        // Update toggle buttons
+        document.querySelectorAll(`.debug-view-toggle[data-panel="${panel}"]`).forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.mode === mode);
+        });
+
+        const previewEl = document.getElementById(`debug-${panel}-preview`);
+        const editorEl = document.getElementById(`debug-${panel}-editor`);
+
+        if (mode === 'source') {
+            previewEl.style.display = 'none';
+            editorEl.style.display = '';
+
+            // Create Monaco editor if not already
+            if (!_debugEditors[panel] && _debugData[panel]) {
+                const json = JSON.stringify(_debugData[panel], null, 2);
+                monacoReady(function(monaco) {
+                    _debugEditors[panel] = monaco.editor.create(editorEl, {
+                        value: json,
+                        language: 'json',
+                        theme: 'admin-dark',
+                        readOnly: true,
+                        automaticLayout: true,
+                        minimap: { enabled: json.split('\n').length > 80 },
+                        scrollBeyondLastLine: false,
+                        fontSize: 13,
+                        lineNumbers: 'on',
+                        renderLineHighlight: 'none',
+                        wordWrap: 'on',
+                        padding: { top: 8 },
+                        folding: true,
+                        glyphMargin: false,
+                        overviewRulerLanes: 0,
+                        hideCursorInOverviewRuler: true,
+                        scrollbar: {
+                            verticalScrollbarSize: 8,
+                            horizontalScrollbarSize: 8,
+                        },
+                    });
+                });
+            } else if (!_debugData[panel]) {
+                editorEl.innerHTML = '<div style="padding:1rem;color:var(--text-muted);font-size:0.8rem">No data loaded yet. Switch to Preview first to load the data.</div>';
+            }
+        } else {
+            previewEl.style.display = '';
+            editorEl.style.display = 'none';
+        }
+    }
+
+    async function loadDebugTab() {
+        loadDebugAuditScans();
+    }
+
+    // ── Audit Scan Activity ───────────────────────────────────────────
+
+    async function loadDebugAuditScans() {
+        const container = document.getElementById('debug-audit-scans');
         try {
-            const data = await api('/audit?n=50');
-            const container = document.getElementById('debug-audit-list');
+            const data = await api('/audit/activity?n=100');
 
             if (!data.entries || !data.entries.length) {
                 container.innerHTML = `<div class="activity-item" style="color:var(--text-muted)">
-                No audit entries yet. Run a command from the <strong>Commands</strong> tab.
+                    No scan activity yet. Load the <strong>Audit</strong> or <strong>DevOps</strong> tab to trigger scans.
+                </div>`;
+                return;
+            }
+
+            container.innerHTML = data.entries.slice().reverse().map((entry, idx) => {
+                const statusIcon = entry.status === 'ok' ? '✅' : '❌';
+                const statusColor = entry.status === 'ok' ? 'var(--success)' : 'var(--danger)';
+                const time = new Date(entry.iso || entry.ts * 1000).toLocaleString();
+                const duration = entry.duration_s != null ? `${entry.duration_s.toFixed(1)}s` : '';
+                const bust = entry.bust ? '<span style="font-size:0.6rem;color:var(--warning);background:rgba(245,158,11,0.1);padding:1px 4px;border-radius:3px" title="Cache was force-busted">💥 bust</span>' : '';
+
+                // Card type badge
+                const isDismissal = entry.card === 'dismissal';
+                const isAudit = entry.card && entry.card.startsWith('audit:');
+                let typeBadge;
+                if (isDismissal) {
+                    typeBadge = '<span style="font-size:0.6rem;padding:1px 5px;border-radius:3px;background:rgba(52,211,153,0.1);color:var(--success)">Dismiss</span>';
+                } else if (isAudit) {
+                    typeBadge = '<span style="font-size:0.6rem;padding:1px 5px;border-radius:3px;background:rgba(139,92,246,0.1);color:#a78bfa">Audit</span>';
+                } else {
+                    typeBadge = '<span style="font-size:0.6rem;padding:1px 5px;border-radius:3px;background:rgba(59,130,246,0.1);color:#60a5fa">DevOps</span>';
+                }
+
+                // Detail section (hidden by default, toggled on click)
+                // Show entry.detail if present, otherwise show full entry JSON
+                const detailObj = entry.detail || entry;
+                const detailHtml = `<div id="audit-log-detail-${idx}" style="display:none;margin-top:8px;padding:8px 10px;border-radius:var(--radius-sm);background:var(--bg-primary);font-size:0.68rem;font-family:var(--font-mono);white-space:pre-wrap;word-break:break-all;max-height:200px;overflow-y:auto;border:1px solid var(--border-subtle)">${esc(JSON.stringify(detailObj, null, 2))}</div>`;
+
+                return `<div style="padding:10px 14px;margin-bottom:5px;border-radius:var(--radius-sm);background:var(--bg-secondary);border-left:3px solid ${statusColor};display:flex;flex-direction:column;gap:3px;cursor:pointer" onclick="const d=document.getElementById('audit-log-detail-${idx}');if(d)d.style.display=d.style.display==='none'?'':'none'">
+                    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                        <span style="font-size:0.88rem">${statusIcon}</span>
+                        <strong style="font-size:0.8rem">${esc(entry.label || entry.card)}</strong>
+                        ${typeBadge}
+                        ${bust}
+                        ${duration && !isDismissal ? `<span style="font-size:0.66rem;color:var(--text-muted)">⏱ ${duration}</span>` : ''}
+                        <span style="font-size:0.58rem;color:var(--text-muted);opacity:0.6" title="Click for details">▶ detail</span>
+                        <span style="font-size:0.64rem;color:var(--text-muted);margin-left:auto">${time}</span>
+                    </div>
+                    ${entry.summary ? `<div style="font-size:0.72rem;color:var(--text-secondary);padding-left:26px">${esc(entry.summary)}</div>` : ''}
+                    ${detailHtml}
+                </div>`;
+            }).join('');
+        } catch (e) {
+            container.innerHTML = `<div class="activity-item" style="color:var(--error)">
+                Failed to load scan activity: ${esc(e.message)}
             </div>`;
+        }
+    }
+
+    // ── CLI Operations (audit.ndjson) ──────────────────────────────────
+
+    async function loadDebugAuditOps() {
+        const container = document.getElementById('debug-audit-ops');
+        try {
+            const data = await api('/audit?n=50');
+
+            if (!data.entries || !data.entries.length) {
+                container.innerHTML = `<div class="activity-item" style="color:var(--text-muted)">
+                    No CLI operation entries yet. Run a command from the <strong>Commands</strong> tab or CLI.
+                </div>`;
                 return;
             }
 
             container.innerHTML = data.entries.reverse().map(entry => {
                 const statusClass = entry.status === 'ok' ? 'ok' : entry.status === 'failed' ? 'failed' : 'partial';
+                const statusIcon = entry.status === 'ok' ? '✅' : entry.status === 'failed' ? '❌' : '⚠️';
                 const time = new Date(entry.timestamp).toLocaleString();
-                const modules = (entry.modules_affected || []).join(', ');
+                const modules = (entry.modules_affected || []);
+                const duration = entry.duration_ms ? `${(entry.duration_ms / 1000).toFixed(1)}s` : '';
+                const opType = entry.operation_type ? `<span style="font-size:0.66rem;color:var(--accent);background:rgba(99,102,241,0.08);padding:1px 5px;border-radius:3px">${esc(entry.operation_type)}</span>` : '';
 
-                return `<div class="activity-item">
-                <span class="activity-time">${time}</span>
-                <span class="activity-action">
-                    <span class="status-badge ${statusClass}" style="font-size:0.7rem;padding:2px 8px;">
-                        <span class="status-dot"></span>${esc(entry.status)}
-                    </span>
-                </span>
-                <span class="activity-detail">
-                    <strong>${esc(entry.automation)}</strong> → ${esc(modules || 'all')}
-                    · ${entry.actions_succeeded}/${entry.actions_total} succeeded
-                </span>
-            </div>`;
+                // Errors section
+                let errorHtml = '';
+                if (entry.errors && entry.errors.length) {
+                    errorHtml = `<div style="margin-top:4px;padding:4px 8px;border-radius:var(--radius-sm);background:rgba(239,68,68,0.08);border-left:2px solid var(--danger);font-size:0.7rem;color:var(--danger)">
+                        ${entry.errors.map(e => esc(e)).join('<br>')}
+                    </div>`;
+                }
+
+                // Module pills
+                let modulePills = '';
+                if (modules.length) {
+                    modulePills = modules.map(m =>
+                        `<span style="font-size:0.66rem;padding:1px 5px;border-radius:3px;background:var(--bg-secondary);color:var(--text-secondary)">${esc(m)}</span>`
+                    ).join(' ');
+                }
+
+                return `<div style="padding:10px 14px;margin-bottom:6px;border-radius:var(--radius-sm);background:var(--bg-secondary);border-left:3px solid ${entry.status === 'ok' ? 'var(--success)' : entry.status === 'failed' ? 'var(--danger)' : 'var(--warning)'}">
+                    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                        <span style="font-size:0.9rem">${statusIcon}</span>
+                        <strong style="font-size:0.82rem">${esc(entry.automation || entry.operation_type || '(unknown)')}</strong>
+                        ${opType}
+                        <span class="status-badge ${statusClass}" style="font-size:0.66rem;padding:1px 6px">
+                            <span class="status-dot"></span>${esc(entry.status)}
+                        </span>
+                        ${duration ? `<span style="font-size:0.66rem;color:var(--text-muted)">⏱ ${duration}</span>` : ''}
+                        <span style="font-size:0.66rem;color:var(--text-muted);margin-left:auto">${time}</span>
+                    </div>
+                    <div style="display:flex;align-items:center;gap:6px;margin-top:4px;flex-wrap:wrap">
+                        <span style="font-size:0.72rem;color:var(--text-muted)">${entry.actions_succeeded}/${entry.actions_total} actions succeeded</span>
+                        ${modulePills}
+                    </div>
+                    ${errorHtml}
+                    ${entry.operation_id ? `<div style="font-size:0.62rem;color:var(--text-muted);margin-top:4px;font-family:var(--font-mono)">ID: ${esc(entry.operation_id)}</div>` : ''}
+                </div>`;
             }).join('');
         } catch (e) {
-            document.getElementById('debug-audit-list').innerHTML = `
-            <div class="activity-item" style="color:var(--error)">
+            container.innerHTML = `<div class="activity-item" style="color:var(--error)">
                 Failed to load audit log: ${esc(e.message)}
             </div>`;
         }
     }
 
+    // ── State Inspector ───────────────────────────────────────────────
+
     async function loadDebugState() {
-        const el = document.getElementById('debug-state-json');
-        el.textContent = 'Loading…';
+        const previewEl = document.getElementById('debug-state-preview');
+        previewEl.innerHTML = '<span class="spinner"></span> Loading state…';
         try {
             const data = await api('/status');
-            el.textContent = JSON.stringify(data.state || {}, null, 2);
+            const state = data.state || {};
+            _debugData.state = state;
+
+            let html = '';
+
+            // Project info
+            html += `<div style="padding:12px 16px;border-radius:var(--radius-md);background:var(--bg-secondary);margin-bottom:var(--space-md)">
+                <div style="font-size:0.82rem;font-weight:700">${esc(state.project_name || data.project?.name || '(unknown)')}</div>
+                <div style="font-size:0.72rem;color:var(--text-muted);margin-top:2px">
+                    Environment: <strong>${esc(state.current_environment || '—')}</strong>
+                    · Schema v${state.schema_version || '?'}
+                </div>
+                <div style="font-size:0.66rem;color:var(--text-muted);margin-top:4px">
+                    Created: ${state.created_at ? new Date(state.created_at).toLocaleString() : '—'}
+                    · Updated: ${state.updated_at ? new Date(state.updated_at).toLocaleString() : '—'}
+                </div>
+            </div>`;
+
+            // Last operation
+            if (state.last_operation && state.last_operation.operation_id) {
+                const op = state.last_operation;
+                const opColor = op.status === 'ok' ? 'var(--success)' : op.status === 'failed' ? 'var(--danger)' : 'var(--warning)';
+                html += `<div style="padding:10px 14px;border-radius:var(--radius-sm);background:var(--bg-secondary);border-left:3px solid ${opColor};margin-bottom:var(--space-md)">
+                    <div style="font-size:0.78rem;font-weight:600">Last Operation</div>
+                    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:4px;font-size:0.74rem">
+                        <span>🔧 <strong>${esc(op.automation || '—')}</strong></span>
+                        <span style="color:${opColor}">${esc(op.status)}</span>
+                        <span>${op.actions_succeeded}/${op.actions_total} succeeded</span>
+                    </div>
+                    <div style="font-size:0.62rem;color:var(--text-muted);margin-top:4px;font-family:var(--font-mono)">ID: ${esc(op.operation_id)}</div>
+                </div>`;
+            }
+
+            // Modules
+            const modules = state.modules || {};
+            const moduleNames = Object.keys(modules);
+            if (moduleNames.length) {
+                html += `<div style="font-size:0.78rem;font-weight:600;margin-bottom:8px">📦 Modules (${moduleNames.length})</div>`;
+                for (const name of moduleNames) {
+                    const m = modules[name];
+                    const detected = m.detected ? '✅' : '❌';
+                    const statusColor = m.last_action_status === 'ok' ? 'var(--success)' : m.last_action_status === 'failed' ? 'var(--danger)' : 'var(--text-muted)';
+                    html += `<div style="padding:6px 10px;margin-bottom:3px;border-radius:var(--radius-sm);background:var(--bg-secondary);font-size:0.74rem;display:flex;align-items:center;gap:8px">
+                        <span>${detected}</span>
+                        <strong>${esc(name)}</strong>
+                        ${m.stack ? `<span style="font-size:0.66rem;color:var(--accent);background:rgba(99,102,241,0.08);padding:1px 5px;border-radius:3px">${esc(m.stack)}</span>` : ''}
+                        ${m.version ? `<span style="font-size:0.66rem;color:var(--text-muted)">v${esc(m.version)}</span>` : ''}
+                        ${m.last_action_status ? `<span style="font-size:0.66rem;color:${statusColor};margin-left:auto">${esc(m.last_action_status)}</span>` : ''}
+                    </div>`;
+                }
+            } else {
+                html += `<div style="font-size:0.74rem;color:var(--text-muted);padding:8px">No modules in state yet. Run <code>detect</code> first.</div>`;
+            }
+
+            // Adapters
+            const adapters = state.adapters || {};
+            const adapterNames = Object.keys(adapters);
+            if (adapterNames.length) {
+                html += `<div style="font-size:0.78rem;font-weight:600;margin:12px 0 8px">🔌 Adapters (${adapterNames.length})</div>`;
+                for (const name of adapterNames) {
+                    const a = adapters[name];
+                    const avail = a.available ? '🟢' : '🔴';
+                    html += `<div style="padding:6px 10px;margin-bottom:3px;border-radius:var(--radius-sm);background:var(--bg-secondary);font-size:0.74rem;display:flex;align-items:center;gap:8px">
+                        <span>${avail}</span>
+                        <strong>${esc(name)}</strong>
+                        ${a.version ? `<span style="font-size:0.66rem;color:var(--text-muted)">v${esc(a.version)}</span>` : ''}
+                        <span style="font-size:0.66rem;color:var(--text-muted);margin-left:auto">circuit: ${esc(a.circuit_state || 'closed')}</span>
+                    </div>`;
+                }
+            }
+
+            previewEl.innerHTML = html;
+            _debugViewMode.state = 'preview';
+            _updateDebugToggles('state', 'preview');
         } catch (e) {
-            el.textContent = `Error: ${e.message}`;
+            previewEl.innerHTML = `<div style="color:var(--danger);font-size:0.82rem">Error: ${esc(e.message)}</div>`;
         }
     }
+
+    // ── Health Details ─────────────────────────────────────────────────
 
     async function loadDebugHealth() {
-        const el = document.getElementById('debug-health-json');
-        el.textContent = 'Loading…';
+        const previewEl = document.getElementById('debug-health-preview');
+        previewEl.innerHTML = '<span class="spinner"></span> Loading health…';
         try {
             const data = await api('/health');
-            el.textContent = JSON.stringify(data, null, 2);
+            _debugData.health = data;
+
+            const statusIcons = { healthy: '💚', degraded: '🟡', unhealthy: '🔴', unknown: '❔' };
+            const statusColors = { healthy: 'var(--success)', degraded: 'var(--warning)', unhealthy: 'var(--danger)', unknown: 'var(--text-muted)' };
+
+            let html = '';
+
+            // Overall status banner
+            html += `<div style="padding:14px 18px;border-radius:var(--radius-md);background:var(--bg-secondary);border-left:4px solid ${statusColors[data.status] || 'var(--text-muted)'};margin-bottom:var(--space-md)">
+                <div style="font-size:1rem;font-weight:700;display:flex;align-items:center;gap:8px">
+                    ${statusIcons[data.status] || '❔'} System: ${esc((data.status || 'unknown').toUpperCase())}
+                </div>
+                <div style="font-size:0.72rem;color:var(--text-muted);margin-top:4px">${data.timestamp ? new Date(data.timestamp).toLocaleString() : '—'}</div>
+            </div>`;
+
+            // Components
+            const components = data.components || [];
+            if (components.length) {
+                html += `<div style="font-size:0.78rem;font-weight:600;margin-bottom:8px">🧩 Components (${components.length})</div>`;
+                for (const c of components) {
+                    const cIcon = statusIcons[c.status] || '❔';
+                    const cColor = statusColors[c.status] || 'var(--text-muted)';
+                    html += `<div style="padding:10px 14px;margin-bottom:6px;border-radius:var(--radius-sm);background:var(--bg-secondary);border-left:3px solid ${cColor}">
+                        <div style="display:flex;align-items:center;gap:8px">
+                            <span>${cIcon}</span>
+                            <strong style="font-size:0.78rem">${esc(c.name)}</strong>
+                            <span style="font-size:0.66rem;color:${cColor};margin-left:auto">${esc(c.status)}</span>
+                        </div>
+                        <div style="font-size:0.72rem;color:var(--text-muted);margin-top:4px">${esc(c.message || '—')}</div>`;
+
+                    // Component details
+                    if (c.details && Object.keys(c.details).length) {
+                        const detailEntries = Object.entries(c.details).filter(([k]) => k !== 'items');
+                        if (detailEntries.length) {
+                            html += `<div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:6px;font-size:0.68rem;color:var(--text-muted)">`;
+                            for (const [key, val] of detailEntries) {
+                                html += `<span><strong>${esc(key)}:</strong> ${esc(String(val))}</span>`;
+                            }
+                            html += `</div>`;
+                        }
+
+                        // Items (retry queue items, etc.)
+                        if (c.details.items && c.details.items.length) {
+                            html += `<div style="margin-top:6px;padding:6px 8px;border-radius:var(--radius-sm);background:var(--bg-primary);font-size:0.68rem;max-height:120px;overflow-y:auto">`;
+                            for (const item of c.details.items) {
+                                html += `<div style="margin-bottom:2px;font-family:var(--font-mono)">${esc(typeof item === 'string' ? item : JSON.stringify(item))}</div>`;
+                            }
+                            html += `</div>`;
+                        }
+                    }
+
+                    html += `</div>`;
+                }
+            }
+
+            previewEl.innerHTML = html;
+            _debugViewMode.health = 'preview';
+            _updateDebugToggles('health', 'preview');
         } catch (e) {
-            el.textContent = `Error: ${e.message}`;
+            previewEl.innerHTML = `<div style="color:var(--danger);font-size:0.82rem">Error: ${esc(e.message)}</div>`;
         }
     }
 
+    // ── Configuration ─────────────────────────────────────────────────
+
     async function loadDebugConfig() {
-        const el = document.getElementById('debug-config-json');
-        el.textContent = 'Loading…';
+        const previewEl = document.getElementById('debug-config-preview');
+        previewEl.innerHTML = '<span class="spinner"></span> Loading config…';
         try {
             const [statusData, stacksData, vaultData] = await Promise.all([
                 api('/status'),
@@ -100,9 +396,78 @@
                 stacks: Object.keys(stacksData),
                 vault: vaultData,
             };
-            el.textContent = JSON.stringify(config, null, 2);
+            _debugData.config = config;
+
+            let html = '';
+
+            // Project
+            const p = config.project || {};
+            html += `<div style="padding:12px 16px;border-radius:var(--radius-md);background:var(--bg-secondary);margin-bottom:var(--space-md)">
+                <div style="font-size:0.82rem;font-weight:700">${esc(p.name || '(unknown)')}</div>
+                ${p.description ? `<div style="font-size:0.72rem;color:var(--text-muted);margin-top:2px">${esc(p.description)}</div>` : ''}
+                ${p.repository ? `<div style="font-size:0.72rem;color:var(--accent);margin-top:2px">📦 ${esc(p.repository)}</div>` : ''}
+            </div>`;
+
+            // Modules
+            const modules = config.modules || statusData.modules || [];
+            if (modules.length) {
+                html += `<div style="font-size:0.78rem;font-weight:600;margin-bottom:8px">📦 Modules (${modules.length})</div>`;
+                for (const m of modules) {
+                    html += `<div style="padding:6px 10px;margin-bottom:3px;border-radius:var(--radius-sm);background:var(--bg-secondary);font-size:0.74rem;display:flex;align-items:center;gap:8px">
+                        <strong>${esc(m.name || '—')}</strong>
+                        ${m.stack ? `<span style="font-size:0.66rem;color:var(--accent);background:rgba(99,102,241,0.08);padding:1px 5px;border-radius:3px">${esc(m.stack)}</span>` : ''}
+                        ${m.domain ? `<span style="font-size:0.66rem;color:var(--text-muted)">(${esc(m.domain)})</span>` : ''}
+                        <span style="font-size:0.66rem;color:var(--text-muted);margin-left:auto;font-family:var(--font-mono)">${esc(m.path || '')}</span>
+                    </div>`;
+                }
+            }
+
+            // Environments
+            const envs = config.environments || [];
+            if (envs.length) {
+                html += `<div style="font-size:0.78rem;font-weight:600;margin:12px 0 8px">🌍 Environments (${envs.length})</div>`;
+                for (const e of envs) {
+                    html += `<div style="padding:6px 10px;margin-bottom:3px;border-radius:var(--radius-sm);background:var(--bg-secondary);font-size:0.74rem;display:flex;align-items:center;gap:8px">
+                        <strong>${esc(e.name || '—')}</strong>
+                        ${e.default ? `<span style="font-size:0.62rem;color:var(--success);background:rgba(52,211,153,0.1);padding:1px 5px;border-radius:3px">default</span>` : ''}
+                    </div>`;
+                }
+            }
+
+            // Stacks
+            const stacks = config.stacks || [];
+            if (stacks.length) {
+                html += `<div style="font-size:0.78rem;font-weight:600;margin:12px 0 8px">📚 Stacks (${stacks.length})</div>`;
+                html += `<div style="display:flex;flex-wrap:wrap;gap:6px">`;
+                for (const s of stacks) {
+                    html += `<span style="font-size:0.72rem;padding:3px 8px;border-radius:var(--radius-sm);background:var(--bg-secondary);border:1px solid var(--border-subtle)">${esc(s)}</span>`;
+                }
+                html += `</div>`;
+            }
+
+            // Vault
+            if (config.vault) {
+                html += `<div style="font-size:0.78rem;font-weight:600;margin:12px 0 8px">🔐 Vault</div>`;
+                const v = config.vault;
+                html += `<div style="padding:8px 12px;border-radius:var(--radius-sm);background:var(--bg-secondary);font-size:0.74rem">
+                    Status: <strong style="color:${v.locked ? 'var(--danger)' : 'var(--success)'}">${v.locked ? '🔒 Locked' : '🔓 Unlocked'}</strong>
+                    ${v.secrets_count !== undefined ? ` · ${v.secrets_count} secrets` : ''}
+                </div>`;
+            }
+
+            previewEl.innerHTML = html;
+            _debugViewMode.config = 'preview';
+            _updateDebugToggles('config', 'preview');
         } catch (e) {
-            el.textContent = `Error: ${e.message}`;
+            previewEl.innerHTML = `<div style="color:var(--danger);font-size:0.82rem">Error: ${esc(e.message)}</div>`;
         }
+    }
+
+    // ── View toggle helper ────────────────────────────────────────────
+
+    function _updateDebugToggles(panel, mode) {
+        document.querySelectorAll(`.debug-view-toggle[data-panel="${panel}"]`).forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.mode === mode);
+        });
     }
 </script>

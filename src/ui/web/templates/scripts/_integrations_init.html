@@ -1,0 +1,162 @@
+<!-- Integrations Tab JS — Init & Tab Load
+     State vars, prefs, card metadata, loadIntegrationsTab(), prefs modal.
+     Depends on: _globals.html (cardCached, cardStore, cardInvalidate, api, esc, toast)
+-->
+    // ── Integrations tab ────────────────────────────────────────────────
+    // Uses shared cache from _globals.html (cardCached / cardStore / cardInvalidate)
+    // Preferences: auto / manual / hidden — same pattern as DevOps tab
+
+    let _intLoaded = false;
+    let _intPrefs = null;
+
+    // Card metadata registry
+    const _INT_CARDS = {
+        'int:git':    { loadFn: () => loadGitCard(),    cardId: 'int-git-card',    badgeId: 'int-git-badge',    detailId: 'int-git-detail',    label: '🔀 Git' },
+        'int:github': { loadFn: () => loadGitHubCard(), cardId: 'int-gh-card',     badgeId: 'int-gh-badge',     detailId: 'int-gh-detail',     label: '🐙 GitHub' },
+        'int:ci':     { loadFn: () => loadCICard(),     cardId: 'int-ci-card',     badgeId: 'int-ci-badge',     detailId: 'int-ci-detail',     label: '🔄 CI/CD' },
+        'int:docker': { loadFn: () => loadDockerCard(), cardId: 'int-docker-card', badgeId: 'int-docker-badge', detailId: 'int-docker-detail', label: '🐳 Docker' },
+        'int:k8s':    { loadFn: () => _intLoadK8sCard(),    cardId: 'int-k8s-card',    badgeId: 'int-k8s-badge',    detailId: 'int-k8s-detail',    label: '☸ Kubernetes' },
+        'int:terraform': { loadFn: () => _intLoadTerraformCard(), cardId: 'int-tf-card', badgeId: 'int-tf-badge', detailId: 'int-tf-detail', label: '🏗 Terraform' },
+        'int:pages':  { loadFn: () => loadPagesCard(),  cardId: 'int-pages-card',  badgeId: 'int-pages-badge',  detailId: 'int-pages-detail',  label: '📄 Pages' },
+    };
+
+    async function _fetchIntPrefs() {
+        if (_intPrefs) return _intPrefs;
+        try {
+            _intPrefs = await api('/integrations/prefs');
+        } catch {
+            _intPrefs = Object.fromEntries(Object.keys(_INT_CARDS).map(k => [k, 'auto']));
+        }
+        return _intPrefs;
+    }
+
+    async function loadIntegrationsTab(force) {
+        if (force) {
+            _intLoaded = false;
+            _intPrefs = null;
+            for (const [key, meta] of Object.entries(_INT_CARDS)) {
+                const cacheKey = key.replace('int:', '');
+                cardInvalidate(cacheKey === 'github' ? 'github' : cacheKey);
+                const detail = document.getElementById(meta.detailId);
+                const badge = document.getElementById(meta.badgeId);
+                if (detail) detail.innerHTML = '<span class="spinner"></span>';
+                if (badge) { badge.className = 'status-badge'; badge.textContent = '—'; }
+            }
+        }
+        if (_intLoaded) return;
+
+        const prefs = await _fetchIntPrefs();
+
+        // Apply visibility + loading per preference
+        for (const [key, meta] of Object.entries(_INT_CARDS)) {
+            const card = document.getElementById(meta.cardId);
+            const detail = document.getElementById(meta.detailId);
+            const badge = document.getElementById(meta.badgeId);
+            const pref = prefs[key] || 'auto';
+
+            if (!card) continue;
+
+            if (pref === 'hidden') {
+                card.style.display = 'none';
+                continue;
+            }
+            card.style.display = '';
+
+            if (pref === 'manual') {
+                if (badge) { badge.className = 'status-badge'; badge.textContent = '⏸'; }
+                if (detail) {
+                    detail.innerHTML = `<div style="display:flex;flex-direction:column;align-items:center;gap:0.5rem;padding:1rem 0">
+                        <span style="color:var(--text-muted);font-size:0.82rem">Manual load — click to fetch</span>
+                        <button class="btn btn-sm btn-secondary" onclick="(async()=>{
+                            const d=document.getElementById('${meta.detailId}');
+                            const b=document.getElementById('${meta.badgeId}');
+                            if(d)d.innerHTML='<span class=\\'spinner\\'></span>';
+                            if(b){b.className='status-badge';b.textContent='—';}
+                            await _INT_CARDS['${key}'].loadFn();
+                        })()" style="font-size:0.78rem">▶ Load ${esc(meta.label)}</button>
+                    </div>`;
+                }
+                continue;
+            }
+        }
+
+        // Load auto + visible cards sequentially (Flask dev server is single-threaded)
+        for (const [key, meta] of Object.entries(_INT_CARDS)) {
+            const pref = prefs[key] || 'auto';
+            if (pref === 'auto' || pref === 'visible') {
+                try {
+                    await meta.loadFn();
+                } catch (err) {
+                    console.error(`[INT] Failed to load ${key}:`, err);
+                    const d = document.getElementById(meta.detailId);
+                    const b = document.getElementById(meta.badgeId);
+                    if (b) { b.className = 'status-badge failed'; b.innerHTML = '<span class="status-dot"></span>Error'; }
+                    if (d) d.innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(err.message || 'Load failed')}</p>`;
+                }
+            }
+        }
+
+        _intLoaded = true;
+    }
+
+    /** Open preferences modal for Integration cards. */
+    function openIntPrefsModal() {
+        const modal = document.createElement('div');
+        modal.className = 'vault-modal-overlay'; modal.id = 'int-prefs-modal';
+
+        const prefs = _intPrefs || {};
+        let rows = '';
+        for (const [key, meta] of Object.entries(_INT_CARDS)) {
+            const cur = prefs[key] || 'auto';
+            rows += `<div style="display:flex;align-items:center;justify-content:space-between;padding:0.5rem 0;border-bottom:1px solid var(--border-subtle)">
+                <span style="font-size:0.85rem;font-weight:500">${meta.label}</span>
+                <select id="int-pref-${key.replace(':','-')}" style="font-size:0.8rem;padding:0.25rem 0.5rem;border-radius:4px;border:1px solid var(--border-subtle);background:var(--bg-inset);color:var(--text-primary)">
+                    <option value="auto" ${cur==='auto'?'selected':''}>Auto</option>
+                    <option value="visible" ${cur==='visible'?'selected':''}>Visible (always)</option>
+                    <option value="manual" ${cur==='manual'?'selected':''}>Manual</option>
+                    <option value="hidden" ${cur==='hidden'?'selected':''}>Hidden</option>
+                </select>
+            </div>`;
+        }
+
+        modal.innerHTML = `<div class="vault-modal" style="max-width:420px">
+            <div class="vault-modal-header">
+                <span class="vault-modal-title">⚙️ Integration Preferences</span>
+                <button class="vault-modal-close" onclick="document.getElementById('int-prefs-modal').remove()">✕</button>
+            </div>
+            <div class="vault-modal-body">
+                <p style="font-size:0.78rem;color:var(--text-muted);margin-bottom:0.75rem">
+                    <strong>Auto</strong> — loads when tab opens &nbsp;
+                    <strong>Manual</strong> — click to load &nbsp;
+                    <strong>Hidden</strong> — not shown
+                </p>
+                ${rows}
+            </div>
+            <div class="vault-modal-footer" style="display:flex;gap:0.5rem;justify-content:flex-end;padding:0.75rem 1rem">
+                <button class="btn btn-sm btn-ghost" onclick="document.getElementById('int-prefs-modal').remove();openSetupWizard()" title="Run the full setup wizard">🧙 Wizard</button>
+                <span style="flex:1"></span>
+                <button class="btn btn-sm btn-secondary" onclick="document.getElementById('int-prefs-modal').remove()">Cancel</button>
+                <button class="btn btn-sm btn-primary" onclick="_saveIntPrefs()">Save</button>
+            </div>
+        </div>`;
+        document.body.appendChild(modal);
+        modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
+    }
+
+    async function _saveIntPrefs() {
+        const prefs = {};
+        for (const key of Object.keys(_INT_CARDS)) {
+            const sel = document.getElementById('int-pref-' + key.replace(':','-'));
+            prefs[key] = sel ? sel.value : 'auto';
+        }
+        try {
+            _intPrefs = await api('/integrations/prefs', { method: 'PUT', body: JSON.stringify(prefs) });
+            toast('Integration preferences saved', 'success');
+            document.getElementById('int-prefs-modal')?.remove();
+            _intLoaded = false;
+            loadIntegrationsTab();
+        } catch (e) {
+            toast('Failed to save: ' + e.message, 'error');
+        }
+    }
+

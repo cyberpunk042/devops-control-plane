@@ -1,0 +1,220 @@
+<!-- Integrations Tab JS — Git Card
+     loadGitCard(), git actions (commit, push, pull, stash, log, diff, gitignore).
+     Depends on: _integrations_init.html (card registry)
+-->
+    // ── Git Card ────────────────────────────────────────────────────────
+
+    async function loadGitCard() {
+        const badge = document.getElementById('int-git-badge');
+        const detail = document.getElementById('int-git-detail');
+
+        try {
+            const cached = cardCached('git');
+            const data = cached || await api('/git/status');
+            if (!cached) cardStore('git', data);
+
+            if (!data.available) {
+                badge.className = 'status-badge failed';
+                badge.innerHTML = '<span class="status-dot"></span>No repo';
+                detail.innerHTML = cardEmpty('🔀', 'Not a git repository', null);
+                return;
+            }
+
+            // ── Badge ──
+            if (data.dirty) {
+                badge.className = 'status-badge degraded';
+                badge.innerHTML = `<span class="status-dot"></span>${data.total_changes} change${data.total_changes !== 1 ? 's' : ''}`;
+            } else {
+                badge.className = 'status-badge ok';
+                badge.innerHTML = '<span class="status-dot"></span>Clean';
+            }
+
+            // ── Status grid ──
+            const stats = [
+                { label: 'Branch', value: data.branch },
+                { label: 'Status', value: data.dirty ? `${data.total_changes} changes` : 'Clean', cls: data.dirty ? 'warn' : 'ok' },
+            ];
+            if (data.ahead > 0 || data.behind > 0) {
+                stats.push({ label: 'Ahead', value: data.ahead > 0 ? `↑ ${data.ahead}` : '—', cls: data.ahead > 0 ? 'ok' : 'muted' });
+                stats.push({ label: 'Behind', value: data.behind > 0 ? `↓ ${data.behind}` : '—', cls: data.behind > 0 ? 'warn' : 'muted' });
+            }
+
+            let html = cardStatusGrid(stats);
+
+            // ── Detection list ──
+            const detections = [];
+            if (data.remote_url) detections.push({ icon: '🌐', label: 'Remote', value: data.remote_url.replace(/^https?:\/\//, '').replace(/\.git$/, '') });
+            if (data.commit) detections.push({ icon: '#️⃣', label: 'HEAD', value: data.commit });
+            if (detections.length > 0) html += cardDetectionList(detections);
+
+            // ── Changes summary ──
+            if (data.dirty) {
+                const changeParts = [];
+                if (data.staged_count > 0)    changeParts.push(`<span class="card-dot ok"></span>${data.staged_count} staged`);
+                if (data.modified_count > 0)  changeParts.push(`<span class="card-dot warn"></span>${data.modified_count} modified`);
+                if (data.untracked_count > 0) changeParts.push(`<span class="card-dot muted"></span>${data.untracked_count} untracked`);
+                html += `<div style="font-size:0.8rem;color:var(--text-secondary);display:flex;gap:0.75rem;flex-wrap:wrap;margin-bottom:var(--space-sm)">${changeParts.join('')}</div>`;
+            }
+
+            // ── Last commit ──
+            if (data.last_commit) {
+                const c = data.last_commit;
+                const ago = _timeAgo(c.date);
+                html += `<div style="display:flex;gap:0.5rem;align-items:baseline;font-size:0.78rem;color:var(--text-muted);padding:var(--space-xs) 0">` +
+                    `<code style="color:var(--accent);font-family:var(--font-mono)">${esc(c.short_hash)}</code>` +
+                    `<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(c.message)}</span>` +
+                    `<span style="flex-shrink:0">${ago}</span></div>`;
+            }
+
+            // ── Actions ──
+            html += cardActionToolbar([
+                { label: 'Commit', icon: '💾', onclick: 'gitCommitModal()' },
+                { label: 'Pull', icon: '⬇️', onclick: 'gitPull()' },
+                { label: `Push${data.ahead > 0 ? ' (' + data.ahead + ')' : ''}`, icon: '⬆️', onclick: 'gitPush()', disabled: data.ahead === 0 },
+                { label: 'Log', icon: '📜', onclick: 'gitLogModal()', cls: 'btn-ghost' },
+            ]);
+
+            // ── Generate ──
+            html += cardGenerateToolbar([
+                { label: '.gitignore', icon: '📝', onclick: 'gitIgnoreWizard()' },
+            ]);
+
+            detail.innerHTML = html;
+
+        } catch (e) {
+            badge.className = 'status-badge failed';
+            badge.innerHTML = '<span class="status-dot"></span>Error';
+            detail.innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(e.message)}</p>`;
+        }
+    }
+
+    // ── Git Actions ────────────────────────────────────────────────────
+
+    function gitCommitModal() {
+        const body =
+            `<div class="modal-form-grid">` +
+            modalFormField({
+                name: 'commit-msg', label: 'Commit Message', type: 'text',
+                placeholder: 'feat: describe your change', required: true, fullWidth: true,
+                hint: 'Press Enter to commit'
+            }) +
+            `</div>`;
+
+        modalOpen({
+            title: '💾 Commit Changes',
+            body,
+            size: 'narrow',
+            footerButtons: [
+                { label: 'Cancel', cls: 'btn-secondary', onclick: 'modalClose()' },
+                { label: 'Commit All', cls: 'btn-primary', id: 'git-commit-btn', onclick: 'doGitCommit()' },
+            ],
+        });
+
+        // Focus the input and enable Enter to submit
+        setTimeout(() => {
+            const input = document.getElementById('mf-commit-msg');
+            if (input) {
+                input.focus();
+                input.addEventListener('keydown', e => {
+                    if (e.key === 'Enter') doGitCommit();
+                });
+            }
+        }, 100);
+    }
+
+    async function doGitCommit() {
+        const message = mfVal('commit-msg').trim();
+        if (!message) {
+            modalError('Commit message is required');
+            return;
+        }
+
+        const btn = document.getElementById('git-commit-btn');
+        if (btn) { btn.disabled = true; btn.textContent = 'Committing…'; }
+
+        try {
+            const data = await api('/git/commit', {
+                method: 'POST',
+                body: JSON.stringify({ message }),
+            });
+            modalClose();
+            toast(`Committed ${data.hash}: ${message}`, 'success');
+            cardInvalidate('git');
+            await loadGitCard();
+        } catch (e) {
+            modalError(e.message);
+            if (btn) { btn.disabled = false; btn.textContent = 'Commit All'; }
+        }
+    }
+
+    async function gitPull() {
+        toast('Pulling…', 'info');
+        try {
+            const data = await api('/git/pull', { method: 'POST', body: '{}' });
+            toast('Pull complete: ' + (data.output || 'up to date'), 'success');
+            cardInvalidate('git');
+            await loadGitCard();
+        } catch (e) {
+            toast('Pull failed: ' + e.message, 'error');
+        }
+    }
+
+    async function gitPush() {
+        toast('Pushing…', 'info');
+        try {
+            const data = await api('/git/push', { method: 'POST', body: '{}' });
+            toast('Push complete', 'success');
+            cardInvalidate('git');
+            await loadGitCard();
+        } catch (e) {
+            toast('Push failed: ' + e.message, 'error');
+        }
+    }
+
+    async function gitLogModal() {
+        modalOpen({
+            title: '📜 Recent Commits',
+            body: '<span class="spinner"></span>',
+            footerButtons: [
+                { label: 'Close', cls: 'btn-primary', onclick: 'modalClose()' },
+            ],
+        });
+
+        try {
+            const data = await api('/git/log?n=20');
+            const body = document.querySelector('.modal-body');
+            if (!body) return;
+
+            if (!data.commits || data.commits.length === 0) {
+                body.innerHTML = cardEmpty('📜', 'No commits found');
+                return;
+            }
+
+            body.innerHTML = cardDataTable(
+                ['Hash', 'Message', 'Author', 'When'],
+                data.commits.map(c => [
+                    { text: c.short_hash, cls: 'mono clickable' },
+                    { text: c.message, cls: 'name' },
+                    { text: c.author },
+                    { text: _timeAgo(c.date) },
+                ])
+            );
+        } catch (e) {
+            const body = document.querySelector('.modal-body');
+            if (body) body.innerHTML = `<div class="modal-inline-error">${esc(e.message)}</div>`;
+        }
+    }
+
+    /** Placeholder: .gitignore wizard — TODO Phase 3 */
+    function gitIgnoreWizard() {
+        modalOpen({
+            title: '📝 Generate .gitignore',
+            body: `<p style="color:var(--text-muted);text-align:center;padding:var(--space-lg)">` +
+                  `Stack-aware .gitignore generator — coming soon</p>`,
+            size: 'narrow',
+            footerButtons: [
+                { label: 'Close', cls: 'btn-secondary', onclick: 'modalClose()' },
+            ],
+        });
+    }
+

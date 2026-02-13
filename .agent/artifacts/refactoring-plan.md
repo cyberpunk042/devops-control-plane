@@ -253,6 +253,10 @@ Can likely be left as-is (553 is just over 500). If desired split:
 7. **`routes_vault.py`** — borderline, lower priority
 8. **`content_crypto.py`** — borderline, lower priority
 9. **`routes_secrets.py`** — smallest, lowest priority
+10. ~~**`_integrations.html`** — largest template monolith~~ ✅ **DONE** (2026-02-12) — 4,358 → 11 files (loader + 10 children)
+11. ~~**`_devops.html`** — second largest template monolith~~ ✅ **DONE** (2026-02-12) — 2,303 → 10 files (loader + 10 children)
+12. ~~**`_wizard.html`** — setup wizard monolith~~ ✅ **DONE** (2026-02-12) — 2,116 → 6 files (loader + 6 children)
+13. ~~**`_audit.html`** — audit tab monolith~~ ✅ **DONE** (2026-02-12) — 1,382 → 5 files (loader + 5 children)
 
 ---
 

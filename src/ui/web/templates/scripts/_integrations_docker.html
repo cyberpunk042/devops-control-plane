@@ -1,0 +1,489 @@
+<!-- Integrations Tab JS — Docker Card
+     loadDockerCard(), live tabs (containers, images, compose, networks, volumes),
+     logs, inspect, pull image, exec, remove, generate modals (Dockerfile, Compose).
+     Depends on: _integrations_init.html (card registry)
+-->
+    // ── Docker Card ─────────────────────────────────────────────────────
+
+    async function loadDockerCard() {
+        const badge = document.getElementById('int-docker-badge');
+        const detail = document.getElementById('int-docker-detail');
+
+        try {
+            const cached = cardCached('docker');
+            const data = cached || await api('/docker/status');
+            if (!cached) cardStore('docker', data);
+
+            // ── Not installed ──
+            if (!data.available) {
+                badge.className = 'status-badge failed';
+                badge.innerHTML = '<span class="status-dot"></span>Not installed';
+                let html = cardEmpty('🐳', 'Docker CLI not found.',
+                    { label: 'Install Docker →', onclick: "window.open('https://docs.docker.com/get-docker/','_blank')" });
+                // Show detected files even without Docker
+                const hasFiles = (data.dockerfiles && data.dockerfiles.length) || data.has_compose;
+                if (hasFiles) {
+                    html += cardDetectionList([
+                        ...(data.dockerfiles||[]).map(f => ({ icon: '📄', label: 'Dockerfile', value: f, click: `openFileInEditor('${esc(f)}','edit')` })),
+                        ...(data.has_compose ? [{ icon: '📋', label: 'Compose', value: data.compose_file || 'docker-compose.yml', click: `openFileInEditor('${esc(data.compose_file||'docker-compose.yml')}','edit')` }] : []),
+                    ]);
+                }
+                html += cardGenerateToolbar([
+                    { label: 'Dockerfile', icon: '📄', onclick: "_intDockerGenerate('dockerfile')" },
+                    { label: '.dockerignore', icon: '🚫', onclick: "_intDockerGenerate('dockerignore')" },
+                    { label: 'Compose', icon: '📋', onclick: "_intDockerGenerate('compose')" },
+                ]);
+                detail.innerHTML = html;
+                return;
+            }
+
+            // ── Daemon not running ──
+            if (!data.daemon_running) {
+                badge.className = 'status-badge degraded';
+                badge.innerHTML = '<span class="status-dot"></span>Daemon off';
+                let html = cardStatusGrid([
+                    { label: 'CLI', value: data.version || 'installed', cls: 'ok' },
+                    { label: 'Daemon', value: 'Stopped', cls: 'warn' },
+                ]);
+                html += `<div style="margin-top:var(--space-sm);font-size:0.82rem;color:var(--warning)">` +
+                    `⚠ Start Docker Desktop or <code style="font-family:var(--font-mono);background:var(--bg-inset);padding:1px 6px;border-radius:4px">sudo systemctl start docker</code></div>`;
+                const hasFiles = (data.dockerfiles && data.dockerfiles.length) || data.has_compose;
+                if (hasFiles) {
+                    html += cardDetectionList([
+                        ...(data.dockerfiles||[]).map(f => ({ icon: '📄', label: 'Dockerfile', value: f, click: `openFileInEditor('${esc(f)}','edit')` })),
+                        ...(data.has_compose ? [{ icon: '📋', label: 'Compose', value: data.compose_file || 'docker-compose.yml', click: `openFileInEditor('${esc(data.compose_file||'docker-compose.yml')}','edit')` }] : []),
+                    ]);
+                }
+                const genItems = [];
+                if (!data.has_dockerfile) genItems.push({ label: 'Dockerfile', icon: '📄', onclick: "_intDockerGenerate('dockerfile')" });
+                genItems.push({ label: '.dockerignore', icon: '🚫', onclick: "_intDockerGenerate('dockerignore')" });
+                if (!data.has_compose) genItems.push({ label: 'Compose', icon: '📋', onclick: "_intDockerGenerate('compose')" });
+                html += cardGenerateToolbar(genItems);
+                detail.innerHTML = html;
+                return;
+            }
+
+            // ── Daemon running — full card ──
+            badge.className = 'status-badge ok';
+            if (data.compose_available && data.has_compose) {
+                const sc = (data.compose_services || []).length;
+                badge.innerHTML = `<span class="status-dot"></span>${sc} service${sc !== 1 ? 's' : ''}`;
+            } else if (data.has_dockerfile) {
+                badge.innerHTML = '<span class="status-dot"></span>Ready';
+            } else {
+                badge.className = 'status-badge degraded';
+                badge.innerHTML = '<span class="status-dot"></span>No config';
+            }
+
+            // Status grid
+            const stats = [
+                { label: 'Docker', value: (data.version || '').replace('Docker version ', '').split(',')[0], cls: 'ok' },
+            ];
+            if (data.compose_available) stats.push({ label: 'Compose', value: data.compose_version || '✓', cls: 'ok' });
+            if (data.compose_services && data.compose_services.length > 0) {
+                stats.push({ label: 'Services', value: String(data.compose_services.length) });
+            }
+            let html = cardStatusGrid(stats);
+
+            // Detection list (files)
+            const detections = [];
+            (data.dockerfiles||[]).forEach(f => detections.push({ icon: '📄', label: 'Dockerfile', value: f, click: `openFileInEditor('${esc(f)}','edit')` }));
+            if (data.has_compose) detections.push({ icon: '📋', label: 'Compose', value: data.compose_file || 'docker-compose.yml', click: `openFileInEditor('${esc(data.compose_file||'docker-compose.yml')}','edit')` });
+            if (detections.length) html += cardDetectionList(detections);
+
+            // Live panel
+            const liveTabs = [
+                { key: 'containers', label: '📦 Containers' },
+                { key: 'images', label: '🖼 Images' },
+            ];
+            if (data.has_compose) liveTabs.push({ key: 'compose', label: '📋 Services' });
+            liveTabs.push({ key: 'stats', label: '📊 Stats' });
+            if (data.compose_services && data.compose_services.length > 0) liveTabs.push({ key: 'logs', label: '📜 Logs' });
+            liveTabs.push({ key: 'networks', label: '🌐 Networks' });
+            liveTabs.push({ key: 'volumes', label: '💾 Volumes' });
+            html += cardLivePanel('int-docker-live', liveTabs, '_dockerLiveTab');
+
+            // Actions
+            if (data.has_compose) {
+                html += cardActionToolbar([
+                    { label: 'Start', icon: '▶', onclick: "_intDockerAction('up', this)", cls: 'btn-primary' },
+                    { label: 'Stop', icon: '⏹', onclick: "_intDockerAction('down', this)" },
+                    { label: 'Restart', icon: '🔄', onclick: "_intDockerAction('restart', this)" },
+                    { label: 'Build', icon: '🔨', onclick: "_intDockerAction('build', this)" },
+                    { label: 'No-cache', icon: '🔨', onclick: "_intDockerAction('build-nc', this)", cls: 'btn-ghost' },
+                    { label: 'Prune', icon: '🧹', onclick: "_intDockerAction('prune', this)", cls: 'btn-ghost' },
+                    { label: 'Pull', icon: '⬇️', onclick: '_dockerPullModal()', cls: 'btn-ghost' },
+                    { label: 'Exec', icon: '💻', onclick: '_dockerExecModal()', cls: 'btn-ghost' },
+                ]);
+                html += `<div id="int-docker-action-output" style="display:none;margin-top:var(--space-sm);background:var(--bg-inset);border:1px solid var(--border-subtle);border-radius:6px;padding:0.4rem 0.5rem;font-size:0.72rem;max-height:200px;overflow:auto;font-family:var(--font-mono,monospace);white-space:pre-wrap"></div>`;
+            } else if (data.has_dockerfile) {
+                html += `<div style="margin-top:var(--space-sm);font-size:0.78rem;color:var(--text-muted)">ℹ Create a <code>docker-compose.yml</code> to unlock Start/Stop/Build controls.</div>`;
+            }
+
+            // Generate
+            const genItems = [];
+            if (!data.has_dockerfile) genItems.push({ label: 'Dockerfile', icon: '📄', onclick: "_intDockerGenerate('dockerfile')" });
+            genItems.push({ label: '.dockerignore', icon: '🚫', onclick: "_intDockerGenerate('dockerignore')" });
+            if (!data.has_compose) genItems.push({ label: 'docker-compose.yml', icon: '📋', onclick: "_intDockerGenerate('compose')" });
+            html += cardGenerateToolbar(genItems);
+
+            detail.innerHTML = html;
+
+        } catch (e) {
+            badge.className = 'status-badge failed';
+            badge.innerHTML = '<span class="status-dot"></span>Error';
+            detail.innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(e.message)}</p>`;
+        }
+    }
+
+    // ── Docker: live tab handler ──────────────────────────────────────
+
+    async function _dockerLiveTab(what, panelId) {
+        const panel = document.getElementById(panelId);
+        if (!panel) return;
+        panel.innerHTML = '<span class="spinner"></span> Loading…';
+
+        try {
+            if (what === 'containers') {
+                const data = await api('/docker/containers?all=true');
+                const list = data.containers || [];
+                if (list.length === 0) { panel.innerHTML = '<span style="color:var(--text-muted)">No containers found.</span>'; return; }
+                panel.innerHTML = cardDataTable(
+                    ['', 'Name', 'Status', 'Image'],
+                    list.map(c => [
+                        { text: '●', cls: c.state === 'running' ? 'ok' : 'muted' },
+                        { text: c.name || c.names || '—', cls: 'name' },
+                        { text: c.status || c.state || '—' },
+                        { text: c.image || '—' },
+                    ])
+                );
+            } else if (what === 'images') {
+                const data = await api('/docker/images');
+                const list = data.images || [];
+                if (list.length === 0) { panel.innerHTML = '<span style="color:var(--text-muted)">No images found.</span>'; return; }
+                panel.innerHTML = cardDataTable(
+                    ['Repository', 'Tag', 'Size'],
+                    list.map(img => [
+                        { text: img.repository || '—', cls: 'name' },
+                        { text: img.tag || '—' },
+                        { text: img.size || '—' },
+                    ])
+                );
+            } else if (what === 'compose') {
+                const data = await api('/docker/compose/status');
+                const services = data.services || [];
+                if (data.error) { panel.innerHTML = `<span style="color:var(--error)">${esc(data.error)}</span>`; return; }
+                if (services.length === 0) { panel.innerHTML = '<span style="color:var(--text-muted)">No compose services found.</span>'; return; }
+                panel.innerHTML = cardDataTable(
+                    ['', 'Service', 'State', 'Ports'],
+                    services.map(s => [
+                        { text: '●', cls: s.state === 'running' ? 'ok' : 'muted' },
+                        { text: s.name || s.service || '—', cls: 'name' },
+                        { text: s.state || s.status || '—' },
+                        { text: s.ports || s.publishers || '—' },
+                    ])
+                );
+            } else if (what === 'stats') {
+                const data = await api('/docker/stats');
+                const stats = data.stats || data.containers || [];
+                if (stats.length === 0) { panel.innerHTML = '<span style="color:var(--text-muted)">No running containers for stats.</span>'; return; }
+                panel.innerHTML = cardDataTable(
+                    ['Name', 'CPU', 'Mem', 'Net I/O'],
+                    stats.map(s => [
+                        { text: s.name || s.container || '—', cls: 'name' },
+                        { text: s.cpu_percent || s.cpu || '—', cls: 'accent' },
+                        { text: s.mem_usage || s.memory || '—' },
+                        { text: s.net_io || s.network || '—' },
+                    ])
+                );
+            } else if (what === 'logs') {
+                const statusData = cardCached('docker') || {};
+                const services = statusData.compose_services || [];
+                if (services.length === 0) { panel.innerHTML = '<span style="color:var(--text-muted)">No compose services available for logs.</span>'; return; }
+                panel.innerHTML = `
+                    <div style="display:flex;align-items:center;gap:0.4rem;margin-bottom:0.4rem">
+                        <label style="font-size:0.72rem;font-weight:600;color:var(--text-muted)">Service:</label>
+                        <select id="int-docker-log-svc" style="font-size:0.72rem;padding:0.15rem 0.3rem;border-radius:4px;border:1px solid var(--border-subtle);background:var(--bg-inset);color:var(--text-primary);font-family:var(--font-mono)">
+                            ${services.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('')}
+                        </select>
+                        <select id="int-docker-log-tail" style="font-size:0.72rem;padding:0.15rem 0.3rem;border-radius:4px;border:1px solid var(--border-subtle);background:var(--bg-inset);color:var(--text-primary)">
+                            <option value="50">50 lines</option>
+                            <option value="100" selected>100 lines</option>
+                            <option value="250">250 lines</option>
+                            <option value="500">500 lines</option>
+                        </select>
+                        <button class="btn btn-sm btn-ghost" onclick="_intDockerFetchLogs()" style="font-size:0.72rem;padding:0.15rem 0.4rem">📜 Fetch</button>
+                    </div>
+                    <div id="int-docker-log-output" style="white-space:pre-wrap;max-height:180px;overflow:auto;color:var(--text-muted);font-size:0.68rem">Select a service and click Fetch.</div>`;
+            } else if (what === 'networks') {
+                const data = await api('/docker/networks');
+                const list = data.networks || [];
+                if (list.length === 0) { panel.innerHTML = '<span style="color:var(--text-muted)">No networks found.</span>'; return; }
+                panel.innerHTML = cardDataTable(
+                    ['Name', 'Driver', 'Scope'],
+                    list.map(n => [
+                        { text: n.name || '—', cls: 'name' },
+                        { text: n.driver || '—' },
+                        { text: n.scope || '—' },
+                    ])
+                );
+            } else if (what === 'volumes') {
+                const data = await api('/docker/volumes');
+                const list = data.volumes || [];
+                if (list.length === 0) { panel.innerHTML = '<span style="color:var(--text-muted)">No volumes found.</span>'; return; }
+                panel.innerHTML = cardDataTable(
+                    ['Name', 'Driver'],
+                    list.map(v => [
+                        { text: v.name || '—', cls: 'name' },
+                        { text: v.driver || '—' },
+                    ])
+                );
+            }
+        } catch (e) {
+            panel.innerHTML = `<span style="color:var(--error)">${esc(e.message)}</span>`;
+        }
+    }
+
+    // ── Docker: fetch logs for selected service ────────────────────────
+
+    async function _intDockerFetchLogs() {
+        const svcEl = document.getElementById('int-docker-log-svc');
+        const tailEl = document.getElementById('int-docker-log-tail');
+        const output = document.getElementById('int-docker-log-output');
+        if (!svcEl || !output) return;
+
+        const svc = svcEl.value;
+        const tail = tailEl ? tailEl.value : '100';
+        output.innerHTML = '<span class="spinner"></span> Loading logs…';
+
+        try {
+            const data = await api(`/docker/logs?service=${encodeURIComponent(svc)}&tail=${tail}`);
+            if (data.error) {
+                output.innerHTML = `<span style="color:var(--error)">${esc(data.error)}</span>`;
+            } else {
+                const logs = data.logs || data.output || '';
+                output.textContent = logs || '(no output)';
+                output.scrollTop = output.scrollHeight;
+            }
+        } catch (e) {
+            output.innerHTML = `<span style="color:var(--error)">Error: ${esc(e.message)}</span>`;
+        }
+    }
+
+    // ── Docker: inspect container ──────────────────────────────────────
+
+    async function _intDockerInspect(containerId) {
+        modalOpen({
+            title: '🔍 Container Detail',
+            body: '<span class="spinner"></span> Loading…',
+            footerButtons: [{ label: 'Close', cls: 'btn-secondary', onclick: 'modalClose()' }],
+        });
+
+        try {
+            const data = await api(`/docker/inspect?id=${encodeURIComponent(containerId)}`);
+            const d = data.detail || {};
+            const state = d.state || {};
+            const body = document.querySelector('.modal-body');
+            if (!body) return;
+            body.innerHTML = `
+            <div style="font-size:0.82rem;line-height:1.7">
+                <div><strong>Name:</strong> ${esc(d.name || '—')}</div>
+                <div><strong>Image:</strong> <code>${esc(d.image || '—')}</code></div>
+                <div><strong>State:</strong> <span style="color:${state.Running ? 'var(--success)' : 'var(--text-muted)'}">${esc(state.Status || '—')}</span></div>
+                <div><strong>Created:</strong> ${esc(d.created || '—')}</div>
+                <div><strong>Platform:</strong> ${esc(d.platform || '—')}</div>
+                <div><strong>Restart Policy:</strong> ${esc((d.restart_policy||{}).Name || 'no')}</div>
+                <div style="margin-top:var(--space-sm)"><strong>CMD:</strong> <code>${esc((d.cmd||[]).join(' ') || '—')}</code></div>
+                ${(d.mounts||[]).length ? `<div style="margin-top:var(--space-sm)"><strong>Mounts:</strong> ${d.mounts.map(m=>`<div style="font-size:0.72rem;color:var(--text-muted);margin-left:0.5rem">${esc(m.source)} → ${esc(m.destination)} ${m.mode?'('+esc(m.mode)+')':''}</div>`).join('')}</div>` : ''}
+                ${Object.keys(d.ports||{}).length ? `<div style="margin-top:var(--space-sm)"><strong>Ports:</strong> <code style="font-size:0.72rem">${esc(JSON.stringify(d.ports))}</code></div>` : ''}
+            </div>`;
+        } catch (e) {
+            const body = document.querySelector('.modal-body');
+            if (body) body.innerHTML = `<span style="color:var(--error)">${esc(e.message)}</span>`;
+        }
+    }
+
+    // ── Docker: pull image modal ───────────────────────────────────────
+
+    function _dockerPullModal() {
+        modalOpen({
+            title: '⬇️ Pull Docker Image',
+            body: modalFormField({name: 'docker-pull-img', label: 'Image name', type: 'text', value: 'nginx:latest', placeholder: 'e.g. nginx:latest'}) +
+                  `<div id="docker-pull-out" style="display:none;margin-top:var(--space-sm);max-height:120px;overflow:auto;background:var(--bg-inset);border:1px solid var(--border-subtle);border-radius:6px;padding:0.4rem;font-size:0.72rem;font-family:var(--font-mono);white-space:pre-wrap"></div>`,
+            footerButtons: [
+                { label: 'Cancel', cls: 'btn-secondary', onclick: 'modalClose()' },
+                { label: '⬇️ Pull', cls: 'btn-primary', onclick: '_dockerPullExec()' },
+            ],
+        });
+    }
+
+    async function _dockerPullExec() {
+        const imageInput = document.getElementById('mf-docker-pull-img');
+        const output = document.getElementById('docker-pull-out');
+        if (!imageInput || !output) return;
+        const image = imageInput.value.trim();
+        if (!image) { toast('Enter an image name', 'warning'); return; }
+        output.style.display = 'block';
+        output.innerHTML = '<span class="spinner"></span> Pulling…';
+        try {
+            const data = await apiPost('/docker/pull', {image});
+            if (data.error) { output.innerHTML = `<span style="color:var(--error)">${esc(data.error)}</span>`; }
+            else { output.textContent = data.output || 'Pull complete'; toast(`Pulled ${image}`, 'success'); }
+        } catch (e) { output.innerHTML = `<span style="color:var(--error)">${esc(e.message)}</span>`; }
+    }
+
+    // ── Docker: exec modal ─────────────────────────────────────────────
+
+    async function _dockerExecModal() {
+        // Fetch running containers for dropdown
+        let containerOpts = '<option value="">Loading…</option>';
+        try {
+            const cdata = await api('/docker/containers?all=false');
+            const running = (cdata.containers || []).filter(c => c.state === 'running');
+            if (running.length === 0) { containerOpts = '<option value="">No running containers</option>'; }
+            else { containerOpts = running.map(c => `<option value="${esc(c.name||c.id)}">${esc(c.name||c.id)}</option>`).join(''); }
+        } catch(e) { containerOpts = `<option value="">Error: ${esc(e.message)}</option>`; }
+
+        modalOpen({
+            title: '💻 Execute Command',
+            body: `<div style="display:flex;gap:0.5rem;align-items:center;margin-bottom:var(--space-sm)">` +
+                `<label style="font-size:0.82rem;white-space:nowrap">Container:</label>` +
+                `<select id="docker-exec-ctr" style="flex:1;padding:0.3rem;border-radius:4px;border:1px solid var(--border-subtle);background:var(--bg-inset);color:var(--text-primary);font-family:var(--font-mono);font-size:0.78rem">${containerOpts}</select></div>` +
+                modalFormField({name: 'docker-exec-cmd', label: 'Command', type: 'text', placeholder: 'ls -la /app'}) +
+                `<pre id="docker-exec-out" style="display:none;max-height:200px;overflow:auto;background:var(--bg-inset);border:1px solid var(--border-subtle);border-radius:6px;padding:0.4rem;font-size:0.72rem;white-space:pre-wrap;font-family:var(--font-mono)"></pre>`,
+            footerButtons: [
+                { label: 'Close', cls: 'btn-secondary', onclick: 'modalClose()' },
+                { label: '▶ Run', cls: 'btn-primary', onclick: '_dockerExecRun()' },
+            ],
+        });
+    }
+
+    async function _dockerExecRun() {
+        const container = document.getElementById('docker-exec-ctr')?.value;
+        const command = document.getElementById('mf-docker-exec-cmd')?.value?.trim();
+        const output = document.getElementById('docker-exec-out');
+        if (!container || !command || !output) { toast('Select container and enter command', 'warning'); return; }
+        output.style.display = 'block';
+        output.innerHTML = '<span class="spinner"></span> Running…';
+        try {
+            const data = await apiPost('/docker/exec', {container, command});
+            output.textContent = data.output || data.stderr || '(no output)';
+            if (!data.ok) output.style.color = 'var(--error)';
+            else output.style.color = 'var(--text-primary)';
+        } catch (e) { output.innerHTML = `<span style="color:var(--error)">${esc(e.message)}</span>`; }
+    }
+
+    // ── Docker: remove container / image actions ───────────────────────
+
+    async function _intDockerRm(containerId, force) {
+        if (!confirm(`Remove container ${containerId}?`)) return;
+        try {
+            const data = await apiPost('/docker/rm', {container: containerId, force: !!force});
+            if (data.error) toast(data.error, 'error');
+            else { toast(`Removed ${containerId}`, 'success'); _dockerLiveTab('containers','int-docker-live'); }
+        } catch (e) { toast(e.message, 'error'); }
+    }
+
+    async function _intDockerRmi(imageRef, force) {
+        if (!confirm(`Remove image ${imageRef}?`)) return;
+        try {
+            const data = await apiPost('/docker/rmi', {image: imageRef, force: !!force});
+            if (data.error) toast(data.error, 'error');
+            else { toast(`Removed ${imageRef}`, 'success'); _dockerLiveTab('images','int-docker-live'); }
+        } catch (e) { toast(e.message, 'error'); }
+    }
+
+    // ── Docker: generate modals ────────────────────────────────────────
+
+    async function _intDockerGenerate(what) {
+        if (what === 'dockerfile') {
+            modalOpen({
+                title: '📄 Generate Dockerfile',
+                body: `<p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:var(--space-sm)">Select a stack to generate a Dockerfile for:</p>` +
+                      `<div id="dg-stacks" style="margin-bottom:var(--space-md)"><span class="spinner"></span> Loading stacks…</div>` +
+                      `<div id="dg-preview-wrap" style="display:none;margin-bottom:var(--space-md)">` +
+                      modalPreview('Preview', '', 'dg-preview-code') + `</div>`,
+                footerButtons: [
+                    { label: 'Cancel', cls: 'btn-secondary', onclick: 'modalClose()' },
+                    { label: '💾 Write to disk', cls: 'btn-primary', id: 'dg-write', disabled: true, onclick: '_dockerWriteGen()', style: 'display:none' },
+                ],
+            });
+
+            try {
+                const stacks = await api('/stacks');
+                const names = Object.keys(stacks);
+                const container = document.getElementById('dg-stacks');
+                if (!container) return;
+                if (names.length === 0) { container.innerHTML = '<span style="color:var(--text-muted)">No stacks detected.</span>'; return; }
+                container.innerHTML = `<div style="display:flex;flex-wrap:wrap;gap:0.3rem">${names.map(n =>
+                    `<button class="btn btn-sm btn-ghost" onclick="_dockerGenDockerfile('${esc(n)}')" style="font-size:0.72rem;padding:0.15rem 0.5rem;font-family:var(--font-mono)">${esc(n)}</button>`
+                ).join('')}</div>`;
+            } catch (e) {
+                const c = document.getElementById('dg-stacks');
+                if (c) c.innerHTML = `<span style="color:var(--error)">${esc(e.message)}</span>`;
+            }
+
+        } else if (what === 'dockerignore') {
+            modalOpen({
+                title: '🚫 Generate .dockerignore',
+                body: `<p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:var(--space-sm)">Generating .dockerignore from detected stacks…</p>` +
+                      modalPreview('Preview', 'Generating…', 'dg-preview-code'),
+                footerButtons: [
+                    { label: 'Cancel', cls: 'btn-secondary', onclick: 'modalClose()' },
+                    { label: '💾 Write to disk', cls: 'btn-primary', id: 'dg-write', disabled: true, onclick: '_dockerWriteGen()' },
+                ],
+            });
+
+            try {
+                const stacks = await api('/stacks');
+                const names = Object.keys(stacks);
+                const data = await api('/docker/generate/dockerignore', { method: 'POST', body: JSON.stringify({ stacks: names }) });
+                const preview = document.getElementById('dg-preview-code');
+                const writeBtn = document.getElementById('dg-write');
+                if (data.file) {
+                    if (preview) preview.textContent = data.file.content || '(empty)';
+                    if (writeBtn) { writeBtn.disabled = false; writeBtn.dataset.file = JSON.stringify(data.file); }
+                } else {
+                    if (preview) preview.textContent = data.error || 'No content generated.';
+                }
+            } catch (e) {
+                const c = document.getElementById('dg-preview-code');
+                if (c) c.textContent = 'Error: ' + e.message;
+            }
+
+        } else if (what === 'compose') {
+            // Compose Wizard — complex body, use modalOpen for wrapping
+            modalOpen({
+                title: '📋 Compose Wizard',
+                size: 'wide',
+                body: `
+                    <div style="margin-bottom:var(--space-sm)">
+                        <label style="font-size:0.78rem;font-weight:600;color:var(--text-secondary)">Project Name (optional)</label>
+                        <input type="text" id="cw-project-name" placeholder="my-project" style="width:100%;padding:0.35rem 0.5rem;font-size:0.8rem;background:var(--bg-inset);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);margin-top:0.15rem">
+                    </div>
+                    <div style="display:flex;align-items:center;gap:0.25rem;margin-bottom:var(--space-sm);flex-wrap:wrap">
+                        <div id="cw-svc-tabs" style="display:flex;gap:0.2rem;flex-wrap:wrap"></div>
+                        <button class="btn btn-sm btn-ghost" onclick="_cwAddService()" style="font-size:0.72rem;padding:0.1rem 0.35rem;color:var(--accent)">+ Add Service</button>
+                    </div>
+                    <div id="cw-svc-form" style="border:1px solid var(--border-subtle);border-radius:8px;padding:var(--space-sm);background:var(--bg-inset)"></div>
+                    <div style="margin-top:var(--space-sm)">
+                        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.2rem">
+                            <span style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase">Preview</span>
+                            <button class="btn btn-sm btn-ghost" onclick="_cwRefreshPreview()" style="font-size:0.68rem;padding:0.1rem 0.3rem">🔄 Refresh</button>
+                        </div>
+                        <pre id="cw-preview" style="max-height:250px;overflow:auto;background:var(--bg-primary);border:1px solid var(--border-subtle);border-radius:6px;padding:0.5rem;font-size:0.72rem;white-space:pre-wrap;font-family:var(--font-mono);color:var(--text-secondary)">Add a service to begin…</pre>
+                    </div>`,
+                footerButtons: [
+                    { label: 'Cancel', cls: 'btn-secondary', onclick: 'modalClose()' },
+                    { label: '📝 Open in Editor', cls: 'btn-ghost', id: 'cw-open-editor', style: 'display:none', onclick: '_cwOpenInEditor()' },
+                    { label: '💾 Write to disk', cls: 'btn-primary', id: 'cw-write', disabled: true, onclick: '_cwWriteToDisk()' },
+                ],
+            });
+
+            window._cwServices = [];
+            window._cwActiveIdx = -1;
+            window._cwGenerated = null;
+            _cwAddService();
+        }
+    }
+

@@ -1,0 +1,190 @@
+<!-- DevOps Tab JS — Documentation Card
+     loadDocsCard(), doc live data panels.
+     Depends on: _devops_init.html (card registry)
+-->
+    // ── Documentation Card ─────────────────────────────────────────────
+
+    async function loadDocsCard() {
+        const badge = document.getElementById('devops-docs-badge');
+        const detail = document.getElementById('devops-docs-detail');
+        const cached = cardCached('docs');
+        const data = cached || await api('/docs/status').catch(e => ({ _err: e }));
+        if (data._err) {
+            badge.className = 'status-badge failed';
+            badge.innerHTML = '<span class="status-dot"></span>Error';
+            detail.innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(data._err.message)}</p>`;
+            return;
+        }
+        if (!cached) cardStore('docs', data);
+
+        const readme = data.readme || {};
+        const docDirs = data.doc_dirs || [];
+        const apiSpecs = data.api_specs || [];
+        const changelog = data.changelog || {};
+        const license = data.license || {};
+        const contributing = data.contributing || {};
+        const docFiles = data.doc_files || 0;
+
+        // Badge based on presence of key docs
+        const hasCore = readme.exists && changelog.exists;
+        badge.className = 'status-badge ' + (hasCore ? 'ok' : 'degraded');
+        badge.innerHTML = `<span class="status-dot"></span>${docFiles} docs`;
+
+        let html = `<div style="font-size:0.85rem;color:var(--text-secondary);line-height:1.5">`;
+
+        // ── Key project files ───────────────────────────────────────
+        html += `<div style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.3rem" title="Essential project documentation files">Key Files</div>`;
+        const items = [
+            { exists: readme.exists, name: 'README', extra: readme.headings ? `${readme.headings.length} sections` : '', desc: 'Primary project documentation — the first thing users see' },
+            { exists: changelog.exists, name: 'CHANGELOG', extra: '', desc: 'Version history and release notes' },
+            { exists: license.exists, name: 'LICENSE', extra: '', desc: 'Open-source license or usage terms' },
+            { exists: contributing.exists, name: 'CONTRIBUTING', extra: '', desc: 'Guidelines for contributors' },
+        ];
+        items.forEach(item => {
+            html += `<div style="display:flex;align-items:center;gap:0.4rem;padding:0.15rem 0;font-size:0.75rem" title="${esc(item.desc)}">
+                <span>${item.exists ? '✅' : '❌'}</span>
+                <span style="font-weight:600;color:var(--text-primary)">${item.name}</span>
+                ${item.extra ? `<span style="font-size:0.64rem;color:var(--text-muted)">(${item.extra})</span>` : ''}
+                ${!item.exists ? `<span style="font-size:0.62rem;color:var(--warning)">missing</span>` : ''}
+            </div>`;
+        });
+
+        // ── Doc directories ─────────────────────────────────────────
+        if (docDirs.length) {
+            html += `<div style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;margin:var(--space-sm) 0 0.3rem" title="Documentation directories detected in your project">Doc Directories</div>`;
+            docDirs.forEach(d => {
+                html += `<div style="display:flex;align-items:center;gap:0.4rem;padding:0.15rem 0.5rem;margin-bottom:0.15rem;background:var(--bg-inset);border-radius:5px;font-size:0.72rem">
+                    <span>📁</span>
+                    <span style="font-weight:600;color:var(--text-primary)">${esc(d.name)}</span>
+                    <span style="color:var(--text-muted);font-size:0.64rem">${d.file_count} file${d.file_count!==1?'s':''}</span>
+                    ${d.total_size ? `<span style="color:var(--text-muted);font-size:0.64rem">· ${(d.total_size/1024).toFixed(0)}KB</span>` : ''}
+                </div>`;
+            });
+        }
+
+        // ── API specifications ──────────────────────────────────────
+        if (apiSpecs.length) {
+            html += `<div style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;margin:var(--space-sm) 0 0.3rem" title="Detected API specification files (OpenAPI, Swagger, GraphQL, etc.)">API Specifications</div>`;
+            apiSpecs.forEach(s => {
+                html += `<div style="display:flex;align-items:center;gap:0.4rem;font-size:0.72rem;padding:0.15rem 0">
+                    <span>📡</span>
+                    <code style="font-family:var(--font-mono);color:var(--accent);font-size:0.68rem">${esc(s.file)}</code>
+                    <span style="font-size:0.6rem;padding:0.05rem 0.3rem;border:1px solid var(--accent);border-radius:3px;color:var(--accent)">${esc(s.type||'')} ${esc(s.format||'')}</span>
+                </div>`;
+            });
+        }
+
+        // ── Summary ─────────────────────────────────────────────────
+        html += `<div style="font-size:0.68rem;color:var(--text-muted);margin-top:var(--space-sm)" title="Total documentation files across all formats (.md, .rst, .txt, .adoc, etc.)">
+            📄 <strong>${docFiles}</strong> documentation file${docFiles!==1?'s':''} total
+        </div>`;
+
+        // ── Actions ─────────────────────────────────────────────────
+        html += `<div style="display:flex;gap:var(--space-sm);margin-top:var(--space-md);flex-wrap:wrap">
+            <button class="btn btn-sm btn-secondary" onclick="docsCoverage()" title="Check per-module documentation coverage — which modules have READMEs and doc files">📊 Coverage</button>
+            <button class="btn btn-sm btn-secondary" onclick="docsCheckLinks()" title="Scan all markdown files for broken internal links and anchors">🔗 Check Links</button>
+            <button class="btn btn-sm btn-ghost" onclick="docsGenChangelog()" title="Auto-generate CHANGELOG.md from git commit history using conventional commit formatting">📝 Gen Changelog</button>
+            <button class="btn btn-sm btn-ghost" onclick="docsGenReadme()" title="Auto-generate README.md template from project metadata (project.yml)">📄 Gen README</button>
+        </div>`;
+        html += `</div>`;
+        detail.innerHTML = html;
+    }
+
+    async function docsCoverage() {
+        modalOpen({
+            title: '📊 Documentation Coverage',
+            body: `<p style="font-size:0.75rem;color:var(--text-muted);margin-bottom:var(--space-md)">Per-module documentation health — checks for README presence, doc files, and API specs in each detected module.</p>
+                <div id="doc-cov-body" style="max-height:450px;overflow-y:auto"><span class="spinner"></span></div>`,
+            footerButtons: [
+                { label: 'Close', cls: 'btn-primary', onclick: 'modalClose()' },
+            ],
+        });
+        try {
+            const data = await api('/docs/coverage');
+            const body = document.getElementById('doc-cov-body');
+            const modules = data.modules || [];
+            const pct = data.coverage != null ? Math.round(data.coverage * 100) : '?';
+            const covColor = pct >= 80 ? 'var(--success)' : pct >= 50 ? 'var(--warning)' : 'var(--error)';
+            let h = `<div style="display:flex;align-items:center;gap:0.6rem;margin-bottom:var(--space-sm)">
+                <span style="font-size:1.3rem;font-weight:700;color:${covColor}">${pct}%</span>
+                <div style="flex:1">
+                    <div style="height:5px;border-radius:3px;background:var(--bg-inset);overflow:hidden">
+                        <div style="height:100%;width:${pct}%;background:${covColor};border-radius:3px"></div>
+                    </div>
+                </div>
+                <span style="font-size:0.72rem;color:var(--text-muted)">${data.documented||0}/${data.total||0} modules</span>
+            </div>`;
+            if (modules.length) {
+                modules.forEach(m => {
+                    h += `<div style="display:flex;gap:0.5rem;align-items:center;padding:0.3rem 0;border-bottom:1px solid var(--border-subtle);font-size:0.75rem">
+                        <span title="${m.has_readme ? 'Has README' : 'No README'}">${m.has_readme?'✅':'❌'}</span>
+                        <span style="font-weight:600;color:var(--text-primary);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(m.path||'')}">${esc(m.name)}</span>
+                        <span style="color:var(--text-muted);font-size:0.66rem">${m.doc_files||0} docs${m.has_api_spec?' · 📡 API':''}</span>
+                    </div>`;
+                });
+            }
+            body.innerHTML = h;
+        } catch (e) {
+            document.getElementById('doc-cov-body').innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(e.message)}</p>`;
+        }
+    }
+
+    async function docsCheckLinks() {
+        modalOpen({
+            title: '🔗 Link Check Results',
+            body: `<p style="font-size:0.75rem;color:var(--text-muted);margin-bottom:var(--space-md)">Scans all markdown files for broken internal links (relative paths and anchors). Does not check external URLs.</p>
+                <div id="doc-links-body" style="max-height:450px;overflow-y:auto"><span class="spinner"></span></div>`,
+            size: 'wide',
+            footerButtons: [
+                { label: 'Close', cls: 'btn-primary', onclick: 'modalClose()' },
+            ],
+        });
+        try {
+            const data = await api('/docs/links');
+            const body = document.getElementById('doc-links-body');
+            const broken = data.broken || [];
+            let h = `<div style="display:flex;gap:0.6rem;font-size:0.78rem;margin-bottom:var(--space-sm)">
+                <span>📄 <strong>${data.files_checked||0}</strong> files</span>
+                <span>🔗 <strong>${data.total_links||0}</strong> links</span>
+                <span style="color:${broken.length ? 'var(--error)' : 'var(--success)'}">
+                    ${broken.length ? `❌ <strong>${broken.length}</strong> broken` : '✅ All valid'}
+                </span>
+            </div>`;
+            if (broken.length > 0) {
+                broken.forEach(b => {
+                    h += `<div style="display:flex;gap:0.4rem;align-items:center;padding:0.25rem 0;border-bottom:1px solid var(--border-subtle);font-size:0.72rem">
+                        <span>❌</span>
+                        <code style="font-family:var(--font-mono);color:var(--accent);font-size:0.66rem">${esc(b.file||'')}${b.line?':'+b.line:''}</code>
+                        <code style="font-family:var(--font-mono);color:var(--error);font-size:0.66rem;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(b.link||'')}">${esc(b.link||'')}</code>
+                        <span style="font-size:0.64rem;color:var(--text-muted)">${esc(b.reason||'')}</span>
+                    </div>`;
+                });
+            } else {
+                h += `<div style="font-size:0.75rem;color:var(--success);padding:0.3rem 0">✅ All ${data.total_links||0} internal links are valid.</div>`;
+            }
+            body.innerHTML = h;
+        } catch (e) {
+            document.getElementById('doc-links-body').innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(e.message)}</p>`;
+        }
+    }
+
+    async function docsGenChangelog() {
+        toast('Generating changelog…', 'info');
+        try {
+            const data = await api('/docs/generate/changelog', { method: 'POST', body: '{}' });
+            if (data.error) { toast(data.error, 'error'); return; }
+            toast(`Changelog generated (${data.commits||0} commits) ✅`, 'success');
+            cardInvalidate('docs');
+        } catch (e) { toast('Failed: ' + e.message, 'error'); }
+    }
+
+    async function docsGenReadme() {
+        toast('Generating README…', 'info');
+        try {
+            const data = await api('/docs/generate/readme', { method: 'POST', body: '{}' });
+            if (data.error) { toast(data.error, 'error'); return; }
+            toast('README generated ✅', 'success');
+            cardInvalidate('docs');
+        } catch (e) { toast('Failed: ' + e.message, 'error'); }
+    }
+

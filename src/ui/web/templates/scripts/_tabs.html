@@ -2,8 +2,16 @@
     // ── Tab switching ───────────────────────────────────────────────────
 
     let activeTab = 'dashboard';
+    let _navDepth = 0;       // how many pushState calls we've made
+    let _popstateActive = false; // suppress hashchange during popstate
 
-    function switchTab(tabId) {
+    function switchTab(tabId, { fromPopstate = false } = {}) {
+        // Guard unsaved editor changes before navigating away
+        if (typeof monacoIsDirty === 'function' && monacoIsDirty()) {
+            monacoGuardUnsaved(() => switchTab(tabId, { fromPopstate }));
+            return;
+        }
+
         // Parse compound tab IDs like 'wizard/modules' or 'content/media/docs'
         let subStep = null;
         let subParts = [];
@@ -23,9 +31,16 @@
         const tabEl = document.getElementById(`tab-${tabId}`);
         if (tabEl) tabEl.classList.add('active');
 
-        // Update URL hash (keep full compound ID)
+        // Update URL hash — push a new history entry (not replace)
         const hashParts = [tabId, ...subParts];
-        history.replaceState(null, '', `#${hashParts.join('/')}`);
+        const newHash = `#${hashParts.join('/')}`;
+        if (!fromPopstate) {
+            // Only push if this is a user-initiated navigation, not back/forward
+            if (location.hash !== newHash) {
+                history.pushState({ tab: hashParts.join('/'), depth: _navDepth }, '', newHash);
+                _navDepth++;
+            }
+        }
 
         activeTab = tabId;
 
@@ -53,6 +68,8 @@
             loadIntegrationsTab();
         } else if (tabId === 'devops') {
             loadDevopsTab();
+        } else if (tabId === 'audit') {
+            loadAuditTab();
         } else if (tabId === 'content') {
             loadContentTab(subParts);
         }
@@ -62,12 +79,30 @@
     function restoreFromHash() {
         const hash = location.hash.slice(1);
         if (hash) {
-            switchTab(hash);
+            // Replace current history entry with the initial state
+            history.replaceState({ tab: hash, depth: 0 }, '', `#${hash}`);
+            switchTab(hash, { fromPopstate: true });
+        } else {
+            history.replaceState({ tab: 'dashboard', depth: 0 }, '', '#dashboard');
         }
     }
 
     // Handle back/forward navigation
+    window.addEventListener('popstate', (e) => {
+        _popstateActive = true;
+        if (e.state && e.state.tab) {
+            _navDepth = e.state.depth || 0;
+            switchTab(e.state.tab, { fromPopstate: true });
+        } else {
+            // No state — we've gone back past our first page. Let browser handle it.
+            // (This happens naturally — we don't need to do anything.)
+        }
+        setTimeout(() => { _popstateActive = false; }, 50);
+    });
+
+    // Suppress hashchange during popstate (they fire together)
     window.addEventListener('hashchange', () => {
+        if (_popstateActive) return;
         const hash = location.hash.slice(1);
         if (hash && hash !== activeTab) {
             switchTab(hash);

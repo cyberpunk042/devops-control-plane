@@ -3,6 +3,9 @@
     <header class="tab-header">
         <h1>🔌 Integrations</h1>
         <div style="display:flex;align-items:center;gap:var(--space-md)">
+            <button class="btn btn-sm btn-ghost" onclick="openIntPrefsModal()" title="Card preferences">
+                ⚙️
+            </button>
             <button class="btn btn-sm btn-secondary" onclick="loadIntegrationsTab(true)" title="Refresh all cards">
                 🔄 Refresh All
             </button>
@@ -15,14 +18,14 @@
         <!-- ── Git Card ─────────────────────────────────────────── -->
         <div class="card" id="int-git-card">
             <div class="card-header">
-                <span class="card-title">Git</span>
+                <span class="card-title">🔀 Git</span>
                 <div style="display:flex;align-items:center;gap:0.4rem">
                     <span class="card-age" data-cache-key="git" style="font-size:0.64rem;color:var(--text-muted)"></span>
                     <button class="btn-icon" onclick="cardRefresh('git','int-git-badge','int-git-detail',loadGitCard)" title="Refresh" style="font-size:0.7rem;cursor:pointer;background:none;border:none;color:var(--text-muted);padding:0">🔄</button>
                     <span class="status-badge" id="int-git-badge">—</span>
                 </div>
             </div>
-            <div class="card-subtitle">Local repository status</div>
+            <div class="card-subtitle">Repository & version control</div>
             <div id="int-git-detail" class="integration-detail" style="margin-top:var(--space-md)">
                 <span class="spinner"></span>
             </div>
@@ -31,7 +34,7 @@
         <!-- ── GitHub Card ──────────────────────────────────────── -->
         <div class="card" id="int-gh-card">
             <div class="card-header">
-                <span class="card-title">GitHub</span>
+                <span class="card-title">🐙 GitHub</span>
                 <div style="display:flex;align-items:center;gap:0.4rem">
                     <span class="card-age" data-cache-key="github" style="font-size:0.64rem;color:var(--text-muted)"></span>
                     <button class="btn-icon" onclick="cardRefresh('github','int-gh-badge','int-gh-detail',loadGitHubCard)" title="Refresh" style="font-size:0.7rem;cursor:pointer;background:none;border:none;color:var(--text-muted);padding:0">🔄</button>
@@ -47,7 +50,7 @@
         <!-- ── CI/CD Card ───────────────────────────────────────── -->
         <div class="card" id="int-ci-card">
             <div class="card-header">
-                <span class="card-title">CI/CD</span>
+                <span class="card-title">⚡ CI/CD</span>
                 <div style="display:flex;align-items:center;gap:0.4rem">
                     <span class="card-age" data-cache-key="ci" style="font-size:0.64rem;color:var(--text-muted)"></span>
                     <button class="btn-icon" onclick="cardRefresh('ci','int-ci-badge','int-ci-detail',loadCICard)" title="Refresh" style="font-size:0.7rem;cursor:pointer;background:none;border:none;color:var(--text-muted);padding:0">🔄</button>
@@ -63,7 +66,7 @@
         <!-- ── Docker Card ──────────────────────────────────────── -->
         <div class="card" id="int-docker-card">
             <div class="card-header">
-                <span class="card-title">Docker</span>
+                <span class="card-title">🐳 Docker</span>
                 <div style="display:flex;align-items:center;gap:0.4rem">
                     <span class="card-age" data-cache-key="docker" style="font-size:0.64rem;color:var(--text-muted)"></span>
                     <button class="btn-icon" onclick="cardRefresh('docker','int-docker-badge','int-docker-detail',loadDockerCard)" title="Refresh" style="font-size:0.7rem;cursor:pointer;background:none;border:none;color:var(--text-muted);padding:0">🔄</button>
@@ -73,6 +76,38 @@
             <div class="card-subtitle">Container runtime</div>
             <div id="int-docker-detail" class="integration-detail" style="margin-top:var(--space-md)">
                 <p class="empty-state-sm">Not detected</p>
+            </div>
+        </div>
+
+        <!-- ── Kubernetes Card ────────────────────────────────────── -->
+        <div class="card" id="int-k8s-card">
+            <div class="card-header">
+                <span class="card-title">Kubernetes</span>
+                <div style="display:flex;align-items:center;gap:0.4rem">
+                    <span class="card-age" data-cache-key="k8s" style="font-size:0.64rem;color:var(--text-muted)"></span>
+                    <button class="btn-icon" onclick="cardRefresh('k8s','int-k8s-badge','int-k8s-detail',_intLoadK8sCard)" title="Refresh" style="font-size:0.7rem;cursor:pointer;background:none;border:none;color:var(--text-muted);padding:0">🔄</button>
+                    <span class="status-badge" id="int-k8s-badge">—</span>
+                </div>
+            </div>
+            <div class="card-subtitle">Cluster & manifests</div>
+            <div id="int-k8s-detail" class="integration-detail" style="margin-top:var(--space-md)">
+                <span class="spinner"></span>
+            </div>
+        </div>
+
+        <!-- ── Terraform Card ─────────────────────────────────────── -->
+        <div class="card" id="int-tf-card">
+            <div class="card-header">
+                <span class="card-title">Terraform</span>
+                <div style="display:flex;align-items:center;gap:0.4rem">
+                    <span class="card-age" data-cache-key="terraform" style="font-size:0.64rem;color:var(--text-muted)"></span>
+                    <button class="btn-icon" onclick="cardRefresh('terraform','int-tf-badge','int-tf-detail',_intLoadTerraformCard)" title="Refresh" style="font-size:0.7rem;cursor:pointer;background:none;border:none;color:var(--text-muted);padding:0">🔄</button>
+                    <span class="status-badge" id="int-tf-badge">—</span>
+                </div>
+            </div>
+            <div class="card-subtitle">Infrastructure as Code</div>
+            <div id="int-tf-detail" class="integration-detail" style="margin-top:var(--space-md)">
+                <span class="spinner"></span>
             </div>
         </div>
 

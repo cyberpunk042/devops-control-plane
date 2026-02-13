@@ -1,0 +1,499 @@
+<!-- Wizard JS — Integration Sub-Wizards
+     Integration card rendering, sub-wizard toggle, per-integration forms
+     (Docker, K8s, Terraform, CI/CD config generation UI).
+     Depends on: _wizard_helpers.html (helpers), _wizard_init.html (state)
+-->
+
+function _wizRenderIntegrations() {
+    const d = _wizIntDetection;
+    const el = document.getElementById('wiz-int-body');
+    if (!el || !d) return;
+
+    const savedPrefs = (_wizardConfig && _wizardConfig._integrationPrefs) || d.current_prefs || {};
+
+    // ── Tools section (compact) ────────────────────────────────
+    const toolEntries = Object.entries(d.tools);
+    const avail = toolEntries.filter(([, v]) => v).length;
+    const missing = toolEntries.filter(([, v]) => !v);
+
+    let toolsHtml = `
+            <div style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.4rem">
+                🔧 System Tools (${avail}/${toolEntries.length} available)
+            </div>`;
+
+    if (missing.length > 0) {
+        toolsHtml += `<div style="background:var(--bg-inset);border:1px solid var(--border-subtle);border-radius:8px;overflow:hidden;margin-bottom:var(--space-md)">`;
+        for (const [tool] of missing) {
+            toolsHtml += `
+                    <div style="display:flex;align-items:center;gap:0.5rem;padding:0.4rem 0.6rem;border-bottom:1px solid var(--border-subtle)" id="wiz-int-tool-${tool}">
+                        <span style="width:1.3rem;text-align:center;color:var(--error);font-size:0.8rem">✗</span>
+                        <code style="flex:1;font-size:0.82rem">${esc(tool)}</code>
+                        <button class="btn btn-sm btn-secondary" style="font-size:0.72rem;padding:0.15rem 0.5rem"
+                            onclick="_wizInstallTool('${esc(tool)}', this)">📦 Install</button>
+                    </div>`;
+        }
+        toolsHtml += `</div>`;
+    } else {
+        toolsHtml += `<div style="font-size:0.82rem;color:var(--success);margin-bottom:var(--space-sm);padding:0.3rem 0">✅ All tools installed</div>`;
+    }
+
+    // Installed pills
+    const installed = toolEntries.filter(([, v]) => v);
+    if (installed.length > 0) {
+        toolsHtml += `<div style="display:flex;flex-wrap:wrap;gap:0.25rem;margin-bottom:var(--space-md)">`;
+        for (const [tool] of installed) {
+            toolsHtml += `<span style="font-size:0.65rem;padding:0.1rem 0.35rem;border-radius:4px;background:color-mix(in srgb, var(--success) 10%, transparent);color:var(--success);border:1px solid color-mix(in srgb, var(--success) 25%, transparent)">✓ ${esc(tool)}</span>`;
+        }
+        toolsHtml += `</div>`;
+    }
+
+    // ── Project files (compact) ────────────────────────────────
+    const fileEntries = Object.entries(d.files);
+    toolsHtml += `
+            <div style="display:flex;flex-wrap:wrap;gap:0.25rem;margin-bottom:var(--space-md)">
+                ${fileEntries.map(([k, v]) => `<span style="font-size:0.68rem;padding:0.1rem 0.4rem;border-radius:4px;border:1px solid ${v ? 'var(--accent)' : 'var(--border-subtle)'};color:${v ? 'var(--accent)' : 'var(--text-muted)'};background:${v ? 'color-mix(in srgb, var(--accent) 8%, transparent)' : 'var(--bg-inset)'}">${v ? '●' : '○'} ${esc(k.replace(/_/g, ' '))}</span>`).join('')}
+            </div>`;
+
+    // ── Integration cards with sub-wizard ──────────────────────
+    const descs = {
+        'int:git': 'Git repository management.',
+        'int:github': 'GitHub CLI access — PRs, issues, environments.',
+        'int:ci': 'CI/CD pipeline setup and monitoring.',
+        'int:docker': 'Docker containerization — build, run, compose.',
+        'int:pages': 'Static site builder with multi-section support.',
+        'k8s': 'Kubernetes deployment — pods, services, ingress.',
+        'terraform': 'Infrastructure as Code — provision cloud resources.',
+        'dns': 'DNS resolution and CDN checks.',
+    };
+
+    let cardsHtml = `
+            <div style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.4rem">
+                🔌 Integrations
+            </div>
+            <div style="display:flex;flex-direction:column;gap:0.5rem;margin-bottom:var(--space-md)">`;
+
+    for (const [key, info] of Object.entries(d.integrations)) {
+        const enabled = (savedPrefs[key] || info.suggest) !== 'hidden';
+        cardsHtml += _wizIntCard(key, info, enabled, descs[key] || '');
+    }
+    cardsHtml += `</div>`;
+
+    cardsHtml += `
+            <div style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.4rem">
+                ⚙️ DevOps Extensions
+            </div>
+            <div style="display:flex;flex-direction:column;gap:0.5rem;margin-bottom:var(--space-md)">`;
+    for (const [key, info] of Object.entries(d.devops_cards)) {
+        if (!info.tools_needed && info.detected === true) continue;
+        const enabled = (savedPrefs[key] || info.suggest) !== 'hidden';
+        cardsHtml += _wizIntCard(key, info, enabled, descs[key] || '');
+    }
+    cardsHtml += `</div>`;
+
+    el.style.display = 'block';
+    el.innerHTML = toolsHtml + cardsHtml + `
+            <p style="color:var(--text-muted);font-size:0.75rem;margin-top:0.5rem">
+                💡 Click <strong>⚙️ Setup</strong> on any card to configure it.
+                Uncheck to hide from UI.
+            </p>`;
+}
+
+// ── Integration card with inline sub-wizard ────────────────────
+
+function _wizIntCard(key, info, enabled, desc) {
+    const safeId = key.replace(':', '-');
+    const status = info.status || (info.detected ? 'ready' : 'not_installed');
+    const sc = {
+        ready: { bg: 'var(--success)', text: '✅ ready' },
+        installed: { bg: 'var(--warning)', text: '⚠️ not configured' },
+        available: { bg: 'var(--text-muted)', text: '○ not set up' },
+        not_installed: { bg: 'var(--text-muted)', text: '✗ not installed' },
+        not_available: { bg: 'var(--text-muted)', text: '— n/a' },
+    }[status] || { bg: 'var(--text-muted)', text: status };
+    const badge = `<span style="font-size:0.65rem;padding:0.08rem 0.3rem;border-radius:4px;background:color-mix(in srgb, ${sc.bg} 12%, transparent);color:${sc.bg};border:1px solid color-mix(in srgb, ${sc.bg} 30%, transparent)">${sc.text}</span>`;
+
+    let details = '';
+    if ((info.tools_needed || []).length > 0)
+        details += `<div style="font-size:0.7rem;color:var(--warning);margin-top:0.15rem">⚠ needs: <code>${info.tools_needed.join(', ')}</code></div>`;
+    if (info.daemon_ok === false && status === 'installed')
+        details += `<div style="font-size:0.7rem;color:var(--error);margin-top:0.15rem">✗ Docker daemon not reachable</div>`;
+    if (info.daemon_ok === true)
+        details += `<div style="font-size:0.7rem;color:var(--success);margin-top:0.1rem">✓ daemon connected</div>`;
+    if (info.cluster_ok === false && status === 'installed')
+        details += `<div style="font-size:0.7rem;color:var(--error);margin-top:0.15rem">✗ no cluster connected</div>`;
+    if (info.has_dockerfile) details += `<div style="font-size:0.7rem;color:var(--success);margin-top:0.1rem">✓ Dockerfile</div>`;
+    if (info.has_compose) details += `<div style="font-size:0.7rem;color:var(--success);margin-top:0.1rem">✓ docker-compose.yml</div>`;
+
+    return `
+            <div style="background:var(--bg-inset);border:1px solid ${enabled ? 'var(--accent)' : 'var(--border-subtle)'};border-radius:8px;overflow:hidden;transition:border-color 0.15s" id="wiz-int-wrap-${safeId}">
+                <div style="display:flex;align-items:flex-start;gap:0.5rem;padding:0.5rem 0.65rem">
+                    <input type="checkbox" ${enabled ? 'checked' : ''}
+                        id="wiz-int-${safeId}"
+                        onchange="_wizToggleBorder('${safeId}', this.checked)"
+                        style="width:15px;height:15px;accent-color:var(--accent);cursor:pointer;margin-top:0.1rem">
+                    <div style="flex:1;min-width:0">
+                        <div style="display:flex;align-items:center;gap:0.35rem;flex-wrap:wrap">
+                            <span style="font-weight:600;font-size:0.82rem">${info.label}</span>
+                            ${badge}
+                        </div>
+                        ${desc ? `<div style="font-size:0.72rem;color:var(--text-muted);margin-top:0.1rem;line-height:1.35">${esc(desc)}</div>` : ''}
+                        ${details}
+                    </div>
+                    <button class="btn btn-sm btn-secondary" style="font-size:0.68rem;padding:0.15rem 0.45rem;white-space:nowrap"
+                        onclick="_wizToggleSetup('${esc(key)}')">⚙️ Setup</button>
+                </div>
+                <div id="wiz-int-setup-${safeId}" style="display:none"></div>
+            </div>`;
+}
+
+function _wizToggleBorder(safeId, checked) {
+    const wrap = document.getElementById('wiz-int-wrap-' + safeId);
+    if (wrap) wrap.style.borderColor = checked ? 'var(--accent)' : 'var(--border-subtle)';
+}
+
+// ── Sub-wizard toggle & form renderers ─────────────────────────
+
+function _wizToggleSetup(key) {
+    const safeId = key.replace(':', '-');
+    const panel = document.getElementById('wiz-int-setup-' + safeId);
+    if (!panel) return;
+
+    if (panel.style.display !== 'none') {
+        panel.style.display = 'none';
+        panel.innerHTML = '';
+        return;
+    }
+
+    const d = _wizIntDetection;
+    const info = d.integrations[key] || d.devops_cards[key] || {};
+    const projectName = (_wizardConfig && _wizardConfig.name) || 'app';
+
+    const formFn = _wizSubForms[key];
+    if (formFn) {
+        panel.innerHTML = formFn(info, projectName, d);
+    } else {
+        panel.innerHTML = `<p style="font-size:0.78rem;color:var(--text-muted);padding:0.5rem">No setup form for this integration yet.</p>`;
+    }
+    panel.style.display = 'block';
+    panel.style.borderTop = '1px solid var(--border-subtle)';
+    panel.style.padding = '0.6rem 0.65rem';
+    panel.style.background = 'var(--bg-card)';
+}
+
+/** Reusable form field */
+function _wizField(id, label, value, opts = {}) {
+    const type = opts.type || 'text';
+    const help = opts.help ? `<div style="font-size:0.65rem;color:var(--text-muted);margin-top:0.1rem">${opts.help}</div>` : '';
+    if (type === 'checkbox') {
+        return `<div style="margin-bottom:0.4rem;display:flex;align-items:center;gap:0.4rem">
+                <input type="checkbox" id="${id}" ${value ? 'checked' : ''} style="accent-color:var(--accent)">
+                <label for="${id}" style="font-size:0.75rem;color:var(--text-secondary);cursor:pointer">${label}</label>
+                ${help}
+            </div>`;
+    }
+    if (type === 'select') {
+        return `<div style="margin-bottom:0.5rem">
+                <label style="font-size:0.72rem;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:0.15rem">${label}</label>
+                <select id="${id}" style="width:100%;font-size:0.78rem;padding:0.3rem 0.5rem;border:1px solid var(--border-subtle);border-radius:6px;background:var(--bg-inset);color:var(--text-primary)">
+                    ${(opts.options || []).map(o => `<option value="${esc(o)}" ${o === value ? 'selected' : ''}>${esc(o)}</option>`).join('')}
+                </select>${help}
+            </div>`;
+    }
+    return `<div style="margin-bottom:0.5rem">
+            <label style="font-size:0.72rem;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:0.15rem">${label}</label>
+            <input type="${type}" id="${id}" value="${esc(value || '')}"
+                ${opts.placeholder ? `placeholder="${esc(opts.placeholder)}"` : ''}
+                style="width:100%;font-size:0.78rem;padding:0.3rem 0.5rem;border:1px solid var(--border-subtle);border-radius:6px;background:var(--bg-inset);color:var(--text-primary)">
+            ${help}
+        </div>`;
+}
+
+function _wizApplyBtn(key) {
+    return `<div style="display:flex;gap:0.4rem;margin-top:0.6rem">
+            <button class="btn btn-sm btn-primary" style="font-size:0.75rem"
+                onclick="_wizApplySetup('${esc(key)}', this)">✅ Apply</button>
+            <button class="btn btn-sm btn-secondary" style="font-size:0.75rem"
+                onclick="_wizToggleSetup('${esc(key)}')">Cancel</button>
+        </div>`;
+}
+
+
+// ── Per-integration sub-wizard forms ────────────────────────────
+// Each form is a full operational panel: status, config, actions, delete
+
+const _wizSubForms = {
+
+    'int:docker': (info, name, d) => {
+        const pyVer = d._python_version || '3.12';
+        const hasPyproject = d.files.pyproject;
+        const installCmd = hasPyproject ? 'pip install -e .' : 'pip install -r requirements.txt';
+        const hasDockerfile = info.has_dockerfile;
+        const hasCompose = info.has_compose;
+        const daemonOk = info.daemon_ok;
+
+        let html = `<div style="font-weight:600;font-size:0.85rem;margin-bottom:0.5rem">🐳 Docker</div>`;
+
+        // ── Live status strip ──
+        html += `<div id="wiz-docker-status" style="margin-bottom:0.6rem">
+            <div style="font-size:0.72rem;color:var(--text-muted);font-weight:600;text-transform:uppercase;margin-bottom:0.2rem">Status</div>
+            <div style="display:flex;flex-wrap:wrap;gap:0.25rem">
+                <span style="font-size:0.65rem;padding:0.1rem 0.35rem;border-radius:4px;${daemonOk ? 'background:color-mix(in srgb, var(--success) 10%, transparent);color:var(--success);border:1px solid color-mix(in srgb, var(--success) 25%, transparent)' : 'background:color-mix(in srgb, var(--error) 10%, transparent);color:var(--error);border:1px solid color-mix(in srgb, var(--error) 25%, transparent)'}">${daemonOk ? '✓ daemon' : '✗ daemon'}</span>
+                <span style="font-size:0.65rem;padding:0.1rem 0.35rem;border-radius:4px;${hasDockerfile ? 'background:color-mix(in srgb, var(--success) 10%, transparent);color:var(--success);border:1px solid color-mix(in srgb, var(--success) 25%, transparent)' : 'background:color-mix(in srgb, var(--warning) 10%, transparent);color:var(--warning);border:1px solid color-mix(in srgb, var(--warning) 25%, transparent)'}">${hasDockerfile ? '✓ Dockerfile' : '○ no Dockerfile'}</span>
+                <span style="font-size:0.65rem;padding:0.1rem 0.35rem;border-radius:4px;${hasCompose ? 'background:color-mix(in srgb, var(--success) 10%, transparent);color:var(--success);border:1px solid color-mix(in srgb, var(--success) 25%, transparent)' : 'background:color-mix(in srgb, var(--text-muted) 10%, transparent);color:var(--text-muted);border:1px solid color-mix(in srgb, var(--text-muted) 25%, transparent)'}">${hasCompose ? '✓ compose' : '○ no compose'}</span>
+            </div>
+        </div>`;
+
+        // ── Containers / Images live panel ──
+        if (daemonOk) {
+            html += `<div id="wiz-docker-live" style="margin-bottom:0.6rem">
+                <div style="display:flex;gap:0.3rem;margin-bottom:0.3rem">
+                    <button class="btn btn-sm btn-secondary" style="font-size:0.68rem;padding:0.12rem 0.4rem"
+                        onclick="_wizDockerLive('containers')">📦 Containers</button>
+                    <button class="btn btn-sm btn-secondary" style="font-size:0.68rem;padding:0.12rem 0.4rem"
+                        onclick="_wizDockerLive('images')">🖼 Images</button>
+                    <button class="btn btn-sm btn-secondary" style="font-size:0.68rem;padding:0.12rem 0.4rem"
+                        onclick="_wizDockerLive('compose')">📋 Compose</button>
+                </div>
+                <div id="wiz-docker-live-panel" style="display:none;background:var(--bg-inset);border:1px solid var(--border-subtle);border-radius:6px;padding:0.4rem 0.5rem;font-size:0.72rem;max-height:180px;overflow:auto;font-family:var(--font-mono,monospace)"></div>
+            </div>`;
+        }
+
+        // ── Operational buttons (require compose) ──
+        if (hasCompose && daemonOk) {
+            html += `<div style="margin-bottom:0.6rem">
+                <div style="font-size:0.72rem;color:var(--text-muted);font-weight:600;text-transform:uppercase;margin-bottom:0.25rem">Operations</div>
+                <div style="display:flex;flex-wrap:wrap;gap:0.25rem">
+                    <button class="btn btn-sm btn-primary" style="font-size:0.68rem;padding:0.15rem 0.45rem"
+                        onclick="_wizDockerAction('up', this)">▶ Start</button>
+                    <button class="btn btn-sm btn-secondary" style="font-size:0.68rem;padding:0.15rem 0.45rem"
+                        onclick="_wizDockerAction('down', this)">⏹ Stop</button>
+                    <button class="btn btn-sm btn-secondary" style="font-size:0.68rem;padding:0.15rem 0.45rem"
+                        onclick="_wizDockerAction('restart', this)">🔄 Restart</button>
+                    <button class="btn btn-sm btn-secondary" style="font-size:0.68rem;padding:0.15rem 0.45rem"
+                        onclick="_wizDockerAction('build', this)">🔨 Build</button>
+                    <button class="btn btn-sm btn-secondary" style="font-size:0.68rem;padding:0.15rem 0.45rem"
+                        onclick="_wizDockerAction('build-nc', this)">🔨 Build (no-cache)</button>
+                    <button class="btn btn-sm btn-secondary" style="font-size:0.68rem;padding:0.15rem 0.45rem"
+                        onclick="_wizDockerAction('prune', this)">🧹 Prune</button>
+                    <button class="btn btn-sm btn-secondary" style="font-size:0.68rem;padding:0.15rem 0.45rem"
+                        onclick="_wizDockerAction('logs', this)">📜 Logs</button>
+                </div>
+                <div id="wiz-docker-action-output" style="display:none;margin-top:0.4rem;background:var(--bg-inset);border:1px solid var(--border-subtle);border-radius:6px;padding:0.4rem 0.5rem;font-size:0.7rem;max-height:200px;overflow:auto;font-family:var(--font-mono,monospace);white-space:pre-wrap"></div>
+            </div>`;
+        } else if (daemonOk && !hasCompose) {
+            html += `<div style="font-size:0.72rem;color:var(--text-muted);margin-bottom:0.5rem">
+                ℹ Generate docker-compose.yml below to unlock Start/Stop/Build controls.
+            </div>`;
+        }
+
+        // ── Config generation form ──
+        html += `<details style="margin-bottom:0.5rem" ${!hasDockerfile ? 'open' : ''}>
+            <summary style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;cursor:pointer;user-select:none;margin-bottom:0.3rem">
+                ${hasDockerfile ? '📝 Regenerate Config' : '📝 Generate Config'}
+            </summary>
+            <div style="padding-top:0.3rem">
+                ${_wizField('wiz-docker-base', 'Base Image', 'python:' + pyVer + '-slim', { help: 'e.g. python:3.12-slim, node:20-alpine' })}
+                ${_wizField('wiz-docker-workdir', 'Working Directory', '/app')}
+                ${_wizField('wiz-docker-install', 'Install Command', installCmd, { help: 'Run during build' })}
+                ${_wizField('wiz-docker-port', 'Expose Port', '8080')}
+                ${_wizField('wiz-docker-cmd', 'Entry Command', 'python -m src', { help: 'CMD when container starts' })}
+                ${_wizField('wiz-docker-compose', 'Also generate docker-compose.yml', !hasCompose, { type: 'checkbox' })}
+                ${hasDockerfile ? _wizField('wiz-docker-overwrite', 'Overwrite existing Dockerfile', false, { type: 'checkbox' }) : ''}
+                ${_wizApplyBtn('int:docker')}
+            </div>
+        </details>`;
+
+        // ── Delete config ──
+        if (hasDockerfile || hasCompose) {
+            html += `<div style="border-top:1px solid var(--border-subtle);padding-top:0.5rem;margin-top:0.3rem">
+                <button class="btn btn-sm" style="font-size:0.68rem;padding:0.12rem 0.4rem;color:var(--error);border:1px solid color-mix(in srgb, var(--error) 30%, transparent)"
+                    onclick="_wizDeleteConfig('docker', this)">🗑 Delete Docker Config</button>
+            </div>`;
+        }
+
+        return html;
+    },
+
+    'k8s': (info, name, d) => {
+        const safeName = name.replace(/[^a-z0-9-]/gi, '-').toLowerCase();
+        const clusterOk = info.cluster_ok;
+        const hasManifests = d.files.k8s_manifests;
+
+        let html = `<div style="font-weight:600;font-size:0.85rem;margin-bottom:0.5rem">☸️ Kubernetes</div>`;
+
+        // ── Status strip ──
+        html += `<div style="display:flex;flex-wrap:wrap;gap:0.25rem;margin-bottom:0.5rem">
+            <span style="font-size:0.65rem;padding:0.1rem 0.35rem;border-radius:4px;${clusterOk ? 'background:color-mix(in srgb, var(--success) 10%, transparent);color:var(--success);border:1px solid color-mix(in srgb, var(--success) 25%, transparent)' : 'background:color-mix(in srgb, var(--warning) 10%, transparent);color:var(--warning);border:1px solid color-mix(in srgb, var(--warning) 25%, transparent)'}">${clusterOk ? '✓ cluster connected' : '⚠ no cluster'}</span>
+            <span style="font-size:0.65rem;padding:0.1rem 0.35rem;border-radius:4px;${hasManifests ? 'background:color-mix(in srgb, var(--success) 10%, transparent);color:var(--success);border:1px solid color-mix(in srgb, var(--success) 25%, transparent)' : 'background:color-mix(in srgb, var(--text-muted) 10%, transparent);color:var(--text-muted);border:1px solid color-mix(in srgb, var(--text-muted) 25%, transparent)'}">${hasManifests ? '✓ manifests' : '○ no manifests'}</span>
+        </div>`;
+
+        // ── Live cluster panel ──
+        if (clusterOk) {
+            html += `<div style="margin-bottom:0.6rem">
+                <div style="display:flex;flex-wrap:wrap;gap:0.25rem;margin-bottom:0.3rem">
+                    <button class="btn btn-sm btn-secondary" style="font-size:0.68rem;padding:0.12rem 0.4rem"
+                        onclick="_wizK8sLive('pods')">📦 Pods</button>
+                    <button class="btn btn-sm btn-secondary" style="font-size:0.68rem;padding:0.12rem 0.4rem"
+                        onclick="_wizK8sLive('services')">🌐 Services</button>
+                    <button class="btn btn-sm btn-secondary" style="font-size:0.68rem;padding:0.12rem 0.4rem"
+                        onclick="_wizK8sLive('deployments')">🚀 Deployments</button>
+                    <button class="btn btn-sm btn-secondary" style="font-size:0.68rem;padding:0.12rem 0.4rem"
+                        onclick="_wizK8sLive('validate')">✅ Validate</button>
+                </div>
+                <div id="wiz-k8s-live-panel" style="display:none;background:var(--bg-inset);border:1px solid var(--border-subtle);border-radius:6px;padding:0.4rem 0.5rem;font-size:0.72rem;max-height:180px;overflow:auto;font-family:var(--font-mono,monospace)"></div>
+            </div>`;
+        }
+
+        // ── Config generation form ──
+        html += `<details style="margin-bottom:0.5rem" ${!hasManifests ? 'open' : ''}>
+            <summary style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;cursor:pointer;user-select:none;margin-bottom:0.3rem">
+                ${hasManifests ? '📝 Regenerate Manifests' : '📝 Generate Manifests'}
+            </summary>
+            <div style="padding-top:0.3rem">
+                ${_wizField('wiz-k8s-name', 'App Name', safeName)}
+                ${_wizField('wiz-k8s-image', 'Container Image', safeName + ':latest', { help: 'Docker image to deploy' })}
+                ${_wizField('wiz-k8s-port', 'Container Port', '8080')}
+                ${_wizField('wiz-k8s-replicas', 'Replicas', '1')}
+                ${_wizField('wiz-k8s-namespace', 'Namespace', 'default')}
+                ${_wizField('wiz-k8s-service-type', 'Service Type', 'ClusterIP', { type: 'select', options: ['ClusterIP', 'NodePort', 'LoadBalancer'] })}
+                ${_wizApplyBtn('k8s')}
+            </div>
+        </details>`;
+
+        // ── Delete config ──
+        if (hasManifests) {
+            html += `<div style="border-top:1px solid var(--border-subtle);padding-top:0.5rem;margin-top:0.3rem">
+                <button class="btn btn-sm" style="font-size:0.68rem;padding:0.12rem 0.4rem;color:var(--error);border:1px solid color-mix(in srgb, var(--error) 30%, transparent)"
+                    onclick="_wizDeleteConfig('k8s', this)">🗑 Delete K8s Manifests</button>
+            </div>`;
+        }
+
+        return html;
+    },
+
+    'int:ci': (info, name, d) => {
+        const pyVer = d._python_version || '3.12';
+        const detected = info.detected;
+
+        let html = `<div style="font-weight:600;font-size:0.85rem;margin-bottom:0.5rem">🔄 CI/CD (GitHub Actions)</div>`;
+
+        // ── Status strip ──
+        html += `<div style="display:flex;flex-wrap:wrap;gap:0.25rem;margin-bottom:0.5rem">
+            <span style="font-size:0.65rem;padding:0.1rem 0.35rem;border-radius:4px;${detected ? 'background:color-mix(in srgb, var(--success) 10%, transparent);color:var(--success);border:1px solid color-mix(in srgb, var(--success) 25%, transparent)' : 'background:color-mix(in srgb, var(--text-muted) 10%, transparent);color:var(--text-muted);border:1px solid color-mix(in srgb, var(--text-muted) 25%, transparent)'}">${detected ? '✓ workflow found' : '○ no workflow'}</span>
+        </div>`;
+
+        // ── Config generation form ──
+        html += `<details style="margin-bottom:0.5rem" ${!detected ? 'open' : ''}>
+            <summary style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;cursor:pointer;user-select:none;margin-bottom:0.3rem">
+                ${detected ? '📝 Regenerate Workflow' : '📝 Generate Workflow'}
+            </summary>
+            <div style="padding-top:0.3rem">
+                ${_wizField('wiz-ci-branches', 'Trigger Branches', 'main, master', { help: 'Comma-separated' })}
+                ${_wizField('wiz-ci-python', 'Python Version', pyVer)}
+                ${_wizField('wiz-ci-install', 'Install Command', 'pip install -e ".[dev]" || pip install -e .')}
+                ${_wizField('wiz-ci-test', 'Test Command', 'python -m pytest tests/ -v --tb=short')}
+                ${_wizField('wiz-ci-lint', 'Also run linting', true, { type: 'checkbox' })}
+                ${_wizField('wiz-ci-lint-cmd', 'Lint Command', 'ruff check src/')}
+                ${detected ? _wizField('wiz-ci-overwrite', 'Overwrite existing workflow', false, { type: 'checkbox' }) : ''}
+                ${_wizApplyBtn('int:ci')}
+            </div>
+        </details>`;
+
+        // ── Delete config ──
+        if (detected) {
+            html += `<div style="border-top:1px solid var(--border-subtle);padding-top:0.5rem;margin-top:0.3rem">
+                <button class="btn btn-sm" style="font-size:0.68rem;padding:0.12rem 0.4rem;color:var(--error);border:1px solid color-mix(in srgb, var(--error) 30%, transparent)"
+                    onclick="_wizDeleteConfig('ci', this)">🗑 Delete Workflow</button>
+            </div>`;
+        }
+
+        return html;
+    },
+
+    'terraform': (info, name) => {
+        const safeName = name.replace(/[^a-z0-9-]/gi, '-').toLowerCase();
+        const detected = info.detected;
+        const hasTerraform = !((info.tools_needed || []).includes('terraform'));
+
+        let html = `<div style="font-weight:600;font-size:0.85rem;margin-bottom:0.5rem">🏗️ Terraform</div>`;
+
+        // ── Status strip ──
+        html += `<div style="display:flex;flex-wrap:wrap;gap:0.25rem;margin-bottom:0.5rem">
+            <span style="font-size:0.65rem;padding:0.1rem 0.35rem;border-radius:4px;${hasTerraform ? 'background:color-mix(in srgb, var(--success) 10%, transparent);color:var(--success);border:1px solid color-mix(in srgb, var(--success) 25%, transparent)' : 'background:color-mix(in srgb, var(--warning) 10%, transparent);color:var(--warning);border:1px solid color-mix(in srgb, var(--warning) 25%, transparent)'}">${hasTerraform ? '✓ terraform installed' : '⚠ terraform not found'}</span>
+            <span style="font-size:0.65rem;padding:0.1rem 0.35rem;border-radius:4px;${detected ? 'background:color-mix(in srgb, var(--success) 10%, transparent);color:var(--success);border:1px solid color-mix(in srgb, var(--success) 25%, transparent)' : 'background:color-mix(in srgb, var(--text-muted) 10%, transparent);color:var(--text-muted);border:1px solid color-mix(in srgb, var(--text-muted) 25%, transparent)'}">${detected ? '✓ config found' : '○ no config'}</span>
+        </div>`;
+
+        // ── Config generation form ──
+        html += `<details style="margin-bottom:0.5rem" ${!detected ? 'open' : ''}>
+            <summary style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;cursor:pointer;user-select:none;margin-bottom:0.3rem">
+                ${detected ? '📝 Regenerate Config' : '📝 Generate Config'}
+            </summary>
+            <div style="padding-top:0.3rem">
+                ${_wizField('wiz-tf-provider', 'Provider', 'aws', { type: 'select', options: ['aws', 'google', 'azurerm', 'digitalocean', 'other'] })}
+                ${_wizField('wiz-tf-region', 'Region', 'us-east-1')}
+                ${_wizField('wiz-tf-project', 'Project Name', safeName)}
+                ${_wizField('wiz-tf-backend', 'State Backend', 'local', { type: 'select', options: ['local', 's3', 'gcs', 'azurerm'] })}
+                ${detected ? _wizField('wiz-tf-overwrite', 'Overwrite existing config', false, { type: 'checkbox' }) : ''}
+                ${_wizApplyBtn('terraform')}
+            </div>
+        </details>`;
+
+        // ── Delete config ──
+        if (detected) {
+            html += `<div style="border-top:1px solid var(--border-subtle);padding-top:0.5rem;margin-top:0.3rem">
+                <button class="btn btn-sm" style="font-size:0.68rem;padding:0.12rem 0.4rem;color:var(--error);border:1px solid color-mix(in srgb, var(--error) 30%, transparent)"
+                    onclick="_wizDeleteConfig('terraform', this)">🗑 Delete Terraform Config</button>
+            </div>`;
+        }
+
+        return html;
+    },
+
+    'int:git': (info) => {
+        let html = `<div style="font-weight:600;font-size:0.85rem;margin-bottom:0.5rem">🔀 Git</div>`;
+
+        html += `<div style="display:flex;flex-wrap:wrap;gap:0.25rem;margin-bottom:0.5rem">
+            <span style="font-size:0.65rem;padding:0.1rem 0.35rem;border-radius:4px;${info.detected ? 'background:color-mix(in srgb, var(--success) 10%, transparent);color:var(--success);border:1px solid color-mix(in srgb, var(--success) 25%, transparent)' : 'background:color-mix(in srgb, var(--text-muted) 10%, transparent);color:var(--text-muted);border:1px solid color-mix(in srgb, var(--text-muted) 25%, transparent)'}">${info.detected ? '✓ repo initialized' : '○ no repo'}</span>
+        </div>`;
+
+        html += `${_wizField('wiz-git-remote', 'Remote URL (optional)', '', { placeholder: 'git@github.com:user/repo.git' })}
+            ${_wizApplyBtn('int:git')}`;
+
+        return html;
+    },
+
+    'int:github': (info) => {
+        let html = `<div style="font-weight:600;font-size:0.85rem;margin-bottom:0.5rem">🐙 GitHub</div>`;
+
+        if (info.detected) {
+            html += `<div style="font-size:0.72rem;color:var(--success);margin-bottom:0.3rem">✓ GitHub CLI authenticated and ready.</div>`;
+        } else {
+            html += `<div style="font-size:0.75rem;color:var(--text-secondary);line-height:1.5;margin-bottom:0.5rem">
+                <strong>Setup steps:</strong><br>
+                1. Install: <code>sudo apt install gh</code> or <code>brew install gh</code><br>
+                2. Authenticate: <code>gh auth login</code><br>
+                3. Click <strong>Re-detect</strong> below.
+            </div>
+            <div style="display:flex;gap:0.3rem">
+                <button class="btn btn-sm btn-secondary" style="font-size:0.72rem"
+                    onclick="_wizInstallTool('gh', this)">📦 Install gh</button>
+                <button class="btn btn-sm btn-secondary" style="font-size:0.72rem"
+                    onclick="_wizRedetect()">🔄 Re-detect</button>
+            </div>`;
+        }
+
+        return html;
+    },
+
+    'int:pages': (info) => {
+        let html = `<div style="font-weight:600;font-size:0.85rem;margin-bottom:0.5rem">📄 Pages</div>`;
+        html += `<div style="font-size:0.72rem;color:var(--text-muted)">
+            ${info.detected
+                ? '✓ Pages config found in project.yml. Configure content in the Content step.'
+                : 'Pages builds from project.yml content sections. Configure in the Content step.'}
+        </div>`;
+        return html;
+    },
+};
+
+// ── Docker live panels ─────────────────────────────────────────

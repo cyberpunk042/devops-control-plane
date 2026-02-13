@@ -11,6 +11,14 @@
         return data;
     }
 
+    /** POST JSON convenience wrapper. */
+    async function apiPost(path, body = {}) {
+        return api(path, {
+            method: 'POST',
+            body: JSON.stringify(body),
+        });
+    }
+
     function toast(message, type = 'success') {
         const container = document.getElementById('toast-container');
         const el = document.createElement('div');
@@ -122,12 +130,329 @@
      */
     async function cardRefresh(cacheKey, badgeId, detailId, loadFn) {
         cardInvalidate(cacheKey);
-        // Bust server-side cache
-        api('/devops/cache/bust', { method: 'POST', body: JSON.stringify({ card: cacheKey }) }).catch(() => {});
+        // Bust server-side cache — AWAIT so loadFn gets fresh data
+        try { await api('/devops/cache/bust', { method: 'POST', body: JSON.stringify({ card: cacheKey }) }); } catch {}
         const badge = document.getElementById(badgeId);
         const detail = document.getElementById(detailId);
         if (badge) { badge.className = 'status-badge'; badge.textContent = '—'; }
         if (detail) detail.innerHTML = '<span class="spinner"></span>';
         await loadFn();
+    }
+
+    /**
+     * Load card data: check client cache, fetch from API if needed, store, handle errors.
+     * Returns the data dict on success, or null on error (after rendering error state).
+     */
+    async function cardLoad(cacheKey, apiPath, badgeEl, detailEl) {
+        const cached = cardCached(cacheKey);
+        if (cached) return cached;
+
+        const data = await api(apiPath).catch(e => ({ _err: e }));
+        if (data._err) {
+            if (badgeEl) {
+                badgeEl.className = 'status-badge failed';
+                badgeEl.innerHTML = '<span class="status-dot"></span>Error';
+            }
+            if (detailEl) {
+                detailEl.innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(data._err.message)}</p>`;
+            }
+            return null;
+        }
+
+        cardStore(cacheKey, data);
+        return data;
+    }
+
+    /**
+     * Navigate to the Content Vault and open a file for viewing/editing.
+     * @param {string} filePath - relative path to the file (e.g. "Dockerfile", "k8s/deployment.yaml")
+     * @param {string} [mode='raw'] - view mode: 'raw' | 'edit' | 'preview'
+     * @param {number} [line=0] - optional line number to focus
+     */
+    function openFileInEditor(filePath, mode = 'raw', line = 0) {
+        const hashSuffix = line > 0 ? `@${mode}:${line}` : `@${mode}`;
+        switchTab(`content/docs/${filePath}${hashSuffix}`);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // ── Phase 1: Reusable Card Section Builders ────────────────────────
+    // ═══════════════════════════════════════════════════════════════════
+
+    /**
+     * Build a status grid HTML string.
+     * @param {Array<{label:string, value:string, cls?:string}>} stats
+     * @returns {string} HTML
+     */
+    function cardStatusGrid(stats) {
+        return `<div class="card-status-grid">${stats.map(s =>
+            `<div class="card-stat"><span class="card-stat-label">${esc(s.label)}</span>` +
+            `<span class="card-stat-value${s.cls ? ' ' + s.cls : ''}">${esc(String(s.value))}</span></div>`
+        ).join('')}</div>`;
+    }
+
+    /**
+     * Build a detection list HTML string.
+     * @param {Array<{icon:string, label:string, value?:string, click?:string}>} items
+     * @returns {string} HTML
+     */
+    function cardDetectionList(items) {
+        return `<div class="card-detection">${items.map(i => {
+            const valCls = i.click ? ' clickable' : '';
+            const valAttr = i.click ? ` onclick="${i.click}"` : '';
+            return `<div class="card-detect-row">` +
+                `<span class="card-detect-icon">${i.icon}</span>` +
+                `<span class="card-detect-label">${esc(i.label)}</span>` +
+                (i.value != null ? `<span class="card-detect-value${valCls}"${valAttr}>${esc(i.value)}</span>` : '') +
+                `</div>`;
+        }).join('')}</div>`;
+    }
+
+    /**
+     * Build a data table HTML string (for live panels).
+     * @param {string[]} columns - header labels
+     * @param {Array<Array<{text:string, cls?:string, click?:string}>>} rows
+     * @returns {string} HTML
+     */
+    function cardDataTable(columns, rows) {
+        const thead = columns.map(c => `<th>${esc(c)}</th>`).join('');
+        const tbody = rows.map(row =>
+            `<tr>${row.map(cell => {
+                const cls = cell.cls ? ` class="${cell.cls}"` : '';
+                const onclick = cell.click ? ` onclick="${cell.click}" style="cursor:pointer"` : '';
+                return `<td${cls}${onclick}>${esc(String(cell.text ?? '—'))}</td>`;
+            }).join('')}</tr>`
+        ).join('');
+        return `<table class="card-data-table"><thead><tr>${thead}</tr></thead><tbody>${tbody}</tbody></table>`;
+    }
+
+    /**
+     * Build an action toolbar HTML string.
+     * @param {Array<{label:string, icon?:string, cls?:string, onclick:string, id?:string, disabled?:boolean}>} actions
+     * @returns {string} HTML
+     */
+    function cardActionToolbar(actions) {
+        return `<div class="card-actions">${actions.map(a =>
+            `<button class="btn btn-sm ${a.cls || 'btn-secondary'}" ` +
+            `onclick="${a.onclick}"${a.id ? ` id="${a.id}"` : ''}${a.disabled ? ' disabled' : ''}>` +
+            `${a.icon ? a.icon + ' ' : ''}${esc(a.label)}</button>`
+        ).join('')}</div>`;
+    }
+
+    /**
+     * Build an empty state HTML string with optional CTA button.
+     * @param {string} icon - emoji
+     * @param {string} text - message
+     * @param {Object|null} action - optional CTA {label, onclick}
+     * @returns {string} HTML
+     */
+    function cardEmpty(icon, text, action) {
+        return `<div class="card-empty">` +
+            `<div class="card-empty-icon">${icon}</div>` +
+            `<div class="card-empty-text">${esc(text)}</div>` +
+            (action ? `<button class="card-empty-action" onclick="${action.onclick}">${esc(action.label)}</button>` : '') +
+            `</div>`;
+    }
+
+    /**
+     * Build a live panel with tabs.
+     * @param {string} panelId - unique ID for the panel content area
+     * @param {Array<{key:string, label:string}>} tabs - tab definitions
+     * @param {string} onTabClick - JS function name called with (key, panelId)
+     * @returns {string} HTML
+     */
+    function cardLivePanel(panelId, tabs, onTabClick) {
+        return `<div class="card-live">` +
+            `<div class="card-live-tabs">${tabs.map(t =>
+                `<button class="card-live-tab" data-tab="${t.key}" ` +
+                `onclick="this.parentElement.querySelectorAll('.card-live-tab').forEach(b=>b.classList.remove('active'));` +
+                `this.classList.add('active');${onTabClick}('${t.key}','${panelId}')">${t.label}</button>`
+            ).join('')}</div>` +
+            `<div class="card-live-panel" id="${panelId}">` +
+            `<span style="color:var(--text-muted)">Select a tab above</span></div>` +
+            `</div>`;
+    }
+
+    /**
+     * Build a generate toolbar HTML string.
+     * @param {Array<{label:string, icon?:string, onclick:string}>} items
+     * @returns {string} HTML
+     */
+    function cardGenerateToolbar(items) {
+        return `<div class="card-generate">${items.map(g =>
+            `<button class="card-gen-btn" onclick="${g.onclick}">${g.icon ? g.icon + ' ' : ''}${esc(g.label)}</button>`
+        ).join('')}</div>`;
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // ── Phase 1: Reusable Modal System ─────────────────────────────────
+    // ═══════════════════════════════════════════════════════════════════
+
+    let _activeModal = null;
+
+    /**
+     * Open a standard modal.
+     * @param {Object} opts
+     * @param {string} opts.title - modal title (can include emoji)
+     * @param {string} opts.body - innerHTML for the modal body
+     * @param {string} [opts.size] - 'narrow' | 'wide' | undefined for default
+     * @param {Array<{label:string, cls?:string, onclick?:string, id?:string, disabled?:boolean}>} [opts.footerButtons]
+     * @param {string} [opts.footerStatus] - initial status text
+     * @param {Function} [opts.onClose] - callback when modal is closed
+     * @returns {HTMLElement} the overlay element
+     */
+    function modalOpen(opts) {
+        modalClose(); // close any existing
+        const overlay = document.createElement('div');
+        overlay.className = 'modal-overlay';
+        overlay.id = 'active-modal-overlay';
+
+        const sizeCls = opts.size ? ` ${opts.size}` : '';
+        const footerBtns = (opts.footerButtons || []).map(b =>
+            `<button class="btn btn-sm ${b.cls || 'btn-secondary'}" ` +
+            `onclick="${b.onclick || ''}"${b.id ? ` id="${b.id}"` : ''}${b.disabled ? ' disabled' : ''}` +
+            `${b.style ? ` style="${b.style}"` : ''}>` +
+            `${esc(b.label)}</button>`
+        ).join('');
+
+        overlay.innerHTML =
+            `<div class="modal-box${sizeCls}">` +
+            `<div class="modal-header">` +
+            `<span class="modal-title">${opts.title}</span>` +
+            `<button class="modal-close" onclick="modalClose()" title="Close">✕</button>` +
+            `</div>` +
+            `<div class="modal-body">${opts.body}</div>` +
+            (footerBtns || opts.footerStatus ?
+                `<div class="modal-footer">` +
+                `<span class="modal-footer-status" id="modal-footer-status">${opts.footerStatus || ''}</span>` +
+                `<div class="modal-footer-right">${footerBtns}</div>` +
+                `</div>` : '') +
+            `</div>`;
+
+        // Close on overlay click (not box click)
+        overlay.addEventListener('click', e => {
+            if (e.target === overlay) modalClose();
+        });
+
+        // Close on Escape
+        const escHandler = e => { if (e.key === 'Escape') modalClose(); };
+        document.addEventListener('keydown', escHandler);
+
+        _activeModal = { overlay, escHandler, onClose: opts.onClose };
+        document.body.appendChild(overlay);
+        return overlay;
+    }
+
+    /** Close the active modal. */
+    function modalClose() {
+        if (!_activeModal) return;
+        const { overlay, escHandler, onClose } = _activeModal;
+        document.removeEventListener('keydown', escHandler);
+        overlay.remove();
+        _activeModal = null;
+        if (onClose) onClose();
+    }
+
+    /**
+     * Build step indicator HTML.
+     * @param {string[]} stepNames - array of step labels
+     * @param {number} activeIndex - 0-based current step
+     * @returns {string} HTML
+     */
+    function modalSteps(stepNames, activeIndex) {
+        return `<div class="modal-steps">${stepNames.map((name, i) => {
+            const cls = i < activeIndex ? 'done' : (i === activeIndex ? 'active' : '');
+            const dot = i < activeIndex ? '✓' : String(i + 1);
+            return (i > 0 ? `<span class="modal-step-arrow">→</span>` : '') +
+                `<span class="modal-step ${cls}">` +
+                `<span class="modal-step-dot">${dot}</span> ${esc(name)}</span>`;
+        }).join('')}</div>`;
+    }
+
+    /**
+     * Build a form field HTML string (for use inside modal forms).
+     * @param {Object} f - field definition
+     * @param {string} f.name - input name/id
+     * @param {string} f.label - label text
+     * @param {string} [f.type] - 'text'|'select'|'textarea'|'checkbox'|'number'
+     * @param {string} [f.value] - default value
+     * @param {string} [f.placeholder] - placeholder text
+     * @param {boolean} [f.required] - show required marker
+     * @param {string} [f.hint] - hint text under input
+     * @param {Array<{value:string, label:string}>} [f.options] - for select type
+     * @param {boolean} [f.fullWidth] - span both columns
+     * @returns {string} HTML
+     */
+    function modalFormField(f) {
+        const cls = f.fullWidth ? 'modal-form-group full-width' : 'modal-form-group';
+        const req = f.required ? '<span class="required">*</span>' : '';
+        let input = '';
+
+        if (f.type === 'select') {
+            const opts = (f.options || []).map(o =>
+                `<option value="${esc(o.value)}"${o.value === f.value ? ' selected' : ''}>${esc(o.label)}</option>`
+            ).join('');
+            input = `<select class="modal-form-select" id="mf-${f.name}" name="${f.name}">${opts}</select>`;
+        } else if (f.type === 'textarea') {
+            input = `<textarea class="modal-form-textarea" id="mf-${f.name}" name="${f.name}" ` +
+                `placeholder="${esc(f.placeholder || '')}">${esc(f.value || '')}</textarea>`;
+        } else if (f.type === 'checkbox') {
+            return `<label class="modal-form-check ${f.fullWidth ? 'full-width' : ''}">` +
+                `<input type="checkbox" id="mf-${f.name}" name="${f.name}"${f.value ? ' checked' : ''}>` +
+                `${esc(f.label)}</label>`;
+        } else {
+            const t = f.type || 'text';
+            input = `<input class="modal-form-input" type="${t}" id="mf-${f.name}" name="${f.name}" ` +
+                `value="${esc(f.value || '')}" placeholder="${esc(f.placeholder || '')}">`;
+        }
+
+        return `<div class="${cls}">` +
+            `<label class="modal-form-label" for="mf-${f.name}">${esc(f.label)}${req}</label>` +
+            `${input}` +
+            (f.hint ? `<span class="modal-form-hint">${esc(f.hint)}</span>` : '') +
+            `</div>`;
+    }
+
+    /**
+     * Build a preview panel HTML string.
+     * @param {string} title - header label
+     * @param {string} content - pre-formatted content
+     * @param {string} [id] - optional ID for the body element
+     * @returns {string} HTML
+     */
+    function modalPreview(title, content, id) {
+        return `<div class="modal-preview">` +
+            `<div class="modal-preview-header">${esc(title)}</div>` +
+            `<div class="modal-preview-body"${id ? ` id="${id}"` : ''}>${esc(content)}</div>` +
+            `</div>`;
+    }
+
+    /** Get a modal form field value by name. */
+    function mfVal(name) {
+        const el = document.getElementById('mf-' + name);
+        if (!el) return '';
+        if (el.type === 'checkbox') return el.checked;
+        return el.value;
+    }
+
+    /** Set modal footer status text. */
+    function modalStatus(text, type) {
+        const el = document.getElementById('modal-footer-status');
+        if (!el) return;
+        el.textContent = text;
+        el.style.color = type === 'error' ? 'var(--error)' :
+                         type === 'success' ? 'var(--success)' : 'var(--text-muted)';
+    }
+
+    /** Show inline error in modal body. */
+    function modalError(msg) {
+        // Remove previous error
+        document.querySelectorAll('.modal-inline-error').forEach(e => e.remove());
+        if (!msg) return;
+        const body = document.querySelector('.modal-body');
+        if (!body) return;
+        const div = document.createElement('div');
+        div.className = 'modal-inline-error';
+        div.textContent = msg;
+        body.appendChild(div);
     }
 </script>

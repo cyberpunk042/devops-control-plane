@@ -613,8 +613,222 @@ def _summarize_conditions(conditions: list[dict]) -> str:
 
 
 # ═══════════════════════════════════════════════════════════════════
-#  Facilitate: Manifest generation
+#  Act: Cluster operations (online)
 # ═══════════════════════════════════════════════════════════════════
+
+
+def k8s_pod_logs(
+    namespace: str = "default",
+    pod: str = "",
+    *,
+    tail: int = 100,
+    container: str = "",
+) -> dict:
+    """Get logs from a pod.
+
+    Returns:
+        {"ok": True, "logs": "..."} or {"error": "..."}
+    """
+    kubectl = _kubectl_available()
+    if not kubectl.get("available"):
+        return {"ok": False, "error": "kubectl not available"}
+    if not pod:
+        return {"ok": False, "error": "Missing pod name"}
+
+    args = ["logs", pod, "-n", namespace, "--tail", str(tail)]
+    if container:
+        args.extend(["-c", container])
+
+    try:
+        result = _run_kubectl(*args, timeout=15)
+        if result.returncode != 0:
+            return {"ok": False, "error": result.stderr.strip()}
+        return {"ok": True, "pod": pod, "namespace": namespace, "logs": result.stdout}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+def k8s_apply(project_root: Path, file_path: str = "", *, namespace: str = "") -> dict:
+    """Apply Kubernetes manifests.
+
+    Args:
+        file_path: Relative path to manifest file or directory.
+        namespace: Optional namespace override.
+
+    Returns:
+        {"ok": True, "output": "..."} or {"error": "..."}
+    """
+    kubectl = _kubectl_available()
+    if not kubectl.get("available"):
+        return {"ok": False, "error": "kubectl not available"}
+
+    target = project_root / file_path if file_path else project_root
+    if not target.exists():
+        return {"ok": False, "error": f"Path not found: {file_path}"}
+
+    args = ["apply"]
+    if target.is_dir():
+        args.extend(["-f", str(target), "--recursive"])
+    else:
+        args.extend(["-f", str(target)])
+
+    if namespace:
+        args.extend(["-n", namespace])
+
+    try:
+        result = _run_kubectl(*args, timeout=60)
+        if result.returncode != 0:
+            return {"ok": False, "error": result.stderr.strip()}
+        return {"ok": True, "output": result.stdout.strip()}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+def k8s_delete_resource(
+    kind: str,
+    name: str,
+    *,
+    namespace: str = "default",
+) -> dict:
+    """Delete a Kubernetes resource.
+
+    Returns:
+        {"ok": True, "output": "..."} or {"error": "..."}
+    """
+    kubectl = _kubectl_available()
+    if not kubectl.get("available"):
+        return {"ok": False, "error": "kubectl not available"}
+    if not kind or not name:
+        return {"ok": False, "error": "Missing kind or name"}
+
+    try:
+        result = _run_kubectl("delete", kind, name, "-n", namespace, timeout=30)
+        if result.returncode != 0:
+            return {"ok": False, "error": result.stderr.strip()}
+        return {"ok": True, "output": result.stdout.strip()}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+def k8s_scale(
+    name: str,
+    replicas: int,
+    *,
+    namespace: str = "default",
+    kind: str = "deployment",
+) -> dict:
+    """Scale a deployment / statefulset.
+
+    Returns:
+        {"ok": True, "output": "..."} or {"error": "..."}
+    """
+    kubectl = _kubectl_available()
+    if not kubectl.get("available"):
+        return {"ok": False, "error": "kubectl not available"}
+    if not name:
+        return {"ok": False, "error": "Missing resource name"}
+
+    try:
+        result = _run_kubectl(
+            "scale", f"{kind}/{name}",
+            f"--replicas={replicas}",
+            "-n", namespace,
+            timeout=30,
+        )
+        if result.returncode != 0:
+            return {"ok": False, "error": result.stderr.strip()}
+        return {"ok": True, "output": result.stdout.strip()}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+def k8s_events(namespace: str = "default") -> dict:
+    """Get recent cluster events.
+
+    Returns:
+        {"ok": True, "events": [{type, reason, object, message, age}, ...]}
+    """
+    kubectl = _kubectl_available()
+    if not kubectl.get("available"):
+        return {"ok": False, "error": "kubectl not available"}
+
+    try:
+        result = _run_kubectl(
+            "get", "events",
+            "-n", namespace,
+            "--sort-by=.lastTimestamp",
+            "-o", "json",
+            timeout=15,
+        )
+        if result.returncode != 0:
+            return {"ok": False, "error": result.stderr.strip()}
+
+        import json as _json
+        data = _json.loads(result.stdout)
+        events: list[dict] = []
+        for item in (data.get("items", []) or [])[-50:]:  # last 50
+            events.append({
+                "type": item.get("type", ""),
+                "reason": item.get("reason", ""),
+                "object": f"{item.get('involvedObject', {}).get('kind', '')}/{item.get('involvedObject', {}).get('name', '')}",
+                "message": item.get("message", ""),
+                "count": item.get("count", 1),
+                "first_seen": item.get("firstTimestamp", ""),
+                "last_seen": item.get("lastTimestamp", ""),
+            })
+        return {"ok": True, "events": events, "count": len(events)}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+def k8s_describe(kind: str, name: str, *, namespace: str = "default") -> dict:
+    """Describe a Kubernetes resource.
+
+    Returns:
+        {"ok": True, "description": "..."} or {"error": "..."}
+    """
+    kubectl = _kubectl_available()
+    if not kubectl.get("available"):
+        return {"ok": False, "error": "kubectl not available"}
+    if not kind or not name:
+        return {"ok": False, "error": "Missing kind or name"}
+
+    try:
+        result = _run_kubectl("describe", kind, name, "-n", namespace, timeout=15)
+        if result.returncode != 0:
+            return {"ok": False, "error": result.stderr.strip()}
+        return {"ok": True, "description": result.stdout}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+def k8s_namespaces() -> dict:
+    """List Kubernetes namespaces.
+
+    Returns:
+        {"ok": True, "namespaces": [{name, status, age}, ...]}
+    """
+    kubectl = _kubectl_available()
+    if not kubectl.get("available"):
+        return {"ok": False, "error": "kubectl not available"}
+
+    try:
+        result = _run_kubectl("get", "namespaces", "-o", "json", timeout=10)
+        if result.returncode != 0:
+            return {"ok": False, "error": result.stderr.strip()}
+
+        import json as _json
+        data = _json.loads(result.stdout)
+        namespaces: list[dict] = []
+        for item in data.get("items", []):
+            namespaces.append({
+                "name": item.get("metadata", {}).get("name", ""),
+                "status": item.get("status", {}).get("phase", ""),
+                "created": item.get("metadata", {}).get("creationTimestamp", ""),
+            })
+        return {"ok": True, "namespaces": namespaces, "count": len(namespaces)}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
 
 
 _DEPLOYMENT_TEMPLATE = """apiVersion: apps/v1
@@ -781,3 +995,453 @@ def generate_manifests(
         files.append(ing_file.model_dump())
 
     return {"ok": True, "files": files}
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  Helm Operations
+# ═══════════════════════════════════════════════════════════════════
+
+
+def _helm_available() -> bool:
+    """Check if helm CLI is available."""
+    import shutil
+    return shutil.which("helm") is not None
+
+
+def helm_list(project_root: Path, *, namespace: str = "") -> dict:
+    """List installed Helm releases.
+
+    Returns:
+        {"available": True, "releases": [{name, namespace, revision, status, chart, app_version}, ...]}
+    """
+    if not _helm_available():
+        return {"available": False, "error": "helm CLI not found"}
+
+    cmd = ["helm", "list", "--output", "json"]
+    if namespace:
+        cmd.extend(["--namespace", namespace])
+    else:
+        cmd.append("--all-namespaces")
+
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=30, cwd=project_root)
+        if r.returncode != 0:
+            return {"available": True, "releases": [], "error": r.stderr.strip()}
+
+        import json
+        releases = json.loads(r.stdout) if r.stdout.strip() else []
+        return {"available": True, "releases": releases}
+    except Exception as e:
+        return {"available": True, "releases": [], "error": str(e)}
+
+
+def helm_values(project_root: Path, release: str, *, namespace: str = "") -> dict:
+    """Get values for a Helm release.
+
+    Returns:
+        {"ok": True, "values": str (YAML)} or {"error": "..."}
+    """
+    if not _helm_available():
+        return {"error": "helm CLI not found"}
+
+    cmd = ["helm", "get", "values", release, "--output", "yaml"]
+    if namespace:
+        cmd.extend(["--namespace", namespace])
+
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=30, cwd=project_root)
+        if r.returncode != 0:
+            return {"error": r.stderr.strip() or "Failed to get values"}
+        return {"ok": True, "values": r.stdout, "release": release}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def helm_install(
+    project_root: Path,
+    release: str,
+    chart: str,
+    *,
+    namespace: str = "",
+    values_file: str = "",
+    set_values: dict | None = None,
+    dry_run: bool = False,
+) -> dict:
+    """Install a Helm chart.
+
+    Returns:
+        {"ok": True, "output": str} or {"error": "..."}
+    """
+    if not _helm_available():
+        return {"error": "helm CLI not found"}
+
+    cmd = ["helm", "install", release, chart]
+    if namespace:
+        cmd.extend(["--namespace", namespace, "--create-namespace"])
+    if values_file:
+        cmd.extend(["--values", values_file])
+    if set_values:
+        for k, v in set_values.items():
+            cmd.extend(["--set", f"{k}={v}"])
+    if dry_run:
+        cmd.append("--dry-run")
+
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=120, cwd=project_root)
+        if r.returncode != 0:
+            return {"error": r.stderr.strip() or "Helm install failed"}
+        return {"ok": True, "output": r.stdout}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def helm_upgrade(
+    project_root: Path,
+    release: str,
+    chart: str,
+    *,
+    namespace: str = "",
+    values_file: str = "",
+    set_values: dict | None = None,
+    dry_run: bool = False,
+) -> dict:
+    """Upgrade a Helm release.
+
+    Returns:
+        {"ok": True, "output": str} or {"error": "..."}
+    """
+    if not _helm_available():
+        return {"error": "helm CLI not found"}
+
+    cmd = ["helm", "upgrade", release, chart, "--install"]
+    if namespace:
+        cmd.extend(["--namespace", namespace])
+    if values_file:
+        cmd.extend(["--values", values_file])
+    if set_values:
+        for k, v in set_values.items():
+            cmd.extend(["--set", f"{k}={v}"])
+    if dry_run:
+        cmd.append("--dry-run")
+
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=120, cwd=project_root)
+        if r.returncode != 0:
+            return {"error": r.stderr.strip() or "Helm upgrade failed"}
+        return {"ok": True, "output": r.stdout}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def helm_template(
+    project_root: Path,
+    release: str,
+    chart: str,
+    *,
+    namespace: str = "",
+    values_file: str = "",
+) -> dict:
+    """Render Helm templates locally (dry-run without cluster).
+
+    Returns:
+        {"ok": True, "output": str (rendered YAML)} or {"error": "..."}
+    """
+    if not _helm_available():
+        return {"error": "helm CLI not found"}
+
+    cmd = ["helm", "template", release, chart]
+    if namespace:
+        cmd.extend(["--namespace", namespace])
+    if values_file:
+        cmd.extend(["--values", values_file])
+
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=60, cwd=project_root)
+        if r.returncode != 0:
+            return {"error": r.stderr.strip() or "Helm template failed"}
+        return {"ok": True, "output": r.stdout}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  Skaffold Detection
+# ═══════════════════════════════════════════════════════════════════
+
+
+def skaffold_status(project_root: Path) -> dict:
+    """Detect Skaffold configuration.
+
+    Returns:
+        {
+            "available": bool (CLI exists),
+            "configs": [{path, profiles: [str]}],
+            "has_skaffold": bool,
+        }
+    """
+    import shutil
+    import yaml
+
+    cli_available = shutil.which("skaffold") is not None
+
+    configs: list[dict] = []
+    skaffold_files = [
+        "skaffold.yaml", "skaffold.yml",
+    ]
+
+    for f in skaffold_files:
+        p = project_root / f
+        if p.is_file():
+            try:
+                data = yaml.safe_load(p.read_text(encoding="utf-8"))
+                profiles = []
+                if isinstance(data, dict) and "profiles" in data:
+                    profiles = [
+                        pr.get("name", "")
+                        for pr in data["profiles"]
+                        if isinstance(pr, dict) and pr.get("name")
+                    ]
+                configs.append({
+                    "path": f,
+                    "profiles": profiles,
+                    "api_version": data.get("apiVersion", "") if isinstance(data, dict) else "",
+                })
+            except Exception:
+                configs.append({"path": f, "profiles": [], "api_version": ""})
+
+    return {
+        "available": cli_available,
+        "configs": configs,
+        "has_skaffold": len(configs) > 0,
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  Multi-Environment Namespace Mapping
+# ═══════════════════════════════════════════════════════════════════
+
+
+def k8s_env_namespaces(project_root: Path) -> dict:
+    """Map project environments to K8s namespaces.
+
+    Reads project.yml environments and checks for env-specific
+    namespace files or Kustomize overlays.
+
+    Returns:
+        {
+            "environments": [{
+                name, namespace, has_overlay, overlay_path
+            }, ...],
+        }
+    """
+    from src.core.config.loader import find_project_file, load_project
+
+    config_path = find_project_file(project_root)
+    if not config_path:
+        return {"environments": []}
+
+    project = load_project(config_path)
+    envs: list[dict] = []
+
+    for env in project.environments:
+        name = env.name
+        # Convention: namespace = project-name-env
+        namespace = f"{project.name}-{name}" if project.name else name
+
+        # Check for env-specific overlays
+        overlay_paths = [
+            f"k8s/overlays/{name}",
+            f"k8s/envs/{name}",
+            f"kubernetes/overlays/{name}",
+            f"deploy/overlays/{name}",
+        ]
+        has_overlay = False
+        overlay_path = ""
+        for op in overlay_paths:
+            if (project_root / op).is_dir():
+                has_overlay = True
+                overlay_path = op
+                break
+
+        # Check for env-specific values files (Helm)
+        values_files = [
+            f"values-{name}.yaml", f"values.{name}.yaml",
+            f"helm/values-{name}.yaml", f"charts/values-{name}.yaml",
+        ]
+        values_file = ""
+        for vf in values_files:
+            if (project_root / vf).is_file():
+                values_file = vf
+                break
+
+        envs.append({
+            "name": name,
+            "namespace": namespace,
+            "default": env.default,
+            "has_overlay": has_overlay,
+            "overlay_path": overlay_path,
+            "values_file": values_file,
+        })
+
+    return {"environments": envs}
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  K8s Manifest Wizard
+# ═══════════════════════════════════════════════════════════════════
+
+
+def generate_k8s_wizard(
+    project_root: Path,
+    resources: list[dict],
+) -> dict:
+    """Generate K8s manifests from wizard resource definitions.
+
+    Args:
+        resources: List of resource dicts with:
+            kind: Deployment | Service | ConfigMap | Ingress | ...
+            name: resource name
+            namespace: target namespace
+            spec: kind-specific fields (image, port, replicas, data, etc.)
+
+    Returns:
+        {"ok": True, "files": [{path, content, reason}, ...]}
+    """
+    import yaml
+    from src.core.models.template import GeneratedFile
+
+    if not resources:
+        return {"error": "At least one resource is required"}
+
+    files: list[dict] = []
+
+    for res in resources:
+        kind = (res.get("kind") or "").strip()
+        name = (res.get("name") or "").strip()
+        namespace = (res.get("namespace") or "default").strip()
+        spec = res.get("spec", {})
+
+        if not kind or not name:
+            continue
+
+        manifest: dict = {
+            "apiVersion": _api_version_for_kind(kind),
+            "kind": kind,
+            "metadata": {
+                "name": name,
+                "namespace": namespace,
+            },
+        }
+
+        if kind == "Deployment":
+            image = spec.get("image", f"{name}:latest")
+            port = spec.get("port", 8080)
+            replicas = spec.get("replicas", 1)
+
+            manifest["spec"] = {
+                "replicas": replicas,
+                "selector": {"matchLabels": {"app": name}},
+                "template": {
+                    "metadata": {"labels": {"app": name}},
+                    "spec": {
+                        "containers": [{
+                            "name": name,
+                            "image": image,
+                            "ports": [{"containerPort": port}],
+                        }],
+                    },
+                },
+            }
+
+            # Resource limits
+            if spec.get("cpu_limit") or spec.get("memory_limit"):
+                container = manifest["spec"]["template"]["spec"]["containers"][0]
+                container["resources"] = {"limits": {}, "requests": {}}
+                if spec.get("memory_limit"):
+                    container["resources"]["limits"]["memory"] = spec["memory_limit"]
+                    container["resources"]["requests"]["memory"] = spec.get("memory_request", spec["memory_limit"])
+                if spec.get("cpu_limit"):
+                    container["resources"]["limits"]["cpu"] = spec["cpu_limit"]
+                    container["resources"]["requests"]["cpu"] = spec.get("cpu_request", spec["cpu_limit"])
+
+            # Env vars
+            if spec.get("env"):
+                container = manifest["spec"]["template"]["spec"]["containers"][0]
+                container["env"] = [
+                    {"name": k, "value": str(v)}
+                    for k, v in spec["env"].items()
+                ]
+
+        elif kind == "Service":
+            port = spec.get("port", 80)
+            target_port = spec.get("target_port", port)
+            svc_type = spec.get("type", "ClusterIP")
+            manifest["spec"] = {
+                "type": svc_type,
+                "selector": {"app": spec.get("selector", name)},
+                "ports": [{"port": port, "targetPort": target_port}],
+            }
+
+        elif kind == "ConfigMap":
+            manifest["data"] = spec.get("data", {})
+
+        elif kind == "Ingress":
+            manifest["apiVersion"] = "networking.k8s.io/v1"
+            host = spec.get("host", f"{name}.example.com")
+            port = spec.get("port", 80)
+            service = spec.get("service", name)
+            manifest["spec"] = {
+                "rules": [{
+                    "host": host,
+                    "http": {
+                        "paths": [{
+                            "path": "/",
+                            "pathType": "Prefix",
+                            "backend": {
+                                "service": {
+                                    "name": service,
+                                    "port": {"number": port},
+                                },
+                            },
+                        }],
+                    },
+                }],
+            }
+
+        elif kind == "Namespace":
+            del manifest["metadata"]["namespace"]
+            manifest.pop("spec", None)
+
+        else:
+            # Generic: just metadata, user will edit
+            manifest["spec"] = spec or {}
+
+        content = yaml.dump(manifest, default_flow_style=False, sort_keys=False)
+
+        files.append(GeneratedFile(
+            path=f"k8s/{name}-{kind.lower()}.yaml",
+            content=content,
+            overwrite=False,
+            reason=f"{kind} '{name}' in namespace '{namespace}'",
+        ).model_dump())
+
+    if not files:
+        return {"error": "No valid resources to generate"}
+
+    return {"ok": True, "files": files}
+
+
+def _api_version_for_kind(kind: str) -> str:
+    """Resolve the conventional apiVersion for a K8s kind."""
+    mapping = {
+        "Deployment": "apps/v1",
+        "StatefulSet": "apps/v1",
+        "DaemonSet": "apps/v1",
+        "ReplicaSet": "apps/v1",
+        "Job": "batch/v1",
+        "CronJob": "batch/v1",
+        "Ingress": "networking.k8s.io/v1",
+        "NetworkPolicy": "networking.k8s.io/v1",
+        "HorizontalPodAutoscaler": "autoscaling/v2",
+    }
+    return mapping.get(kind, "v1")

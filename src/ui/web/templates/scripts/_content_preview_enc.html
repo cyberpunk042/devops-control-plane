@@ -130,7 +130,13 @@
                 toggle.innerHTML = toggleHtml;
 
                 if (previewEditMode) {
-                    body.innerHTML = `<textarea id="content-editor" class="content-editor" spellcheck="false">${esc(data.content)}</textarea>`;
+                    body.innerHTML = `<div id="monaco-editor-container" style="border:1px solid var(--border);border-radius:var(--radius-sm);overflow:hidden"></div>`;
+                    monacoCreate('monaco-editor-container', {
+                        content: data.content,
+                        filePath: previewCurrentPath.replace(/\.enc$/, ''),
+                        readOnly: false,
+                        minHeight: 400,
+                    });
                     editBar.style.display = 'flex';
                     editBar.innerHTML = `
                         <button class="btn btn-secondary btn-sm" onclick="contentDiscardEncEdit()">↩️ Discard</button>
@@ -148,7 +154,13 @@
                         <p style="color:var(--text-muted);font-size:0.8rem;padding:0.5rem 1rem;border-bottom:1px solid var(--border-subtle)">
                             🔓 Decrypted${originalLabel} · ${formatFileSize(data.size)} · ${data.line_count} lines
                         </p>
-                        <pre class="content-preview-code notranslate" translate="no"><code>${esc(data.content)}</code></pre>`;
+                        <div id="monaco-editor-container" style="border:1px solid var(--border);border-radius:var(--radius-sm);overflow:hidden"></div>`;
+                    monacoCreate('monaco-editor-container', {
+                        content: data.content,
+                        filePath: previewCurrentPath.replace(/\.enc$/, ''),
+                        readOnly: true,
+                        minHeight: 300,
+                    });
                     editBar.style.display = 'none';
                 }
 
@@ -172,35 +184,40 @@
     }
 
     function contentSetEncPreviewMode(mode) {
-        if (mode === 'edit') {
-            previewEditMode = true;
-        } else {
-            previewEditMode = false;
-            previewRawMode = (mode === 'raw');
-        }
-        contentPreviewEncrypted(previewCurrentPath, previewCurrentName);
+        monacoGuardUnsaved(() => {
+            monacoDispose();
+            if (mode === 'edit') {
+                previewEditMode = true;
+            } else {
+                previewEditMode = false;
+                previewRawMode = (mode === 'raw');
+            }
+            contentPreviewEncrypted(previewCurrentPath, previewCurrentName);
+        });
     }
 
     function contentDiscardEncEdit() {
+        monacoDispose();
         previewEditMode = false;
         contentPreviewEncrypted(previewCurrentPath, previewCurrentName);
     }
 
     async function contentSaveEncEdit() {
-        const editor = document.getElementById('content-editor');
-        if (!editor) return;
+        const content = contentEditorGetValue();
+        if (!content && content !== '') return;
 
         try {
             await api('/content/save-encrypted', {
                 method: 'POST',
                 body: JSON.stringify({
                     path: previewCurrentPath,
-                    content: editor.value,
+                    content,
                     key: encPreviewKey || undefined,
                 }),
             });
             toast('File saved and re-encrypted!', 'success');
             previewEditMode = false;
+            monacoDispose();
             contentPreviewEncrypted(previewCurrentPath, previewCurrentName);
         } catch (e) {
             toast(`Save failed: ${e.message}`, 'error');
@@ -216,17 +233,18 @@
     }
 
     async function contentSaveEdit() {
-        const editor = document.getElementById('content-editor');
-        if (!editor) return;
+        const content = contentEditorGetValue();
+        if (!content && content !== '') return;
 
         try {
             await api('/content/save', {
                 method: 'POST',
-                body: JSON.stringify({ path: previewCurrentPath, content: editor.value }),
+                body: JSON.stringify({ path: previewCurrentPath, content }),
             });
             toast('File saved!', 'success');
-            previewOrigContent = editor.value;
+            previewOrigContent = content;
             previewEditMode = false;
+            monacoDispose();
             contentPreviewFile(previewCurrentPath, previewCurrentName);
         } catch (e) {
             toast(`Save failed: ${e.message}`, 'error');
@@ -234,6 +252,7 @@
     }
 
     function contentDiscardEdit() {
+        monacoDispose();
         previewEditMode = false;
         contentPreviewFile(previewCurrentPath, previewCurrentName);
     }
@@ -477,14 +496,19 @@
     }
 
     function contentEncryptFromPreview() {
-        contentEncryptFile(previewCurrentPath, previewCurrentHasRelease);
+        monacoGuardUnsaved(() => {
+            contentEncryptFile(previewCurrentPath, previewCurrentHasRelease);
+        });
     }
 
     function contentClosePreview() {
-        previewEditMode = false;
-        previewCurrentPath = '';
-        previewCurrentName = '';
-        if (contentCurrentPath) {
-            contentLoadFolder(contentCurrentPath);
-        }
+        monacoGuardUnsaved(() => {
+            monacoDispose();
+            previewEditMode = false;
+            previewCurrentPath = '';
+            previewCurrentName = '';
+            if (contentCurrentPath) {
+                contentLoadFolder(contentCurrentPath);
+            }
+        });
     }

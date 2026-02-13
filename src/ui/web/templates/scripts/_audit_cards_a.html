@@ -1,0 +1,333 @@
+<!-- Audit Tab JS — Analysis Cards A
+     System Profile, Dependencies & Libraries, Structure & Modules, Clients & Services.
+     Depends on: _audit_init.html (helpers, data store)
+-->
+// ── System Profile Card ────────────────────────────────────────
+
+async function loadAuditSystemCard() {
+    const detail = document.getElementById('audit-system-detail');
+    const badge = document.getElementById('audit-system-badge');
+    const data = await cardLoad('audit:system', '/audit/system', badge, detail);
+    if (!data) return;
+
+    let html = '';
+
+    // OS info
+    const os = data.os || {};
+    const pyInfo = data.python || {};
+    const venv = data.venv || {};
+
+    html += `<div class="kv-grid" style="margin-bottom:var(--space-md)">`;
+    html += `<div class="kv-row"><span class="kv-label">OS</span><span class="kv-value">${os.distro || os.system || '?'} ${os.wsl ? '(WSL)' : ''}</span></div>`;
+    html += `<div class="kv-row"><span class="kv-label">Architecture</span><span class="kv-value">${os.machine || '?'}</span></div>`;
+    html += `<div class="kv-row"><span class="kv-label">Python</span><span class="kv-value">${pyInfo.version || '?'} (${pyInfo.implementation || ''})</span></div>`;
+    html += `<div class="kv-row"><span class="kv-label">Virtual Env</span><span class="kv-value">${venv.in_venv ? '✅ Active' : '❌ None'}</span></div>`;
+    if (venv.venvs && venv.venvs.length) {
+        for (const v of venv.venvs) {
+            html += `<div class="kv-row"><span class="kv-label" style="padding-left:1rem">↳ ${v.path}</span><span class="kv-value">${v.active ? '🟢 active' : '⚪ inactive'}</span></div>`;
+        }
+    }
+    html += `</div>`;
+
+    // Tools
+    const tools = data.tools || [];
+    const available = tools.filter(t => t.available);
+    const missing = tools.filter(t => !t.available);
+
+    html += `<div style="margin-bottom:var(--space-sm)"><strong style="font-size:0.82rem">🔧 Available Tools</strong> <span style="color:var(--text-muted);font-size:0.74rem">(${available.length}/${tools.length})</span></div>`;
+    html += `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:var(--space-md)">`;
+    for (const t of available) {
+        html += `<span class="tag tag-ok" title="${t.path || ''}" style="font-size:0.72rem">✅ ${t.label}</span>`;
+    }
+    for (const t of missing) {
+        // Store tool info in window for modal
+        window._auditMissingTools = window._auditMissingTools || {};
+        window._auditMissingTools[t.id] = t;
+        html += `<span class="tag tag-muted" style="font-size:0.72rem;opacity:0.5;cursor:pointer" onclick="_auditShowMissingTool('${esc(t.id)}')">❌ ${t.label} <span style='font-size:0.62rem;color:var(--accent);margin-left:2px'>ℹ</span></span>`;
+    }
+    html += `</div>`;
+
+    // Modules
+    const modules = data.modules || [];
+    if (modules.length) {
+        html += `<div style="margin-bottom:var(--space-sm)"><strong style="font-size:0.82rem">📦 Modules</strong> <span style="color:var(--text-muted);font-size:0.74rem">(${modules.length})</span></div>`;
+        html += `<table class="mini-table"><thead><tr><th>Module</th><th>Stack</th><th>Language</th><th>Files</th></tr></thead><tbody>`;
+        for (const m of modules) {
+            html += `<tr>
+                <td><strong>${m.name}</strong><br><span style="font-size:0.68rem;color:var(--text-muted)">${m.path}</span></td>
+                <td>${m.stack || '—'}</td>
+                <td>${m.language || '—'}</td>
+                <td style="text-align:right">${m.file_count ?? '?'}</td>
+            </tr>`;
+        }
+        html += `</tbody></table>`;
+    }
+
+    // Manifests
+    const manifests = data.manifests || [];
+    if (manifests.length) {
+        html += `<div style="margin-top:var(--space-md);margin-bottom:var(--space-sm)"><strong style="font-size:0.82rem">📄 Dependency Manifests</strong></div>`;
+        html += `<div style="display:flex;flex-wrap:wrap;gap:6px">`;
+        for (const m of manifests) {
+            const sizeKb = m.size > 1024 ? `${(m.size/1024).toFixed(1)}KB` : `${m.size}B`;
+            html += `<span class="tag" style="font-size:0.72rem" title="${m.manager}">${_auditFileLink(m.file)} <span style="color:var(--text-muted)">(${m.ecosystem}, ${sizeKb})</span></span>`;
+        }
+        html += `</div>`;
+    }
+
+    badge.textContent = `${modules.length} modules`;
+    badge.className = 'status-badge ok';
+    detail.innerHTML = html;
+}
+
+
+// ── Dependencies & Libraries Card ──────────────────────────────
+
+async function loadAuditDepsCard() {
+    const detail = document.getElementById('audit-deps-detail');
+    const badge = document.getElementById('audit-deps-badge');
+    const data = await cardLoad('audit:deps', '/audit/dependencies', badge, detail);
+    if (!data) return;
+
+    let html = '';
+
+    // Summary
+    const total = data.total || 0;
+    const prod = data.total_prod || 0;
+    const dev = data.total_dev || 0;
+    const classified = data.classified || 0;
+    const unclassified = data.unclassified || 0;
+
+    html += `<div class="kv-grid" style="margin-bottom:var(--space-md)">`;
+    html += `<div class="kv-row"><span class="kv-label">Total Dependencies</span><span class="kv-value"><strong>${total}</strong> (${prod} prod, ${dev} dev)</span></div>`;
+    html += `<div class="kv-row"><span class="kv-label">Classified</span><span class="kv-value">${classified} identified, ${unclassified} unknown</span></div>`;
+    html += `</div>`;
+
+    // Categories chart
+    const categories = data.categories || {};
+    if (Object.keys(categories).length) {
+        html += `<div style="margin-bottom:var(--space-sm)"><strong style="font-size:0.82rem">📊 By Category</strong></div>`;
+        html += `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:var(--space-md)">`;
+        const catColors = {
+            framework: '#6366f1', orm: '#8b5cf6', client: '#ec4899', database: '#f43f5e',
+            testing: '#22c55e', devtool: '#06b6d4', security: '#f59e0b', http: '#3b82f6',
+            serialization: '#a855f7', cli: '#14b8a6', logging: '#84cc16', utility: '#64748b',
+            build: '#d946ef', typing: '#0ea5e9',
+        };
+        for (const [cat, count] of Object.entries(categories).sort((a,b) => b[1] - a[1])) {
+            const color = catColors[cat] || '#64748b';
+            html += `<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:20px;font-size:0.74rem;font-weight:600;background:${color}22;color:${color};border:1px solid ${color}44;cursor:pointer;transition:opacity 0.15s" title="Click to filter" data-audit-cat="${cat}" onclick="_auditFilterDeps('${cat}')">
+                <span style="width:8px;height:8px;border-radius:50%;background:${color}"></span>
+                ${cat} <span style="font-weight:400">(${count})</span>
+            </span>`;
+        }
+        html += `</div>`;
+    }
+
+    // Frameworks
+    const frameworks = data.frameworks || [];
+    if (frameworks.length) {
+        html += `<div style="margin-bottom:var(--space-sm)"><strong style="font-size:0.82rem">🏗️ Frameworks Detected</strong></div>`;
+        html += `<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:var(--space-md)">`;
+        for (const fw of frameworks) {
+            html += `<div style="padding:8px 14px;border-radius:var(--radius-md);background:var(--bg-secondary);border-left:3px solid #6366f1">
+                <strong style="font-size:0.82rem">${fw.name}</strong>
+                <div style="font-size:0.7rem;color:var(--text-muted)">${fw.description} · ${fw.ecosystem} · ${fw.type}</div>
+            </div>`;
+        }
+        html += `</div>`;
+    }
+
+    // ORMs
+    const orms = data.orms || [];
+    if (orms.length) {
+        html += `<div style="margin-bottom:var(--space-sm)"><strong style="font-size:0.82rem">🗄️ ORMs Detected</strong></div>`;
+        html += `<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:var(--space-md)">`;
+        for (const orm of orms) {
+            html += `<div style="padding:8px 14px;border-radius:var(--radius-md);background:var(--bg-secondary);border-left:3px solid #8b5cf6">
+                <strong style="font-size:0.82rem">${orm.name}</strong>
+                <div style="font-size:0.7rem;color:var(--text-muted)">${orm.description} · ${orm.ecosystem}</div>
+            </div>`;
+        }
+        html += `</div>`;
+    }
+
+    // Crossovers
+    const crossovers = data.crossovers || [];
+    if (crossovers.length) {
+        html += `<div style="margin-bottom:var(--space-sm)"><strong style="font-size:0.82rem">🔀 Cross-Ecosystem Patterns</strong></div>`;
+        for (const co of crossovers) {
+            html += `<div style="padding:8px 12px;border-radius:var(--radius-sm);background:var(--bg-secondary);margin-bottom:6px;font-size:0.78rem">
+                <strong>${co.service_type}</strong> — ${co.description}
+                <div style="margin-top:4px;display:flex;flex-wrap:wrap;gap:4px">
+                    ${co.libraries.map(l => `<span class="tag" style="font-size:0.7rem">${l.name} (${l.ecosystem})</span>`).join('')}
+                </div>
+            </div>`;
+        }
+    }
+
+    // Ecosystem breakdown
+    const ecosystems = data.ecosystems || {};
+    if (Object.keys(ecosystems).length) {
+        html += `<div style="margin-top:var(--space-md);margin-bottom:var(--space-sm)"><strong style="font-size:0.82rem">🌐 By Ecosystem</strong></div>`;
+        html += `<div style="display:flex;gap:12px;flex-wrap:wrap">`;
+        for (const [eco, count] of Object.entries(ecosystems).sort((a,b) => b[1] - a[1])) {
+            html += `<span style="font-size:0.78rem"><strong>${eco}</strong>: ${count}</span>`;
+        }
+        html += `</div>`;
+    }
+
+    // Expandable full dependency list
+    const deps = data.dependencies || [];
+    if (deps.length) {
+        html += `
+        <details style="margin-top:var(--space-md)">
+            <summary style="cursor:pointer;font-size:0.82rem;font-weight:600;color:var(--text-muted)">📋 Full Dependency List (${deps.length})</summary>
+            <table class="mini-table" id="audit-deps-table" style="margin-top:var(--space-sm)">
+            <thead><tr><th style="width:35%">Package</th><th style="width:15%">Version</th><th style="width:18%">Ecosystem</th><th style="width:18%">Category</th><th style="width:14%">Type</th></tr></thead>
+            <tbody>`;
+        for (const d of deps.sort((a,b) => (a.classification ? 0 : 1) - (b.classification ? 0 : 1) || a.name.localeCompare(b.name))) {
+            const cls = d.classification;
+            const cat = cls ? cls.category : '';
+            const catTag = cls ? `<span style="color:${d.dev ? 'var(--text-muted)' : 'inherit'}">${cls.category}</span>` : '<span style="color:var(--text-muted)">—</span>';
+            const typeTag = cls ? cls.type : '—';
+            html += `<tr data-dep-cat="${cat}"${d.dev ? ' style="opacity:0.6"' : ''}>
+                <td>${d.name}${d.dev ? ' <sup style="color:var(--text-muted)">dev</sup>' : ''}</td>
+                <td style="font-size:0.72rem;color:var(--text-muted)">${d.version || '—'}</td>
+                <td>${d.ecosystem || '—'}</td>
+                <td>${catTag}</td>
+                <td style="font-size:0.72rem">${typeTag}</td>
+            </tr>`;
+        }
+        html += `</tbody></table></details>`;
+    }
+
+    badge.textContent = `${total} deps`;
+    badge.className = 'status-badge ' + (total > 0 ? 'ok' : 'warn');
+    detail.innerHTML = html;
+}
+
+
+// ── Structure & Modules Card ───────────────────────────────────
+
+async function loadAuditStructureCard() {
+    const detail = document.getElementById('audit-structure-detail');
+    const badge = document.getElementById('audit-structure-badge');
+    const data = await cardLoad('audit:structure', '/audit/structure', badge, detail);
+    if (!data) return;
+
+    let html = '';
+
+    // Solution type
+    html += `<div style="padding:10px 14px;border-radius:var(--radius-md);background:var(--bg-secondary);margin-bottom:var(--space-md);border-left:3px solid var(--primary)">
+        <div style="font-size:0.74rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px">Solution Type</div>
+        <div style="font-size:1.05rem;font-weight:600;margin-top:2px">${data.solution_type || 'Unknown'}</div>
+    </div>`;
+
+    // Components
+    const components = data.components || [];
+    if (components.length) {
+        html += `<div style="margin-bottom:var(--space-sm)"><strong style="font-size:0.82rem">🧱 Components</strong></div>`;
+        html += `<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:var(--space-md)">`;
+        const compIcons = { cli: '⌨️', web: '🌐', api: '🔌', docs: '📚', iac: '☁️', docker: '🐳' };
+        for (const c of components) {
+            html += `<span class="tag tag-ok" style="font-size:0.78rem">${compIcons[c.type] || '📦'} ${c.type} — ${c.description}</span>`;
+        }
+        html += `</div>`;
+    }
+
+    // Infrastructure flags
+    const flags = [
+        ['has_docker', '🐳 Docker'],
+        ['has_iac', '☁️ Infrastructure as Code'],
+        ['has_ci', '⚡ CI/CD'],
+        ['has_tests', '🧪 Tests'],
+        ['has_docs', '📚 Documentation'],
+    ];
+    html += `<div style="margin-bottom:var(--space-sm)"><strong style="font-size:0.82rem">🚦 Infrastructure Flags</strong></div>`;
+    html += `<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:var(--space-md)">`;
+    for (const [key, label] of flags) {
+        const has = data[key];
+        html += `<span class="tag ${has ? 'tag-ok' : 'tag-muted'}" style="font-size:0.74rem;${has ? '' : 'opacity:0.5'}">${has ? '✅' : '❌'} ${label}</span>`;
+    }
+    html += `</div>`;
+
+    // Entrypoints
+    const entrypoints = data.entrypoints || [];
+    if (entrypoints.length) {
+        html += `<div style="margin-bottom:var(--space-sm)"><strong style="font-size:0.82rem">🚀 Entrypoints</strong></div>`;
+        html += `<div class="kv-grid">`;
+        for (const ep of entrypoints) {
+            html += `<div class="kv-row"><span class="kv-label">${_auditFileLink(ep.path)}</span><span class="kv-value" style="font-size:0.74rem">${ep.description || ep.type}</span></div>`;
+        }
+        html += `</div>`;
+    }
+
+    badge.textContent = `${components.length} components`;
+    badge.className = 'status-badge ok';
+    detail.innerHTML = html;
+}
+
+
+// ── Clients & Services Card ────────────────────────────────────
+
+async function loadAuditClientsCard() {
+    const detail = document.getElementById('audit-clients-detail');
+    const badge = document.getElementById('audit-clients-badge');
+    const data = await cardLoad('audit:clients', '/audit/clients', badge, detail);
+    if (!data) return;
+
+    let html = '';
+    const clients = data.clients || [];
+
+    if (clients.length === 0) {
+        html += `<div style="text-align:center;padding:var(--space-lg);color:var(--text-muted)">
+            <div style="font-size:2rem;margin-bottom:var(--space-sm)">🔇</div>
+            <div>No external service clients detected in dependency manifests</div>
+        </div>`;
+        badge.textContent = 'none';
+        badge.className = 'status-badge ok';
+        detail.innerHTML = html;
+        return;
+    }
+
+    // Group by type
+    const byType = {};
+    for (const c of clients) {
+        const type = c.type || 'other';
+        (byType[type] = byType[type] || []).push(c);
+    }
+
+    const typeIcons = {
+        'cache/store': '⚡', 'message-broker': '📨', 'task-queue': '📋',
+        'cloud-aws': '☁️', 'cloud-gcp': '☁️', 'cloud-azure': '☁️',
+        'database': '🗄️', 'driver': '🔌', 'search': '🔍',
+        'payment': '💳', 'communication': '💬', 'email': '📧',
+        'rpc': '🔗', 'realtime': '⚡', 'object-storage': '📦',
+    };
+
+    for (const [type, typeClients] of Object.entries(byType).sort((a,b) => b[1].length - a[1].length)) {
+        const icon = typeIcons[type] || '🔌';
+        html += `<div style="margin-bottom:var(--space-md)">
+            <div style="font-size:0.82rem;font-weight:600;margin-bottom:6px">${icon} ${type}</div>
+            <div style="display:flex;flex-wrap:wrap;gap:8px">`;
+        for (const c of typeClients) {
+            html += `<div style="padding:6px 12px;border-radius:var(--radius-sm);background:var(--bg-secondary);font-size:0.78rem">
+                <strong>${c.name}</strong>
+                <div style="font-size:0.68rem;color:var(--text-muted)">${c.description || ''} · ${c.ecosystem}</div>
+            </div>`;
+        }
+        html += `</div></div>`;
+    }
+
+    badge.textContent = `${clients.length} clients`;
+    badge.className = 'status-badge ok';
+    detail.innerHTML = html;
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+//  L2 On-Demand Cards
+// ═══════════════════════════════════════════════════════════════
+
+

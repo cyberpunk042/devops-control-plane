@@ -1,7 +1,7 @@
 """
 State file persistence — atomic read/write for ProjectState.
 
-State is stored as JSON in state/current.json. Writes are atomic
+State is stored as JSON in .state/current.json. Writes are atomic
 (write to temp file, then rename) to prevent corruption if the
 process crashes mid-write.
 """
@@ -18,7 +18,7 @@ from src.core.models.state import ProjectState
 logger = logging.getLogger(__name__)
 
 # Default state file path (relative to project root)
-DEFAULT_STATE_DIR = "state"
+DEFAULT_STATE_DIR = ".state"
 DEFAULT_STATE_FILE = "current.json"
 
 

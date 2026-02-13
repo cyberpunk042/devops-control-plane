@@ -199,6 +199,102 @@ def _should_scan(path: Path, project_root: Path) -> bool:
     return True
 
 
+# Regex to detect inline nosec annotations:
+#   some_code = "val"  # nosec
+#   some_code = "val"  // nosec
+#   some_code = "val"  # nosec: reason here
+_NOSEC_RE = re.compile(r"(?:#|//)\s*nosec\b", re.IGNORECASE)
+
+# For stripping nosec annotations from a line (undismiss)
+_NOSEC_STRIP_RE = re.compile(r"\s*(?:#|//)\s*nosec\b.*$", re.IGNORECASE)
+
+
+def _has_nosec(line: str) -> bool:
+    """Check if a line has an inline nosec suppression comment."""
+    return bool(_NOSEC_RE.search(line))
+
+
+def dismiss_finding(
+    project_root: Path, file: str, line: int, comment: str = "",
+) -> dict:
+    """Dismiss a finding by adding ``# nosec`` to the source line.
+
+    This is the standard inline-suppression mechanism: the comment
+    tells the scanner to skip this line.  The optional *comment* is
+    preserved as part of the annotation so the reason is visible in
+    the source code itself.
+
+    Returns ``{"ok": True, ...}`` on success.
+    """
+    target = project_root / file
+    if not target.is_file():
+        return {"ok": False, "error": f"File not found: {file}"}
+
+    try:
+        content = target.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        return {"ok": False, "error": str(exc)}
+
+    lines = content.splitlines(True)  # keep line endings
+    if line < 1 or line > len(lines):
+        return {"ok": False, "error": f"Line {line} out of range"}
+
+    idx = line - 1
+    current = lines[idx].rstrip("\n").rstrip("\r")
+
+    # Already suppressed?
+    if _has_nosec(current):
+        return {"ok": True, "file": file, "line": line, "already": True}
+
+    # Choose comment style by file extension
+    ext = target.suffix.lower()
+    if ext in (
+        ".js", ".ts", ".jsx", ".tsx", ".mjs", ".cjs",
+        ".c", ".cpp", ".h", ".java", ".go", ".rs", ".cs",
+    ):
+        tag = f"// nosec: {comment}" if comment else "// nosec"
+    else:
+        tag = f"# nosec: {comment}" if comment else "# nosec"
+
+    lines[idx] = current + "  " + tag + "\n"
+    target.write_text("".join(lines), encoding="utf-8")
+
+    logger.info("Dismissed finding in %s:%d — %s", file, line, comment or "(no reason)")
+    return {"ok": True, "file": file, "line": line}
+
+
+def undismiss_finding(project_root: Path, file: str, line: int) -> dict:
+    """Remove an inline ``# nosec`` annotation, restoring the finding."""
+    target = project_root / file
+    if not target.is_file():
+        return {"ok": False, "error": f"File not found: {file}"}
+
+    try:
+        content = target.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        return {"ok": False, "error": str(exc)}
+
+    lines = content.splitlines(True)
+    if line < 1 or line > len(lines):
+        return {"ok": False, "error": f"Line {line} out of range"}
+
+    idx = line - 1
+    current = lines[idx]
+
+    if not _has_nosec(current):
+        return {"ok": True, "file": file, "line": line, "already": True}
+
+    cleaned = _NOSEC_STRIP_RE.sub("", current)
+    if not cleaned.endswith("\n"):
+        cleaned += "\n"
+
+    lines[idx] = cleaned
+    target.write_text("".join(lines), encoding="utf-8")
+
+    logger.info("Undismissed finding in %s:%d", file, line)
+    return {"ok": True, "file": file, "line": line}
+
+
 # ═══════════════════════════════════════════════════════════════════
 #  Detect: Secret scanning
 # ═══════════════════════════════════════════════════════════════════
@@ -224,6 +320,7 @@ def scan_secrets(
     """
     findings: list[dict] = []
     files_scanned = 0
+    suppressed = 0
     severity_counts = {"critical": 0, "high": 0, "medium": 0}
 
     for path in _iter_files(project_root, max_files):
@@ -246,6 +343,14 @@ def scan_secrets(
             # Skip comments
             stripped = line.strip()
             if stripped.startswith("#") or stripped.startswith("//") or stripped.startswith("*"):
+                continue
+
+            # Inline false-positive suppression: # nosec or // nosec
+            if _has_nosec(stripped):
+                for name, pattern, severity, description in _SECRET_PATTERNS:
+                    if pattern.search(line):
+                        suppressed += 1
+                        break
                 continue
 
             for name, pattern, severity, description in _SECRET_PATTERNS:
@@ -271,6 +376,7 @@ def scan_secrets(
         "findings": findings,
         "summary": {
             "total": len(findings),
+            "suppressed": suppressed,
             **severity_counts,
         },
         "files_scanned": files_scanned,

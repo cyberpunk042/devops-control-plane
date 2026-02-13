@@ -1,0 +1,197 @@
+<!-- Audit Tab -->
+<div id="tab-audit" class="tab-content">
+    <header class="tab-header">
+        <h1>🔬 Audit</h1>
+        <div style="display:flex;align-items:center;gap:var(--space-md)">
+            <button class="btn btn-sm btn-secondary" onclick="loadAuditTab(true)" title="Force-refresh all audit cards">
+                🔄 Refresh All
+            </button>
+        </div>
+    </header>
+
+    <!-- ── Master Scores Banner ──────────────────────────────── -->
+    <div id="audit-scores-banner" class="card" style="margin-bottom:var(--space-lg)">
+        <div class="card-header">
+            <span class="card-title">📊 Master Scores</span>
+            <div style="display:flex;align-items:center;gap:0.4rem">
+                <span class="card-age" data-cache-key="audit:scores" style="font-size:0.64rem;color:var(--text-muted)"></span>
+                <button class="btn btn-sm btn-ghost" onclick="loadAuditScoresEnriched()" id="audit-enrich-btn" title="Enrich scores with full L2 analysis (takes 5-25s)" style="font-size:0.68rem;padding:2px 8px">
+                    🔬 Enrich
+                </button>
+                <span class="status-badge" id="audit-scores-badge">—</span>
+            </div>
+        </div>
+        <div id="audit-scores-detail" style="margin-top:var(--space-md)">
+            <span class="spinner"></span>
+        </div>
+    </div>
+
+    <div class="card-grid">
+
+        <!-- ── System Profile Card ──────────────────────────── -->
+        <div class="card" id="audit-system-card">
+            <div class="card-header">
+                <span class="card-title">🖥️ System Profile</span>
+                <div style="display:flex;align-items:center;gap:0.4rem">
+                    <span class="card-age" data-cache-key="audit:system" style="font-size:0.64rem;color:var(--text-muted)"></span>
+                    <button class="btn-icon" onclick="cardRefresh('audit:system','audit-system-badge','audit-system-detail',loadAuditSystemCard)" title="Re-detect system profile" style="font-size:0.7rem;cursor:pointer;background:none;border:none;color:var(--text-muted);padding:0">🔄</button>
+                    <span class="status-badge" id="audit-system-badge">—</span>
+                </div>
+            </div>
+            <div class="card-subtitle">OS, Python, Node, available tools, virtual environment, project modules</div>
+            <div id="audit-system-detail" class="integration-detail" style="margin-top:var(--space-md)">
+                <span class="spinner"></span>
+            </div>
+        </div>
+
+        <!-- ── Dependencies & Libraries Card ────────────────── -->
+        <div class="card" id="audit-deps-card">
+            <div class="card-header">
+                <span class="card-title">📦 Dependencies & Libraries</span>
+                <div style="display:flex;align-items:center;gap:0.4rem">
+                    <span class="card-age" data-cache-key="audit:deps" style="font-size:0.64rem;color:var(--text-muted)"></span>
+                    <button class="btn-icon" onclick="cardRefresh('audit:deps','audit-deps-badge','audit-deps-detail',loadAuditDepsCard)" title="Re-parse manifests" style="font-size:0.7rem;cursor:pointer;background:none;border:none;color:var(--text-muted);padding:0">🔄</button>
+                    <span class="status-badge" id="audit-deps-badge">—</span>
+                </div>
+            </div>
+            <div class="card-subtitle">Library inventory, framework/ORM/client identification, cross-ecosystem crossovers</div>
+            <div id="audit-deps-detail" class="integration-detail" style="margin-top:var(--space-md)">
+                <span class="spinner"></span>
+            </div>
+        </div>
+
+        <!-- ── Structure & Modules Card ─────────────────────── -->
+        <div class="card" id="audit-structure-card">
+            <div class="card-header">
+                <span class="card-title">🏗️ Structure & Modules</span>
+                <div style="display:flex;align-items:center;gap:0.4rem">
+                    <span class="card-age" data-cache-key="audit:structure" style="font-size:0.64rem;color:var(--text-muted)"></span>
+                    <button class="btn-icon" onclick="cardRefresh('audit:structure','audit-structure-badge','audit-structure-detail',loadAuditStructureCard)" title="Re-detect structure" style="font-size:0.7rem;cursor:pointer;background:none;border:none;color:var(--text-muted);padding:0">🔄</button>
+                    <span class="status-badge" id="audit-structure-badge">—</span>
+                </div>
+            </div>
+            <div class="card-subtitle">Solution classification, components, entrypoints, infrastructure flags</div>
+            <div id="audit-structure-detail" class="integration-detail" style="margin-top:var(--space-md)">
+                <span class="spinner"></span>
+            </div>
+        </div>
+
+        <!-- ── Clients & Services Card ──────────────────────── -->
+        <div class="card" id="audit-clients-card">
+            <div class="card-header">
+                <span class="card-title">🔌 Clients & Services</span>
+                <div style="display:flex;align-items:center;gap:0.4rem">
+                    <span class="card-age" data-cache-key="audit:clients" style="font-size:0.64rem;color:var(--text-muted)"></span>
+                    <button class="btn-icon" onclick="cardRefresh('audit:clients','audit-clients-badge','audit-clients-detail',loadAuditClientsCard)" title="Re-detect clients" style="font-size:0.7rem;cursor:pointer;background:none;border:none;color:var(--text-muted);padding:0">🔄</button>
+                    <span class="status-badge" id="audit-clients-badge">—</span>
+                </div>
+            </div>
+            <div class="card-subtitle">External service clients (databases, caches, message brokers, cloud SDKs)</div>
+            <div id="audit-clients-detail" class="integration-detail" style="margin-top:var(--space-md)">
+                <span class="spinner"></span>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- ── L2 On-Demand Section ──────────────────────────────── -->
+    <div style="margin-top:var(--space-xl)">
+        <div style="display:flex;align-items:center;gap:var(--space-sm);margin-bottom:var(--space-md)">
+            <h2 style="margin:0;font-size:1.1rem">🔬 Deep Analysis</h2>
+            <span style="font-size:0.72rem;color:var(--text-muted);padding:2px 8px;border-radius:var(--radius-sm);background:var(--bg-secondary)">L2 · on-demand</span>
+        </div>
+        <p style="color:var(--text-muted);font-size:0.78rem;margin-bottom:var(--space-lg)">
+            These cards perform heavier analysis (AST parsing, git inspection, cross-service checks).
+            Click <strong>▶ Analyze</strong> to run — results are cached after first run.
+        </p>
+
+        <div class="card-grid">
+
+            <!-- ── Code Health Card ─────────────────────────── -->
+            <div class="card" id="audit-health-card">
+                <div class="card-header">
+                    <span class="card-title">📊 Code Health</span>
+                    <div style="display:flex;align-items:center;gap:0.4rem">
+                        <span class="card-age" data-cache-key="audit:l2:quality" style="font-size:0.64rem;color:var(--text-muted)"></span>
+                        <button class="btn btn-ghost btn-sm" onclick="cardRefresh('audit:l2:quality','audit-health-badge','audit-health-detail',loadAuditHealthCard)" title="Refresh code health" style="padding:2px 6px;font-size:0.72rem">🔄</button>
+                        <span class="status-badge" id="audit-health-badge">—</span>
+                    </div>
+                </div>
+                <div class="card-subtitle">AST-based quality metrics — docstring coverage, function length, nesting depth, naming consistency</div>
+                <div id="audit-health-detail" class="integration-detail" style="margin-top:var(--space-md)">
+                    <div style="text-align:center;padding:var(--space-lg)">
+                        <button class="btn btn-sm btn-primary" onclick="loadAuditHealthCard()" id="audit-health-trigger">
+                            ▶ Analyze Code Health
+                        </button>
+                        <div style="font-size:0.7rem;color:var(--text-muted);margin-top:6px">~2s · parses all Python files via AST</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ── Repo Health Card ─────────────────────────── -->
+            <div class="card" id="audit-repo-card">
+                <div class="card-header">
+                    <span class="card-title">📂 Repo Health</span>
+                    <div style="display:flex;align-items:center;gap:0.4rem">
+                        <span class="card-age" data-cache-key="audit:l2:repo" style="font-size:0.64rem;color:var(--text-muted)"></span>
+                        <button class="btn btn-ghost btn-sm" onclick="cardRefresh('audit:l2:repo','audit-repo-badge','audit-repo-detail',loadAuditRepoCard)" title="Refresh repo health" style="padding:2px 6px;font-size:0.72rem">🔄</button>
+                        <span class="status-badge" id="audit-repo-badge">—</span>
+                    </div>
+                </div>
+                <div class="card-subtitle">Git history depth, object database size, large files, binary tracking, branch and tag hygiene</div>
+                <div id="audit-repo-detail" class="integration-detail" style="margin-top:var(--space-md)">
+                    <div style="text-align:center;padding:var(--space-lg)">
+                        <button class="btn btn-sm btn-primary" onclick="loadAuditRepoCard()" id="audit-repo-trigger">
+                            ▶ Analyze Repository
+                        </button>
+                        <div style="font-size:0.7rem;color:var(--text-muted);margin-top:6px">~3s · inspects git objects and file tree</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ── Risks & Issues Card ──────────────────────── -->
+            <div class="card" id="audit-risks-card">
+                <div class="card-header">
+                    <span class="card-title">⚠️ Risks & Issues</span>
+                    <div style="display:flex;align-items:center;gap:0.4rem">
+                        <span class="card-age" data-cache-key="audit:l2:risks" style="font-size:0.64rem;color:var(--text-muted)"></span>
+                        <button class="btn btn-ghost btn-sm" onclick="cardRefresh('audit:l2:risks','audit-risks-badge','audit-risks-detail',loadAuditRisksCard)" title="Refresh risks scan" style="padding:2px 6px;font-size:0.72rem">🔄</button>
+                        <span class="status-badge" id="audit-risks-badge">—</span>
+                    </div>
+                </div>
+                <div class="card-subtitle">Cross-service risk aggregation — security findings, dependency vulnerabilities, documentation gaps, test coverage</div>
+                <div id="audit-risks-detail" class="integration-detail" style="margin-top:var(--space-md)">
+                    <div style="text-align:center;padding:var(--space-lg)">
+                        <button class="btn btn-sm btn-primary" onclick="loadAuditRisksCard()" id="audit-risks-trigger">
+                            ▶ Scan for Risks
+                        </button>
+                        <div style="font-size:0.7rem;color:var(--text-muted);margin-top:6px">~8-20s · invokes security, package, docs, and testing ops</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ── Structure Analysis Card ──────────────────── -->
+            <div class="card" id="audit-l2structure-card">
+                <div class="card-header">
+                    <span class="card-title">🔗 Import Graph & Coupling</span>
+                    <div style="display:flex;align-items:center;gap:0.4rem">
+                        <span class="card-age" data-cache-key="audit:l2:structure" style="font-size:0.64rem;color:var(--text-muted)"></span>
+                        <button class="btn btn-ghost btn-sm" onclick="cardRefresh('audit:l2:structure','audit-l2structure-badge','audit-l2structure-detail',loadAuditL2StructureCard)" title="Refresh structure analysis" style="padding:2px 6px;font-size:0.72rem">🔄</button>
+                        <span class="status-badge" id="audit-l2structure-badge">—</span>
+                    </div>
+                </div>
+                <div class="card-subtitle">Import graph, module boundaries, exposure ratios, cross-module dependency mapping with strength classification</div>
+                <div id="audit-l2structure-detail" class="integration-detail" style="margin-top:var(--space-md)">
+                    <div style="text-align:center;padding:var(--space-lg)">
+                        <button class="btn btn-sm btn-primary" onclick="loadAuditL2StructureCard()" id="audit-l2structure-trigger">
+                            ▶ Analyze Imports
+                        </button>
+                        <div style="font-size:0.7rem;color:var(--text-muted);margin-top:6px">~2s · full AST import graph</div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+</div>

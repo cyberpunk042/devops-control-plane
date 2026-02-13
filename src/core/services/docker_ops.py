@@ -364,11 +364,12 @@ def docker_stats(project_root: Path) -> dict:
 # ═══════════════════════════════════════════════════════════════════
 
 
-def docker_build(project_root: Path, *, service: str | None = None) -> dict:
+def docker_build(project_root: Path, *, service: str | None = None, no_cache: bool = False) -> dict:
     """Build images via compose.
 
     Args:
         service: Optional specific service to build (default: all).
+        no_cache: If True, pass --no-cache to docker compose build.
 
     Returns:
         {"ok": True, "output": "..."} or {"error": "..."}
@@ -378,6 +379,8 @@ def docker_build(project_root: Path, *, service: str | None = None) -> dict:
         return {"error": "No compose file found"}
 
     args = ["build"]
+    if no_cache:
+        args.append("--no-cache")
     if service:
         args.append(service)
 
@@ -476,6 +479,211 @@ def docker_prune(project_root: Path) -> dict:
     return {"ok": True, "output": r.stdout.strip()}
 
 
+def docker_networks(project_root: Path) -> dict:
+    """List Docker networks.
+
+    Returns:
+        {"available": True, "networks": [{name, driver, scope, id}, ...]}
+    """
+    r = run_docker(
+        "network", "ls", "--format", "{{json .}}",
+        cwd=project_root, timeout=10,
+    )
+    if r.returncode != 0:
+        return {"available": False, "error": r.stderr.strip() or "Docker not available"}
+
+    networks = []
+    for line in r.stdout.strip().splitlines():
+        if not line.strip():
+            continue
+        try:
+            info = json.loads(line)
+            networks.append({
+                "id": info.get("ID", ""),
+                "name": info.get("Name", ""),
+                "driver": info.get("Driver", ""),
+                "scope": info.get("Scope", ""),
+            })
+        except json.JSONDecodeError:
+            continue
+
+    return {"available": True, "networks": networks}
+
+
+def docker_volumes(project_root: Path) -> dict:
+    """List Docker volumes.
+
+    Returns:
+        {"available": True, "volumes": [{name, driver, mountpoint}, ...]}
+    """
+    r = run_docker(
+        "volume", "ls", "--format", "{{json .}}",
+        cwd=project_root, timeout=10,
+    )
+    if r.returncode != 0:
+        return {"available": False, "error": r.stderr.strip() or "Docker not available"}
+
+    volumes = []
+    for line in r.stdout.strip().splitlines():
+        if not line.strip():
+            continue
+        try:
+            info = json.loads(line)
+            volumes.append({
+                "name": info.get("Name", ""),
+                "driver": info.get("Driver", ""),
+                "mountpoint": info.get("Mountpoint", ""),
+                "labels": info.get("Labels", ""),
+            })
+        except json.JSONDecodeError:
+            continue
+
+    return {"available": True, "volumes": volumes}
+
+
+def docker_inspect(project_root: Path, container_id: str) -> dict:
+    """Inspect a Docker container.
+
+    Args:
+        container_id: Container ID or name.
+
+    Returns:
+        {"ok": True, "detail": {...}} or {"error": "..."}
+    """
+    if not container_id:
+        return {"error": "Missing container ID"}
+
+    r = run_docker("inspect", container_id, cwd=project_root, timeout=10)
+    if r.returncode != 0:
+        return {"error": r.stderr.strip() or f"Cannot inspect '{container_id}'"}
+
+    try:
+        data = json.loads(r.stdout)
+        if isinstance(data, list) and len(data) > 0:
+            raw = data[0]
+            return {
+                "ok": True,
+                "detail": {
+                    "id": raw.get("Id", "")[:12],
+                    "name": (raw.get("Name", "") or "").lstrip("/"),
+                    "image": raw.get("Config", {}).get("Image", ""),
+                    "state": raw.get("State", {}),
+                    "created": raw.get("Created", ""),
+                    "platform": raw.get("Platform", ""),
+                    "restart_policy": raw.get("HostConfig", {}).get("RestartPolicy", {}),
+                    "ports": raw.get("NetworkSettings", {}).get("Ports", {}),
+                    "mounts": [
+                        {"source": m.get("Source", ""), "destination": m.get("Destination", ""), "mode": m.get("Mode", "")}
+                        for m in raw.get("Mounts", [])
+                    ],
+                    "env": raw.get("Config", {}).get("Env", []),
+                    "cmd": raw.get("Config", {}).get("Cmd", []),
+                    "labels": raw.get("Config", {}).get("Labels", {}),
+                },
+            }
+        return {"error": "Empty inspect result"}
+    except json.JSONDecodeError:
+        return {"error": "Failed to parse inspect output"}
+
+
+def docker_pull(project_root: Path, image: str) -> dict:
+    """Pull a Docker image.
+
+    Args:
+        image: Image name (e.g., 'nginx:latest').
+
+    Returns:
+        {"ok": True, "output": "..."} or {"error": "..."}
+    """
+    if not image:
+        return {"error": "Missing image name"}
+
+    r = run_docker("pull", image, cwd=project_root, timeout=300)
+    if r.returncode != 0:
+        return {"error": r.stderr.strip() or f"Failed to pull '{image}'"}
+
+    return {"ok": True, "image": image, "output": r.stdout.strip()}
+
+
+def docker_exec_cmd(project_root: Path, container_id: str, command: str) -> dict:
+    """Execute a command in a running container.
+
+    Args:
+        container_id: Container ID or name.
+        command: Command to execute (e.g., 'ls -la /app').
+
+    Returns:
+        {"ok": True, "output": "...", "exit_code": int} or {"error": "..."}
+    """
+    if not container_id:
+        return {"error": "Missing container ID"}
+    if not command:
+        return {"error": "Missing command"}
+
+    # Split command into args — simple split, good enough for most cases
+    cmd_args = command.split()
+    r = run_docker("exec", container_id, *cmd_args, cwd=project_root, timeout=30)
+
+    return {
+        "ok": r.returncode == 0,
+        "container": container_id,
+        "command": command,
+        "output": r.stdout.strip(),
+        "stderr": r.stderr.strip() if r.returncode != 0 else "",
+        "exit_code": r.returncode,
+    }
+
+
+def docker_rm(project_root: Path, container_id: str, *, force: bool = False) -> dict:
+    """Remove a Docker container.
+
+    Args:
+        container_id: Container ID or name.
+        force: Force remove running container (default False).
+
+    Returns:
+        {"ok": True} or {"error": "..."}
+    """
+    if not container_id:
+        return {"error": "Missing container ID"}
+
+    args = ["rm"]
+    if force:
+        args.append("-f")
+    args.append(container_id)
+
+    r = run_docker(*args, cwd=project_root, timeout=15)
+    if r.returncode != 0:
+        return {"error": r.stderr.strip() or f"Failed to remove '{container_id}'"}
+
+    return {"ok": True, "container": container_id}
+
+
+def docker_rmi(project_root: Path, image: str, *, force: bool = False) -> dict:
+    """Remove a Docker image.
+
+    Args:
+        image: Image ID or name:tag.
+        force: Force remove (default False).
+
+    Returns:
+        {"ok": True} or {"error": "..."}
+    """
+    if not image:
+        return {"error": "Missing image name"}
+
+    args = ["rmi"]
+    if force:
+        args.append("-f")
+    args.append(image)
+
+    r = run_docker(*args, cwd=project_root, timeout=30)
+    if r.returncode != 0:
+        return {"error": r.stderr.strip() or f"Failed to remove '{image}'"}
+
+    return {"ok": True, "image": image, "output": r.stdout.strip()}
+
+
 # ═══════════════════════════════════════════════════════════════════
 #  Facilitate (generate)
 # ═══════════════════════════════════════════════════════════════════
@@ -531,6 +739,123 @@ def generate_compose(
         return {"error": "No eligible modules for compose generation"}
 
     return {"ok": True, "file": result.model_dump()}
+
+
+def generate_compose_from_wizard(
+    project_root: Path,
+    services: list[dict],
+    *,
+    project_name: str = "",
+) -> dict:
+    """Generate a docker-compose.yml from user-defined service specifications.
+
+    Args:
+        project_root: Project root directory.
+        services: List of service dicts with:
+            name, image, build_context, dockerfile, ports, volumes,
+            environment, depends_on, restart, command, networks.
+        project_name: Optional project name for compose.
+
+    Returns:
+        {"ok": True, "file": {...}} or {"error": "..."}
+    """
+    from src.core.models.template import GeneratedFile
+
+    if not services:
+        return {"error": "At least one service is required"}
+
+    import yaml
+
+    compose: dict = {"services": {}}
+    if project_name:
+        compose["name"] = project_name
+
+    all_networks: set[str] = set()
+
+    for svc in services:
+        name = (svc.get("name") or "").strip()
+        if not name:
+            continue
+
+        spec: dict = {}
+
+        # Image vs build
+        image = (svc.get("image") or "").strip()
+        build_ctx = (svc.get("build_context") or "").strip()
+        dockerfile = (svc.get("dockerfile") or "").strip()
+
+        if image and not build_ctx:
+            spec["image"] = image
+        elif build_ctx:
+            build_def: dict = {"context": build_ctx}
+            if dockerfile:
+                build_def["dockerfile"] = dockerfile
+            spec["build"] = build_def
+            if image:
+                spec["image"] = image
+        elif not image and not build_ctx:
+            spec["image"] = name  # fallback
+
+        # Ports
+        ports = svc.get("ports", [])
+        if ports:
+            spec["ports"] = [str(p) for p in ports if p]
+
+        # Volumes
+        volumes = svc.get("volumes", [])
+        if volumes:
+            spec["volumes"] = [str(v) for v in volumes if v]
+
+        # Environment
+        env = svc.get("environment", {})
+        if isinstance(env, dict) and env:
+            spec["environment"] = {k: str(v) for k, v in env.items()}
+        elif isinstance(env, list) and env:
+            spec["environment"] = [str(e) for e in env if e]
+
+        # Depends on
+        deps = svc.get("depends_on", [])
+        if deps:
+            spec["depends_on"] = [str(d) for d in deps if d]
+
+        # Restart
+        restart = (svc.get("restart") or "unless-stopped").strip()
+        if restart:
+            spec["restart"] = restart
+
+        # Command
+        command = (svc.get("command") or "").strip()
+        if command:
+            spec["command"] = command
+
+        # Networks
+        networks = svc.get("networks", [])
+        if networks:
+            spec["networks"] = [str(n) for n in networks if n]
+            all_networks.update(n for n in networks if n)
+
+        compose["services"][name] = spec
+
+    # Add top-level networks if any
+    if all_networks:
+        compose["networks"] = {n: {} for n in sorted(all_networks)}
+
+    content = "# Generated by DevOps Control Plane — Compose Wizard\n"
+    content += yaml.dump(
+        compose,
+        default_flow_style=False,
+        sort_keys=False,
+        allow_unicode=True,
+    )
+
+    file_data = GeneratedFile(
+        path="docker-compose.yml",
+        content=content,
+        overwrite=False,
+        reason=f"Compose wizard: {len(compose['services'])} service(s)",
+    )
+
+    return {"ok": True, "file": file_data.model_dump()}
 
 
 def write_generated_file(project_root: Path, file_data: dict) -> dict:

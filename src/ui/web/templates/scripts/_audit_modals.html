@@ -1,0 +1,378 @@
+<!-- Audit Tab JS — Drill-Down Modals
+     Drill-down modal rendering, per-item dismiss, batch dismiss, checkbox helpers,
+     category filters for dependency table.
+     Depends on: _audit_init.html (helpers, data store)
+-->
+// ── Drill-down modal helpers ───────────────────────────────────
+
+function _auditShowCrossDep(idx) {
+    const dep = (window._auditData.crossDeps || [])[idx];
+    if (!dep) return;
+    const files = dep.files_involved || [];
+    const label = `${dep.from_module} → ${dep.to_module}`;
+    let body = `<div style="font-size:0.78rem;margin-bottom:var(--space-md)">
+        <strong>${dep.import_count || 0}</strong> imports across <strong>${files.length}</strong> files
+        <span style="margin-left:8px;color:var(--text-muted)">(${dep.strength})</span>
+    </div>`;
+    if (files.length) {
+        body += `<div style="font-size:0.78rem;font-weight:600;margin-bottom:var(--space-sm)">📄 Files involved:</div>`;
+        for (const f of files) {
+            body += `<div style="padding:4px 8px;margin-bottom:2px;border-radius:var(--radius-sm);background:var(--bg-secondary)">${_auditFileLink(f)}</div>`;
+        }
+    }
+    _auditModal(`🔗 ${label}`, body, 550);
+}
+
+function _auditShowMissingTool(toolId) {
+    const stored = (window._auditMissingTools || {})[toolId] || {};
+    const label = stored.label || toolId;
+    const cli = stored.cli || toolId;
+
+    // Tool database with descriptions, commands, and sudo flag
+    const installDb = {
+        'helm':             { desc: 'Kubernetes package manager for deploying charts',       cmd: 'sudo bash -c "curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash"', sudo: true },
+        'kubectl':          { desc: 'Kubernetes CLI for managing clusters',                   cmd: 'sudo snap install kubectl --classic', sudo: true },
+        'terraform':        { desc: 'Infrastructure-as-code provisioning tool',               cmd: 'sudo snap install terraform', sudo: true },
+        'docker':           { desc: 'Container runtime for building and running images',      cmd: 'sudo apt-get install -y docker.io', sudo: true },
+        'docker-compose':   { desc: 'Multi-container orchestration tool',                     cmd: 'sudo apt-get install -y docker-compose-v2', sudo: true },
+        'trivy':            { desc: 'Container and filesystem vulnerability scanner',         cmd: 'sudo bash -c "curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin"', sudo: true },
+        'git':              { desc: 'Distributed version control system',                     cmd: 'sudo apt-get install -y git', sudo: true },
+        'gh':               { desc: 'GitHub CLI for repo, PR, and issue management',          cmd: 'sudo snap install gh', sudo: true },
+        'ffmpeg':           { desc: 'Multimedia framework for video/audio processing',        cmd: 'sudo apt-get install -y ffmpeg', sudo: true },
+        'gzip':             { desc: 'File compression utility',                               cmd: 'sudo apt-get install -y gzip', sudo: true },
+        'curl':             { desc: 'Command-line HTTP client',                               cmd: 'sudo apt-get install -y curl', sudo: true },
+        'jq':               { desc: 'Lightweight JSON processor',                             cmd: 'sudo apt-get install -y jq', sudo: true },
+        'make':             { desc: 'Build automation tool',                                  cmd: 'sudo apt-get install -y make', sudo: true },
+        'python':           { desc: 'Python interpreter',                                     cmd: 'sudo apt-get install -y python3', sudo: true },
+        'pip':              { desc: 'Python package installer',                               cmd: 'sudo apt-get install -y python3-pip', sudo: true },
+        'node':             { desc: 'JavaScript runtime',                                     cmd: 'sudo snap install node --classic', sudo: true },
+        'npm':              { desc: 'Node.js package manager',                                cmd: 'sudo apt-get install -y npm', sudo: true },
+        'npx':              { desc: 'Node.js package runner (included with npm)',              cmd: 'sudo apt-get install -y npm', sudo: true },
+        'go':               { desc: 'Go programming language',                                cmd: 'sudo snap install go --classic', sudo: true },
+        'cargo':            { desc: 'Rust package manager and build system',                  cmd: 'curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh', sudo: true },
+        'rustc':            { desc: 'Rust compiler',                                          cmd: 'curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh', sudo: true },
+        'ruff':             { desc: 'Fast Python linter and formatter',                       cmd: 'pip install ruff', sudo: false },
+        'mypy':             { desc: 'Static type checker for Python',                         cmd: 'pip install mypy', sudo: false },
+        'pytest':           { desc: 'Python testing framework',                               cmd: 'pip install pytest', sudo: false },
+        'black':            { desc: 'Python code formatter',                                  cmd: 'pip install black', sudo: false },
+        'eslint':           { desc: 'JavaScript/TypeScript linter',                           cmd: 'npm install -g eslint', sudo: false },
+        'prettier':         { desc: 'Code formatter for JS, CSS, HTML, and more',             cmd: 'npm install -g prettier', sudo: false },
+        'pip-audit':        { desc: 'Vulnerability scanner for Python dependencies',          cmd: 'pip install pip-audit', sudo: false },
+        'bandit':           { desc: 'Security linter for Python code',                        cmd: 'pip install bandit', sudo: false },
+        'safety':           { desc: 'Python dependency vulnerability checker',                cmd: 'pip install safety', sudo: false },
+    };
+
+    const info = installDb[toolId] || { desc: `${label} tool`, cmd: `# Install ${cli} using your package manager`, sudo: false };
+    const btnId = 'audit-install-btn-' + toolId;
+    const logId = 'audit-install-log-' + toolId;
+    const pwId = 'audit-install-pw-' + toolId;
+
+    // Build password row only for sudo tools
+    let pwRow = '';
+    if (info.sudo) {
+        pwRow = `
+        <div id="${pwId}-row" style="margin-bottom:var(--space-md)">
+            <label style="font-size:0.74rem;font-weight:600;display:block;margin-bottom:4px">🔑 Sudo password:</label>
+            <input id="${pwId}" type="password" placeholder="Enter your sudo password"
+                   style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg-primary);color:var(--text-primary);font-size:0.82rem;box-sizing:border-box"
+                   onkeydown="if(event.key==='Enter'){document.getElementById('${btnId}').click()}" />
+        </div>`;
+    }
+
+    let body = `
+        <div style="padding:12px 16px;border-radius:var(--radius-md);background:var(--bg-secondary);margin-bottom:var(--space-md)">
+            <div style="font-size:0.82rem;font-weight:600;margin-bottom:4px">${label}</div>
+            <div style="font-size:0.74rem;color:var(--text-muted)">${info.desc}</div>
+        </div>
+
+        ${pwRow}
+
+        <div style="text-align:center;margin-bottom:var(--space-md)">
+            <button id="${btnId}" class="btn btn-primary" onclick="_auditInstallTool('${esc(toolId)}','${esc(cli)}','${btnId}','${logId}','${pwId}',${info.sudo})" style="min-width:200px;font-size:0.9rem;padding:10px 24px">
+                ⬇️ Install ${label}
+            </button>
+        </div>
+
+        <div id="${logId}" style="display:none;margin-bottom:var(--space-md)">
+            <div style="font-size:0.72rem;font-weight:600;margin-bottom:4px">📋 Output:</div>
+            <pre style="font-size:0.68rem;background:var(--bg-primary);padding:10px;border-radius:var(--radius-sm);max-height:200px;overflow:auto;white-space:pre-wrap;word-break:break-all"></pre>
+        </div>
+
+        <details style="margin-top:var(--space-sm)">
+            <summary style="cursor:pointer;font-size:0.72rem;color:var(--text-muted)">Or install manually:</summary>
+            <pre style="font-size:0.72rem;background:var(--bg-primary);padding:8px;border-radius:var(--radius-sm);margin-top:4px;white-space:pre-wrap;word-break:break-all;cursor:text;user-select:all">${info.cmd}</pre>
+        </details>
+    `;
+    _auditModal(`🔧 ${label} — Not Installed`, body, 480);
+
+    // Auto-focus password field if sudo
+    if (info.sudo) {
+        setTimeout(() => { const el = document.getElementById(pwId); if (el) el.focus(); }, 100);
+    }
+}
+
+async function _auditInstallTool(toolId, cli, btnId, logId, pwId, needsSudo) {
+    const btn = document.getElementById(btnId);
+    const logBox = document.getElementById(logId);
+    if (!btn || !logBox) return;
+
+    // Get sudo password if needed
+    let sudoPassword = '';
+    if (needsSudo) {
+        const pwInput = document.getElementById(pwId);
+        if (pwInput) sudoPassword = pwInput.value;
+        if (!sudoPassword) {
+            const pwRow = document.getElementById(pwId + '-row');
+            if (pwRow) pwRow.style.border = '1px solid var(--danger)';
+            if (pwInput) { pwInput.focus(); pwInput.placeholder = '⚠️ Password required'; }
+            return;
+        }
+    }
+
+    const logPre = logBox.querySelector('pre');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner" style="width:14px;height:14px"></span> Installing…';
+    logBox.style.display = 'block';
+    logPre.textContent = 'Starting installation…\n';
+    logPre.style.color = '';
+
+    try {
+        const payload = { tool: toolId, cli };
+        if (sudoPassword) payload.sudo_password = sudoPassword;
+
+        const result = await api('/audit/install-tool', {
+            method: 'POST',
+            body: JSON.stringify(payload),
+        });
+        if (result.ok) {
+            btn.innerHTML = '✅ Installed';
+            btn.className = 'btn btn-ghost';
+            logPre.textContent += '\n' + (result.stdout || result.message || 'Done') + '\n\n✅ ' + result.message;
+            // Hide password field
+            const pwRow = document.getElementById(pwId + '-row');
+            if (pwRow) pwRow.style.display = 'none';
+            // Bust both client + server cache and reload the system card
+            await cardRefresh('audit:system', 'audit-system-badge', 'audit-system-detail', loadAuditSystemCard);
+        } else if (result.needs_sudo) {
+            // Wrong password or password needed
+            btn.innerHTML = '⬇️ Install ' + toolId;
+            btn.disabled = false;
+            const pwInput = document.getElementById(pwId);
+            if (pwInput) { pwInput.value = ''; pwInput.focus(); pwInput.placeholder = '⚠️ ' + (result.error || 'Enter password'); }
+            logPre.textContent += '\n🔑 ' + (result.error || 'Sudo password required');
+            logPre.style.color = 'var(--warning)';
+        } else {
+            btn.innerHTML = '⬇️ Retry Install';
+            btn.disabled = false;
+            const errMsg = result.error || 'Unknown error';
+            let logText = '❌ ' + errMsg + '\n';
+            if (result.stderr) logText += '\n' + result.stderr;
+            if (result.stdout) logText += '\n' + result.stdout;
+            logPre.textContent += logText;
+            logPre.style.color = 'var(--danger)';
+        }
+    } catch (e) {
+        btn.innerHTML = '⬇️ Retry Install';
+        btn.disabled = false;
+        logPre.textContent += '\n❌ ' + e.message;
+        logPre.style.color = 'var(--danger)';
+    }
+}
+
+function _auditShowFinding(finding) {
+    const f = typeof finding === 'string' ? JSON.parse(finding) : finding;
+    const sevColors = {critical:'var(--danger)',high:'#f97316',medium:'var(--warning)',info:'var(--text-muted)'};
+    const sevColor = sevColors[f.severity] || 'var(--text-muted)';
+
+    let body = `
+        <div style="padding:10px 14px;border-radius:var(--radius-md);background:var(--bg-secondary);border-left:3px solid ${sevColor};margin-bottom:var(--space-md)">
+            <div style="font-size:0.82rem;font-weight:600">${f.title}</div>
+            <div style="font-size:0.74rem;color:var(--text-muted);margin-top:4px">${f.detail}</div>
+        </div>
+    `;
+
+    // Actionable recommendation
+    if (f.recommendation) {
+        body += `<div style="padding:10px 14px;border-radius:var(--radius-sm);background:#f59e0b11;border-left:3px solid var(--warning);margin-bottom:var(--space-md)">
+            <div style="font-size:0.74rem;font-weight:600;margin-bottom:4px">💡 Recommendation</div>
+            <div style="font-size:0.78rem">${f.recommendation}</div>
+        </div>`;
+    }
+
+    // Affected items (files or packages)
+    if (f.files && f.files.length) {
+        const isPackageList = f.files.some(af => af.kind === 'package');
+        const headerLabel = isPackageList ? '📦 Affected Packages' : '📍 Affected Files';
+
+        body += `<div style="margin-bottom:var(--space-sm)"><strong style="font-size:0.78rem">${headerLabel} (${f.files.length})</strong></div>`;
+
+        for (const af of f.files) {
+            if (af.kind === 'package') {
+                // ── Package entry: show registry link ──
+                const mgr = af.manager || 'pip';
+                let pkgUrl = '';
+                let registryLabel = '';
+                if (mgr === 'pip') {
+                    pkgUrl = `https://pypi.org/project/${encodeURIComponent(af.file)}/`;
+                    registryLabel = 'PyPI';
+                } else if (mgr === 'npm') {
+                    pkgUrl = `https://www.npmjs.com/package/${encodeURIComponent(af.file)}`;
+                    registryLabel = 'npm';
+                } else if (mgr === 'cargo') {
+                    pkgUrl = `https://crates.io/crates/${encodeURIComponent(af.file)}`;
+                    registryLabel = 'crates.io';
+                } else if (mgr === 'go') {
+                    pkgUrl = `https://pkg.go.dev/${encodeURIComponent(af.file)}`;
+                    registryLabel = 'pkg.go.dev';
+                }
+
+                body += `<div style="padding:6px 10px;margin-bottom:4px;border-radius:var(--radius-sm);background:var(--bg-secondary);font-size:0.74rem;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                    <strong style="font-family:var(--font-mono)">${esc(af.file)}</strong>
+                    ${af.pattern ? `<span style="font-size:0.7rem;color:var(--text-muted)">${esc(af.pattern)}</span>` : ''}
+                    ${pkgUrl ? `<a href="${pkgUrl}" target="_blank" rel="noopener" style="font-size:0.64rem;color:var(--accent);text-decoration:none;margin-left:auto">${registryLabel} ↗</a>` : ''}
+                </div>`;
+            } else {
+                // ── File entry: checkbox + file link ──
+                const hasLine = !!af.line;
+                body += `<div style="padding:6px 10px;margin-bottom:4px;border-radius:var(--radius-sm);background:var(--bg-secondary);font-size:0.74rem;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                    ${hasLine ? `<input type="checkbox" class="audit-dismiss-check" data-file="${esc(af.file)}" data-line="${af.line}" onchange="_auditUpdateDismissCount()" style="cursor:pointer;accent-color:var(--success)">` : ''}
+                    ${_auditFileLink(af.file, af.line)}
+                    ${af.pattern ? `<span style="color:var(--text-muted);font-size:0.68rem">${esc(af.pattern)}</span>` : ''}
+                </div>`;
+            }
+        }
+
+        // ── Batch dismiss section (only if there are dismissable items) ──
+        const hasDismissable = f.files.some(af => af.kind !== 'package' && af.line);
+        if (hasDismissable) {
+            body += `
+            <div style="margin-top:var(--space-sm);padding:10px 14px;border-radius:var(--radius-sm);background:var(--bg-secondary);border:1px solid var(--border-subtle)">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+                    <label style="font-size:0.72rem;cursor:pointer;display:flex;align-items:center;gap:4px">
+                        <input type="checkbox" id="audit-dismiss-select-all" onchange="_auditToggleSelectAll(this.checked)" style="cursor:pointer;accent-color:var(--success)">
+                        Select all
+                    </label>
+                    <span id="audit-dismiss-count" style="font-size:0.66rem;color:var(--text-muted)">0 selected</span>
+                </div>
+                <input type="text" id="audit-dismiss-reason" placeholder="Reason… (e.g. test fixture, example data)" style="width:100%;margin-bottom:8px;font-size:0.78rem;padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg-primary);color:var(--text-primary)">
+                <button class="btn btn-sm" id="audit-dismiss-batch-btn" style="font-size:0.74rem;background:rgba(52,211,153,0.12);color:var(--success);border:1px solid rgba(52,211,153,0.3);opacity:0.5" disabled onclick="_auditDismissSelected()">🚫 Dismiss selected</button>
+                <span style="font-size:0.64rem;color:var(--text-muted);margin-left:8px">adds <code># nosec</code> to each line</span>
+            </div>`;
+        }
+    } else {
+        // No file data yet — guide the user
+        body += `<div style="padding:8px 12px;border-radius:var(--radius-sm);background:var(--bg-secondary);margin-bottom:var(--space-md);font-size:0.74rem;color:var(--text-muted)">
+            ℹ️ Bust the ⚠️ Risks card cache to get file-level detail for this finding.
+        </div>`;
+    }
+
+    // Metadata
+    body += `<div style="display:flex;gap:var(--space-md);margin-top:var(--space-md);padding-top:var(--space-sm);border-top:1px solid var(--border-subtle);font-size:0.72rem;color:var(--text-muted)">
+        <span><strong>Category:</strong> ${f.category}</span>
+        <span><strong>Severity:</strong> <span style="color:${sevColor}">${f.severity}</span></span>
+        <span><strong>Source:</strong> <code>${f.source}</code></span>
+    </div>`;
+
+    _auditModal(`⚠️ ${f.title}`, body, 650);
+}
+
+// ── Checkbox helpers for batch dismiss ──────────────────────────
+function _auditToggleSelectAll(checked) {
+    document.querySelectorAll('.audit-dismiss-check').forEach(cb => { cb.checked = checked; });
+    _auditUpdateDismissCount();
+}
+
+function _auditUpdateDismissCount() {
+    const checked = document.querySelectorAll('.audit-dismiss-check:checked').length;
+    const total = document.querySelectorAll('.audit-dismiss-check').length;
+    const countEl = document.getElementById('audit-dismiss-count');
+    const btn = document.getElementById('audit-dismiss-batch-btn');
+    const selectAll = document.getElementById('audit-dismiss-select-all');
+    if (countEl) countEl.textContent = `${checked} selected`;
+    if (btn) {
+        btn.disabled = checked === 0;
+        btn.style.opacity = checked === 0 ? '0.5' : '1';
+        btn.textContent = checked ? `🚫 Dismiss ${checked} selected` : '🚫 Dismiss selected';
+    }
+    if (selectAll) selectAll.checked = checked === total && total > 0;
+}
+
+async function _auditDismissSelected() {
+    const checks = document.querySelectorAll('.audit-dismiss-check:checked');
+    if (!checks.length) return;
+
+    const items = Array.from(checks).map(cb => ({
+        file: cb.dataset.file,
+        line: parseInt(cb.dataset.line),
+    }));
+    const comment = (document.getElementById('audit-dismiss-reason') || {}).value || '';
+
+    const btn = document.getElementById('audit-dismiss-batch-btn');
+    if (btn) { btn.disabled = true; btn.textContent = `⏳ Writing # nosec to ${items.length} line(s)…`; }
+
+    try {
+        await api('/devops/audit/dismissals', {
+            method: 'POST',
+            body: JSON.stringify({ items, comment }),
+        });
+        toast(`# nosec added to ${items.length} line(s)`, 'success');
+        const modal = document.getElementById('audit-modal-overlay');
+        if (modal) modal.remove();
+        // Single refresh — server cache already busted by the route
+        cardInvalidate('audit:l2:risks');
+        loadAuditRisksCard();
+    } catch (e) {
+        toast(`Failed: ${e.message}`, 'error');
+        if (btn) { btn.disabled = false; btn.textContent = `🚫 Dismiss ${items.length} selected`; }
+    }
+}
+
+function _auditShowHotspotModal(hotspots) {
+    let body = '';
+    for (const h of hotspots) {
+        const sevColor = h.severity === 'critical' ? 'var(--danger)' : h.severity === 'warning' ? 'var(--warning)' : 'var(--text-muted)';
+        const sevIcon = h.severity === 'critical' ? '🔴' : h.severity === 'warning' ? '🟡' : 'ℹ️';
+        body += `<div style="padding:6px 10px;margin-bottom:4px;border-radius:var(--radius-sm);background:var(--bg-secondary);font-size:0.74rem;border-left:3px solid ${sevColor}">
+            ${sevIcon} <strong>${h.type}</strong>: ${h.detail || ''}
+            ${h.symbol ? `<code style="font-size:0.7rem;background:var(--bg-primary);padding:1px 4px;border-radius:2px">${esc(h.symbol)}</code>` : ''}
+            <div style="margin-top:2px">${h.file ? _auditFileLink(h.file, h.lineno) : ''}</div>
+        </div>`;
+    }
+    _auditModal(`🔥 All Hotspots (${hotspots.length})`, body, 700);
+}
+
+// ── Category filter for dependency table ───────────────────────
+
+let _auditDepFilter = null;
+
+function _auditFilterDeps(cat) {
+    const table = document.getElementById('audit-deps-table');
+    if (!table) return;
+
+    if (_auditDepFilter === cat) {
+        _auditDepFilter = null;
+    } else {
+        _auditDepFilter = cat;
+    }
+
+    document.querySelectorAll('[data-audit-cat]').forEach(pill => {
+        if (!_auditDepFilter) {
+            pill.style.opacity = '1';
+        } else {
+            pill.style.opacity = pill.dataset.auditCat === _auditDepFilter ? '1' : '0.35';
+        }
+    });
+
+    const rows = table.querySelectorAll('tbody tr');
+    for (const row of rows) {
+        if (!_auditDepFilter || row.dataset.depCat === _auditDepFilter) {
+            row.style.display = '';
+        } else {
+            row.style.display = 'none';
+        }
+    }
+
+    if (_auditDepFilter) {
+        const details = table.closest('details');
+        if (details) details.open = true;
+    }

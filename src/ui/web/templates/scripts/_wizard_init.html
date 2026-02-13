@@ -1,0 +1,168 @@
+<!-- Wizard JS — Init & Config Load
+     State vars, config fetch, step definitions, render entry point.
+     Depends on: _globals.html (api, esc, toast)
+-->
+    // ─────────────────────────────────────────────────────────────────
+    //  _wizard.html
+    //  Setup Wizard — multi-step project configuration
+    //  Steps: Welcome → Modules → Secrets → Content → Integrations → Review
+    //  Included by: index.html (Jinja2 include)
+    // ─────────────────────────────────────────────────────────────────
+
+    let currentWizardStep = 0;
+    let wizardDirty = false;
+    let _wizardConfig = null; // loaded config
+    let _wizardDetected = null; // detected modules cache
+
+    let _wizIntDetection = null;  // cached wizard/detect result
+
+    const wizardSteps = [
+        { id: 'welcome',      title: 'Welcome',      icon: '👋' },
+        { id: 'modules',      title: 'Modules',      icon: '🔍' },
+        { id: 'secrets',      title: 'Secrets',      icon: '🔐' },
+        { id: 'content',      title: 'Content',      icon: '📁' },
+        { id: 'integrations', title: 'Integrations', icon: '🔌' },
+        { id: 'review',       title: 'Review',       icon: '✅' },
+    ];
+
+    // ── Load config from backend ────────────────────────────────────
+
+    async function wizardLoadConfig() {
+        try {
+            const data = await api('/config');
+            _wizardConfig = data.config;
+            // Initialize _contentFolders from saved content_folders
+            if (_wizardConfig.content_folders && _wizardConfig.content_folders.length) {
+                _wizardConfig._contentFolders = [..._wizardConfig.content_folders];
+            }
+            return _wizardConfig;
+        } catch (e) {
+            toast(`Failed to load config: ${e.message}`, 'error');
+            return null;
+        }
+    }
+
+    /** Is the wizard config in multi-env mode? */
+    function _wizIsMultiEnv() {
+        const envs = (_wizardConfig && _wizardConfig.environments) || [];
+        return envs.length > 1;
+    }
+
+    /** Compute .env file name for a given wizard env. */
+    function _wizEnvFile(envName) {
+        if (!_wizIsMultiEnv()) return '.env';
+        return `.env.${envName}`;
+    }
+
+    /** Compute ?env= query param for a given wizard env. */
+    function _wizEnvQS(envName) {
+        if (!_wizIsMultiEnv()) return '';
+        return `?env=${encodeURIComponent(envName)}`;
+    }
+
+    /** Quick-create a .env file for a given environment from the wizard. */
+    async function wizardCreateEnv(envName, btnEl) {
+        const envParam = _wizEnvQS(envName);
+        const envFile = _wizEnvFile(envName);
+
+        if (btnEl) {
+            btnEl.disabled = true;
+            btnEl.innerHTML = '<span class="spinner" style="width:12px;height:12px"></span>';
+        }
+
+        try {
+            await api(`/vault/create${envParam}`, {
+                method: 'POST',
+                body: JSON.stringify({ template_sections: ['content_vault'] }),
+            });
+            toast(`${envFile} created with Content Vault key`, 'success');
+
+            // Refresh this row to show updated status
+            const row = document.getElementById(`wiz-env-vault-${envName}`);
+            if (row) {
+                row.innerHTML = `
+                    <span style="font-size:1rem">🔓</span>
+                    <code style="min-width:120px;font-size:0.8rem;font-weight:500">${esc(envFile)}</code>
+                    <span style="flex:1;color:var(--text-muted);font-size:0.78rem">${envName}</span>
+                    <span style="font-size:0.78rem;color:var(--success);font-weight:500">unlocked</span>
+                `;
+                row.style.borderColor = 'var(--success)';
+            }
+        } catch (e) {
+            toast(`Failed to create ${envFile}: ${e.message}`, 'error');
+            if (btnEl) {
+                btnEl.disabled = false;
+                btnEl.textContent = '+ Create';
+            }
+        }
+    }
+
+    /** Create a GitHub deployment environment from the wizard. */
+    async function wizardCreateGhEnv(envName, btnEl) {
+        if (btnEl) {
+            btnEl.disabled = true;
+            btnEl.innerHTML = '<span class="spinner" style="width:12px;height:12px"></span>';
+        }
+
+        try {
+            await api('/gh/environment/create', {
+                method: 'POST',
+                body: JSON.stringify({ name: envName }),
+            });
+            toast(`GitHub environment "${envName}" created`, 'success');
+
+            // Update the row in-place
+            const row = btnEl?.closest('div[style*="display:flex"]');
+            if (row) {
+                row.style.borderColor = 'var(--success)';
+                const statusSpan = row.querySelector('span[style*="font-weight:500"]:last-of-type');
+                if (statusSpan) {
+                    statusSpan.textContent = 'exists';
+                    statusSpan.style.color = 'var(--success)';
+                }
+                // Replace ⚠️ with ✅
+                const iconSpan = row.querySelector('span:first-child');
+                if (iconSpan) iconSpan.textContent = '✅';
+                // Remove button
+                if (btnEl) btnEl.remove();
+            }
+        } catch (e) {
+            toast(`Failed to create environment: ${e.message}`, 'error');
+            if (btnEl) {
+                btnEl.disabled = false;
+                btnEl.innerHTML = '🚀 Create';
+            }
+        }
+    }
+
+    // ── Render wizard ───────────────────────────────────────────────
+
+    function renderWizard() {
+        // Sync URL hash with current wizard step
+        const stepId = wizardSteps[currentWizardStep].id;
+        history.replaceState(null, '', `#wizard/${stepId}`);
+
+        // Render step indicators
+        const stepsEl = document.getElementById('wizard-steps');
+        stepsEl.innerHTML = wizardSteps.map((step, i) => {
+            const cls = i === currentWizardStep ? 'active' : i < currentWizardStep ? 'done' : '';
+            return `<div class="wizard-step ${cls}" onclick="wizardGoTo(${i})">
+            <span class="wizard-step-num">${i < currentWizardStep ? '✓' : i + 1}</span>
+            <span class="wizard-step-label">${step.title}</span>
+        </div>`;
+        }).join('');
+
+        // Render body
+        const body = document.getElementById('wizard-body');
+        body.innerHTML = '<p style="text-align:center;padding:2rem"><span class="spinner"></span></p>';
+
+        const renderFn = _wizardRenderers[wizardSteps[currentWizardStep].id];
+        if (renderFn) renderFn(body);
+
+        // Update nav buttons
+        document.getElementById('wizard-prev').style.display = currentWizardStep > 0 ? '' : 'none';
+        const isLast = currentWizardStep === wizardSteps.length - 1;
+        document.getElementById('wizard-next').style.display = isLast ? 'none' : '';
+        document.getElementById('wizard-finish').style.display = isLast ? '' : 'none';
+    }
+

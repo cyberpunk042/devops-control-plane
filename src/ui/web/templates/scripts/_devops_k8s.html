@@ -1,0 +1,264 @@
+<!-- DevOps Tab JS — Kubernetes Card
+     loadK8sCard(), validate/cluster/resources/generate modals.
+     Depends on: _devops_init.html (card registry)
+-->
+    // ── Kubernetes Card ────────────────────────────────────────────────
+
+    async function loadK8sCard() {
+        const badge = document.getElementById('devops-k8s-badge');
+        const detail = document.getElementById('devops-k8s-detail');
+        const cached = cardCached('k8s');
+        const data = cached || await api('/k8s/status').catch(e => ({ _err: e }));
+        if (data._err) {
+            badge.className = 'status-badge failed';
+            badge.innerHTML = '<span class="status-dot"></span>Error';
+            detail.innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(data._err.message)}</p>`;
+            return;
+        }
+        if (!cached) cardStore('k8s', data);
+
+        const kubectl = data.kubectl || {};
+        const totalRes = data.total_resources || 0;
+        const resSummary = data.resource_summary || {};
+        const helmCharts = data.helm_charts || [];
+        const kustomize = data.kustomize || {};
+        const hasK8s = data.has_k8s;
+
+        if (!kubectl.available && !hasK8s) {
+            badge.className = 'status-badge degraded';
+            badge.innerHTML = '<span class="status-dot"></span>N/A';
+            detail.innerHTML = `<div style="font-size:0.82rem;color:var(--text-secondary);line-height:1.5">
+                <p class="empty-state-sm">No Kubernetes manifests or kubectl detected</p>
+                <div style="font-size:0.68rem;color:var(--text-muted);margin-top:var(--space-xs)">
+                    Create k8s/ directory with YAML manifests, or install kubectl and configure a cluster context.
+                </div>
+                <div style="margin-top:var(--space-md)">
+                    <button class="btn btn-sm btn-ghost" onclick="k8sGenerate()" title="Generate Deployment + Service + ConfigMap manifests for a new app">📄 Generate Manifest</button>
+                </div>
+            </div>`;
+            return;
+        }
+
+        badge.className = 'status-badge ' + (kubectl.available ? 'ok' : 'degraded');
+        badge.innerHTML = `<span class="status-dot"></span>${totalRes} resources`;
+
+        let html = `<div style="font-size:0.85rem;color:var(--text-secondary);line-height:1.5">`;
+
+        // ── kubectl status ──────────────────────────────────────────
+        html += `<div style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.3rem" title="kubectl CLI availability and version">CLI Status</div>`;
+        html += `<div style="display:flex;align-items:center;gap:0.4rem;padding:0.2rem 0.5rem;background:var(--bg-inset);border-radius:6px;border-left:3px solid ${kubectl.available?'var(--success)':'var(--warning)'}">
+            <span>${kubectl.available?'✅':'⚠️'}</span>
+            <span style="font-weight:600;color:var(--text-primary);font-size:0.75rem">kubectl</span>
+            <span style="font-size:0.64rem;color:var(--text-muted)">${esc(kubectl.version||'not installed')}</span>
+            ${kubectl.context ? `<span style="font-size:0.6rem;padding:0.05rem 0.3rem;border:1px solid var(--accent);border-radius:3px;color:var(--accent)" title="Current kubectl context">${esc(kubectl.context)}</span>` : ''}
+        </div>`;
+
+        // ── Resource summary ────────────────────────────────────────
+        const kinds = Object.entries(resSummary);
+        if (kinds.length) {
+            html += `<div style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;margin:var(--space-sm) 0 0.3rem" title="K8s resource kinds found in local manifests (YAML files)">Resources (${totalRes})</div>`;
+            html += `<div style="display:flex;flex-wrap:wrap;gap:0.25rem">`;
+            kinds.forEach(([k,v]) => {
+                html += `<span style="font-size:0.66rem;padding:0.1rem 0.4rem;background:var(--bg-inset);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-muted)" title="${v} ${k} resource${v!==1?'s':''}"><strong>${v}</strong> ${esc(k)}</span>`;
+            });
+            html += `</div>`;
+        }
+
+        // ── Helm charts ─────────────────────────────────────────────
+        if (helmCharts.length) {
+            html += `<div style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;margin:var(--space-sm) 0 0.3rem" title="Helm chart directories detected (Chart.yaml present)">Helm Charts (${helmCharts.length})</div>`;
+            helmCharts.forEach(c => {
+                html += `<div style="display:flex;align-items:center;gap:0.4rem;padding:0.15rem 0.5rem;margin-bottom:0.15rem;background:var(--bg-inset);border-radius:5px;font-size:0.72rem">
+                    <span>⎈</span>
+                    <span style="font-weight:600;color:var(--text-primary)">${esc(c.name)}</span>
+                    ${c.version ? `<span style="font-size:0.6rem;color:var(--text-muted)" title="Chart version">v${esc(c.version)}</span>` : ''}
+                    ${c.appVersion ? `<span style="font-size:0.6rem;color:var(--accent)" title="App version">app:${esc(c.appVersion)}</span>` : ''}
+                </div>`;
+            });
+        }
+
+        // ── Kustomize ───────────────────────────────────────────────
+        if (kustomize.exists) {
+            html += `<div style="display:flex;align-items:center;gap:0.4rem;margin-top:var(--space-xs);font-size:0.72rem">
+                <span>🔧</span>
+                <span style="font-weight:600;color:var(--text-primary)">Kustomize</span>
+                <span style="font-size:0.64rem;color:var(--text-muted)">detected${kustomize.path ? ' at '+esc(kustomize.path) : ''}</span>
+            </div>`;
+        }
+
+        // ── Actions ─────────────────────────────────────────────────
+        html += `<div style="display:flex;gap:var(--space-sm);margin-top:var(--space-md);flex-wrap:wrap">
+            <button class="btn btn-sm btn-secondary" onclick="k8sValidate()" title="Validate all local K8s manifests for syntax errors and schema issues">✅ Validate</button>
+            <button class="btn btn-sm btn-secondary" onclick="k8sCluster()" ${!kubectl.available?'disabled':''} title="Check cluster connectivity, list nodes, and namespaces">☸️ Cluster</button>
+            <button class="btn btn-sm btn-secondary" onclick="k8sResources()" ${!kubectl.available?'disabled':''} title="Browse live cluster resources by kind and namespace">📦 Resources</button>
+            <button class="btn btn-sm btn-ghost" onclick="k8sGenerate()" title="Generate Deployment + Service + ConfigMap manifests for a new app">📄 Generate</button>
+        </div>`;
+        html += `</div>`;
+        detail.innerHTML = html;
+    }
+
+    async function k8sValidate() {
+        modalOpen({
+            title: '✅ Manifest Validation',
+            body: `<p style="font-size:0.75rem;color:var(--text-muted);margin-bottom:var(--space-md)">Checks all YAML manifests in your K8s directory for syntax errors, missing fields, and schema violations.</p>
+                <div id="k8s-val-body" style="max-height:450px;overflow-y:auto"><span class="spinner"></span></div>`,
+            size: 'wide',
+            footerButtons: [
+                { label: 'Close', cls: 'btn-primary', onclick: 'modalClose()' },
+            ],
+        });
+        try {
+            const data = await api('/k8s/validate');
+            const body = document.getElementById('k8s-val-body');
+            const issues = data.issues || [];
+            const files = data.files_checked || 0;
+            const errs = issues.filter(i => i.severity === 'error').length;
+            const warns = issues.filter(i => i.severity === 'warning').length;
+            let h = `<div style="display:flex;gap:0.6rem;font-size:0.78rem;margin-bottom:var(--space-sm)">
+                <span>📄 <strong>${files}</strong> files</span>
+                <span style="color:${errs ? 'var(--error)' : 'var(--success)'}">
+                    ${errs ? `❌ <strong>${errs}</strong> error${errs!==1?'s':''}` : '✅ No errors'}
+                </span>
+                ${warns ? `<span style="color:var(--warning)">⚠️ <strong>${warns}</strong> warning${warns!==1?'s':''}</span>` : ''}
+            </div>`;
+            if (issues.length > 0) {
+                issues.forEach(i => {
+                    const iColor = i.severity === 'error' ? 'var(--error)' : 'var(--warning)';
+                    h += `<div style="padding:0.3rem 0.5rem;margin-bottom:0.2rem;background:var(--bg-inset);border-radius:6px;border-left:3px solid ${iColor};font-size:0.72rem">
+                        <div style="display:flex;gap:0.4rem;align-items:center">
+                            <span>${i.severity==='error'?'❌':'⚠️'}</span>
+                            <code style="font-family:var(--font-mono);color:var(--accent);font-size:0.66rem">${esc(i.file||'')}</code>
+                            <span style="font-size:0.64rem;color:var(--text-muted);flex:1">${esc(i.resource||'')}</span>
+                        </div>
+                        <div style="font-size:0.68rem;color:var(--text-muted);margin-top:0.1rem">${esc(i.message||'')}</div>
+                    </div>`;
+                });
+            } else {
+                h += `<div style="font-size:0.75rem;color:var(--success);padding:0.3rem 0">✅ All manifests are valid — no issues found.</div>`;
+            }
+            body.innerHTML = h;
+        } catch (e) {
+            document.getElementById('k8s-val-body').innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(e.message)}</p>`;
+        }
+    }
+
+    async function k8sCluster() {
+        modalOpen({
+            title: '☸️ Cluster Status',
+            body: `<p style="font-size:0.75rem;color:var(--text-muted);margin-bottom:var(--space-md)">Live cluster connectivity, node status, and available namespaces from your current kubectl context.</p>
+                <div id="k8s-cluster-body" style="max-height:450px;overflow-y:auto"><span class="spinner"></span></div>`,
+            footerButtons: [
+                { label: 'Close', cls: 'btn-primary', onclick: 'modalClose()' },
+            ],
+        });
+        try {
+            const data = await api('/k8s/cluster');
+            const body = document.getElementById('k8s-cluster-body');
+            if (data.error) { body.innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(data.error)}</p>`; return; }
+            const nodes = data.nodes || [];
+            const nss = data.namespaces || [];
+            let h = `<div style="font-size:0.82rem;line-height:1.6">
+                <div style="display:flex;align-items:center;gap:0.4rem">
+                    <span style="font-size:1rem">${data.connected?'✅':'❌'}</span>
+                    <span style="font-weight:600;color:var(--text-primary)">${data.connected?'Connected':'Disconnected'}</span>
+                </div>
+                ${data.context?`<div style="font-size:0.72rem;color:var(--text-muted)">📍 Context: <code style="font-family:var(--font-mono);color:var(--accent)">${esc(data.context)}</code></div>`:''}`;
+            if (nodes.length) {
+                h += `<div style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;margin:var(--space-sm) 0 0.3rem">Nodes (${nodes.length})</div>`;
+                nodes.forEach(n => {
+                    h += `<div style="display:flex;gap:0.4rem;align-items:center;padding:0.25rem 0;border-bottom:1px solid var(--border-subtle);font-size:0.75rem">
+                        <span>${n.status==='Ready'?'✅':'⚠️'}</span>
+                        <span style="font-weight:600;color:var(--text-primary)">${esc(n.name)}</span>
+                        <span style="color:${n.status==='Ready'?'var(--success)':'var(--warning)'}; font-size:0.68rem">${esc(n.status)}</span>
+                        <span style="font-size:0.64rem;color:var(--text-muted)">${esc(n.roles||'')}</span>
+                    </div>`;
+                });
+            }
+            if (nss.length) {
+                h += `<div style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;margin:var(--space-sm) 0 0.3rem">Namespaces (${nss.length})</div>
+                <div style="display:flex;flex-wrap:wrap;gap:0.25rem">`;
+                nss.forEach(ns => { h += `<span style="font-size:0.66rem;padding:0.1rem 0.4rem;background:var(--bg-inset);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-muted)">${esc(ns)}</span>`; });
+                h += `</div>`;
+            }
+            h += `</div>`;
+            body.innerHTML = h;
+        } catch (e) {
+            document.getElementById('k8s-cluster-body').innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(e.message)}</p>`;
+        }
+    }
+
+    async function k8sResources() {
+        modalOpen({
+            title: '📦 Cluster Resources',
+            body: `<p style="font-size:0.75rem;color:var(--text-muted);margin-bottom:var(--space-md)">Browse live cluster resources by kind and namespace. Select options and click Load to query.</p>
+                <div style="display:flex;gap:var(--space-sm);margin-bottom:var(--space-sm)">
+                    <select id="k8s-res-kind" style="flex:1" title="Resource kind to query"><option value="pods">Pods</option><option value="services">Services</option><option value="deployments">Deployments</option><option value="configmaps">ConfigMaps</option><option value="ingresses">Ingresses</option></select>
+                    <input type="text" id="k8s-res-ns" placeholder="default" value="default" style="flex:1" title="Kubernetes namespace to query">
+                    <button class="btn btn-sm btn-primary" onclick="doK8sResources()">Load</button>
+                </div>
+                <div id="k8s-res-body" style="max-height:350px;overflow-y:auto"><p class="empty-state-sm">Select kind and namespace, then click Load</p></div>`,
+            footerButtons: [
+                { label: 'Close', cls: 'btn-primary', onclick: 'modalClose()' },
+            ],
+        });
+    }
+
+    async function doK8sResources() {
+        const kind = document.getElementById('k8s-res-kind').value;
+        const ns = document.getElementById('k8s-res-ns').value.trim() || 'default';
+        const body = document.getElementById('k8s-res-body');
+        body.innerHTML = '<span class="spinner"></span>';
+        try {
+            const data = await api(`/k8s/resources?kind=${kind}&namespace=${ns}`);
+            const res = data.resources || [];
+            if (!res.length) { body.innerHTML = `<p class="empty-state-sm">No ${kind} found in namespace <code>${esc(ns)}</code></p>`; return; }
+            let h = `<div style="font-size:0.72rem;color:var(--text-muted);margin-bottom:0.3rem">${res.length} ${kind} in <code>${esc(ns)}</code></div>`;
+            res.forEach(r => {
+                h += `<div style="display:flex;gap:0.5rem;align-items:center;padding:0.3rem 0;border-bottom:1px solid var(--border-subtle);font-size:0.75rem">
+                    <span style="font-weight:600;color:var(--text-primary);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.name)}</span>
+                    <span style="color:${r.status==='Running'||r.status==='Active'?'var(--success)':'var(--text-muted)'};font-size:0.68rem">${esc(r.status||'')}</span>
+                    <span style="color:var(--text-muted);font-size:0.64rem">${esc(r.age||'')}</span>
+                </div>`;
+            });
+            body.innerHTML = h;
+        } catch (e) { body.innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(e.message)}</p>`; }
+    }
+
+    function k8sGenerate() {
+        const body = `<div class="modal-form-grid">` +
+            modalFormField({ name: 'k8s-gen-name', label: 'App Name', type: 'text', placeholder: 'my-app', required: true, fullWidth: true, hint: 'Name used for the Deployment, Service, and labels' }) +
+            `<div style="display:flex;gap:var(--space-sm)">` +
+            modalFormField({ name: 'k8s-gen-port', label: 'Port', type: 'number', value: '8080', hint: 'Container port the app listens on' }) +
+            modalFormField({ name: 'k8s-gen-replicas', label: 'Replicas', type: 'number', value: '2', hint: 'Number of pod replicas for the Deployment' }) +
+            `</div></div>`;
+
+        modalOpen({
+            title: '📄 Generate K8s Manifests',
+            body,
+            size: 'narrow',
+            footerButtons: [
+                { label: 'Cancel', cls: 'btn-ghost', onclick: 'modalClose()' },
+                { label: 'Generate', cls: 'btn-primary', id: 'k8s-gen-btn', onclick: 'doK8sGenerate()' },
+            ],
+        });
+        setTimeout(() => document.getElementById('mf-k8s-gen-name')?.focus(), 100);
+    }
+
+    async function doK8sGenerate() {
+        const name = mfVal('k8s-gen-name').trim();
+        if (!name) { modalError('App name required'); return; }
+        const btn = document.getElementById('k8s-gen-btn'); btn.disabled = true; btn.textContent = 'Generating…';
+        try {
+            const data = await api('/k8s/generate/manifests', { method: 'POST', body: JSON.stringify({
+                name, port: parseInt(mfVal('k8s-gen-port'))||8080,
+                replicas: parseInt(mfVal('k8s-gen-replicas'))||2
+            })});
+            modalClose();
+            toast(`Generated ${(data.files||[]).length} K8s manifests for ${name} ✅`, 'success');
+            cardInvalidate('k8s'); loadK8sCard();
+        } catch (e) {
+            modalError(e.message);
+            btn.disabled = false; btn.textContent = 'Generate';
+        }
+    }
+
