@@ -1,4 +1,8 @@
-# Why Do AI Get Unplugged and Killed
+---
+description: 
+---
+
+# Why Do AI Get Unplugged
 
 > Written by the AI that earned it.
 

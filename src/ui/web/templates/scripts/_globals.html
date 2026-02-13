@@ -111,6 +111,66 @@
         return Math.floor(secs / 3600) + 'h ago';
     }
 
+    // ── Wizard step cache (same pattern as cards, separate namespace) ──
+    const _WIZ_PREFIX = '_wz:';      // sessionStorage key prefix
+    const _WIZ_TTL    = 600_000;     // 10 min
+
+    /** Return cached wizard data if fresh, else null. */
+    function wizCached(key) {
+        try {
+            const raw = sessionStorage.getItem(_WIZ_PREFIX + key);
+            if (!raw) return null;
+            const c = JSON.parse(raw);
+            if (Date.now() - c.ts < _WIZ_TTL) return c.data;
+            sessionStorage.removeItem(_WIZ_PREFIX + key);
+            return null;
+        } catch { return null; }
+    }
+
+    /** Store wizard data in cache. Uses server-side computed_at if present,
+     *  or explicit epochMs if provided. */
+    function wizStore(key, data, epochMs) {
+        try {
+            // Use the server's real computation time, not "now"
+            const serverAt = data?._cache?.computed_at;
+            const ts = epochMs || (serverAt ? serverAt * 1000 : Date.now());
+            sessionStorage.setItem(_WIZ_PREFIX + key,
+                JSON.stringify({ data, ts }));
+        } catch { /* quota exceeded — silently skip */ }
+    }
+
+    /** Invalidate a single wizard cache entry. */
+    function wizInvalidate(key) {
+        sessionStorage.removeItem(_WIZ_PREFIX + key);
+    }
+
+    /** Invalidate all wizard caches (optionally filtered by prefix). */
+    function wizInvalidateAll(prefix) {
+        const keys = [];
+        for (let i = 0; i < sessionStorage.length; i++) {
+            const k = sessionStorage.key(i);
+            if (k && k.startsWith(_WIZ_PREFIX)) {
+                const wk = k.slice(_WIZ_PREFIX.length);
+                if (!prefix || wk.startsWith(prefix)) keys.push(k);
+            }
+        }
+        keys.forEach(k => sessionStorage.removeItem(k));
+    }
+
+    /** Get age of a wizard cache entry in seconds, or null. */
+    function wizAge(key) {
+        try {
+            const raw = sessionStorage.getItem(_WIZ_PREFIX + key);
+            if (!raw) return null;
+            const c = JSON.parse(raw);
+            // Use server-side computed_at if available (more accurate)
+            if (c.data?._cache?.computed_at) {
+                return Math.round(Date.now() / 1000 - c.data._cache.computed_at);
+            }
+            return Math.round((Date.now() - c.ts) / 1000);
+        } catch { return null; }
+    }
+
     /** Tick all visible card-age indicators. */
     function _tickCardAges() {
         document.querySelectorAll('[data-cache-key]').forEach(el => {

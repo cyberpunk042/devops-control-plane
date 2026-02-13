@@ -77,10 +77,22 @@ def wizard_detect():
 
     Returns a lightweight snapshot used by the setup wizard to suggest
     which integrations to enable and which tools to install.
-    """
-    import shutil
 
+    Cached server-side via devops_cache (key ``wiz:detect``).
+    Pass ``?bust=1`` to force a fresh scan.
+    """
     root = _project_root()
+    force = request.args.get("bust", "") == "1"
+
+    def _compute():
+        return _wizard_detect_compute(root)
+
+    return jsonify(devops_cache.get_cached(root, "wiz:detect", _compute, force=force))
+
+
+def _wizard_detect_compute(root):
+    """Pure compute function for wizard detect (no Flask context needed)."""
+    import shutil
 
     # ── Tool availability ───────────────────────────────────────
     tool_checks = {
@@ -273,15 +285,171 @@ def wizard_detect():
     import sys
     py_ver = f"{sys.version_info.major}.{sys.version_info.minor}"
 
-    return jsonify({
+    # Detect project stacks for wizard hints
+    detected_stacks: list[str] = []
+    try:
+        from src.core.config.loader import load_project
+        from src.core.config.stack_loader import discover_stacks
+        from src.core.services.detection import detect_modules
+
+        project = load_project(root / "project.yml")
+        stacks = discover_stacks(root / "stacks")
+        detection = detect_modules(project, root, stacks)
+        detected_stacks = sorted({m.effective_stack for m in detection.modules if m.effective_stack})
+    except Exception:
+        pass
+
+    return {
         "tools": tools,
         "files": files,
         "integrations": integrations,
         "devops_cards": devops_cards,
         "current_prefs": devops_cache.load_prefs(root),
+        "detected_stacks": detected_stacks,
         "_python_version": py_ver,
         "_project_name": root.name,
-    })
+
+        # ── Embedded data: one-stop-shop, no secondary API calls ──
+        "status_probes": _wizard_status_probes(root),
+        "config_data": _wizard_config_data(root),
+        "docker_status": _wizard_docker_status(root),
+        "gh_cli_status": _wizard_gh_cli_status(root),
+        "gh_user": _wizard_gh_user(root),
+        "gh_repo_info": _wizard_gh_repo_info(root),
+        "gh_environments": _wizard_gh_environments(root),
+        "ci_status": _wizard_ci_status(root),
+        "gitignore_analysis": _wizard_gitignore_analysis(root),
+        "git_remotes": _wizard_git_remotes(root),
+        "codeowners_content": _wizard_codeowners_content(root),
+    }
+
+
+def _wizard_status_probes(root: Path) -> dict:
+    """Run the same probes as /project/status but inline in wizard detect."""
+    try:
+        from src.ui.web.routes_project import (
+            _probe_project, _probe_git, _probe_github, _probe_docker,
+            _probe_cicd, _probe_k8s, _probe_terraform, _probe_pages, _probe_dns,
+        )
+        return {
+            "project": _probe_project(root),
+            "git": _probe_git(root),
+            "github": _probe_github(root),
+            "docker": _probe_docker(root),
+            "cicd": _probe_cicd(root),
+            "k8s": _probe_k8s(root),
+            "terraform": _probe_terraform(root),
+            "pages": _probe_pages(root),
+            "dns": _probe_dns(root),
+        }
+    except Exception:
+        return {}
+
+
+def _wizard_config_data(root: Path) -> dict:
+    """Load project config (modules, environments) for wizard use."""
+    try:
+        from src.core.config.loader import load_project
+        proj = load_project(root / "project.yml")
+        modules = [{"name": m.name, "path": m.path, "stack": m.stack,
+                     "domain": m.domain, "description": m.description}
+                    for m in (proj.modules or [])]
+        envs = [{"name": e.name, "default": e.default}
+                for e in (proj.environments or [])]
+        return {"modules": modules, "environments": envs}
+    except Exception:
+        return {"modules": [], "environments": []}
+
+
+def _wizard_docker_status(root: Path) -> dict:
+    """Full docker status (version, daemon, compose) for wizard use."""
+    try:
+        from src.core.services.docker_ops import docker_status
+        return docker_status(root)
+    except Exception:
+        return {"available": False}
+
+
+def _wizard_gh_cli_status(root: Path) -> dict:
+    """GH CLI status (version, auth, repo) for wizard use."""
+    try:
+        from src.core.services.git_ops import gh_status
+        return gh_status(root)
+    except Exception:
+        return {"available": False}
+
+
+def _wizard_gh_environments(root: Path) -> dict:
+    """GitHub environments list for wizard use."""
+    try:
+        import subprocess
+        r = subprocess.run(
+            ["gh", "api", "repos/{owner}/{repo}/environments",
+             "--jq", ".environments[].name"],
+            cwd=str(root), capture_output=True, timeout=10,
+        )
+        if r.returncode == 0:
+            envs = [n.strip() for n in r.stdout.decode().strip().split("\n") if n.strip()]
+            return {"available": True, "environments": envs}
+        return {"available": False, "environments": []}
+    except Exception:
+        return {"available": False, "environments": []}
+
+
+def _wizard_ci_status(root: Path) -> dict:
+    """CI status for wizard use."""
+    try:
+        from src.core.services.ci_ops import ci_status
+        return ci_status(root)
+    except Exception:
+        return {}
+
+
+def _wizard_gitignore_analysis(root: Path) -> dict:
+    """Gitignore analysis for wizard use."""
+    try:
+        from src.core.services.security_ops import gitignore_analysis
+        return gitignore_analysis(root)
+    except Exception:
+        return {"exists": False, "coverage": 0, "missing_patterns": []}
+
+
+def _wizard_gh_user(root: Path) -> dict:
+    """Get authenticated GitHub user for wizard use."""
+    try:
+        from src.core.services.git_ops import gh_user
+        return gh_user(root)
+    except Exception:
+        return {"available": False}
+
+
+def _wizard_gh_repo_info(root: Path) -> dict:
+    """Get repo info (visibility, description) for wizard use."""
+    try:
+        from src.core.services.git_ops import gh_repo_info
+        return gh_repo_info(root)
+    except Exception:
+        return {"available": False}
+
+
+def _wizard_git_remotes(root: Path) -> dict:
+    """Get all git remotes for wizard use."""
+    try:
+        from src.core.services.git_ops import git_remotes
+        return git_remotes(root)
+    except Exception:
+        return {"available": True, "remotes": []}
+
+
+def _wizard_codeowners_content(root: Path) -> str:
+    """Read existing CODEOWNERS file content, or empty string if absent."""
+    try:
+        co_path = root / ".github" / "CODEOWNERS"
+        if co_path.is_file():
+            return co_path.read_text(encoding="utf-8")
+    except Exception:
+        pass
+    return ""
 
 
 # ── Wizard: setup actions ───────────────────────────────────────
@@ -308,12 +476,46 @@ def wizard_setup():
     try:
         # ── setup_git ───────────────────────────────────────────
         if action == "setup_git":
+            results: list[str] = []
+
+            # 1. git init (if needed)
             if not (root / ".git").is_dir():
                 subprocess.run(
                     ["git", "init"], cwd=str(root),
                     check=True, capture_output=True, timeout=10,
                 )
                 files_created.append(".git/")
+                results.append("Repository initialized")
+
+            # 2. Default branch rename (if requested and different)
+            default_branch = data.get("default_branch", "").strip()
+            if default_branch:
+                r_cur = subprocess.run(
+                    ["git", "branch", "--show-current"],
+                    cwd=str(root), capture_output=True, timeout=5,
+                )
+                current = r_cur.stdout.decode().strip() if r_cur.returncode == 0 else ""
+                if current and current != default_branch:
+                    subprocess.run(
+                        ["git", "branch", "-m", current, default_branch],
+                        cwd=str(root), capture_output=True, timeout=5,
+                    )
+                    results.append(f"Branch renamed: {current} → {default_branch}")
+
+            # 3. Write .gitignore (if content provided)
+            gitignore_content = data.get("gitignore_content", "").strip()
+            if gitignore_content:
+                gi_path = root / ".gitignore"
+                gi_path.write_text(gitignore_content + "\n", encoding="utf-8")
+                files_created.append(".gitignore")
+                # Count patterns
+                pattern_count = sum(
+                    1 for line in gitignore_content.splitlines()
+                    if line.strip() and not line.strip().startswith("#")
+                )
+                results.append(f".gitignore created ({pattern_count} patterns)")
+
+            # 4. Remote setup
             remote = data.get("remote", "").strip()
             if remote:
                 subprocess.run(
@@ -325,10 +527,105 @@ def wizard_setup():
                     cwd=str(root), check=True,
                     capture_output=True, timeout=5,
                 )
+                results.append(f"Remote set: origin → {remote}")
+
+            # 5. Pre-commit hook (if requested)
+            if data.get("setup_hooks"):
+                hooks_dir = root / ".git" / "hooks"
+                hooks_dir.mkdir(parents=True, exist_ok=True)
+                hook_path = hooks_dir / "pre-commit"
+                hook_cmds = data.get("hook_commands", [])
+                if hook_cmds:
+                    hook_content = "#!/bin/sh\n# Auto-generated pre-commit hook\nset -e\n\n"
+                    for cmd in hook_cmds:
+                        hook_content += f'echo "→ Running {cmd}..."\n{cmd}\n\n'
+                    hook_path.write_text(hook_content, encoding="utf-8")
+                    hook_path.chmod(0o755)
+                    results.append(f"Pre-commit hook installed ({len(hook_cmds)} checks)")
+
+            # 6. Initial commit (if requested)
+            if data.get("create_initial_commit"):
+                commit_msg = data.get("commit_message", "Initial commit").strip()
+                subprocess.run(
+                    ["git", "add", "."],
+                    cwd=str(root), capture_output=True, timeout=10,
+                )
+                r_commit = subprocess.run(
+                    ["git", "commit", "-m", commit_msg],
+                    cwd=str(root), capture_output=True, timeout=10,
+                )
+                if r_commit.returncode == 0:
+                    # Extract short hash
+                    r_hash = subprocess.run(
+                        ["git", "rev-parse", "--short", "HEAD"],
+                        cwd=str(root), capture_output=True, timeout=5,
+                    )
+                    short_hash = r_hash.stdout.decode().strip() if r_hash.returncode == 0 else "?"
+                    results.append(f"Initial commit: {short_hash}")
+                else:
+                    results.append("Initial commit skipped (nothing to commit)")
+
             return jsonify({
                 "ok": True,
                 "message": "Git repository configured",
                 "files_created": files_created,
+                "results": results,
+            })
+
+        # ── setup_github ────────────────────────────────────────
+        if action == "setup_github":
+            from src.core.services import secrets_ops
+
+            results: dict = {
+                "environments_created": [],
+                "environments_failed": [],
+                "secrets_pushed": 0,
+                "codeowners_written": False,
+            }
+
+            # 1. Create deployment environments
+            env_names = data.get("create_environments", [])
+            for env_name in env_names:
+                try:
+                    r = secrets_ops.create_environment(root, env_name)
+                    if r.get("success"):
+                        results["environments_created"].append(env_name)
+                    else:
+                        results["environments_failed"].append(
+                            {"name": env_name, "error": r.get("error", "unknown")}
+                        )
+                except Exception as exc:
+                    results["environments_failed"].append(
+                        {"name": env_name, "error": str(exc)}
+                    )
+
+            # 2. Push secrets to GitHub (bulk)
+            if data.get("push_secrets"):
+                try:
+                    push_result = secrets_ops.push_secrets(
+                        root,
+                        push_to_github=True,
+                        save_to_env=False,
+                    )
+                    results["secrets_pushed"] = len(push_result.get("pushed", []))
+                except Exception as exc:
+                    results["secrets_push_error"] = str(exc)
+
+            # 3. Write CODEOWNERS (optional)
+            codeowners_content = data.get("codeowners_content", "").strip()
+            if codeowners_content:
+                try:
+                    co_path = root / ".github" / "CODEOWNERS"
+                    co_path.parent.mkdir(parents=True, exist_ok=True)
+                    co_path.write_text(codeowners_content + "\n", encoding="utf-8")
+                    results["codeowners_written"] = True
+                except Exception as exc:
+                    results["codeowners_error"] = str(exc)
+
+            return jsonify({
+                "ok": True,
+                "message": "GitHub configuration applied",
+                "results": results,
             })
 
         # ── setup_docker ────────────────────────────────────────

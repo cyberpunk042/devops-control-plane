@@ -5,7 +5,7 @@
     let _wizardData = null;
     let _wizardSelections = {};  // Persists card selections across steps
 
-    async function openSetupWizard() {
+    async function openFullSetupWizard() {
         // Show modal immediately with loading state
         const modal = document.createElement('div');
         modal.className = 'vault-modal-overlay'; modal.id = 'setup-wizard-modal';

@@ -74,6 +74,7 @@
                 { label: 'Pull', icon: '⬇️', onclick: 'gitPull()' },
                 { label: `Push${data.ahead > 0 ? ' (' + data.ahead + ')' : ''}`, icon: '⬆️', onclick: 'gitPush()', disabled: data.ahead === 0 },
                 { label: 'Log', icon: '📜', onclick: 'gitLogModal()', cls: 'btn-ghost' },
+                { label: 'Reconfigure', icon: '⚙️', onclick: 'openGitSetupWizard()', cls: 'btn-ghost' },
             ]);
 
             // ── Generate ──
@@ -207,16 +208,103 @@
         }
     }
 
-    /** Placeholder: .gitignore wizard — TODO Phase 3 */
-    function gitIgnoreWizard() {
-        modalOpen({
-            title: '📝 Generate .gitignore',
-            body: `<p style="color:var(--text-muted);text-align:center;padding:var(--space-lg)">` +
-                  `Stack-aware .gitignore generator — coming soon</p>`,
-            size: 'narrow',
-            footerButtons: [
-                { label: 'Close', cls: 'btn-secondary', onclick: 'modalClose()' },
+    /** .gitignore wizard — analyze, preview, and generate/update .gitignore */
+    async function gitIgnoreWizard() {
+        wizardModalOpen({
+            title: '📝 .gitignore Manager',
+            size: 'wide',
+            steps: [
+                {
+                    id: 'analyze', title: 'Analyze',
+                    render: async (data, el) => {
+                        el.innerHTML = '<p style="text-align:center;padding:2rem"><span class="spinner"></span> Analyzing .gitignore…</p>';
+                        try {
+                            const [analysis, genResult] = await Promise.all([
+                                api('/security/gitignore'),
+                                apiPost('/security/generate/gitignore', {}),
+                            ]);
+                            data._analysis = analysis;
+                            data._generated = (genResult.ok && genResult.file) ? genResult.file.content : '';
+
+                            let html = wizSection('.gitignore Analysis', 'How well your project files are protected.');
+                            html += '<div class="wiz-status-grid">';
+                            html += wizStatusRow('📄', 'File',
+                                analysis.exists ? 'Present' : 'Missing',
+                                analysis.exists ? 'ok' : 'error');
+                            if (analysis.exists) {
+                                html += wizStatusRow('📊', 'Coverage',
+                                    `${Math.round((analysis.coverage || 0) * 100)}%`,
+                                    analysis.coverage >= 0.9 ? 'ok' : analysis.coverage >= 0.5 ? 'warn' : 'error');
+                                html += wizStatusRow('📋', 'Current patterns',
+                                    `${analysis.current_patterns}`, 'muted');
+                                if (analysis.missing_count > 0) {
+                                    html += wizStatusRow('❌', 'Missing patterns',
+                                        `${analysis.missing_count}`, 'error');
+                                }
+                            }
+                            html += '</div>';
+
+                            // Show missing patterns detail
+                            if (analysis.missing_patterns && analysis.missing_patterns.length > 0) {
+                                html += `<div style="margin-top:var(--space-md);padding:var(--space-sm);background:var(--bg-card);border-radius:var(--radius-sm);border:1px solid var(--border-subtle)">
+                                    <div style="font-size:0.82rem;font-weight:500;margin-bottom:var(--space-xs)">Missing patterns:</div>`;
+                                const grouped = {};
+                                for (const p of analysis.missing_patterns) {
+                                    (grouped[p.category] = grouped[p.category] || []).push(p);
+                                }
+                                for (const [cat, patterns] of Object.entries(grouped)) {
+                                    html += `<div style="margin-top:var(--space-xs)">
+                                        <span style="font-size:0.75rem;font-weight:500;color:var(--text-secondary);text-transform:capitalize">${esc(cat)}</span>
+                                        <div style="padding-left:var(--space-sm)">
+                                            ${patterns.map(p => `<div style="font-size:0.72rem;color:var(--error)"><code>${esc(p.pattern)}</code></div>`).join('')}
+                                        </div>
+                                    </div>`;
+                                }
+                                html += '</div>';
+                            }
+
+                            el.innerHTML = html;
+                        } catch (e) {
+                            el.innerHTML = `<div class="wiz-step-error-panel"><span>⚠️</span><span>${esc(e.message)}</span></div>`;
+                        }
+                    },
+                },
+                {
+                    id: 'edit', title: 'Edit & Apply',
+                    render: (data, el) => {
+                        const content = data._generated || '';
+                        const patCount = content.split('\n').filter(l => l.trim() && !l.trim().startsWith('#')).length;
+                        const exists = data._analysis && data._analysis.exists;
+
+                        let html = wizSection(exists ? 'Replace .gitignore' : 'Create .gitignore',
+                            `Generated ${patCount} patterns based on your detected stacks.`);
+                        html += `<textarea id="mf-gi-content"
+                            class="modal-form-textarea" style="font-family:var(--font-mono);font-size:0.72rem;min-height:300px;width:100%;line-height:1.5"
+                        >${esc(content)}</textarea>`;
+                        html += `<span class="modal-form-hint">Edit the content above, then click "Apply Changes" to write it to disk.</span>`;
+                        el.innerHTML = html;
+                    },
+                    collect: (data) => {
+                        data.finalContent = mfVal('gi-content');
+                    },
+                },
             ],
+            onComplete: async (data) => {
+                if (!data.finalContent || !data.finalContent.trim()) {
+                    throw new Error('No content to write');
+                }
+                // Use the setup_git action to write the .gitignore
+                const result = await apiPost('/wizard/setup', {
+                    action: 'setup_git',
+                    gitignore_content: data.finalContent,
+                });
+                if (!result.ok) throw new Error(result.error || 'Failed to write .gitignore');
+                // Reload git card
+                cardInvalidate('git');
+                if (typeof loadGitCard === 'function') setTimeout(() => loadGitCard(), 300);
+            },
+            successMessage: '.gitignore updated!',
+            finishLabel: '✅ Apply Changes',
         });
     }
 

@@ -115,6 +115,13 @@ _WATCH_PATHS: dict[str, list[str]] = {
         "package.json", "project.yml",
         "tests/", "docs/", ".gitignore",
     ],
+    # ── Wizard detect cache key ────────────────────────────────
+    "wiz:detect": [
+        "Dockerfile", "docker-compose.yml", "docker-compose.yaml",
+        ".github/workflows/", "k8s/", "kubernetes/",
+        "terraform/", "main.tf", "project.yml",
+        "pyproject.toml", "package.json",
+    ],
 }
 
 
@@ -280,6 +287,7 @@ _CARD_LABELS: dict[str, str] = {
     "audit:l2:quality": "💎 Code Health",
     "audit:l2:repo": "📁 Repo Health",
     "audit:l2:risks": "⚠️ Risks & Issues",
+    "wiz:detect": "🧙 Wizard Detect",
 }
 
 

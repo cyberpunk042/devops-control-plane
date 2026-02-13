@@ -10,7 +10,7 @@
         // is configured. If not → redirect to the wizard.
         if (!location.hash || location.hash === '#dashboard') {
             try {
-                const ps = await getProjectStatus(true);
+                const ps = await api('/project/status');
                 const proj = (ps.integrations || {}).project || {};
                 if (proj.status === 'missing') {
                     switchTab('wizard');
@@ -41,7 +41,7 @@
     async function _showPostWizardNextSteps() {
         let status;
         try {
-            status = await getProjectStatus(true);
+            status = await api('/project/status');
         } catch (_) { return; }
 
         const integrations = status.integrations || {};

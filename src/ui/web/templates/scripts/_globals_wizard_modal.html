@@ -39,6 +39,8 @@
 
     let _wizModal = null;
 
+
+
     /**
      * Open a multi-step wizard modal.
      * @param {Object} opts
@@ -119,11 +121,17 @@
             const errEl = document.getElementById('wiz-step-error');
             if (errEl) errEl.innerHTML = '';
 
+            // Block Next during async render of cacheable steps
+            const nextBtn = step.cacheable ? document.getElementById('wiz-btn-next') : null;
+            if (nextBtn) { nextBtn.disabled = true; nextBtn.style.opacity = '0.5'; }
+
             // Call step render (may be async)
             try {
                 const result = step.render(data, bodyEl);
                 if (result && typeof result.then === 'function') {
-                    result.catch(e => {
+                    result.then(() => {
+                        if (nextBtn) { nextBtn.disabled = false; nextBtn.style.opacity = '1'; }
+                    }).catch(e => {
                         bodyEl.innerHTML = `<div class="wiz-step-error-panel">
                             <span style="font-size:1.2rem">⚠️</span>
                             <div>
@@ -131,7 +139,10 @@
                                 <p style="margin:0.25rem 0 0;font-size:0.82rem;color:var(--text-muted)">${esc(e.message)}</p>
                             </div>
                         </div>`;
+                        if (nextBtn) { nextBtn.disabled = false; nextBtn.style.opacity = '1'; }
                     });
+                } else {
+                    if (nextBtn) { nextBtn.disabled = false; nextBtn.style.opacity = '1'; }
                 }
             } catch (e) {
                 bodyEl.innerHTML = `<div class="wiz-step-error-panel">
@@ -141,6 +152,7 @@
                         <p style="margin:0.25rem 0 0;font-size:0.82rem;color:var(--text-muted)">${esc(e.message)}</p>
                     </div>
                 </div>`;
+                if (nextBtn) { nextBtn.disabled = false; nextBtn.style.opacity = '1'; }
             }
         }
 
@@ -214,6 +226,9 @@
     /** Go to next step. */
     async function _wizModalNext() {
         if (!_wizModal) return;
+        // Block if Next is disabled (e.g. scanning in progress)
+        const nextBtn = document.getElementById('wiz-btn-next');
+        if (nextBtn && nextBtn.disabled) return;
         if (!_wizModalCollect()) return;
         if (!_wizModalValidate()) return;
 
@@ -298,17 +313,19 @@
      * Build a status row (icon + label + value) for wizard detection results.
      * @param {string} icon - emoji
      * @param {string} label - what was detected
-     * @param {string} value - status text
+     * @param {string} value - status text (or raw HTML if rawValue=true)
      * @param {'ok'|'warn'|'error'|'muted'} [type] - color coding
+     * @param {boolean} [rawValue] - if true, value is raw HTML (not escaped)
      * @returns {string} HTML
      */
-    function wizStatusRow(icon, label, value, type) {
+    function wizStatusRow(icon, label, value, type, rawValue) {
         const colorMap = { ok: 'var(--success)', warn: 'var(--warning)', error: 'var(--error)', muted: 'var(--text-muted)' };
         const color = colorMap[type] || 'var(--text-primary)';
+        const displayValue = rawValue ? value : esc(value);
         return `<div class="wiz-status-row">
             <span class="wiz-status-icon">${icon}</span>
             <span class="wiz-status-label">${esc(label)}</span>
-            <span class="wiz-status-value" style="color:${color}">${esc(value)}</span>
+            <span class="wiz-status-value" style="color:${color}">${displayValue}</span>
         </div>`;
     }
 

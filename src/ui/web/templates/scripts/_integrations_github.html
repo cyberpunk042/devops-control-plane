@@ -19,9 +19,9 @@
                 badge.innerHTML = '<span class="status-dot"></span>No gh CLI';
                 detail.innerHTML = cardSetupBanner('🐙', 'GitHub CLI not installed',
                     'Install the gh CLI to manage repositories, pull requests, and CI/CD from here.',
-                    'github', 'Install gh CLI →') +
+                    'github', 'Set up GitHub →') +
                     cardEmpty('🐙', 'The gh CLI is not installed.',
-                    { label: 'Install GitHub CLI →', onclick: "window.open('https://cli.github.com/','_blank')" });
+                    { label: 'Set up GitHub →', onclick: 'openGitHubSetupWizard()' });
                 return;
             }
 
@@ -38,6 +38,9 @@
                     `⚠ Run <code style="font-family:var(--font-mono);background:var(--bg-inset);padding:1px 6px;border-radius:4px">gh auth login</code> in your terminal.</div>`;
                 html += `<div style="font-size:0.78rem;color:var(--text-muted);margin-top:var(--space-xs)">` +
                     `Once authenticated: Pull requests, Actions, Environments, Secrets management.</div>`;
+                html += cardActionToolbar([
+                    { label: 'Set up GitHub →', icon: '⚙️', onclick: 'openGitHubSetupWizard()', cls: 'btn-primary' },
+                ]);
                 detail.innerHTML = html;
                 return;
             }
@@ -75,6 +78,7 @@
 
             // Actions
             html += cardActionToolbar([
+                { label: 'Reconfigure', icon: '⚙️', onclick: 'openGitHubSetupWizard()', cls: 'btn-ghost' },
                 { label: 'New Environment', icon: '➕', onclick: '_ghCreateEnvModal()' },
                 { label: 'Push Secrets', icon: '⬆', onclick: '_ghPushSecrets(this)' },
             ]);

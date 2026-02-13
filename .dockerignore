@@ -1,0 +1,46 @@
+# ── Version control ─────────────────────────────────────────────
+.git
+.gitignore
+
+# ── IDE / Editor ────────────────────────────────────────────────
+.vscode
+.idea
+*.swp
+*.swo
+*~
+
+# ── OS files ────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+
+# ── Docker ──────────────────────────────────────────────────────
+docker-compose*.yml
+Dockerfile*
+.dockerignore
+
+# ── CI/CD ───────────────────────────────────────────────────────
+.github
+.gitlab-ci.yml
+Jenkinsfile
+
+# ── Documentation ───────────────────────────────────────────────
+docs/
+*.md
+LICENSE
+
+# ── Python ──────────────────────────────────────────────────────
+__pycache__
+*.pyc
+*.pyo
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.venv
+venv
+env
+*.egg-info
+dist
+build
+.tox
+.coverage
+htmlcov

@@ -4,6 +4,7 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
 
 :root {
+    color-scheme: dark;
     /* ── Color tokens ────────────────────────────────────────────── */
     --bg-primary: hsl(225, 25%, 8%);
     --bg-secondary: hsl(225, 22%, 11%);
@@ -2849,10 +2850,17 @@ body {
     border-radius: var(--radius-sm);
     padding: 8px 12px;
     color: var(--text-primary);
+    color-scheme: dark;
     font-family: var(--font-sans);
     font-size: 0.85rem;
     width: 100%;
     transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+/* Force dark option popups for ALL selects (inline-styled or not) */
+select option {
+    background: hsl(225, 20%, 13%);
+    color: hsl(220, 20%, 92%);
 }
 
 .modal-form-input:focus,

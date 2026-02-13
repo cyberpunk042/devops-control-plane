@@ -78,7 +78,21 @@ def _probe_git(root: Path) -> dict:
 
     has_remote = False
     branch = ""
+    remote_url = ""
+    git_version = ""
+    commit_count = 0
     try:
+        # Git version
+        rv = subprocess.run(
+            ["git", "--version"],
+            capture_output=True, timeout=3,
+        )
+        if rv.returncode == 0:
+            # "git version 2.43.0" → "2.43.0"
+            ver_line = rv.stdout.decode().strip()
+            git_version = ver_line.replace("git version ", "").strip()
+
+        # Remote URL
         r = subprocess.run(
             ["git", "remote", "get-url", "origin"],
             cwd=str(root), capture_output=True, timeout=5,
@@ -86,13 +100,30 @@ def _probe_git(root: Path) -> dict:
         has_remote = r.returncode == 0
         remote_url = r.stdout.decode().strip() if has_remote else ""
 
+        # Current branch
         r2 = subprocess.run(
             ["git", "branch", "--show-current"],
             cwd=str(root), capture_output=True, timeout=5,
         )
         branch = r2.stdout.decode().strip() if r2.returncode == 0 else ""
+
+        # Commit count (0 = fresh repo with no commits)
+        rc = subprocess.run(
+            ["git", "rev-list", "--count", "HEAD"],
+            cwd=str(root), capture_output=True, timeout=5,
+        )
+        if rc.returncode == 0:
+            commit_count = int(rc.stdout.decode().strip())
     except Exception:
         pass
+
+    # Hook detection — count non-sample hooks in .git/hooks/
+    hooks_dir = git_dir / "hooks"
+    hooks: list[str] = []
+    if hooks_dir.is_dir():
+        for h in hooks_dir.iterdir():
+            if h.is_file() and not h.name.endswith(".sample") and h.name != "README":
+                hooks.append(h.name)
 
     gitignore = (root / ".gitignore").is_file()
 
@@ -104,6 +135,10 @@ def _probe_git(root: Path) -> dict:
         "remote": remote_url if has_remote else None,
         "branch": branch,
         "has_gitignore": gitignore,
+        "git_version": git_version,
+        "commit_count": commit_count,
+        "hooks": hooks,
+        "hook_count": len(hooks),
     }
 
 
@@ -131,6 +166,9 @@ def _probe_github(root: Path) -> dict:
         pass
 
     has_github_dir = (root / ".github").is_dir()
+    has_codeowners = (root / ".github" / "CODEOWNERS").exists()
+    wf_dir = root / ".github" / "workflows"
+    workflow_count = len(list(wf_dir.glob("*.yml"))) + len(list(wf_dir.glob("*.yaml"))) if wf_dir.is_dir() else 0
 
     if authenticated and repo:
         status = "ready"
@@ -145,6 +183,8 @@ def _probe_github(root: Path) -> dict:
         "authenticated": authenticated,
         "repo": repo or None,
         "has_github_dir": has_github_dir,
+        "has_codeowners": has_codeowners,
+        "workflow_count": workflow_count,
     }
 
 

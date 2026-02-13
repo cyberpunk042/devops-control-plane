@@ -14,7 +14,7 @@
     async function _fetchIntProjectStatus() {
         if (_intProjectStatus) return _intProjectStatus;
         try {
-            _intProjectStatus = await getProjectStatus(false);
+            _intProjectStatus = await api('/project/status');
         } catch {
             _intProjectStatus = { integrations: {}, progress: { complete: 0, total: 8, percent: 0 } };
         }
@@ -209,7 +209,7 @@
                 ${rows}
             </div>
             <div class="vault-modal-footer" style="display:flex;gap:0.5rem;justify-content:flex-end;padding:0.75rem 1rem">
-                <button class="btn btn-sm btn-ghost" onclick="document.getElementById('int-prefs-modal').remove();openSetupWizard()" title="Run the full setup wizard">🧙 Wizard</button>
+                <button class="btn btn-sm btn-ghost" onclick="document.getElementById('int-prefs-modal').remove();openFullSetupWizard()" title="Run the full setup wizard">🧙 Wizard</button>
                 <span style="flex:1"></span>
                 <button class="btn btn-sm btn-secondary" onclick="document.getElementById('int-prefs-modal').remove()">Cancel</button>
                 <button class="btn btn-sm btn-primary" onclick="_saveIntPrefs()">Save</button>

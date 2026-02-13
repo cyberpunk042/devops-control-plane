@@ -276,7 +276,7 @@
         if (!badge || !content) return;
 
         try {
-            const data = await getProjectStatus(true);
+            const data = await api('/project/status');
             const { integrations, progress, suggested_next } = data;
 
             // Progress badge
