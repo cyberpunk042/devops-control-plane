@@ -1,13 +1,86 @@
-<!-- Integrations Tab JS — Init & Tab Load
+/* Integrations Tab JS — Init & Tab Load
      State vars, prefs, card metadata, loadIntegrationsTab(), prefs modal.
      Depends on: _globals.html (cardCached, cardStore, cardInvalidate, api, esc, toast)
--->
+*/
     // ── Integrations tab ────────────────────────────────────────────────
     // Uses shared cache from _globals.html (cardCached / cardStore / cardInvalidate)
     // Preferences: auto / manual / hidden — same pattern as DevOps tab
 
     let _intLoaded = false;
     let _intPrefs = null;
+    let _intProjectStatus = null;  // cached project status for dependency hints
+
+    /** Fetch and cache project status for integration cards. */
+    async function _fetchIntProjectStatus() {
+        if (_intProjectStatus) return _intProjectStatus;
+        try {
+            _intProjectStatus = await getProjectStatus(false);
+        } catch {
+            _intProjectStatus = { integrations: {}, progress: { complete: 0, total: 8, percent: 0 } };
+        }
+        return _intProjectStatus;
+    }
+
+    /** Get integration status from cached project status. */
+    function _intStatus(key) {
+        return (_intProjectStatus?.integrations || {})[key] || { status: 'missing' };
+    }
+
+    /**
+     * Build a prominent setup CTA banner for an unconfigured integration.
+     * @param {string} icon - emoji
+     * @param {string} title - what's missing
+     * @param {string} desc - helpful explanation  
+     * @param {string} wizKey - key for openSetupWizard()
+     * @param {string} [btnLabel] - custom button label
+     * @returns {string} HTML
+     */
+    function cardSetupBanner(icon, title, desc, wizKey, btnLabel) {
+        return `<div class="card-setup-banner">
+            <div class="card-setup-banner-icon">${icon}</div>
+            <div class="card-setup-banner-body">
+                <div class="card-setup-banner-title">${esc(title)}</div>
+                <div class="card-setup-banner-desc">${esc(desc)}</div>
+            </div>
+            <button class="btn btn-sm btn-primary" onclick="openSetupWizard('${wizKey}')"
+                style="flex-shrink:0">${esc(btnLabel || 'Set up →')}</button>
+        </div>`;
+    }
+
+    /**
+     * Build a dependency hint when a prerequisite integration isn't configured.
+     * @param {string} depKey - dependency integration key (e.g., 'docker', 'git')
+     * @param {string} depLabel - human label (e.g., 'Docker')
+     * @param {string} message - why it matters
+     * @param {string} [wizKey] - optional setup wizard key for link
+     * @returns {string} HTML or empty string if dep is already ready
+     */
+    function cardDepHint(depKey, depLabel, message, wizKey) {
+        const dep = _intStatus(depKey);
+        if (dep.status === 'ready') return '';
+        const btn = wizKey
+            ? ` <button class="btn btn-xs btn-secondary" onclick="openSetupWizard('${wizKey}')" style="font-size:0.68rem;padding:1px 6px;margin-left:4px">Set up ${esc(depLabel)} →</button>`
+            : '';
+        return `<div class="card-dep-hint">
+            <span class="card-dep-hint-icon">💡</span>
+            <span class="card-dep-hint-text">${esc(message)}${btn}</span>
+        </div>`;
+    }
+
+    /**
+     * Render a cross-tab navigation link.
+     * @param {string} targetTab - Tab to navigate to (e.g. 'devops', 'integrations')
+     * @param {string} label     - Display label (e.g. 'Docker operations')
+     * @returns {string} HTML
+     */
+    function cardCrossLink(targetTab, label) {
+        return `<div style="margin-top:var(--space-xs);text-align:right">
+            <button class="btn btn-xs btn-ghost" onclick="switchTab('${esc(targetTab)}')"
+                style="font-size:0.66rem;padding:1px 6px;color:var(--accent)">
+                ${esc(label)} →
+            </button>
+        </div>`;
+    }
 
     // Card metadata registry
     const _INT_CARDS = {
@@ -34,6 +107,7 @@
         if (force) {
             _intLoaded = false;
             _intPrefs = null;
+            _intProjectStatus = null;  // clear project status cache
             for (const [key, meta] of Object.entries(_INT_CARDS)) {
                 const cacheKey = key.replace('int:', '');
                 cardInvalidate(cacheKey === 'github' ? 'github' : cacheKey);
@@ -45,6 +119,8 @@
         }
         if (_intLoaded) return;
 
+        // Fetch project status for dependency hints (non-blocking: cards load even if this fails)
+        await _fetchIntProjectStatus();
         const prefs = await _fetchIntPrefs();
 
         // Apply visibility + loading per preference

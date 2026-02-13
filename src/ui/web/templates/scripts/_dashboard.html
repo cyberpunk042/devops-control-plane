@@ -268,4 +268,126 @@
         detail.innerHTML = html;
     }
 
+    // ── Setup Progress Widget ─────────────────────────────────────────
+
+    async function loadSetupProgress() {
+        const badge = document.getElementById('setup-progress-badge');
+        const content = document.getElementById('setup-progress-content');
+        if (!badge || !content) return;
+
+        try {
+            const data = await getProjectStatus(true);
+            const { integrations, progress, suggested_next } = data;
+
+            // Progress badge
+            if (progress.percent >= 100) {
+                badge.className = 'status-badge ok';
+                badge.innerHTML = '<span class="status-dot"></span>Complete';
+            } else {
+                badge.className = 'status-badge degraded';
+                badge.innerHTML = `<span class="status-dot"></span>${progress.complete}/${progress.total}`;
+            }
+
+            // Progress bar
+            const pct = progress.percent || 0;
+            const barColor = pct >= 80 ? 'var(--success)' : pct >= 50 ? 'var(--warning)' : 'var(--accent)';
+
+            // Integration items
+            const integrationMeta = {
+                git:       { icon: '🔀', label: 'Git Repository', wizKey: 'git' },
+                docker:    { icon: '🐳', label: 'Docker',         wizKey: 'docker' },
+                github:    { icon: '🐙', label: 'GitHub',         wizKey: 'github' },
+                cicd:      { icon: '⚡', label: 'CI/CD Pipeline', wizKey: 'cicd' },
+                k8s:       { icon: '☸️', label: 'Kubernetes',      wizKey: 'k8s' },
+                terraform: { icon: '🏗️', label: 'Terraform',      wizKey: 'terraform' },
+                pages:     { icon: '📄', label: 'Pages',          wizKey: 'pages' },
+                dns:       { icon: '🌐', label: 'DNS / Domain',   wizKey: 'dns' },
+            };
+
+            const statusIcons = { ready: '✅', partial: '🔶', missing: '⬜' };
+            const statusLabels = { ready: 'Ready', partial: 'Partial', missing: 'Not set up' };
+            const statusColors = { ready: 'var(--success)', partial: 'var(--warning)', missing: 'var(--text-muted)' };
+
+            let html = '';
+
+            // Progress bar
+            html += `<div style="margin-bottom:var(--space-lg)">
+                <div style="display:flex;justify-content:space-between;font-size:0.72rem;color:var(--text-muted);margin-bottom:4px">
+                    <span>Setup progress</span>
+                    <span>${pct}%</span>
+                </div>
+                <div style="height:6px;background:var(--border-subtle);border-radius:3px;overflow:hidden">
+                    <div style="width:${pct}%;height:100%;background:${barColor};border-radius:3px;transition:width 0.6s ease"></div>
+                </div>
+            </div>`;
+
+            // Integration list
+            const order = ['git', 'docker', 'github', 'cicd', 'k8s', 'terraform', 'pages', 'dns'];
+            html += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:8px">';
+
+            for (const key of order) {
+                const meta = integrationMeta[key];
+                const info = integrations[key] || {};
+                const st = info.status || 'missing';
+                const isSuggested = key === suggested_next;
+
+                html += `<div style="
+                    display:flex;align-items:center;gap:0.6rem;
+                    padding:0.5rem 0.75rem;border-radius:var(--radius-sm);
+                    border:1px solid ${isSuggested ? 'var(--accent)' : 'var(--border-subtle)'};
+                    background:${isSuggested ? 'var(--accent-glow)' : 'transparent'};
+                    transition:all 0.15s ease;
+                ">
+                    <span style="font-size:1rem;width:24px;text-align:center">${statusIcons[st]}</span>
+                    <span style="font-size:1rem">${meta.icon}</span>
+                    <span style="flex:1;font-size:0.82rem;font-weight:500;color:var(--text-primary)">${esc(meta.label)}</span>
+                    <span style="font-size:0.68rem;font-weight:600;color:${statusColors[st]}">${statusLabels[st]}</span>
+                    ${st !== 'ready' && meta.wizKey
+                        ? `<button class="btn btn-sm ${isSuggested ? 'btn-primary' : 'btn-secondary'}"
+                            onclick="openSetupWizard('${meta.wizKey}')"
+                            style="font-size:0.68rem;padding:2px 8px"
+                            >${isSuggested ? 'Set up →' : 'Setup'}</button>`
+                        : ''
+                    }
+                </div>`;
+            }
+
+            html += '</div>';
+
+            // Suggested next hint
+            if (suggested_next && integrationMeta[suggested_next]) {
+                const next = integrationMeta[suggested_next];
+                html += `<div style="
+                    margin-top:var(--space-md);padding:var(--space-sm) var(--space-md);
+                    background:var(--accent-glow);border:1px solid var(--accent);border-radius:var(--radius-sm);
+                    font-size:0.78rem;color:var(--accent);display:flex;align-items:center;gap:0.5rem;
+                ">
+                    <span>💡</span>
+                    <span>Suggested next: <strong>${esc(next.label)}</strong></span>
+                    ${next.wizKey
+                        ? `<button class="btn btn-sm btn-primary" onclick="openSetupWizard('${next.wizKey}')" style="margin-left:auto;font-size:0.68rem">Set up ${esc(next.label)} →</button>`
+                        : ''
+                    }
+                </div>`;
+            }
+
+            // All complete message
+            if (pct >= 100) {
+                html += `<div style="
+                    margin-top:var(--space-md);padding:var(--space-md);
+                    background:var(--success-bg);border:1px solid var(--success);border-radius:var(--radius-sm);
+                    font-size:0.82rem;color:var(--success);text-align:center;
+                ">
+                    🎉 All integrations configured! Your DevOps pipeline is ready.
+                </div>`;
+            }
+
+            content.innerHTML = html;
+
+        } catch (e) {
+            console.warn('Setup progress load failed:', e);
+            content.innerHTML = `<p style="color:var(--text-muted);font-size:0.82rem">Could not load setup status.</p>`;
+        }
+    }
+
 </script>

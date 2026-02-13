@@ -2657,6 +2657,75 @@ body {
 }
 
 /* ═══════════════════════════════════════════════════════════════════ */
+/* ── Card Setup Banners & Dependency Hints ────────────────────────── */
+/* ═══════════════════════════════════════════════════════════════════ */
+
+.card-setup-banner {
+    display: flex;
+    align-items: center;
+    gap: var(--space-md);
+    padding: var(--space-md);
+    margin-bottom: var(--space-md);
+    background: var(--accent-glow);
+    border: 1px solid var(--accent);
+    border-radius: var(--radius-sm);
+    animation: fadeIn 0.3s ease;
+}
+
+.card-setup-banner-icon {
+    font-size: 1.5rem;
+    flex-shrink: 0;
+}
+
+.card-setup-banner-body {
+    flex: 1;
+    min-width: 0;
+}
+
+.card-setup-banner-title {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 2px;
+}
+
+.card-setup-banner-desc {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    line-height: 1.4;
+}
+
+.card-dep-hint {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-xs);
+    padding: var(--space-xs) var(--space-sm);
+    margin-bottom: var(--space-sm);
+    background: hsla(45, 100%, 50%, 0.05);
+    border: 1px solid hsla(45, 100%, 50%, 0.15);
+    border-radius: var(--radius-sm);
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    animation: fadeIn 0.2s ease;
+}
+
+.card-dep-hint-icon {
+    flex-shrink: 0;
+    font-size: 0.85rem;
+    line-height: 1.4;
+}
+
+.card-dep-hint-text {
+    line-height: 1.4;
+}
+
+.btn-xs {
+    font-size: 0.68rem !important;
+    padding: 1px 6px !important;
+    border-radius: var(--radius-sm);
+}
+
+/* ═══════════════════════════════════════════════════════════════════ */
 /* ── PHASE 1: Standard Modal System ──────────────────────────────── */
 /* ═══════════════════════════════════════════════════════════════════ */
 
@@ -2984,4 +3053,209 @@ body {
 .btn-danger:hover {
     background: var(--error);
     color: white;
+}
+
+/* ═══════════════════════════════════════════════════════════════════ */
+/* ── Wizard Modal System ─────────────────────────────────────────── */
+/* ═══════════════════════════════════════════════════════════════════ */
+
+/* Step indicator bar inside wizard modals */
+.wiz-modal-steps {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    margin-bottom: var(--space-xl);
+    padding-bottom: var(--space-lg);
+    border-bottom: 1px solid var(--border-subtle);
+}
+
+/* Step body container */
+.wiz-step-body {
+    min-height: 200px;
+}
+
+/* Section header within a step */
+.wiz-section-header {
+    margin-bottom: var(--space-lg);
+}
+
+.wiz-section-header:not(:first-child) {
+    margin-top: var(--space-xl);
+    padding-top: var(--space-lg);
+    border-top: 1px solid var(--border-subtle);
+}
+
+.wiz-section-title {
+    font-size: 0.88rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin: 0;
+}
+
+.wiz-section-subtitle {
+    font-size: 0.78rem;
+    color: var(--text-muted);
+    margin: 4px 0 0;
+}
+
+/* Status detection rows */
+.wiz-status-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    padding: var(--space-sm) var(--space-md);
+    border-radius: var(--radius-sm);
+    font-size: 0.82rem;
+    transition: background 0.15s ease;
+}
+
+.wiz-status-row:hover {
+    background: var(--bg-card-hover);
+}
+
+.wiz-status-icon {
+    font-size: 1rem;
+    width: 24px;
+    text-align: center;
+    flex-shrink: 0;
+}
+
+.wiz-status-label {
+    flex: 1;
+    color: var(--text-secondary);
+    font-weight: 500;
+}
+
+.wiz-status-value {
+    font-weight: 600;
+    font-size: 0.78rem;
+    text-align: right;
+}
+
+/* Error/warning panels */
+.wiz-step-error-panel {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-sm);
+    padding: var(--space-md);
+    background: var(--error-bg);
+    border: 1px solid hsla(0, 72%, 58%, 0.2);
+    border-radius: var(--radius-sm);
+    color: var(--error);
+    font-size: 0.82rem;
+    margin-top: var(--space-md);
+    animation: fadeIn 0.2s ease;
+}
+
+.wiz-step-warn-panel {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-sm);
+    padding: var(--space-md);
+    background: var(--warning-bg, hsla(45, 80%, 50%, 0.08));
+    border: 1px solid hsla(45, 80%, 50%, 0.2);
+    border-radius: var(--radius-sm);
+    color: var(--warning);
+    font-size: 0.82rem;
+    margin-top: var(--space-md);
+    animation: fadeIn 0.2s ease;
+}
+
+/* Status grid (2-column layout for detection results) */
+.wiz-status-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 2px;
+    background: var(--border-subtle);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+}
+
+.wiz-status-grid .wiz-status-row {
+    background: var(--bg-card);
+    border-radius: 0;
+    margin: 0;
+}
+
+.wiz-status-grid .wiz-status-row.full-width {
+    grid-column: 1 / -1;
+}
+
+/* Action button row in step body */
+.wiz-action-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    padding: var(--space-md);
+    background: var(--bg-inset);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    margin-top: var(--space-md);
+}
+
+.wiz-action-row .wiz-action-label {
+    flex: 1;
+    font-size: 0.82rem;
+    color: var(--text-secondary);
+}
+
+/* Review summary items */
+.wiz-review-item {
+    display: flex;
+    align-items: center;
+    gap: var(--space-md);
+    padding: var(--space-md) var(--space-lg);
+    border-bottom: 1px solid var(--border-subtle);
+}
+
+.wiz-review-item:last-child {
+    border-bottom: none;
+}
+
+.wiz-review-icon {
+    font-size: 1.2rem;
+    width: 32px;
+    text-align: center;
+    flex-shrink: 0;
+}
+
+.wiz-review-content {
+    flex: 1;
+}
+
+.wiz-review-label {
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.wiz-review-value {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    margin-top: 2px;
+}
+
+.wiz-review-badge {
+    font-size: 0.68rem;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: var(--radius-xl);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+}
+
+.wiz-review-badge.ready {
+    background: var(--success-bg);
+    color: var(--success);
+}
+
+.wiz-review-badge.pending {
+    background: var(--warning-bg, hsla(45, 80%, 50%, 0.08));
+    color: var(--warning);
+}
+
+.wiz-review-badge.skipped {
+    background: var(--bg-inset);
+    color: var(--text-muted);
 }

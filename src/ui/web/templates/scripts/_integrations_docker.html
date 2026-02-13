@@ -1,8 +1,8 @@
-<!-- Integrations Tab JS — Docker Card
+/* Integrations Tab JS — Docker Card
      loadDockerCard(), live tabs (containers, images, compose, networks, volumes),
      logs, inspect, pull image, exec, remove, generate modals (Dockerfile, Compose).
      Depends on: _integrations_init.html (card registry)
--->
+*/
     // ── Docker Card ─────────────────────────────────────────────────────
 
     async function loadDockerCard() {
@@ -18,7 +18,10 @@
             if (!data.available) {
                 badge.className = 'status-badge failed';
                 badge.innerHTML = '<span class="status-dot"></span>Not installed';
-                let html = cardEmpty('🐳', 'Docker CLI not found.',
+                let html = cardSetupBanner('🐳', 'Docker not installed',
+                    'Install Docker to enable container builds, or generate config files to prepare.',
+                    'docker', 'Docker Setup →');
+                html += cardEmpty('🐳', 'Docker CLI not found.',
                     { label: 'Install Docker →', onclick: "window.open('https://docs.docker.com/get-docker/','_blank')" });
                 // Show detected files even without Docker
                 const hasFiles = (data.dockerfiles && data.dockerfiles.length) || data.has_compose;
@@ -75,7 +78,9 @@
                 badge.innerHTML = '<span class="status-dot"></span>No config';
             }
 
-            // Status grid
+            // Dependency hints
+            let html = '';
+            html += cardDepHint('git', 'Git', 'Set up Git first to version-control your Docker config.', 'git');
             const stats = [
                 { label: 'Docker', value: (data.version || '').replace('Docker version ', '').split(',')[0], cls: 'ok' },
             ];
@@ -83,7 +88,7 @@
             if (data.compose_services && data.compose_services.length > 0) {
                 stats.push({ label: 'Services', value: String(data.compose_services.length) });
             }
-            let html = cardStatusGrid(stats);
+            html += cardStatusGrid(stats);
 
             // Detection list (files)
             const detections = [];
@@ -126,6 +131,9 @@
             genItems.push({ label: '.dockerignore', icon: '🚫', onclick: "_intDockerGenerate('dockerignore')" });
             if (!data.has_compose) genItems.push({ label: 'docker-compose.yml', icon: '📋', onclick: "_intDockerGenerate('compose')" });
             html += cardGenerateToolbar(genItems);
+
+            // Cross-tab link
+            html += cardCrossLink('devops', 'View Docker ops in DevOps');
 
             detail.innerHTML = html;
 

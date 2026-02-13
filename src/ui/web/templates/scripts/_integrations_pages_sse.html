@@ -1,8 +1,8 @@
-<!-- Integrations Tab JS — Pages SSE & Helpers
+/* Integrations Tab JS — Pages SSE & Helpers
      SSE build streaming, batched log rendering, build progress tracking,
      CI workflow generation, shared helpers (timeSince).
      Depends on: _integrations_pages.html (Pages card context)
--->
+*/
     // ── SSE Build Streaming ──────────────────────────────────────────────
 
     let _buildAbort = null;
@@ -459,3 +459,4 @@
         if (days < 30) return days + 'd ago';
         const months = Math.floor(days / 30);
         return months + 'mo ago';
+}

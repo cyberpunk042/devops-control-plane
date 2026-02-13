@@ -1,7 +1,7 @@
-<!-- DevOps Tab JS — Terraform Card
+/* DevOps Tab JS — Terraform Card
      loadTerraformCard(), validate/plan/state/workspaces/generate modals.
      Depends on: _devops_init.html (card registry)
--->
+*/
     // ── Terraform Card ─────────────────────────────────────────────────
 
     async function loadTerraformCard() {
@@ -82,6 +82,10 @@
             <button class="btn btn-sm btn-ghost" onclick="tfGenerate()" title="Generate main.tf, variables.tf, outputs.tf scaffold">🏗️ Generate</button>
         </div>`;
         html += `</div>`;
+
+        // Cross-tab link
+        html += cardCrossLink('integrations', 'Full Terraform integration card');
+
         detail.innerHTML = html;
     }
 

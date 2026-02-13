@@ -1,8 +1,8 @@
-<!-- Audit Tab JS — Drill-Down Modals
+/* Audit Tab JS — Drill-Down Modals
      Drill-down modal rendering, per-item dismiss, batch dismiss, checkbox helpers,
      category filters for dependency table.
      Depends on: _audit_init.html (helpers, data store)
--->
+*/
 // ── Drill-down modal helpers ───────────────────────────────────
 
 function _auditShowCrossDep(idx) {
@@ -376,3 +376,4 @@ function _auditFilterDeps(cat) {
         const details = table.closest('details');
         if (details) details.open = true;
     }
+}

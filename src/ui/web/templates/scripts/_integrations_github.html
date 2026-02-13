@@ -1,7 +1,7 @@
-<!-- Integrations Tab JS — GitHub Card
+/* Integrations Tab JS — GitHub Card
      loadGitHubCard(), live tab handler, create environment modal, push secrets.
      Depends on: _integrations_init.html (card registry)
--->
+*/
     // ── GitHub Card ─────────────────────────────────────────────────────
 
     async function loadGitHubCard() {
@@ -17,7 +17,10 @@
             if (!data.available) {
                 badge.className = 'status-badge failed';
                 badge.innerHTML = '<span class="status-dot"></span>No gh CLI';
-                detail.innerHTML = cardEmpty('🐙', 'The gh CLI is not installed.',
+                detail.innerHTML = cardSetupBanner('🐙', 'GitHub CLI not installed',
+                    'Install the gh CLI to manage repositories, pull requests, and CI/CD from here.',
+                    'github', 'Install gh CLI →') +
+                    cardEmpty('🐙', 'The gh CLI is not installed.',
                     { label: 'Install GitHub CLI →', onclick: "window.open('https://cli.github.com/','_blank')" });
                 return;
             }
@@ -49,7 +52,9 @@
                 { label: 'Auth', value: 'Connected', cls: 'ok' },
             ];
             if (data.repo) stats.push({ label: 'Repo', value: data.repo });
-            let html = cardStatusGrid(stats);
+            let html = '';
+            html += cardDepHint('git', 'Git', 'Configure Git remote to link your local repo to GitHub.', 'git');
+            html += cardStatusGrid(stats);
 
             // Detection
             const detections = [];

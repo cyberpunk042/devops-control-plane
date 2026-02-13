@@ -5,6 +5,27 @@
         // Restore tab from URL hash FIRST — so the correct tab is visible instantly
         restoreFromHash();
 
+        // ── First-launch detection ──
+        // If no explicit hash was set (user landed on root), check if project
+        // is configured. If not → redirect to the wizard.
+        if (!location.hash || location.hash === '#dashboard') {
+            try {
+                const ps = await getProjectStatus(true);
+                const proj = (ps.integrations || {}).project || {};
+                if (proj.status === 'missing') {
+                    switchTab('wizard');
+                    toast('👋 Welcome! Let\u2019s set up your project.', 'info');
+                }
+            } catch (_) { /* status endpoint unavailable — continue normally */ }
+        }
+
+        // ── Post-wizard "Next Steps" ──
+        // If the wizard just saved (flag set by wizard save), show next steps.
+        if (window._showNextStepsAfterSave) {
+            window._showNextStepsAfterSave = false;
+            _showPostWizardNextSteps();
+        }
+
         // Load dashboard data (needed for the dashboard tab and global status)
         await Promise.all([
             loadStatus(),
@@ -12,6 +33,64 @@
             loadHealth(),
             loadAudit(),
             loadHealthScore(),
+            loadSetupProgress(),
         ]);
     });
+
+    /** Show a "Next Steps" modal after the wizard saves project.yml. */
+    async function _showPostWizardNextSteps() {
+        let status;
+        try {
+            status = await getProjectStatus(true);
+        } catch (_) { return; }
+
+        const integrations = status.integrations || {};
+        const suggested = status.suggested_next;
+        const incomplete = Object.entries(integrations)
+            .filter(([, v]) => v.status !== 'ready')
+            .slice(0, 3);
+
+        if (incomplete.length === 0) return; // everything's configured already
+
+        const meta = {
+            git: { icon: '🔀', label: 'Git Repository' },
+            docker: { icon: '🐳', label: 'Docker' },
+            github: { icon: '🐙', label: 'GitHub' },
+            cicd: { icon: '⚡', label: 'CI/CD Pipeline' },
+            k8s: { icon: '☸️', label: 'Kubernetes' },
+            terraform: { icon: '🏗️', label: 'Terraform' },
+            pages: { icon: '📄', label: 'Pages' },
+            dns: { icon: '🌐', label: 'DNS / Domain' },
+        };
+
+        let rows = '';
+        for (const [key, info] of incomplete) {
+            const m = meta[key] || { icon: '❓', label: key };
+            const isSuggested = key === suggested;
+            rows += `<div style="display:flex;align-items:center;gap:0.6rem;padding:0.5rem 0.75rem;
+                border-radius:var(--radius-sm);border:1px solid ${isSuggested ? 'var(--accent)' : 'var(--border-subtle)'};
+                background:${isSuggested ? 'var(--accent-glow)' : 'transparent'};margin-bottom:6px">
+                <span style="font-size:1.1rem">${m.icon}</span>
+                <span style="flex:1;font-size:0.82rem;font-weight:500">${esc(m.label)}</span>
+                <span style="font-size:0.68rem;color:var(--text-muted)">${info.status}</span>
+                <button class="btn btn-sm ${isSuggested ? 'btn-primary' : 'btn-secondary'}"
+                    onclick="modalClose();openSetupWizard('${key}')"
+                    style="font-size:0.68rem;padding:2px 8px">Set up →</button>
+            </div>`;
+        }
+
+        modalOpen({
+            title: '🎉 Project saved! Here\u2019s what\u2019s next',
+            body: `<p style="font-size:0.82rem;color:var(--text-muted);margin-bottom:var(--space-md)">
+                Your project.yml is ready. Set up integrations to build your DevOps pipeline:</p>
+                ${rows}`,
+            size: 'narrow',
+            footerButtons: [
+                { label: 'Skip for now', cls: 'btn-ghost', onclick: 'modalClose();switchTab("dashboard")' },
+                suggested
+                    ? { label: `Set up ${(meta[suggested] || {}).label || suggested} →`, cls: 'btn-primary', onclick: `modalClose();openSetupWizard('${suggested}')` }
+                    : { label: 'Go to Dashboard', cls: 'btn-primary', onclick: 'modalClose();switchTab("dashboard")' },
+            ],
+        });
+    }
 </script>

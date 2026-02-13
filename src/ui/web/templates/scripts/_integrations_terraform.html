@@ -1,8 +1,8 @@
-<!-- Integrations Tab JS — Terraform Card
+/* Integrations Tab JS — Terraform Card
      _intLoadTerraformCard(), live data panels (state, plan, providers, outputs, graph),
      actions (init, plan, apply, destroy, format), workspace switch, generate modal.
      Depends on: _integrations_init.html (card registry)
--->
+*/
     // ── Terraform Card ─────────────────────────────────────────────────
 
     async function _intLoadTerraformCard() {
@@ -18,7 +18,10 @@
             if (!data.cli || !data.cli.available) {
                 badge.className = 'status-badge failed';
                 badge.innerHTML = '<span class="status-dot"></span>Not installed';
-                detail.innerHTML = cardEmpty('🏗️', 'Terraform CLI not found.',
+                detail.innerHTML = cardSetupBanner('🏗️', 'Terraform not installed',
+                    'Install Terraform to manage infrastructure as code, or generate config files now.',
+                    'terraform', 'TF Setup →') +
+                    cardEmpty('🏗️', 'Terraform CLI not found.',
                     { label: 'Install Terraform →', onclick: "window.open('https://developer.hashicorp.com/terraform/install','_blank')" });
                 detail.innerHTML += cardGenerateToolbar([
                     { label: 'TF Config', icon: '🏗', onclick: '_tfGenerateModal()' },
@@ -30,11 +33,13 @@
             if (!data.has_terraform) {
                 badge.className = 'status-badge degraded';
                 badge.innerHTML = '<span class="status-dot"></span>No config';
-                let html = cardStatusGrid([
+                let html = cardSetupBanner('🏗️', 'No Terraform configuration',
+                    'Generate Terraform files to start provisioning cloud infrastructure.',
+                    'terraform', 'Set up Terraform →');
+                html += cardStatusGrid([
                     { label: 'Terraform', value: (data.cli.version || '').split(' ')[0], cls: 'ok' },
                     { label: 'Config', value: 'None', cls: 'warn' },
                 ]);
-                html += `<div style="margin-top:var(--space-sm);font-size:0.82rem;color:var(--text-muted)">No Terraform configuration found (*.tf files).</div>`;
                 html += cardGenerateToolbar([
                     { label: 'TF Config', icon: '🏗', onclick: '_tfGenerateModal()' },
                 ]);
@@ -59,7 +64,10 @@
                 const bk = typeof data.backend === 'string' ? data.backend : (data.backend.type || 'configured');
                 stats.push({ label: 'Backend', value: bk });
             }
-            let html = cardStatusGrid(stats);
+            // Dependency hints
+            let html = '';
+            html += cardDepHint('k8s', 'Kubernetes', 'Terraform can provision K8s clusters — configure Kubernetes to deploy apps.', 'k8s');
+            html += cardStatusGrid(stats);
 
             // Detection list (TF files)
             const tfFiles = data.files || [];
@@ -96,6 +104,9 @@
             html += cardGenerateToolbar([
                 { label: 'TF Config', icon: '🏗', onclick: '_tfGenerateModal()' },
             ]);
+
+            // Cross-tab link
+            html += cardCrossLink('devops', 'View Terraform ops in DevOps');
 
             detail.innerHTML = html;
 

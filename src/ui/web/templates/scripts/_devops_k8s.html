@@ -1,7 +1,7 @@
-<!-- DevOps Tab JS — Kubernetes Card
+/* DevOps Tab JS — Kubernetes Card
      loadK8sCard(), validate/cluster/resources/generate modals.
      Depends on: _devops_init.html (card registry)
--->
+*/
     // ── Kubernetes Card ────────────────────────────────────────────────
 
     async function loadK8sCard() {
@@ -93,7 +93,10 @@
             <button class="btn btn-sm btn-secondary" onclick="k8sResources()" ${!kubectl.available?'disabled':''} title="Browse live cluster resources by kind and namespace">📦 Resources</button>
             <button class="btn btn-sm btn-ghost" onclick="k8sGenerate()" title="Generate Deployment + Service + ConfigMap manifests for a new app">📄 Generate</button>
         </div>`;
-        html += `</div>`;
+
+        // Cross-tab link
+        html += cardCrossLink('integrations', 'Full K8s integration card');
+
         detail.innerHTML = html;
     }
 

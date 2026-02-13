@@ -1,7 +1,7 @@
-<!-- Integrations Tab JS — Git Card
+/* Integrations Tab JS — Git Card
      loadGitCard(), git actions (commit, push, pull, stash, log, diff, gitignore).
      Depends on: _integrations_init.html (card registry)
--->
+*/
     // ── Git Card ────────────────────────────────────────────────────────
 
     async function loadGitCard() {
@@ -16,7 +16,9 @@
             if (!data.available) {
                 badge.className = 'status-badge failed';
                 badge.innerHTML = '<span class="status-dot"></span>No repo';
-                detail.innerHTML = cardEmpty('🔀', 'Not a git repository', null);
+                detail.innerHTML = cardSetupBanner('🔀', 'No Git repository',
+                    'Initialize a Git repo to start tracking changes and enable other integrations.',
+                    'git', 'Initialize Git →');
                 return;
             }
 

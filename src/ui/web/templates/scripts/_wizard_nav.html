@@ -1,7 +1,7 @@
-<!-- Wizard JS — Navigation & Save
+/* Wizard JS — Navigation & Save
      Step navigation (next/prev), save config, activate environment, advanced actions.
      Depends on: _wizard_init.html (state), _wizard_helpers.html (form state collection)
--->
+*/
     // ── Navigation ──────────────────────────────────────────────────
 
     function wizardNext() {
@@ -119,6 +119,11 @@
 
             toast('✅ Configuration saved to project.yml!', 'success');
             switchTab('dashboard');
+
+            // Trigger post-wizard "Next Steps" modal after a short delay
+            // so the dashboard has time to render
+            setTimeout(() => _showPostWizardNextSteps(), 600);
         } catch (e) {
             toast(`Save failed: ${e.message}`, 'error');
         }
+}

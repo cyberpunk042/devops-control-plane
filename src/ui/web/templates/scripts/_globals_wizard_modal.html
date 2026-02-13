@@ -1,0 +1,334 @@
+<!-- Globals — Wizard Modal System
+     Multi-step wizard modal with proper navigation, validation,
+     data persistence across steps, and result handling.
+     Depends on: modalOpen, modalClose, modalSteps, modalFormField, mfVal, esc, api
+-->
+<script>
+
+    // ═══════════════════════════════════════════════════════════════════
+    // ── Wizard Modal System ────────────────────────────────────────────
+    // ═══════════════════════════════════════════════════════════════════
+    //
+    // Usage:
+    //   wizardModalOpen({
+    //     title: '🐳 Docker Setup',
+    //     size: 'wide',
+    //     steps: [
+    //       { id: 'detect', title: 'Detect', render: (data, el) => { ... } },
+    //       { id: 'config',  title: 'Configure', render: (data, el) => { ... }, validate: (data) => { ... } },
+    //       { id: 'review', title: 'Review', render: (data, el) => { ... } },
+    //     ],
+    //     onComplete: async (data) => { ... },
+    //     onCancel:  () => { ... },
+    //     initialData: {},
+    //   });
+    //
+    //   Step render(data, el):
+    //     - data = persistent object across all steps (mutate freely)
+    //     - el  = the .wiz-step-body DOM element to render into
+    //
+    //   Step validate(data):
+    //     - return null/undefined if valid
+    //     - return string error message if invalid
+    //     - return { warn: '...' } for non-blocking warning
+    //
+    //   Step collect(data):
+    //     - optional: called before leaving a step to gather form values
+    //     - mutate data in place
+    //
+
+    let _wizModal = null;
+
+    /**
+     * Open a multi-step wizard modal.
+     * @param {Object} opts
+     * @param {string} opts.title - modal title
+     * @param {string} [opts.size] - 'narrow' | 'wide'
+     * @param {Array} opts.steps - step definitions
+     * @param {Function} [opts.onComplete] - async (data) => called on finish
+     * @param {Function} [opts.onCancel] - called on cancel/close
+     * @param {Object} [opts.initialData] - initial data object
+     * @param {string} [opts.finishLabel] - finish button label (default: 'Finish')
+     * @param {string} [opts.finishCls] - finish button class (default: 'btn-primary')
+     * @returns {Object} wizard controller
+     */
+    function wizardModalOpen(opts) {
+        // Close any existing
+        if (_wizModal) wizardModalClose();
+
+        const data = opts.initialData || {};
+        let stepIdx = 0;
+        const steps = opts.steps;
+
+        // Build the modal shell
+        const overlay = modalOpen({
+            title: opts.title,
+            size: opts.size || 'wide',
+            body: `
+                <div class="wiz-modal-steps" id="wiz-modal-steps"></div>
+                <div class="wiz-step-body" id="wiz-step-body"></div>
+                <div class="wiz-step-error" id="wiz-step-error"></div>
+            `,
+            footerButtons: [
+                { label: 'Cancel', cls: 'btn-secondary', onclick: 'wizardModalClose()', id: 'wiz-btn-cancel' },
+                { label: '← Back', cls: 'btn-secondary', onclick: '_wizModalBack()', id: 'wiz-btn-back' },
+                { label: 'Next →', cls: 'btn-primary', onclick: '_wizModalNext()', id: 'wiz-btn-next' },
+                { label: opts.finishLabel || '✅ Finish', cls: opts.finishCls || 'btn-primary', onclick: '_wizModalFinish()', id: 'wiz-btn-finish' },
+            ],
+            footerStatus: '',
+            onClose: opts.onCancel,
+        });
+
+        _wizModal = {
+            overlay,
+            opts,
+            data,
+            stepIdx: 0,
+            steps,
+        };
+
+        // Render first step
+        _wizModalRender();
+
+        return _wizModal;
+    }
+
+    /** Render current wizard modal step. */
+    function _wizModalRender() {
+        if (!_wizModal) return;
+        const { steps, stepIdx, data } = _wizModal;
+        const step = steps[stepIdx];
+
+        // Step indicators
+        const stepsEl = document.getElementById('wiz-modal-steps');
+        if (stepsEl) {
+            stepsEl.innerHTML = steps.map((s, i) => {
+                const cls = i < stepIdx ? 'done' : (i === stepIdx ? 'active' : '');
+                const dot = i < stepIdx ? '✓' : String(i + 1);
+                return (i > 0 ? `<span class="modal-step-arrow">→</span>` : '') +
+                    `<span class="modal-step ${cls}">` +
+                    `<span class="modal-step-dot">${dot}</span> ${esc(s.title)}</span>`;
+            }).join('');
+        }
+
+        // Body
+        const bodyEl = document.getElementById('wiz-step-body');
+        if (bodyEl) {
+            bodyEl.innerHTML = '<p style="text-align:center;padding:2rem"><span class="spinner"></span></p>';
+            // Clear error
+            const errEl = document.getElementById('wiz-step-error');
+            if (errEl) errEl.innerHTML = '';
+
+            // Call step render (may be async)
+            try {
+                const result = step.render(data, bodyEl);
+                if (result && typeof result.then === 'function') {
+                    result.catch(e => {
+                        bodyEl.innerHTML = `<div class="wiz-step-error-panel">
+                            <span style="font-size:1.2rem">⚠️</span>
+                            <div>
+                                <strong>Failed to load this step</strong>
+                                <p style="margin:0.25rem 0 0;font-size:0.82rem;color:var(--text-muted)">${esc(e.message)}</p>
+                            </div>
+                        </div>`;
+                    });
+                }
+            } catch (e) {
+                bodyEl.innerHTML = `<div class="wiz-step-error-panel">
+                    <span style="font-size:1.2rem">⚠️</span>
+                    <div>
+                        <strong>Failed to load this step</strong>
+                        <p style="margin:0.25rem 0 0;font-size:0.82rem;color:var(--text-muted)">${esc(e.message)}</p>
+                    </div>
+                </div>`;
+            }
+        }
+
+        // Button visibility
+        const isFirst = stepIdx === 0;
+        const isLast = stepIdx === steps.length - 1;
+        const backBtn = document.getElementById('wiz-btn-back');
+        const nextBtn = document.getElementById('wiz-btn-next');
+        const finishBtn = document.getElementById('wiz-btn-finish');
+        if (backBtn) backBtn.style.display = isFirst ? 'none' : '';
+        if (nextBtn) nextBtn.style.display = isLast ? 'none' : '';
+        if (finishBtn) finishBtn.style.display = isLast ? '' : 'none';
+
+        // Update footer status
+        modalStatus(`Step ${stepIdx + 1} of ${steps.length}`, '');
+    }
+
+    /** Collect current step's form data. Returns true if successful. */
+    function _wizModalCollect() {
+        if (!_wizModal) return true;
+        const { steps, stepIdx, data } = _wizModal;
+        const step = steps[stepIdx];
+        if (step.collect) {
+            try {
+                step.collect(data);
+            } catch (e) {
+                _wizModalShowError(e.message);
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /** Validate current step. Returns true if valid. */
+    function _wizModalValidate() {
+        if (!_wizModal) return true;
+        const { steps, stepIdx, data } = _wizModal;
+        const step = steps[stepIdx];
+        if (!step.validate) return true;
+
+        const result = step.validate(data);
+        if (!result) return true;
+        if (typeof result === 'string') {
+            _wizModalShowError(result);
+            return false;
+        }
+        if (result.warn) {
+            // Non-blocking warning — show but allow proceed
+            _wizModalShowError(result.warn, 'warn');
+            return true;
+        }
+        return true;
+    }
+
+    /** Show error/warning in the wizard modal. */
+    function _wizModalShowError(msg, type) {
+        const el = document.getElementById('wiz-step-error');
+        if (!el) return;
+        const cls = type === 'warn' ? 'wiz-step-warn-panel' : 'wiz-step-error-panel';
+        const icon = type === 'warn' ? '⚠️' : '❌';
+        el.innerHTML = `<div class="${cls}">
+            <span style="font-size:1rem">${icon}</span>
+            <span>${esc(msg)}</span>
+        </div>`;
+        // Auto-clear after 5s for warnings
+        if (type === 'warn') {
+            setTimeout(() => { if (el) el.innerHTML = ''; }, 5000);
+        }
+    }
+
+    /** Go to next step. */
+    async function _wizModalNext() {
+        if (!_wizModal) return;
+        if (!_wizModalCollect()) return;
+        if (!_wizModalValidate()) return;
+
+        _wizModal.stepIdx = Math.min(_wizModal.stepIdx + 1, _wizModal.steps.length - 1);
+        _wizModalRender();
+    }
+
+    /** Go to previous step. */
+    function _wizModalBack() {
+        if (!_wizModal) return;
+        _wizModalCollect(); // Save current form state even on back
+        _wizModal.stepIdx = Math.max(_wizModal.stepIdx - 1, 0);
+        _wizModalRender();
+    }
+
+    /** Finish the wizard. */
+    async function _wizModalFinish() {
+        if (!_wizModal) return;
+        if (!_wizModalCollect()) return;
+        if (!_wizModalValidate()) return;
+
+        const { opts, data } = _wizModal;
+        if (!opts.onComplete) {
+            wizardModalClose();
+            return;
+        }
+
+        // Disable buttons during completion
+        const finishBtn = document.getElementById('wiz-btn-finish');
+        const cancelBtn = document.getElementById('wiz-btn-cancel');
+        if (finishBtn) { finishBtn.disabled = true; finishBtn.innerHTML = '<span class="spinner" style="width:14px;height:14px"></span> Applying…'; }
+        if (cancelBtn) cancelBtn.disabled = true;
+        modalStatus('Applying changes…', '');
+
+        try {
+            await opts.onComplete(data);
+            // Success — close and notify
+            wizardModalClose();
+            toast(opts.successMessage || 'Setup complete!', 'success');
+        } catch (e) {
+            // Error — show in modal, re-enable buttons
+            _wizModalShowError(`Failed: ${e.message}`);
+            if (finishBtn) { finishBtn.disabled = false; finishBtn.innerHTML = esc(opts.finishLabel || '✅ Finish'); }
+            if (cancelBtn) cancelBtn.disabled = false;
+            modalStatus('', '');
+        }
+    }
+
+    /** Close the wizard modal. */
+    function wizardModalClose() {
+        _wizModal = null;
+        modalClose();
+    }
+
+    /** Jump to a specific step (used by step indicators). */
+    function wizardModalGoTo(idx) {
+        if (!_wizModal) return;
+        if (idx < 0 || idx >= _wizModal.steps.length) return;
+        // Only allow jumping to completed or current steps
+        if (idx > _wizModal.stepIdx) return;
+        _wizModalCollect();
+        _wizModal.stepIdx = idx;
+        _wizModalRender();
+    }
+
+    // ── Wizard modal form helpers ──────────────────────────────────────
+
+    /**
+     * Build a section header inside a wizard step.
+     * @param {string} title - section title
+     * @param {string} [subtitle] - optional subtitle
+     * @returns {string} HTML
+     */
+    function wizSection(title, subtitle) {
+        return `<div class="wiz-section-header">
+            <h3 class="wiz-section-title">${esc(title)}</h3>
+            ${subtitle ? `<p class="wiz-section-subtitle">${esc(subtitle)}</p>` : ''}
+        </div>`;
+    }
+
+    /**
+     * Build a status row (icon + label + value) for wizard detection results.
+     * @param {string} icon - emoji
+     * @param {string} label - what was detected
+     * @param {string} value - status text
+     * @param {'ok'|'warn'|'error'|'muted'} [type] - color coding
+     * @returns {string} HTML
+     */
+    function wizStatusRow(icon, label, value, type) {
+        const colorMap = { ok: 'var(--success)', warn: 'var(--warning)', error: 'var(--error)', muted: 'var(--text-muted)' };
+        const color = colorMap[type] || 'var(--text-primary)';
+        return `<div class="wiz-status-row">
+            <span class="wiz-status-icon">${icon}</span>
+            <span class="wiz-status-label">${esc(label)}</span>
+            <span class="wiz-status-value" style="color:${color}">${esc(value)}</span>
+        </div>`;
+    }
+
+    /**
+     * Build a form grid with fields for a wizard step.
+     * @param {Array} fields - array of field definitions for modalFormField()
+     * @returns {string} HTML
+     */
+    function wizFormGrid(fields) {
+        return `<div class="modal-form-grid">${fields.map(f => modalFormField(f)).join('')}</div>`;
+    }
+
+    /**
+     * Collect all form values from modal form fields into a data object.
+     * @param {string[]} names - field names to collect
+     * @param {Object} data - target object to populate
+     */
+    function wizCollectFields(names, data) {
+        for (const name of names) {
+            data[name] = mfVal(name);
+        }
+    }
+</script>

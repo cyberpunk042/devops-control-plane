@@ -1,8 +1,18 @@
-<!-- Wizard JS — Integration Sub-Wizards
+/* Wizard JS — Integration Sub-Wizards
      Integration card rendering, sub-wizard toggle, per-integration forms
      (Docker, K8s, Terraform, CI/CD config generation UI).
      Depends on: _wizard_helpers.html (helpers), _wizard_init.html (state)
--->
+*/
+
+/** Map wizard integration keys to openSetupWizard dispatcher keys. */
+function _wizKeyToSetupKey(key) {
+    const map = {
+        'int:git': 'git', 'int:docker': 'docker', 'int:ci': 'cicd',
+        'int:github': 'github', 'int:pages': 'pages',
+        'k8s': 'k8s', 'terraform': 'terraform', 'dns': 'dns',
+    };
+    return map[key] || key;
+}
 
 function _wizRenderIntegrations() {
     const d = _wizIntDetection;
@@ -141,6 +151,8 @@ function _wizIntCard(key, info, enabled, desc) {
                     </div>
                     <button class="btn btn-sm btn-secondary" style="font-size:0.68rem;padding:0.15rem 0.45rem;white-space:nowrap"
                         onclick="_wizToggleSetup('${esc(key)}')">⚙️ Setup</button>
+                    <button class="btn btn-sm btn-ghost" style="font-size:0.62rem;padding:0.1rem 0.35rem;white-space:nowrap;color:var(--accent)"
+                        onclick="openSetupWizard('${esc(_wizKeyToSetupKey(key))}')" title="Open full setup wizard">🚀 Full Setup →</button>
                 </div>
                 <div id="wiz-int-setup-${safeId}" style="display:none"></div>
             </div>`;

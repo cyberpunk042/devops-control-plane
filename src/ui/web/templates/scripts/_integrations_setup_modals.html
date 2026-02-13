@@ -1,0 +1,725 @@
+<!-- Integrations — Setup Wizard Modals
+     Standalone multi-step setup modals for each integration.
+     Callable from: Integration cards, Wizard step 5, Dashboard progress.
+     Depends on: _globals_wizard_modal.html, _globals.html (api, esc, toast)
+-->
+<script>
+
+    // ═══════════════════════════════════════════════════════════════════
+    // ── Integration Setup Modals ───────────────────────────────────────
+    // ═══════════════════════════════════════════════════════════════════
+
+    // ── Project Status Cache ───────────────────────────────────────────
+
+    let _projectStatus = null;
+    let _projectStatusTS = 0;
+    const _PROJECT_STATUS_TTL = 30000; // 30s
+
+    async function getProjectStatus(force) {
+        const now = Date.now();
+        if (!force && _projectStatus && (now - _projectStatusTS) < _PROJECT_STATUS_TTL) {
+            return _projectStatus;
+        }
+        try {
+            _projectStatus = await api('/project/status');
+            _projectStatusTS = now;
+            return _projectStatus;
+        } catch (e) {
+            console.warn('Failed to fetch project status:', e);
+            return _projectStatus || { integrations: {}, progress: { percent: 0 } };
+        }
+    }
+
+    // ── Git Setup Wizard ───────────────────────────────────────────────
+
+    function openGitSetupWizard() {
+        wizardModalOpen({
+            title: '🔀 Git Setup',
+            size: 'wide',
+            steps: [
+                {
+                    id: 'detect', title: 'Detect',
+                    render: async (data, el) => {
+                        el.innerHTML = '<p style="text-align:center;padding:2rem"><span class="spinner"></span> Checking Git status…</p>';
+                        try {
+                            const status = await api('/project/status');
+                            const git = status.integrations.git;
+                            data._git = git;
+                            el.innerHTML = `
+                                ${wizSection('Git Repository', 'Current Git configuration detected in this project.')}
+                                <div class="wiz-status-grid">
+                                    ${wizStatusRow('📁', 'Git initialized', git.initialized ? 'Yes' : 'No', git.initialized ? 'ok' : 'error')}
+                                    ${wizStatusRow('🌐', 'Remote origin', git.has_remote ? (git.remote || 'Set') : 'Not configured', git.has_remote ? 'ok' : 'warn')}
+                                    ${wizStatusRow('🌿', 'Current branch', git.branch || 'none', git.branch ? 'ok' : 'muted')}
+                                    ${wizStatusRow('📄', '.gitignore', git.has_gitignore ? 'Present' : 'Missing', git.has_gitignore ? 'ok' : 'warn')}
+                                </div>
+                            `;
+                        } catch (e) {
+                            el.innerHTML = `<div class="wiz-step-error-panel"><span>⚠️</span><span>Failed to detect Git status: ${esc(e.message)}</span></div>`;
+                        }
+                    }
+                },
+                {
+                    id: 'config', title: 'Configure',
+                    render: (data, el) => {
+                        const git = data._git || {};
+                        el.innerHTML = `
+                            ${wizSection('Repository Settings', 'Configure your Git repository.')}
+                            ${wizFormGrid([
+                                { name: 'git-remote', label: 'Remote URL', value: git.remote || '', placeholder: 'https://github.com/user/repo.git', hint: 'Leave empty to skip remote setup', fullWidth: true },
+                                { name: 'git-branch', label: 'Default Branch', value: git.branch || 'main', placeholder: 'main' },
+                                { name: 'git-gitignore', label: 'Generate .gitignore', type: 'checkbox', value: !git.has_gitignore },
+                            ])}
+                        `;
+                    },
+                    collect: (data) => {
+                        data.remote = mfVal('git-remote');
+                        data.branch = mfVal('git-branch');
+                        data.generateGitignore = mfVal('git-gitignore');
+                    },
+                },
+                {
+                    id: 'review', title: 'Review',
+                    render: (data, el) => {
+                        const git = data._git || {};
+                        const actions = [];
+                        if (!git.initialized) actions.push({ icon: '📁', label: 'Initialize Git repository', value: 'git init' });
+                        if (data.remote) actions.push({ icon: '🌐', label: 'Set remote origin', value: data.remote });
+                        if (data.generateGitignore) actions.push({ icon: '📄', label: 'Generate .gitignore', value: 'Stack-aware template' });
+                        if (actions.length === 0) actions.push({ icon: '✅', label: 'Everything looks good', value: 'No changes needed' });
+
+                        el.innerHTML = `
+                            ${wizSection('Review Changes', 'The following actions will be performed.')}
+                            ${actions.map(a => `<div class="wiz-review-item">
+                                <span class="wiz-review-icon">${a.icon}</span>
+                                <div class="wiz-review-content">
+                                    <div class="wiz-review-label">${esc(a.label)}</div>
+                                    <div class="wiz-review-value">${esc(a.value)}</div>
+                                </div>
+                            </div>`).join('')}
+                        `;
+                    },
+                },
+            ],
+            onComplete: async (data) => {
+                const git = data._git || {};
+                // Initialize if needed
+                if (!git.initialized || data.remote) {
+                    await apiPost('/wizard/setup', {
+                        action: 'setup_git',
+                        remote: data.remote,
+                    });
+                }
+                // Generate .gitignore if requested
+                if (data.generateGitignore) {
+                    try {
+                        await apiPost('/security/gitignore/generate', {});
+                    } catch (e) {
+                        // Non-critical, continue
+                        console.warn('Gitignore generation failed:', e);
+                    }
+                }
+                // Invalidate status cache
+                _projectStatusTS = 0;
+            },
+            successMessage: 'Git repository configured!',
+        });
+    }
+
+    // ── Docker Setup Wizard ────────────────────────────────────────────
+
+    function openDockerSetupWizard() {
+        wizardModalOpen({
+            title: '🐳 Docker Setup',
+            size: 'wide',
+            steps: [
+                {
+                    id: 'detect', title: 'Detect',
+                    render: async (data, el) => {
+                        el.innerHTML = '<p style="text-align:center;padding:2rem"><span class="spinner"></span> Detecting Docker environment…</p>';
+                        try {
+                            const [status, dockerStatus] = await Promise.all([
+                                api('/project/status'),
+                                api('/docker/status').catch(() => ({})),
+                            ]);
+                            const docker = status.integrations.docker;
+                            data._docker = docker;
+                            data._dockerStatus = dockerStatus;
+
+                            el.innerHTML = `
+                                ${wizSection('Docker Environment', 'Current Docker configuration detected in this project.')}
+                                <div class="wiz-status-grid">
+                                    ${wizStatusRow('🐳', 'Docker Engine', docker.has_cli ? 'Available' : 'Not found', docker.has_cli ? 'ok' : 'error')}
+                                    ${wizStatusRow('📄', 'Dockerfile', docker.has_dockerfile ? 'Present' : 'Missing', docker.has_dockerfile ? 'ok' : 'warn')}
+                                    ${wizStatusRow('🔧', 'Docker Compose', docker.has_compose ? 'Present' : 'Missing', docker.has_compose ? 'ok' : 'warn')}
+                                    ${wizStatusRow('🚫', '.dockerignore', docker.has_dockerignore ? 'Present' : 'Missing', docker.has_dockerignore ? 'ok' : 'warn')}
+                                </div>
+                                ${!docker.has_cli ? `
+                                    <div class="wiz-step-warn-panel" style="margin-top:1rem">
+                                        <span>⚠️</span>
+                                        <span>Docker is not installed. You can still generate config files, but won't be able to build/run until Docker is available.</span>
+                                    </div>
+                                ` : ''}
+                            `;
+                        } catch (e) {
+                            el.innerHTML = `<div class="wiz-step-error-panel"><span>⚠️</span><span>${esc(e.message)}</span></div>`;
+                        }
+                    },
+                },
+                {
+                    id: 'config', title: 'Configure',
+                    render: (data, el) => {
+                        const docker = data._docker || {};
+                        // Smart defaults based on project detection
+                        const defaultBase = 'python:3.12-slim';
+                        const defaultCmd = 'python -m src';
+                        const defaultInstall = 'pip install -e .';
+
+                        el.innerHTML = `
+                            ${wizSection('Dockerfile', docker.has_dockerfile
+                                ? 'A Dockerfile already exists. Configure to overwrite it or skip.'
+                                : 'Generate a Dockerfile for your project.'
+                            )}
+                            ${wizFormGrid([
+                                { name: 'docker-base', label: 'Base Image', value: data.base_image || defaultBase, placeholder: 'python:3.12-slim', hint: 'e.g. python:3.12-slim, node:20-alpine', required: true },
+                                { name: 'docker-workdir', label: 'Working Directory', value: data.workdir || '/app', placeholder: '/app' },
+                                { name: 'docker-install', label: 'Install Command', value: data.install_cmd || defaultInstall, hint: 'Run during build', fullWidth: true },
+                                { name: 'docker-port', label: 'Expose Port', value: data.port || '8080', type: 'number' },
+                                { name: 'docker-cmd', label: 'Entry Command', value: data.cmd || defaultCmd, hint: 'CMD when container starts' },
+                            ])}
+                            ${docker.has_dockerfile ? `
+                                <div style="margin-top:0.5rem">
+                                    ${modalFormField({ name: 'docker-overwrite', label: 'Overwrite existing Dockerfile', type: 'checkbox', value: false })}
+                                </div>
+                            ` : ''}
+
+                            ${wizSection('Docker Compose', 'Optionally generate a docker-compose.yml for local development.')}
+                            ${wizFormGrid([
+                                { name: 'docker-compose', label: 'Generate docker-compose.yml', type: 'checkbox', value: !docker.has_compose, fullWidth: true },
+                            ])}
+
+                            ${wizSection('.dockerignore', 'Prevent unnecessary files from being included in the Docker build context.')}
+                            ${wizFormGrid([
+                                { name: 'docker-ignore', label: 'Generate .dockerignore', type: 'checkbox', value: !docker.has_dockerignore, fullWidth: true },
+                            ])}
+                        `;
+                    },
+                    collect: (data) => {
+                        data.base_image = mfVal('docker-base');
+                        data.workdir = mfVal('docker-workdir');
+                        data.install_cmd = mfVal('docker-install');
+                        data.port = mfVal('docker-port');
+                        data.cmd = mfVal('docker-cmd');
+                        data.compose = mfVal('docker-compose');
+                        data.overwrite = mfVal('docker-overwrite');
+                        data.dockerignore = mfVal('docker-ignore');
+                    },
+                    validate: (data) => {
+                        if (!data.base_image) return 'Base image is required';
+                        if (!data.cmd) return 'Entry command is required';
+                        return null;
+                    },
+                },
+                {
+                    id: 'review', title: 'Review & Apply',
+                    render: (data, el) => {
+                        const docker = data._docker || {};
+                        const items = [];
+
+                        if (!docker.has_dockerfile || data.overwrite) {
+                            items.push({ icon: '📄', label: 'Generate Dockerfile', value: `FROM ${data.base_image} · EXPOSE ${data.port}`, badge: 'create', badgeCls: 'ready' });
+                        } else {
+                            items.push({ icon: '📄', label: 'Dockerfile', value: 'Already exists — keeping current', badge: 'skip', badgeCls: 'skipped' });
+                        }
+
+                        if (data.compose) {
+                            items.push({ icon: '🔧', label: 'Generate docker-compose.yml', value: `Port ${data.port}, volume mount`, badge: 'create', badgeCls: 'ready' });
+                        }
+
+                        if (data.dockerignore) {
+                            items.push({ icon: '🚫', label: 'Generate .dockerignore', value: 'Stack-aware exclusions', badge: 'create', badgeCls: 'ready' });
+                        }
+
+                        if (items.length === 0) {
+                            items.push({ icon: '✅', label: 'No changes to make', value: 'Everything is already configured', badge: 'skip', badgeCls: 'skipped' });
+                        }
+
+                        el.innerHTML = `
+                            ${wizSection('Review', 'The following files will be generated.')}
+                            ${items.map(item => `<div class="wiz-review-item">
+                                <span class="wiz-review-icon">${item.icon}</span>
+                                <div class="wiz-review-content">
+                                    <div class="wiz-review-label">${esc(item.label)}</div>
+                                    <div class="wiz-review-value">${esc(item.value)}</div>
+                                </div>
+                                <span class="wiz-review-badge ${item.badgeCls}">${item.badge}</span>
+                            </div>`).join('')}
+                        `;
+                    },
+                },
+            ],
+            onComplete: async (data) => {
+                const docker = data._docker || {};
+                const promises = [];
+
+                // Generate Dockerfile via wizard/setup (handles overwrite logic)
+                if (!docker.has_dockerfile || data.overwrite) {
+                    promises.push(apiPost('/wizard/setup', {
+                        action: 'setup_docker',
+                        base_image: data.base_image,
+                        workdir: data.workdir,
+                        install_cmd: data.install_cmd,
+                        port: data.port,
+                        cmd: data.cmd,
+                        compose: data.compose,
+                        overwrite: data.overwrite || false,
+                    }));
+                } else if (data.compose) {
+                    // Only compose, no Dockerfile regen
+                    promises.push(apiPost('/wizard/setup', {
+                        action: 'setup_docker',
+                        base_image: data.base_image,
+                        workdir: data.workdir,
+                        install_cmd: data.install_cmd,
+                        port: data.port,
+                        cmd: data.cmd,
+                        compose: true,
+                        overwrite: false,
+                    }));
+                }
+
+                // Generate .dockerignore
+                if (data.dockerignore) {
+                    promises.push(
+                        apiPost('/docker/generate/dockerignore', {}).catch(e => {
+                            console.warn('.dockerignore generation failed:', e);
+                        })
+                    );
+                }
+
+                await Promise.all(promises);
+                _projectStatusTS = 0; // Invalidate cache
+            },
+            successMessage: 'Docker setup complete!',
+        });
+    }
+
+    // ── CI/CD Setup Wizard ─────────────────────────────────────────────
+
+    function openCICDSetupWizard() {
+        wizardModalOpen({
+            title: '⚡ CI/CD Pipeline Setup',
+            size: 'wide',
+            steps: [
+                {
+                    id: 'detect', title: 'Detect',
+                    render: async (data, el) => {
+                        el.innerHTML = '<p style="text-align:center;padding:2rem"><span class="spinner"></span> Detecting CI/CD configuration…</p>';
+                        try {
+                            const [status, ciStatus] = await Promise.all([
+                                api('/project/status'),
+                                api('/ci/status').catch(() => ({})),
+                            ]);
+                            const cicd = status.integrations.cicd;
+                            const docker = status.integrations.docker;
+                            data._cicd = cicd;
+                            data._docker = docker;
+                            data._ciStatus = ciStatus;
+
+                            el.innerHTML = `
+                                ${wizSection('CI/CD Configuration', 'Current continuous integration / deployment setup.')}
+                                <div class="wiz-status-grid">
+                                    ${wizStatusRow('⚡', 'Provider', cicd.provider || 'Not configured', cicd.provider ? 'ok' : 'warn')}
+                                    ${wizStatusRow('📄', 'Workflow files', String(cicd.workflow_count || 0), cicd.workflow_count > 0 ? 'ok' : 'warn')}
+                                    ${wizStatusRow('🐳', 'Docker available', docker.has_dockerfile ? 'Yes' : 'No', docker.has_dockerfile ? 'ok' : 'muted')}
+                                </div>
+                                ${!docker.has_dockerfile ? `
+                                    <div class="wiz-action-row" style="margin-top:1rem">
+                                        <span class="wiz-action-label">💡 Set up Docker first for container-based CI/CD workflows.</span>
+                                        <button class="btn btn-sm btn-secondary" onclick="wizardModalClose(); openDockerSetupWizard();">Setup Docker →</button>
+                                    </div>
+                                ` : ''}
+                            `;
+                        } catch (e) {
+                            el.innerHTML = `<div class="wiz-step-error-panel"><span>⚠️</span><span>${esc(e.message)}</span></div>`;
+                        }
+                    },
+                },
+                {
+                    id: 'config', title: 'Configure',
+                    render: (data, el) => {
+                        const docker = data._docker || {};
+                        el.innerHTML = `
+                            ${wizSection('Workflow Configuration', 'What should the CI pipeline do?')}
+                            ${wizFormGrid([
+                                { name: 'ci-test', label: 'Run tests', type: 'checkbox', value: true },
+                                { name: 'ci-lint', label: 'Run linting', type: 'checkbox', value: true },
+                                { name: 'ci-typecheck', label: 'Type checking', type: 'checkbox', value: true },
+                                { name: 'ci-coverage', label: 'Upload coverage', type: 'checkbox', value: false },
+                                { name: 'ci-docker', label: 'Build Docker image', type: 'checkbox', value: docker.has_dockerfile },
+                                { name: 'ci-docker-push', label: 'Push to registry', type: 'checkbox', value: false },
+                            ])}
+
+                            ${wizSection('Trigger', 'When should the pipeline run?')}
+                            ${wizFormGrid([
+                                { name: 'ci-trigger', label: 'Trigger', type: 'select', value: 'push-pr', options: [
+                                    { value: 'push-pr', label: 'Push + Pull Request' },
+                                    { value: 'push', label: 'Push only' },
+                                    { value: 'pr', label: 'Pull Request only' },
+                                    { value: 'manual', label: 'Manual only' },
+                                ]},
+                                { name: 'ci-branch', label: 'Branch filter', value: 'main', placeholder: 'main, develop' },
+                            ])}
+                        `;
+                    },
+                    collect: (data) => {
+                        data.runTests = mfVal('ci-test');
+                        data.runLint = mfVal('ci-lint');
+                        data.typeCheck = mfVal('ci-typecheck');
+                        data.coverage = mfVal('ci-coverage');
+                        data.dockerBuild = mfVal('ci-docker');
+                        data.dockerPush = mfVal('ci-docker-push');
+                        data.trigger = mfVal('ci-trigger');
+                        data.branch = mfVal('ci-branch');
+                    },
+                },
+                {
+                    id: 'review', title: 'Review & Apply',
+                    render: (data, el) => {
+                        const steps = [];
+                        if (data.runLint) steps.push('Lint');
+                        if (data.typeCheck) steps.push('Type check');
+                        if (data.runTests) steps.push('Test');
+                        if (data.coverage) steps.push('Coverage');
+                        if (data.dockerBuild) steps.push('Docker build');
+                        if (data.dockerPush) steps.push('Docker push');
+
+                        el.innerHTML = `
+                            ${wizSection('Review', 'A GitHub Actions workflow will be generated.')}
+                            <div class="wiz-review-item">
+                                <span class="wiz-review-icon">📄</span>
+                                <div class="wiz-review-content">
+                                    <div class="wiz-review-label">.github/workflows/ci.yml</div>
+                                    <div class="wiz-review-value">Steps: ${steps.join(' → ')}</div>
+                                </div>
+                                <span class="wiz-review-badge ready">create</span>
+                            </div>
+                            <div class="wiz-review-item">
+                                <span class="wiz-review-icon">🔀</span>
+                                <div class="wiz-review-content">
+                                    <div class="wiz-review-label">Trigger</div>
+                                    <div class="wiz-review-value">${esc(data.trigger || 'push-pr')} on ${esc(data.branch || 'main')}</div>
+                                </div>
+                            </div>
+                        `;
+                    },
+                },
+            ],
+            onComplete: async (data) => {
+                await apiPost('/wizard/setup', {
+                    action: 'setup_ci',
+                    test: data.runTests,
+                    lint: data.runLint,
+                    typecheck: data.typeCheck,
+                    coverage: data.coverage,
+                    docker_build: data.dockerBuild,
+                    docker_push: data.dockerPush,
+                    trigger: data.trigger,
+                    branch: data.branch,
+                });
+                _projectStatusTS = 0;
+            },
+            successMessage: 'CI/CD pipeline created!',
+        });
+    }
+
+    // ── Kubernetes Setup Wizard ─────────────────────────────────────────
+
+    function openK8sSetupWizard() {
+        wizardModalOpen({
+            title: '☸️ Kubernetes Setup',
+            size: 'wide',
+            steps: [
+                {
+                    id: 'detect', title: 'Detect',
+                    render: async (data, el) => {
+                        el.innerHTML = '<p style="text-align:center;padding:2rem"><span class="spinner"></span> Detecting Kubernetes environment…</p>';
+                        try {
+                            const status = await api('/project/status');
+                            const k8s = status.integrations.k8s;
+                            const docker = status.integrations.docker;
+                            data._k8s = k8s;
+                            data._docker = docker;
+
+                            el.innerHTML = `
+                                ${wizSection('Kubernetes Environment', 'Current Kubernetes configuration.')}
+                                <div class="wiz-status-grid">
+                                    ${wizStatusRow('☸️', 'kubectl', k8s.has_kubectl ? 'Available' : 'Not found', k8s.has_kubectl ? 'ok' : 'error')}
+                                    ${wizStatusRow('⎈', 'Helm', k8s.has_helm ? 'Available' : 'Not found', k8s.has_helm ? 'ok' : 'muted')}
+                                    ${wizStatusRow('🔗', 'Cluster connected', k8s.cluster_connected ? 'Yes' : 'No', k8s.cluster_connected ? 'ok' : 'warn')}
+                                    ${wizStatusRow('📄', 'Manifests found', String(k8s.manifest_count), k8s.manifest_count > 0 ? 'ok' : 'warn')}
+                                    ${wizStatusRow('📦', 'Helm Chart', k8s.has_chart ? 'Present' : 'None', k8s.has_chart ? 'ok' : 'muted')}
+                                    ${wizStatusRow('🐳', 'Dockerfile', docker.has_dockerfile ? 'Present' : 'Missing', docker.has_dockerfile ? 'ok' : 'warn')}
+                                </div>
+                                ${!docker.has_dockerfile ? `
+                                    <div class="wiz-action-row" style="margin-top:1rem">
+                                        <span class="wiz-action-label">💡 Set up Docker first — K8s deployments need a container image.</span>
+                                        <button class="btn btn-sm btn-secondary" onclick="wizardModalClose(); openDockerSetupWizard();">Setup Docker →</button>
+                                    </div>
+                                ` : ''}
+                            `;
+                        } catch (e) {
+                            el.innerHTML = `<div class="wiz-step-error-panel"><span>⚠️</span><span>${esc(e.message)}</span></div>`;
+                        }
+                    },
+                },
+                {
+                    id: 'config', title: 'Configure',
+                    render: (data, el) => {
+                        const projectName = (_wizardConfig && _wizardConfig.name) || 'app';
+                        const appName = projectName.replace(/[^a-z0-9-]/gi, '-').toLowerCase();
+
+                        el.innerHTML = `
+                            ${wizSection('Deployment Configuration', 'Define how your app runs on Kubernetes.')}
+                            ${wizFormGrid([
+                                { name: 'k8s-name', label: 'App Name', value: data.app_name || appName, required: true, hint: 'Used for Deployment, Service, and labels' },
+                                { name: 'k8s-image', label: 'Container Image', value: data.image || `${appName}:latest`, required: true, hint: 'e.g. ghcr.io/user/app:latest' },
+                                { name: 'k8s-port', label: 'Container Port', value: data.port || '8080', type: 'number' },
+                                { name: 'k8s-replicas', label: 'Replicas', value: data.replicas || '2', type: 'number' },
+                                { name: 'k8s-namespace', label: 'Namespace', value: data.namespace || 'default' },
+                                { name: 'k8s-svc-type', label: 'Service Type', type: 'select', value: data.service_type || 'ClusterIP', options: [
+                                    { value: 'ClusterIP', label: 'ClusterIP (internal)' },
+                                    { value: 'NodePort', label: 'NodePort (node access)' },
+                                    { value: 'LoadBalancer', label: 'LoadBalancer (external)' },
+                                ]},
+                            ])}
+
+                            ${wizSection('Resources', 'Optional: generate Ingress and ConfigMap.')}
+                            ${wizFormGrid([
+                                { name: 'k8s-ingress', label: 'Generate Ingress manifest', type: 'checkbox', value: false, fullWidth: true },
+                                { name: 'k8s-configmap', label: 'Generate ConfigMap template', type: 'checkbox', value: false, fullWidth: true },
+                            ])}
+                        `;
+                    },
+                    collect: (data) => {
+                        data.app_name = mfVal('k8s-name');
+                        data.image = mfVal('k8s-image');
+                        data.port = mfVal('k8s-port');
+                        data.replicas = mfVal('k8s-replicas');
+                        data.namespace = mfVal('k8s-namespace');
+                        data.service_type = mfVal('k8s-svc-type');
+                        data.ingress = mfVal('k8s-ingress');
+                        data.configmap = mfVal('k8s-configmap');
+                    },
+                    validate: (data) => {
+                        if (!data.app_name) return 'App name is required';
+                        if (!data.image) return 'Container image is required';
+                        return null;
+                    },
+                },
+                {
+                    id: 'review', title: 'Review & Apply',
+                    render: (data, el) => {
+                        const items = [
+                            { icon: '🚀', label: `Deployment: ${data.app_name}`, value: `${data.replicas} replicas of ${data.image}`, badge: 'create', badgeCls: 'ready' },
+                            { icon: '🌐', label: `Service: ${data.app_name}`, value: `${data.service_type} port ${data.port}`, badge: 'create', badgeCls: 'ready' },
+                        ];
+                        if (data.ingress) {
+                            items.push({ icon: '🔀', label: `Ingress: ${data.app_name}`, value: 'HTTP routing rules', badge: 'create', badgeCls: 'ready' });
+                        }
+                        if (data.configmap) {
+                            items.push({ icon: '📋', label: `ConfigMap: ${data.app_name}`, value: 'Environment variables template', badge: 'create', badgeCls: 'ready' });
+                        }
+                        items.push({ icon: '📁', label: 'Output directory', value: 'k8s/', badge: '', badgeCls: '' });
+
+                        el.innerHTML = `
+                            ${wizSection('Review', 'The following Kubernetes manifests will be generated in the k8s/ directory.')}
+                            ${items.map(item => `<div class="wiz-review-item">
+                                <span class="wiz-review-icon">${item.icon}</span>
+                                <div class="wiz-review-content">
+                                    <div class="wiz-review-label">${esc(item.label)}</div>
+                                    <div class="wiz-review-value">${esc(item.value)}</div>
+                                </div>
+                                ${item.badge ? `<span class="wiz-review-badge ${item.badgeCls}">${item.badge}</span>` : ''}
+                            </div>`).join('')}
+                        `;
+                    },
+                },
+            ],
+            onComplete: async (data) => {
+                await apiPost('/wizard/setup', {
+                    action: 'setup_k8s',
+                    app_name: data.app_name,
+                    image: data.image,
+                    port: data.port,
+                    replicas: data.replicas,
+                    namespace: data.namespace,
+                    service_type: data.service_type,
+                    ingress: data.ingress,
+                    configmap: data.configmap,
+                });
+                _projectStatusTS = 0;
+            },
+            successMessage: 'Kubernetes manifests generated!',
+        });
+    }
+
+    // ── Terraform Setup Wizard ──────────────────────────────────────────
+
+    function openTerraformSetupWizard() {
+        wizardModalOpen({
+            title: '🏗️ Terraform Setup',
+            size: 'wide',
+            steps: [
+                {
+                    id: 'detect', title: 'Detect',
+                    render: async (data, el) => {
+                        el.innerHTML = '<p style="text-align:center;padding:2rem"><span class="spinner"></span> Detecting Terraform environment…</p>';
+                        try {
+                            const status = await api('/project/status');
+                            const tf = status.integrations.terraform;
+                            data._tf = tf;
+
+                            el.innerHTML = `
+                                ${wizSection('Terraform Environment', 'Current Infrastructure as Code configuration.')}
+                                <div class="wiz-status-grid">
+                                    ${wizStatusRow('🏗️', 'Terraform CLI', tf.has_cli ? 'Available' : 'Not found', tf.has_cli ? 'ok' : 'error')}
+                                    ${wizStatusRow('📄', 'TF files', String(tf.tf_file_count || 0), tf.tf_file_count > 0 ? 'ok' : 'warn')}
+                                    ${wizStatusRow('📁', 'Initialized', tf.initialized ? 'Yes' : 'No', tf.initialized ? 'ok' : 'muted')}
+                                    ${wizStatusRow('💾', 'State file', tf.has_state ? 'Present' : 'None', tf.has_state ? 'ok' : 'muted')}
+                                </div>
+                            `;
+                        } catch (e) {
+                            el.innerHTML = `<div class="wiz-step-error-panel"><span>⚠️</span><span>${esc(e.message)}</span></div>`;
+                        }
+                    },
+                },
+                {
+                    id: 'config', title: 'Configure',
+                    render: (data, el) => {
+                        el.innerHTML = `
+                            ${wizSection('Provider', 'Which cloud provider are you targeting?')}
+                            ${wizFormGrid([
+                                { name: 'tf-provider', label: 'Cloud Provider', type: 'select', value: data.provider || 'aws', options: [
+                                    { value: 'aws', label: 'AWS' },
+                                    { value: 'gcp', label: 'Google Cloud' },
+                                    { value: 'azure', label: 'Microsoft Azure' },
+                                    { value: 'digitalocean', label: 'DigitalOcean' },
+                                    { value: 'custom', label: 'Custom / Other' },
+                                ], required: true },
+                                { name: 'tf-region', label: 'Region', value: data.region || 'us-east-1', hint: 'Primary deployment region' },
+                            ])}
+
+                            ${wizSection('Resources', 'What infrastructure do you want to provision?')}
+                            ${wizFormGrid([
+                                { name: 'tf-k8s', label: 'Kubernetes cluster (EKS/GKE/AKS)', type: 'checkbox', value: false, fullWidth: true },
+                                { name: 'tf-rds', label: 'Database (RDS/Cloud SQL)', type: 'checkbox', value: false, fullWidth: true },
+                                { name: 'tf-s3', label: 'Object storage (S3/GCS)', type: 'checkbox', value: false, fullWidth: true },
+                                { name: 'tf-networking', label: 'VPC / Networking', type: 'checkbox', value: true, fullWidth: true },
+                            ])}
+
+                            ${wizSection('Backend', 'Where should Terraform store its state?')}
+                            ${wizFormGrid([
+                                { name: 'tf-backend', label: 'State Backend', type: 'select', value: data.backend || 'local', options: [
+                                    { value: 'local', label: 'Local (terraform.tfstate)' },
+                                    { value: 's3', label: 'AWS S3' },
+                                    { value: 'gcs', label: 'Google Cloud Storage' },
+                                    { value: 'azurerm', label: 'Azure Blob Storage' },
+                                ], fullWidth: true },
+                            ])}
+                        `;
+                    },
+                    collect: (data) => {
+                        data.provider = mfVal('tf-provider');
+                        data.region = mfVal('tf-region');
+                        data.k8sCluster = mfVal('tf-k8s');
+                        data.database = mfVal('tf-rds');
+                        data.storage = mfVal('tf-s3');
+                        data.networking = mfVal('tf-networking');
+                        data.backend = mfVal('tf-backend');
+                    },
+                },
+                {
+                    id: 'review', title: 'Review & Apply',
+                    render: (data, el) => {
+                        const resources = [];
+                        if (data.networking) resources.push('VPC, Subnets, Security Groups');
+                        if (data.k8sCluster) resources.push('Kubernetes Cluster');
+                        if (data.database) resources.push('Database Instance');
+                        if (data.storage) resources.push('Object Storage Bucket');
+
+                        const files = [
+                            { icon: '📄', label: 'main.tf', value: `Provider: ${data.provider}, Region: ${data.region}` },
+                            { icon: '📋', label: 'variables.tf', value: 'Input variable definitions' },
+                            { icon: '📤', label: 'outputs.tf', value: 'Output value definitions' },
+                        ];
+                        if (data.backend !== 'local') {
+                            files.push({ icon: '💾', label: 'backend.tf', value: `State backend: ${data.backend}` });
+                        }
+
+                        el.innerHTML = `
+                            ${wizSection('Review', 'The following Terraform configuration will be generated.')}
+                            ${files.map(item => `<div class="wiz-review-item">
+                                <span class="wiz-review-icon">${item.icon}</span>
+                                <div class="wiz-review-content">
+                                    <div class="wiz-review-label">${esc(item.label)}</div>
+                                    <div class="wiz-review-value">${esc(item.value)}</div>
+                                </div>
+                                <span class="wiz-review-badge ready">create</span>
+                            </div>`).join('')}
+
+                            ${resources.length > 0 ? `
+                                ${wizSection('Resources to provision')}
+                                <div style="padding:0 0.5rem;font-size:0.82rem;color:var(--text-secondary)">
+                                    ${resources.map(r => `<div style="padding:4px 0">• ${esc(r)}</div>`).join('')}
+                                </div>
+                            ` : ''}
+                        `;
+                    },
+                },
+            ],
+            onComplete: async (data) => {
+                await apiPost('/wizard/setup', {
+                    action: 'setup_terraform',
+                    provider: data.provider,
+                    region: data.region,
+                    k8s_cluster: data.k8sCluster,
+                    database: data.database,
+                    storage: data.storage,
+                    networking: data.networking,
+                    backend: data.backend,
+                });
+                _projectStatusTS = 0;
+            },
+            successMessage: 'Terraform configuration generated!',
+        });
+    }
+
+    // ── Setup Modal Dispatcher ──────────────────────────────────────────
+    // Single function to open the right setup wizard by integration key.
+
+    function openSetupWizard(key) {
+        const wizards = {
+            git: openGitSetupWizard,
+            docker: openDockerSetupWizard,
+            cicd: openCICDSetupWizard,
+            k8s: openK8sSetupWizard,
+            terraform: openTerraformSetupWizard,
+            github: () => {
+                // GitHub setup is CLI-based — open install page or auth guide
+                window.open('https://cli.github.com/', '_blank');
+                toast('Install the gh CLI, then run "gh auth login" in your terminal.', 'info');
+            },
+            pages: () => {
+                toast('Pages setup is available via the Pages card — check the Integrations tab.', 'info');
+                switchTab('integrations');
+            },
+            dns: () => {
+                toast('DNS configuration wizard coming soon.', 'info');
+            },
+        };
+        const fn = wizards[key];
+        if (fn) fn();
+        else toast(`No setup wizard for "${key}" yet`, 'warn');
+    }
+</script>

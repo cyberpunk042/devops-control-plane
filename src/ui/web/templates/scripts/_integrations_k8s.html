@@ -1,9 +1,9 @@
-<!-- Integrations Tab JS — Kubernetes Card
+/* Integrations Tab JS — Kubernetes Card
      _intLoadK8sCard(), live data panels (pods, services, deployments, events, logs),
      actions (apply, rollout, scale), modals (pod logs, apply, scale, describe,
      delete, generate manifests, Helm values/install, manifest wizard).
      Depends on: _integrations_init.html (card registry)
--->
+*/
     // ── Kubernetes Card ─────────────────────────────────────────────────
 
     async function _intLoadK8sCard() {
@@ -19,7 +19,10 @@
             if (!data.kubectl || !data.kubectl.available) {
                 badge.className = 'status-badge failed';
                 badge.innerHTML = '<span class="status-dot"></span>No kubectl';
-                detail.innerHTML = cardEmpty('☸️', '<code>kubectl</code> not found.',
+                detail.innerHTML = cardSetupBanner('☸️', 'kubectl not found',
+                    'Install kubectl to manage Kubernetes clusters, or generate manifests now.',
+                    'k8s', 'K8s Setup →') +
+                    cardEmpty('☸️', '<code>kubectl</code> not found.',
                     { label: 'Install kubectl →', onclick: "window.open('https://kubernetes.io/docs/tasks/tools/','_blank')" });
                 detail.innerHTML += cardGenerateToolbar([
                     { label: 'K8s Manifests', icon: '☸', onclick: "_k8sGenerateModal()" },
@@ -32,11 +35,14 @@
             if (!data.has_k8s) {
                 badge.className = 'status-badge degraded';
                 badge.innerHTML = '<span class="status-dot"></span>No manifests';
-                let html = cardStatusGrid([
+                let html = cardSetupBanner('☸️', 'No K8s manifests',
+                    'Generate Kubernetes manifests to deploy your application to a cluster.',
+                    'k8s', 'Set up K8s →');
+                html += cardDepHint('docker', 'Docker', 'K8s deployments need a container image — set up Docker first.', 'docker');
+                html += cardStatusGrid([
                     { label: 'kubectl', value: (data.kubectl.version || '').split(',')[0], cls: 'ok' },
                     { label: 'Manifests', value: 'None', cls: 'warn' },
                 ]);
-                html += `<div style="margin-top:var(--space-sm);font-size:0.82rem;color:var(--text-muted)">No Kubernetes manifests detected in this project.</div>`;
                 html += cardGenerateToolbar([
                     { label: 'K8s Manifests', icon: '☸', onclick: "_k8sGenerateModal()" },
                     { label: 'K8s Wizard', icon: '🧙', onclick: "_k8sWizardModal()" },
@@ -56,7 +62,10 @@
             ];
             if (data.helm_charts && data.helm_charts.length > 0) stats.push({ label: 'Helm', value: `${data.helm_charts.length} chart${data.helm_charts.length > 1 ? 's' : ''}` });
             if (data.kustomize && data.kustomize.exists) stats.push({ label: 'Kustomize', value: '✓', cls: 'ok' });
-            let html = cardStatusGrid(stats);
+            // Dependency hint: Docker
+            let html = '';
+            html += cardDepHint('docker', 'Docker', 'Build a container image for your app to deploy to K8s.', 'docker');
+            html += cardStatusGrid(stats);
 
             // Detection list
             const detections = [];
@@ -104,6 +113,9 @@
                 { label: 'K8s Manifests', icon: '☸', onclick: "_k8sGenerateModal()" },
                 { label: 'K8s Wizard', icon: '🧙', onclick: "_k8sWizardModal()" },
             ]);
+
+            // Cross-tab link
+            html += cardCrossLink('devops', 'View K8s ops in DevOps');
 
             detail.innerHTML = html;
 

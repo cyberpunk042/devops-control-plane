@@ -1,7 +1,7 @@
-<!-- Integrations Tab JS — CI/CD Card
+/* Integrations Tab JS — CI/CD Card
      loadCICard(), live tab handler (runs, workflows, coverage), generate modal.
      Depends on: _integrations_init.html (card registry)
--->
+*/
     // ── CI/CD Card ──────────────────────────────────────────────────────
 
     async function loadCICard() {
@@ -52,6 +52,10 @@
             }
             let html = stats.length > 0 ? cardStatusGrid(stats) : '';
 
+            // Dependency hints for CI/CD — encourages Docker + GitHub setup
+            html += cardDepHint('docker', 'Docker', 'Set up Docker for container-based CI builds.', 'docker');
+            html += cardDepHint('github', 'GitHub', 'Connect GitHub for workflow runs and Actions.', 'github');
+
             // ── Detection list ──
             if (ciStatus && ciStatus.has_ci) {
                 const providers = ciStatus.providers || [];
@@ -60,7 +64,9 @@
                     value: `${p.workflows} workflow${p.workflows !== 1 ? 's' : ''}`
                 })));
             } else if (ciStatus && !ciStatus.has_ci) {
-                html += `<div style="font-size:0.78rem;color:var(--text-muted);margin-bottom:var(--space-sm)">No CI configuration detected — use Generate below to create one.</div>`;
+                html += cardSetupBanner('⚡', 'No CI/CD pipeline',
+                    'Generate a CI workflow to automate testing, linting, and deployments.',
+                    'cicd', 'Set up CI/CD →');
             }
 
             // ── Live panel (Runs, Workflows, Coverage) ──
@@ -92,6 +98,9 @@
                 { label: 'CI Workflow', icon: '🔄', onclick: "_ciGenerate('ci')" },
                 { label: 'Lint Workflow', icon: '🧹', onclick: "_ciGenerate('lint')" },
             ]);
+
+            // Cross-tab link
+            html += cardCrossLink('devops', 'Testing & Quality in DevOps');
 
             detail.innerHTML = html;
 
