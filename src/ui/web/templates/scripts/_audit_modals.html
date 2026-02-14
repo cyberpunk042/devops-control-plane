@@ -60,6 +60,7 @@ function _auditShowMissingTool(toolId) {
         'pip-audit':        { desc: 'Vulnerability scanner for Python dependencies',          cmd: 'pip install pip-audit', sudo: false },
         'bandit':           { desc: 'Security linter for Python code',                        cmd: 'pip install bandit', sudo: false },
         'safety':           { desc: 'Python dependency vulnerability checker',                cmd: 'pip install safety', sudo: false },
+        'skaffold':         { desc: 'Kubernetes dev workflow — automates build, push, deploy',  cmd: 'sudo bash -c "curl -Lo /usr/local/bin/skaffold https://storage.googleapis.com/skaffold/releases/latest/skaffold-linux-amd64 && chmod +x /usr/local/bin/skaffold"', sudo: true },
     };
 
     const info = installDb[toolId] || { desc: `${label} tool`, cmd: `# Install ${cli} using your package manager`, sudo: false };

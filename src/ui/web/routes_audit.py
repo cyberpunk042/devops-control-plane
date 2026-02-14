@@ -259,6 +259,7 @@ def audit_install_tool():
         "go":             ["snap", "install", "go", "--classic"],
         "cargo":          ["bash", "-c", "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y"],
         "rustc":          ["bash", "-c", "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y"],
+        "skaffold":       ["bash", "-c", "curl -Lo /usr/local/bin/skaffold https://storage.googleapis.com/skaffold/releases/latest/skaffold-linux-amd64 && chmod +x /usr/local/bin/skaffold"],
     }
 
     # Determine which command to run

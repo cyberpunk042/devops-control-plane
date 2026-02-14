@@ -9,6 +9,7 @@ Endpoints:
     GET  /k8s/validate            — manifest validation
     GET  /k8s/cluster             — cluster connection status
     GET  /k8s/resources           — list resources
+    GET  /k8s/storageclasses      — list cluster StorageClasses
     POST /k8s/generate/manifests  — generate K8s manifests
 """
 
@@ -173,6 +174,15 @@ def k8s_describe():  # type: ignore[no-untyped-def]
 def k8s_namespaces():  # type: ignore[no-untyped-def]
     """List Kubernetes namespaces."""
     result = k8s_ops.k8s_namespaces()
+    if not result.get("ok"):
+        return jsonify(result), 400
+    return jsonify(result)
+
+
+@k8s_bp.route("/k8s/storageclasses")
+def k8s_storage_classes():  # type: ignore[no-untyped-def]
+    """List available StorageClasses from the cluster."""
+    result = k8s_ops.k8s_storage_classes()
     if not result.get("ok"):
         return jsonify(result), 400
     return jsonify(result)
