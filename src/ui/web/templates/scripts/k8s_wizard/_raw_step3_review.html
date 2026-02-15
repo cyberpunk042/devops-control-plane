@@ -1,0 +1,461 @@
+                // ── Step 3: Review & Apply ─────────────────────────────
+                {
+                    id: 'review', title: 'Review & Apply',
+                    render: (data, el) => {
+                        const services = data._services || [];
+                        const infraDecisions = data._infraDecisions || [];
+
+                        // Build review items from all services
+                        const items = [];
+
+                        for (const svc of services) {
+                            const isJobKind = svc.kind === 'Job' || svc.kind === 'CronJob';
+
+                            if (isJobKind) {
+                                // Job/CronJob review
+                                const jobInfo = svc.command ? `cmd: ${svc.command}${svc.args ? ' ' + svc.args : ''}` : svc.image;
+                                const cronStr = svc.kind === 'CronJob' ? ` · schedule: ${svc.schedule || '?'}` : '';
+                                items.push({
+                                    icon: _kindIcon(svc.kind),
+                                    label: `${svc.kind}: ${svc.name}`,
+                                    value: `${jobInfo}${cronStr}`,
+                                    badge: 'create',
+                                    badgeCls: 'ready',
+                                });
+                                // Job details sub-items
+                                const jobDetails = [];
+                                if (svc.backoffLimit) jobDetails.push(`backoff: ${svc.backoffLimit}`);
+                                if (svc.completions > 1) jobDetails.push(`completions: ${svc.completions}`);
+                                if (svc.parallelism > 1) jobDetails.push(`parallelism: ${svc.parallelism}`);
+                                if (svc.activeDeadlineSeconds) jobDetails.push(`timeout: ${svc.activeDeadlineSeconds}s`);
+                                if (svc.ttlSecondsAfterFinished) jobDetails.push(`TTL: ${svc.ttlSecondsAfterFinished}s`);
+                                if (jobDetails.length > 0) {
+                                    items.push({
+                                        icon: '⚙️',
+                                        label: `  └ job settings`,
+                                        value: jobDetails.join(' · '),
+                                        badge: '',
+                                        badgeCls: 'muted',
+                                    });
+                                }
+                                if (svc.kind === 'CronJob') {
+                                    const cronDetails = [];
+                                    cronDetails.push(`concurrency: ${svc.concurrencyPolicy || 'Forbid'}`);
+                                    if (svc.startingDeadlineSeconds) cronDetails.push(`deadline: ${svc.startingDeadlineSeconds}s`);
+                                    if (svc.suspend) cronDetails.push('SUSPENDED');
+                                    cronDetails.push(`keep: ${svc.successfulJobsHistoryLimit || 3}✓ / ${svc.failedJobsHistoryLimit || 1}✗`);
+                                    items.push({
+                                        icon: '⏰',
+                                        label: `  └ cron settings`,
+                                        value: cronDetails.join(' · '),
+                                        badge: '',
+                                        badgeCls: 'muted',
+                                    });
+                                }
+                            } else if (svc.kind === 'DaemonSet') {
+                                // DaemonSet review
+                                const dsStratStr = svc.strategy === 'OnDelete' ? ' · OnDelete' : ` · Rolling(↓${svc.maxUnavailable || 1})`;
+                                items.push({
+                                    icon: _kindIcon(svc.kind),
+                                    label: `${svc.kind}: ${svc.name}`,
+                                    value: `one per node · ${svc.image}${dsStratStr}`,
+                                    badge: 'create',
+                                    badgeCls: 'ready',
+                                });
+                                // DaemonSet details sub-items
+                                const dsDetails = [];
+                                if (svc.nodeSelector) dsDetails.push(`nodes: ${svc.nodeSelector}`);
+                                if (svc.tolerations && svc.tolerations.length > 0) dsDetails.push(`tolerations: ${svc.tolerations.length}`);
+                                if (svc.hostNetwork) dsDetails.push('hostNet');
+                                if (svc.hostPID) dsDetails.push('hostPID');
+                                if (svc.hostIPC) dsDetails.push('hostIPC');
+                                if (dsDetails.length > 0) {
+                                    items.push({
+                                        icon: '🎯',
+                                        label: `  └ node config`,
+                                        value: dsDetails.join(' · '),
+                                        badge: '',
+                                        badgeCls: 'muted',
+                                    });
+                                }
+                                if (svc.port) {
+                                    items.push({
+                                        icon: '🌐',
+                                        label: `Service: ${svc.name}`,
+                                        value: `ClusterIP → port ${svc.port}`,
+                                        badge: 'create',
+                                        badgeCls: 'ready',
+                                    });
+                                }
+                            } else if (svc.kind === 'StatefulSet') {
+                                // StatefulSet review
+                                const ssStratStr = svc.strategy === 'OnDelete' ? ' · OnDelete'
+                                    : svc.partition > 0 ? ` · Rolling(partition=${svc.partition})`
+                                    : ' · RollingUpdate';
+                                items.push({
+                                    icon: _kindIcon(svc.kind),
+                                    label: `${svc.kind}: ${svc.name}`,
+                                    value: `${svc.replicas || '?'} replica${svc.replicas !== '1' ? 's' : ''} of ${svc.image}${ssStratStr}`,
+                                    badge: 'create',
+                                    badgeCls: 'ready',
+                                });
+                                // Headless service
+                                items.push({
+                                    icon: '🌐',
+                                    label: `Headless: ${svc.headlessServiceName || svc.name + '-headless'}`,
+                                    value: `ClusterIP: None → port ${svc.port}${svc.alsoCreateClusterIP ? ' (+ClusterIP)' : ''}`,
+                                    badge: 'create',
+                                    badgeCls: 'ready',
+                                });
+                                // StatefulSet details
+                                const ssDetails = [];
+                                ssDetails.push(`pods: ${svc.podManagementPolicy || 'OrderedReady'}`);
+                                if (svc.volumeClaimTemplates && svc.volumeClaimTemplates.length > 0) {
+                                    ssDetails.push(`VCTs: ${svc.volumeClaimTemplates.length}`);
+                                    const totalSize = svc.volumeClaimTemplates.map(v => v.size).join('+');
+                                    ssDetails.push(`size: ${totalSize}`);
+                                }
+                                items.push({
+                                    icon: '🗄️',
+                                    label: `  └ stateful config`,
+                                    value: ssDetails.join(' · '),
+                                    badge: '',
+                                    badgeCls: 'muted',
+                                });
+                                // Individual VCT details
+                                if (svc.volumeClaimTemplates && svc.volumeClaimTemplates.length > 0) {
+                                    for (const vct of svc.volumeClaimTemplates) {
+                                        const scLabel = vct.storageClass ? ` (${vct.storageClass})` : '';
+                                        items.push({
+                                            icon: '💾',
+                                            label: `  └ VCT: ${vct.name}`,
+                                            value: `${vct.size} ${vct.accessMode}${scLabel} → ${vct.mountPath}`,
+                                            badge: 'create',
+                                            badgeCls: 'ready',
+                                        });
+                                    }
+                                }
+                            } else {
+                                // Deployment review
+                                const stratStr = svc.strategy === 'Recreate' ? ' · Recreate'
+                                    : svc.maxSurge || svc.maxUnavailable ? ` · Rolling(↑${svc.maxSurge || 1}/↓${svc.maxUnavailable || 1})`
+                                    : '';
+                                items.push({
+                                    icon: _kindIcon(svc.kind),
+                                    label: `${svc.kind}: ${svc.name}`,
+                                    value: `${svc.replicas || '?'} replica${svc.replicas !== '1' ? 's' : ''} of ${svc.image}${stratStr}`,
+                                    badge: 'create',
+                                    badgeCls: 'ready',
+                                });
+                                items.push({
+                                    icon: '🌐',
+                                    label: `Service: ${svc.name}`,
+                                    value: `${svc.serviceType} → port ${svc.port}`,
+                                    badge: 'create',
+                                    badgeCls: 'ready',
+                                });
+                            }
+                            // Dependencies (wait-for init containers will be generated)
+                            if (svc.dependencies && svc.dependencies.length > 0) {
+                                items.push({
+                                    icon: '🔗',
+                                    label: `  └ dependencies`,
+                                    value: svc.dependencies.join(', ') + ' (wait-for init containers)',
+                                    badge: '',
+                                    badgeCls: 'muted',
+                                });
+                            }
+                            // Companion containers (same pod)
+                            if (svc.companions && svc.companions.length > 0) {
+                                for (const comp of svc.companions) {
+                                    const extras = [];
+                                    if (comp.env && comp.env.length > 0) extras.push(`${comp.env.length} env`);
+                                    if (comp.resources) extras.push('resources');
+                                    if (comp.volumes && comp.volumes.length > 0) extras.push(`${comp.volumes.length} vol`);
+                                    if (comp.dependsOn) extras.push(`waits-for: ${comp.dependsOn}`);
+                                    const extraStr = extras.length > 0 ? ` (${extras.join(', ')})` : '';
+                                    items.push({
+                                        icon: '📦',
+                                        label: `  └ companion: ${comp.name}`,
+                                        value: `${comp.image}${comp.port ? ' :' + comp.port : ''}${extraStr}`,
+                                        badge: 'pod',
+                                        badgeCls: 'muted',
+                                    });
+                                }
+                            }
+                            // Init containers
+                            if (svc.initContainers && svc.initContainers.length > 0) {
+                                for (const init of svc.initContainers) {
+                                    items.push({
+                                        icon: '⏳',
+                                        label: `  └ init: ${init.name}`,
+                                        value: `${init.image}${init.command ? ' → ' + init.command.substring(0, 50) + (init.command.length > 50 ? '…' : '') : ''}`,
+                                        badge: 'init',
+                                        badgeCls: 'muted',
+                                    });
+                                }
+                            }
+                            // Sidecar containers
+                            if (svc.sidecars && svc.sidecars.length > 0) {
+                                for (const sc of svc.sidecars) {
+                                    items.push({
+                                        icon: '📎',
+                                        label: `  └ sidecar: ${sc.name}`,
+                                        value: `${sc.image}${sc.nativeSidecar ? ' (native)' : ''}${sc.sharedVolume ? ' 📁 ' + sc.sharedVolume : ''}`,
+                                        badge: 'sidecar',
+                                        badgeCls: 'muted',
+                                    });
+                                }
+                            }
+                            // Service mesh
+                            if (svc.mesh) {
+                                const m = svc.mesh;
+                                const provName = { istio: 'Istio', linkerd: 'Linkerd', consul: 'Consul', kuma: 'Kuma' }[m.provider] || m.provider;
+                                items.push({
+                                    icon: '🔷',
+                                    label: `  └ ${provName} mesh`,
+                                    value: `proxy CPU ${m.proxyCpuRequest}→${m.proxyCpuLimit} / Mem ${m.proxyMemRequest}→${m.proxyMemLimit}`,
+                                    badge: 'annotations',
+                                    badgeCls: 'muted',
+                                });
+                            }
+                            // Resource limits (if configured)
+                            if (svc.resources) {
+                                const r = svc.resources;
+                                const cpuStr = (r.cpu_request || r.cpu_limit) ? `CPU ${r.cpu_request || '—'}→${r.cpu_limit || '—'}` : '';
+                                const memStr = (r.memory_request || r.memory_limit) ? `Mem ${r.memory_request || '—'}→${r.memory_limit || '—'}` : '';
+                                const resStr = [cpuStr, memStr].filter(Boolean).join(' / ');
+                                if (resStr) {
+                                    items.push({
+                                        icon: '🔧',
+                                        label: `Resources: ${svc.name}`,
+                                        value: resStr,
+                                        badge: '',
+                                        badgeCls: '',
+                                    });
+                                }
+                            }
+                            // Health probes (if configured)
+                            const probeDesc = (p) => {
+                                if (!p) return null;
+                                if (p.type === 'http') return `HTTP ${p.path}:${p.port}`;
+                                if (p.type === 'tcp') return `TCP :${p.port}`;
+                                return `exec: ${(p.command || '').substring(0, 30)}${(p.command || '').length > 30 ? '…' : ''}`;
+                            };
+                            const rdyStr = probeDesc(svc.readinessProbe);
+                            const livStr = probeDesc(svc.livenessProbe);
+                            if (rdyStr || livStr) {
+                                const parts = [];
+                                if (rdyStr) parts.push(`Ready: ${rdyStr}`);
+                                if (livStr) parts.push(`Live: ${livStr}`);
+                                items.push({
+                                    icon: '💓',
+                                    label: `Probes: ${svc.name}`,
+                                    value: parts.join(' / '),
+                                    badge: '',
+                                    badgeCls: '',
+                                });
+                            }
+                            // Environment variables — ConfigMap + Secret summary
+                            const ev = svc.envVars || [];
+                            const evHc = ev.filter(e => e.type === 'hardcoded').length;
+                            const evVr = ev.filter(e => e.type === 'variable').length;
+                            const evSc = ev.filter(e => e.type === 'secret').length;
+                            if (evHc + evVr > 0) {
+                                items.push({
+                                    icon: '📋',
+                                    label: `ConfigMap: ${svc.name}-config`,
+                                    value: `${evHc} hardcoded${evVr > 0 ? `, ${evVr} \${VAR}` : ''}`,
+                                    badge: 'create',
+                                    badgeCls: 'ready',
+                                });
+                            }
+                            if (evSc > 0) {
+                                items.push({
+                                    icon: '🔒',
+                                    label: `Secret: ${svc.name}-secrets`,
+                                    value: `${evSc} key${evSc !== 1 ? 's' : ''} (\${VAR} at deploy)`,
+                                    badge: 'create',
+                                    badgeCls: 'ready',
+                                });
+                            }
+                            // Vault vars/secrets to be created on execution
+                            const toCreate = ev.filter(e => e.createInVault);
+                            toCreate.forEach(e => {
+                                const vaultKey = (e.varName || '').replace(/^\$\{/, '').replace(/\}$/, '') || e.key;
+                                items.push({
+                                    icon: '🏗️',
+                                    label: `Vault: Create ${vaultKey}`,
+                                    value: e.newValue ? 'with generated value' : 'empty (set later)',
+                                    badge: 'vault create',
+                                    badgeCls: 'ready',
+                                });
+                            });
+                            // Volume mounts — PVCs and other mounts
+                            const vols = svc.volumes || [];
+                            vols.forEach(vol => {
+                                if (vol.type === 'pvc-dynamic' || vol.type === 'pvc-static') {
+                                    const scLabel = vol.storageClass ? ` (${vol.storageClass})` : '';
+                                    items.push({
+                                        icon: '💾',
+                                        label: `PVC: ${vol.name}`,
+                                        value: `${vol.size} ${vol.accessMode}${scLabel} → ${vol.mountPath}`,
+                                        badge: 'create',
+                                        badgeCls: 'ready',
+                                    });
+                                } else if (vol.type === 'emptyDir') {
+                                    const medLabel = vol.medium === 'Memory' ? ' (RAM)' : '';
+                                    items.push({
+                                        icon: '📂',
+                                        label: `emptyDir: ${vol.mountPath}`,
+                                        value: `ephemeral${medLabel}${vol.sizeLimit ? ' limit ' + vol.sizeLimit : ''}`,
+                                        badge: 'inline',
+                                        badgeCls: 'muted',
+                                    });
+                                } else if (vol.type === 'configMap') {
+                                    items.push({
+                                        icon: '📄',
+                                        label: `CM mount: ${vol.configMapName}`,
+                                        value: `→ ${vol.mountPath}${vol.key ? ' (' + vol.key + ')' : ''}`,
+                                        badge: 'ref',
+                                        badgeCls: 'muted',
+                                    });
+                                } else if (vol.type === 'secret') {
+                                    items.push({
+                                        icon: '🔐',
+                                        label: `Secret mount: ${vol.secretName}`,
+                                        value: `→ ${vol.mountPath}${vol.key ? ' (' + vol.key + ')' : ''}`,
+                                        badge: 'ref',
+                                        badgeCls: 'muted',
+                                    });
+                                } else if (vol.type === 'hostPath') {
+                                    items.push({
+                                        icon: '⚠️',
+                                        label: `hostPath: ${vol.hostPath}`,
+                                        value: `→ ${vol.mountPath} (${vol.hostType})`,
+                                        badge: 'inline',
+                                        badgeCls: 'muted',
+                                    });
+                                }
+                            });
+                        }
+
+                        for (const infra of infraDecisions) {
+                            const isManaged = infra.kind === 'Managed';
+                            items.push({
+                                icon: _kindIcon(infra.kind),
+                                label: `${infra.kind}: ${infra.name}`,
+                                value: isManaged ? (infra.providerNotes || 'External provider') : infra.image,
+                                badge: isManaged ? 'external' : 'create',
+                                badgeCls: isManaged ? 'muted' : 'ready',
+                            });
+                            // Env var summary for infra services (managed = connection vars; self-hosted = regular)
+                            if (infra.envVars && infra.envVars.length > 0) {
+                                const iev = infra.envVars;
+                                const iHc = iev.filter(e => e.type === 'hardcoded').length;
+                                const iVr = iev.filter(e => e.type === 'variable').length;
+                                const iSc = iev.filter(e => e.type === 'secret').length;
+                                if (isManaged) {
+                                    items.push({
+                                        icon: '🔗',
+                                        label: `  └ connection vars`,
+                                        value: `${iev.length} var${iev.length !== 1 ? 's' : ''} → injected into dependent services`,
+                                        badge: '',
+                                        badgeCls: 'muted',
+                                    });
+                                } else {
+                                    if (iHc + iVr > 0) {
+                                        items.push({
+                                            icon: '📋',
+                                            label: `  └ ConfigMap: ${infra.name}-config`,
+                                            value: `${iHc} hardcoded${iVr > 0 ? `, ${iVr} \${VAR}` : ''}`,
+                                            badge: 'create',
+                                            badgeCls: 'ready',
+                                        });
+                                    }
+                                    if (iSc > 0) {
+                                        items.push({
+                                            icon: '🔒',
+                                            label: `  └ Secret: ${infra.name}-secrets`,
+                                            value: `${iSc} key${iSc !== 1 ? 's' : ''}`,
+                                            badge: 'create',
+                                            badgeCls: 'ready',
+                                        });
+                                    }
+                                }
+                            }
+                            // Volume review for infra services
+                            if (!isManaged && infra.volumes && infra.volumes.length > 0) {
+                                infra.volumes.forEach(vol => {
+                                    if (vol.type === 'pvc-dynamic' || vol.type === 'pvc-static') {
+                                        const scLabel = vol.storageClass ? ` (${vol.storageClass})` : '';
+                                        items.push({
+                                            icon: '💾',
+                                            label: `  └ PVC: ${vol.name}`,
+                                            value: `${vol.size} ${vol.accessMode}${scLabel} → ${vol.mountPath}`,
+                                            badge: 'create',
+                                            badgeCls: 'ready',
+                                        });
+                                    } else if (vol.type === 'emptyDir') {
+                                        items.push({
+                                            icon: '📂',
+                                            label: `  └ emptyDir: ${vol.mountPath}`,
+                                            value: `ephemeral${vol.medium === 'Memory' ? ' (RAM)' : ''}`,
+                                            badge: 'inline',
+                                            badgeCls: 'muted',
+                                        });
+                                    }
+                                });
+                            }
+                        }
+
+                        if (data.ingress) {
+                            items.push({ icon: '🔀', label: 'Ingress', value: 'HTTP routing rules', badge: 'create', badgeCls: 'ready' });
+                        }
+                        // ConfigMap checkbox removed — ConfigMaps/Secrets auto-generated per service from envVars
+                        items.push({ icon: '📁', label: 'Output directory', value: data.output_dir || 'k8s/', badge: '', badgeCls: '' });
+                        items.push({ icon: '🏷️', label: 'Namespace', value: data.namespace || 'default', badge: '', badgeCls: '' });
+                        if (data.skaffold) {
+                            items.push({ icon: '🛤', label: 'Skaffold pipeline', value: 'skaffold.yaml — build → push → deploy', badge: 'create', badgeCls: 'ready' });
+                        }
+
+                        el.innerHTML = `
+                            ${wizSection('Review', `${services.length + infraDecisions.length} resource${(services.length + infraDecisions.length) !== 1 ? 's' : ''} will be generated.`)}
+                            ${items.map(item => `<div class="wiz-review-item">
+                                <span class="wiz-review-icon">${item.icon}</span>
+                                <div class="wiz-review-content">
+                                    <div class="wiz-review-label">${esc(item.label)}</div>
+                                    <div class="wiz-review-value">${esc(item.value)}</div>
+                                </div>
+                                ${item.badge ? `<span class="wiz-review-badge ${item.badgeCls}">${item.badge}</span>` : ''}
+                            </div>`).join('')}
+
+
+
+                            <div style="margin-top:var(--space-md);padding:var(--space-xs) var(--space-sm);border-left:3px solid var(--accent);background:color-mix(in srgb, var(--accent) 5%, transparent);border-radius:0 6px 6px 0">
+                                <div style="font-size:0.78rem;color:var(--text-secondary)">
+                                    💡 <strong>Next:</strong> Set up CI/CD to automate builds and deployments.
+                                    <button class="btn btn-sm btn-ghost" style="font-size:0.72rem;padding:0.1rem 0.4rem;margin-left:4px;color:var(--accent)"
+                                        onclick="wizardModalClose();setTimeout(openCICDSetupWizard,300)">Set up CI/CD →</button>
+                                </div>
+                            </div>
+                        `;
+                    },
+                },
+            ],
+            onComplete: async (data) => {
+                const payload = {
+                    action: 'setup_k8s',
+                    // Full wizard state — the backend translator handles everything
+                    _services: data._services,
+                    _infraDecisions: data._infraDecisions,
+                    namespace: data.namespace,
+                    output_dir: data.output_dir,
+                    ingress: data.ingress,
+                    skaffold: data.skaffold,
+                };
+                await apiPost('/wizard/setup', payload);
+                _projectStatusTS = 0;
+                cardInvalidate('k8s');
+            },
+            successMessage: 'Kubernetes manifests generated!',

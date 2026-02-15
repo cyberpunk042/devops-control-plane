@@ -1,0 +1,730 @@
+                        // ── Service name map for cross-row awareness ──
+                        window._k8sSvcNames = {};
+                        if (hasCompose) {
+                            appSvcs.forEach((s, idx) => { window._k8sSvcNames[String(idx)] = s.name; });
+                        } else {
+                            deployableModules.forEach((m, idx) => { window._k8sSvcNames[String(idx)] = m.name; });
+                        }
+                        infraSvcs.forEach(s => { window._k8sSvcNames['infra-' + s.name] = s.name; });
+
+                        // ── Track active/removed infra for add/remove ──
+                        window._k8sActiveInfra = new Set(infraSvcs.map(s => s.name));
+                        // Map removed service name → service data (for re-adding)
+                        window._k8sRemovedInfra = new Map();
+                        // Original compose data for detected services (for re-adding)
+                        window._k8sInfraData = new Map();
+                        infraSvcs.forEach(s => { window._k8sInfraData.set(s.name, s); });
+
+                        // ── Companion container tracking (pod grouping) ──
+                        // Map: targetIndex → [{sourceIndex, svcName, image, port}]
+                        window._k8sCompanions = new Map();
+
+                        // Populate "Move into pod" dropdown options for each app card
+                        window._k8sRefreshMoveToDropdowns = () => {
+                            const svcCount = hasCompose ? appSvcs.length : deployableModules.length;
+                            for (let si = 0; si < svcCount; si++) {
+                                const sel = document.getElementById('k8s-svc-moveto-' + si);
+                                if (!sel) continue;
+                                // Is this card hidden (already moved into another pod)?
+                                const card = document.getElementById('k8s-svc-card-' + si);
+                                if (card && card.style.display === 'none') continue;
+                                // Rebuild options
+                                sel.innerHTML = '<option value="">⤵ Move into another pod…</option>';
+                                for (let ti = 0; ti < svcCount; ti++) {
+                                    if (ti === si) continue;
+                                    const tCard = document.getElementById('k8s-svc-card-' + ti);
+                                    if (!tCard || tCard.style.display === 'none') continue;
+                                    const tName = window._k8sSvcNames[String(ti)] || ('service-' + ti);
+                                    sel.innerHTML += '<option value="' + ti + '">→ ' + esc(tName) + '</option>';
+                                }
+                            }
+                        };
+
+                        // Move service sourceIdx INTO targetIdx pod as a companion container
+                        window._k8sMoveIntoPod = (sourceIdx, targetIdx) => {
+                            const srcCard = document.getElementById('k8s-svc-card-' + sourceIdx);
+                            if (!srcCard) return;
+
+                            const svcName = window._k8sSvcNames[String(sourceIdx)] || ('service-' + sourceIdx);
+                            const image = (document.getElementById('k8s-svc-img-' + sourceIdx) || {}).value || '';
+                            const port = (document.getElementById('k8s-svc-port-' + sourceIdx) || {}).value || '';
+
+                            // Extract full state BEFORE hiding the card
+                            const envVars = window._collectEnvVars(sourceIdx);
+                            const resources = window._k8sReadSourceResources(sourceIdx);
+                            const volumes = window._k8sReadSourceVolumes(sourceIdx);
+
+                            const companion = {
+                                sourceIndex: sourceIdx,
+                                svcName: svcName,
+                                image: image,
+                                port: port,
+                                envVars: envVars,
+                                resources: resources,
+                                volumes: volumes,
+                            };
+
+                            // Track the companion
+                            if (!window._k8sCompanions.has(targetIdx)) {
+                                window._k8sCompanions.set(targetIdx, []);
+                            }
+                            window._k8sCompanions.get(targetIdx).push(companion);
+
+                            // Hide the source card
+                            srcCard.style.display = 'none';
+
+                            // Show companion section in target and add rich row
+                            const compSec = document.getElementById('k8s-svc-companions-' + targetIdx);
+                            if (compSec) compSec.style.display = 'block';
+
+                            const compList = document.getElementById('k8s-svc-companion-list-' + targetIdx);
+                            if (compList) {
+                                const wrapper = document.createElement('div');
+                                wrapper.innerHTML = window._k8sCompanionRowHtml(targetIdx, companion);
+                                compList.appendChild(wrapper.firstElementChild);
+                            }
+
+                            // Register companion in svcNames for collision detection messages
+                            window._k8sSvcNames['comp-' + targetIdx + '-' + sourceIdx] = svcName + ' (companion)';
+
+                            // Refresh all "Move into" dropdowns
+                            window._k8sRefreshMoveToDropdowns();
+
+                            // Re-evaluate env collisions (companion's env vars now visible)
+                            window._wizValidation.recheck('k8s');
+                        };
+
+                        // Split a companion back to its own workload card
+                        window._k8sSplitBack = (sourceIdx, targetIdx) => {
+                            const compEnvId = 'comp-' + targetIdx + '-' + sourceIdx;
+
+                            // ── Capture companion state BEFORE removing its DOM ──
+                            const compEnvVars = window._collectEnvVars(compEnvId);
+                            const compImage = (document.getElementById('k8s-comp-img-' + targetIdx + '-' + sourceIdx) || {}).value || '';
+                            const compPort = (document.getElementById('k8s-comp-port-' + targetIdx + '-' + sourceIdx) || {}).value || '';
+                            const compCpuReq = (document.getElementById('k8s-comp-cpureq-' + targetIdx + '-' + sourceIdx) || {}).value || '';
+                            const compCpuLim = (document.getElementById('k8s-comp-cpulim-' + targetIdx + '-' + sourceIdx) || {}).value || '';
+                            const compMemReq = (document.getElementById('k8s-comp-memreq-' + targetIdx + '-' + sourceIdx) || {}).value || '';
+                            const compMemLim = (document.getElementById('k8s-comp-memlim-' + targetIdx + '-' + sourceIdx) || {}).value || '';
+
+                            // ── Re-show the source card ──
+                            const srcCard = document.getElementById('k8s-svc-card-' + sourceIdx);
+                            if (srcCard) srcCard.style.display = '';
+
+                            // ── Write captured state back to source card ──
+                            // Image & port
+                            const imgEl = document.getElementById('k8s-svc-img-' + sourceIdx);
+                            if (imgEl && compImage) imgEl.value = compImage;
+                            const portEl = document.getElementById('k8s-svc-port-' + sourceIdx);
+                            if (portEl && compPort) portEl.value = compPort;
+
+                            // Resources
+                            const cpuReqEl = document.getElementById('k8s-svc-cpu-req-' + sourceIdx);
+                            if (cpuReqEl) cpuReqEl.value = compCpuReq;
+                            const cpuLimEl = document.getElementById('k8s-svc-cpu-lim-' + sourceIdx);
+                            if (cpuLimEl) cpuLimEl.value = compCpuLim;
+                            const memReqEl = document.getElementById('k8s-svc-mem-req-' + sourceIdx);
+                            if (memReqEl) memReqEl.value = compMemReq;
+                            const memLimEl = document.getElementById('k8s-svc-mem-lim-' + sourceIdx);
+                            if (memLimEl) memLimEl.value = compMemLim;
+
+                            // Env vars: clear source list and re-render with companion's current state
+                            const srcEnvList = document.getElementById('k8s-svc-env-list-' + sourceIdx);
+                            if (srcEnvList && compEnvVars.length > 0) {
+                                srcEnvList.innerHTML = '';
+                                compEnvVars.forEach((ev, j) => {
+                                    const injType = ev.type || 'hardcoded';
+                                    const varN = ev.varName || (injType !== 'hardcoded' ? '${' + ev.key + '}' : '');
+                                    const wrapper = document.createElement('div');
+                                    wrapper.innerHTML = _envRowHtml(sourceIdx, j, ev.key, ev.value || '', injType, varN, sourceIdx);
+                                    srcEnvList.appendChild(wrapper.firstElementChild);
+                                });
+                                if (typeof _updateEnvSummary === 'function') _updateEnvSummary(sourceIdx);
+                            }
+
+                            // ── Remove from tracking ──
+                            const companions = window._k8sCompanions.get(targetIdx) || [];
+                            window._k8sCompanions.set(targetIdx,
+                                companions.filter(c => c.sourceIndex !== sourceIdx));
+
+                            // Remove the companion row
+                            const row = document.getElementById('k8s-companion-row-' + sourceIdx);
+                            if (row) row.remove();
+
+                            // Hide companion section if empty
+                            const remaining = window._k8sCompanions.get(targetIdx) || [];
+                            if (remaining.length === 0) {
+                                const compSec = document.getElementById('k8s-svc-companions-' + targetIdx);
+                                if (compSec) compSec.style.display = 'none';
+                            }
+
+                            // Refresh all "Move into" dropdowns
+                            delete (window._k8sSvcNames || {})['comp-' + targetIdx + '-' + sourceIdx];
+                            window._k8sRefreshMoveToDropdowns();
+
+                            // Re-evaluate env collisions (companion's env vars now removed/moved back)
+                            window._wizValidation.recheck('k8s');
+                        };
+
+                        // Initial population of move-to dropdowns + kind panel sync (deferred to after DOM render)
+                        setTimeout(() => {
+                            window._k8sRefreshMoveToDropdowns();
+                            // Sync kind panels for any service that defaults to a non-Deployment kind
+                            const svcCount = hasCompose ? appSvcs.length : deployableModules.length;
+                            for (let si = 0; si < svcCount; si++) {
+                                const kindSel = document.getElementById('k8s-svc-kind-' + si);
+                                if (kindSel && kindSel.value !== 'Deployment') {
+                                    window._k8sToggleKindPanels(si, kindSel.value);
+                                }
+                            }
+
+                            // ── Saved state post-render restoration ──
+                            if (_savedState) {
+                                const _set = (id, val) => { const el = document.getElementById(id); if (el && val !== undefined && val !== null) el.value = String(val); };
+                                const _chk = (id, v) => { const el = document.getElementById(id); if (el) { el.checked = !!v; el.dispatchEvent(new Event('change', {bubbles: true})); } };
+
+                                for (let si = 0; si < svcCount; si++) {
+                                    const sName = hasCompose ? appSvcs[si]?.name : deployableModules[si]?.name;
+                                    const sv = _savedSvc(sName);
+                                    if (!sv) continue;
+
+                                    // 1. Volume sub-fields (accessMode, storageClass, etc.)
+                                    if (sv.volumes) {
+                                        sv.volumes.forEach((vol, j) => {
+                                            const cl = window._savedVolToClassification(vol);
+                                            window._restoreVolFields(si, j, cl);
+                                        });
+                                    }
+
+                                    // 2. Probes (saved as readinessProbe / livenessProbe)
+                                    const _restoreProbe = (pfx, probe) => {
+                                        if (!probe) {
+                                            // Probe was explicitly disabled (null in saved state)
+                                            _chk(pfx + '-enable', false);
+                                            return;
+                                        }
+                                        _chk(pfx + '-enable', true);
+                                        if (probe.type) _set(pfx + '-type', probe.type);
+                                        if (probe.path) _set(pfx + '-path', probe.path);
+                                        if (probe.port) _set(pfx + '-port', probe.port);
+                                        if (probe.command) _set(pfx + '-cmd', probe.command);
+                                        if (probe.initialDelaySeconds != null) _set(pfx + '-delay', probe.initialDelaySeconds);
+                                        if (probe.periodSeconds != null) _set(pfx + '-period', probe.periodSeconds);
+                                        if (probe.extra != null) _set(pfx + '-extra', probe.extra);
+                                    };
+                                    if ('readinessProbe' in sv) {
+                                        _restoreProbe('k8s-svc-rdy-' + si, sv.readinessProbe);
+                                    }
+                                    if ('livenessProbe' in sv) {
+                                        _restoreProbe('k8s-svc-liv-' + si, sv.livenessProbe);
+                                    }
+
+                                    // 3. Mesh
+                                    if (sv.mesh) {
+                                        const m = sv.mesh;
+                                        _chk('k8s-svc-mesh-enable-' + si, true);
+                                        _set('k8s-svc-mesh-provider-' + si, m.provider);
+                                        _set('k8s-svc-mesh-cpureq-' + si, m.proxyCpuRequest);
+                                        _set('k8s-svc-mesh-cpulim-' + si, m.proxyCpuLimit);
+                                        _set('k8s-svc-mesh-memreq-' + si, m.proxyMemRequest);
+                                        _set('k8s-svc-mesh-memlim-' + si, m.proxyMemLimit);
+                                        _set('k8s-svc-mesh-exin-' + si, m.excludeInbound);
+                                        _set('k8s-svc-mesh-exout-' + si, m.excludeOutbound);
+                                        _set('k8s-svc-mesh-log-' + si, m.logLevel);
+                                    }
+
+                                    // 4. CronJob schedule
+                                    if (sv.schedule) _set('k8s-svc-schedule-' + si, sv.schedule);
+
+                                     // 5. Update volume summaries
+                                    if (window._updateVolSummary) window._updateVolSummary(si);
+
+                                    // 6. Init containers
+                                    if (sv.initContainers && sv.initContainers.length > 0) {
+                                        const initList = document.getElementById('k8s-svc-init-list-' + si);
+                                        if (initList) {
+                                            sv.initContainers.forEach((ic, j) => {
+                                                const wrapper = document.createElement('div');
+                                                wrapper.innerHTML = window._k8sInitRowHtml(si, j, ic.name, ic.image, ic.command);
+                                                initList.appendChild(wrapper.firstElementChild);
+                                            });
+                                            window._k8sUpdateInitCount(si);
+                                        }
+                                    }
+
+                                    // 7. Sidecars
+                                    if (sv.sidecars && sv.sidecars.length > 0) {
+                                        const scList = document.getElementById('k8s-svc-sc-list-' + si);
+                                        if (scList) {
+                                            sv.sidecars.forEach((sc, j) => {
+                                                const wrapper = document.createElement('div');
+                                                wrapper.innerHTML = window._k8sSidecarRowHtml(
+                                                    si, j, sc.name, sc.image, sc.command,
+                                                    sc.nativeSidecar, sc.sharedVolume, sc.sharedMount
+                                                );
+                                                scList.appendChild(wrapper.firstElementChild);
+                                            });
+                                            window._k8sUpdateScCount(si);
+                                        }
+                                    }
+
+                                    // 8. Dependency checkboxes
+                                    if (sv.dependencies && sv.dependencies.length > 0) {
+                                        sv.dependencies.forEach(depName => {
+                                            const depChk = document.querySelector(
+                                                '.k8s-dep-' + si + '[value="' + depName + '"]'
+                                            );
+                                            if (depChk) depChk.checked = true;
+                                        });
+                                        // Refresh env selects to reflect restored dependencies
+                                        if (window._refreshEnvSelects) window._refreshEnvSelects(si);
+                                    }
+                                }
+
+                                // ── Infra services post-render restoration ──
+                                if (_savedState?._infraDecisions) {
+                                    for (const inf of _savedState._infraDecisions) {
+                                        // Provider notes (for Managed decisions)
+                                        if (inf.providerNotes) {
+                                            _set('k8s-infra-provider-' + inf.name, inf.providerNotes);
+                                        }
+                                        // Volume sub-fields
+                                        if (inf.volumes) {
+                                            const infraId = 'infra-' + inf.name;
+                                            inf.volumes.forEach((vol, j) => {
+                                                const cl = window._savedVolToClassification(vol);
+                                                window._restoreVolFields(infraId, j, cl);
+                                            });
+                                        }
+                                    }
+                                }
+                            }
+                        }, 0);
+
+                        // ── Kind-conditional panel toggle ──
+                        // Shows/hides sections based on the selected workload kind
+                        window._k8sToggleKindPanels = (i, kind) => {
+                            const isJob = kind === 'Job' || kind === 'CronJob';
+                            const isCron = kind === 'CronJob';
+                            const isDaemon = kind === 'DaemonSet';
+                            const isStateful = kind === 'StatefulSet';
+                            const isSkip = kind === 'Skip';
+
+                            const hide = (id) => { const el = document.getElementById(id); if (el) el.style.display = 'none'; };
+                            const show = (id, d) => { const el = document.getElementById(id); if (el) el.style.display = d || 'block'; };
+
+                            // Skip: hide entire config panel, show skip banner
+                            if (isSkip) {
+                                hide('k8s-svc-cfg-' + i);
+                                show('k8s-svc-skip-banner-' + i);
+                                return;
+                            } else {
+                                show('k8s-svc-cfg-' + i);
+                                hide('k8s-svc-skip-banner-' + i);
+                            }
+
+                            // Port — hide for Job/CronJob, show for others
+                            if (isJob) hide('k8s-svc-port-wrap-' + i);
+                            else show('k8s-svc-port-wrap-' + i);
+
+                            // Replicas — hide for Job/CronJob and DaemonSet (StatefulSet keeps it)
+                            if (isJob || isDaemon) hide('k8s-svc-replicas-wrap-' + i);
+                            else show('k8s-svc-replicas-wrap-' + i);
+
+                            // Service Type — hide for Job/CronJob, DaemonSet, and StatefulSet (headless is mandatory)
+                            if (isJob || isDaemon || isStateful) hide('k8s-svc-svctype-wrap-' + i);
+                            else show('k8s-svc-svctype-wrap-' + i);
+
+                            // Deploy sections (Deployment strategy) — only for Deployment
+                            if (isJob || isDaemon || isStateful) hide('k8s-svc-deploy-sections-' + i);
+                            else show('k8s-svc-deploy-sections-' + i);
+
+                            // Job sections — show for Job/CronJob
+                            if (isJob) show('k8s-svc-job-sections-' + i);
+                            else hide('k8s-svc-job-sections-' + i);
+
+                            // CronJob sections — show only for CronJob
+                            if (isCron) show('k8s-svc-cron-sections-' + i);
+                            else hide('k8s-svc-cron-sections-' + i);
+
+                            // DaemonSet sections — show only for DaemonSet
+                            if (isDaemon) show('k8s-svc-daemon-sections-' + i);
+                            else hide('k8s-svc-daemon-sections-' + i);
+
+                            // StatefulSet sections — show only for StatefulSet
+                            if (isStateful) show('k8s-svc-statefulset-sections-' + i);
+                            else hide('k8s-svc-statefulset-sections-' + i);
+
+                            // Health Checks — hide for Job/CronJob, show for others
+                            if (isJob) hide('k8s-svc-probes-wrap-' + i);
+                            else show('k8s-svc-probes-wrap-' + i);
+
+                            // Volumes (regular) — hide for Job/CronJob and StatefulSet (VCTs replace them)
+                            if (isJob || isStateful) hide('k8s-svc-vols-wrap-' + i);
+                            else show('k8s-svc-vols-wrap-' + i);
+
+                            // Dependencies — hide for Job/CronJob, DaemonSet, and StatefulSet
+                            if (isJob || isDaemon || isStateful) hide('k8s-svc-deps-wrap-' + i);
+                            else show('k8s-svc-deps-wrap-' + i);
+
+                            // Service Mesh warning — show for Job/CronJob
+                            if (isJob) show('k8s-svc-mesh-warn-' + i);
+                            else hide('k8s-svc-mesh-warn-' + i);
+                        };
+
+                        // ── Remove infra card ──
+                        window._k8sRemoveInfra = (name) => {
+                            const list = document.getElementById('k8s-infra-list');
+                            const card = list ? list.querySelector('[data-infra-name="' + name + '"]') : null;
+                            if (!card) return;
+                            // Store data before removing (compose-detected or catalog)
+                            const svcData = window._k8sInfraData.get(name);
+                            if (svcData) window._k8sRemovedInfra.set(name, svcData);
+                            card.remove();
+                            window._k8sActiveInfra.delete(name);
+                            delete (window._k8sSvcNames || {})['infra-' + name];
+                            window._k8sUpdateInfraAddSelect();
+                            // Re-evaluate env collisions (infra env vars removed)
+                            window._wizValidation.recheck('k8s');
+                        };
+
+                        // ── Add infra card (from removed, catalog, or custom) ──
+                        window._k8sAddInfra = (name) => {
+                            if (name === '__custom__') {
+                                // Prompt for custom name
+                                const customName = prompt('Service name (lowercase, no spaces):');
+                                if (!customName || !customName.trim()) return;
+                                const cName = customName.trim().toLowerCase().replace(/[^a-z0-9-]/g, '-');
+                                if (window._k8sActiveInfra.has(cName)) return;
+                                const customSvc = {
+                                    name: cName,
+                                    image: cName + ':latest',
+                                    ports: [],
+                                    volumes: [],
+                                    environment: {},
+                                };
+                                window._k8sInfraData.set(cName, customSvc);
+                                window._k8sDoAddInfra(customSvc);
+                                return;
+                            }
+                            // Re-add removed service or add from catalog
+                            let svcData = window._k8sRemovedInfra.get(name);
+                            if (svcData) {
+                                window._k8sRemovedInfra.delete(name);
+                            } else if (_INFRA_CATALOG[name]) {
+                                // Build service data from the Docker _infraOptions entry
+                                const cat = _INFRA_CATALOG[name];
+                                const env = {};
+                                (cat.envFields || []).forEach(ef => { env[ef.key] = ef.default || ''; });
+                                svcData = {
+                                    name: cat.key,
+                                    image: cat.images[0],
+                                    ports: (cat.ports || []).map(p => ({ host: p.port, container: p.port, protocol: 'tcp' })),
+                                    volumes: (cat.volumes || []).map(v => v.name + ':' + v.mount),
+                                    environment: env,
+                                };
+                                window._k8sInfraData.set(name, svcData);
+                            }
+                            if (!svcData) return;
+                            window._k8sDoAddInfra(svcData);
+                        };
+
+                        // ── Internal: append card + update tracking ──
+                        window._k8sDoAddInfra = (svc) => {
+                            const list = document.getElementById('k8s-infra-list');
+                            if (!list) return;
+                            const wrapper = document.createElement('div');
+                            wrapper.innerHTML = window._k8sInfraCardHtml(svc);
+                            const card = wrapper.firstElementChild;
+                            list.appendChild(card);
+                            window._k8sActiveInfra.add(svc.name);
+                            window._k8sSvcNames['infra-' + svc.name] = svc.name;
+                            // Update env map for suggestion filtering
+                            window._infraEnvMap = window._infraEnvMap || {};
+                            window._infraEnvMap[svc.name] = Object.keys(svc.environment || {});
+                            window._k8sUpdateInfraAddSelect();
+                            // Re-evaluate env collisions (new infra env vars added)
+                            window._wizValidation.recheck('k8s');
+                        };
+
+                        // ── Rebuild the Add select options ──
+                        window._k8sUpdateInfraAddSelect = () => {
+                            const sel = document.getElementById('k8s-infra-add-select');
+                            if (!sel) return;
+                            let html = '<option value="">+ Add infrastructure service…</option>';
+                            // Group 1: Previously removed (re-add)
+                            const removedNames = Array.from(window._k8sRemovedInfra.keys());
+                            if (removedNames.length > 0) {
+                                html += '<optgroup label="↩ Removed (re-add)">';
+                                removedNames.forEach(n => {
+                                    const label = (_INFRA_CATALOG[n] && _INFRA_CATALOG[n].label) || n;
+                                    html += '<option value="' + esc(n) + '">↩ ' + esc(label) + '</option>';
+                                });
+                                html += '</optgroup>';
+                            }
+                            // Group 2: Catalog grouped by category — same as Docker
+                            const catOrder = ['db-rel','db-nosql','cache','mq','search','proxy','monitor','log','storage','devops'];
+                            catOrder.forEach(cat => {
+                                const items = _infraOptions.filter(o => o.cat === cat && !window._k8sActiveInfra.has(o.key));
+                                if (items.length === 0) return;
+                                const catLabel = (_infraCategories && _infraCategories[cat]) || cat;
+                                html += '<optgroup label="' + esc(catLabel) + '">';
+                                items.forEach(o => {
+                                    html += '<option value="' + esc(o.key) + '">' + esc(o.label) + ' — ' + esc(o.images[0]) + '</option>';
+                                });
+                                html += '</optgroup>';
+                            });
+                            // Group 3: Custom
+                            html += '<optgroup label="Other">';
+                            html += '<option value="__custom__">✏️ Custom service…</option>';
+                            html += '</optgroup>';
+                            sel.innerHTML = html;
+                        };
+                        // Make _infraEnvMap available globally for dynamic adds
+                        window._infraEnvMap = _infraEnvMap;
+
+                        // Populate add-select on initial render
+                        window._k8sUpdateInfraAddSelect();
+
+                        // ── Infra env trigger: re-evaluate cross-row when infra toggled on ──
+                        window._k8sInfraEnvTrigger = (infraName) => {
+                            const infraId = 'infra-' + infraName;
+                            const list = document.getElementById('k8s-svc-env-list-' + infraId);
+                            if (!list) return;
+                            // Re-evaluate infra env rows (skip hardcoded — their var select is placeholder '--')
+                            list.querySelectorAll('.k8s-env-row').forEach(row => {
+                                const keyEl = row.querySelector('[id^="k8s-svc-env-key-"]');
+                                if (!keyEl) return;
+                                const j = keyEl.id.split('-').pop();
+                                const typeSel = document.getElementById('k8s-svc-env-type-' + infraId + '-' + j);
+                                if (typeSel && typeSel.value === 'hardcoded') return;
+                                const varSel = document.getElementById('k8s-svc-env-var-' + infraId + '-' + j);
+                                if (varSel) window._onVarSelect(varSel);
+                            });
+                            // Also re-evaluate ALL app service env rows so they detect newly-visible infra rows
+                            const svcCount = hasCompose ? appSvcs.length : deployableModules.length;
+                            for (let si = 0; si < svcCount; si++) {
+                                const appList = document.getElementById('k8s-svc-env-list-' + si);
+                                if (!appList) continue;
+                                appList.querySelectorAll('.k8s-env-row').forEach(row => {
+                                    const keyEl = row.querySelector('[id^="k8s-svc-env-key-"]');
+                                    if (!keyEl) return;
+                                    const sj = keyEl.id.split('-').pop();
+                                    const typeSel = document.getElementById('k8s-svc-env-type-' + si + '-' + sj);
+                                    if (typeSel && typeSel.value === 'hardcoded') return;
+                                    const varSel = document.getElementById('k8s-svc-env-var-' + si + '-' + sj);
+                                    if (varSel) window._onVarSelect(varSel);
+                                });
+                            }
+                            // Run symmetric collision check after re-evaluating all rows
+                            window._wizValidation.recheck('k8s');
+                        };
+
+                        // ── Post-render: attach live QoS class updaters ──
+                        // For each app service card, listen for input changes on resource fields
+                        // and recalculate the QoS class indicator in real-time
+                        const svcCount = hasCompose ? appSvcs.length : deployableModules.length;
+                        for (let idx = 0; idx < svcCount; idx++) {
+                            const ids = ['cpu-req', 'cpu-lim', 'mem-req', 'mem-lim'].map(f => `k8s-svc-${f}-${idx}`);
+                            const els = ids.map(id => document.getElementById(id));
+                            if (!els.some(Boolean)) continue;
+
+                            const updateQoS = () => {
+                                const cr = (els[0] && els[0].value.trim()) || '';
+                                const cl = (els[1] && els[1].value.trim()) || '';
+                                const mr = (els[2] && els[2].value.trim()) || '';
+                                const ml = (els[3] && els[3].value.trim()) || '';
+                                const hint = _qosHint(cr, cl, mr, ml);
+                                // Update both the summary-bar QoS and the live QoS inside the panel
+                                const qosSummary = document.getElementById(`k8s-svc-qos-${idx}`);
+                                const qosLive = document.getElementById(`k8s-svc-qos-live-${idx}`);
+                                if (qosSummary) qosSummary.innerHTML = hint;
+                                if (qosLive) qosLive.innerHTML = hint;
+                            };
+
+                            els.forEach(el => { if (el) el.addEventListener('input', updateQoS); });
+                        }
+
+                        // ── Initial env key collision check (covers compose/saved pre-populated env vars) ──
+                        window._wizValidation.recheck('k8s');
+
+                        // ── Skaffold detection + install flow ──
+                        (async () => {
+                            const statusEl = document.getElementById('k8s-skaffold-status');
+                            if (!statusEl) return;
+                            try {
+                                const res = await api('/k8s/skaffold/status');
+                                if (res.available) {
+                                    // CLI found — show green status
+                                    statusEl.innerHTML = '<span style="color:var(--success)">✅ Skaffold CLI detected</span>'
+                                        + (res.version ? ' <code style="font-size:0.68rem;background:var(--bg-primary);padding:1px 5px;border-radius:3px">' + esc(res.version) + '</code>' : '');
+                                } else {
+                                    // Not installed — show warning + install button
+                                    const btnId = 'k8s-skaffold-install-btn';
+                                    const logId = 'k8s-skaffold-install-log';
+                                    const pwId  = 'k8s-skaffold-install-pw';
+                                    statusEl.innerHTML = `
+                                        <div style="padding:0.5rem 0.6rem;border-radius:6px;background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.25);margin-top:0.3rem">
+                                            <div style="font-size:0.76rem;color:var(--warning);font-weight:600;margin-bottom:0.3rem">
+                                                ⚠️ Skaffold CLI not found
+                                            </div>
+                                            <div style="font-size:0.7rem;color:var(--text-muted);margin-bottom:0.5rem">
+                                                You can still generate <code>skaffold.yaml</code>, but you'll need to install the CLI
+                                                to run <code>skaffold dev</code> or <code>skaffold run</code>.
+                                            </div>
+                                            <div style="margin-bottom:0.4rem">
+                                                <label style="font-size:0.72rem;font-weight:600;display:block;margin-bottom:3px">🔑 Sudo password:</label>
+                                                <input id="${pwId}" type="password" placeholder="Enter your sudo password"
+                                                       style="width:100%;max-width:300px;padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg-primary);color:var(--text-primary);font-size:0.78rem;box-sizing:border-box"
+                                                       onkeydown="if(event.key==='Enter'){document.getElementById('${btnId}').click()}" />
+                                            </div>
+                                            <button id="${btnId}" class="btn btn-sm" onclick="window._k8sInstallSkaffold()"
+                                                    style="font-size:0.76rem;background:rgba(99,102,241,0.12);color:var(--accent);border:1px solid rgba(99,102,241,0.3);padding:6px 16px;cursor:pointer">
+                                                ⬇️ Install Skaffold
+                                            </button>
+                                            <div id="${logId}" style="display:none;margin-top:0.4rem">
+                                                <div style="font-size:0.68rem;font-weight:600;margin-bottom:3px">📋 Output:</div>
+                                                <pre style="font-size:0.66rem;background:var(--bg-primary);padding:8px;border-radius:var(--radius-sm);max-height:150px;overflow:auto;white-space:pre-wrap;word-break:break-all"></pre>
+                                            </div>
+                                            <details style="margin-top:0.3rem">
+                                                <summary style="cursor:pointer;font-size:0.68rem;color:var(--text-muted)">Or install manually:</summary>
+                                                <pre style="font-size:0.68rem;background:var(--bg-primary);padding:6px;border-radius:var(--radius-sm);margin-top:3px;white-space:pre-wrap;word-break:break-all;cursor:text;user-select:all">curl -Lo /usr/local/bin/skaffold https://storage.googleapis.com/skaffold/releases/latest/skaffold-linux-amd64 && sudo chmod +x /usr/local/bin/skaffold</pre>
+                                            </details>
+                                        </div>`;
+                                    // Focus password field
+                                    setTimeout(() => { const el = document.getElementById(pwId); if (el) el.focus(); }, 100);
+                                }
+                            } catch (e) {
+                                statusEl.innerHTML = '<span style="color:var(--text-muted)">⚠️ Could not check Skaffold status</span>';
+                            }
+                        })();
+
+                        // ── StorageClass detection (bonus: merges into catalog) ──
+                        (async () => {
+                            try {
+                                const res = await api('/k8s/storageclasses');
+                                if (!res.ok || !res.storage_classes) {
+                                    // No cluster — that's fine, catalog is always available
+                                    return;
+                                }
+                                const classes = res.storage_classes;
+                                const defClass = res.default_class || '';
+                                // Mark detected classes in the catalog
+                                classes.forEach(sc => {
+                                    if (_SC_FLAT[sc.name]) {
+                                        _SC_FLAT[sc.name]._detected = true;
+                                    }
+                                });
+                                // Collect classes NOT in catalog (custom cluster classes)
+                                const extras = classes.filter(sc => !_SC_FLAT[sc.name]);
+                                // Build the enhanced option HTML once
+                                let optHtml = '<option value="">(cluster default' + (defClass ? ' — ' + esc(defClass) : '') + ')</option>';
+                                _SC_CATALOG.forEach(g => {
+                                    optHtml += '<optgroup label="' + esc(g.group) + '">';
+                                    g.items.forEach(sc => {
+                                        const det = sc._detected ? ' ✓ detected' : '';
+                                        const defTag = classes.find(c => c.name === sc.name && c.is_default) ? ' ★ default' : '';
+                                        optHtml += '<option value="' + esc(sc.name) + '" title="' + esc(sc.provisioner) + '">' + esc(sc.name) + ' — ' + esc(sc.hint) + det + defTag + '</option>';
+                                    });
+                                    optHtml += '</optgroup>';
+                                });
+                                if (extras.length > 0) {
+                                    optHtml += '<optgroup label="Detected on cluster">';
+                                    extras.forEach(sc => {
+                                        const defTag = sc.is_default ? ' ★ default' : '';
+                                        optHtml += '<option value="' + esc(sc.name) + '">' + esc(sc.name) + ' — ' + esc(sc.provisioner) + ' ✓' + defTag + '</option>';
+                                    });
+                                    optHtml += '</optgroup>';
+                                }
+                                optHtml += '<optgroup label="Other"><option value="_custom">✏️ Custom (type name)…</option></optgroup>';
+                                // Rebuild ALL per-volume SC selects
+                                document.querySelectorAll('.k8s-vol-sc-select').forEach(sel => {
+                                    const prev = sel.value;
+                                    sel.innerHTML = optHtml;
+                                    if (prev && prev !== '_custom') { sel.value = prev; }
+                                    // Extract i,j from id: k8s-svc-vol-sc-{i}-{j}
+                                    const parts = sel.id.split('-');
+                                    const j = parts.pop();
+                                    const si = parts.pop();
+                                    window._k8sVolScChange(parseInt(si), parseInt(j));
+                                });
+                            } catch (e) {
+                                // Cluster not connected — catalog options are already loaded, nothing to do
+                            }
+                        })();
+
+                        // ── Post-render: initialize volume summaries ──
+                        for (let idx = 0; idx < svcCount; idx++) {
+                            window._updateVolSummary(idx);
+                        }
+                        // ── Skaffold install handler ──
+                        window._k8sInstallSkaffold = async () => {
+                            const btn = document.getElementById('k8s-skaffold-install-btn');
+                            const logBox = document.getElementById('k8s-skaffold-install-log');
+                            const pwInput = document.getElementById('k8s-skaffold-install-pw');
+                            if (!btn || !logBox) return;
+
+                            const sudoPassword = pwInput ? pwInput.value : '';
+                            if (!sudoPassword) {
+                                if (pwInput) {
+                                    pwInput.style.border = '1px solid var(--danger)';
+                                    pwInput.focus();
+                                    pwInput.placeholder = '⚠️ Password required';
+                                }
+                                return;
+                            }
+
+                            const logPre = logBox.querySelector('pre');
+                            btn.disabled = true;
+                            btn.innerHTML = '<span class="spinner" style="width:12px;height:12px"></span> Installing…';
+                            logBox.style.display = 'block';
+                            logPre.textContent = 'Downloading Skaffold binary…\n';
+                            logPre.style.color = '';
+
+                            try {
+                                const result = await api('/audit/install-tool', {
+                                    method: 'POST',
+                                    body: JSON.stringify({ tool: 'skaffold', cli: 'skaffold', sudo_password: sudoPassword }),
+                                });
+                                if (result.ok) {
+                                    btn.innerHTML = '✅ Installed';
+                                    btn.className = 'btn btn-sm btn-ghost';
+                                    logPre.textContent += '\n' + (result.stdout || result.message || 'Done') + '\n\n✅ ' + result.message;
+                                    // Refresh detection status
+                                    setTimeout(async () => {
+                                        const statusEl = document.getElementById('k8s-skaffold-status');
+                                        if (statusEl) {
+                                            statusEl.innerHTML = '<span style="color:var(--success)">✅ Skaffold CLI installed and ready</span>';
+                                        }
+                                    }, 500);
+                                } else if (result.needs_sudo) {
+                                    btn.innerHTML = '⬇️ Install Skaffold';
+                                    btn.disabled = false;
+                                    if (pwInput) { pwInput.value = ''; pwInput.focus(); pwInput.placeholder = '⚠️ ' + (result.error || 'Enter password'); }
+                                    logPre.textContent += '\n🔑 ' + (result.error || 'Sudo password required');
+                                    logPre.style.color = 'var(--warning)';
+                                } else {
+                                    btn.innerHTML = '⬇️ Retry Install';
+                                    btn.disabled = false;
+                                    let logText = '❌ ' + (result.error || 'Unknown error') + '\n';
+                                    if (result.stderr) logText += '\n' + result.stderr;
+                                    if (result.stdout) logText += '\n' + result.stdout;
+                                    logPre.textContent += logText;
+                                    logPre.style.color = 'var(--danger)';
+                                }
+                            } catch (e) {
+                                btn.innerHTML = '⬇️ Retry Install';
+                                btn.disabled = false;
+                                logPre.textContent += '\n❌ ' + e.message;
+                                logPre.style.color = 'var(--danger)';
+                            }
+                        };
+                    },
+                    collect: (data) => {
+                        const mode = data._configMode || 'manual';
+                        const appCount = data._appSvcCount || 0;
+                        const infraCount = data._infraSvcCount || 0;
+                        const appSvcs = data._appServices || [];
+                        const infraSvcs = data._infraServices || [];
+                        const deployableModules = (data._classifiedModules || []).filter(m => m._class === 'deployable');
+

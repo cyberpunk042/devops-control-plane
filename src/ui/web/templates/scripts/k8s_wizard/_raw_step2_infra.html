@@ -1,0 +1,223 @@
+                        // ── Infra card HTML generator ──
+                        // Generates a complete infra service card from a service data object.
+                        // Used by both initial render and dynamic add.
+                        // Defined before Section B so it's available during html string construction.
+                        window._k8sInfraCardHtml = (svc, savedInfra) => {
+                            const svcName = svc.name;
+                            const infraId = 'infra-' + svcName;
+                            const imgShort = (svc.image || '').split('/').pop().split(':')[0] || svcName;
+                            const portStr = (svc.ports || []).map(p => ':' + p.container).join(' ');
+                            const volCount = (svc.volumes || []).length;
+                            const infraEnvKeys = Object.keys(svc.environment || {});
+                            const infraEnvVals = svc.environment || {};
+                            const eName = esc(svcName);
+                            // Saved kind overrides detection default
+                            const infraKindDefault = savedInfra?.kind || _classifyWorkloadKind(svc);
+                            const infraKindHintText = _kindHint(infraKindDefault, svc);
+
+                            let h = '<div data-infra-name="' + eName + '" style="border:1px solid var(--border-subtle);border-radius:8px;background:var(--bg-inset);padding:0.5rem 0.6rem">'
+                                + '<div style="display:flex;align-items:center;gap:0.5rem;font-size:0.82rem;margin-bottom:0.3rem">'
+                                + '<span style="font-size:1rem" id="k8s-infra-icon-' + eName + '">' + _kindIcon(infraKindDefault) + '</span>'
+                                + '<strong>' + eName + '</strong>'
+                                + '<code style="font-size:0.72rem;background:var(--bg-primary);padding:1px 5px;border-radius:3px;color:var(--text-secondary)">' + esc(imgShort) + '</code>'
+                                + (portStr ? '<code style="font-size:0.68rem;color:var(--text-muted)">' + esc(portStr) + '</code>' : '')
+                                + (volCount > 0 ? '<span style="font-size:0.66rem;color:var(--text-muted)" title="' + volCount + ' volumes">💾' + volCount + '</span>' : '')
+                                + '<span style="flex:1"></span>'
+                                + '<button type="button" onclick="window._k8sRemoveInfra(\'' + eName + '\')"'
+                                + ' style="background:none;border:none;cursor:pointer;font-size:0.88rem;color:var(--text-muted);padding:0 4px;line-height:1"'
+                                + ' title="Remove ' + eName + '">✕</button>'
+                                + '</div>'
+                                + '<div style="display:flex;align-items:center;gap:0.4rem;font-size:0.74rem;margin-bottom:0.15rem">'
+                                + '<select id="k8s-infra-kind-' + eName + '" class="modal-form-select"'
+                                + ' style="font-size:0.68rem;padding:0.1rem 0.3rem;min-width:130px;color:var(--success);font-weight:600"'
+                                + ' onchange="'
+                                +   'var ic=document.getElementById(\'k8s-infra-icon-' + eName + '\');'
+                                +   'var hn=document.getElementById(\'k8s-infra-kind-hint-' + eName + '\');'
+                                +   'var cfg=document.getElementById(\'k8s-infra-cfg-' + eName + '\');'
+                                +   'var sb=document.getElementById(\'k8s-infra-skip-banner-' + eName + '\');'
+                                +   'var mi=document.getElementById(\'k8s-infra-managed-info-' + eName + '\');'
+                                +   'var el=document.getElementById(\'k8s-infra-envlabel-' + eName + '\');'
+                                +   'var vs=document.getElementById(\'k8s-infra-vol-section-' + eName + '\');'
+                                +   'var kv=this.value;'
+                                +   'if(ic)ic.textContent=({"Deployment":"🚀","StatefulSet":"🗄️","DaemonSet":"🌐","Managed":"☁️","Skip":"⏭️"})[kv]||"📦";'
+                                +   'if(hn)hn.textContent=\'\';'
+                                +   'if(cfg)cfg.style.display=(kv===\'Skip\'?\'none\':\'block\');'
+                                +   'if(sb)sb.style.display=(kv===\'Skip\'?\'block\':\'none\');'
+                                +   'if(mi)mi.style.display=(kv===\'Managed\'?\'block\':\'none\');'
+                                +   'if(vs)vs.style.display=(kv===\'Managed\'||kv===\'Skip\'?\'none\':\'block\');'
+                                +   'if(el)el.textContent=(kv===\'Managed\'?\'Connection Environment Variables\':\'Environment Variables\');'
+                                +   'if(kv!==\'Skip\')window._k8sInfraEnvTrigger(\'' + eName + '\');'
+                                + '">'
+                                + '<option value="StatefulSet"' + (infraKindDefault === 'StatefulSet' ? ' selected' : '') + '>StatefulSet</option>'
+                                + '<option value="Deployment"' + (infraKindDefault === 'Deployment' ? ' selected' : '') + '>Deployment</option>'
+                                + '<option value="DaemonSet"' + (infraKindDefault === 'DaemonSet' ? ' selected' : '') + '>DaemonSet</option>'
+                                + '<option value="Managed"' + (infraKindDefault === 'Managed' ? ' selected' : '') + '>Managed (external)</option>'
+                                + '<option value="Skip"' + (infraKindDefault === 'Skip' ? ' selected' : '') + '>Skip (exclude)</option>'
+                                + '</select>'
+                                + '<span id="k8s-infra-kind-hint-' + eName + '" style="font-size:0.6rem;color:var(--text-muted);font-style:italic">' + (infraKindHintText || '') + '</span>'
+                                + '</div>';
+
+                            // Infra config panel (env vars) — shown when kind is NOT Skip
+                            const infraCfgDisplay = infraKindDefault === 'Skip' ? 'none' : 'block';
+                            const isInfraManaged = infraKindDefault === 'Managed';
+
+                            // Skip banner for infra services
+                            h += '<div id="k8s-infra-skip-banner-' + eName + '" style="display:' + (infraKindDefault === 'Skip' ? 'block' : 'none') + ';padding:0.6rem;margin-top:0.35rem;background:var(--bg-primary);border-radius:6px;border:1px dashed var(--border-subtle);text-align:center">'
+                                + '<div style="font-size:0.9rem;margin-bottom:0.15rem">⏭️</div>'
+                                + '<div style="font-size:0.72rem;color:var(--text-muted);font-weight:600">Excluded</div>'
+                                + '<div style="font-size:0.66rem;color:var(--text-muted);font-style:italic">This service will not be deployed to Kubernetes.</div>'
+                                + '</div>';
+
+                            h += '<div id="k8s-infra-cfg-' + eName + '" style="display:' + infraCfgDisplay + ';margin-top:0.35rem;padding:0.4rem;background:var(--bg-primary);border-radius:6px;border:1px solid var(--border-subtle)">';
+
+                            // Managed-specific info banner + provider notes
+                            h += '<div id="k8s-infra-managed-info-' + eName + '" style="display:' + (isInfraManaged ? 'block' : 'none') + ';margin-bottom:0.4rem">'
+                                + '<div style="padding:0.35rem 0.5rem;background:var(--bg-inset);border-radius:4px;border-left:3px solid var(--accent);margin-bottom:0.3rem">'
+                                + '<div style="font-size:0.72rem;color:var(--accent)">ℹ️ This service will be managed <strong>outside</strong> Kubernetes.</div>'
+                                + '<div style="font-size:0.64rem;color:var(--text-muted)">No K8s resources will be generated. Connection vars below will be injected into dependent services as Secrets.</div>'
+                                + '</div>'
+                                + '<div style="display:flex;align-items:center;gap:0.3rem;margin-bottom:0.2rem">'
+                                + '<span style="font-size:0.68rem;color:var(--text-muted);font-weight:600">Provider / Notes</span>'
+                                + '</div>'
+                                + '<input type="text" id="k8s-infra-provider-' + eName + '" class="modal-form-input"'
+                                + ' style="font-size:0.72rem;padding:0.2rem 0.4rem;width:100%"'
+                                + ' placeholder="e.g. AWS RDS PostgreSQL, GCP Cloud SQL, etc.">'
+                                + '</div>';
+
+                            h += '<div style="font-size:0.72rem;color:var(--accent);font-weight:600;margin-bottom:0.25rem">▸ '
+                                + '<span id="k8s-infra-envlabel-' + eName + '">' + (isInfraManaged ? 'Connection Environment Variables' : 'Environment Variables') + '</span>'
+                                + '</div>';
+                            if (infraEnvKeys.length > 0) {
+                                h += '<div style="display:grid;grid-template-columns:2fr 2fr 1.5fr 1.2fr auto;gap:0.25rem;margin-bottom:0.2rem;padding:0 0.25rem">'
+                                    + '<span style="font-size:0.78rem;color:var(--text-muted);font-weight:600">Key</span>'
+                                    + '<span style="font-size:0.78rem;color:var(--text-muted);font-weight:600">Value</span>'
+                                    + '<span style="font-size:0.78rem;color:var(--text-muted);font-weight:600">Var / Secret</span>'
+                                    + '<span style="font-size:0.78rem;color:var(--text-muted);font-weight:600">Injection</span>'
+                                    + '<span></span>'
+                                    + '</div>';
+                            }
+                            h += '<div id="k8s-svc-env-list-' + infraId + '" style="display:flex;flex-direction:column;gap:0.2rem">';
+                            if (savedInfra?.envVars) {
+                                savedInfra.envVars.forEach((ev, j) => {
+                                    h += _envRowHtml(infraId, j, ev.key, ev.value || '', ev.type || 'hardcoded', ev.varName || '', infraId);
+                                });
+                            } else {
+                                Object.entries(infraEnvVals).forEach(([k, v], j) => {
+                                    const injType = _isSecretKey(k) ? 'secret' : 'variable';
+                                    h += _envRowHtml(infraId, j, k, v || '', injType, '${' + k + '}', infraId);
+                                });
+                            }
+                            h += '</div>';
+                            h += '<button type="button" onclick="_addEnvVar(\'' + infraId + '\')"'
+                                + ' style="margin-top:0.3rem;font-size:0.66rem;color:var(--accent);background:none;border:1px dashed var(--border-subtle);border-radius:4px;padding:0.2rem 0.5rem;cursor:pointer;width:100%">'
+                                + '+ Add variable'
+                                + '</button>';
+
+                            // ── Persistent Storage section (hidden for Managed) ──
+                            const infraVols = svc.volumes || [];
+                            // Use saved volumes when available for infra
+                            const classifiedVols = savedInfra?.volumes
+                                ? savedInfra.volumes.map(vol => window._savedVolToClassification(vol))
+                                : infraVols.map(v => window._classifyVolume(v)).filter(cl => cl.classification === 'named' || cl.classification === 'data-bind');
+                            const showVolSec = infraKindDefault !== 'Managed' ? 'block' : 'none';
+
+                            h += '<div id="k8s-infra-vol-section-' + eName + '" style="display:' + showVolSec + ';margin-top:0.5rem;padding-top:0.4rem;border-top:1px solid var(--border-subtle)">';
+                            h += '<details' + (classifiedVols.length > 0 ? ' open' : '') + '>';
+                            h += '<summary style="cursor:pointer;font-size:0.72rem;color:var(--accent);font-weight:600;user-select:none;display:flex;align-items:center;gap:0.3rem">'
+                                + '▸ Persistent Storage'
+                                + (classifiedVols.length > 0 ? ' <span style="font-size:0.6rem;background:var(--bg-secondary);color:var(--text-secondary);padding:1px 5px;border-radius:3px">' + classifiedVols.length + ' from Compose</span>' : '')
+                                + '<span id="k8s-svc-vol-summary-' + infraId + '" style="margin-left:auto;font-size:0.6rem;color:var(--text-muted);font-weight:400"></span>'
+                                + '</summary>';
+                            h += '<div style="margin-top:0.25rem;padding:0.3rem;background:var(--bg-primary);border-radius:6px;border:1px solid var(--border-subtle)">';
+                            h += '<div id="k8s-svc-vol-list-' + infraId + '" style="display:flex;flex-direction:column;gap:0.3rem">';
+                            if (classifiedVols.length > 0) {
+                                classifiedVols.forEach((cl, j) => {
+                                    h += window._volRowHtml(infraId, j, cl);
+                                });
+                            } else {
+                                h += '<div style="font-size:0.68rem;color:var(--text-muted);font-style:italic">No named volumes detected — click "+ Add volume" below</div>';
+                            }
+                            h += '</div>';
+                            h += '<button type="button" onclick="window._addVolRow(\'' + infraId + '\')"'
+                                + ' style="margin-top:0.3rem;font-size:0.66rem;color:var(--accent);background:none;border:1px dashed var(--border-subtle);border-radius:4px;padding:0.2rem 0.5rem;cursor:pointer;width:100%">'
+                                + '+ Add volume'
+                                + '</button>';
+                            h += '</div>';
+                            h += '</details>';
+                            h += '</div>';
+
+                            h += '</div>'; // close cfg panel
+                            h += '</div>'; // close outer card
+                            return h;
+                        };
+
+                        // ═══════════════════════════════════════════════════
+                        // ── Section B: Infrastructure Services ─────────────
+                        // ═══════════════════════════════════════════════════
+
+                        html += wizSection('Infrastructure Services',
+                            infraSvcs.length > 0
+                                ? `${infraSvcs.length} infrastructure service${infraSvcs.length !== 1 ? 's' : ''} detected. Choose how to handle each in K8s.`
+                                : 'No infrastructure services detected from Docker. Add services below if needed.');
+
+                        html += `<div style="display:flex;flex-direction:column;gap:0.4rem" id="k8s-infra-list">`;
+                        for (let i = 0; i < infraSvcs.length; i++) {
+                            html += window._k8sInfraCardHtml(infraSvcs[i], _savedInfra(infraSvcs[i].name));
+                        }
+                        html += `</div>`;
+                        html += `<div style="margin-top:0.4rem;display:flex;gap:0.4rem;align-items:center">`;
+                        html += `<select id="k8s-infra-add-select" class="modal-form-select"
+                            style="font-size:0.74rem;padding:0.3rem 0.5rem;flex:1;max-width:320px"
+                            onchange="if(this.value)window._k8sAddInfra(this.value);this.value=''">
+                            <option value="">+ Add infrastructure service…</option>
+                        </select>`;
+                        html += `</div>`;
+
+                        // ═══════════════════════════════════════════════════
+                        // ── Section C: Cluster Settings ───────────────────
+                        // ═══════════════════════════════════════════════════
+
+                        html += wizSection('Cluster Settings', 'Common settings for all K8s resources.');
+                        html += wizFormGrid([
+                            { name: 'k8s-namespace', label: 'Namespace', value: _savedState?.namespace || data.namespace || defaultNamespace, hint: 'Target K8s namespace for all resources' },
+                            { name: 'k8s-output-dir', label: 'Output Directory', value: _savedState?.output_dir || 'k8s/', hint: 'Where manifest files will be written' },
+                        ]);
+                        html += wizFormGrid([
+                            { name: 'k8s-ingress', label: 'Generate Ingress manifest', type: 'checkbox', value: _savedState?.ingress ?? false, fullWidth: true },
+                            // ConfigMap checkbox removed — ConfigMaps/Secrets auto-generated per service from envVars
+                        ]);
+
+                        // ── Skaffold pipeline toggle ──────────────────────
+                        html += `
+                        <div id="k8s-skaffold-panel" style="margin-top:0.6rem;padding:0.7rem 0.8rem;border:1px solid var(--border-subtle);border-radius:8px;background:var(--bg-inset)">
+                            <div style="display:flex;align-items:flex-start;gap:0.5rem">
+                                <input type="checkbox" id="k8s-skaffold-toggle"${(_savedState?.skaffold ?? true) ? ' checked' : ''}
+                                       style="margin-top:3px;accent-color:var(--accent);cursor:pointer">
+                                <div style="flex:1">
+                                    <label for="k8s-skaffold-toggle" style="font-weight:600;font-size:0.82rem;cursor:pointer;display:block;margin-bottom:2px">
+                                        🛤 Generate Skaffold pipeline (<code>skaffold.yaml</code>)
+                                    </label>
+                                    <div style="font-size:0.72rem;color:var(--text-muted);line-height:1.45">
+                                        <a href="https://skaffold.dev" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:none">Skaffold</a>
+                                        is a command-line tool by Google that automates the <strong>build → push → deploy</strong> workflow
+                                        for Kubernetes applications. It watches your source code, rebuilds container images on change,
+                                        and redeploys to your cluster automatically — giving you a <strong>live-reload dev loop</strong>
+                                        similar to hot-module replacement but for containers.<br>
+                                        The generated <code>skaffold.yaml</code> ties your Dockerfiles and K8s manifests together
+                                        so you can run <code>skaffold dev</code> for development or <code>skaffold run</code> for one-shot deploys.
+                                    </div>
+                                </div>
+                            </div>
+                            <div id="k8s-skaffold-status" style="margin-top:0.5rem;font-size:0.74rem">
+                                <span class="spinner" style="width:12px;height:12px;display:inline-block;vertical-align:middle"></span>
+                                <span style="color:var(--text-muted);margin-left:4px">Checking Skaffold CLI…</span>
+                            </div>
+                        </div>`;
+
+                        // Store source list sizes for collect()
+                        data._appSvcCount = hasCompose ? appSvcs.length : deployableModules.length;
+                        data._infraSvcCount = infraSvcs.length;
+                        data._configMode = hasCompose ? 'compose' : (deployableModules.length > 0 ? 'modules' : 'manual');
+
+                        el.innerHTML = html;
+

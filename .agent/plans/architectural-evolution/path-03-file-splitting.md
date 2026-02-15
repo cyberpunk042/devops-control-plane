@@ -213,25 +213,39 @@ Natural split by function group:
 
 ## 4. Execution Order
 
-### Phase 3A: Monster File Split (JS)
+### Phase 3A: Monster File Split (JS) ✅ COMPLETE
 
-Priority — this is the most impactful change.
+Split `_integrations_setup_modals.html` (7,612 lines) → 8 files + deleted original:
 
-1. Create `_integrations_shared.html` (shared infra)
-2. Extract each wizard into its own file
-3. Create dispatcher file
-4. Update `dashboard.html` includes
-5. Delete original monster file
-6. Verify server loads and all wizards open
+| File | Lines |
+|------|------:|
+| `_integrations_setup_shared.html` | 222 |
+| `_integrations_setup_git.html` | 493 |
+| `_integrations_setup_docker.html` | 1,303 |
+| `_integrations_setup_cicd.html` | 150 |
+| `_integrations_setup_k8s.html` | 4,576 → further split in 3B |
+| `_integrations_setup_terraform.html` | 154 |
+| `_integrations_setup_github.html` | 733 |
+| `_integrations_setup_dispatch.html` | 33 |
 
-### Phase 3B: K8s Wizard Helpers (JS)
+### Phase 3B: K8s Wizard Split (JS) ✅ COMPLETE
 
-Extract the helper subsystems from the K8s wizard:
+Split K8s wizard (4,576 lines) using Jinja inline includes into `k8s_wizard/` subfolder.
+Pure helpers extracted to separate `<script>` file; closure-bound code into raw JS files.
 
-1. `_integrations_setup_k8s_helpers.html`
-2. `_integrations_setup_k8s_env.html`
-3. `_integrations_setup_k8s_volumes.html`
-4. `_integrations_setup_k8s_containers.html`
+| File | Lines |
+|------|------:|
+| `_integrations_setup_k8s.html` (skeleton) | 37 |
+| `_integrations_setup_k8s_helpers.html` (window.* globals) | 135 |
+| `k8s_wizard/_raw_step1_detect.html` | 206 |
+| `k8s_wizard/_raw_step2_helpers.html` | 538 |
+| `k8s_wizard/_raw_step2_volumes.html` | 390 |
+| `k8s_wizard/_raw_step2_containers.html` | 517 |
+| `k8s_wizard/_raw_step2_app_services.html` | 731 |
+| `k8s_wizard/_raw_step2_infra.html` | 223 |
+| `k8s_wizard/_raw_step2_cluster.html` | 730 |
+| `k8s_wizard/_raw_step2_collectors.html` | 636 |
+| `k8s_wizard/_raw_step3_review.html` | 461 |
 
 ### Phase 3C: Python Service Splits
 

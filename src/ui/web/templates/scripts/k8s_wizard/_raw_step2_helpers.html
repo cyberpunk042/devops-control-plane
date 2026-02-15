@@ -1,0 +1,538 @@
+                // ── Step 2: Configure ──────────────────────────────────
+                {
+                    id: 'config', title: 'Configure',
+                    render: async (data, el) => {
+                        // ── Load saved wizard state (if any) ──
+                        try {
+                            const stRes = await api('/k8s/wizard-state');
+                            if (stRes?.ok) {
+                                data._wizardState = stRes;
+                            }
+                        } catch (_) { /* no saved state — use detection defaults */ }
+
+                        const projectName = (_wizardConfig && _wizardConfig.name) || 'app';
+                        const appName = projectName.replace(/[^a-z0-9-]/gi, '-').toLowerCase();
+                        const ghRepo = data._ghRepo || {};
+                        const appSvcs = data._appServices || [];
+                        const infraSvcs = data._infraServices || [];
+                        const envs = data._envs || [];
+                        const deployableModules = (data._classifiedModules || []).filter(m => m._class === 'deployable');
+                        const hasCompose = appSvcs.length > 0 || infraSvcs.length > 0;
+
+                        // ── Saved wizard state (if previously persisted) ──
+                        const _savedState = data._wizardState || null;
+                        const _savedSvc = (name) =>
+                            _savedState?._services?.find(s => s.name === name) || null;
+                        const _savedInfra = (name) =>
+                            _savedState?._infraDecisions?.find(d => d.name === name) || null;
+
+                        // Smart namespace default
+                        const defaultNamespace = envs.find(e => e.default)
+                            ? `${appName}-${envs.find(e => e.default).name}`
+                            : 'default';
+
+                        // ── Mini label/input helpers (same pattern as Docker wizard) ──
+                        const _lbl = (txt, sub) => `<label style="display:block;font-size:0.7rem;color:var(--text-muted);margin-bottom:2px">${txt}${sub ? ` <span style="font-size:0.62rem;opacity:0.7">(${sub})</span>` : ''}</label>`;
+                        const _inp = (id, val, ph) => `<input type="text" id="${id}" class="modal-form-input" value="${esc(val || '')}" placeholder="${ph || ''}" style="font-size:0.76rem;padding:0.2rem 0.3rem">`;
+                        const _num = (id, val) => `<input type="number" id="${id}" class="modal-form-input" value="${val}" style="font-size:0.76rem;padding:0.2rem 0.3rem;width:80px">`;
+                        const _sel = (id, opts, selected) => `<select id="${id}" class="modal-form-select" style="font-size:0.76rem;padding:0.2rem 0.3rem">${opts.map(o => `<option value="${o.v}"${o.v === selected ? ' selected' : ''}>${o.l}</option>`).join('')}</select>`;
+                        const _ta = (id, val, ph, rows) => `<textarea id="${id}" class="modal-form-input" rows="${rows || 2}" placeholder="${ph || ''}" style="font-size:0.72rem;padding:0.2rem 0.3rem;font-family:var(--font-mono,monospace);resize:vertical;min-height:38px">${esc(val || '')}</textarea>`;
+
+                        // ── Resource quantity validation helper ──
+                        // K8s CPU: 100m, 0.5, 1, 1500m    Memory: 128Mi, 1Gi, 256M
+                        const _isValidResQty = (v) => !v || /^\d+(\.\d+)?(m|Mi|Gi|Ki|Ti|M|G|K|T)?$/.test(v.trim());
+
+                        // ── QoS class helper — what K8s assigns based on resource config ──
+                        // Guaranteed: every container has limits==requests for both CPU and memory
+                        // Burstable:  at least one container has a request or limit set
+                        // BestEffort: no limits or requests at all
+                        const _qosHint = (cpuReq, cpuLim, memReq, memLim) => {
+                            const hasAny = cpuReq || cpuLim || memReq || memLim;
+                            if (!hasAny) return `<span style="color:var(--warning);font-size:0.64rem" title="No resource constraints — pod may be evicted first under pressure">⚠️ BestEffort</span>`;
+                            const allSet = cpuReq && cpuLim && memReq && memLim;
+                            const reqEqLim = allSet && cpuReq.trim() === cpuLim.trim() && memReq.trim() === memLim.trim();
+                            if (reqEqLim) return `<span style="color:var(--success);font-size:0.64rem" title="Requests equal limits — highest priority, never throttled">✅ Guaranteed</span>`;
+                            return `<span style="color:var(--accent);font-size:0.64rem" title="Some constraints set — can burst above requests up to limits">⚡ Burstable</span>`;
+                        };
+
+                        // ── Compose duration parser: "30s" → 30, "1m" → 60 ──
+                        const _parseDur = (s) => {
+                            if (!s) return null;
+                            const m = String(s).match(/^(\d+)(s|m|h)?$/);
+                            if (!m) return null;
+                            const v = parseInt(m[1]);
+                            return m[2] === 'm' ? v * 60 : m[2] === 'h' ? v * 3600 : v;
+                        };
+
+                        // ── Compose healthcheck → K8s probe type/fields parser ──
+                        // Detects: curl/wget → HTTP, nc -z → TCP, pg_isready/redis-cli/mysqladmin → Exec
+                        const _parseComposeProbe = (hc, svcPort) => {
+                            if (!hc || !hc.test) return { type: 'http', path: '/health', port: svcPort, command: '' };
+                            const test = typeof hc.test === 'string' ? hc.test
+                                : Array.isArray(hc.test) ? hc.test.slice(1).join(' ') : String(hc.test);
+                            // curl -f http://localhost:8080/health
+                            const curlM = test.match(/curl\s+[^]*?https?:\/\/[^:/]+(:(\d+))?(\/\S*)?/i);
+                            if (curlM) return { type: 'http', path: curlM[3] || '/health', port: parseInt(curlM[2]) || svcPort, command: '' };
+                            // wget --spider http://localhost:3000/healthz
+                            const wgetM = test.match(/wget\s+[^]*?https?:\/\/[^:/]+(:(\d+))?(\/\S*)?/i);
+                            if (wgetM) return { type: 'http', path: wgetM[3] || '/health', port: parseInt(wgetM[2]) || svcPort, command: '' };
+                            // nc -z localhost 5432
+                            const ncM = test.match(/nc\s+-z\s+\S+\s+(\d+)/);
+                            if (ncM) return { type: 'tcp', path: '', port: parseInt(ncM[1]) || svcPort, command: '' };
+                            // DB/cache exec patterns
+                            if (/pg_isready|mysqladmin\s+ping|redis-cli\s+ping|mongo.*--eval/.test(test))
+                                return { type: 'exec', path: '', port: svcPort, command: test };
+                            // Fallback: exec with raw command
+                            return { type: 'exec', path: '', port: svcPort, command: test };
+                        };
+
+                        // ── Probe HTML block generator ──
+                        // Generates complete probe config UI with type-dependent field visibility
+                        const _probeBlock = (prefix, label, probeType, path, port, command, delay, period, extra, extraLabel) => {
+                            // onchange for type select: toggle path/port/command visibility
+                            const typeOnchange = `var t=this.value;`
+                                + `var p=document.getElementById('${prefix}-path-w');`
+                                + `var pt=document.getElementById('${prefix}-port-w');`
+                                + `var c=document.getElementById('${prefix}-cmd-w');`
+                                + `if(p)p.style.display=t==='http'?'block':'none';`
+                                + `if(pt)pt.style.display=t!=='exec'?'block':'none';`
+                                + `if(c)c.style.display=t==='exec'?'block':'none'`;
+                            // onchange for enable checkbox: toggle entire probe config
+                            const enableOnchange = `var c=document.getElementById('${prefix}-cfg');if(c)c.style.display=this.checked?'block':'none'`;
+
+                            return `<div style="padding:0.3rem 0">
+                                <div style="display:flex;align-items:center;gap:0.4rem;margin-bottom:0.25rem">
+                                    <label style="display:inline-flex;align-items:center;gap:0.25rem;cursor:pointer">
+                                        <input type="checkbox" id="${prefix}-enable" checked style="accent-color:var(--accent);width:13px;height:13px"
+                                            onchange="${enableOnchange}">
+                                        <span style="font-weight:600;font-size:0.72rem;color:var(--text-primary)">${label}</span>
+                                    </label>
+                                    <select id="${prefix}-type" class="modal-form-select" style="font-size:0.72rem;padding:0.15rem 0.25rem"
+                                        onchange="${typeOnchange}">
+                                        <option value="http"${probeType === 'http' ? ' selected' : ''}>HTTP GET</option>
+                                        <option value="tcp"${probeType === 'tcp' ? ' selected' : ''}>TCP Socket</option>
+                                        <option value="exec"${probeType === 'exec' ? ' selected' : ''}>Exec</option>
+                                    </select>
+                                </div>
+                                <div id="${prefix}-cfg">
+                                    <div style="display:flex;gap:0.35rem;margin-bottom:0.2rem;flex-wrap:wrap">
+                                        <div id="${prefix}-path-w" style="display:${probeType === 'http' ? 'block' : 'none'};min-width:130px;flex:2">
+                                            ${_lbl('Path')}${_inp(`${prefix}-path`, path, '/health')}
+                                        </div>
+                                        <div id="${prefix}-port-w" style="display:${probeType !== 'exec' ? 'block' : 'none'};min-width:65px;flex:1">
+                                            ${_lbl('Port')}${_num(`${prefix}-port`, port)}
+                                        </div>
+                                        <div id="${prefix}-cmd-w" style="display:${probeType === 'exec' ? 'block' : 'none'};flex:1;min-width:180px">
+                                            ${_lbl('Command')}${_inp(`${prefix}-cmd`, command, 'pg_isready -U postgres')}
+                                        </div>
+                                    </div>
+                                    <div style="display:flex;gap:0.35rem;flex-wrap:wrap">
+                                        <div style="min-width:55px">
+                                            ${_lbl('Delay', 's')}${_num(`${prefix}-delay`, delay)}
+                                        </div>
+                                        <div style="min-width:55px">
+                                            ${_lbl('Period', 's')}${_num(`${prefix}-period`, period)}
+                                        </div>
+                                        <div style="min-width:55px">
+                                            ${_lbl(extraLabel)}${_num(`${prefix}-extra`, extra)}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>`;
+                        };
+
+                        // ── Secret key detection — loaded from DataRegistry ──
+                        const _SECRET_PATTERNS = window._dcp.secretPatterns;
+                        const _isSecretKey = (key) => {
+                            const lower = key.toLowerCase();
+                            return _SECRET_PATTERNS.some(p => lower.includes(p));
+                        };
+
+                        // ── Env var injection — multi-env awareness ──
+                        const isMultiEnv = envs.length > 1;
+                        const _ENV_DEPENDENT_KEYS = new Set([
+                            'node_env', 'app_env', 'environment', 'env',
+                            'log_level', 'debug', 'stage', 'deploy_env',
+                        ]);
+                        const _defaultInjType = (key) => {
+                            if (_isSecretKey(key)) return 'secret';
+                            if (isMultiEnv && _ENV_DEPENDENT_KEYS.has(key.toLowerCase())) return 'variable';
+                            return 'hardcoded';
+                        };
+
+                        // ── Build available vars/secrets from VAULT ──
+                        const _vaultKeys = data._vaultKeys || [];
+                        const _allEnvKeys = new Set();
+                        const _availableVars = [];   // vault config keys
+                        const _availableSecrets = []; // vault secret keys
+                        _vaultKeys.forEach(vk => {
+                            const k = vk.key;
+                            if (_allEnvKeys.has(k)) return;
+                            _allEnvKeys.add(k);
+                            if (vk.kind === 'secret') _availableSecrets.push(k);
+                            else _availableVars.push(k);
+                        });
+                        _availableVars.sort();
+                        _availableSecrets.sort();
+
+                        // ── Build per-infra env map (infra name → env keys) ──
+                        const _infraEnvMap = {};
+                        infraSvcs.forEach(svc => {
+                            _infraEnvMap[svc.name] = Object.keys(svc.environment || {});
+                        });
+
+                        // ── Infrastructure service catalog — reuse Docker's complete list ──
+                        // _infraOptions and _infraCategories are top-level constants (shared by all wizards).
+                        // Build a quick lookup map by key for add/re-add operations.
+                        const _INFRA_CATALOG = {};
+                        _infraOptions.forEach(opt => {
+                            _INFRA_CATALOG[opt.key] = opt;
+                        });
+                        window._INFRA_CATALOG = _INFRA_CATALOG;
+
+                        // ── Build <option> HTML for the var/secret select ──
+                        const _varSelectOpts = (injType, currentKey, currentVarName, svcIdx) => {
+                            // Build suggested keys based on checked deps for this service
+                            const suggestedSet = new Set();
+                            const infraKey = typeof svcIdx === 'string' && svcIdx.startsWith('infra-')
+                                ? svcIdx.replace(/^infra-/, '') : null;
+                            if (infraKey && _infraEnvMap[infraKey]) {
+                                // Infra service: suggest its own env fields
+                                _infraEnvMap[infraKey].forEach(k => suggestedSet.add(k));
+                            } else if (svcIdx !== undefined && svcIdx !== null) {
+                                // App service: suggest from checked deps
+                                const depCbs = document.querySelectorAll('.k8s-dep-' + svcIdx + ':checked');
+                                if (depCbs.length > 0) {
+                                    depCbs.forEach(cb => {
+                                        const depName = cb.value;
+                                        (_infraEnvMap[depName] || []).forEach(k => suggestedSet.add(k));
+                                    });
+                                } else if (document.querySelectorAll('.k8s-dep-' + svcIdx).length === 0) {
+                                    // DOM not ready — fallback to all
+                                    Object.values(_infraEnvMap).forEach(keys => keys.forEach(k => suggestedSet.add(k)));
+                                }
+                            } else {
+                                // No svcIdx — show all
+                                Object.values(_infraEnvMap).forEach(keys => keys.forEach(k => suggestedSet.add(k)));
+                            }
+                            const _suggestedKeys = [...suggestedSet].sort();
+                            const dlr = '$';
+                            const match = currentVarName || (dlr + '{' + currentKey + '}');
+                            const shown = new Set();
+                            let opts = '';
+                            // Default: self-reference (always first)
+                            if (currentKey) {
+                                const selfVal = dlr + '{' + currentKey + '}';
+                                opts += '<option value="' + esc(selfVal) + '"' + (match === selfVal ? ' selected' : '') + '>' + dlr + '{' + esc(currentKey) + '}</option>';
+                                shown.add(currentKey);
+                            }
+                            // Suggested (from compose detection)
+                            const suggested = _suggestedKeys.filter(k => !shown.has(k));
+                            if (suggested.length > 0) {
+                                opts += '<optgroup label="Suggested">';
+                                suggested.forEach(k => {
+                                    const val = dlr + '{' + k + '}';
+                                    opts += '<option value="' + esc(val) + '"' + (match === val ? ' selected' : '') + '>' + dlr + '{' + esc(k) + '}</option>';
+                                    shown.add(k);
+                                });
+                                opts += '</optgroup>';
+                            }
+                            // Vault Secrets
+                            const secrets = _availableSecrets.filter(k => !shown.has(k));
+                            if (secrets.length > 0) {
+                                opts += '<optgroup label="Secrets">';
+                                secrets.forEach(k => {
+                                    const val = dlr + '{' + k + '}';
+                                    opts += '<option value="' + esc(val) + '"' + (match === val ? ' selected' : '') + '>' + dlr + '{' + esc(k) + '}</option>';
+                                    shown.add(k);
+                                });
+                                opts += '</optgroup>';
+                            }
+                            // Vault Variables
+                            const vars = _availableVars.filter(k => !shown.has(k));
+                            if (vars.length > 0) {
+                                opts += '<optgroup label="Variables">';
+                                vars.forEach(k => {
+                                    const val = dlr + '{' + k + '}';
+                                    opts += '<option value="' + esc(val) + '"' + (match === val ? ' selected' : '') + '>' + dlr + '{' + esc(k) + '}</option>';
+                                    shown.add(k);
+                                });
+                                opts += '</optgroup>';
+                            }
+                            // Custom option
+                            const stripped = match ? match.replace(/^\$\{|\}$/g, '') : '';
+                            const isCustom = stripped && stripped !== currentKey && !_allEnvKeys.has(stripped);
+                            opts += '<option value="__custom__"' + (isCustom ? ' selected' : '') + '>Custom...</option>';
+                            return opts;
+                        };
+
+                        // ── Per-variable row HTML builder ──
+                        const _envRowHtml = (i, j, key, value, injType, varName, svcIdx) => {
+                            const isSubst = injType !== 'hardcoded';
+                            const isSec = injType === 'secret';
+                            const dlr = '$';
+                            const varN = varName || (isSubst ? dlr + '{' + key + '}' : '');
+                            const isCustomVar = varN && key && varN !== (dlr + '{' + key + '}') && !_allEnvKeys.has(varN.replace(/^\$\{|\}$/g, ''));
+                            const selKey = isSubst ? (varN.replace(/^\$\{/, '').replace(/\}$/, '') || key) : key;
+                            const varMissing = isSubst && selKey && !_allEnvKeys.has(selKey);
+                            return '<div class="k8s-env-row" style="margin-bottom:0.15rem">'
+                                // ── Grid row ──
+                                + '<div style="display:grid;grid-template-columns:2fr 2fr 1.5fr 1.2fr auto;gap:0.25rem;align-items:center">'
+                                + '<input type="text" id="k8s-svc-env-key-' + i + '-' + j + '" class="modal-form-input"'
+                                + ' value="' + esc(key) + '" placeholder="KEY_NAME"'
+                                + ' oninput="if(!this.dataset.envTs)this.dataset.envTs=Date.now();window._wizValidation.recheck(\'k8s\')"'
+                                + ' style="font-size:0.82rem;padding:0.25rem 0.35rem;font-family:var(--font-mono,monospace)">'
+                                + '<input type="' + (isSec ? 'password' : 'text') + '" id="k8s-svc-env-val-' + i + '-' + j + '" class="modal-form-input"'
+                                + ' value="' + esc(value) + '" placeholder="' + (isSec ? '••••••' : 'value') + '"'
+                                + ' style="font-size:0.82rem;padding:0.25rem 0.35rem;font-family:var(--font-mono,monospace)"' + (isSubst ? ' hidden' : '') + '>'
+                                + '<div id="k8s-svc-env-varbox-' + i + '-' + j + '"' + (isSubst ? '' : ' hidden') + '>'
+                                +   '<select id="k8s-svc-env-var-' + i + '-' + j + '" class="modal-form-select" data-i="' + i + '" data-j="' + j + '"'
+                                +   ' style="font-size:0.82rem;padding:0.25rem 0.35rem;color:var(--accent)"'
+                                +   ' onchange="window._onVarSelect(this)">'
+                                +   (isSubst ? _varSelectOpts(injType, key, varN, svcIdx !== undefined ? svcIdx : i) : '<option>--</option>')
+                                +   '</select>'
+                                +   '<input type="text" id="k8s-svc-env-varcustom-' + i + '-' + j + '" class="modal-form-input"'
+                                +   ' value="' + (isCustomVar ? esc(varN) : '') + '" placeholder="' + dlr + '{MY_VAR}"'
+                                +   ' style="font-size:0.82rem;padding:0.25rem 0.35rem;font-family:var(--font-mono,monospace);color:var(--accent);margin-top:2px;display:' + (isCustomVar ? '' : 'none') + '">'
+                                + '</div>'
+                                + '<select id="k8s-svc-env-type-' + i + '-' + j + '" class="modal-form-select" data-i="' + i + '" data-j="' + j + '"'
+                                + ' style="font-size:0.82rem;padding:0.25rem 0.35rem"'
+                                + ' onchange="((sel)=>{'
+                                +   'var si=sel.dataset.i,sj=sel.dataset.j;'
+                                +   'var vb=document.getElementById(\'k8s-svc-env-varbox-\'+si+\'-\'+sj);'
+                                +   'var ve=document.getElementById(\'k8s-svc-env-val-\'+si+\'-\'+sj);'
+                                +   'var vs=document.getElementById(\'k8s-svc-env-var-\'+si+\'-\'+sj);'
+                                +   'var isSub=sel.value!==\'hardcoded\';'
+                                +   'if(vb)vb.hidden=!isSub;'
+                                +   'if(ve)ve.hidden=isSub;'
+                                +   'if(!isSub){var nt=document.getElementById(\'k8s-svc-env-notice-\'+si+\'-\'+sj);if(nt)nt.hidden=true;}'
+                                +   'if(vs&&isSub){vs.innerHTML=window._varSelectOpts(sel.value,document.getElementById(\'k8s-svc-env-key-\'+si+\'-\'+sj).value,\'\',si);window._onVarSelect(vs);}'
+                                +   'if(typeof _updateEnvSummary===\'function\')_updateEnvSummary(si);'
+                                +   'window._wizValidation.recheck(\'k8s\');'
+                                + '})(this)">'
+                                + '<option value="hardcoded"' + (injType === 'hardcoded' ? ' selected' : '') + '>📋 Hardcoded</option>'
+                                + '<option value="variable"' + (injType === 'variable' ? ' selected' : '') + '>🔄 Variable</option>'
+                                + '<option value="secret"' + (injType === 'secret' ? ' selected' : '') + '>🔒 Secret</option>'
+                                + '</select>'
+                                + '<button type="button" onclick="this.closest(\'.k8s-env-row\').remove();if(typeof _updateEnvSummary===\'function\')_updateEnvSummary(\'' + i + '\');window._wizValidation.recheck(\'k8s\')"'
+                                + ' style="background:none;border:none;cursor:pointer;font-size:0.82rem;color:var(--text-muted);padding:0 2px"'
+                                + ' title="Remove variable">✕</button>'
+                                + '</div>'
+                                // ── Notice (below the grid, outside it) ──
+                                + '<div id="k8s-svc-env-notice-' + i + '-' + j + '"' + (varMissing ? '' : ' hidden')
+                                + ' style="font-size:0.78rem;color:var(--warning,#e8a820);margin:2px 0 4px;padding:4px 6px;border-radius:4px;background:rgba(232,168,32,0.06);border:1px solid rgba(232,168,32,0.15)">'
+                                +   '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">'
+                                +     '<span>\u26a0\ufe0f <strong id="k8s-svc-env-notice-name-' + i + '-' + j + '">' + esc(selKey) + '</strong> does not exist yet</span>'
+                                +     '<label style="display:flex;align-items:center;gap:3px;cursor:pointer">'
+                                +       '<input type="checkbox" id="k8s-svc-env-create-' + i + '-' + j + '" checked style="margin:0">'
+                                +       '<span>Create on execution</span>'
+                                +     '</label>'
+                                +   '</div>'
+                                +   '<div id="k8s-svc-env-valbox-' + i + '-' + j + '" style="display:flex;align-items:center;gap:4px;margin-top:3px">'
+                                +     '<input type="text" id="k8s-svc-env-newval-' + i + '-' + j + '" class="modal-form-input"'
+                                +     ' placeholder="value (leave empty or generate)" style="flex:1;font-size:0.78rem;padding:0.25rem 0.35rem;font-family:var(--font-mono,monospace)">'
+                                +     '<button type="button" onclick="window._generateVarValue(this)" data-i="' + i + '" data-j="' + j + '"'
+                                +     ' style="font-size:0.78rem;padding:0.25rem 0.5rem;border:1px solid var(--border-subtle);border-radius:3px;background:var(--bg-card);cursor:pointer;white-space:nowrap"'
+                                +     ' title="Generate a random value">🎲 Generate</button>'
+                                +   '</div>'
+                                +   '<div id="k8s-svc-env-elsewhere-' + i + '-' + j + '" hidden style="font-size:0.76rem;color:var(--text-muted);font-style:italic;margin-top:3px">'
+                                +     '\u2139\ufe0f Value already being created by <strong id="k8s-svc-env-elsewhere-src-' + i + '-' + j + '"></strong>'
+                                +   '</div>'
+                                + '</div>'
+                                + '<div id="k8s-svc-env-dupe-' + i + '-' + j + '" hidden'
+                                + ' style="font-size:0.76rem;margin:1px 0 3px;padding:3px 6px;border-radius:4px">'
+                                + '</div>'
+                                + '</div>';
+                        };
+
+                        // Expose for dynamic onchange use
+                        window._varSelectOpts = _varSelectOpts;
+                        window._allEnvKeysSet = _allEnvKeys;
+
+                        // ── Var select onchange: check existence, show notice ──
+                        window._onVarSelect = (sel) => {
+                            const ci = sel.dataset.i, cj = sel.dataset.j;
+                            const tb = document.getElementById('k8s-svc-env-varcustom-' + ci + '-' + cj);
+                            const nt = document.getElementById('k8s-svc-env-notice-' + ci + '-' + cj);
+                            if (sel.value === '__custom__') {
+                                if (tb) tb.style.display = '';
+                                if (nt) nt.hidden = true;
+                            } else {
+                                if (tb) tb.style.display = 'none';
+                                if (nt) {
+                                    const varKey = sel.value.replace(/^\$\{/, '').replace(/\}$/, '');
+                                    // Smart key sync: update key if empty or still matches prev var
+                                    const keyInput = document.getElementById('k8s-svc-env-key-' + ci + '-' + cj);
+                                    if (keyInput) {
+                                        const curKey = keyInput.value.trim().toUpperCase();
+                                        const prevVar = (keyInput.dataset.lastVar || '').toUpperCase();
+                                        if (!curKey || curKey === prevVar) {
+                                            keyInput.value = varKey;
+                                            keyInput.dataset.envTs = Date.now();
+                                        }
+                                        keyInput.dataset.lastVar = varKey;
+                                    }
+                                    const exists = _allEnvKeys.has(varKey);
+                                    nt.hidden = exists;
+                                    const nameEl = document.getElementById('k8s-svc-env-notice-name-' + ci + '-' + cj);
+                                    if (nameEl) nameEl.textContent = varKey;
+                                    const valbox = document.getElementById('k8s-svc-env-valbox-' + ci + '-' + cj);
+                                    const elsewhere = document.getElementById('k8s-svc-env-elsewhere-' + ci + '-' + cj);
+                                    if (!exists && varKey) {
+                                        if (valbox) valbox.style.display = 'flex';
+                                        if (elsewhere) elsewhere.hidden = true;
+                                    } else {
+                                        if (valbox) valbox.style.display = 'flex';
+                                        if (elsewhere) elsewhere.hidden = true;
+                                    }
+                                }
+                            }
+                            // Shared symmetric collision check
+                            window._wizValidation.recheck('k8s');
+                        };
+                        // ── Refresh env selects when deps change ──
+                        window._refreshEnvSelects = (svcIdx) => {
+                            const list = document.getElementById('k8s-svc-env-list-' + svcIdx);
+                            if (!list) return;
+                            list.querySelectorAll('.k8s-env-row').forEach(row => {
+                                const keyEl = row.querySelector('[id^="k8s-svc-env-key-"]');
+                                if (!keyEl) return;
+                                const j = keyEl.id.split('-').pop();
+                                const typeSel = document.getElementById('k8s-svc-env-type-' + svcIdx + '-' + j);
+                                const varSel = document.getElementById('k8s-svc-env-var-' + svcIdx + '-' + j);
+                                if (!typeSel || !varSel || typeSel.value === 'hardcoded') return;
+                                const keySel = document.getElementById('k8s-svc-env-key-' + svcIdx + '-' + j);
+                                const currentKey = keySel ? keySel.value : '';
+                                const currentVar = varSel.value;
+                                varSel.innerHTML = window._varSelectOpts(typeSel.value, currentKey, currentVar, svcIdx);
+                                window._onVarSelect(varSel);
+                            });
+                        };
+
+                        // ── Generate random value for the notice input ──
+                        window._generateVarValue = (btn) => {
+                            const ci = btn.dataset.i, cj = btn.dataset.j;
+                            const inp = document.getElementById('k8s-svc-env-newval-' + ci + '-' + cj);
+                            if (!inp) return;
+                            const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#%&*';
+                            let val = '';
+                            for (let n = 0; n < 32; n++) val += chars[Math.floor(Math.random() * chars.length)];
+                            inp.value = val;
+                        };
+
+                        // Band-aid _recheckAllEnvCollisions removed — replaced by shared
+                        // window._wizValidation.recheck('k8s') via the registry system.
+
+                        // ── Add variable button handler ──
+                        window._addEnvVar = (i) => {
+                            const list = document.getElementById('k8s-svc-env-list-' + i);
+                            if (!list) return;
+                            // Find max existing j to avoid ID collisions after row deletions
+                            let maxJ = -1;
+                            list.querySelectorAll('.k8s-env-row').forEach(row => {
+                                const keyInput = row.querySelector('[id^="k8s-svc-env-key-"]');
+                                if (keyInput) {
+                                    const parts = keyInput.id.split('-');
+                                    const jVal = parseInt(parts[parts.length - 1]);
+                                    if (!isNaN(jVal) && jVal > maxJ) maxJ = jVal;
+                                }
+                            });
+                            const j = maxJ + 1;
+                            const row = document.createElement('div');
+                            row.innerHTML = _envRowHtml(i, j, '', '', 'hardcoded', '', i);
+                            list.appendChild(row.firstElementChild);
+                            _updateEnvSummary(i);
+                            window._wizValidation.recheck('k8s');
+                        };
+
+                        // ── Live summary updater ──
+                        window._updateEnvSummary = (i) => {
+                            const sumEl = document.getElementById('k8s-svc-env-summary-' + i);
+                            if (!sumEl) return;
+                            const list = document.getElementById('k8s-svc-env-list-' + i);
+                            if (!list) return;
+                            let hc = 0, vr = 0, sc = 0;
+                            list.querySelectorAll('.k8s-env-row').forEach(row => {
+                                // Extract actual j from key input ID (k8s-svc-env-key-{i}-{j})
+                                const keyEl = row.querySelector('[id^="k8s-svc-env-key-"]');
+                                if (!keyEl) return;
+                                const parts = keyEl.id.split('-');
+                                const j = parts[parts.length - 1];
+                                const sel = document.getElementById('k8s-svc-env-type-' + i + '-' + j);
+                                const key = document.getElementById('k8s-svc-env-key-' + i + '-' + j);
+                                if (!sel || !key || !key.value.trim()) return;
+                                if (sel.value === 'secret') sc++;
+                                else if (sel.value === 'variable') vr++;
+                                else hc++;
+                            });
+                            const dlr = '$';
+                            const parts = [];
+                            if (hc + vr > 0) parts.push('📋 ConfigMap: ' + hc + ' hardcoded' + (vr > 0 ? ', ' + vr + ' ' + dlr + '{VAR}' : ''));
+                            if (sc > 0) parts.push('🔒 Secret: ' + sc + ' key' + (sc !== 1 ? 's' : '') + ' (' + dlr + '{VAR} at deploy)');
+                            if (parts.length === 0) parts.push('No environment variables configured');
+                            sumEl.innerHTML = parts.join(' &nbsp;\u00b7&nbsp; ');
+                        };
+
+                        // ── Collect env vars from per-variable rows ──
+                        window._collectEnvVars = (i) => {
+                            const list = document.getElementById('k8s-svc-env-list-' + i);
+                            if (!list) return [];
+                            const vars = [];
+                            list.querySelectorAll('.k8s-env-row').forEach(row => {
+                                // Extract actual j from key input ID (k8s-svc-env-key-{i}-{j})
+                                const keyEl = row.querySelector('[id^="k8s-svc-env-key-"]');
+                                if (!keyEl) return;
+                                const parts = keyEl.id.split('-');
+                                const j = parts[parts.length - 1];
+                                const key = (document.getElementById('k8s-svc-env-key-' + i + '-' + j) || {}).value || '';
+                                if (!key.trim()) return;
+                                const type = (document.getElementById('k8s-svc-env-type-' + i + '-' + j) || {}).value || 'hardcoded';
+                                const value = (document.getElementById('k8s-svc-env-val-' + i + '-' + j) || {}).value || '';
+                                const varSel = document.getElementById('k8s-svc-env-var-' + i + '-' + j);
+                                const varCustom = document.getElementById('k8s-svc-env-varcustom-' + i + '-' + j);
+                                let varName = null;
+                                if (type !== 'hardcoded') {
+                                    if (varSel && varSel.value === '__custom__' && varCustom && varCustom.value.trim()) {
+                                        varName = varCustom.value.trim();
+                                    } else if (varSel && varSel.value && varSel.value !== '__custom__') {
+                                        varName = varSel.value;
+                                    } else {
+                                        varName = '${' + key.trim() + '}';
+                                    }
+                                }
+                                // Check if "Create on execution" is checked + new value
+                                const createChk = document.getElementById('k8s-svc-env-create-' + i + '-' + j);
+                                const newValInp = document.getElementById('k8s-svc-env-newval-' + i + '-' + j);
+                                const notice = document.getElementById('k8s-svc-env-notice-' + i + '-' + j);
+                                const createInVault = notice && !notice.hidden && createChk && createChk.checked;
+                                const newValue = createInVault && newValInp ? newValInp.value.trim() : '';
+                                vars.push({ key: key.trim(), type, value: value.trim(), varName, createInVault: !!createInVault, newValue });
+                            });
+                            return vars;
+                        };
+                        const _collectEnvVars = window._collectEnvVars;
+
+                        // ── StorageClass catalog — loaded from DataRegistry ──
+                        // Deep-clone because the K8s wizard mutates items (adds _detected flags)
+                        const _SC_CATALOG = JSON.parse(JSON.stringify(window._dcp.storageClasses));
+                        // Build a flat lookup for Longhorn-like detection
+                        const _SC_FLAT = {};
+                        _SC_CATALOG.forEach(g => g.items.forEach(sc => { _SC_FLAT[sc.name] = sc; }));
+
+                        // Build StorageClass <select> options from catalog
+                        const _scSelectHtml = () => {
+                            let h = '<option value="">(cluster default — no StorageClass in PVC)</option>';
+                            _SC_CATALOG.forEach(g => {
+                                h += '<optgroup label="' + esc(g.group) + '">';
+                                g.items.forEach(sc => {
+                                    const detected = sc._detected ? ' ✓' : '';
+                                    h += '<option value="' + esc(sc.name) + '" title="' + esc(sc.provisioner) + '">' + esc(sc.name) + ' — ' + esc(sc.hint) + detected + '</option>';
+                                });
+                                h += '</optgroup>';
+                            });
+                            h += '<optgroup label="Other">';
+                            h += '<option value="_custom">✏️ Custom (type name)…</option>';
+                            h += '</optgroup>';
+                            return h;
+                        };
+

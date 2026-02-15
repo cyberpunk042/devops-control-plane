@@ -1,0 +1,731 @@
+                        // ═══════════════════════════════════════════════════
+                        // ── Section A: Application Services ───────────────
+                        // ═══════════════════════════════════════════════════
+
+                        if (hasCompose && appSvcs.length > 0) {
+                            html += wizSection('Application Deployments',
+                                `${appSvcs.length} service${appSvcs.length !== 1 ? 's' : ''} from Docker Compose. Select which to deploy and configure each.`);
+
+                            html += `<div style="display:flex;flex-direction:column;gap:0.5rem" id="k8s-app-svc-list">`;
+                            for (let i = 0; i < appSvcs.length; i++) {
+                                const svc = appSvcs[i];
+                                svc._kindDefault = _classifyWorkloadKind(svc);
+                                svc._kindHint = _kindHint(svc._kindDefault, svc);
+                                const imgStr = svc._image || `${svc.name}:latest`;
+                                const portVal = svc._port || 8080;
+                                const envKeys = Object.keys(svc.environment || {});
+                                const envVals = svc.environment || {};
+                                const volCount = (svc.volumes || []).length;
+                                const hc = svc.healthcheck;
+                                const dp = svc.deploy;  // {replicas, cpu_limit, memory_limit, cpu_request, memory_request} | null
+                                const hasDeps = (svc.depends_on || []).length > 0;
+
+                                // Detect named volumes (not bind mounts) — suggests Recreate strategy
+                                // Named volumes: "vol-name:/path" (no slash/dot in source)
+                                // Bind mounts: "./src:/app" or "/host/path:/container" (has path separator in source)
+                                const hasNamedVols = (svc.volumes || []).some(v => {
+                                    const src = v.split(':')[0];
+                                    return src && !src.includes('/') && !src.startsWith('.');
+                                });
+                                const defaultStrategy = hasNamedVols ? 'Recreate' : 'RollingUpdate';
+
+                                // Pre-compute compose-sourced resource defaults
+                                const compCpuReq = (dp && dp.cpu_request) || '';
+                                const compCpuLim = (dp && dp.cpu_limit) || '';
+                                const compMemReq = (dp && dp.memory_request) || '';
+                                const compMemLim = (dp && dp.memory_limit) || '';
+                                const hasComposeRes = compCpuReq || compCpuLim || compMemReq || compMemLim;
+
+                                // ── Saved state lookup (per-service) ──
+                                const saved = _savedSvc(svc.name);
+                                // Effective values: saved state takes priority, detection as fallback
+                                const effKind     = saved?.kind ?? svc._kindDefault;
+                                const effImage    = saved?.image || imgStr;
+                                const effPort     = saved?.port ?? portVal;
+                                const effReplicas = saved?.replicas ?? (dp && dp.replicas ? dp.replicas : 2);
+                                const effSvcType  = saved?.serviceType || 'ClusterIP';
+                                const effStrategy = saved?.strategy || defaultStrategy;
+                                const effMaxSurge = saved?.maxSurge || '1';
+                                const effMaxUnavail = saved?.maxUnavailable || '1';
+                                const effCpuReq   = saved?.resources?.cpu_request || compCpuReq;
+                                const effCpuLim   = saved?.resources?.cpu_limit || compCpuLim;
+                                const effMemReq   = saved?.resources?.memory_request || compMemReq;
+                                const effMemLim   = saved?.resources?.memory_limit || compMemLim;
+
+                                html += `<div style="border:1px solid var(--border-subtle);border-radius:8px;background:var(--bg-inset);overflow:hidden" id="k8s-svc-card-${i}">
+                                    <label style="display:flex;align-items:center;gap:0.5rem;padding:0.5rem 0.6rem;cursor:pointer;font-size:0.82rem"
+                                        onmouseover="this.parentElement.style.borderColor='var(--accent)'" onmouseout="this.parentElement.style.borderColor='var(--border-subtle)'">
+                                        <input type="checkbox" id="k8s-svc-chk-${i}" checked style="accent-color:var(--accent)"
+                                            onchange="document.getElementById('k8s-svc-cfg-${i}').style.display=this.checked?'block':'none'">
+                                        <span style="font-size:1rem" id="k8s-svc-icon-${i}">${_kindIcon(effKind)}</span>
+                                        <strong>${esc(svc.name)}</strong>
+                                        <code style="font-size:0.72rem;background:var(--bg-primary);padding:1px 5px;border-radius:3px;color:var(--text-secondary)">${esc(svc.image ? svc.image.split('/').pop().split(':')[0] : 'local build')}</code>
+                                        <span style="flex:1"></span>
+                                        ${portVal ? `<code style="font-size:0.68rem;color:var(--text-muted)">:${portVal}</code>` : ''}
+                                        <select id="k8s-svc-kind-${i}" class="modal-form-select"
+                                            style="font-size:0.68rem;padding:0.1rem 0.3rem;min-width:110px;color:var(--success);font-weight:600;border-color:transparent;background:transparent"
+                                            onclick="event.stopPropagation()" onmousedown="event.stopPropagation()"
+                                            onchange="var ic=document.getElementById('k8s-svc-icon-'+${i});var hn=document.getElementById('k8s-svc-kind-hint-'+${i});if(ic)ic.textContent={'Deployment':'🚀','StatefulSet':'🗄️','DaemonSet':'🌐','Job':'⚡','CronJob':'⏰','Skip':'⏭️'}[this.value]||'📦';if(hn)hn.textContent='';window._k8sToggleKindPanels(${i},this.value)">
+                                            <option value="Deployment"${effKind === 'Deployment' ? ' selected' : ''}>Deployment</option>
+                                            <option value="StatefulSet"${effKind === 'StatefulSet' ? ' selected' : ''}>StatefulSet</option>
+                                            <option value="DaemonSet"${effKind === 'DaemonSet' ? ' selected' : ''}>DaemonSet</option>
+                                            <option value="Job"${effKind === 'Job' ? ' selected' : ''}>Job</option>
+                                            <option value="CronJob"${effKind === 'CronJob' ? ' selected' : ''}>CronJob</option>
+                                            <option value="Skip"${effKind === 'Skip' ? ' selected' : ''}>Skip</option>
+                                        </select>
+                                    </label>
+                                    ${(!saved && svc._kindHint) ? `<div id="k8s-svc-kind-hint-${i}" style="font-size:0.62rem;color:var(--text-muted);padding:0 0.6rem 0.2rem;font-style:italic">${svc._kindHint}</div>` : `<div id="k8s-svc-kind-hint-${i}" style="font-size:0.62rem;color:var(--text-muted);padding:0 0.6rem 0.2rem;font-style:italic"></div>`}
+                                    <!-- Skip banner (hidden by default) -->
+                                    <div id="k8s-svc-skip-banner-${i}" style="display:none;padding:0.6rem;margin:0 0.6rem 0.5rem;background:var(--bg-primary);border-radius:6px;border:1px dashed var(--border-subtle);text-align:center">
+                                        <div style="font-size:0.9rem;margin-bottom:0.15rem">⏭️</div>
+                                        <div style="font-size:0.72rem;color:var(--text-muted);font-weight:600">Excluded</div>
+                                        <div style="font-size:0.66rem;color:var(--text-muted);font-style:italic">This service will not be deployed to Kubernetes.</div>
+                                    </div>
+                                    <div id="k8s-svc-cfg-${i}" style="padding:0 0.6rem 0.5rem;display:${effKind === 'Skip' ? 'none' : 'block'}">`;
+                                html += `
+                                        <!-- ─── Primary settings row (shared: image always visible) ─── -->
+                                        <div style="display:grid;grid-template-columns:3fr 1fr 1fr 1fr;gap:0.4rem;align-items:start">
+                                            <div><span class="k8s-field-img">${_lbl('Container Image')}${_inp(`k8s-svc-img-${i}`, effImage, 'ghcr.io/user/app:latest')}</span></div>
+                                            <div id="k8s-svc-port-wrap-${i}">${_lbl('Port')}${_num(`k8s-svc-port-${i}`, effPort)}</div>
+                                            <div id="k8s-svc-replicas-wrap-${i}">${_lbl('Replicas')}${_num(`k8s-svc-replicas-${i}`, effReplicas)}</div>
+                                            <div id="k8s-svc-svctype-wrap-${i}">${_lbl('Service Type')}${_sel(`k8s-svc-type-${i}`, [
+                                                {v:'ClusterIP', l:'ClusterIP'},
+                                                {v:'NodePort', l:'NodePort'},
+                                                {v:'LoadBalancer', l:'LoadBalancer'}
+                                            ], effSvcType)}</div>
+                                        </div>
+
+                                        <!-- ── Deployment/StatefulSet/DaemonSet-only sections ── -->
+                                        <div id="k8s-svc-deploy-sections-${i}">
+                                        <!-- ─── Update Strategy ─── -->
+                                        <div style="display:flex;align-items:end;gap:0.4rem;margin-top:0.35rem;flex-wrap:wrap">
+                                            <div style="min-width:140px">
+                                                ${_lbl('Update Strategy')}
+                                                <select id="k8s-svc-strategy-${i}" class="modal-form-select" style="font-size:0.76rem;padding:0.2rem 0.3rem;width:100%"
+                                                    onchange="var r=document.getElementById('k8s-svc-rolling-${i}');var h=document.getElementById('k8s-svc-strat-hint-${i}');if(r)r.style.display=this.value==='RollingUpdate'?'flex':'none';if(h)h.style.display=this.value==='Recreate'?'block':'none'">
+                                                    <option value="RollingUpdate"${effStrategy === 'RollingUpdate' ? ' selected' : ''}>RollingUpdate</option>
+                                                    <option value="Recreate"${effStrategy === 'Recreate' ? ' selected' : ''}>Recreate</option>
+                                                </select>
+                                            </div>
+                                            <div id="k8s-svc-rolling-${i}" style="display:${effStrategy === 'RollingUpdate' ? 'flex' : 'none'};align-items:end;gap:0.4rem">
+                                                <div style="min-width:80px">
+                                                    ${_lbl('Max Surge')}
+                                                    ${_inp(`k8s-svc-maxsurge-${i}`, effMaxSurge, '1')}
+                                                </div>
+                                                <div style="min-width:80px">
+                                                    ${_lbl('Max Unavailable')}
+                                                    ${_inp(`k8s-svc-maxunavail-${i}`, effMaxUnavail, '1')}
+                                                </div>
+                                            </div>
+                                            <div id="k8s-svc-strat-hint-${i}" style="display:${defaultStrategy === 'Recreate' ? 'block' : 'none'};font-size:0.62rem;color:var(--text-muted);font-style:italic;padding-bottom:0.1rem">
+                                                ${hasNamedVols
+                                                    ? '💡 Recreate recommended — named volumes with ReadWriteOnce PVCs prevent two pods mounting simultaneously during rollout'
+                                                    : '💡 Kills all pods before creating new ones — causes brief downtime but avoids version conflicts'
+                                                }
+                                            </div>
+                                        </div>
+                                        </div><!-- end deploy-sections -->
+
+                                        <!-- ── Job/CronJob-only sections (hidden by default) ── -->
+                                        <div id="k8s-svc-job-sections-${i}" style="display:none">
+                                            <div style="margin-top:0.35rem;padding:0.4rem;background:var(--bg-primary);border-radius:6px;border:1px solid var(--border-subtle)">
+                                                <div style="font-size:0.68rem;color:var(--accent);font-weight:600;margin-bottom:0.3rem">⚡ Job Configuration</div>
+                                                <div style="display:grid;grid-template-columns:3fr 2fr 1fr;gap:0.4rem;align-items:start">
+                                                    <div>${_lbl('Command')}${_inp(`k8s-svc-job-cmd-${i}`, '', '/bin/sh -c "…"')}</div>
+                                                    <div>${_lbl('Args (optional)')}${_inp(`k8s-svc-job-args-${i}`, '', 'arg1 arg2 …')}</div>
+                                                    <div>${_lbl('Restart Policy')}${_sel(`k8s-svc-job-restart-${i}`, [
+                                                        {v:'Never', l:'Never'},
+                                                        {v:'OnFailure', l:'OnFailure'},
+                                                    ], 'Never')}</div>
+                                                </div>
+                                                <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:0.4rem;margin-top:0.3rem;align-items:start">
+                                                    <div>${_lbl('Backoff Limit')}${_num(`k8s-svc-job-backoff-${i}`, 3)}</div>
+                                                    <div>${_lbl('Completions')}${_num(`k8s-svc-job-completions-${i}`, 1)}</div>
+                                                    <div>${_lbl('Parallelism')}${_num(`k8s-svc-job-parallelism-${i}`, 1)}</div>
+                                                    <div>${_lbl('Timeout (s)')}${_num(`k8s-svc-job-timeout-${i}`, 600)}</div>
+                                                </div>
+                                                <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.4rem;margin-top:0.3rem;align-items:start">
+                                                    <div>${_lbl('TTL After Finished (s)')}${_num(`k8s-svc-job-ttl-${i}`, 3600)}</div>
+                                                    <div style="font-size:0.6rem;color:var(--text-muted);font-style:italic;padding-top:1.2rem">TTL = auto-cleanup delay after completion</div>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <!-- ── CronJob-only sections (hidden by default) ── -->
+                                        <div id="k8s-svc-cron-sections-${i}" style="display:none">
+                                            <div style="margin-top:0.35rem;padding:0.4rem;background:var(--bg-primary);border-radius:6px;border:1px solid var(--border-subtle)">
+                                                <div style="font-size:0.68rem;color:var(--accent);font-weight:600;margin-bottom:0.3rem">⏰ CronJob Schedule</div>
+                                                <div style="display:grid;grid-template-columns:2fr 2fr 1fr;gap:0.4rem;align-items:start">
+                                                    <div>
+                                                        ${_lbl('Schedule (cron)')}${_inp(`k8s-svc-cron-schedule-${i}`, '*/5 * * * *', '*/5 * * * *')}
+                                                        <div id="k8s-svc-cron-preview-${i}" style="font-size:0.58rem;color:var(--text-muted);margin-top:2px">Every 5 minutes</div>
+                                                    </div>
+                                                    <div>${_lbl('Concurrency Policy')}${_sel(`k8s-svc-cron-concurrency-${i}`, [
+                                                        {v:'Allow', l:'Allow (overlap OK)'},
+                                                        {v:'Forbid', l:'Forbid (skip if running)'},
+                                                        {v:'Replace', l:'Replace (kill + restart)'},
+                                                    ], 'Forbid')}</div>
+                                                    <div>
+                                                        <label style="display:inline-flex;align-items:center;gap:0.3rem;font-size:0.72rem;cursor:pointer;margin-top:1rem">
+                                                            <input type="checkbox" id="k8s-svc-cron-suspend-${i}" style="accent-color:var(--accent)"> Suspend
+                                                        </label>
+                                                    </div>
+                                                </div>
+                                                <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:0.4rem;margin-top:0.3rem;align-items:start">
+                                                    <div>${_lbl('Keep Successful')}${_num(`k8s-svc-cron-success-${i}`, 3)}</div>
+                                                    <div>${_lbl('Keep Failed')}${_num(`k8s-svc-cron-failed-${i}`, 1)}</div>
+                                                    <div>${_lbl('Deadline (s)')}${_num(`k8s-svc-cron-deadline-${i}`, 300)}</div>
+                                                </div>
+                                                <div style="font-size:0.58rem;color:var(--text-muted);font-style:italic;margin-top:2px">Deadline = skip this run if missed by this many seconds</div>
+                                            </div>
+                                        </div>
+
+                                        <!-- ── DaemonSet-only sections (hidden by default) ── -->
+                                        <div id="k8s-svc-daemon-sections-${i}" style="display:none">
+                                            <div style="margin-top:0.35rem;padding:0.4rem;background:var(--bg-primary);border-radius:6px;border:1px solid var(--border-subtle)">
+                                                <div style="font-size:0.68rem;color:var(--accent);font-weight:600;margin-bottom:0.3rem">🌐 DaemonSet Configuration</div>
+
+                                                <!-- Update Strategy -->
+                                                <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.4rem;align-items:start">
+                                                    <div>
+                                                        ${_lbl('Update Strategy')}
+                                                        <select id="k8s-svc-ds-strategy-${i}" class="modal-form-select" style="font-size:0.76rem;padding:0.2rem 0.3rem;width:100%"
+                                                            onchange="var w=document.getElementById('k8s-svc-ds-maxunavail-wrap-${i}');if(w)w.style.display=this.value==='RollingUpdate'?'block':'none'">
+                                                            <option value="RollingUpdate" selected>RollingUpdate</option>
+                                                            <option value="OnDelete">OnDelete</option>
+                                                        </select>
+                                                    </div>
+                                                    <div id="k8s-svc-ds-maxunavail-wrap-${i}">
+                                                        ${_lbl('Max Unavailable')}
+                                                        ${_inp(`k8s-svc-ds-maxunavail-${i}`, '1', '1')}
+                                                    </div>
+                                                </div>
+                                                <div style="font-size:0.58rem;color:var(--text-muted);font-style:italic;margin-top:2px">OnDelete = manual pod-by-pod control (delete pod to trigger update)</div>
+
+                                                <!-- Node Selection -->
+                                                <div style="margin-top:0.4rem">
+                                                    <div style="font-size:0.68rem;color:var(--text-muted);font-weight:600;margin-bottom:0.2rem">🎯 Node Selection</div>
+                                                    <div>${_lbl('Node Selector')}</div>
+                                                    ${_inp(`k8s-svc-ds-nodeselector-${i}`, '', 'key=value, key=value')}
+                                                    <div style="font-size:0.56rem;color:var(--text-muted);font-style:italic;margin-top:1px">Leave empty to run on all nodes</div>
+                                                </div>
+
+                                                <!-- Tolerations -->
+                                                <div style="margin-top:0.35rem">
+                                                    <div style="font-size:0.68rem;color:var(--text-muted);font-weight:600;margin-bottom:0.2rem">🔓 Tolerations</div>
+                                                    <div style="display:flex;flex-direction:column;gap:0.2rem">
+                                                        <label style="display:inline-flex;align-items:center;gap:0.3rem;font-size:0.72rem;cursor:pointer">
+                                                            <input type="checkbox" id="k8s-svc-ds-tol-cp-${i}" style="accent-color:var(--accent)"> Run on control-plane nodes
+                                                        </label>
+                                                        <label style="display:inline-flex;align-items:center;gap:0.3rem;font-size:0.72rem;cursor:pointer">
+                                                            <input type="checkbox" id="k8s-svc-ds-tol-nosched-${i}" style="accent-color:var(--accent)"> Run on nodes with NoSchedule taints
+                                                        </label>
+                                                    </div>
+                                                </div>
+
+                                                <!-- Host Access -->
+                                                <div style="margin-top:0.35rem">
+                                                    <div style="font-size:0.68rem;color:var(--text-muted);font-weight:600;margin-bottom:0.2rem">🔌 Host Access</div>
+                                                    <div style="display:flex;flex-wrap:wrap;gap:0.4rem 1rem">
+                                                        <label style="display:inline-flex;align-items:center;gap:0.3rem;font-size:0.72rem;cursor:pointer">
+                                                            <input type="checkbox" id="k8s-svc-ds-hostnet-${i}" style="accent-color:var(--accent)"> Host Network
+                                                        </label>
+                                                        <label style="display:inline-flex;align-items:center;gap:0.3rem;font-size:0.72rem;cursor:pointer">
+                                                            <input type="checkbox" id="k8s-svc-ds-hostpid-${i}" style="accent-color:var(--accent)"> Host PID
+                                                        </label>
+                                                        <label style="display:inline-flex;align-items:center;gap:0.3rem;font-size:0.72rem;cursor:pointer">
+                                                            <input type="checkbox" id="k8s-svc-ds-hostipc-${i}" style="accent-color:var(--accent)"> Host IPC
+                                                        </label>
+                                                    </div>
+                                                    <div style="font-size:0.56rem;color:var(--text-muted);font-style:italic;margin-top:2px">Host access = pod shares the node's namespace (common for monitoring agents)</div>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <!-- ── StatefulSet-only sections (hidden by default) ── -->
+                                        <div id="k8s-svc-statefulset-sections-${i}" style="display:none">
+                                            <div style="margin-top:0.35rem;padding:0.4rem;background:var(--bg-primary);border-radius:6px;border:1px solid var(--border-subtle)">
+                                                <div style="font-size:0.68rem;color:var(--accent);font-weight:600;margin-bottom:0.3rem">🗄️ StatefulSet Configuration</div>
+
+                                                <!-- Headless Service + ClusterIP -->
+                                                <div style="display:grid;grid-template-columns:2fr 1fr 1fr;gap:0.4rem;align-items:start">
+                                                    <div>
+                                                        ${_lbl('Headless Service Name')}
+                                                        ${_inp(`k8s-svc-ss-headless-${i}`, `${svc.name}-headless`, `${svc.name}-headless`)}
+                                                    </div>
+                                                    <div>
+                                                        ${_lbl('Pod Management')}
+                                                        ${_sel(`k8s-svc-ss-podmgmt-${i}`, [
+                                                            {v:'OrderedReady', l:'OrderedReady'},
+                                                            {v:'Parallel', l:'Parallel'},
+                                                        ], 'OrderedReady')}
+                                                    </div>
+                                                    <div style="padding-top:1rem">
+                                                        <label style="display:inline-flex;align-items:center;gap:0.3rem;font-size:0.72rem;cursor:pointer">
+                                                            <input type="checkbox" id="k8s-svc-ss-clusterip-${i}" style="accent-color:var(--accent)"> Also create ClusterIP
+                                                        </label>
+                                                    </div>
+                                                </div>
+                                                <div style="font-size:0.56rem;color:var(--text-muted);font-style:italic;margin-top:1px">Headless Service enables stable DNS: <code>${svc.name}-0.${svc.name}-headless</code></div>
+
+                                                <!-- Update Strategy -->
+                                                <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.4rem;margin-top:0.35rem;align-items:start">
+                                                    <div>
+                                                        ${_lbl('Update Strategy')}
+                                                        <select id="k8s-svc-ss-strategy-${i}" class="modal-form-select" style="font-size:0.76rem;padding:0.2rem 0.3rem;width:100%"
+                                                            onchange="var w=document.getElementById('k8s-svc-ss-partition-wrap-${i}');if(w)w.style.display=this.value==='RollingUpdate'?'block':'none'">
+                                                            <option value="RollingUpdate" selected>RollingUpdate</option>
+                                                            <option value="OnDelete">OnDelete</option>
+                                                        </select>
+                                                    </div>
+                                                    <div id="k8s-svc-ss-partition-wrap-${i}">
+                                                        ${_lbl('Partition')}
+                                                        ${_num(`k8s-svc-ss-partition-${i}`, 0)}
+                                                        <div style="font-size:0.54rem;color:var(--text-muted);font-style:italic">Ordinal ≥ partition gets updated; lower ordinals stay on old version</div>
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            <!-- volumeClaimTemplates section -->
+                                            <div style="margin-top:0.35rem;padding:0.4rem;background:var(--bg-primary);border-radius:6px;border:1px solid var(--border-subtle)">
+                                                <div style="font-size:0.68rem;color:var(--accent);font-weight:600;margin-bottom:0.3rem;display:flex;align-items:center;gap:0.3rem">
+                                                    💾 Persistent Storage (volumeClaimTemplates)
+                                                    ${volCount > 0 ? `<span style="font-size:0.6rem;background:var(--bg-secondary);color:var(--text-secondary);padding:1px 5px;border-radius:3px">${volCount} from Compose</span>` : ''}
+                                                </div>
+                                                <div style="font-size:0.56rem;color:var(--text-muted);font-style:italic;margin-bottom:0.3rem">Each pod gets its own PVC: <code>data-${svc.name}-0</code>, <code>data-${svc.name}-1</code>, …</div>
+
+                                                <div id="k8s-svc-vct-list-${i}" style="display:flex;flex-direction:column;gap:0.3rem">
+                                                    ${(() => {
+                                                        const vols = svc.volumes || [];
+                                                        const namedVols = vols.map(v => window._classifyVolume(v)).filter(cl => cl.classification === 'named');
+                                                        if (namedVols.length === 0) return '<div style="font-size:0.68rem;color:var(--text-muted);font-style:italic">No named volumes detected — click "+ Add volume claim template" below</div>';
+                                                        return namedVols.map((cl, j) => {
+                                                            return `<div class="k8s-vct-row" style="padding:0.3rem;border:1px solid var(--border-subtle);border-radius:4px;background:var(--bg-secondary)">
+                                                                <div style="display:grid;grid-template-columns:auto 1fr 2fr 1fr 1fr 1fr;gap:0.3rem;align-items:center;font-size:0.72rem">
+                                                                    <label><input type="checkbox" id="k8s-svc-vct-chk-${i}-${j}" checked style="accent-color:var(--accent)"></label>
+                                                                    <div>${_lbl('Name')}${_inp(`k8s-svc-vct-name-${i}-${j}`, cl.name, 'data')}</div>
+                                                                    <div>${_lbl('Mount Path')}${_inp(`k8s-svc-vct-mount-${i}-${j}`, cl.mountPath, '/var/lib/data')}</div>
+                                                                    <div>${_lbl('Size')}${_inp(`k8s-svc-vct-size-${i}-${j}`, '10Gi', '10Gi')}</div>
+                                                                    <div>${_lbl('Access Mode')}${_sel(`k8s-svc-vct-access-${i}-${j}`, [
+                                                                        {v:'ReadWriteOnce', l:'RWO'},
+                                                                        {v:'ReadWriteMany', l:'RWX'},
+                                                                        {v:'ReadOnlyMany', l:'ROX'},
+                                                                    ], 'ReadWriteOnce')}</div>
+                                                                    <div>${_lbl('StorageClass')}${_inp(`k8s-svc-vct-sc-${i}-${j}`, '', 'longhorn')}</div>
+                                                                </div>
+                                                            </div>`;
+                                                        }).join('');
+                                                    })()}
+                                                </div>
+                                                <button type="button" style="margin-top:0.3rem;font-size:0.68rem;padding:0.15rem 0.5rem;cursor:pointer;background:var(--bg-secondary);border:1px solid var(--border-subtle);border-radius:4px;color:var(--accent)"
+                                                    onclick="window._k8sAddVCT(${i})">+ Add volume claim template</button>
+                                            </div>
+                                        </div>
+
+                                        <!-- ─── 1. Resource Limits ─── -->
+                                        <details style="margin-top:0.4rem">
+                                            <summary style="cursor:pointer;font-size:0.72rem;color:var(--accent);user-select:none;padding:0.15rem 0;display:flex;align-items:center;gap:0.4rem">
+                                                ▸ Resource Limits
+                                                ${hasComposeRes ? '<span style="font-size:0.6rem;background:var(--bg-primary);color:var(--text-secondary);padding:1px 5px;border-radius:3px">from Compose</span>' : ''}
+                                                <span id="k8s-svc-qos-${i}" style="margin-left:auto">${_qosHint(compCpuReq, compCpuLim, compMemReq, compMemLim)}</span>
+                                            </summary>
+                                            <div style="margin-top:0.3rem;padding:0.4rem;background:var(--bg-primary);border-radius:6px;border:1px solid var(--border-subtle)">
+                                                <div style="display:grid;grid-template-columns:auto 1fr 1fr;gap:0.3rem 0.5rem;align-items:center;font-size:0.74rem">
+                                                    <!-- Header row -->
+                                                    <div></div>
+                                                    <div style="font-weight:600;color:var(--text-secondary);font-size:0.66rem;text-transform:uppercase;letter-spacing:0.04em">Request <span style="font-size:0.58rem;opacity:0.7">(guaranteed minimum)</span></div>
+                                                    <div style="font-weight:600;color:var(--text-secondary);font-size:0.66rem;text-transform:uppercase;letter-spacing:0.04em">Limit <span style="font-size:0.58rem;opacity:0.7">(hard ceiling)</span></div>
+                                                    <!-- CPU row -->
+                                                    <div style="font-weight:600;color:var(--text-secondary);font-size:0.72rem">CPU</div>
+                                                    <div>${_inp(`k8s-svc-cpu-req-${i}`, effCpuReq, '100m')}</div>
+                                                    <div>${_inp(`k8s-svc-cpu-lim-${i}`, effCpuLim, '500m')}</div>
+                                                    <!-- Memory row -->
+                                                    <div style="font-weight:600;color:var(--text-secondary);font-size:0.72rem">Memory</div>
+                                                    <div>${_inp(`k8s-svc-mem-req-${i}`, effMemReq, '128Mi')}</div>
+                                                    <div>${_inp(`k8s-svc-mem-lim-${i}`, effMemLim, '256Mi')}</div>
+                                                </div>
+                                                <!-- Live QoS class + guidance -->
+                                                <div style="display:flex;align-items:center;gap:0.5rem;margin-top:0.35rem;padding-top:0.3rem;border-top:1px solid var(--border-subtle)">
+                                                    <span style="font-size:0.66rem;color:var(--text-muted)">QoS class →</span>
+                                                    <span id="k8s-svc-qos-live-${i}">${_qosHint(effCpuReq, effCpuLim, effMemReq, effMemLim)}</span>
+                                                    <span style="flex:1"></span>
+                                                    <span style="font-size:0.6rem;color:var(--text-muted);font-style:italic">Empty = omit from manifest (K8s node defaults apply)</span>
+                                                </div>
+                                            </div>
+                                        </details>
+
+                                        <!-- ─── 2. Health Checks (hidden for Job/CronJob) ─── -->
+                                        <div id="k8s-svc-probes-wrap-${i}">
+                                        <details style="margin-top:0.3rem">
+                                            <summary style="cursor:pointer;font-size:0.72rem;color:var(--accent);user-select:none;padding:0.15rem 0;display:flex;align-items:center;gap:0.4rem">
+                                                ▸ Health Checks
+                                                ${hc ? '<span style="font-size:0.6rem;background:var(--bg-primary);color:var(--text-secondary);padding:1px 5px;border-radius:3px">from Compose</span>' : ''}
+                                                <span style="margin-left:auto;font-size:0.6rem;color:var(--text-muted)">recommended</span>
+                                            </summary>
+                                            <div style="margin-top:0.3rem;padding:0.4rem;background:var(--bg-primary);border-radius:6px;border:1px solid var(--border-subtle)">
+                                                ${(() => {
+                                                    const parsed = _parseComposeProbe(hc, portVal);
+                                                    const prd = _parseDur(hc && hc.interval);
+                                                    const pto = _parseDur(hc && hc.timeout);
+                                                    const pret = hc && hc.retries ? parseInt(hc.retries) : null;
+                                                    // Readiness defaults: fast startup, frequent checks
+                                                    const rdy = _probeBlock(
+                                                        `k8s-svc-rdy-${i}`, 'Readiness Probe',
+                                                        parsed.type, parsed.path, parsed.port, parsed.command,
+                                                        5, prd || 5, pto || 3, 'Timeout (s)'
+                                                    );
+                                                    // Liveness defaults: slower startup tolerance, less frequent
+                                                    const liv = _probeBlock(
+                                                        `k8s-svc-liv-${i}`, 'Liveness Probe',
+                                                        parsed.type, parsed.path, parsed.port, parsed.command,
+                                                        10, prd || 15, pret || 3, 'Failures'
+                                                    );
+                                                    return rdy + `<div style="border-top:1px solid var(--border-subtle);margin:0.15rem 0"></div>` + liv;
+                                                })()}
+                                                ${hc ? `<div style="font-size:0.62rem;color:var(--text-muted);border-top:1px solid var(--border-subtle);padding-top:0.25rem;margin-top:0.2rem">
+                                                    💡 Parsed from: <code style="font-size:0.6rem;background:var(--bg-inset);padding:1px 4px;border-radius:3px">${esc(typeof hc.test === 'string' ? hc.test : Array.isArray(hc.test) ? hc.test.join(' ') : String(hc.test))}</code>
+                                                </div>` : `<div style="font-size:0.62rem;color:var(--text-muted);font-style:italic;margin-top:0.15rem">
+                                                    💡 No compose healthcheck — defaults pre-filled. Uncheck to omit probes.
+                                                </div>`}
+                                            </div>
+                                        </details>
+                                        </div>
+
+                                        <!-- ─── 3. Environment Variables ─── -->
+                                        <details style="margin-top:0.3rem">
+                                            <summary style="cursor:pointer;font-size:0.72rem;color:var(--accent);user-select:none;padding:0.15rem 0;display:flex;align-items:center;gap:0.4rem">
+                                                ▸ Environment Variables
+                                                ${envKeys.length > 0 ? `<span style="font-size:0.72rem;background:var(--bg-primary);color:var(--text-secondary);padding:1px 5px;border-radius:3px">${envKeys.length} from Compose</span>` : ''}
+                                            </summary>
+                                            <div style="margin-top:0.3rem;padding:0.4rem;background:var(--bg-primary);border-radius:6px;border:1px solid var(--border-subtle)">
+                                                ${isMultiEnv ? `<div style="font-size:0.78rem;color:var(--warning);background:color-mix(in srgb, var(--warning) 8%, transparent);padding:0.3rem 0.4rem;border-radius:4px;margin-bottom:0.35rem;display:flex;align-items:center;gap:0.3rem">
+                                                    <span>📌</span>
+                                                    <span>Multi-env project: values shown are defaults. Use <strong>Variable | Secret</strong> for values that differ across environments.</span>
+                                                </div>` : ''}
+                                                ${envKeys.length > 0 ? `<div style="display:grid;grid-template-columns:2fr 2fr 1.5fr 1.2fr auto;gap:0.25rem;margin-bottom:0.2rem;padding:0 0.25rem">
+                                                    <span style="font-size:0.78rem;color:var(--text-muted);font-weight:600">Key</span>
+                                                    <span style="font-size:0.78rem;color:var(--text-muted);font-weight:600">Value</span>
+                                                    <span style="font-size:0.78rem;color:var(--text-muted);font-weight:600">Var / Secret</span>
+                                                    <span style="font-size:0.78rem;color:var(--text-muted);font-weight:600">Injection</span>
+                                                    <span></span>
+                                                </div>` : ''}
+                                                <div id="k8s-svc-env-list-${i}" style="display:flex;flex-direction:column;gap:0.2rem">
+                                                    ${(() => {
+                                                        // Use saved env vars when available, otherwise compose detection
+                                                        if (saved?.envVars) {
+                                                            return saved.envVars.map((ev, j) => {
+                                                                return _envRowHtml(i, j, ev.key, ev.value || '', ev.type || 'hardcoded', ev.varName || '', i);
+                                                            }).join('');
+                                                        }
+                                                        return Object.entries(envVals).map(([k, v], j) => {
+                                                            const injType = _defaultInjType(k);
+                                                            return _envRowHtml(i, j, k, v || '', injType, injType !== 'hardcoded' ? '${' + k + '}' : '', i);
+                                                        }).join('');
+                                                    })()}
+                                                </div>
+                                                <button type="button" onclick="_addEnvVar(${i})"
+                                                    style="margin-top:0.3rem;font-size:0.66rem;color:var(--accent);background:none;border:1px dashed var(--border-subtle);border-radius:4px;padding:0.2rem 0.5rem;cursor:pointer;width:100%">
+                                                    + Add variable
+                                                </button>
+                                                <div id="k8s-svc-env-summary-${i}" style="font-size:0.6rem;color:var(--text-muted);margin-top:0.25rem;padding-top:0.2rem;border-top:1px solid var(--border-subtle)">
+                                                    ${(() => {
+                                                        const envList = saved?.envVars || envKeys.map(k => ({key: k, type: _defaultInjType(k)}));
+                                                        let hc = 0, vr = 0, sc = 0;
+                                                        for (const ev of envList) {
+                                                            const t = ev.type || 'hardcoded';
+                                                            if (t === 'secret') sc++;
+                                                            else if (t === 'variable') vr++;
+                                                            else hc++;
+                                                        }
+                                                        const dlr = '$';
+                                                        const parts = [];
+                                                        if (hc + vr > 0) parts.push('📋 ConfigMap: ' + hc + ' hardcoded' + (vr > 0 ? ', ' + vr + ' ' + dlr + '{VAR}' : ''));
+                                                        if (sc > 0) parts.push('🔒 Secret: ' + sc + ' key' + (sc !== 1 ? 's' : '') + ' (' + dlr + '{VAR} at deploy)');
+                                                        if (parts.length === 0) parts.push('No environment variables configured');
+                                                        return parts.join(' &middot; ');
+                                                    })()}
+                                                </div>
+                                            </div>
+                                        </details>
+
+                                        <!-- ─── 4. Volume Mounts (hidden for Job/CronJob) ─── -->
+                                        <div id="k8s-svc-vols-wrap-${i}">
+                                        <details style="margin-top:0.3rem">
+                                            <summary style="cursor:pointer;font-size:0.72rem;color:var(--accent);user-select:none;padding:0.15rem 0;display:flex;align-items:center;gap:0.4rem">
+                                                ▸ Volume Mounts
+                                                ${volCount > 0 ? `<span style="font-size:0.6rem;background:var(--bg-primary);color:var(--text-secondary);padding:1px 5px;border-radius:3px">${volCount} from Compose</span>` : ''}
+                                            </summary>
+                                            <div style="margin-top:0.3rem;padding:0.45rem 0.5rem;background:var(--bg-primary);border-radius:6px;border:1px solid var(--border-subtle)">
+
+
+                                                <div style="font-size:0.68rem;color:var(--text-muted);font-weight:600;margin-bottom:0.25rem;display:flex;align-items:center;gap:0.3rem">
+                                                    Volumes
+                                                    <span id="k8s-svc-vol-summary-${i}" style="font-size:0.6rem;font-weight:400;color:var(--text-muted)"></span>
+                                                </div>
+                                                <!-- Volume rows container -->
+                                                <div id="k8s-svc-vol-list-${i}" style="display:flex;flex-direction:column;gap:0.35rem">
+                                                    ${(() => {
+                                                        // Use saved volumes when available, otherwise compose detection
+                                                        if (saved?.volumes) {
+                                                            if (saved.volumes.length === 0) return '<div style="font-size:0.68rem;color:var(--text-muted);font-style:italic">No volumes configured — click \'+ Add volume\' below</div>';
+                                                            return saved.volumes.map((vol, j) => {
+                                                                const cl = window._savedVolToClassification(vol);
+                                                                return window._volRowHtml(i, j, cl);
+                                                            }).join('');
+                                                        }
+                                                        const vols = svc.volumes || [];
+                                                        if (vols.length === 0) return '<div style="font-size:0.68rem;color:var(--text-muted);font-style:italic">No volumes detected — click "+ Add volume" below</div>';
+                                                        return vols.map((v, j) => {
+                                                            const cl = window._classifyVolume(v);
+                                                            return window._volRowHtml(i, j, cl);
+                                                        }).join('');
+                                                    })()}
+                                                </div>
+                                                <button type="button" onclick="window._addVolRow(${i})"
+                                                    style="margin-top:0.35rem;font-size:0.68rem;color:var(--accent);background:none;border:1px dashed var(--border);border-radius:4px;padding:4px 10px;cursor:pointer;width:100%"
+                                                    onmouseover="this.style.background='rgba(99,102,241,0.06)'" onmouseout="this.style.background='none'">
+                                                    + Add volume
+                                                </button>
+                                            </div>
+                                        </details>
+                                        </div>
+
+                                        <!-- ─── 5. Dependencies (hidden for Job/CronJob) ─── -->
+                                        <div id="k8s-svc-deps-wrap-${i}">
+                                        <div style="margin-top:0.3rem;padding:0.2rem 0">
+                                            <span style="font-size:0.68rem;color:var(--text-muted);font-weight:600">Depends on</span>
+                                            <div style="display:flex;flex-wrap:wrap;gap:0.25rem;margin-top:0.15rem">
+                                                ${infraSvcs.length > 0 ? infraSvcs.map(inf => {
+                                                    const savedDeps = saved?.dependencies || svc.depends_on || [];
+                                                    const checked = savedDeps.includes(inf.name) ? ' checked' : '';
+                                                    return `<label style="display:inline-flex;align-items:center;gap:0.2rem;font-size:0.7rem;cursor:pointer">
+                                                        <input type="checkbox" class="k8s-dep-${i}" value="${esc(inf.name)}" style="accent-color:var(--accent)"${checked} onchange="window._refreshEnvSelects(${i})"> ${esc(inf.name)}
+                                                    </label>`;
+                                                }).join('') : '<span style="font-size:0.7rem;color:var(--text-muted)">—</span>'}
+                                            </div>
+                                        </div>
+                                        </div>
+
+                                        <!-- ─── 7. Init Containers (hidden for Job/CronJob) ─── -->
+                                        <div id="k8s-svc-init-wrap-${i}">
+                                        <details style="margin-top:0.3rem">
+                                            <summary style="cursor:pointer;font-size:0.72rem;color:var(--accent);user-select:none;padding:0.15rem 0;display:flex;align-items:center;gap:0.4rem">
+                                                ▸ Init Containers
+                                                <span id="k8s-svc-init-count-${i}" style="font-size:0.68rem;background:var(--bg-primary);color:var(--text-secondary);padding:1px 5px;border-radius:3px">0</span>
+                                            </summary>
+                                            <div style="margin-top:0.3rem;padding:0.45rem 0.5rem;background:var(--bg-primary);border-radius:6px;border:1px solid var(--border-subtle)">
+                                                <div style="font-size:0.72rem;color:var(--text-muted);font-style:italic;margin-bottom:0.25rem">Init containers run to completion before the main container starts — useful for DB migrations, permission fixes, or waiting for dependencies.</div>
+
+                                                <!-- Presets -->
+                                                <div style="display:flex;flex-wrap:wrap;gap:0.25rem;margin-bottom:0.3rem">
+                                                    <button type="button" class="k8s-init-preset" style="font-size:0.74rem;padding:0.2rem 0.5rem;cursor:pointer;background:var(--bg-secondary);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-secondary)"
+                                                        onclick="window._k8sAddInitPreset(${i},'wait-tcp')">⏳ Wait for TCP</button>
+                                                    <button type="button" class="k8s-init-preset" style="font-size:0.74rem;padding:0.2rem 0.5rem;cursor:pointer;background:var(--bg-secondary);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-secondary)"
+                                                        onclick="window._k8sAddInitPreset(${i},'wait-http')">🌐 Wait for HTTP</button>
+                                                    <button type="button" class="k8s-init-preset" style="font-size:0.74rem;padding:0.2rem 0.5rem;cursor:pointer;background:var(--bg-secondary);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-secondary)"
+                                                        onclick="window._k8sAddInitPreset(${i},'migrations')">🔄 Run migrations</button>
+                                                    <button type="button" class="k8s-init-preset" style="font-size:0.74rem;padding:0.2rem 0.5rem;cursor:pointer;background:var(--bg-secondary);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-secondary)"
+                                                        onclick="window._k8sAddInitPreset(${i},'fix-perms')">🔧 Fix permissions</button>
+                                                    <button type="button" class="k8s-init-preset" style="font-size:0.74rem;padding:0.2rem 0.5rem;cursor:pointer;background:var(--bg-secondary);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-secondary)"
+                                                        onclick="window._k8sAddInitPreset(${i},'custom')">📝 Custom</button>
+                                                </div>
+
+                                                <!-- Init container rows -->
+                                                <div id="k8s-svc-init-list-${i}" style="display:flex;flex-direction:column;gap:0.3rem"></div>
+                                            </div>
+                                        </details>
+                                        </div>
+
+                                        <!-- ─── 8. Sidecar Containers ─── -->
+                                        <details style="margin-top:0.3rem">
+                                            <summary style="cursor:pointer;font-size:0.72rem;color:var(--accent);user-select:none;padding:0.15rem 0;display:flex;align-items:center;gap:0.4rem">
+                                                ▸ Sidecar Containers
+                                                <span id="k8s-svc-sc-count-${i}" style="font-size:0.68rem;background:var(--bg-primary);color:var(--text-secondary);padding:1px 5px;border-radius:3px">0</span>
+                                            </summary>
+                                            <div style="margin-top:0.3rem;padding:0.45rem 0.5rem;background:var(--bg-primary);border-radius:6px;border:1px solid var(--border-subtle)">
+                                                <div style="font-size:0.72rem;color:var(--text-muted);font-style:italic;margin-bottom:0.25rem">Sidecar containers run alongside the main container — for log forwarding, auth proxies, metrics exporters, etc.</div>
+
+                                                <!-- Presets -->
+                                                <div style="display:flex;flex-wrap:wrap;gap:0.25rem;margin-bottom:0.3rem">
+                                                    <button type="button" style="font-size:0.74rem;padding:0.2rem 0.5rem;cursor:pointer;background:var(--bg-secondary);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-secondary)"
+                                                        onclick="window._k8sAddSidecarPreset(${i},'log-fwd')">📋 Log forwarder</button>
+                                                    <button type="button" style="font-size:0.74rem;padding:0.2rem 0.5rem;cursor:pointer;background:var(--bg-secondary);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-secondary)"
+                                                        onclick="window._k8sAddSidecarPreset(${i},'cfg-reload')">🔄 Config reloader</button>
+                                                    <button type="button" style="font-size:0.74rem;padding:0.2rem 0.5rem;cursor:pointer;background:var(--bg-secondary);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-secondary)"
+                                                        onclick="window._k8sAddSidecarPreset(${i},'metrics')">📊 Metrics exporter</button>
+                                                    <button type="button" style="font-size:0.74rem;padding:0.2rem 0.5rem;cursor:pointer;background:var(--bg-secondary);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-secondary)"
+                                                        onclick="window._k8sAddSidecarPreset(${i},'auth-proxy')">🔐 Auth proxy</button>
+                                                    <button type="button" style="font-size:0.74rem;padding:0.2rem 0.5rem;cursor:pointer;background:var(--bg-secondary);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-secondary)"
+                                                        onclick="window._k8sAddSidecarPreset(${i},'cloudsql')">☁️ Cloud SQL Proxy</button>
+                                                    <button type="button" style="font-size:0.74rem;padding:0.2rem 0.5rem;cursor:pointer;background:var(--bg-secondary);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-secondary)"
+                                                        onclick="window._k8sAddSidecarPreset(${i},'vault')">🔒 Vault agent</button>
+                                                    <button type="button" style="font-size:0.74rem;padding:0.2rem 0.5rem;cursor:pointer;background:var(--bg-secondary);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-secondary)"
+                                                        onclick="window._k8sAddSidecarPreset(${i},'custom')">📝 Custom</button>
+                                                </div>
+
+                                                <!-- Sidecar rows -->
+                                                <div id="k8s-svc-sc-list-${i}" style="display:flex;flex-direction:column;gap:0.3rem"></div>
+                                            </div>
+                                        </details>
+
+                                        <!-- ─── 9. Service Mesh ─── -->
+                                        <details style="margin-top:0.3rem">
+                                            <summary style="cursor:pointer;font-size:0.72rem;color:var(--accent);user-select:none;padding:0.15rem 0;display:flex;align-items:center;gap:0.4rem">
+                                                ▸ Service Mesh
+                                            </summary>
+                                            <div style="margin-top:0.3rem;padding:0.45rem 0.5rem;background:var(--bg-primary);border-radius:6px;border:1px solid var(--border-subtle)">
+                                                <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.3rem">
+                                                    <label style="display:inline-flex;align-items:center;gap:0.25rem;cursor:pointer;font-size:0.78rem;color:var(--text-secondary)">
+                                                        <input type="checkbox" id="k8s-svc-mesh-enable-${i}" style="accent-color:var(--accent)"
+                                                            onchange="document.getElementById('k8s-svc-mesh-cfg-'+${i}).style.display=this.checked?'block':'none'"> Enable sidecar injection
+                                                    </label>
+                                                    <select id="k8s-svc-mesh-provider-${i}" class="modal-form-select"
+                                                        style="font-size:0.74rem;padding:0.15rem 0.3rem;min-width:90px;color:var(--success);font-weight:600;border-color:transparent;background:transparent">
+                                                        <option value="istio" selected>Istio</option>
+                                                        <option value="linkerd">Linkerd</option>
+                                                        <option value="consul">Consul</option>
+                                                        <option value="kuma">Kuma</option>
+                                                    </select>
+                                                </div>
+
+                                                <!-- Mesh config (shown when enabled) -->
+                                                <div id="k8s-svc-mesh-cfg-${i}" style="display:none">
+                                                    <div style="padding:0.3rem 0.5rem;background:var(--bg-inset);border-radius:4px;border-left:3px solid var(--accent);margin-bottom:0.3rem;font-size:0.74rem;color:var(--text-muted)">
+                                                        ℹ️ The mesh proxy is injected by the cluster, not defined in your manifest. Only annotations are added.
+                                                    </div>
+
+                                                    <!-- Job/CronJob warning -->
+                                                    <div id="k8s-svc-mesh-warn-${i}" style="display:none;padding:0.3rem 0.5rem;background:color-mix(in srgb, var(--warning) 10%, transparent);border-radius:4px;margin-bottom:0.3rem;font-size:0.74rem;color:var(--warning)">
+                                                        ⚠️ Job/CronJob + service mesh requires K8s ≥ 1.28 native sidecars for the proxy to terminate with the job.
+                                                    </div>
+
+                                                    <div style="font-size:0.78rem;color:var(--text-muted);font-weight:600;margin-bottom:0.2rem">Proxy Resources</div>
+                                                    <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:0.3rem;font-size:0.72rem">
+                                                        <div>${_lbl('CPU Request')}<input type="text" id="k8s-svc-mesh-cpureq-${i}" class="modal-form-input" value="100m" style="font-size:0.78rem;padding:0.18rem 0.3rem"></div>
+                                                        <div>${_lbl('CPU Limit')}<input type="text" id="k8s-svc-mesh-cpulim-${i}" class="modal-form-input" value="500m" style="font-size:0.78rem;padding:0.18rem 0.3rem"></div>
+                                                        <div>${_lbl('Mem Request')}<input type="text" id="k8s-svc-mesh-memreq-${i}" class="modal-form-input" value="128Mi" style="font-size:0.78rem;padding:0.18rem 0.3rem"></div>
+                                                        <div>${_lbl('Mem Limit')}<input type="text" id="k8s-svc-mesh-memlim-${i}" class="modal-form-input" value="256Mi" style="font-size:0.78rem;padding:0.18rem 0.3rem"></div>
+                                                    </div>
+
+                                                    <!-- Advanced -->
+                                                    <details style="margin-top:0.25rem">
+                                                        <summary style="cursor:pointer;font-size:0.74rem;color:var(--text-muted);user-select:none">▸ Advanced</summary>
+                                                        <div style="margin-top:0.2rem;display:grid;grid-template-columns:1fr 1fr 1fr;gap:0.3rem;font-size:0.72rem">
+                                                            <div>${_lbl('Exclude inbound ports')}<input type="text" id="k8s-svc-mesh-exin-${i}" class="modal-form-input" placeholder="e.g. 8080,9090" style="font-size:0.78rem;padding:0.18rem 0.3rem"></div>
+                                                            <div>${_lbl('Exclude outbound ports')}<input type="text" id="k8s-svc-mesh-exout-${i}" class="modal-form-input" placeholder="e.g. 3306" style="font-size:0.78rem;padding:0.18rem 0.3rem"></div>
+                                                            <div>${_lbl('Log level')}<select id="k8s-svc-mesh-log-${i}" class="modal-form-select" style="font-size:0.78rem;padding:0.18rem 0.3rem">
+                                                                <option value="warning" selected>warning</option>
+                                                                <option value="info">info</option>
+                                                                <option value="debug">debug</option>
+                                                                <option value="error">error</option>
+                                                            </select></div>
+                                                        </div>
+                                                    </details>
+                                                </div>
+                                            </div>
+                                        </details>
+
+                                        <!-- ─── 6. Companion Containers (from "Move into pod") ─── -->
+                                        <div id="k8s-svc-companions-${i}" style="display:none;margin-top:0.35rem;padding:0.4rem;background:color-mix(in srgb, var(--accent) 4%, transparent);border-radius:6px;border:1px dashed var(--border-subtle)">
+                                            <div style="font-size:0.74rem;color:var(--accent);font-weight:600;margin-bottom:0.2rem">📦 Companion Containers (same pod)</div>
+                                            <div id="k8s-svc-companion-list-${i}" style="display:flex;flex-direction:column;gap:0.2rem"></div>
+                                        </div>
+
+                                        <!-- ─── Move into pod action ─── -->
+                                        <div style="margin-top:0.25rem;text-align:right">
+                                            <select id="k8s-svc-moveto-${i}" class="modal-form-select"
+                                                style="font-size:0.76rem;padding:0.2rem 0.4rem;min-width:180px;color:var(--accent);border-color:var(--border-subtle)"
+                                                onchange="if(this.value){window._k8sMoveIntoPod(${i},parseInt(this.value));this.value=''}"
+                                            >
+                                                <option value="">⤵ Move into another pod…</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                </div>`;
+                            }
+                            html += `</div>`;
+
+                        } else if (deployableModules.length > 0) {
+                            // No Compose — show module-based cards
+                            html += wizSection('Application Deployments',
+                                `${deployableModules.length} module${deployableModules.length !== 1 ? 's' : ''} detected. Select which to deploy.`);
+
+                            html += `<div style="display:flex;flex-direction:column;gap:0.5rem" id="k8s-app-svc-list">`;
+                            for (let i = 0; i < deployableModules.length; i++) {
+                                const m = deployableModules[i];
+                                const imgStr = ghRepo.owner
+                                    ? `ghcr.io/${ghRepo.owner}/${ghRepo.name}-${m.name}:latest`
+                                    : `${m.name}:latest`;
+                                html += `<div style="border:1px solid var(--border-subtle);border-radius:8px;background:var(--bg-inset);overflow:hidden" id="k8s-svc-card-${i}">
+                                    <label style="display:flex;align-items:center;gap:0.5rem;padding:0.5rem 0.6rem;cursor:pointer;font-size:0.82rem"
+                                        onmouseover="this.parentElement.style.borderColor='var(--accent)'" onmouseout="this.parentElement.style.borderColor='var(--border-subtle)'">
+                                        <input type="checkbox" id="k8s-svc-chk-${i}" ${i === 0 ? 'checked' : ''} style="accent-color:var(--accent)"
+                                            onchange="document.getElementById('k8s-svc-cfg-${i}').style.display=this.checked?'block':'none'">
+                                        <span style="font-size:1rem" id="k8s-svc-icon-${i}">🚀</span>
+                                        <strong>${esc(m.name)}</strong>
+                                        <code style="font-size:0.72rem;background:var(--bg-primary);padding:1px 5px;border-radius:3px;color:var(--text-secondary)">${esc(m.stack || '?')}</code>
+                                        <span style="flex:1;color:var(--text-muted);font-size:0.72rem">${esc(m.path || '')}</span>
+                                        <select id="k8s-svc-kind-${i}" class="modal-form-select"
+                                            style="font-size:0.68rem;padding:0.1rem 0.3rem;min-width:110px;color:var(--success);font-weight:600;border-color:transparent;background:transparent"
+                                            onclick="event.stopPropagation()" onmousedown="event.stopPropagation()"
+                                            onchange="var ic=document.getElementById('k8s-svc-icon-'+${i});if(ic)ic.textContent={'Deployment':'🚀','StatefulSet':'🗄️','DaemonSet':'🌐','Job':'⚡','CronJob':'⏰','Skip':'⏭️'}[this.value]||'📦';window._k8sToggleKindPanels(${i},this.value)">
+                                            <option value="Deployment" selected>Deployment</option>
+                                            <option value="StatefulSet">StatefulSet</option>
+                                            <option value="DaemonSet">DaemonSet</option>
+                                            <option value="Job">Job</option>
+                                            <option value="CronJob">CronJob</option>
+                                            <option value="Skip">Skip</option>
+                                        </select>
+                                    </label>
+                                    <div id="k8s-svc-cfg-${i}" style="padding:0 0.6rem 0.5rem;display:${i === 0 ? 'block' : 'none'}">
+                                        <div style="display:grid;grid-template-columns:3fr 1fr 1fr 1fr;gap:0.4rem;align-items:start">
+                                            <div>${_lbl('Container Image')}${_inp(`k8s-svc-img-${i}`, imgStr, 'ghcr.io/user/app:latest')}</div>
+                                            <div>${_lbl('Port')}${_num(`k8s-svc-port-${i}`, 8080)}</div>
+                                            <div>${_lbl('Replicas')}${_num(`k8s-svc-replicas-${i}`, 2)}</div>
+                                            <div>${_lbl('Service Type')}${_sel(`k8s-svc-type-${i}`, [
+                                                {v:'ClusterIP', l:'ClusterIP'},
+                                                {v:'NodePort', l:'NodePort'},
+                                                {v:'LoadBalancer', l:'LoadBalancer'}
+                                            ], 'ClusterIP')}</div>
+                                        </div>
+
+                                        <!-- ─── Companion Containers ─── -->
+                                        <div id="k8s-svc-companions-${i}" style="display:none;margin-top:0.35rem;padding:0.4rem;background:color-mix(in srgb, var(--accent) 4%, transparent);border-radius:6px;border:1px dashed var(--border-subtle)">
+                                            <div style="font-size:0.74rem;color:var(--accent);font-weight:600;margin-bottom:0.2rem">📦 Companion Containers (same pod)</div>
+                                            <div id="k8s-svc-companion-list-${i}" style="display:flex;flex-direction:column;gap:0.2rem"></div>
+                                        </div>
+
+                                        <!-- ─── Move into pod action ─── -->
+                                        <div style="margin-top:0.25rem;text-align:right">
+                                            <select id="k8s-svc-moveto-${i}" class="modal-form-select"
+                                                style="font-size:0.76rem;padding:0.2rem 0.4rem;min-width:180px;color:var(--accent);border-color:var(--border-subtle)"
+                                                onchange="if(this.value){window._k8sMoveIntoPod(${i},parseInt(this.value));this.value=''}"
+                                            >
+                                                <option value="">⤵ Move into another pod…</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                </div>`;
+                            }
+                            html += `</div>`;
+
+                        } else {
+                            // No compose, no modules — single manual app config
+                            html += wizSection('Deployment Configuration', 'Configure your application for Kubernetes.');
+                            html += `<div style="border:1px solid var(--border-subtle);border-radius:8px;background:var(--bg-inset);padding:0.6rem">
+                                <div style="display:grid;grid-template-columns:1fr 3fr;gap:0.4rem;align-items:start">
+                                    <div>${_lbl('App Name')}${_inp('k8s-svc-name-manual', appName, 'my-app')}</div>
+                                    <div>${_lbl('Container Image')}${_inp('k8s-svc-img-manual', `${appName}:latest`, 'ghcr.io/user/app:latest')}</div>
+                                </div>
+                                <div style="display:grid;grid-template-columns:1fr 1fr 2fr;gap:0.4rem;margin-top:0.3rem;align-items:start">
+                                    <div>${_lbl('Port')}${_num('k8s-svc-port-manual', 8080)}</div>
+                                    <div>${_lbl('Replicas')}${_num('k8s-svc-replicas-manual', 2)}</div>
+                                    <div>${_lbl('Service Type')}${_sel('k8s-svc-type-manual', [
+                                        {v:'ClusterIP', l:'ClusterIP (internal)'},
+                                        {v:'NodePort', l:'NodePort (node access)'},
+                                        {v:'LoadBalancer', l:'LoadBalancer (external)'}
+                                    ], 'ClusterIP')}</div>
+                                </div>
+                            </div>`;
+                        }
+

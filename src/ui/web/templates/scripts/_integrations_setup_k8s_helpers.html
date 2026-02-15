@@ -1,0 +1,135 @@
+<!-- Integrations — K8s Setup Wizard Helpers
+     Pure utility functions used by the K8s wizard.
+     Must load BEFORE _integrations_setup_k8s.html.
+     Depends on: _integrations_setup_shared.html
+-->
+<script>
+
+    // ═══════════════════════════════════════════════════════════════════
+    // ── K8s Wizard Helpers ────────────────────────────────────────────
+    // ═══════════════════════════════════════════════════════════════════
+
+    /** Classify a module for K8s (same logic as Docker wizard). */
+    window._k8sModClass = function(mod) {
+        const dom = (mod.domain || '').toLowerCase();
+        const st  = (mod.stack  || '').toLowerCase();
+        if (dom === 'library')  return 'library';
+        if (dom === 'docs' || st === 'markdown') return 'docs';
+        if (['kubernetes', 'helm', 'terraform', 'docker-compose'].includes(st)) return 'ops-tool';
+        return 'deployable';
+    };
+
+    /**
+     * Classify a compose service as 'application' or 'infrastructure'.
+     * Infrastructure = well-known DB/cache/broker images with no build context.
+     * Application = has build context, or image matches project/module name.
+     */
+    window._k8sSvcClass = function(svc, moduleNames) {
+        // Has build config → definitely an application
+        if (svc.build) return 'application';
+        // Image matches a project module name → application
+        if (svc.image && moduleNames.some(n => svc.image.includes(n))) return 'application';
+        // Well-known infrastructure image prefixes
+        const infraImages = [
+            'postgres', 'mysql', 'mariadb', 'mongo', 'redis', 'valkey', 'memcached',
+            'rabbitmq', 'kafka', 'nats', 'mosquitto', 'elasticsearch', 'opensearch',
+            'nginx', 'traefik', 'haproxy', 'envoy', 'caddy',
+            'grafana', 'prometheus', 'jaeger', 'zipkin', 'loki',
+            'minio', 'vault', 'consul', 'etcd', 'zookeeper',
+            'mailpit', 'adminer', 'pgadmin', 'neo4j', 'cassandra',
+            'cockroachdb', 'couchdb', 'influxdb', 'clickhouse', 'timescale',
+            'redpanda', 'activemq', 'pulsar', 'celery',
+            'gitea', 'portainer', 'seq', 'vector', 'fluentd', 'logstash',
+            'keycloak', 'dex', 'hydra',
+            'localstack', 'dynamodb-local', 'azurite',
+            'dragonfly', 'keydb', 'arangodb', 'surrealdb',
+        ];
+        const imgLower = (svc.image || '').toLowerCase();
+        if (infraImages.some(prefix => imgLower.includes(prefix))) return 'infrastructure';
+        // No build + no known infra image → treat as application (external image)
+        return 'application';
+    };
+
+    /**
+     * Classify what K8s workload kind a compose service should default to.
+     * Returns: 'Deployment' | 'StatefulSet' | 'DaemonSet' | 'Job' | 'CronJob'
+     */
+    window._classifyWorkloadKind = function(svc) {
+        const img = (svc.image || '').split(':')[0].split('/').pop().toLowerCase();
+        const name = (svc.name || '').toLowerCase();
+
+        // 1. Well-known stateful databases / brokers → StatefulSet
+        const statefulImages = new Set([
+            'postgres', 'mysql', 'mariadb', 'mongo', 'mongodb', 'redis', 'valkey',
+            'cassandra', 'cockroachdb', 'couchdb', 'neo4j', 'influxdb', 'clickhouse',
+            'timescaledb', 'surrealdb', 'arangodb', 'dragonfly', 'keydb',
+            'elasticsearch', 'opensearch', 'kafka', 'rabbitmq', 'nats',
+            'redpanda', 'activemq', 'pulsar', 'zookeeper', 'etcd', 'consul',
+            'minio', 'vault',
+        ]);
+        if (statefulImages.has(img)) return 'StatefulSet';
+
+        // 2. Well-known node-level agents → DaemonSet
+        const daemonImages = new Set([
+            'fluentd', 'fluent-bit', 'fluentbit', 'logstash', 'vector',
+            'filebeat', 'metricbeat', 'node-exporter', 'promtail',
+            'datadog-agent', 'newrelic-infra', 'falco',
+        ]);
+        if (daemonImages.has(img)) return 'DaemonSet';
+
+        // 3. Compose deploy.mode: global → DaemonSet
+        if (svc.deploy && svc.deploy.mode === 'global') return 'DaemonSet';
+
+        // 4. No ports + one-shot signals → Job
+        const noPorts = !svc.ports || svc.ports.length === 0;
+        const isOneShot = svc.restart === 'no' || svc.restart === 'on-failure';
+        const jobNamePatterns = ['migrate', 'migration', 'seed', 'init-db', 'setup', 'import'];
+        const nameIsJob = jobNamePatterns.some(p => name.includes(p));
+        if (noPorts && (isOneShot || nameIsJob)) return 'Job';
+
+        // 5. Default → Deployment
+        return 'Deployment';
+    };
+
+    /** Map workload kind → icon for display. */
+    window._kindIcon = function(kind) {
+        const icons = {
+            'Deployment': '🚀', 'StatefulSet': '🗄️', 'DaemonSet': '🌐',
+            'Job': '⚡', 'CronJob': '⏰', 'Managed': '☁️', 'Skip': '⏭️',
+        };
+        return icons[kind] || '📦';
+    };
+
+    /** Map workload kind → hint text explaining the heuristic. */
+    window._kindHint = function(kind, svc) {
+        const img = (svc.image || '').split(':')[0].split('/').pop().toLowerCase();
+        switch (kind) {
+            case 'StatefulSet': return '💡 Database/stateful image detected → stable identity + per-pod storage';
+            case 'DaemonSet':
+                if (svc.deploy && svc.deploy.mode === 'global') return '💡 Compose deploy.mode: global → one pod per node';
+                return '💡 Node-level agent detected → one pod per node';
+            case 'Job': return '💡 No ports + one-shot restart → run-to-completion task';
+            case 'Deployment': return '';
+            default: return '';
+        }
+    };
+
+    /** Resolve best image name for a service in K8s context. */
+    window._k8sImageName = function(svc, ghRepo) {
+        // 1. If compose has explicit image → use it
+        if (svc.image) return svc.image;
+        // 2. If we have a GitHub repo → construct from registry
+        if (ghRepo && ghRepo.owner && ghRepo.name) {
+            return `ghcr.io/${ghRepo.owner}/${ghRepo.name}-${svc.name}:latest`;
+        }
+        // 3. Fallback
+        return `${svc.name}:latest`;
+    };
+
+    /** Get the primary container port from a compose service. */
+    window._k8sPrimaryPort = function(svc) {
+        if (svc.ports && svc.ports.length > 0) return svc.ports[0].container;
+        return 8080;
+    };
+
+</script>

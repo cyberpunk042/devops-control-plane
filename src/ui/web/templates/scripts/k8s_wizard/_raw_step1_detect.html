@@ -1,0 +1,206 @@
+                // ── Step 1: Detect ─────────────────────────────────────
+                {
+                    id: 'detect', title: 'Detect', cacheable: true,
+                    render: async (data, el) => {
+                        // ── Serve from cache if available ──
+                        const _CK = 'k8s:detect';
+                        const cached = wizCached(_CK);
+                        if (cached) {
+                            Object.assign(data, cached.d);
+                            el.innerHTML = _wizDetectBanner(_CK) + cached.h;
+                            return;
+                        }
+
+                        // ── Fresh scan ──
+                        el.innerHTML = '<p style="text-align:center;padding:2rem"><span class="spinner"></span> Analyzing project for Kubernetes deployment…</p>';
+                        try {
+                            const _bust = window._wizForceRescan ? '?bust=1' : ''; window._wizForceRescan = false;
+                            const wizDetect = wizCached('detect') || await api('/wizard/detect' + _bust).then(d => { wizStore('detect', d); return d; });
+                            const _serverTs = (wizDetect._cache?.computed_at || 0) * 1000;
+
+                            // ── Extract all data sources ──
+                            const probes = wizDetect.status_probes || {};
+                            const k8s = probes.k8s || {};
+                            const docker = probes.docker || {};
+                            const dockerStatus = wizDetect.docker_status || {};
+                            const configData = wizDetect.config_data || {};
+                            const modules = configData.modules || [];
+                            const envs = configData.environments || [];
+                            const ghRepo = wizDetect.gh_repo_info || {};
+                            const composeDetails = dockerStatus.compose_service_details || [];
+
+                            // ── Classify modules ──
+                            const classifiedModules = modules.map(m => ({
+                                ...m,
+                                _class: _k8sModClass(m),
+                            }));
+                            const deployableModules = classifiedModules.filter(m => m._class === 'deployable');
+                            const moduleNames = modules.map(m => m.name);
+
+                            // ── Classify compose services ──
+                            const classifiedServices = composeDetails.map(svc => ({
+                                ...svc,
+                                _class: _k8sSvcClass(svc, moduleNames),
+                                _image: _k8sImageName(svc, ghRepo),
+                                _port: _k8sPrimaryPort(svc),
+                            }));
+                            const appServices = classifiedServices.filter(s => s._class === 'application');
+                            const infraServices = classifiedServices.filter(s => s._class === 'infrastructure');
+
+                            // ── Store all data for subsequent steps ──
+                            data._k8s = k8s;
+                            data._docker = docker;
+                            data._dockerStatus = dockerStatus;
+                            data._modules = modules;
+                            data._classifiedModules = classifiedModules;
+                            data._composeServices = classifiedServices;
+                            data._appServices = appServices;
+                            data._infraServices = infraServices;
+                            data._ghRepo = ghRepo;
+                            data._envs = envs;
+
+                            // Fetch vault keys (secrets + config vars)
+                            try {
+                                const vaultData = await api('/vault/keys');
+                                data._vaultKeys = (vaultData && vaultData.keys) || [];
+                            } catch(e) { data._vaultKeys = []; }
+
+
+                            // ═══════════════════════════════════════════════
+                            // ── BUILD DETECT HTML ──────────────────────────
+                            // ═══════════════════════════════════════════════
+
+                            // ── Read-only scan banner ──
+                            let html = `<div style="display:flex;align-items:center;gap:0.6rem;padding:0.5rem 0.75rem;margin-bottom:var(--space-sm);font-size:0.82rem;background:color-mix(in srgb, var(--accent) 10%, var(--bg-inset));border:1px solid color-mix(in srgb, var(--accent) 30%, transparent);border-radius:8px">
+                                <span style="font-size:1.1rem">🔍</span>
+                                <span style="flex:1;color:var(--text-secondary)">This is a <strong>read-only scan</strong>. To configure K8s resources, proceed to Configure.</span>
+                                <button type="button" class="btn btn-xs" style="background:var(--accent);color:white;border:none;padding:4px 12px;border-radius:6px;font-size:0.78rem;white-space:nowrap;cursor:pointer"
+                                    onclick="document.getElementById('wiz-btn-next')?.click()">Configure →</button>
+                            </div>`;
+
+                            // ── Section 1: Kubernetes Environment ──
+                            html += wizSection('Kubernetes Environment', 'Current K8s tooling and cluster status.');
+                            html += `<div class="wiz-status-grid">
+                                ${wizStatusRow('☸️', 'kubectl', k8s.has_kubectl ? 'Available' : 'Not found', k8s.has_kubectl ? 'ok' : 'error')}
+                                ${wizStatusRow('⎈', 'Helm', k8s.has_helm ? 'Available' : 'Not found', k8s.has_helm ? 'ok' : 'muted')}
+                                ${wizStatusRow('🔗', 'Cluster', k8s.cluster_connected ? 'Connected' : 'Not connected', k8s.cluster_connected ? 'ok' : 'warn')}
+                                ${wizStatusRow('📄', 'Manifests', k8s.manifest_count > 0 ? `${k8s.manifest_count} found` : 'None', k8s.manifest_count > 0 ? 'ok' : 'muted')}
+                                ${wizStatusRow('📦', 'Helm Chart', k8s.has_chart ? 'Present' : 'None', k8s.has_chart ? 'ok' : 'muted')}
+                            </div>`;
+
+                            // ── Section 2: Docker Context ──
+                            html += wizSection('Docker Context', 'Container infrastructure feeding K8s deployments.');
+                            html += `<div class="wiz-status-grid">
+                                ${wizStatusRow('🐳', 'Docker', dockerStatus.available ? 'Available' : 'Not installed', dockerStatus.available ? 'ok' : 'error')}
+                                ${wizStatusRow('📋', 'Compose file', docker.has_compose ? (dockerStatus.compose_file || 'Present') : 'Missing', docker.has_compose ? 'ok' : 'warn')}
+                                ${wizStatusRow('📄', 'Dockerfiles', docker.has_dockerfile ? `${(dockerStatus.dockerfiles || []).length} found` : 'Missing', docker.has_dockerfile ? 'ok' : 'warn')}
+                            </div>`;
+
+                            if (!docker.has_dockerfile && !docker.has_compose) {
+                                html += `<div class="wiz-step-warn-panel" style="margin-top:0.5rem">
+                                    <span>💡</span>
+                                    <span style="flex:1">Set up Docker first — K8s deployments need container images.</span>
+                                    <button class="btn btn-sm btn-secondary" style="flex-shrink:0" onclick="wizardModalClose(); setTimeout(openDockerSetupWizard, 200)">Setup Docker →</button>
+                                </div>`;
+                            }
+
+                            // ── Section 3: Compose Services (the key intelligence) ──
+                            if (composeDetails.length > 0) {
+                                html += wizSection(
+                                    'Compose Services',
+                                    `${composeDetails.length} service${composeDetails.length !== 1 ? 's' : ''} detected — ${appServices.length} application, ${infraServices.length} infrastructure.`
+                                );
+                                html += `<div style="display:flex;flex-direction:column;gap:0.25rem">`;
+                                for (const svc of classifiedServices) {
+                                    const isApp = svc._class === 'application';
+                                    const badgeColor = isApp ? 'var(--success)' : 'var(--text-muted)';
+                                    const badgeIcon = isApp ? '🚀' : '🗄️';
+                                    const badgeLabel = isApp ? 'application' : 'infrastructure';
+                                    const portStr = svc.ports.length > 0
+                                        ? svc.ports.map(p => `:${p.container}`).join(' ')
+                                        : '';
+                                    const imgStr = svc.image
+                                        ? svc.image.split('/').pop().split(':')[0]
+                                        : (svc.build ? 'builds locally' : '—');
+
+                                    html += `<div style="display:flex;align-items:center;gap:0.5rem;font-size:0.82rem;padding:0.3rem 0.5rem;border-radius:6px;background:var(--bg-inset)">
+                                        <span style="width:18px;text-align:center">${badgeIcon}</span>
+                                        <strong style="min-width:80px">${esc(svc.name)}</strong>
+                                        <code style="font-size:0.72rem;background:var(--bg-primary);padding:1px 5px;border-radius:3px;color:var(--text-secondary)">${esc(imgStr)}</code>
+                                        ${portStr ? `<code style="font-size:0.68rem;color:var(--text-muted)">${esc(portStr)}</code>` : ''}
+                                        <span style="flex:1"></span>
+                                        ${Object.keys(svc.environment || {}).length > 0 ? `<span style="font-size:0.66rem;color:var(--text-muted)" title="${Object.keys(svc.environment).length} env vars">🔧${Object.keys(svc.environment).length}</span>` : ''}
+                                        ${svc.volumes.length > 0 ? `<span style="font-size:0.66rem;color:var(--text-muted)" title="${svc.volumes.length} volumes">💾${svc.volumes.length}</span>` : ''}
+                                        ${svc.healthcheck ? '<span style="font-size:0.66rem;color:var(--text-muted)" title="Has healthcheck">❤️</span>' : ''}
+                                        <span style="font-size:0.68rem;color:${badgeColor}">${badgeLabel}</span>
+                                    </div>`;
+                                }
+                                html += `</div>`;
+
+                                if (appServices.length > 0) {
+                                    html += `<div style="margin-top:0.5rem;font-size:0.78rem;color:var(--text-secondary)">
+                                        💡 <strong>${appServices.length}</strong> application service${appServices.length !== 1 ? 's' : ''} will become K8s Deployments.
+                                        ${infraServices.length > 0 ? `<strong>${infraServices.length}</strong> infrastructure service${infraServices.length !== 1 ? 's' : ''} — choose StatefulSet, managed, or skip.` : ''}
+                                    </div>`;
+                                }
+                            } else if (deployableModules.length > 0) {
+                                // No compose but we have modules
+                                html += wizSection('Project Modules', `${deployableModules.length} deployable module${deployableModules.length !== 1 ? 's' : ''} detected.`);
+                                html += `<div style="display:flex;flex-direction:column;gap:0.25rem">`;
+                                for (const m of classifiedModules) {
+                                    const isDep = m._class === 'deployable';
+                                    const badgeColor = isDep ? 'var(--success)' : 'var(--text-muted)';
+                                    const badgeIcon = isDep ? '🟢' : m._class === 'library' ? '📚' : m._class === 'docs' ? '📝' : '⚙️';
+                                    html += `<div style="display:flex;align-items:center;gap:0.5rem;font-size:0.82rem;padding:0.3rem 0.5rem;border-radius:6px;background:var(--bg-inset)">
+                                        <span style="width:18px;text-align:center">${badgeIcon}</span>
+                                        <strong style="min-width:80px">${esc(m.name)}</strong>
+                                        <code style="font-size:0.72rem;background:var(--bg-primary);padding:1px 5px;border-radius:3px;color:var(--text-secondary)">${esc(m.stack || '?')}</code>
+                                        <span style="flex:1;color:var(--text-muted);font-size:0.72rem">${esc(m.path || '')}</span>
+                                        <span style="font-size:0.68rem;color:${badgeColor}">${m._class}</span>
+                                    </div>`;
+                                }
+                                html += `</div>`;
+                            }
+
+                            // ── Section 4: Image Registry Context ──
+                            if (ghRepo.owner) {
+                                html += wizSection('Registry Context', 'Container image naming from GitHub.');
+                                html += `<div class="wiz-status-grid">
+                                    ${wizStatusRow('🐙', 'Repository', `${ghRepo.owner}/${ghRepo.name}`, 'ok')}
+                                    ${wizStatusRow('📦', 'Registry', `ghcr.io/${ghRepo.owner}/${ghRepo.name}`, 'ok')}
+                                </div>`;
+                            }
+
+                            // ── Section 5: Environments ──
+                            if (envs.length > 0) {
+                                html += wizSection('Environments', `${envs.length} deployment environment${envs.length !== 1 ? 's' : ''} configured.`);
+                                html += `<div style="display:flex;flex-wrap:wrap;gap:0.3rem">`;
+                                for (const env of envs) {
+                                    html += `<span style="display:inline-flex;align-items:center;gap:0.25rem;font-size:0.78rem;padding:0.2rem 0.5rem;border-radius:4px;background:var(--bg-inset);border:1px solid var(--border-subtle)">
+                                        ${env.default ? '⭐' : '🏷️'} ${esc(env.name)}
+                                    </span>`;
+                                }
+                                html += `</div>`;
+                            }
+
+                            // ── Cache and set HTML ──
+                            const cacheData = {
+                                _k8s: data._k8s,
+                                _docker: data._docker,
+                                _dockerStatus: data._dockerStatus,
+                                _modules: data._modules,
+                                _classifiedModules: data._classifiedModules,
+                                _composeServices: data._composeServices,
+                                _appServices: data._appServices,
+                                _infraServices: data._infraServices,
+                                _ghRepo: data._ghRepo,
+                                _envs: data._envs,
+                            };
+                            wizStore(_CK, { h: html, d: cacheData }, _serverTs);
+                            el.innerHTML = _wizDetectBanner(_CK) + html;
+                        } catch (e) {
+                            el.innerHTML = `<div class="wiz-step-error-panel"><span>⚠️</span><span>${esc(e.message)}</span></div>`;
+                        }
+                    },
+                },
+

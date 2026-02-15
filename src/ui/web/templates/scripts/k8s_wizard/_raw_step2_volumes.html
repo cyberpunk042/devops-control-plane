@@ -1,0 +1,390 @@
+                        // ── Volume classification from compose string ──
+                        window._classifyVolume = (volStr) => {
+                            const parts = (volStr || '').split(':');
+                            const source = parts[0] || '';
+                            const target = parts[1] || source;
+                            const flags = parts[2] || '';
+                            const readOnly = flags.includes('ro');
+
+                            // Named volume (no path separator in source)
+                            if (!source.includes('/') && !source.startsWith('.')) {
+                                return { type: 'pvc-dynamic', name: source, mountPath: target, readOnly, source, defaultSize: '10Gi', classification: 'named' };
+                            }
+                            // Dev bind mount — source code directories (skip by default)
+                            if (/^\.\/(src|app|lib|pkg|cmd|internal|components|pages|public|assets|frontend|backend|server|client|api)/.test(source)) {
+                                return { type: 'skip', name: source.replace(/^\.\//, '').replace(/\//g, '-'), mountPath: target, readOnly, source, classification: 'dev-bind', skipReason: 'Source code is baked into the container image at build time' };
+                            }
+                            // Data bind mount — persistent data
+                            if (/^\.\/(data|db|storage|uploads|logs|backup|config|certs|ssl|tls)/.test(source) || /^\//.test(source)) {
+                                return { type: 'pvc-dynamic', name: source.replace(/^\.\//, '').replace(/\//g, '-'), mountPath: target, readOnly, source, defaultSize: '5Gi', classification: 'data-bind' };
+                            }
+                            // Unknown bind mount — skip by default
+                            return { type: 'skip', name: source.replace(/^\.\//, '').replace(/\//g, '-'), mountPath: target, readOnly, source, classification: 'unknown-bind', skipReason: 'Bind mount — may not be needed in K8s (override if needed)' };
+                        };
+
+                        // ── Convert saved-state volume to classification shape ──
+                        // Maps the collector's output fields into the classification
+                        // object that _volRowHtml consumes.  Extra type-specific
+                        // saved values are carried as _saved* for post-render restore.
+                        window._savedVolToClassification = (vol) => ({
+                            type:           vol.type || 'pvc-dynamic',
+                            name:           vol.name || vol.configMapName || vol.secretName || vol.hostPath || '',
+                            mountPath:      vol.mountPath || '',
+                            readOnly:       vol.readOnly || false,
+                            source:         vol.hostPath || '',
+                            defaultSize:    vol.size || '10Gi',
+                            classification: 'saved',
+                            skipReason:     null,
+                            // Carry-through for post-render restore
+                            _savedAccessMode:       vol.accessMode,
+                            _savedStorageClass:     vol.storageClass,
+                            _savedLonghorn:         vol.longhornConfig,
+                            _savedPvName:           vol.pvName,
+                            _savedMedium:           vol.medium,
+                            _savedSizeLimit:        vol.sizeLimit,
+                            _savedCmKey:            vol.key,         // configMap key
+                            _savedSecKey:           vol.key,         // secret key
+                            _savedHostType:         vol.hostType,
+                        });
+
+                        // ── Post-render: restore type-specific fields on volume rows ──
+                        // Called after HTML is in the DOM.  Sets select/input values
+                        // that _volRowHtml hardcodes (accessMode, storageClass, etc).
+                        window._restoreVolFields = (i, j, cl) => {
+                            if (cl.classification !== 'saved') return;
+                            const _set = (id, val) => { const el = document.getElementById(id); if (el && val) el.value = val; };
+                            const t = cl.type || 'pvc-dynamic';
+                            if (t === 'pvc-dynamic' || t === 'pvc-static') {
+                                _set('k8s-svc-vol-access-' + i + '-' + j, cl._savedAccessMode);
+                                _set('k8s-svc-vol-sc-' + i + '-' + j, cl._savedStorageClass);
+                                if (t === 'pvc-static') _set('k8s-svc-vol-pvname-' + i + '-' + j, cl._savedPvName);
+                                if (cl._savedLonghorn) {
+                                    _set('k8s-vol-lh-replicas-' + i + '-' + j, cl._savedLonghorn.replicas);
+                                    _set('k8s-vol-lh-locality-' + i + '-' + j, cl._savedLonghorn.dataLocality);
+                                    // Show longhorn panel if storageClass matches
+                                    const lhPanel = document.getElementById('k8s-vol-lh-' + i + '-' + j);
+                                    if (lhPanel) lhPanel.style.display = 'block';
+                                }
+                            } else if (t === 'emptyDir') {
+                                _set('k8s-svc-vol-medium-' + i + '-' + j, cl._savedMedium);
+                                _set('k8s-svc-vol-sizelimit-' + i + '-' + j, cl._savedSizeLimit);
+                            } else if (t === 'configMap') {
+                                _set('k8s-svc-vol-cmkey-' + i + '-' + j, cl._savedCmKey);
+                            } else if (t === 'secret') {
+                                _set('k8s-svc-vol-seckey-' + i + '-' + j, cl._savedSecKey);
+                            } else if (t === 'hostPath') {
+                                _set('k8s-svc-vol-hosttype-' + i + '-' + j, cl._savedHostType);
+                            }
+                        };
+
+                        // ── Volume row HTML generator ──
+                        window._volRowHtml = (i, j, cl) => {
+                            const isSkip = cl.type === 'skip';
+                            const checked = !isSkip ? ' checked' : '';
+                            const defType = isSkip ? 'emptyDir' : (cl.type || 'pvc-dynamic');
+                            const typeOpts = [
+                                { v: 'pvc-dynamic', l: '💾 PVC (dynamic)' },
+                                { v: 'pvc-static',  l: '💾 PVC (static — advanced)' },
+                                { v: 'emptyDir',    l: '📂 emptyDir (ephemeral)' },
+                                { v: 'configMap',   l: '📄 ConfigMap (file mount)' },
+                                { v: 'secret',      l: '🔐 Secret (file mount)' },
+                                { v: 'hostPath',    l: '⚠️ hostPath (not recommended)' },
+                            ];
+                            const typeSelectHtml = '<select id="k8s-svc-vol-type-' + i + '-' + j + '" class="modal-form-select" data-i="' + i + '" data-j="' + j + '" style="font-size:0.72rem;padding:0.15rem 0.2rem;flex:1" onchange="window._k8sVolTypeChange(\'' + i + '\',' + j + ')">'
+                                + typeOpts.map(o => '<option value="' + o.v + '"' + (o.v === defType ? ' selected' : '') + '>' + o.l + '</option>').join('')
+                                + '</select>';
+                            const nameVal = (cl.name || '').replace(/[^a-z0-9-]/gi, '-').toLowerCase();
+                            const showPvc = (defType === 'pvc-dynamic' || defType === 'pvc-static') ? '' : 'display:none';
+                            const showStatic = defType === 'pvc-static' ? '' : 'display:none';
+                            const showEmpty = defType === 'emptyDir' ? '' : 'display:none';
+                            const showCm = defType === 'configMap' ? '' : 'display:none';
+                            const showSec = defType === 'secret' ? '' : 'display:none';
+                            const showHost = defType === 'hostPath' ? '' : 'display:none';
+
+                            // Determine the initial source label + value based on type
+                            const _srcLabelMap = { 'pvc-dynamic': 'PVC Name', 'pvc-static': 'PVC Name', 'configMap': 'ConfigMap', 'secret': 'Secret', 'hostPath': 'Host Path' };
+                            const srcLabel = _srcLabelMap[defType] || 'Volume Source';
+                            const srcVal = defType === 'configMap' ? '' : defType === 'secret' ? '' : defType === 'hostPath' ? esc(cl.source || '') : esc(nameVal);
+                            const srcPlaceholder = defType === 'configMap' ? 'my-config' : defType === 'secret' ? 'my-tls-cert' : defType === 'hostPath' ? '/host/path' : 'my-data';
+                            const showSrcRow = defType !== 'emptyDir' ? '' : 'display:none';
+
+                            return '<div class="k8s-vol-row" style="border:1px solid var(--border-subtle);border-radius:6px;padding:0.35rem 0.4rem;background:var(--bg-inset)' + (isSkip ? ';opacity:0.5' : '') + '">'
+                                // Row 1: checkbox + type select + skip warning + remove button
+                                + '<div style="display:flex;align-items:center;gap:0.4rem;flex-wrap:wrap">'
+                                +   '<input type="checkbox" id="k8s-svc-vol-chk-' + i + '-' + j + '"' + checked + ' style="accent-color:var(--accent);cursor:pointer" onchange="window._updateVolSummary(\'' + i + '\')">'
+                                +   typeSelectHtml
+                                +   (isSkip ? '<span style="font-size:0.6rem;color:var(--warning);font-weight:600">⚠️ ' + esc(cl.skipReason || 'dev-only') + '</span>' : '')
+                                +   '<button type="button" onclick="this.closest(\'.k8s-vol-row\').remove();window._updateVolSummary(\'' + i + '\')" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:0.8rem;padding:0 4px" title="Remove">✕</button>'
+                                + '</div>'
+                                // Row 2: Volume Source → Mount Path (the two-way mapping)
+                                + '<div id="k8s-vol-mapping-' + i + '-' + j + '" style="display:grid;grid-template-columns:1fr auto 1fr;gap:0.3rem;margin-top:0.25rem;align-items:end;' + showSrcRow + '">'
+                                +   '<div>'
+                                +     '<label id="k8s-vol-src-label-' + i + '-' + j + '" style="display:block;font-size:0.64rem;color:var(--text-muted);margin-bottom:1px">' + srcLabel + '</label>'
+                                +     '<input type="text" id="k8s-svc-vol-name-' + i + '-' + j + '" class="modal-form-input" value="' + srcVal + '" placeholder="' + srcPlaceholder + '" style="font-size:0.72rem;padding:0.15rem 0.25rem">'
+                                +   '</div>'
+                                +   '<div style="font-size:0.82rem;color:var(--text-muted);padding-bottom:0.15rem;font-weight:600">→</div>'
+                                +   '<div>'
+                                +     '<label style="display:block;font-size:0.64rem;color:var(--text-muted);margin-bottom:1px">Mount Path</label>'
+                                +     '<input type="text" id="k8s-svc-vol-mount-' + i + '-' + j + '" class="modal-form-input" value="' + esc(cl.mountPath) + '" placeholder="/var/lib/data" style="font-size:0.72rem;padding:0.15rem 0.25rem">'
+                                +   '</div>'
+                                + '</div>'
+                                // emptyDir-only mount path (no source side)
+                                + '<div id="k8s-vol-mount-only-' + i + '-' + j + '" style="' + (defType === 'emptyDir' ? '' : 'display:none') + ';margin-top:0.25rem">'
+                                +   '<label style="display:block;font-size:0.64rem;color:var(--text-muted);margin-bottom:1px">Mount Path</label>'
+                                +   '<input type="text" id="k8s-svc-vol-mount-empty-' + i + '-' + j + '" class="modal-form-input" value="' + esc(cl.mountPath) + '" placeholder="/tmp/data" style="font-size:0.72rem;padding:0.15rem 0.25rem"'
+                                +   ' oninput="var m=document.getElementById(\'k8s-svc-vol-mount-' + i + '-' + j + '\');if(m)m.value=this.value">'
+                                + '</div>'
+                                // PVC extra fields (Size, Access Mode, StorageClass)
+                                + '<div id="k8s-vol-pvc-fields-' + i + '-' + j + '" style="' + showPvc + ';margin-top:0.2rem">'
+                                +   '<div style="display:grid;grid-template-columns:1fr 1fr;gap:0.3rem;align-items:start">'
+                                +     '<div><label style="display:block;font-size:0.64rem;color:var(--text-muted);margin-bottom:1px">Size</label>'
+                                +       '<input type="text" id="k8s-svc-vol-size-' + i + '-' + j + '" class="modal-form-input" value="' + (cl.defaultSize || '10Gi') + '" placeholder="10Gi" style="font-size:0.72rem;padding:0.15rem 0.25rem">'
+                                +     '</div>'
+                                +     '<div><label style="display:block;font-size:0.64rem;color:var(--text-muted);margin-bottom:1px">Access Mode</label>'
+                                +       '<select id="k8s-svc-vol-access-' + i + '-' + j + '" class="modal-form-select" style="font-size:0.72rem;padding:0.15rem 0.2rem">'
+                                +         '<option value="ReadWriteOnce" selected>ReadWriteOnce</option>'
+                                +         '<option value="ReadWriteMany">ReadWriteMany</option>'
+                                +         '<option value="ReadOnlyMany">ReadOnlyMany</option>'
+                                +       '</select>'
+                                +     '</div>'
+                                +   '</div>'
+                                +   '<div style="margin-top:0.25rem">'
+                                +     '<label style="display:block;font-size:0.64rem;color:var(--text-muted);margin-bottom:1px">Storage Class</label>'
+                                +     '<div style="display:flex;gap:0.3rem;align-items:center">'
+                                +       '<select id="k8s-svc-vol-sc-' + i + '-' + j + '" class="modal-form-select k8s-vol-sc-select" style="font-size:0.72rem;padding:0.15rem 0.2rem;flex:1;max-width:320px" onchange="window._k8sVolScChange(\'' + i + '\',' + j + ')">'
+                                +         _scSelectHtml()
+                                +       '</select>'
+                                +       '<input type="text" id="k8s-svc-vol-sc-custom-' + i + '-' + j + '" class="modal-form-input" placeholder="custom-class" style="font-size:0.72rem;padding:0.15rem 0.2rem;flex:1;max-width:180px;display:none">'
+                                +     '</div>'
+                                +   '</div>'
+                                +   '<div id="k8s-vol-lh-' + i + '-' + j + '" style="display:none;margin-top:0.2rem;padding:0.25rem 0.35rem;border-radius:4px;background:rgba(99,102,241,0.04);border:1px solid rgba(99,102,241,0.12)">'
+                                +     '<div style="font-size:0.64rem;color:var(--accent);font-weight:600;margin-bottom:0.15rem">🐂 Longhorn</div>'
+                                +     '<div style="display:grid;grid-template-columns:1fr 1fr;gap:0.25rem">'
+                                +       '<div><label style="display:block;font-size:0.62rem;color:var(--text-muted);margin-bottom:1px">Replicas</label>'
+                                +         '<input type="number" id="k8s-vol-lh-replicas-' + i + '-' + j + '" class="modal-form-input" value="3" min="1" max="5" style="font-size:0.72rem;padding:0.15rem 0.2rem;width:60px">'
+                                +       '</div>'
+                                +       '<div><label style="display:block;font-size:0.62rem;color:var(--text-muted);margin-bottom:1px">Data Locality</label>'
+                                +         '<select id="k8s-vol-lh-locality-' + i + '-' + j + '" class="modal-form-select" style="font-size:0.72rem;padding:0.15rem 0.2rem">'
+                                +           '<option value="best-effort" selected>Best-effort</option>'
+                                +           '<option value="strict">Strict</option>'
+                                +           '<option value="disabled">Disabled</option>'
+                                +         '</select>'
+                                +       '</div>'
+                                +     '</div>'
+                                +   '</div>'
+                                + '</div>'
+                                // PVC static extra fields
+                                + '<div id="k8s-vol-static-fields-' + i + '-' + j + '" style="' + showStatic + ';margin-top:0.2rem">'
+                                +   '<div><label style="display:block;font-size:0.64rem;color:var(--text-muted);margin-bottom:1px">PV Name (bind to existing)</label>'
+                                +     '<input type="text" id="k8s-svc-vol-pvname-' + i + '-' + j + '" class="modal-form-input" placeholder="pre-existing-pv-name" style="font-size:0.72rem;padding:0.15rem 0.25rem">'
+                                +   '</div>'
+                                +   '<div style="font-size:0.6rem;color:var(--text-muted);margin-top:2px">Requires a pre-existing PersistentVolume in the cluster</div>'
+                                + '</div>'
+                                // emptyDir fields
+                                + '<div id="k8s-vol-empty-fields-' + i + '-' + j + '" style="' + showEmpty + ';margin-top:0.2rem">'
+                                +   '<div style="display:grid;grid-template-columns:1fr 1fr;gap:0.3rem">'
+                                +     '<div><label style="display:block;font-size:0.64rem;color:var(--text-muted);margin-bottom:1px">Medium</label>'
+                                +       '<select id="k8s-svc-vol-medium-' + i + '-' + j + '" class="modal-form-select" style="font-size:0.72rem;padding:0.15rem 0.2rem">'
+                                +         '<option value="" selected>Disk (default)</option>'
+                                +         '<option value="Memory">Memory (tmpfs — faster, uses RAM)</option>'
+                                +       '</select>'
+                                +     '</div>'
+                                +     '<div><label style="display:block;font-size:0.64rem;color:var(--text-muted);margin-bottom:1px">Size Limit (optional)</label>'
+                                +       '<input type="text" id="k8s-svc-vol-sizelimit-' + i + '-' + j + '" class="modal-form-input" placeholder="e.g. 1Gi" style="font-size:0.72rem;padding:0.15rem 0.25rem">'
+                                +     '</div>'
+                                +   '</div>'
+                                +   '<div style="font-size:0.6rem;color:var(--warning);margin-top:2px">⚠️ Data is lost when pod is restarted or rescheduled</div>'
+                                + '</div>'
+                                // ConfigMap mount extra fields (key only — name is in the source input)
+                                + '<div id="k8s-vol-cm-fields-' + i + '-' + j + '" style="' + showCm + ';margin-top:0.2rem">'
+                                +   '<div><label style="display:block;font-size:0.64rem;color:var(--text-muted);margin-bottom:1px">Key (optional, single file)</label>'
+                                +     '<input type="text" id="k8s-svc-vol-cmkey-' + i + '-' + j + '" class="modal-form-input" placeholder="e.g. nginx.conf" style="font-size:0.72rem;padding:0.15rem 0.25rem">'
+                                +   '</div>'
+                                +   '<div style="font-size:0.6rem;color:var(--text-muted);margin-top:2px">Mounts ConfigMap data as files in the container</div>'
+                                + '</div>'
+                                // Secret mount extra fields (key only — name is in the source input)
+                                + '<div id="k8s-vol-sec-fields-' + i + '-' + j + '" style="' + showSec + ';margin-top:0.2rem">'
+                                +   '<div><label style="display:block;font-size:0.64rem;color:var(--text-muted);margin-bottom:1px">Key (optional, single file)</label>'
+                                +     '<input type="text" id="k8s-svc-vol-seckey-' + i + '-' + j + '" class="modal-form-input" placeholder="e.g. tls.crt" style="font-size:0.72rem;padding:0.15rem 0.25rem">'
+                                +   '</div>'
+                                +   '<div style="font-size:0.6rem;color:var(--text-muted);margin-top:2px">Mounts Secret data as files (e.g. TLS certs, SSH keys)</div>'
+                                + '</div>'
+                                // hostPath extra fields (type only — path is in the source input)
+                                + '<div id="k8s-vol-host-fields-' + i + '-' + j + '" style="' + showHost + ';margin-top:0.2rem">'
+                                +   '<div><label style="display:block;font-size:0.64rem;color:var(--text-muted);margin-bottom:1px">Path Type</label>'
+                                +     '<select id="k8s-svc-vol-hosttype-' + i + '-' + j + '" class="modal-form-select" style="font-size:0.72rem;padding:0.15rem 0.2rem">'
+                                +       '<option value="DirectoryOrCreate" selected>DirectoryOrCreate</option>'
+                                +       '<option value="Directory">Directory</option>'
+                                +       '<option value="FileOrCreate">FileOrCreate</option>'
+                                +       '<option value="File">File</option>'
+                                +     '</select>'
+                                +   '</div>'
+                                +   '<div style="font-size:0.6rem;color:var(--warning);margin-top:2px">⚠️ Not portable. Ties pod to specific node. Security risk.</div>'
+                                + '</div>'
+                                + '</div>';
+                        };
+
+                        // ── Volume type change handler ──
+                        window._k8sVolTypeChange = (i, j) => {
+                            const sel = document.getElementById('k8s-svc-vol-type-' + i + '-' + j);
+                            if (!sel) return;
+                            const t = sel.value;
+
+                            // Update source label + placeholder based on type
+                            const srcLabelEl = document.getElementById('k8s-vol-src-label-' + i + '-' + j);
+                            const srcInput = document.getElementById('k8s-svc-vol-name-' + i + '-' + j);
+                            const mappingRow = document.getElementById('k8s-vol-mapping-' + i + '-' + j);
+                            const mountOnly = document.getElementById('k8s-vol-mount-only-' + i + '-' + j);
+                            const _srcLabels = { 'pvc-dynamic': 'PVC Name', 'pvc-static': 'PVC Name', 'configMap': 'ConfigMap', 'secret': 'Secret', 'hostPath': 'Host Path' };
+                            const _srcPlaceholders = { 'pvc-dynamic': 'my-data', 'pvc-static': 'my-data', 'configMap': 'my-config', 'secret': 'my-tls-cert', 'hostPath': '/host/path' };
+                            if (srcLabelEl) srcLabelEl.textContent = _srcLabels[t] || 'Volume Source';
+                            if (srcInput) srcInput.placeholder = _srcPlaceholders[t] || 'volume-name';
+                            // Toggle mapping row vs emptyDir mount-only
+                            const isEmptyDir = t === 'emptyDir';
+                            if (mappingRow) mappingRow.style.display = isEmptyDir ? 'none' : '';
+                            if (mountOnly) mountOnly.style.display = isEmptyDir ? '' : 'none';
+                            // Sync mount path from emptyDir input when switching back
+                            if (!isEmptyDir && mountOnly) {
+                                const emptyMount = document.getElementById('k8s-svc-vol-mount-empty-' + i + '-' + j);
+                                const mainMount = document.getElementById('k8s-svc-vol-mount-' + i + '-' + j);
+                                if (emptyMount && mainMount && emptyMount.value) mainMount.value = emptyMount.value;
+                            }
+
+                            const ids = {
+                                pvc:    'k8s-vol-pvc-fields-' + i + '-' + j,
+                                static: 'k8s-vol-static-fields-' + i + '-' + j,
+                                empty:  'k8s-vol-empty-fields-' + i + '-' + j,
+                                cm:     'k8s-vol-cm-fields-' + i + '-' + j,
+                                sec:    'k8s-vol-sec-fields-' + i + '-' + j,
+                                host:   'k8s-vol-host-fields-' + i + '-' + j,
+                            };
+                            const el = (k) => document.getElementById(ids[k]);
+                            if (el('pvc'))    el('pvc').style.display    = (t === 'pvc-dynamic' || t === 'pvc-static') ? '' : 'none';
+                            if (el('static')) el('static').style.display = (t === 'pvc-static') ? '' : 'none';
+                            if (el('empty'))  el('empty').style.display  = (t === 'emptyDir') ? '' : 'none';
+                            if (el('cm'))     el('cm').style.display     = (t === 'configMap') ? '' : 'none';
+                            if (el('sec'))    el('sec').style.display    = (t === 'secret') ? '' : 'none';
+                            if (el('host'))   el('host').style.display   = (t === 'hostPath') ? '' : 'none';
+                            window._updateVolSummary(i);
+                        };
+
+                        // ── StorageClass change handler (per-volume) ──
+                        window._k8sVolScChange = (i, j) => {
+                            const sel = document.getElementById('k8s-svc-vol-sc-' + i + '-' + j);
+                            const custom = document.getElementById('k8s-svc-vol-sc-custom-' + i + '-' + j);
+                            const lhPanel = document.getElementById('k8s-vol-lh-' + i + '-' + j);
+                            if (!sel) return;
+                            // Show/hide custom input
+                            if (custom) custom.style.display = (sel.value === '_custom') ? '' : 'none';
+                            // Show/hide Longhorn panel — check both catalog entry and name pattern
+                            const scVal = (sel.value === '_custom' && custom) ? custom.value : sel.value;
+                            const scEntry = _SC_FLAT[scVal];
+                            const isLonghorn = (scEntry && scEntry.hasExtra) || scVal.toLowerCase().includes('longhorn');
+                            if (lhPanel) lhPanel.style.display = isLonghorn ? '' : 'none';
+                        };
+
+                        // ── Add volume row ──
+                        window._addVolRow = (i) => {
+                            const list = document.getElementById('k8s-svc-vol-list-' + i);
+                            if (!list) return;
+                            // Remove "no volumes" placeholder if present
+                            const placeholder = list.querySelector('div[style*="font-style:italic"]');
+                            if (placeholder) placeholder.remove();
+                            // Find max existing j
+                            let maxJ = -1;
+                            list.querySelectorAll('.k8s-vol-row').forEach(row => {
+                                const chk = row.querySelector('[id^="k8s-svc-vol-chk-"]');
+                                if (chk) {
+                                    const parts = chk.id.split('-');
+                                    const jVal = parseInt(parts[parts.length - 1]);
+                                    if (!isNaN(jVal) && jVal > maxJ) maxJ = jVal;
+                                }
+                            });
+                            const j = maxJ + 1;
+                            const cl = { type: 'pvc-dynamic', name: '', mountPath: '', source: '', defaultSize: '5Gi', classification: 'manual' };
+                            const wrapper = document.createElement('div');
+                            wrapper.innerHTML = window._volRowHtml(i, j, cl);
+                            list.appendChild(wrapper.firstElementChild);
+                            window._updateVolSummary(i);
+                        };
+
+                        // ── Volume summary updater ──
+                        window._updateVolSummary = (i) => {
+                            const sumEl = document.getElementById('k8s-svc-vol-summary-' + i);
+                            if (!sumEl) return;
+                            const list = document.getElementById('k8s-svc-vol-list-' + i);
+                            if (!list) { sumEl.textContent = ''; return; }
+                            let pvcCount = 0, emptyCount = 0, otherCount = 0;
+                            list.querySelectorAll('.k8s-vol-row').forEach(row => {
+                                const chk = row.querySelector('[id^="k8s-svc-vol-chk-"]');
+                                if (!chk || !chk.checked) return;
+                                const parts = chk.id.split('-');
+                                const j = parts[parts.length - 1];
+                                const typeSel = document.getElementById('k8s-svc-vol-type-' + i + '-' + j);
+                                const t = typeSel ? typeSel.value : '';
+                                if (t === 'pvc-dynamic' || t === 'pvc-static') pvcCount++;
+                                else if (t === 'emptyDir') emptyCount++;
+                                else otherCount++;
+                            });
+                            const parts = [];
+                            if (pvcCount > 0) parts.push(pvcCount + ' PVC');
+                            if (emptyCount > 0) parts.push(emptyCount + ' emptyDir');
+                            if (otherCount > 0) parts.push(otherCount + ' other');
+                            sumEl.textContent = parts.length > 0 ? '— ' + parts.join(', ') : '';
+                        };
+
+                        // ── Shared volume collector (works for any i: numeric, infraId, compId) ──
+                        window._collectVolumes = (i) => {
+                            const _v = (id) => { const el = document.getElementById(id); return el ? el.value.trim() : ''; };
+                            const vols = [];
+                            const volList = document.getElementById('k8s-svc-vol-list-' + i);
+                            if (!volList) return vols;
+                            volList.querySelectorAll('.k8s-vol-row').forEach(row => {
+                                const chk = row.querySelector('[id^="k8s-svc-vol-chk-"]');
+                                if (!chk || !chk.checked) return;
+                                const ps = chk.id.split('-');
+                                const j = ps[ps.length - 1];
+                                const type = _v('k8s-svc-vol-type-' + i + '-' + j) || 'pvc-dynamic';
+                                // For emptyDir, mount path may be in the dedicated emptyDir input
+                                const mountPath = (type === 'emptyDir'
+                                    ? (_v('k8s-svc-vol-mount-empty-' + i + '-' + j) || _v('k8s-svc-vol-mount-' + i + '-' + j))
+                                    : _v('k8s-svc-vol-mount-' + i + '-' + j));
+                                if (!mountPath) return;
+                                const vol = { type, mountPath };
+                                // The unified source input (k8s-svc-vol-name) holds the source for all types
+                                const srcName = _v('k8s-svc-vol-name-' + i + '-' + j);
+                                if (type === 'pvc-dynamic' || type === 'pvc-static') {
+                                    vol.name = srcName || 'data-' + j;
+                                    vol.size = _v('k8s-svc-vol-size-' + i + '-' + j) || '10Gi';
+                                    vol.accessMode = _v('k8s-svc-vol-access-' + i + '-' + j) || 'ReadWriteOnce';
+                                    if (type === 'pvc-static') vol.pvName = _v('k8s-svc-vol-pvname-' + i + '-' + j) || '';
+                                    const scSel = document.getElementById('k8s-svc-vol-sc-' + i + '-' + j);
+                                    if (scSel) {
+                                        vol.storageClass = scSel.value === '_custom'
+                                            ? (_v('k8s-svc-vol-sc-custom-' + i + '-' + j) || '')
+                                            : (scSel.value || '');
+                                        if (vol.storageClass.toLowerCase().includes('longhorn')) {
+                                            vol.longhornConfig = {
+                                                replicas: _v('k8s-vol-lh-replicas-' + i + '-' + j) || '3',
+                                                dataLocality: _v('k8s-vol-lh-locality-' + i + '-' + j) || 'best-effort',
+                                            };
+                                        }
+                                    }
+                                } else if (type === 'emptyDir') {
+                                    vol.medium = _v('k8s-svc-vol-medium-' + i + '-' + j) || '';
+                                    vol.sizeLimit = _v('k8s-svc-vol-sizelimit-' + i + '-' + j) || '';
+                                } else if (type === 'configMap') {
+                                    vol.configMapName = srcName || '';
+                                    vol.key = _v('k8s-svc-vol-cmkey-' + i + '-' + j) || '';
+                                } else if (type === 'secret') {
+                                    vol.secretName = srcName || '';
+                                    vol.key = _v('k8s-svc-vol-seckey-' + i + '-' + j) || '';
+                                } else if (type === 'hostPath') {
+                                    vol.hostPath = srcName || '';
+                                    vol.hostType = _v('k8s-svc-vol-hosttype-' + i + '-' + j) || 'DirectoryOrCreate';
+                                }
+                                vols.push(vol);
+                            });
+                            return vols;
+                        };
+

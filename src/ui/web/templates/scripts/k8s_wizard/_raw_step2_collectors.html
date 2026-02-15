@@ -1,0 +1,636 @@
+                        // ── Collect application services ──
+                        const services = [];
+                        // ── Helper: read element value safely ──
+                        const _v = (id) => { const el = document.getElementById(id); return el ? el.value.trim() : ''; };
+
+                        // ── Helper: collect full companion data from rich companion row DOM ──
+                        const _collectCompanionData = (targetIdx) => {
+                            return (window._k8sCompanions.get(targetIdx) || []).map(c => {
+                                const t = targetIdx;
+                                const s = c.sourceIndex;
+
+                                // Read image/port from companion card (editable)
+                                const image = _v('k8s-comp-img-' + t + '-' + s) || c.image || '';
+                                const port = _v('k8s-comp-port-' + t + '-' + s) || c.port || '';
+
+                                // Read env vars using shared system (same as main services)
+                                const compEnvId = 'comp-' + t + '-' + s;
+                                const envVars = window._collectEnvVars(compEnvId);
+
+                                // Read resources from companion card
+                                const cpuReq = _v('k8s-comp-cpureq-' + t + '-' + s);
+                                const cpuLim = _v('k8s-comp-cpulim-' + t + '-' + s);
+                                const memReq = _v('k8s-comp-memreq-' + t + '-' + s);
+                                const memLim = _v('k8s-comp-memlim-' + t + '-' + s);
+                                const hasRes = cpuReq || cpuLim || memReq || memLim;
+
+                                // Read volumes from companion card
+                                const volumes = [];
+                                const volList = document.getElementById('k8s-comp-vol-list-' + t + '-' + s);
+                                if (volList) {
+                                    volList.querySelectorAll('.k8s-comp-vol-row').forEach(row => {
+                                        const nameEl = row.querySelector('[id^="k8s-comp-vol-name-"]');
+                                        if (!nameEl) return;
+                                        const parts = nameEl.id.split('-');
+                                        const j = parts[parts.length - 1];
+                                        const volName = _v('k8s-comp-vol-name-' + t + '-' + s + '-' + j);
+                                        const mountPath = _v('k8s-comp-vol-mount-' + t + '-' + s + '-' + j);
+                                        const volType = _v('k8s-comp-vol-type-' + t + '-' + s + '-' + j) || 'emptyDir';
+                                        if (mountPath) volumes.push({ name: volName, type: volType, mountPath });
+                                    });
+                                }
+                                // Read checked host volumes (live-refreshed section)
+                                const hostVolContainer = document.getElementById('k8s-comp-hostvols-' + t + '-' + s);
+                                if (hostVolContainer) {
+                                    hostVolContainer.querySelectorAll('.k8s-comp-hostvol-row').forEach(row => {
+                                        const chk = row.querySelector('input[type="checkbox"]');
+                                        if (!chk || !chk.checked) return;
+                                        const mountEl = row.querySelector('input[id$="-mount"]');
+                                        const nameEl = row.querySelector('input[id$="-name"]');
+                                        const typeEl = row.querySelector('input[id$="-type"]');
+                                        const mountPath = mountEl ? mountEl.value.trim() : '';
+                                        const volName = nameEl ? nameEl.value.trim() : '';
+                                        const volType = typeEl ? typeEl.value.trim() : 'emptyDir';
+                                        if (mountPath) volumes.push({ name: volName, type: volType, mountPath });
+                                    });
+                                }
+
+                                // Read startup dependency (value may be 'name:port' for infra)
+                                const depRaw = _v('k8s-comp-dep-' + t + '-' + s) || '';
+                                let dependsOn = null;
+                                let dependsOnPort = null;
+                                if (depRaw) {
+                                    if (depRaw === '__main__') {
+                                        dependsOn = '__main__';
+                                    } else if (depRaw.includes(':')) {
+                                        const [dName, dPort] = depRaw.split(':');
+                                        dependsOn = dName;
+                                        dependsOnPort = dPort;
+                                    } else {
+                                        dependsOn = depRaw;
+                                    }
+                                }
+
+                                return {
+                                    name: c.svcName,
+                                    image,
+                                    port,
+                                    env: envVars,
+                                    resources: hasRes ? {
+                                        cpu_request: cpuReq || null,
+                                        cpu_limit: cpuLim || null,
+                                        memory_request: memReq || null,
+                                        memory_limit: memLim || null,
+                                    } : null,
+                                    volumes,
+                                    dependsOn,
+                                    dependsOnPort,
+                                };
+                            });
+                        };
+
+                        if (mode === 'compose') {
+                            for (let i = 0; i < appCount; i++) {
+                                const chk = document.getElementById(`k8s-svc-chk-${i}`);
+                                if (!chk || !chk.checked) continue;
+                                // Skip services moved into another pod as companions
+                                const srcCard = document.getElementById(`k8s-svc-card-${i}`);
+                                if (srcCard && srcCard.style.display === 'none') continue;
+
+                                // Resource limits — only include non-empty values
+                                const cpuReq = _v(`k8s-svc-cpu-req-${i}`);
+                                const cpuLim = _v(`k8s-svc-cpu-lim-${i}`);
+                                const memReq = _v(`k8s-svc-mem-req-${i}`);
+                                const memLim = _v(`k8s-svc-mem-lim-${i}`);
+                                const hasResources = cpuReq || cpuLim || memReq || memLim;
+
+                                // Strategy
+                                const strategy = _v(`k8s-svc-strategy-${i}`) || 'RollingUpdate';
+
+                                // Probe collection helper
+                                const _collectProbe = (prefix) => {
+                                    const enableEl = document.getElementById(`${prefix}-enable`);
+                                    if (!enableEl || !enableEl.checked) return null;
+                                    const probeType = _v(`${prefix}-type`) || 'http';
+                                    const probe = {
+                                        type: probeType,
+                                        initialDelaySeconds: parseInt(_v(`${prefix}-delay`)) || 0,
+                                        periodSeconds: parseInt(_v(`${prefix}-period`)) || 10,
+                                    };
+                                    if (probeType === 'http') {
+                                        probe.path = _v(`${prefix}-path`) || '/health';
+                                        probe.port = parseInt(_v(`${prefix}-port`)) || 8080;
+                                    } else if (probeType === 'tcp') {
+                                        probe.port = parseInt(_v(`${prefix}-port`)) || 8080;
+                                    } else {
+                                        probe.command = _v(`${prefix}-cmd`) || '';
+                                    }
+                                    probe.extra = parseInt(_v(`${prefix}-extra`)) || 3;
+                                    return probe;
+                                };
+
+                                const selectedKind = _v(`k8s-svc-kind-${i}`) || 'Deployment';
+                                if (selectedKind === 'Skip') continue;
+                                const isJobKind = selectedKind === 'Job' || selectedKind === 'CronJob';
+
+                                const svcObj = {
+                                    name: appSvcs[i].name,
+                                    kind: selectedKind,
+                                    image: _v(`k8s-svc-img-${i}`) || `${appSvcs[i].name}:latest`,
+                                    envVars: window._collectEnvVars(i),
+                                    resources: hasResources ? {
+                                        cpu_request: cpuReq || null,
+                                        cpu_limit: cpuLim || null,
+                                        memory_request: memReq || null,
+                                        memory_limit: memLim || null,
+                                    } : null,
+                                    _compose: appSvcs[i],
+                                    companions: _collectCompanionData(i),
+                                    dependencies: (() => {
+                                        const deps = [];
+                                        document.querySelectorAll('.k8s-dep-' + i + ':checked')
+                                            .forEach(el => deps.push(el.value));
+                                        return deps;
+                                    })(),
+                                };
+
+                                if (isJobKind) {
+                                    // Job-specific fields
+                                    svcObj.command = _v(`k8s-svc-job-cmd-${i}`) || '';
+                                    svcObj.args = _v(`k8s-svc-job-args-${i}`) || '';
+                                    svcObj.restartPolicy = _v(`k8s-svc-job-restart-${i}`) || 'Never';
+                                    svcObj.backoffLimit = parseInt(_v(`k8s-svc-job-backoff-${i}`)) || 3;
+                                    svcObj.completions = parseInt(_v(`k8s-svc-job-completions-${i}`)) || 1;
+                                    svcObj.parallelism = parseInt(_v(`k8s-svc-job-parallelism-${i}`)) || 1;
+                                    const timeout = _v(`k8s-svc-job-timeout-${i}`);
+                                    if (timeout) svcObj.activeDeadlineSeconds = parseInt(timeout);
+                                    svcObj.ttlSecondsAfterFinished = parseInt(_v(`k8s-svc-job-ttl-${i}`)) || 3600;
+
+                                    if (selectedKind === 'CronJob') {
+                                        svcObj.schedule = _v(`k8s-svc-cron-schedule-${i}`) || '*/5 * * * *';
+                                        svcObj.concurrencyPolicy = _v(`k8s-svc-cron-concurrency-${i}`) || 'Forbid';
+                                        const suspendEl = document.getElementById(`k8s-svc-cron-suspend-${i}`);
+                                        svcObj.suspend = suspendEl ? suspendEl.checked : false;
+                                        svcObj.successfulJobsHistoryLimit = parseInt(_v(`k8s-svc-cron-success-${i}`)) || 3;
+                                        svcObj.failedJobsHistoryLimit = parseInt(_v(`k8s-svc-cron-failed-${i}`)) || 1;
+                                        const deadline = _v(`k8s-svc-cron-deadline-${i}`);
+                                        if (deadline) svcObj.startingDeadlineSeconds = parseInt(deadline);
+                                    }
+                                } else if (selectedKind === 'DaemonSet') {
+                                    // DaemonSet-specific fields
+                                    svcObj.port = _v(`k8s-svc-port-${i}`) || '';
+                                    const dsStrategy = _v(`k8s-svc-ds-strategy-${i}`) || 'RollingUpdate';
+                                    svcObj.strategy = dsStrategy;
+                                    svcObj.maxUnavailable = dsStrategy === 'RollingUpdate' ? (_v(`k8s-svc-ds-maxunavail-${i}`) || '1') : null;
+                                    svcObj.nodeSelector = _v(`k8s-svc-ds-nodeselector-${i}`) || '';
+                                    // Tolerations
+                                    const tols = [];
+                                    const tolCpEl = document.getElementById(`k8s-svc-ds-tol-cp-${i}`);
+                                    if (tolCpEl && tolCpEl.checked) tols.push({ key: 'node-role.kubernetes.io/control-plane', effect: 'NoSchedule', operator: 'Exists' });
+                                    const tolNsEl = document.getElementById(`k8s-svc-ds-tol-nosched-${i}`);
+                                    if (tolNsEl && tolNsEl.checked) tols.push({ key: '', operator: 'Exists', effect: 'NoSchedule' });
+                                    svcObj.tolerations = tols;
+                                    // Host access
+                                    const hnEl = document.getElementById(`k8s-svc-ds-hostnet-${i}`);
+                                    svcObj.hostNetwork = hnEl ? hnEl.checked : false;
+                                    const hpEl = document.getElementById(`k8s-svc-ds-hostpid-${i}`);
+                                    svcObj.hostPID = hpEl ? hpEl.checked : false;
+                                    const hiEl = document.getElementById(`k8s-svc-ds-hostipc-${i}`);
+                                    svcObj.hostIPC = hiEl ? hiEl.checked : false;
+                                    // Health checks + volumes (shared with Deployment)
+                                    svcObj.readinessProbe = _collectProbe(`k8s-svc-rdy-${i}`);
+                                    svcObj.livenessProbe = _collectProbe(`k8s-svc-liv-${i}`);
+                                    svcObj.volumes = window._collectVolumes(i);
+                                } else if (selectedKind === 'StatefulSet') {
+                                    // StatefulSet-specific fields
+                                    svcObj.port = _v(`k8s-svc-port-${i}`) || '8080';
+                                    svcObj.replicas = _v(`k8s-svc-replicas-${i}`) || '1';
+                                    svcObj.headlessServiceName = _v(`k8s-svc-ss-headless-${i}`) || `${appSvcs[i].name}-headless`;
+                                    svcObj.podManagementPolicy = _v(`k8s-svc-ss-podmgmt-${i}`) || 'OrderedReady';
+                                    const ssClusterIpEl = document.getElementById(`k8s-svc-ss-clusterip-${i}`);
+                                    svcObj.alsoCreateClusterIP = ssClusterIpEl ? ssClusterIpEl.checked : false;
+                                    const ssStrategy = _v(`k8s-svc-ss-strategy-${i}`) || 'RollingUpdate';
+                                    svcObj.strategy = ssStrategy;
+                                    svcObj.partition = ssStrategy === 'RollingUpdate' ? (parseInt(_v(`k8s-svc-ss-partition-${i}`)) || 0) : null;
+                                    svcObj.readinessProbe = _collectProbe(`k8s-svc-rdy-${i}`);
+                                    svcObj.livenessProbe = _collectProbe(`k8s-svc-liv-${i}`);
+                                    // Collect volumeClaimTemplates
+                                    svcObj.volumeClaimTemplates = (() => {
+                                        const vcts = [];
+                                        const vctList = document.getElementById('k8s-svc-vct-list-' + i);
+                                        if (!vctList) return vcts;
+                                        vctList.querySelectorAll('.k8s-vct-row').forEach(row => {
+                                            const chk = row.querySelector('[id^="k8s-svc-vct-chk-"]');
+                                            if (!chk || !chk.checked) return;
+                                            const ps = chk.id.split('-');
+                                            const j = ps[ps.length - 1];
+                                            const name = _v('k8s-svc-vct-name-' + i + '-' + j);
+                                            const mountPath = _v('k8s-svc-vct-mount-' + i + '-' + j);
+                                            if (!mountPath) return;
+                                            vcts.push({
+                                                name: name || 'data-' + j,
+                                                mountPath,
+                                                size: _v('k8s-svc-vct-size-' + i + '-' + j) || '10Gi',
+                                                accessMode: _v('k8s-svc-vct-access-' + i + '-' + j) || 'ReadWriteOnce',
+                                                storageClass: _v('k8s-svc-vct-sc-' + i + '-' + j) || '',
+                                            });
+                                        });
+                                        return vcts;
+                                    })();
+                                } else {
+                                    // Deployment fields
+                                    svcObj.port = _v(`k8s-svc-port-${i}`) || '8080';
+                                    svcObj.replicas = _v(`k8s-svc-replicas-${i}`) || '2';
+                                    svcObj.serviceType = _v(`k8s-svc-type-${i}`) || 'ClusterIP';
+                                    svcObj.strategy = strategy;
+                                    svcObj.maxSurge = strategy === 'RollingUpdate' ? (_v(`k8s-svc-maxsurge-${i}`) || '1') : null;
+                                    svcObj.maxUnavailable = strategy === 'RollingUpdate' ? (_v(`k8s-svc-maxunavail-${i}`) || '1') : null;
+                                    svcObj.readinessProbe = _collectProbe(`k8s-svc-rdy-${i}`);
+                                    svcObj.livenessProbe = _collectProbe(`k8s-svc-liv-${i}`);
+                                    svcObj.volumes = window._collectVolumes(i);
+                                }
+
+                                // Collect init containers (shared across all non-Skip/Managed kinds)
+                                svcObj.initContainers = (() => {
+                                    const inits = [];
+                                    const initList = document.getElementById('k8s-svc-init-list-' + i);
+                                    if (!initList) return inits;
+                                    initList.querySelectorAll('.k8s-init-row').forEach(row => {
+                                        const j = row.dataset.j;
+                                        const name = _v('k8s-svc-init-name-' + i + '-' + j);
+                                        const image = _v('k8s-svc-init-img-' + i + '-' + j);
+                                        const command = _v('k8s-svc-init-cmd-' + i + '-' + j);
+                                        if (!name && !image) return;
+                                        inits.push({ name: name || 'init-' + j, image: image || 'busybox:1.36', command: command || '' });
+                                    });
+                                    return inits;
+                                })();
+
+                                // Collect sidecar containers
+                                svcObj.sidecars = (() => {
+                                    const scs = [];
+                                    const scList = document.getElementById('k8s-svc-sc-list-' + i);
+                                    if (!scList) return scs;
+                                    scList.querySelectorAll('.k8s-sc-row').forEach(row => {
+                                        const j = row.dataset.j;
+                                        const name = _v('k8s-svc-sc-name-' + i + '-' + j);
+                                        const image = _v('k8s-svc-sc-img-' + i + '-' + j);
+                                        const command = _v('k8s-svc-sc-cmd-' + i + '-' + j);
+                                        if (!name && !image) return;
+                                        const nativeEl = document.getElementById('k8s-svc-sc-native-' + i + '-' + j);
+                                        const sc = {
+                                            name: name || 'sidecar-' + j,
+                                            image: image || '',
+                                            command: command || '',
+                                            nativeSidecar: nativeEl ? nativeEl.checked : true,
+                                        };
+                                        const sharedVol = _v('k8s-svc-sc-shvol-' + i + '-' + j);
+                                        if (sharedVol) {
+                                            sc.sharedVolume = sharedVol;
+                                            sc.sharedMount = _v('k8s-svc-sc-shmount-' + i + '-' + j) || '/shared';
+                                        }
+                                        scs.push(sc);
+                                    });
+                                    return scs;
+                                })();
+
+                                // Collect service mesh config
+                                const meshEl = document.getElementById('k8s-svc-mesh-enable-' + i);
+                                if (meshEl && meshEl.checked) {
+                                    const provSel = document.getElementById('k8s-svc-mesh-provider-' + i);
+                                    svcObj.mesh = {
+                                        provider: provSel ? provSel.value : 'istio',
+                                        proxyCpuRequest: _v('k8s-svc-mesh-cpureq-' + i) || '100m',
+                                        proxyCpuLimit: _v('k8s-svc-mesh-cpulim-' + i) || '500m',
+                                        proxyMemRequest: _v('k8s-svc-mesh-memreq-' + i) || '128Mi',
+                                        proxyMemLimit: _v('k8s-svc-mesh-memlim-' + i) || '256Mi',
+                                        excludeInbound: _v('k8s-svc-mesh-exin-' + i) || '',
+                                        excludeOutbound: _v('k8s-svc-mesh-exout-' + i) || '',
+                                        logLevel: _v('k8s-svc-mesh-log-' + i) || 'warning',
+                                    };
+                                }
+
+                                services.push(svcObj);
+                            }
+                        } else if (mode === 'modules') {
+                            for (let i = 0; i < appCount; i++) {
+                                const chk = document.getElementById(`k8s-svc-chk-${i}`);
+                                if (!chk || !chk.checked) continue;
+                                // Skip services moved into another pod as companions
+                                const srcCard = document.getElementById(`k8s-svc-card-${i}`);
+                                if (srcCard && srcCard.style.display === 'none') continue;
+
+                                // Resource limits — only include non-empty values
+                                const cpuReq = _v(`k8s-svc-cpu-req-${i}`);
+                                const cpuLim = _v(`k8s-svc-cpu-lim-${i}`);
+                                const memReq = _v(`k8s-svc-mem-req-${i}`);
+                                const memLim = _v(`k8s-svc-mem-lim-${i}`);
+                                const hasResources = cpuReq || cpuLim || memReq || memLim;
+
+                                // Strategy
+                                const strategy = _v(`k8s-svc-strategy-${i}`) || 'RollingUpdate';
+
+                                // Probe collection helper
+                                const _collectProbe = (prefix) => {
+                                    const enableEl = document.getElementById(`${prefix}-enable`);
+                                    if (!enableEl || !enableEl.checked) return null;
+                                    const probeType = _v(`${prefix}-type`) || 'http';
+                                    const probe = {
+                                        type: probeType,
+                                        initialDelaySeconds: parseInt(_v(`${prefix}-delay`)) || 0,
+                                        periodSeconds: parseInt(_v(`${prefix}-period`)) || 10,
+                                    };
+                                    if (probeType === 'http') {
+                                        probe.path = _v(`${prefix}-path`) || '/health';
+                                        probe.port = parseInt(_v(`${prefix}-port`)) || 8080;
+                                    } else if (probeType === 'tcp') {
+                                        probe.port = parseInt(_v(`${prefix}-port`)) || 8080;
+                                    } else {
+                                        probe.command = _v(`${prefix}-cmd`) || '';
+                                    }
+                                    probe.extra = parseInt(_v(`${prefix}-extra`)) || 3;
+                                    return probe;
+                                };
+
+                                const selectedKind = _v(`k8s-svc-kind-${i}`) || 'Deployment';
+                                if (selectedKind === 'Skip') continue;
+                                const isJobKind = selectedKind === 'Job' || selectedKind === 'CronJob';
+
+                                const svcObj = {
+                                    name: deployableModules[i].name,
+                                    kind: selectedKind,
+                                    image: _v(`k8s-svc-img-${i}`) || `${deployableModules[i].name}:latest`,
+                                    envVars: window._collectEnvVars(i),
+                                    resources: hasResources ? {
+                                        cpu_request: cpuReq || null,
+                                        cpu_limit: cpuLim || null,
+                                        memory_request: memReq || null,
+                                        memory_limit: memLim || null,
+                                    } : null,
+                                    companions: _collectCompanionData(i),
+                                    dependencies: (() => {
+                                        const deps = [];
+                                        document.querySelectorAll('.k8s-dep-' + i + ':checked')
+                                            .forEach(el => deps.push(el.value));
+                                        return deps;
+                                    })(),
+                                };
+
+                                if (isJobKind) {
+                                    // Job-specific fields
+                                    svcObj.command = _v(`k8s-svc-job-cmd-${i}`) || '';
+                                    svcObj.args = _v(`k8s-svc-job-args-${i}`) || '';
+                                    svcObj.restartPolicy = _v(`k8s-svc-job-restart-${i}`) || 'Never';
+                                    svcObj.backoffLimit = parseInt(_v(`k8s-svc-job-backoff-${i}`)) || 3;
+                                    svcObj.completions = parseInt(_v(`k8s-svc-job-completions-${i}`)) || 1;
+                                    svcObj.parallelism = parseInt(_v(`k8s-svc-job-parallelism-${i}`)) || 1;
+                                    const timeout = _v(`k8s-svc-job-timeout-${i}`);
+                                    if (timeout) svcObj.activeDeadlineSeconds = parseInt(timeout);
+                                    svcObj.ttlSecondsAfterFinished = parseInt(_v(`k8s-svc-job-ttl-${i}`)) || 3600;
+
+                                    if (selectedKind === 'CronJob') {
+                                        svcObj.schedule = _v(`k8s-svc-cron-schedule-${i}`) || '*/5 * * * *';
+                                        svcObj.concurrencyPolicy = _v(`k8s-svc-cron-concurrency-${i}`) || 'Forbid';
+                                        const suspendEl = document.getElementById(`k8s-svc-cron-suspend-${i}`);
+                                        svcObj.suspend = suspendEl ? suspendEl.checked : false;
+                                        svcObj.successfulJobsHistoryLimit = parseInt(_v(`k8s-svc-cron-success-${i}`)) || 3;
+                                        svcObj.failedJobsHistoryLimit = parseInt(_v(`k8s-svc-cron-failed-${i}`)) || 1;
+                                        const deadline = _v(`k8s-svc-cron-deadline-${i}`);
+                                        if (deadline) svcObj.startingDeadlineSeconds = parseInt(deadline);
+                                    }
+                                } else if (selectedKind === 'DaemonSet') {
+                                    // DaemonSet-specific fields
+                                    svcObj.port = _v(`k8s-svc-port-${i}`) || '';
+                                    const dsStrategy = _v(`k8s-svc-ds-strategy-${i}`) || 'RollingUpdate';
+                                    svcObj.strategy = dsStrategy;
+                                    svcObj.maxUnavailable = dsStrategy === 'RollingUpdate' ? (_v(`k8s-svc-ds-maxunavail-${i}`) || '1') : null;
+                                    svcObj.nodeSelector = _v(`k8s-svc-ds-nodeselector-${i}`) || '';
+                                    // Tolerations
+                                    const tols = [];
+                                    const tolCpEl = document.getElementById(`k8s-svc-ds-tol-cp-${i}`);
+                                    if (tolCpEl && tolCpEl.checked) tols.push({ key: 'node-role.kubernetes.io/control-plane', effect: 'NoSchedule', operator: 'Exists' });
+                                    const tolNsEl = document.getElementById(`k8s-svc-ds-tol-nosched-${i}`);
+                                    if (tolNsEl && tolNsEl.checked) tols.push({ key: '', operator: 'Exists', effect: 'NoSchedule' });
+                                    svcObj.tolerations = tols;
+                                    // Host access
+                                    const hnEl = document.getElementById(`k8s-svc-ds-hostnet-${i}`);
+                                    svcObj.hostNetwork = hnEl ? hnEl.checked : false;
+                                    const hpEl = document.getElementById(`k8s-svc-ds-hostpid-${i}`);
+                                    svcObj.hostPID = hpEl ? hpEl.checked : false;
+                                    const hiEl = document.getElementById(`k8s-svc-ds-hostipc-${i}`);
+                                    svcObj.hostIPC = hiEl ? hiEl.checked : false;
+                                    // Health checks + volumes (shared with Deployment)
+                                    svcObj.readinessProbe = _collectProbe(`k8s-svc-rdy-${i}`);
+                                    svcObj.livenessProbe = _collectProbe(`k8s-svc-liv-${i}`);
+                                    svcObj.volumes = window._collectVolumes(i);
+                                } else if (selectedKind === 'StatefulSet') {
+                                    // StatefulSet-specific fields
+                                    svcObj.port = _v(`k8s-svc-port-${i}`) || '8080';
+                                    svcObj.replicas = _v(`k8s-svc-replicas-${i}`) || '1';
+                                    svcObj.headlessServiceName = _v(`k8s-svc-ss-headless-${i}`) || `${deployableModules[i].name}-headless`;
+                                    svcObj.podManagementPolicy = _v(`k8s-svc-ss-podmgmt-${i}`) || 'OrderedReady';
+                                    const ssClusterIpEl = document.getElementById(`k8s-svc-ss-clusterip-${i}`);
+                                    svcObj.alsoCreateClusterIP = ssClusterIpEl ? ssClusterIpEl.checked : false;
+                                    const ssStrategy = _v(`k8s-svc-ss-strategy-${i}`) || 'RollingUpdate';
+                                    svcObj.strategy = ssStrategy;
+                                    svcObj.partition = ssStrategy === 'RollingUpdate' ? (parseInt(_v(`k8s-svc-ss-partition-${i}`)) || 0) : null;
+                                    svcObj.readinessProbe = _collectProbe(`k8s-svc-rdy-${i}`);
+                                    svcObj.livenessProbe = _collectProbe(`k8s-svc-liv-${i}`);
+                                    // Collect volumeClaimTemplates
+                                    svcObj.volumeClaimTemplates = (() => {
+                                        const vcts = [];
+                                        const vctList = document.getElementById('k8s-svc-vct-list-' + i);
+                                        if (!vctList) return vcts;
+                                        vctList.querySelectorAll('.k8s-vct-row').forEach(row => {
+                                            const chk = row.querySelector('[id^="k8s-svc-vct-chk-"]');
+                                            if (!chk || !chk.checked) return;
+                                            const ps = chk.id.split('-');
+                                            const j = ps[ps.length - 1];
+                                            const name = _v('k8s-svc-vct-name-' + i + '-' + j);
+                                            const mountPath = _v('k8s-svc-vct-mount-' + i + '-' + j);
+                                            if (!mountPath) return;
+                                            vcts.push({
+                                                name: name || 'data-' + j,
+                                                mountPath,
+                                                size: _v('k8s-svc-vct-size-' + i + '-' + j) || '10Gi',
+                                                accessMode: _v('k8s-svc-vct-access-' + i + '-' + j) || 'ReadWriteOnce',
+                                                storageClass: _v('k8s-svc-vct-sc-' + i + '-' + j) || '',
+                                            });
+                                        });
+                                        return vcts;
+                                    })();
+                                } else {
+                                    // Deployment fields
+                                    svcObj.port = _v(`k8s-svc-port-${i}`) || '8080';
+                                    svcObj.replicas = _v(`k8s-svc-replicas-${i}`) || '2';
+                                    svcObj.serviceType = _v(`k8s-svc-type-${i}`) || 'ClusterIP';
+                                    svcObj.strategy = strategy;
+                                    svcObj.maxSurge = strategy === 'RollingUpdate' ? (_v(`k8s-svc-maxsurge-${i}`) || '1') : null;
+                                    svcObj.maxUnavailable = strategy === 'RollingUpdate' ? (_v(`k8s-svc-maxunavail-${i}`) || '1') : null;
+                                    svcObj.readinessProbe = _collectProbe(`k8s-svc-rdy-${i}`);
+                                    svcObj.livenessProbe = _collectProbe(`k8s-svc-liv-${i}`);
+                                    svcObj.volumes = window._collectVolumes(i);
+                                }
+
+                                // Collect init containers (shared across all non-Skip/Managed kinds)
+                                svcObj.initContainers = (() => {
+                                    const inits = [];
+                                    const initList = document.getElementById('k8s-svc-init-list-' + i);
+                                    if (!initList) return inits;
+                                    initList.querySelectorAll('.k8s-init-row').forEach(row => {
+                                        const j = row.dataset.j;
+                                        const name = _v('k8s-svc-init-name-' + i + '-' + j);
+                                        const image = _v('k8s-svc-init-img-' + i + '-' + j);
+                                        const command = _v('k8s-svc-init-cmd-' + i + '-' + j);
+                                        if (!name && !image) return;
+                                        inits.push({ name: name || 'init-' + j, image: image || 'busybox:1.36', command: command || '' });
+                                    });
+                                    return inits;
+                                })();
+
+                                // Collect sidecar containers
+                                svcObj.sidecars = (() => {
+                                    const scs = [];
+                                    const scList = document.getElementById('k8s-svc-sc-list-' + i);
+                                    if (!scList) return scs;
+                                    scList.querySelectorAll('.k8s-sc-row').forEach(row => {
+                                        const j = row.dataset.j;
+                                        const name = _v('k8s-svc-sc-name-' + i + '-' + j);
+                                        const image = _v('k8s-svc-sc-img-' + i + '-' + j);
+                                        const command = _v('k8s-svc-sc-cmd-' + i + '-' + j);
+                                        if (!name && !image) return;
+                                        const nativeEl = document.getElementById('k8s-svc-sc-native-' + i + '-' + j);
+                                        const sc = {
+                                            name: name || 'sidecar-' + j,
+                                            image: image || '',
+                                            command: command || '',
+                                            nativeSidecar: nativeEl ? nativeEl.checked : true,
+                                        };
+                                        const sharedVol = _v('k8s-svc-sc-shvol-' + i + '-' + j);
+                                        if (sharedVol) {
+                                            sc.sharedVolume = sharedVol;
+                                            sc.sharedMount = _v('k8s-svc-sc-shmount-' + i + '-' + j) || '/shared';
+                                        }
+                                        scs.push(sc);
+                                    });
+                                    return scs;
+                                })();
+
+                                // Collect service mesh config
+                                const meshEl = document.getElementById('k8s-svc-mesh-enable-' + i);
+                                if (meshEl && meshEl.checked) {
+                                    const provSel = document.getElementById('k8s-svc-mesh-provider-' + i);
+                                    svcObj.mesh = {
+                                        provider: provSel ? provSel.value : 'istio',
+                                        proxyCpuRequest: _v('k8s-svc-mesh-cpureq-' + i) || '100m',
+                                        proxyCpuLimit: _v('k8s-svc-mesh-cpulim-' + i) || '500m',
+                                        proxyMemRequest: _v('k8s-svc-mesh-memreq-' + i) || '128Mi',
+                                        proxyMemLimit: _v('k8s-svc-mesh-memlim-' + i) || '256Mi',
+                                        excludeInbound: _v('k8s-svc-mesh-exin-' + i) || '',
+                                        excludeOutbound: _v('k8s-svc-mesh-exout-' + i) || '',
+                                        logLevel: _v('k8s-svc-mesh-log-' + i) || 'warning',
+                                    };
+                                }
+
+                                services.push(svcObj);
+                            }
+                        } else {
+                            // Manual
+                            services.push({
+                                name: _v('k8s-svc-name-manual') || 'app',
+                                kind: 'Deployment',
+                                image: _v('k8s-svc-img-manual') || 'app:latest',
+                                port: _v('k8s-svc-port-manual') || '8080',
+                                replicas: _v('k8s-svc-replicas-manual') || '2',
+                                serviceType: _v('k8s-svc-type-manual') || 'ClusterIP',
+                            });
+                        }
+
+                        // ── Collect infrastructure services (dynamic — iterate DOM cards) ──
+                        const infraDecisions = [];
+                        const infraListEl = document.getElementById('k8s-infra-list');
+                        if (infraListEl) {
+                            infraListEl.querySelectorAll('[data-infra-name]').forEach(card => {
+                                const svcName = card.dataset.infraName;
+                                const kindSel = document.getElementById('k8s-infra-kind-' + svcName);
+                                const decision = kindSel ? kindSel.value : 'Skip';
+                                if (decision === 'Skip') return;
+                                const infraId = 'infra-' + svcName;
+                                const svcData = (window._k8sInfraData || new Map()).get(svcName) || {};
+                                const infraObj = {
+                                    name: svcName,
+                                    kind: decision,
+                                    image: svcData.image || svcName,
+                                    port: svcData.ports && svcData.ports.length > 0 ? String(svcData.ports[0].container) : '',
+                                    envVars: window._collectEnvVars(infraId),
+                                    _compose: svcData,
+                                };
+                                if (decision !== 'Managed') {
+                                    infraObj.volumes = window._collectVolumes(infraId);
+                                }
+                                if (decision === 'Managed') {
+                                    infraObj.providerNotes = _v('k8s-infra-provider-' + svcName) || '';
+                                }
+                                infraDecisions.push(infraObj);
+                            });
+                        }
+
+                        // ── Store full multi-service config ──
+                        data._services = services;
+                        data._infraDecisions = infraDecisions;
+
+                        // ── Cluster settings ──
+                        data.namespace = mfVal('k8s-namespace') || 'default';
+                        data.output_dir = mfVal('k8s-output-dir') || 'k8s/';
+                        data.ingress = mfVal('k8s-ingress');
+                        const skaffoldChk = document.getElementById('k8s-skaffold-toggle');
+                        data.skaffold = skaffoldChk ? skaffoldChk.checked : true;
+                        // data.configmap removed — ConfigMaps auto-generated per service from envVars
+
+                        // ── Backward compat: flat fields from primary service ──
+                        if (services.length > 0) {
+                            data.app_name = services[0].name;
+                            data.image = services[0].image;
+                            data.port = services[0].port;
+                            data.replicas = services[0].replicas;
+                            data.service_type = services[0].serviceType;
+                        }
+
+                        // ── Persist wizard state (fire-and-forget) ──
+                        try {
+                            const stateToSave = {
+                                _services: data._services,
+                                _infraDecisions: data._infraDecisions,
+                                namespace: data.namespace,
+                                output_dir: data.output_dir,
+                                ingress: data.ingress,
+                                skaffold: data.skaffold,
+                            };
+                            api('/k8s/wizard-state', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify(stateToSave),
+                            }).catch(() => {}); // silent — saving is best-effort
+                        } catch (_) {}
+                    },
+                    validate: (data) => {
+                        if (!data._services || data._services.length === 0) return 'At least one service must be selected';
+                        for (const svc of data._services) {
+                            if (!svc.image) return `Container image is required for ${svc.name}`;
+                            // Kind-aware validation
+                            if (svc.kind === 'CronJob' && !svc.schedule) {
+                                return `Schedule is required for CronJob ${svc.name}`;
+                            }
+                            // Validate resource quantity formats
+                            if (svc.resources) {
+                                const r = svc.resources;
+                                const qtyRx = /^\d+(\.\d+)?(m|Mi|Gi|Ki|Ti|M|G|K|T)?$/;
+                                if (r.cpu_request && !qtyRx.test(r.cpu_request)) return `Invalid CPU request format for ${svc.name} — use e.g. 100m, 0.5, 1`;
+                                if (r.cpu_limit && !qtyRx.test(r.cpu_limit)) return `Invalid CPU limit format for ${svc.name} — use e.g. 500m, 1, 2`;
+                                if (r.memory_request && !qtyRx.test(r.memory_request)) return `Invalid memory request format for ${svc.name} — use e.g. 128Mi, 1Gi`;
+                                if (r.memory_limit && !qtyRx.test(r.memory_limit)) return `Invalid memory limit format for ${svc.name} — use e.g. 256Mi, 1Gi`;
+                            }
+                        }
+                        return null;
+                    },
+                },

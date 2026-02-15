@@ -1,0 +1,517 @@
+                        // ── Add VCT row (StatefulSet volumeClaimTemplate) ──
+                        window._k8sAddVCT = (i) => {
+                            const list = document.getElementById('k8s-svc-vct-list-' + i);
+                            if (!list) return;
+                            // Remove "no volumes" placeholder if present
+                            const ph = list.querySelector('div[style*="font-style:italic"]');
+                            if (ph && !list.querySelector('.k8s-vct-row')) { list.innerHTML = ''; }
+                            let maxJ = -1;
+                            list.querySelectorAll('.k8s-vct-row').forEach(row => {
+                                const chk = row.querySelector('[id^="k8s-svc-vct-chk-"]');
+                                if (chk) {
+                                    const parts = chk.id.split('-');
+                                    const jVal = parseInt(parts[parts.length - 1]);
+                                    if (!isNaN(jVal) && jVal > maxJ) maxJ = jVal;
+                                }
+                            });
+                            const j = maxJ + 1;
+                            const rowHtml = `<div class="k8s-vct-row" style="padding:0.3rem;border:1px solid var(--border-subtle);border-radius:4px;background:var(--bg-secondary)">
+                                <div style="display:grid;grid-template-columns:auto 1fr 2fr 1fr 1fr 1fr;gap:0.3rem;align-items:center;font-size:0.72rem">
+                                    <label><input type="checkbox" id="k8s-svc-vct-chk-${i}-${j}" checked style="accent-color:var(--accent)"></label>
+                                    <div>${_lbl('Name')}${_inp(`k8s-svc-vct-name-${i}-${j}`, 'data-' + j, 'data')}</div>
+                                    <div>${_lbl('Mount Path')}${_inp(`k8s-svc-vct-mount-${i}-${j}`, '/mnt/data', '/var/lib/data')}</div>
+                                    <div>${_lbl('Size')}${_inp(`k8s-svc-vct-size-${i}-${j}`, '10Gi', '10Gi')}</div>
+                                    <div>${_lbl('Access Mode')}${_sel(`k8s-svc-vct-access-${i}-${j}`, [
+                                        {v:'ReadWriteOnce', l:'RWO'},
+                                        {v:'ReadWriteMany', l:'RWX'},
+                                        {v:'ReadOnlyMany', l:'ROX'},
+                                    ], 'ReadWriteOnce')}</div>
+                                    <div>${_lbl('StorageClass')}${_inp(`k8s-svc-vct-sc-${i}-${j}`, '', 'longhorn')}</div>
+                                </div>
+                            </div>`;
+                            const wrapper = document.createElement('div');
+                            wrapper.innerHTML = rowHtml;
+                            list.appendChild(wrapper.firstElementChild);
+                        };
+
+                        // ── Init Container helpers ──
+                        window._k8sInitRowHtml = (i, j, name, image, command) => {
+                            return `<div class="k8s-init-row" data-j="${j}" style="padding:0.35rem;border:1px solid var(--border-subtle);border-radius:4px;background:var(--bg-secondary)">
+                                <div style="display:flex;align-items:center;gap:0.3rem;margin-bottom:0.2rem">
+                                    <span style="font-size:0.68rem;color:var(--accent);font-weight:600">⏳ ${j + 1}.</span>
+                                    <input type="text" id="k8s-svc-init-name-${i}-${j}" class="modal-form-input" value="${name}" placeholder="init-container" style="font-size:0.72rem;padding:0.15rem 0.3rem;flex:1">
+                                    <button type="button" onclick="window._k8sRemoveInit(${i},this)" style="background:none;border:none;cursor:pointer;font-size:0.78rem;color:var(--text-muted);padding:0 4px" title="Remove">✕</button>
+                                </div>
+                                <div style="display:grid;grid-template-columns:1fr 2fr;gap:0.3rem;font-size:0.72rem">
+                                    <div>
+                                        ${_lbl('Image')}
+                                        <input type="text" id="k8s-svc-init-img-${i}-${j}" class="modal-form-input" value="${image}" placeholder="busybox:1.36" style="font-size:0.72rem;padding:0.15rem 0.3rem">
+                                    </div>
+                                    <div>
+                                        ${_lbl('Command')}
+                                        <input type="text" id="k8s-svc-init-cmd-${i}-${j}" class="modal-form-input" value="${command}" placeholder="sh -c &quot;...&quot;" style="font-size:0.72rem;padding:0.15rem 0.3rem">
+                                    </div>
+                                </div>
+                            </div>`;
+                        };
+
+                        window._k8sUpdateInitCount = (i) => {
+                            const countEl = document.getElementById('k8s-svc-init-count-' + i);
+                            if (!countEl) return;
+                            const list = document.getElementById('k8s-svc-init-list-' + i);
+                            const cnt = list ? list.querySelectorAll('.k8s-init-row').length : 0;
+                            countEl.textContent = cnt;
+                        };
+
+                        window._k8sRemoveInit = (i, btn) => {
+                            const row = btn.closest('.k8s-init-row');
+                            if (row) row.remove();
+                            window._k8sUpdateInitCount(i);
+                        };
+
+                        window._k8sAddInitPreset = (i, preset) => {
+                            const list = document.getElementById('k8s-svc-init-list-' + i);
+                            if (!list) return;
+                            let maxJ = -1;
+                            list.querySelectorAll('.k8s-init-row').forEach(row => {
+                                const jVal = parseInt(row.dataset.j);
+                                if (!isNaN(jVal) && jVal > maxJ) maxJ = jVal;
+                            });
+                            const j = maxJ + 1;
+
+                            // Get main container image for 'migrations' preset
+                            const mainImg = (document.getElementById('k8s-svc-img-' + i) || {}).value || '';
+
+                            const presets = {
+                                'wait-tcp': {
+                                    name: 'wait-for-tcp',
+                                    image: 'busybox:1.36',
+                                    command: 'sh -c "until nc -z HOST PORT; do echo Waiting...; sleep 2; done"',
+                                },
+                                'wait-http': {
+                                    name: 'wait-for-http',
+                                    image: 'curlimages/curl:latest',
+                                    command: 'sh -c "until curl -sf http://HOST:PORT/health; do sleep 2; done"',
+                                },
+                                'migrations': {
+                                    name: 'run-migrations',
+                                    image: mainImg || 'app:latest',
+                                    command: '',
+                                },
+                                'fix-perms': {
+                                    name: 'fix-permissions',
+                                    image: 'busybox:1.36',
+                                    command: 'sh -c "chown -R 1000:1000 /data"',
+                                },
+                                'custom': {
+                                    name: 'init-' + j,
+                                    image: '',
+                                    command: '',
+                                },
+                            };
+
+                            const p = presets[preset] || presets['custom'];
+                            const wrapper = document.createElement('div');
+                            wrapper.innerHTML = window._k8sInitRowHtml(i, j, p.name, p.image, p.command);
+                            list.appendChild(wrapper.firstElementChild);
+                            window._k8sUpdateInitCount(i);
+                        };
+
+                        // ── Sidecar Container helpers ──
+                        window._k8sSidecarRowHtml = (i, j, name, image, command, native, sharedVol, sharedMount) => {
+                            const nativeChecked = native !== false ? ' checked' : '';
+                            const hasShared = sharedVol ? true : false;
+                            return `<div class="k8s-sc-row" data-j="${j}" style="padding:0.35rem;border:1px solid var(--border-subtle);border-radius:4px;background:var(--bg-secondary)">
+                                <div style="display:flex;align-items:center;gap:0.3rem;margin-bottom:0.2rem">
+                                    <span style="font-size:0.68rem;color:var(--accent);font-weight:600">📎 ${j + 1}.</span>
+                                    <input type="text" id="k8s-svc-sc-name-${i}-${j}" class="modal-form-input" value="${name}" placeholder="sidecar" style="font-size:0.72rem;padding:0.15rem 0.3rem;flex:1">
+                                    <button type="button" onclick="window._k8sRemoveSidecar(${i},this)" style="background:none;border:none;cursor:pointer;font-size:0.78rem;color:var(--text-muted);padding:0 4px" title="Remove">✕</button>
+                                </div>
+                                <div style="display:grid;grid-template-columns:1fr 2fr;gap:0.3rem;font-size:0.72rem">
+                                    <div>
+                                        ${_lbl('Image')}
+                                        <input type="text" id="k8s-svc-sc-img-${i}-${j}" class="modal-form-input" value="${image}" placeholder="image:tag" style="font-size:0.72rem;padding:0.15rem 0.3rem">
+                                    </div>
+                                    <div>
+                                        ${_lbl('Command (optional)')}
+                                        <input type="text" id="k8s-svc-sc-cmd-${i}-${j}" class="modal-form-input" value="${command || ''}" placeholder="" style="font-size:0.72rem;padding:0.15rem 0.3rem">
+                                    </div>
+                                </div>
+                                <div style="display:flex;align-items:center;gap:0.6rem;margin-top:0.25rem;font-size:0.66rem">
+                                    <label style="display:inline-flex;align-items:center;gap:0.2rem;cursor:pointer;color:var(--text-secondary)">
+                                        <input type="checkbox" id="k8s-svc-sc-native-${i}-${j}"${nativeChecked} style="accent-color:var(--accent)"> Native sidecar
+                                        <span style="font-size:0.58rem;color:var(--text-muted)">(K8s ≥ 1.28)</span>
+                                    </label>
+                                </div>
+                                ${hasShared ? `<div style="display:flex;align-items:center;gap:0.3rem;margin-top:0.2rem;font-size:0.66rem;padding:0.2rem 0.3rem;background:var(--bg-inset);border-radius:3px">
+                                    <span style="color:var(--text-muted);font-weight:600">Shared volume:</span>
+                                    <input type="text" id="k8s-svc-sc-shvol-${i}-${j}" class="modal-form-input" value="${sharedVol}" style="font-size:0.66rem;padding:0.1rem 0.2rem;width:80px">
+                                    <span style="color:var(--text-muted)">mount:</span>
+                                    <input type="text" id="k8s-svc-sc-shmount-${i}-${j}" class="modal-form-input" value="${sharedMount || '/shared'}" style="font-size:0.66rem;padding:0.1rem 0.2rem;width:100px">
+                                </div>` : ''}
+                            </div>`;
+                        };
+
+                        window._k8sUpdateScCount = (i) => {
+                            const countEl = document.getElementById('k8s-svc-sc-count-' + i);
+                            if (!countEl) return;
+                            const list = document.getElementById('k8s-svc-sc-list-' + i);
+                            const cnt = list ? list.querySelectorAll('.k8s-sc-row').length : 0;
+                            countEl.textContent = cnt;
+                        };
+
+                        window._k8sRemoveSidecar = (i, btn) => {
+                            const row = btn.closest('.k8s-sc-row');
+                            if (row) row.remove();
+                            window._k8sUpdateScCount(i);
+                        };
+
+                        window._k8sAddSidecarPreset = (i, preset) => {
+                            const list = document.getElementById('k8s-svc-sc-list-' + i);
+                            if (!list) return;
+                            let maxJ = -1;
+                            list.querySelectorAll('.k8s-sc-row').forEach(row => {
+                                const jVal = parseInt(row.dataset.j);
+                                if (!isNaN(jVal) && jVal > maxJ) maxJ = jVal;
+                            });
+                            const j = maxJ + 1;
+
+                            const presets = {
+                                'log-fwd': {
+                                    name: 'log-forwarder', image: 'fluent/fluent-bit:2.2', command: '',
+                                    native: true, sharedVol: 'shared-logs', sharedMount: '/var/log/app',
+                                },
+                                'cfg-reload': {
+                                    name: 'config-reloader', image: 'jimmidyson/configmap-reload:v0.13', command: '',
+                                    native: true, sharedVol: '', sharedMount: '',
+                                },
+                                'metrics': {
+                                    name: 'metrics-exporter', image: 'prom/statsd-exporter:v0.26', command: '',
+                                    native: true, sharedVol: '', sharedMount: '',
+                                },
+                                'auth-proxy': {
+                                    name: 'auth-proxy', image: 'oauth2-proxy/oauth2-proxy:v7', command: '',
+                                    native: true, sharedVol: '', sharedMount: '',
+                                },
+                                'cloudsql': {
+                                    name: 'cloud-sql-proxy', image: 'gcr.io/cloud-sql-connectors/cloud-sql-proxy:2', command: '',
+                                    native: true, sharedVol: '', sharedMount: '',
+                                },
+                                'vault': {
+                                    name: 'vault-agent', image: 'hashicorp/vault:1.15', command: '',
+                                    native: true, sharedVol: 'vault-secrets', sharedMount: '/vault/secrets',
+                                },
+                                'custom': {
+                                    name: 'sidecar-' + j, image: '', command: '',
+                                    native: true, sharedVol: '', sharedMount: '',
+                                },
+                            };
+
+                            const p = presets[preset] || presets['custom'];
+                            const wrapper = document.createElement('div');
+                            wrapper.innerHTML = window._k8sSidecarRowHtml(i, j, p.name, p.image, p.command, p.native, p.sharedVol, p.sharedMount);
+                            list.appendChild(wrapper.firstElementChild);
+                            window._k8sUpdateScCount(i);
+                        };
+
+                        // ── Companion Container helpers ──
+
+                        // Read env vars from source card DOM (before hiding)
+                        window._k8sReadSourceEnv = (sourceIdx) => {
+                            const list = document.getElementById('k8s-svc-env-list-' + sourceIdx);
+                            if (!list) return [];
+                            const vars = [];
+                            list.querySelectorAll('.k8s-env-row').forEach(row => {
+                                const keyEl = row.querySelector('[id^="k8s-svc-env-key-"]');
+                                if (!keyEl) return;
+                                const parts = keyEl.id.split('-');
+                                const j = parts[parts.length - 1];
+                                const key = (document.getElementById('k8s-svc-env-key-' + sourceIdx + '-' + j) || {}).value || '';
+                                if (!key.trim()) return;
+                                const type = (document.getElementById('k8s-svc-env-type-' + sourceIdx + '-' + j) || {}).value || 'hardcoded';
+                                const value = (document.getElementById('k8s-svc-env-val-' + sourceIdx + '-' + j) || {}).value || '';
+                                vars.push({ key: key.trim(), type, value: value.trim() });
+                            });
+                            return vars;
+                        };
+
+                        // Read resource limits from source card DOM
+                        window._k8sReadSourceResources = (sourceIdx) => {
+                            const cpuReq = (document.getElementById('k8s-svc-cpu-req-' + sourceIdx) || {}).value || '';
+                            const cpuLim = (document.getElementById('k8s-svc-cpu-lim-' + sourceIdx) || {}).value || '';
+                            const memReq = (document.getElementById('k8s-svc-mem-req-' + sourceIdx) || {}).value || '';
+                            const memLim = (document.getElementById('k8s-svc-mem-lim-' + sourceIdx) || {}).value || '';
+                            if (!cpuReq && !cpuLim && !memReq && !memLim) return null;
+                            return { cpuReq, cpuLim, memReq, memLim };
+                        };
+
+                        // Read volumes from source card DOM
+                        window._k8sReadSourceVolumes = (sourceIdx) => {
+                            const volList = document.getElementById('k8s-svc-vol-list-' + sourceIdx);
+                            if (!volList) return [];
+                            const vols = [];
+                            volList.querySelectorAll('.k8s-vol-row').forEach(row => {
+                                const chk = row.querySelector('[id^="k8s-svc-vol-chk-"]');
+                                if (!chk || !chk.checked) return;
+                                const ps = chk.id.split('-');
+                                const j = ps[ps.length - 1];
+                                const mountPath = (document.getElementById('k8s-svc-vol-mount-' + sourceIdx + '-' + j) || {}).value || '';
+                                const type = (document.getElementById('k8s-svc-vol-type-' + sourceIdx + '-' + j) || {}).value || 'pvc-dynamic';
+                                const name = (document.getElementById('k8s-svc-vol-name-' + sourceIdx + '-' + j) || {}).value || '';
+                                if (mountPath) vols.push({ name, type, mountPath });
+                            });
+                            return vols;
+                        };
+
+                        // ── Companion env type change handler ──
+                        window._k8sCompEnvTypeChange = (sel) => {
+                            const row = sel.closest('.k8s-comp-env-row');
+                            if (!row) return;
+                            const valInp = row.querySelector('input[id*="-env-val-"]');
+                            if (!valInp) return;
+                            if (sel.value === 'secret') {
+                                valInp.type = 'password';
+                                valInp.placeholder = '••••••';
+                            } else {
+                                valInp.type = 'text';
+                                valInp.placeholder = sel.value === 'variable' ? '${VAR_NAME}' : 'value';
+                            }
+                        };
+
+                        // ── Read host pod's current volumes live from DOM ──
+                        window._k8sReadHostVolumes = (targetIdx) => {
+                            const volList = document.getElementById('k8s-svc-vol-list-' + targetIdx);
+                            if (!volList) return [];
+                            const vols = [];
+                            volList.querySelectorAll('.k8s-vol-row').forEach(row => {
+                                const chk = row.querySelector('[id^="k8s-svc-vol-chk-"]');
+                                if (!chk || !chk.checked) return;
+                                const ps = chk.id.split('-');
+                                const j = ps[ps.length - 1];
+                                const mountPath = (document.getElementById('k8s-svc-vol-mount-' + targetIdx + '-' + j) || {}).value || '';
+                                const type = (document.getElementById('k8s-svc-vol-type-' + targetIdx + '-' + j) || {}).value || 'pvc-dynamic';
+                                const name = (document.getElementById('k8s-svc-vol-name-' + targetIdx + '-' + j) || {}).value || '';
+                                // Source label from the code element in row 1
+                                const codeEl = row.querySelector('code');
+                                const label = codeEl ? codeEl.textContent : (name || mountPath);
+                                vols.push({ name, type, mountPath, label });
+                            });
+                            return vols;
+                        };
+
+                        // ── Refresh companion's host-volume section (called on details toggle) ──
+                        window._k8sRefreshCompHostVols = (targetIdx, sourceIdx) => {
+                            const container = document.getElementById('k8s-comp-hostvols-' + targetIdx + '-' + sourceIdx);
+                            if (!container) return;
+                            const hostVols = window._k8sReadHostVolumes(targetIdx);
+                            if (hostVols.length === 0) {
+                                container.innerHTML = '<div style="font-size:0.72rem;color:var(--text-muted);font-style:italic">No volumes on host pod yet — add volumes to the main service first.</div>';
+                                return;
+                            }
+                            let html = '<div style="font-size:0.72rem;color:var(--text-muted);margin-bottom:0.15rem">Check to mount in this companion:</div>';
+                            hostVols.forEach((vol, j) => {
+                                const id = 'k8s-comp-hostvol-' + targetIdx + '-' + sourceIdx + '-' + j;
+                                html += '<div class="k8s-comp-hostvol-row" style="display:grid;grid-template-columns:auto 1fr 1fr;gap:0.25rem;align-items:center;margin-bottom:0.15rem">'
+                                    + '<input type="checkbox" id="' + id + '-chk" style="accent-color:var(--accent)">'
+                                    + '<code style="font-size:0.72rem;color:var(--text-secondary);font-family:var(--font-mono,monospace);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + esc(vol.label) + '">' + esc(vol.label) + '</code>'
+                                    + '<input type="text" id="' + id + '-mount" class="modal-form-input" value="' + esc(vol.mountPath) + '" placeholder="/data" style="font-size:0.74rem;padding:0.12rem 0.2rem">'
+                                    + '<input type="hidden" id="' + id + '-name" value="' + esc(vol.name) + '">'
+                                    + '<input type="hidden" id="' + id + '-type" value="' + esc(vol.type) + '">'
+                                    + '</div>';
+                            });
+                            container.innerHTML = html;
+                        };
+
+                        // ── Build infra options list for dependency dropdown ──
+                        window._k8sCompDepOptions = (targetIdx, sourceIdx) => {
+                            let opts = '<option value="">⏸ None</option>';
+                            (window._k8sActiveInfra || new Set()).forEach(name => {
+                                const svcData = (window._k8sInfraData || new Map()).get(name) || {};
+                                const port = svcData.ports && svcData.ports.length > 0 ? svcData.ports[0].container : '';
+                                const val = port ? (name + ':' + port) : name;
+                                opts += '<option value="' + esc(val) + '">🔧 ' + esc(name) + (port ? ' :' + port : '') + '</option>';
+                            });
+                            return opts;
+                        };
+
+                        // Render a rich companion card  (DOM IDs: k8s-comp-{tgt}-{src}-*)
+                        window._k8sCompanionRowHtml = (targetIdx, comp) => {
+                            const t = targetIdx;
+                            const s = comp.sourceIndex;
+                            const eName = esc(comp.svcName);
+                            const eImg = esc(comp.image || '');
+                            const imgShort = esc((comp.image || '').split('/').pop().split(':')[0] || comp.svcName);
+                            const envVars = comp.envVars || [];
+                            const resources = comp.resources;
+                            const volumes = comp.volumes || [];
+
+                            let h = '<div id="k8s-companion-row-' + s + '" style="border:1px solid var(--border-subtle);border-radius:6px;padding:0.45rem 0.5rem;background:var(--bg-secondary)">';
+
+                            // ── Header row ──
+                            h += '<div style="display:flex;align-items:center;gap:0.4rem;font-size:0.78rem;margin-bottom:0.2rem">'
+                                + '<span style="font-size:0.9rem">📦</span>'
+                                + '<strong>' + eName + '</strong>'
+                                + '<code style="font-size:0.72rem;background:var(--bg-primary);padding:1px 5px;border-radius:3px;color:var(--text-secondary)">' + imgShort + '</code>'
+                                + (comp.port ? '<code style="font-size:0.72rem;color:var(--text-muted)">:' + esc(comp.port) + '</code>' : '')
+                                + '<span style="flex:1"></span>'
+                                + '<button type="button" onclick="window._k8sSplitBack(' + s + ',' + t + ')"'
+                                + ' style="font-size:0.74rem;color:var(--accent);background:none;border:1px solid var(--border-subtle);border-radius:4px;padding:0.15rem 0.4rem;cursor:pointer"'
+                                + '>⤴ Split back</button>'
+                                + '</div>';
+
+                            // ── Image & Port (editable) ──
+                            h += '<div style="display:grid;grid-template-columns:2fr 1fr;gap:0.3rem;margin-bottom:0.3rem">'
+                                + '<div><label style="display:block;font-size:0.72rem;color:var(--text-muted);margin-bottom:1px">Image</label>'
+                                + '<input type="text" id="k8s-comp-img-' + t + '-' + s + '" class="modal-form-input" value="' + eImg + '" style="font-size:0.78rem;padding:0.2rem 0.3rem"></div>'
+                                + '<div><label style="display:block;font-size:0.72rem;color:var(--text-muted);margin-bottom:1px">Port</label>'
+                                + '<input type="text" id="k8s-comp-port-' + t + '-' + s + '" class="modal-form-input" value="' + esc(comp.port || '') + '" placeholder="optional" style="font-size:0.78rem;padding:0.2rem 0.3rem"></div>'
+                                + '</div>';
+
+                            // ── Startup Dependency ──
+                            h += '<div style="margin-bottom:0.3rem">'
+                                + '<label style="display:block;font-size:0.72rem;color:var(--text-muted);margin-bottom:1px">⏳ Startup dependency (wait-for init container)</label>'
+                                + '<select id="k8s-comp-dep-' + t + '-' + s + '" class="modal-form-select" style="font-size:0.76rem;padding:0.2rem 0.3rem">'
+                                + window._k8sCompDepOptions(t, s)
+                                + '</select>'
+                                + '<div style="font-size:0.68rem;color:var(--text-muted);margin-top:2px">Generates a wait-for init container targeting the infra service via K8s DNS.</div>'
+                                + '</div>';
+
+                            // ── Environment Variables (collapsible, reuses main _envRowHtml) ──
+                            const compEnvId = 'comp-' + t + '-' + s;   // composite ID for _envRowHtml
+                            h += '<details style="margin-top:0.15rem">'
+                                + '<summary style="cursor:pointer;font-size:0.74rem;color:var(--accent);user-select:none;padding:0.1rem 0">'
+                                + '▸ Environment Variables <span id="k8s-svc-env-summary-' + compEnvId + '" style="font-size:0.68rem;background:var(--bg-primary);color:var(--text-secondary);padding:1px 5px;border-radius:3px">' + envVars.length + '</span>'
+                                + '</summary>'
+                                + '<div style="margin-top:0.2rem;padding:0.3rem 0.4rem;background:var(--bg-primary);border-radius:4px;border:1px solid var(--border-subtle)">';
+
+                            h += '<div id="k8s-svc-env-list-' + compEnvId + '" style="display:flex;flex-direction:column;gap:0.15rem">';
+                            if (envVars.length > 0) {
+                                envVars.forEach((ev, j) => {
+                                    const injType = ev.type || 'hardcoded';
+                                    const varN = ev.varName || (injType !== 'hardcoded' ? '${' + ev.key + '}' : '');
+                                    h += _envRowHtml(compEnvId, j, ev.key, ev.value || '', injType, varN, compEnvId);
+                                });
+                            } else {
+                                h += '<div style="font-size:0.72rem;color:var(--text-muted);font-style:italic">No environment variables</div>';
+                            }
+                            h += '</div>';
+                            h += '<button type="button" onclick="window._addEnvVar(\'' + compEnvId + '\')"'
+                                + ' style="margin-top:0.2rem;font-size:0.72rem;color:var(--accent);background:none;border:1px dashed var(--border-subtle);border-radius:4px;padding:0.15rem 0.4rem;cursor:pointer;width:100%">'
+                                + '+ Add variable</button>';
+                            h += '</div></details>';
+
+                            // ── Resource Limits (collapsible) ──
+                            const res = resources || {};
+                            h += '<details style="margin-top:0.15rem">'
+                                + '<summary style="cursor:pointer;font-size:0.74rem;color:var(--accent);user-select:none;padding:0.1rem 0">'
+                                + '▸ Resource Limits'
+                                + '</summary>'
+                                + '<div style="margin-top:0.2rem;padding:0.3rem 0.4rem;background:var(--bg-primary);border-radius:4px;border:1px solid var(--border-subtle)">'
+                                + '<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:0.3rem;font-size:0.76rem">'
+                                + '<div><label style="display:block;font-size:0.72rem;color:var(--text-muted);margin-bottom:1px">CPU Req</label>'
+                                + '<input type="text" id="k8s-comp-cpureq-' + t + '-' + s + '" class="modal-form-input" value="' + esc(res.cpuReq || '') + '" placeholder="100m" style="font-size:0.76rem;padding:0.15rem 0.25rem"></div>'
+                                + '<div><label style="display:block;font-size:0.72rem;color:var(--text-muted);margin-bottom:1px">CPU Lim</label>'
+                                + '<input type="text" id="k8s-comp-cpulim-' + t + '-' + s + '" class="modal-form-input" value="' + esc(res.cpuLim || '') + '" placeholder="500m" style="font-size:0.76rem;padding:0.15rem 0.25rem"></div>'
+                                + '<div><label style="display:block;font-size:0.72rem;color:var(--text-muted);margin-bottom:1px">Mem Req</label>'
+                                + '<input type="text" id="k8s-comp-memreq-' + t + '-' + s + '" class="modal-form-input" value="' + esc(res.memReq || '') + '" placeholder="128Mi" style="font-size:0.76rem;padding:0.15rem 0.25rem"></div>'
+                                + '<div><label style="display:block;font-size:0.72rem;color:var(--text-muted);margin-bottom:1px">Mem Lim</label>'
+                                + '<input type="text" id="k8s-comp-memlim-' + t + '-' + s + '" class="modal-form-input" value="' + esc(res.memLim || '') + '" placeholder="256Mi" style="font-size:0.76rem;padding:0.15rem 0.25rem"></div>'
+                                + '</div>'
+                                + '</div></details>';
+
+                            // ── Volume Mounts (collapsible — live-reads host pod volumes on toggle) ──
+                            h += '<details style="margin-top:0.15rem" ontoggle="if(this.open)window._k8sRefreshCompHostVols(' + t + ',' + s + ')">'
+                                + '<summary style="cursor:pointer;font-size:0.74rem;color:var(--accent);user-select:none;padding:0.1rem 0">'
+                                + '▸ Volume Mounts'
+                                + '</summary>'
+                                + '<div style="margin-top:0.2rem;padding:0.3rem 0.4rem;background:var(--bg-primary);border-radius:4px;border:1px solid var(--border-subtle)">';
+
+                            // Sub-section: Host pod volumes (live-populated)
+                            h += '<div style="font-size:0.72rem;font-weight:600;color:var(--text-muted);margin-bottom:0.15rem">📁 Host pod volumes</div>'
+                                + '<div id="k8s-comp-hostvols-' + t + '-' + s + '" style="margin-bottom:0.3rem">'
+                                + '<div style="font-size:0.72rem;color:var(--text-muted);font-style:italic">Open this section to detect host volumes…</div>'
+                                + '</div>';
+
+                            // Sub-section: Companion's own volumes (from source + added)
+                            h += '<div style="font-size:0.72rem;font-weight:600;color:var(--text-muted);margin-bottom:0.15rem">📦 Companion-own volumes</div>'
+                                + '<div id="k8s-comp-vol-list-' + t + '-' + s + '" style="display:flex;flex-direction:column;gap:0.2rem">';
+
+                            if (volumes.length > 0) {
+                                volumes.forEach((vol, j) => {
+                                    h += '<div class="k8s-comp-vol-row" style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:0.2rem;align-items:center">'
+                                        + '<input type="text" id="k8s-comp-vol-name-' + t + '-' + s + '-' + j + '" class="modal-form-input" value="' + esc(vol.name || '') + '" placeholder="volume-name" style="font-size:0.76rem;padding:0.15rem 0.25rem">'
+                                        + '<input type="text" id="k8s-comp-vol-mount-' + t + '-' + s + '-' + j + '" class="modal-form-input" value="' + esc(vol.mountPath || '') + '" placeholder="/data" style="font-size:0.76rem;padding:0.15rem 0.25rem">'
+                                        + '<select id="k8s-comp-vol-type-' + t + '-' + s + '-' + j + '" class="modal-form-select" style="font-size:0.76rem;padding:0.15rem 0.25rem">'
+                                        + '<option value="pvc-dynamic"' + (vol.type === 'pvc-dynamic' ? ' selected' : '') + '>💾 PVC</option>'
+                                        + '<option value="emptyDir"' + (vol.type === 'emptyDir' ? ' selected' : '') + '>📂 emptyDir</option>'
+                                        + '<option value="configMap"' + (vol.type === 'configMap' ? ' selected' : '') + '>📄 ConfigMap</option>'
+                                        + '<option value="secret"' + (vol.type === 'secret' ? ' selected' : '') + '>🔐 Secret</option>'
+                                        + '</select>'
+                                        + '<button type="button" onclick="this.closest(\'.k8s-comp-vol-row\').remove()" style="background:none;border:none;cursor:pointer;font-size:0.78rem;color:var(--text-muted);padding:0 2px" title="Remove">✕</button>'
+                                        + '</div>';
+                                });
+                            }
+                            h += '</div>';
+                            h += '<button type="button" onclick="window._k8sAddCompVol(' + t + ',' + s + ')"'
+                                + ' style="margin-top:0.2rem;font-size:0.72rem;color:var(--accent);background:none;border:1px dashed var(--border-subtle);border-radius:4px;padding:0.15rem 0.4rem;cursor:pointer;width:100%">'
+                                + '+ Add companion volume</button>';
+                            h += '</div></details>';
+
+                            h += '</div>';
+                            return h;
+                        };
+
+                        // Add env row to companion (with type change handler)
+                        window._k8sAddCompEnv = (targetIdx, sourceIdx) => {
+                            const list = document.getElementById('k8s-comp-env-list-' + targetIdx + '-' + sourceIdx);
+                            if (!list) return;
+                            // Remove "No environment variables" placeholder
+                            const placeholder = list.querySelector('div[style*="font-style:italic"]');
+                            if (placeholder) placeholder.remove();
+                            const j = list.querySelectorAll('.k8s-comp-env-row').length;
+                            const compId = targetIdx + '-' + sourceIdx;
+                            const row = document.createElement('div');
+                            row.className = 'k8s-comp-env-row';
+                            row.style.cssText = 'margin-bottom:0.15rem';
+                            row.innerHTML = '<div style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:0.2rem;align-items:center">'
+                                + '<input type="text" id="k8s-comp-env-key-' + compId + '-' + j + '" class="modal-form-input" placeholder="KEY_NAME"'
+                                + ' oninput="if(!this.dataset.envTs)this.dataset.envTs=Date.now();window._wizValidation.recheck(\'k8s\')"'
+                                + ' style="font-size:0.76rem;padding:0.15rem 0.25rem;font-family:var(--font-mono,monospace)">'
+                                + '<input type="text" id="k8s-comp-env-val-' + compId + '-' + j + '" class="modal-form-input" placeholder="value" style="font-size:0.76rem;padding:0.15rem 0.25rem;font-family:var(--font-mono,monospace)">'
+                                + '<select id="k8s-comp-env-type-' + compId + '-' + j + '" class="modal-form-select" style="font-size:0.76rem;padding:0.15rem 0.25rem"'
+                                + ' onchange="window._k8sCompEnvTypeChange(this)">'
+                                + '<option value="hardcoded" selected>📋 Hardcoded</option>'
+                                + '<option value="variable">🔄 Variable</option>'
+                                + '<option value="secret">🔒 Secret</option>'
+                                + '</select>'
+                                + '<button type="button" onclick="this.closest(\'.k8s-comp-env-row\').remove();window._wizValidation.recheck(\'k8s\')" style="background:none;border:none;cursor:pointer;font-size:0.78rem;color:var(--text-muted);padding:0 2px" title="Remove">✕</button>'
+                                + '</div>'
+                                + '<div id="k8s-comp-env-dupe-' + compId + '-' + j + '" hidden'
+                                + ' style="font-size:0.76rem;margin:1px 0 3px;padding:3px 6px;border-radius:4px">'
+                                + '</div>';
+                            list.appendChild(row);
+                            window._wizValidation.recheck('k8s');
+                        };
+
+                        // Add volume mount to companion
+                        window._k8sAddCompVol = (targetIdx, sourceIdx) => {
+                            const list = document.getElementById('k8s-comp-vol-list-' + targetIdx + '-' + sourceIdx);
+                            if (!list) return;
+                            const j = list.querySelectorAll('.k8s-comp-vol-row').length;
+                            const row = document.createElement('div');
+                            row.className = 'k8s-comp-vol-row';
+                            row.style.cssText = 'display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:0.2rem;align-items:center';
+                            row.innerHTML = '<input type="text" id="k8s-comp-vol-name-' + targetIdx + '-' + sourceIdx + '-' + j + '" class="modal-form-input" placeholder="volume-name" style="font-size:0.76rem;padding:0.15rem 0.25rem">'
+                                + '<input type="text" id="k8s-comp-vol-mount-' + targetIdx + '-' + sourceIdx + '-' + j + '" class="modal-form-input" placeholder="/data" style="font-size:0.76rem;padding:0.15rem 0.25rem">'
+                                + '<select id="k8s-comp-vol-type-' + targetIdx + '-' + sourceIdx + '-' + j + '" class="modal-form-select" style="font-size:0.76rem;padding:0.15rem 0.25rem">'
+                                + '<option value="emptyDir" selected>📂 emptyDir</option>'
+                                + '<option value="pvc-dynamic">💾 PVC</option>'
+                                + '<option value="configMap">📄 ConfigMap</option>'
+                                + '<option value="secret">🔐 Secret</option>'
+                                + '</select>'
+                                + '<button type="button" onclick="this.closest(\'.k8s-comp-vol-row\').remove()" style="background:none;border:none;cursor:pointer;font-size:0.78rem;color:var(--text-muted);padding:0 2px" title="Remove">✕</button>';
+                            list.appendChild(row);
+                        };
+
+                        let html = '';
+
