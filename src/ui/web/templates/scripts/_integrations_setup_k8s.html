@@ -30,6 +30,22 @@
 {% include 'scripts/k8s_wizard/_raw_step2_cluster.html' %}
 {% include 'scripts/k8s_wizard/_raw_step2_collectors.html' %}
 {% include 'scripts/k8s_wizard/_raw_step3_review.html' %}
+            ],
+            onComplete: async (data) => {
+                const payload = {
+                    action: 'setup_k8s',
+                    _services: data._services,
+                    _infraDecisions: data._infraDecisions,
+                    namespace: data.namespace,
+                    output_dir: data.output_dir,
+                    ingress: data.ingress,
+                    skaffold: data.skaffold,
+                };
+                await apiPost('/wizard/setup', payload);
+                _projectStatusTS = 0;
+                cardInvalidate('k8s');
+            },
+            successMessage: 'Kubernetes manifests generated!',
         });
     }
 

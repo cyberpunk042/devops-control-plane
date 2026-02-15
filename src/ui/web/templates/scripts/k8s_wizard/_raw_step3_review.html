@@ -442,20 +442,3 @@
                         `;
                     },
                 },
-            ],
-            onComplete: async (data) => {
-                const payload = {
-                    action: 'setup_k8s',
-                    // Full wizard state — the backend translator handles everything
-                    _services: data._services,
-                    _infraDecisions: data._infraDecisions,
-                    namespace: data.namespace,
-                    output_dir: data.output_dir,
-                    ingress: data.ingress,
-                    skaffold: data.skaffold,
-                };
-                await apiPost('/wizard/setup', payload);
-                _projectStatusTS = 0;
-                cardInvalidate('k8s');
-            },
-            successMessage: 'Kubernetes manifests generated!',
