@@ -102,7 +102,7 @@ def create_app(
     app.register_blueprint(audit_bp)
 
     # Initialize vault with project root (for auto-lock)
-    from src.ui.web import vault as vault_module
+    from src.core.services import vault as vault_module
 
     vault_module.set_project_root(app.config["PROJECT_ROOT"])
 

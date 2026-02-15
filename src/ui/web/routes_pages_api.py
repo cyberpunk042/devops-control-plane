@@ -89,21 +89,29 @@ def _project_root() -> Path:
 @pages_api_bp.route("/pages/segments")
 def list_segments():  # type: ignore[no-untyped-def]
     """List all configured segments."""
-    segments = _get_segments(_project_root())
-    return jsonify({
-        "segments": [
-            {
-                "name": s.name,
-                "source": s.source,
-                "builder": s.builder,
-                "path": s.path,
-                "auto": s.auto,
-                "config": s.config,
-                "build_status": get_build_status(_project_root(), s.name),
-            }
-            for s in segments
-        ]
-    })
+    from src.core.services.devops_cache import get_cached
+
+    root = _project_root()
+    force = request.args.get("bust", "") == "1"
+
+    def _compute() -> dict:
+        segments = _get_segments(root)
+        return {
+            "segments": [
+                {
+                    "name": s.name,
+                    "source": s.source,
+                    "builder": s.builder,
+                    "path": s.path,
+                    "auto": s.auto,
+                    "config": s.config,
+                    "build_status": get_build_status(root, s.name),
+                }
+                for s in segments
+            ]
+        }
+
+    return jsonify(get_cached(root, "pages", _compute, force=force))
 
 
 @pages_api_bp.route("/pages/segments", methods=["POST"])

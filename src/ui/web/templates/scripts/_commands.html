@@ -5,7 +5,9 @@
 
     async function loadCapabilities() {
         try {
-            capabilityData = await api('/capabilities');
+            const cached = cardCached('dash-capabilities');
+            capabilityData = cached || await api('/capabilities');
+            if (!cached) cardStore('dash-capabilities', capabilityData);
             capabilitiesLoaded = true;
             populateCapabilitySelect();
         } catch (e) {

@@ -8,7 +8,9 @@
     async function loadStatus() {
         try {
             showRefreshBar();
-            const data = await api('/status');
+            const cached = cardCached('dash-status');
+            const data = cached || await api('/status');
+            if (!cached) cardStore('dash-status', data);
 
             document.getElementById('project-name').textContent = data.project.name || '—';
             document.getElementById('project-desc').textContent = data.project.description || '';
@@ -109,7 +111,9 @@
 
     async function loadHealth() {
         try {
-            const data = await api('/health');
+            const cached = cardCached('dash-health');
+            const data = cached || await api('/health');            
+            if (!cached) cardStore('dash-health', data);
             const badge = document.getElementById('health-badge');
             const statusMap = {
                 'healthy': ['ok', 'Healthy'],
@@ -126,7 +130,9 @@
 
     async function loadAudit() {
         try {
-            const data = await api('/audit?n=10');
+            const cached = cardCached('dash-audit');
+            const data = cached || await api('/audit?n=10');
+            if (!cached) cardStore('dash-audit', data);
             const container = document.getElementById('activity-list');
 
             if (!data.entries || !data.entries.length) {
@@ -276,7 +282,9 @@
         if (!badge || !content) return;
 
         try {
-            const data = await api('/project/status');
+            const cached = cardCached('project-status');
+            const data = cached || await api('/project/status');
+            if (!cached) cardStore('project-status', data);
             const { integrations, progress, suggested_next } = data;
 
             // Progress badge

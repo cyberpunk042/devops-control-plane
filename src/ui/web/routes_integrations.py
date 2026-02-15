@@ -24,6 +24,7 @@ from pathlib import Path
 from flask import Blueprint, current_app, jsonify, request
 
 from src.core.services import git_ops
+from src.core.services.devops_cache import get_cached
 
 integrations_bp = Blueprint("integrations", __name__)
 
@@ -38,7 +39,13 @@ def _project_root() -> Path:
 @integrations_bp.route("/git/status")
 def git_status():  # type: ignore[no-untyped-def]
     """Git repository status: branch, dirty files, ahead/behind tracking."""
-    return jsonify(git_ops.git_status(_project_root()))
+    root = _project_root()
+    force = request.args.get("bust", "") == "1"
+    return jsonify(get_cached(
+        root, "git",
+        lambda: git_ops.git_status(root),
+        force=force,
+    ))
 
 
 # ── Git Log ─────────────────────────────────────────────────────────
@@ -111,7 +118,13 @@ def git_push():  # type: ignore[no-untyped-def]
 @integrations_bp.route("/integrations/gh/status")
 def gh_status_extended():  # type: ignore[no-untyped-def]
     """Extended GitHub status — version, repo, auth details."""
-    return jsonify(git_ops.gh_status(_project_root()))
+    root = _project_root()
+    force = request.args.get("bust", "") == "1"
+    return jsonify(get_cached(
+        root, "github",
+        lambda: git_ops.gh_status(root),
+        force=force,
+    ))
 
 
 # ── GitHub: Pull Requests ───────────────────────────────────────────
@@ -120,7 +133,13 @@ def gh_status_extended():  # type: ignore[no-untyped-def]
 @integrations_bp.route("/gh/pulls")
 def gh_pulls():  # type: ignore[no-untyped-def]
     """List open pull requests."""
-    return jsonify(git_ops.gh_pulls(_project_root()))
+    root = _project_root()
+    force = request.args.get("bust", "") == "1"
+    return jsonify(get_cached(
+        root, "gh-pulls",
+        lambda: git_ops.gh_pulls(root),
+        force=force,
+    ))
 
 
 # ── GitHub: Actions ─────────────────────────────────────────────────
@@ -129,8 +148,14 @@ def gh_pulls():  # type: ignore[no-untyped-def]
 @integrations_bp.route("/gh/actions/runs")
 def gh_actions_runs():  # type: ignore[no-untyped-def]
     """Recent workflow run history."""
+    root = _project_root()
     n = request.args.get("n", 10, type=int)
-    return jsonify(git_ops.gh_actions_runs(_project_root(), n=n))
+    force = request.args.get("bust", "") == "1"
+    return jsonify(get_cached(
+        root, "gh-runs",
+        lambda: git_ops.gh_actions_runs(root, n=n),
+        force=force,
+    ))
 
 
 @integrations_bp.route("/gh/actions/dispatch", methods=["POST"])
@@ -155,7 +180,13 @@ def gh_actions_dispatch():  # type: ignore[no-untyped-def]
 @integrations_bp.route("/gh/actions/workflows")
 def gh_actions_workflows():  # type: ignore[no-untyped-def]
     """List available workflows."""
-    return jsonify(git_ops.gh_actions_workflows(_project_root()))
+    root = _project_root()
+    force = request.args.get("bust", "") == "1"
+    return jsonify(get_cached(
+        root, "gh-workflows",
+        lambda: git_ops.gh_actions_workflows(root),
+        force=force,
+    ))
 
 
 # ── GitHub: User ────────────────────────────────────────────────────

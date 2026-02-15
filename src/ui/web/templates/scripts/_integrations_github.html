@@ -103,11 +103,19 @@
     async function _ghLiveTab(what, panelId) {
         const panel = document.getElementById(panelId);
         if (!panel) return;
-        panel.innerHTML = '<span class="spinner"></span> Loading…';
+
+        // Client cache for live tab data (sub-keyed by tab)
+        const liveKey = 'gh-live:' + what;
+        const cached = cardCached(liveKey);
+
+        if (!cached) {
+            panel.innerHTML = '<span class="spinner"></span> Loading…';
+        }
 
         try {
             if (what === 'prs') {
-                const data = await api('/gh/pulls');
+                const data = cached || await api('/gh/pulls');
+                if (!cached) cardStore(liveKey, data);
                 if (!data.available || !data.pulls || data.pulls.length === 0) {
                     panel.innerHTML = `<span style="color:var(--text-muted)">No open pull requests</span>`;
                     return;
@@ -122,7 +130,8 @@
                 );
 
             } else if (what === 'runs') {
-                const data = await api('/gh/actions/runs?n=10');
+                const data = cached || await api('/gh/actions/runs?n=10');
+                if (!cached) cardStore(liveKey, data);
                 const runs = data.runs || data.workflow_runs || [];
                 if (runs.length === 0) {
                     panel.innerHTML = `<span style="color:var(--text-muted)">No recent workflow runs</span>`;

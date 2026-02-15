@@ -47,9 +47,10 @@ _MAX_SCORE = sum(_WEIGHTS.values())  # 100
 def _probe_git(project_root: Path) -> dict:
     """Git health: is repo clean? on main? has remote?"""
     try:
+        from src.core.services.devops_cache import get_cached
         from src.core.services.git_ops import git_status
 
-        result = git_status(project_root)
+        result = get_cached(project_root, "git", lambda: git_status(project_root))
 
         score = 1.0
         findings: list[str] = []
@@ -85,9 +86,10 @@ def _probe_git(project_root: Path) -> dict:
 def _probe_docker(project_root: Path) -> dict:
     """Docker health: Dockerfile exists? compose? daemon running?"""
     try:
+        from src.core.services.devops_cache import get_cached
         from src.core.services.docker_ops import docker_status
 
-        result = docker_status(project_root)
+        result = get_cached(project_root, "docker", lambda: docker_status(project_root))
 
         score = 0.0
         findings: list[str] = []
@@ -129,9 +131,10 @@ def _probe_docker(project_root: Path) -> dict:
 def _probe_ci(project_root: Path) -> dict:
     """CI health: has CI? workflows valid? coverage?"""
     try:
+        from src.core.services.devops_cache import get_cached
         from src.core.services.ci_ops import ci_status, ci_workflows
 
-        status = ci_status(project_root)
+        status = get_cached(project_root, "ci", lambda: ci_status(project_root))
 
         score = 0.0
         findings: list[str] = []
@@ -184,9 +187,10 @@ def _probe_ci(project_root: Path) -> dict:
 def _probe_packages(project_root: Path) -> dict:
     """Package health: has lock file? outdated count?"""
     try:
+        from src.core.services.devops_cache import get_cached
         from src.core.services.package_ops import package_status, package_outdated
 
-        status = package_status(project_root)
+        status = get_cached(project_root, "packages", lambda: package_status(project_root))
 
         score = 0.0
         findings: list[str] = []
@@ -234,9 +238,10 @@ def _probe_packages(project_root: Path) -> dict:
 def _probe_env(project_root: Path) -> dict:
     """Environment health: has .env? has .env.example? in sync?"""
     try:
+        from src.core.services.devops_cache import get_cached
         from src.core.services.env_ops import env_status, env_diff
 
-        status = env_status(project_root)
+        status = get_cached(project_root, "env", lambda: env_status(project_root))
 
         score = 0.0
         findings: list[str] = []
@@ -285,23 +290,27 @@ def _probe_env(project_root: Path) -> dict:
 def _probe_quality(project_root: Path) -> dict:
     """Quality health: has lint/type/test tools? configured?"""
     try:
+        from src.core.services.devops_cache import get_cached
         from src.core.services.quality_ops import quality_status
 
-        # Detect stacks for relevance filtering
-        stack_names: list[str] = []
-        try:
-            from src.core.config.loader import load_project
-            from src.core.config.stack_loader import discover_stacks
-            from src.core.services.detection import detect_modules
+        # Reuse card-level cache.  The card endpoint computes
+        # quality_status with stack detection — we share that result.
+        def _compute_quality() -> dict:
+            stack_names: list[str] = []
+            try:
+                from src.core.config.loader import load_project
+                from src.core.config.stack_loader import discover_stacks
+                from src.core.services.detection import detect_modules
 
-            project = load_project(project_root / "project.yml")
-            stacks = discover_stacks(project_root / "stacks")
-            detection = detect_modules(project, project_root, stacks)
-            stack_names = list({m.effective_stack for m in detection.modules if m.effective_stack})
-        except Exception:
-            pass
+                project = load_project(project_root / "project.yml")
+                stacks = discover_stacks(project_root / "stacks")
+                detection = detect_modules(project, project_root, stacks)
+                stack_names = list({m.effective_stack for m in detection.modules if m.effective_stack})
+            except Exception:
+                pass
+            return quality_status(project_root, stack_names=stack_names or None)
 
-        status = quality_status(project_root, stack_names=stack_names or None)
+        status = get_cached(project_root, "quality", _compute_quality)
 
         score = 0.0
         findings: list[str] = []

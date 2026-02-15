@@ -1,14 +1,62 @@
 <script>
     // ── Global helpers ──────────────────────────────────────────────────
 
+    // ── API concurrency control ──────────────────────────────────
+    //
+    // HTTP/1.1 browsers cap at 6 TCP connections per origin.
+    // Without throttling, 15+ parallel fetch() calls cause the
+    // browser to silently queue excess requests.  Our AbortController
+    // timeout would tick during that invisible queue wait, killing
+    // perfectly healthy requests that simply hadn't gotten a
+    // connection slot yet.
+    //
+    // Fix: a JS-level semaphore (max 5 in-flight) keeps requests
+    // queued HERE where the timeout hasn't started yet.  Slot 6
+    // is left free for static assets / WebSocket / other traffic.
+
+    const _API_MAX_CONCURRENT = 3;
+    let _apiInFlight = 0;
+    const _apiQueue = [];
+
+    function _apiAcquire() {
+        if (_apiInFlight < _API_MAX_CONCURRENT) {
+            _apiInFlight++;
+            return Promise.resolve();
+        }
+        return new Promise(resolve => _apiQueue.push(resolve));
+    }
+
+    function _apiRelease() {
+        if (_apiQueue.length > 0) {
+            _apiQueue.shift()();   // hand slot to next waiter
+        } else {
+            _apiInFlight--;
+        }
+    }
+
     async function api(path, opts = {}) {
-        const res = await fetch('/api' + path, {
-            headers: { 'Content-Type': 'application/json' },
-            ...opts,
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
-        return data;
+        // Wait for a connection slot BEFORE starting the timeout.
+        await _apiAcquire();
+        const controller = new AbortController();
+        const ms = opts.timeout || 30000;
+        const timer = setTimeout(() => controller.abort(), ms);
+        try {
+            const res = await fetch('/api' + path, {
+                headers: { 'Content-Type': 'application/json' },
+                ...opts,
+                signal: controller.signal,
+            });
+            clearTimeout(timer);
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+            return data;
+        } catch (e) {
+            if (e.name === 'AbortError') throw new Error(`Request timed out after ${ms / 1000}s`);
+            throw e;
+        } finally {
+            clearTimeout(timer);
+            _apiRelease();
+        }
     }
 
     /** POST JSON convenience wrapper. */
@@ -185,13 +233,25 @@
     }
     setInterval(_tickCardAges, 5000);
 
+    // Cascade: when key X is refreshed, also invalidate dependent client caches.
+    const _CASCADE = {
+        'git':    ['github', 'docker', 'ci', 'pages'],
+        'docker': ['ci', 'k8s'],
+        'github': ['ci'],
+        'pages':  ['dns'],
+    };
+
     /**
-     * Refresh a single card: bust both client + server cache, show spinner, reload.
+     * Refresh a single card: bust both client + server cache (with cascade), show spinner, reload.
      */
     async function cardRefresh(cacheKey, badgeId, detailId, loadFn) {
+        // Bust client cache: primary + cascade + aggregates
         cardInvalidate(cacheKey);
-        // Bust server-side cache — AWAIT so loadFn gets fresh data
-        try { await api('/devops/cache/bust', { method: 'POST', body: JSON.stringify({ card: cacheKey }) }); } catch {}
+        for (const dep of _CASCADE[cacheKey] || []) cardInvalidate(dep);
+        cardInvalidate('project-status');
+        cardInvalidate('health-score');
+        // Bust server-side cache (server also cascades) — AWAIT so loadFn gets fresh data
+        try { await api('/devops/cache/bust', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ card: cacheKey }) }); } catch {}
         const badge = document.getElementById(badgeId);
         const detail = document.getElementById(detailId);
         if (badge) { badge.className = 'status-badge'; badge.textContent = '—'; }

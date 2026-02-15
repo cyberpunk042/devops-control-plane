@@ -35,7 +35,15 @@ def _project_root() -> Path:
 @ci_bp.route("/ci/status")
 def ci_status():  # type: ignore[no-untyped-def]
     """CI/CD availability: detected providers, workflow count."""
-    return jsonify(ci_ops.ci_status(_project_root()))
+    from src.core.services.devops_cache import get_cached
+
+    root = _project_root()
+    force = request.args.get("bust", "") == "1"
+    return jsonify(get_cached(
+        root, "ci",
+        lambda: ci_ops.ci_status(root),
+        force=force,
+    ))
 
 
 # ── Observe ─────────────────────────────────────────────────────────

@@ -10,7 +10,9 @@
         // is configured. If not → redirect to the wizard.
         if (!location.hash || location.hash === '#dashboard') {
             try {
-                const ps = await api('/project/status');
+                const cached = cardCached('project-status');
+                const ps = cached || await api('/project/status');
+                if (!cached) cardStore('project-status', ps);
                 const proj = (ps.integrations || {}).project || {};
                 if (proj.status === 'missing') {
                     switchTab('wizard');
@@ -26,11 +28,17 @@
             _showPostWizardNextSteps();
         }
 
-        // Load dashboard data (needed for the dashboard tab and global status)
+        // Critical path — needed for visible dashboard (fast, lightweight)
         await Promise.all([
             loadStatus(),
-            loadCapabilities(),
             loadHealth(),
+        ]);
+
+        // Deferred — load after critical UI is painted.
+        // Heavy endpoints (health score = 7 probes, setup progress = 8 probes)
+        // run in background without blocking UI interaction.
+        Promise.allSettled([
+            loadCapabilities(),
             loadAudit(),
             loadHealthScore(),
             loadSetupProgress(),

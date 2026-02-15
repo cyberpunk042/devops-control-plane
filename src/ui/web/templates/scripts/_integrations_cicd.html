@@ -9,14 +9,23 @@
         const detail = document.getElementById('int-ci-detail');
 
         try {
-            // Load CI status (local detection — independent of GitHub)
-            let ciStatus = null;
-            try { ciStatus = await api('/ci/status'); } catch (_) {}
-
-            // Load runs
             const cached = cardCached('ci');
-            const data = cached || await api('/gh/actions/runs?n=5');
-            if (!cached) cardStore('ci', data);
+            let ciStatus, data;
+            if (cached) {
+                // Warm cache — use stored values
+                ciStatus = cached._ciStatus || null;
+                data = cached;
+            } else {
+                // Cold cache — fetch both in parallel (server is threaded)
+                const [ciRes, runsRes] = await Promise.all([
+                    api('/ci/status').catch(() => null),
+                    api('/gh/actions/runs?n=5').catch(() => ({ available: false })),
+                ]);
+                ciStatus = ciRes;
+                data = runsRes;
+                data._ciStatus = ciStatus;
+                cardStore('ci', data);
+            }
 
             // ── Badge logic ──
             if (!data.available) {

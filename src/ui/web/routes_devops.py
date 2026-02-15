@@ -83,7 +83,7 @@ def integration_prefs_put():
 def devops_cache_bust():
     """Bust server-side cache.
 
-    Body: {"card": "security"}  — bust one card
+    Body: {"card": "security"}  — bust one card (with cascade)
     Body: {} or {"card": "all"} — bust all cards
     """
     data = request.get_json(silent=True) or {}
@@ -93,8 +93,8 @@ def devops_cache_bust():
         devops_cache.invalidate_all(_project_root())
         return jsonify({"ok": True, "busted": "all"})
     else:
-        devops_cache.invalidate(_project_root(), card)
-        return jsonify({"ok": True, "busted": card})
+        busted = devops_cache.invalidate_with_cascade(_project_root(), card)
+        return jsonify({"ok": True, "busted": busted})
 
 
 # ── Sub-module imports (register routes on devops_bp) ───────────

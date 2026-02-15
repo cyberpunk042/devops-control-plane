@@ -15,8 +15,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from flask import Blueprint, current_app, jsonify
+from flask import Blueprint, current_app, jsonify, request
 
+from src.core.services.devops_cache import get_cached
 from src.core.services.project_probes import (
     compute_progress,
     run_all_probes,
@@ -33,23 +34,34 @@ def _root() -> Path:
 @project_bp.route("/project/status")
 def project_status():  # type: ignore[no-untyped-def]
     """Complete integration status for all cards."""
-    statuses = run_all_probes(_root())
+    root = _root()
+    force = request.args.get("bust", "") == "1"
 
-    return jsonify({
-        "integrations": statuses,
-        "suggested_next": suggest_next(statuses),
-        "progress": compute_progress(statuses),
-    })
+    def _compute() -> dict:
+        statuses = run_all_probes(root)
+        return {
+            "integrations": statuses,
+            "suggested_next": suggest_next(statuses),
+            "progress": compute_progress(statuses),
+        }
+
+    return jsonify(get_cached(root, "project-status", _compute, force=force))
 
 
 @project_bp.route("/project/next")
 def project_next():  # type: ignore[no-untyped-def]
     """Suggest just the next integration to configure."""
-    statuses = run_all_probes(_root())
+    root = _root()
+    force = request.args.get("bust", "") == "1"
 
-    next_key = suggest_next(statuses)
-    return jsonify({
-        "suggested_next": next_key,
-        "status": statuses.get(next_key) if next_key else None,
-        "progress": compute_progress(statuses),
-    })
+    def _compute() -> dict:
+        statuses = run_all_probes(root)
+        next_key = suggest_next(statuses)
+        return {
+            "suggested_next": next_key,
+            "status": statuses.get(next_key) if next_key else None,
+            "progress": compute_progress(statuses),
+        }
+
+    return jsonify(get_cached(root, "project-status", _compute, force=force))
+

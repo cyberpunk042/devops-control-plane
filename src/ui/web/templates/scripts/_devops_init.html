@@ -84,13 +84,24 @@
             if (badge && !cardCached(key)) { badge.className = 'status-badge'; badge.textContent = '—'; }
         }
 
-        // Load auto cards sequentially (Flask dev server is single-threaded)
-        for (const [key, meta] of Object.entries(_DEVOPS_CARDS)) {
-            const pref = prefs[key] || 'auto';
-            if (pref === 'auto') {
+        // Load auto + visible cards in parallel (server is threaded)
+        const autoCards = Object.entries(_DEVOPS_CARDS)
+            .filter(([key]) => {
+                const pref = prefs[key] || 'auto';
+                return pref === 'auto' || pref === 'visible';
+            });
+
+        await Promise.allSettled(autoCards.map(async ([key, meta]) => {
+            try {
                 await meta.loadFn();
+            } catch (e) {
+                console.error(`[DEVOPS] ${key}:`, e);
+                const b = document.getElementById('devops-' + key + '-badge');
+                const d = document.getElementById('devops-' + key + '-detail');
+                if (b) { b.className = 'status-badge failed'; b.innerHTML = '<span class="status-dot"></span>Error'; }
+                if (d) d.innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(e.message || 'Load failed')}</p>`;
             }
-        }
+        }));
 
         _devopsLoaded = true;
     }

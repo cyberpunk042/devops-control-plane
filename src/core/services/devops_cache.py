@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import threading
 import time
 from pathlib import Path
 from typing import Any, Callable
@@ -23,6 +24,24 @@ _CACHE_FILE = ".state/devops_cache.json"
 _PREFS_FILE = ".state/devops_prefs.json"
 _ACTIVITY_FILE = ".state/audit_activity.json"
 _ACTIVITY_MAX = 200  # keep last N entries
+
+# ── Thread safety ───────────────────────────────────────────────
+# Per-key lock: prevents duplicate computation when concurrent
+# requests hit the same endpoint (e.g., two tabs both requesting
+# /k8s/status on cold cache — only one thread computes, the other
+# waits and gets the cached result).
+# File lock: prevents write corruption when saving the JSON file.
+_key_locks: dict[str, threading.Lock] = {}
+_key_locks_guard = threading.Lock()
+_file_lock = threading.Lock()
+
+
+def _get_key_lock(key: str) -> threading.Lock:
+    """Get or create a lock for a specific cache key."""
+    with _key_locks_guard:
+        if key not in _key_locks:
+            _key_locks[key] = threading.Lock()
+        return _key_locks[key]
 
 # ── Default card preferences ────────────────────────────────────
 # Covers both DevOps tab cards and Integrations tab cards.
@@ -122,7 +141,42 @@ _WATCH_PATHS: dict[str, list[str]] = {
         "terraform/", "main.tf", "project.yml",
         "pyproject.toml", "package.json",
     ],
+    # ── Project-level aggregate ────────────────────────────────
+    "project-status": [
+        ".git/HEAD", ".git/index",
+        ".github/workflows/",
+        "Dockerfile", "docker-compose.yml", "docker-compose.yaml",
+        "k8s/", "kubernetes/",
+        "terraform/", "main.tf",
+        "project.yml", ".pages/",
+        "CNAME", "netlify.toml", "vercel.json",
+    ],
+    # ── Integration cards ──────────────────────────────────────
+    "git": [
+        ".git/HEAD", ".git/index", ".gitignore",
+    ],
+    "github": [
+        ".github/", ".git/config",
+    ],
+    "ci": [
+        ".github/workflows/", ".gitlab-ci.yml", "Jenkinsfile",
+        ".circleci/", "bitbucket-pipelines.yml",
+    ],
+    "docker": [
+        "Dockerfile", "docker-compose.yml", "docker-compose.yaml",
+        ".dockerignore",
+    ],
+    "pages": [
+        "project.yml", ".pages/",
+    ],
+    # GitHub live-tab data — changes independently of local files.
+    # Watch paths are a proxy: bust on push (HEAD) or workflow edits.
+    # For truly fresh data, user clicks 🔄 which sends ?bust=1.
+    "gh-pulls":     [".git/HEAD", ".git/refs/"],
+    "gh-runs":      [".github/workflows/", ".git/HEAD"],
+    "gh-workflows": [".github/workflows/"],
 }
+
 
 
 # ── Internal helpers ────────────────────────────────────────────
@@ -147,6 +201,7 @@ def _load_cache(project_root: Path) -> dict:
 
 
 def _save_cache(project_root: Path, cache: dict) -> None:
+    """Write cache dict to disk.  Caller MUST hold ``_file_lock``."""
     path = _cache_path(project_root)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(cache, default=str), encoding="utf-8")
@@ -177,6 +232,10 @@ def get_cached(
 ) -> dict:
     """Return cached card data, recomputing only when files change.
 
+    Thread-safe: a per-key lock ensures that concurrent requests for
+    the same card don't duplicate subprocess work.  Different cards
+    can compute in parallel.
+
     The returned dict gets an extra ``_cache`` key with metadata:
 
     .. code-block:: json
@@ -189,79 +248,146 @@ def get_cached(
         compute_fn:   Zero-arg callable that returns the status dict.
         force:        If True, ignore cache and recompute.
     """
-    cache = _load_cache(project_root)
-    entry = cache.get(card_key)
-    watch = _WATCH_PATHS.get(card_key, [])
+    lock = _get_key_lock(card_key)
+    with lock:
+        cache = _load_cache(project_root)
+        entry = cache.get(card_key)
+        watch = _WATCH_PATHS.get(card_key, [])
 
-    current_mtime = _max_mtime(project_root, watch)
+        current_mtime = _max_mtime(project_root, watch)
 
-    # ── Check if cache is still valid ───────────────────────────
-    if not force and entry:
-        cached_at: float = entry.get("cached_at", 0)
-        cached_mtime: float = entry.get("mtime", 0)
+        # ── Check if cache is still valid ───────────────────────
+        if not force and entry:
+            cached_at: float = entry.get("cached_at", 0)
+            cached_mtime: float = entry.get("mtime", 0)
 
-        if current_mtime <= cached_mtime:
-            # Nothing changed — return cached data
-            data = entry["data"]
-            data["_cache"] = {
-                "computed_at": cached_at,
-                "fresh": True,
-                "age_seconds": round(time.time() - cached_at),
-            }
-            logger.debug("cache HIT for %s (age %ds)", card_key,
-                         round(time.time() - cached_at))
-            return data
+            if current_mtime <= cached_mtime:
+                # Nothing changed — return cached data
+                data = entry["data"]
+                data["_cache"] = {
+                    "computed_at": cached_at,
+                    "fresh": True,
+                    "age_seconds": round(time.time() - cached_at),
+                }
+                logger.debug("cache HIT for %s (age %ds)", card_key,
+                             round(time.time() - cached_at))
+                return data
 
-    # ── Recompute ───────────────────────────────────────────────
-    t0 = time.time()
-    status = "ok"
-    error_msg = ""
-    caught_exc: Exception | None = None
-    try:
-        data = compute_fn()
-    except Exception as exc:
-        status = "error"
-        error_msg = str(exc)
-        data = {"error": error_msg}
-        caught_exc = exc
-    elapsed = round(time.time() - t0, 3)
+        # ── Recompute ───────────────────────────────────────────
+        t0 = time.time()
+        status = "ok"
+        error_msg = ""
+        caught_exc: Exception | None = None
+        try:
+            data = compute_fn()
+        except Exception as exc:
+            status = "error"
+            error_msg = str(exc)
+            data = {"error": error_msg}
+            caught_exc = exc
+        elapsed = round(time.time() - t0, 3)
 
-    now = time.time()
-    if status == "ok":
-        cache[card_key] = {
-            "data": data,
-            "cached_at": now,
-            "mtime": current_mtime if current_mtime > 0 else now,
-            "elapsed_s": elapsed,
+        now = time.time()
+        if status == "ok":
+            # Re-read cache before writing to avoid losing entries
+            # that were computed in parallel by other key locks.
+            with _file_lock:
+                fresh_cache = _load_cache(project_root)
+                fresh_cache[card_key] = {
+                    "data": data,
+                    "cached_at": now,
+                    "mtime": current_mtime if current_mtime > 0 else now,
+                    "elapsed_s": elapsed,
+                }
+                _save_cache(project_root, fresh_cache)
+
+        data["_cache"] = {
+            "computed_at": now,
+            "fresh": False,
+            "age_seconds": 0,
         }
-        _save_cache(project_root, cache)
 
-    data["_cache"] = {
-        "computed_at": now,
-        "fresh": False,
-        "age_seconds": 0,
-    }
+        # ── Record activity ─────────────────────────────────────
+        _record_activity(project_root, card_key, status, elapsed, data, error_msg, bust=force)
 
-    # ── Record activity ─────────────────────────────────────────
-    _record_activity(project_root, card_key, status, elapsed, data, error_msg, bust=force)
-
-    logger.debug("cache MISS for %s (computed in %.2fs, status=%s)", card_key, elapsed, status)
-    if caught_exc is not None:
-        raise caught_exc
-    return data
+        logger.debug("cache MISS for %s (computed in %.2fs, status=%s)", card_key, elapsed, status)
+        if caught_exc is not None:
+            raise caught_exc
+        return data
 
 
 def invalidate(project_root: Path, card_key: str) -> None:
-    """Invalidate a single card's server cache."""
-    cache = _load_cache(project_root)
-    if card_key in cache:
-        del cache[card_key]
-        _save_cache(project_root, cache)
+    """Invalidate a single card's server cache (thread-safe)."""
+    with _file_lock:
+        cache = _load_cache(project_root)
+        if card_key in cache:
+            del cache[card_key]
+            _save_cache(project_root, cache)
 
 
 def invalidate_all(project_root: Path) -> None:
-    """Invalidate all server-side caches."""
-    _save_cache(project_root, {})
+    """Invalidate all server-side caches (thread-safe)."""
+    with _file_lock:
+        _save_cache(project_root, {})
+
+
+# ── Cascade invalidation ────────────────────────────────────────
+
+# Reverse dependency map: when key X is invalidated, also invalidate these.
+# Mirrors DEPENDENCY_MAP from project_probes.py in reverse direction.
+_CASCADE: dict[str, list[str]] = {
+    "git":    ["github", "docker", "ci", "pages"],
+    "docker": ["ci", "k8s"],
+    "github": ["ci"],
+    "pages":  ["dns"],
+}
+
+# Aggregate keys that must be invalidated whenever ANY integration card changes.
+_AGGREGATE_KEYS = ["project-status"]
+
+# All integration card keys (for detecting aggregate cascade).
+_INTEGRATION_KEYS = {"git", "github", "ci", "docker", "k8s", "terraform", "pages", "dns"}
+
+
+def invalidate_with_cascade(project_root: Path, card_key: str) -> list[str]:
+    """Invalidate a card and all its dependents, plus aggregates.
+
+    Thread-safe: performs a single read-modify-write cycle under
+    ``_file_lock`` to avoid N separate I/O operations.
+
+    Returns the list of all keys that were busted.
+    """
+    # Collect all keys to bust
+    keys_to_bust: list[str] = [card_key]
+
+    # Health probe for this card
+    hp_key = f"hp:{card_key}"
+    if hp_key in _WATCH_PATHS:
+        keys_to_bust.append(hp_key)
+
+    # Direct cascade
+    for dep in _CASCADE.get(card_key, []):
+        keys_to_bust.append(dep)
+        dep_hp = f"hp:{dep}"
+        if dep_hp in _WATCH_PATHS:
+            keys_to_bust.append(dep_hp)
+
+    # Aggregate cascade: any integration card bust → also bust aggregates
+    if card_key in _INTEGRATION_KEYS:
+        keys_to_bust.extend(_AGGREGATE_KEYS)
+
+    # Single read-modify-write
+    with _file_lock:
+        cache = _load_cache(project_root)
+        changed = False
+        for k in keys_to_bust:
+            if k in cache:
+                del cache[k]
+                changed = True
+        if changed:
+            _save_cache(project_root, cache)
+
+    return keys_to_bust
 
 
 # ── Audit scan activity log ─────────────────────────────────────

@@ -41,7 +41,15 @@ def _project_root() -> Path:
 @docker_bp.route("/docker/status")
 def docker_status():  # type: ignore[no-untyped-def]
     """Docker availability, version, daemon, project files."""
-    return jsonify(docker_ops.docker_status(_project_root()))
+    from src.core.services.devops_cache import get_cached
+
+    root = _project_root()
+    force = request.args.get("bust", "") == "1"
+    return jsonify(get_cached(
+        root, "docker",
+        lambda: docker_ops.docker_status(root),
+        force=force,
+    ))
 
 
 # ── Observe ─────────────────────────────────────────────────────────

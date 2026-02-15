@@ -14,7 +14,9 @@
     async function _fetchIntProjectStatus() {
         if (_intProjectStatus) return _intProjectStatus;
         try {
-            _intProjectStatus = await api('/project/status');
+            const cached = cardCached('project-status');
+            _intProjectStatus = cached || await api('/project/status');
+            if (!cached) cardStore('project-status', _intProjectStatus);
         } catch {
             _intProjectStatus = { integrations: {}, progress: { complete: 0, total: 8, percent: 0 } };
         }
@@ -108,6 +110,7 @@
             _intLoaded = false;
             _intPrefs = null;
             _intProjectStatus = null;  // clear project status cache
+            cardInvalidate('project-status');
             for (const [key, meta] of Object.entries(_INT_CARDS)) {
                 const cacheKey = key.replace('int:', '');
                 cardInvalidate(cacheKey === 'github' ? 'github' : cacheKey);
@@ -116,6 +119,8 @@
                 if (detail) detail.innerHTML = '<span class="spinner"></span>';
                 if (badge) { badge.className = 'status-badge'; badge.textContent = '—'; }
             }
+            // Bust server-side cache for all integration keys
+            api('/devops/cache/bust', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ card: 'all' }) }).catch(() => {});
         }
         if (_intLoaded) return;
 
@@ -156,21 +161,24 @@
             }
         }
 
-        // Load auto + visible cards sequentially (Flask dev server is single-threaded)
-        for (const [key, meta] of Object.entries(_INT_CARDS)) {
-            const pref = prefs[key] || 'auto';
-            if (pref === 'auto' || pref === 'visible') {
-                try {
-                    await meta.loadFn();
-                } catch (err) {
-                    console.error(`[INT] Failed to load ${key}:`, err);
-                    const d = document.getElementById(meta.detailId);
-                    const b = document.getElementById(meta.badgeId);
-                    if (b) { b.className = 'status-badge failed'; b.innerHTML = '<span class="status-dot"></span>Error'; }
-                    if (d) d.innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(err.message || 'Load failed')}</p>`;
-                }
+        // Load auto + visible cards in parallel (server is threaded)
+        const autoCards = Object.entries(_INT_CARDS)
+            .filter(([key]) => {
+                const pref = prefs[key] || 'auto';
+                return pref === 'auto' || pref === 'visible';
+            });
+
+        await Promise.allSettled(autoCards.map(async ([key, meta]) => {
+            try {
+                await meta.loadFn();
+            } catch (err) {
+                console.error(`[INT] Failed to load ${key}:`, err);
+                const d = document.getElementById(meta.detailId);
+                const b = document.getElementById(meta.badgeId);
+                if (b) { b.className = 'status-badge failed'; b.innerHTML = '<span class="status-dot"></span>Error'; }
+                if (d) d.innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(err.message || 'Load failed')}</p>`;
             }
-        }
+        }));
 
         _intLoaded = true;
     }
