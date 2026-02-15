@@ -27,6 +27,192 @@
         </div>`;
     }
 
+    // ── Shared Wizard Validation System ───────────────────────────────
+    // Registry-based: validators are registered with a scope
+    //   '*'  → runs for any wizard prefix
+    //   'k8s' → runs only for K8s wizard
+    //   'dk'  → runs only for Docker wizard
+    // Each validator fn(prefix) receives the active wizard prefix.
+    window._wizValidation = {
+        _validators: { '*': [], 'k8s': [], 'dk': [] },
+
+        register: (scope, name, fn) => {
+            if (!window._wizValidation._validators[scope])
+                window._wizValidation._validators[scope] = [];
+            window._wizValidation._validators[scope].push({ name, fn });
+        },
+
+        recheck: (prefix) => {
+            const shared = window._wizValidation._validators['*'] || [];
+            const specific = window._wizValidation._validators[prefix] || [];
+            [...shared, ...specific].forEach(v => v.fn(prefix));
+        }
+    };
+
+    // ── Validator: Env Key Collision ──────────────────────────────────
+    // Scans ALL env rows in the active wizard, builds key→owners map,
+    // marks duplicates. Direction-independent — pure data scan.
+    window._wizValidation.register('*', 'envCollision', (prefix) => {
+
+        const svcNames = prefix === 'dk'
+            ? (window._dkSvcNames || {})
+            : (window._k8sSvcNames || {});
+
+        // Collect key inputs from ACTIVE env list containers only.
+        // Each wizard has env lists with id: {prefix}-svc-env-list-{svcId}
+        // Docker infra lists are only active when their checkbox is checked.
+        // K8s hidden cards (companion source) are skipped via card display check.
+        const keyInputs = [];
+        const svcKeyPfx = prefix + '-svc-env-key-';
+        const listPfx = prefix + '-svc-env-list-';
+
+        document.querySelectorAll('[id^="' + listPfx + '"]').forEach(list => {
+            const svcPart = list.id.substring(listPfx.length);
+
+            // Docker: skip unchecked infra services
+            if (prefix === 'dk' && svcPart.startsWith('infra-')) {
+                const infraKey = svcPart.substring(6);
+                const chk = document.getElementById('mf-dk-infra-' + infraKey);
+                if (!chk || !chk.checked) return;
+            }
+
+            // K8s: skip env lists inside hidden service cards (moved-into companions)
+            if (prefix === 'k8s') {
+                const card = list.closest('[id^="k8s-mod-card-"]');
+                if (card && card.style.display === 'none') return;
+            }
+
+            list.querySelectorAll('[id^="' + svcKeyPfx + '"]').forEach(el => keyInputs.push(el));
+        });
+
+        // K8s: also collect from companion-specific env lists (from _k8sAddCompEnv)
+        if (prefix === 'k8s') {
+            document.querySelectorAll('[id^="k8s-comp-env-list-"]').forEach(list => {
+                list.querySelectorAll('[id^="k8s-comp-env-key-"]').forEach(el => keyInputs.push(el));
+            });
+        }
+
+        // Stamp any inputs that have values but no timestamp yet.
+        // This captures pre-populated keys (infra, saved state) on their first recheck.
+        keyInputs.forEach(el => {
+            if (el.value.trim() && !el.dataset.envTs) el.dataset.envTs = Date.now();
+        });
+
+        // Phase 1: Build key → owners map
+        const keyMap = {};
+        const svcKeyPrefix = prefix + '-svc-env-key-';
+        const compKeyPrefix = prefix + '-comp-env-key-';
+
+        keyInputs.forEach(el => {
+            const key = el.value.trim().toUpperCase();
+            if (!key) return;
+            let svcId, j;
+            if (el.id.startsWith(compKeyPrefix)) {
+                const suffix = el.id.substring(compKeyPrefix.length);
+                const lastDash = suffix.lastIndexOf('-');
+                j = suffix.substring(lastDash + 1);
+                svcId = 'comp-' + suffix.substring(0, lastDash);
+            } else {
+                const suffix = el.id.substring(svcKeyPrefix.length);
+                const lastDash = suffix.lastIndexOf('-');
+                svcId = suffix.substring(0, lastDash);
+                j = suffix.substring(lastDash + 1);
+            }
+            if (!keyMap[key]) keyMap[key] = [];
+            keyMap[key].push({ svcId, j, el });
+        });
+
+        // Phase 2: For each input, show/hide dupe warning + manage elsewhere
+        keyInputs.forEach(el => {
+            const key = el.value.trim().toUpperCase();
+            let svcId, j, dupeElId;
+            if (el.id.startsWith(compKeyPrefix)) {
+                const suffix = el.id.substring(compKeyPrefix.length);
+                const lastDash = suffix.lastIndexOf('-');
+                j = suffix.substring(lastDash + 1);
+                svcId = 'comp-' + suffix.substring(0, lastDash);
+                dupeElId = prefix + '-comp-env-dupe-' + suffix;
+            } else {
+                const suffix = el.id.substring(svcKeyPrefix.length);
+                const lastDash = suffix.lastIndexOf('-');
+                svcId = suffix.substring(0, lastDash);
+                j = suffix.substring(lastDash + 1);
+                dupeElId = prefix + '-svc-env-dupe-' + svcId + '-' + j;
+            }
+            const dupeEl = document.getElementById(dupeElId);
+            if (!dupeEl) return;
+            const matches = keyMap[key] || [];
+            // Helper: hide/restore vault notice when collision is present
+            const _setElsewhere = (show, ownerSvcId) => {
+                const ntc = document.getElementById(prefix + '-svc-env-notice-' + svcId + '-' + j);
+                if (!ntc) return;
+                if (show) {
+                    if (!ntc.hidden) {
+                        ntc.dataset.hiddenByCollision = '1';
+                        ntc.hidden = true;
+                    }
+                } else {
+                    if (ntc.dataset.hiddenByCollision) {
+                        delete ntc.dataset.hiddenByCollision;
+                        ntc.hidden = false;
+                        // Restore creation form
+                        const vb = document.getElementById(prefix + '-svc-env-valbox-' + svcId + '-' + j);
+                        const ew = document.getElementById(prefix + '-svc-env-elsewhere-' + svcId + '-' + j);
+                        const cr = document.getElementById(prefix + '-svc-env-create-' + svcId + '-' + j);
+                        if (vb) vb.style.display = 'flex';
+                        if (cr) { cr.checked = true; cr.disabled = false; }
+                        if (ew) ew.hidden = true;
+                    }
+                }
+            };
+            if (matches.length <= 1 || !key) {
+                dupeEl.hidden = true;
+                el.style.borderColor = '';
+                _setElsewhere(false);
+                return;
+            }
+            const others = matches.filter(m => !(m.svcId === svcId && m.j === j));
+            const sameService = others.filter(m => m.svcId === svcId);
+            const crossService = others.filter(m => m.svcId !== svcId);
+            if (sameService.length > 0) {
+                // Same-service duplicate: always show on BOTH sides (real error)
+                dupeEl.innerHTML = '⚠️ <strong>Duplicate key</strong> on same service';
+                dupeEl.style.cssText = 'font-size:0.76rem;margin:1px 0 3px;padding:3px 6px;border-radius:4px;color:var(--error,#e05252);background:rgba(224,82,82,0.06);border:1px solid rgba(224,82,82,0.15)';
+                el.style.borderColor = 'var(--error, #e05252)';
+                dupeEl.hidden = false;
+            } else if (crossService.length > 0) {
+                // Cross-service: only the NEWER input gets the warning (temporal order)
+                const myTs = parseInt(el.dataset.envTs || '0');
+                const earliest = crossService.reduce((best, m) => {
+                    const mTs = parseInt(m.el.dataset.envTs || '0');
+                    const bTs = parseInt(best.el.dataset.envTs || '0');
+                    if (mTs < bTs) return m;
+                    if (mTs === bTs) return keyInputs.indexOf(m.el) < keyInputs.indexOf(best.el) ? m : best;
+                    return best;
+                });
+                const eTs = parseInt(earliest.el.dataset.envTs || '0');
+                if (myTs > eTs || (myTs === eTs && keyInputs.indexOf(el) > keyInputs.indexOf(earliest.el))) {
+                    // I'm newer — show collision + vault creation handled by owner
+                    const names = [...new Set(crossService.map(m => svcNames[m.svcId] || m.svcId))];
+                    dupeEl.innerHTML = 'ℹ️ Also defined on: <strong>' + names.join('</strong>, <strong>') + '</strong>';
+                    dupeEl.style.cssText = 'font-size:0.76rem;margin:1px 0 3px;padding:3px 6px;border-radius:4px;color:var(--warning,#e8a820);background:rgba(232,168,32,0.06);border:1px solid rgba(232,168,32,0.15)';
+                    el.style.borderColor = 'var(--warning, #e8a820)';
+                    dupeEl.hidden = false;
+                    _setElsewhere(true, earliest.svcId);
+                } else {
+                    // I'm the owner — no collision warning, keep my creation form
+                    dupeEl.hidden = true;
+                    el.style.borderColor = '';
+                    _setElsewhere(false);
+                }
+            } else {
+                dupeEl.hidden = true;
+                el.style.borderColor = '';
+                _setElsewhere(false);
+            }
+        });
+    });
+
     // ── Git Setup Wizard ───────────────────────────────────────────────
 
     function openGitSetupWizard() {
@@ -1449,6 +1635,7 @@
                                 + '<div style="display:grid;grid-template-columns:2fr 2fr 1.5fr 1.2fr auto;gap:0.25rem;align-items:center">'
                                 + '<input type="text" id="dk-svc-env-key-' + i + '-' + j + '" class="modal-form-input"'
                                 + ' value="' + esc(key) + '" placeholder="KEY_NAME"'
+                                + ' oninput="if(!this.dataset.envTs)this.dataset.envTs=Date.now();window._wizValidation.recheck(\'dk\')"'
                                 + ' style="font-size:0.82rem;padding:0.25rem 0.35rem;font-family:var(--font-mono,monospace)">'
                                 + '<input type="' + (isSec ? 'password' : 'text') + '" id="dk-svc-env-val-' + i + '-' + j + '" class="modal-form-input"'
                                 + ' value="' + esc(value) + '" placeholder="' + (isSec ? '••••••' : 'value') + '"'
@@ -1473,13 +1660,15 @@
                                 +   'var isSub=sel.value!==\'hardcoded\';'
                                 +   'if(vb)vb.hidden=!isSub;'
                                 +   'if(ve)ve.hidden=isSub;'
+                                +   'if(!isSub){var nt=document.getElementById(\'dk-svc-env-notice-\'+si+\'-\'+sj);if(nt)nt.hidden=true;}'
                                 +   'if(vs&&isSub){vs.innerHTML=window._dkVarSelectOpts(sel.value,document.getElementById(\'dk-svc-env-key-\'+si+\'-\'+sj).value,\'\',si);window._dkOnVarSelect(vs);}'
+                                +   'window._wizValidation.recheck(\'dk\');'
                                 + '})(this)">'
                                 + '<option value="hardcoded"' + (injType === 'hardcoded' ? ' selected' : '') + '>📋 Hardcoded</option>'
                                 + '<option value="variable"' + (injType === 'variable' ? ' selected' : '') + '>🔄 Variable</option>'
                                 + '<option value="secret"' + (injType === 'secret' ? ' selected' : '') + '>🔒 Secret</option>'
                                 + '</select>'
-                                + '<button type="button" onclick="this.closest(\'.dk-env-row\').remove()"'
+                                + '<button type="button" onclick="this.closest(\'.dk-env-row\').remove();window._wizValidation.recheck(\'dk\')"'
                                 + ' style="background:none;border:none;cursor:pointer;font-size:0.82rem;color:var(--text-muted);padding:0 2px"'
                                 + ' title="Remove variable">✕</button>'
                                 + '</div>'
@@ -1503,6 +1692,9 @@
                                 +     '\u2139\ufe0f Value already being created by <strong id="dk-svc-env-elsewhere-src-' + i + '-' + j + '"></strong>'
                                 +   '</div>'
                                 + '</div>'
+                                + '<div id="dk-svc-env-dupe-' + i + '-' + j + '" hidden'
+                                + ' style="font-size:0.76rem;margin:1px 0 3px;padding:3px 6px;border-radius:4px">'
+                                + '</div>'
                                 + '</div>';
                         };
 
@@ -1519,6 +1711,17 @@
                                 if (tb) tb.style.display = 'none';
                                 if (nt) {
                                     const varKey = sel.value.replace(/^\$\{/, '').replace(/\}$/, '');
+                                    // Smart key sync: update key if empty or still matches prev var
+                                    const keyInput = document.getElementById('dk-svc-env-key-' + ci + '-' + cj);
+                                    if (keyInput) {
+                                        const curKey = keyInput.value.trim().toUpperCase();
+                                        const prevVar = (keyInput.dataset.lastVar || '').toUpperCase();
+                                        if (!curKey || curKey === prevVar) {
+                                            keyInput.value = varKey;
+                                            keyInput.dataset.envTs = Date.now();
+                                        }
+                                        keyInput.dataset.lastVar = varKey;
+                                    }
                                     const exists = _dkAllEnvKeys.has(varKey);
                                     nt.hidden = exists;
                                     const nameEl = document.getElementById('dk-svc-env-notice-name-' + ci + '-' + cj);
@@ -1526,45 +1729,16 @@
                                     const valbox = document.getElementById('dk-svc-env-valbox-' + ci + '-' + cj);
                                     const elsewhere = document.getElementById('dk-svc-env-elsewhere-' + ci + '-' + cj);
                                     if (!exists && varKey) {
-                                        // Find ALL visible notice-name elements with same key, in DOM order
-                                        const allMatches = [];
-                                        document.querySelectorAll('[id^="dk-svc-env-notice-name-"]').forEach(el => {
-                                            if (el.textContent !== varKey) return;
-                                            const nid = el.id.replace('-name', '');
-                                            const notice = document.getElementById(nid);
-                                            const createId = nid.replace('dk-svc-env-notice', 'dk-svc-env-create');
-                                            const createChk = document.getElementById(createId);
-                                            if (notice && !notice.hidden && createChk && createChk.checked) {
-                                                // Extract service identifier from ID: dk-svc-env-notice-name-{svcIdx}-{j}
-                                                const suffix = el.id.replace('dk-svc-env-notice-name-', '');
-                                                allMatches.push({ id: el.id, suffix });
-                                            }
-                                        });
-                                        const myId = 'dk-svc-env-notice-name-' + ci + '-' + cj;
-                                        const myIndex = allMatches.findIndex(m => m.id === myId);
-                                        if (myIndex > 0) {
-                                            // Not first — show "already defined by" and hide value input
-                                            const firstSuffix = allMatches[0].suffix;
-                                            const firstSvcIdx = firstSuffix.replace(/-\d+$/, '');
-                                            const firstSvc = (window._dkSvcNames || {})[firstSvcIdx] || firstSvcIdx;
-                                            if (valbox) valbox.style.display = 'none';
-                                            if (elsewhere) {
-                                                elsewhere.hidden = false;
-                                                const srcEl = document.getElementById('dk-svc-env-elsewhere-src-' + ci + '-' + cj);
-                                                if (srcEl) srcEl.textContent = firstSvc;
-                                            }
-                                        } else {
-                                            // First definer or only one — show value input
-                                            if (valbox) valbox.style.display = 'flex';
-                                            if (elsewhere) elsewhere.hidden = true;
-                                        }
+                                        if (valbox) valbox.style.display = 'flex';
+                                        if (elsewhere) elsewhere.hidden = true;
                                     } else {
-                                        // Key exists in vault or key is empty — reset
                                         if (valbox) valbox.style.display = 'flex';
                                         if (elsewhere) elsewhere.hidden = true;
                                     }
                                 }
                             }
+                            // Shared symmetric collision check
+                            window._wizValidation.recheck('dk');
                         };
                         // Refresh all env var selects for a service when deps change
                         window._dkRefreshEnvSelects = (svcIdx) => {
@@ -1627,6 +1801,7 @@
                             const row = document.createElement('div');
                             row.innerHTML = _dkEnvRowHtml(i, j, '', '', 'hardcoded', '');
                             list.appendChild(row.firstChild);
+                            window._wizValidation.recheck('dk');
                         };
 
                         let html = '';
@@ -1958,6 +2133,9 @@
 
                         el.innerHTML = html;
 
+                        // Initial env collision check after render
+                        window._wizValidation.recheck('dk');
+
                         // ── Wire up infra checkbox toggle + custom image selector
                         el.addEventListener('change', (e) => {
                             const cb = e.target;
@@ -1976,6 +2154,7 @@
                                         });
                                     }
                                 }
+                                window._wizValidation.recheck('dk');
                             }
                             // Custom image select
                             if (cb.tagName === 'SELECT' && cb.id && cb.id.startsWith('mf-dk-infra-img-')) {
@@ -2941,7 +3120,15 @@
                 // ── Step 2: Configure ──────────────────────────────────
                 {
                     id: 'config', title: 'Configure',
-                    render: (data, el) => {
+                    render: async (data, el) => {
+                        // ── Load saved wizard state (if any) ──
+                        try {
+                            const stRes = await api('/k8s/wizard-state');
+                            if (stRes?.ok) {
+                                data._wizardState = stRes;
+                            }
+                        } catch (_) { /* no saved state — use detection defaults */ }
+
                         const projectName = (_wizardConfig && _wizardConfig.name) || 'app';
                         const appName = projectName.replace(/[^a-z0-9-]/gi, '-').toLowerCase();
                         const ghRepo = data._ghRepo || {};
@@ -2950,6 +3137,13 @@
                         const envs = data._envs || [];
                         const deployableModules = (data._classifiedModules || []).filter(m => m._class === 'deployable');
                         const hasCompose = appSvcs.length > 0 || infraSvcs.length > 0;
+
+                        // ── Saved wizard state (if previously persisted) ──
+                        const _savedState = data._wizardState || null;
+                        const _savedSvc = (name) =>
+                            _savedState?._services?.find(s => s.name === name) || null;
+                        const _savedInfra = (name) =>
+                            _savedState?._infraDecisions?.find(d => d.name === name) || null;
 
                         // Smart namespace default
                         const defaultNamespace = envs.find(e => e.default)
@@ -3214,6 +3408,7 @@
                                 + '<div style="display:grid;grid-template-columns:2fr 2fr 1.5fr 1.2fr auto;gap:0.25rem;align-items:center">'
                                 + '<input type="text" id="k8s-svc-env-key-' + i + '-' + j + '" class="modal-form-input"'
                                 + ' value="' + esc(key) + '" placeholder="KEY_NAME"'
+                                + ' oninput="if(!this.dataset.envTs)this.dataset.envTs=Date.now();window._wizValidation.recheck(\'k8s\')"'
                                 + ' style="font-size:0.82rem;padding:0.25rem 0.35rem;font-family:var(--font-mono,monospace)">'
                                 + '<input type="' + (isSec ? 'password' : 'text') + '" id="k8s-svc-env-val-' + i + '-' + j + '" class="modal-form-input"'
                                 + ' value="' + esc(value) + '" placeholder="' + (isSec ? '••••••' : 'value') + '"'
@@ -3238,14 +3433,16 @@
                                 +   'var isSub=sel.value!==\'hardcoded\';'
                                 +   'if(vb)vb.hidden=!isSub;'
                                 +   'if(ve)ve.hidden=isSub;'
+                                +   'if(!isSub){var nt=document.getElementById(\'k8s-svc-env-notice-\'+si+\'-\'+sj);if(nt)nt.hidden=true;}'
                                 +   'if(vs&&isSub){vs.innerHTML=window._varSelectOpts(sel.value,document.getElementById(\'k8s-svc-env-key-\'+si+\'-\'+sj).value,\'\',si);window._onVarSelect(vs);}'
                                 +   'if(typeof _updateEnvSummary===\'function\')_updateEnvSummary(si);'
+                                +   'window._wizValidation.recheck(\'k8s\');'
                                 + '})(this)">'
                                 + '<option value="hardcoded"' + (injType === 'hardcoded' ? ' selected' : '') + '>📋 Hardcoded</option>'
                                 + '<option value="variable"' + (injType === 'variable' ? ' selected' : '') + '>🔄 Variable</option>'
                                 + '<option value="secret"' + (injType === 'secret' ? ' selected' : '') + '>🔒 Secret</option>'
                                 + '</select>'
-                                + '<button type="button" onclick="this.closest(\'.k8s-env-row\').remove();if(typeof _updateEnvSummary===\'function\')_updateEnvSummary(' + i + ')"'
+                                + '<button type="button" onclick="this.closest(\'.k8s-env-row\').remove();if(typeof _updateEnvSummary===\'function\')_updateEnvSummary(\'' + i + '\');window._wizValidation.recheck(\'k8s\')"'
                                 + ' style="background:none;border:none;cursor:pointer;font-size:0.82rem;color:var(--text-muted);padding:0 2px"'
                                 + ' title="Remove variable">✕</button>'
                                 + '</div>'
@@ -3270,6 +3467,9 @@
                                 +     '\u2139\ufe0f Value already being created by <strong id="k8s-svc-env-elsewhere-src-' + i + '-' + j + '"></strong>'
                                 +   '</div>'
                                 + '</div>'
+                                + '<div id="k8s-svc-env-dupe-' + i + '-' + j + '" hidden'
+                                + ' style="font-size:0.76rem;margin:1px 0 3px;padding:3px 6px;border-radius:4px">'
+                                + '</div>'
                                 + '</div>';
                         };
 
@@ -3277,7 +3477,7 @@
                         window._varSelectOpts = _varSelectOpts;
                         window._allEnvKeysSet = _allEnvKeys;
 
-                        // ── Var select onchange: check existence, show notice, cross-row awareness ──
+                        // ── Var select onchange: check existence, show notice ──
                         window._onVarSelect = (sel) => {
                             const ci = sel.dataset.i, cj = sel.dataset.j;
                             const tb = document.getElementById('k8s-svc-env-varcustom-' + ci + '-' + cj);
@@ -3289,6 +3489,17 @@
                                 if (tb) tb.style.display = 'none';
                                 if (nt) {
                                     const varKey = sel.value.replace(/^\$\{/, '').replace(/\}$/, '');
+                                    // Smart key sync: update key if empty or still matches prev var
+                                    const keyInput = document.getElementById('k8s-svc-env-key-' + ci + '-' + cj);
+                                    if (keyInput) {
+                                        const curKey = keyInput.value.trim().toUpperCase();
+                                        const prevVar = (keyInput.dataset.lastVar || '').toUpperCase();
+                                        if (!curKey || curKey === prevVar) {
+                                            keyInput.value = varKey;
+                                            keyInput.dataset.envTs = Date.now();
+                                        }
+                                        keyInput.dataset.lastVar = varKey;
+                                    }
                                     const exists = _allEnvKeys.has(varKey);
                                     nt.hidden = exists;
                                     const nameEl = document.getElementById('k8s-svc-env-notice-name-' + ci + '-' + cj);
@@ -3296,40 +3507,16 @@
                                     const valbox = document.getElementById('k8s-svc-env-valbox-' + ci + '-' + cj);
                                     const elsewhere = document.getElementById('k8s-svc-env-elsewhere-' + ci + '-' + cj);
                                     if (!exists && varKey) {
-                                        const allMatches = [];
-                                        document.querySelectorAll('[id^="k8s-svc-env-notice-name-"]').forEach(el => {
-                                            if (el.textContent !== varKey) return;
-                                            const nid = el.id.replace('-name', '');
-                                            const notice = document.getElementById(nid);
-                                            const createId = nid.replace('k8s-svc-env-notice', 'k8s-svc-env-create');
-                                            const createChk = document.getElementById(createId);
-                                            if (notice && !notice.hidden && createChk && createChk.checked) {
-                                                const suffix = el.id.replace('k8s-svc-env-notice-name-', '');
-                                                allMatches.push({ id: el.id, suffix });
-                                            }
-                                        });
-                                        const myId = 'k8s-svc-env-notice-name-' + ci + '-' + cj;
-                                        const myIndex = allMatches.findIndex(m => m.id === myId);
-                                        if (myIndex > 0) {
-                                            const firstSuffix = allMatches[0].suffix;
-                                            const firstSvcIdx = firstSuffix.replace(/-\d+$/, '');
-                                            const firstSvc = (window._k8sSvcNames || {})[firstSvcIdx] || firstSvcIdx;
-                                            if (valbox) valbox.style.display = 'none';
-                                            if (elsewhere) {
-                                                elsewhere.hidden = false;
-                                                const srcEl = document.getElementById('k8s-svc-env-elsewhere-src-' + ci + '-' + cj);
-                                                if (srcEl) srcEl.textContent = firstSvc;
-                                            }
-                                        } else {
-                                            if (valbox) valbox.style.display = 'flex';
-                                            if (elsewhere) elsewhere.hidden = true;
-                                        }
+                                        if (valbox) valbox.style.display = 'flex';
+                                        if (elsewhere) elsewhere.hidden = true;
                                     } else {
                                         if (valbox) valbox.style.display = 'flex';
                                         if (elsewhere) elsewhere.hidden = true;
                                     }
                                 }
                             }
+                            // Shared symmetric collision check
+                            window._wizValidation.recheck('k8s');
                         };
                         // ── Refresh env selects when deps change ──
                         window._refreshEnvSelects = (svcIdx) => {
@@ -3361,6 +3548,9 @@
                             inp.value = val;
                         };
 
+                        // Band-aid _recheckAllEnvCollisions removed — replaced by shared
+                        // window._wizValidation.recheck('k8s') via the registry system.
+
                         // ── Add variable button handler ──
                         window._addEnvVar = (i) => {
                             const list = document.getElementById('k8s-svc-env-list-' + i);
@@ -3380,6 +3570,7 @@
                             row.innerHTML = _envRowHtml(i, j, '', '', 'hardcoded', '', i);
                             list.appendChild(row.firstElementChild);
                             _updateEnvSummary(i);
+                            window._wizValidation.recheck('k8s');
                         };
 
                         // ── Live summary updater ──
@@ -3522,6 +3713,61 @@
                             }
                             // Unknown bind mount — skip by default
                             return { type: 'skip', name: source.replace(/^\.\//, '').replace(/\//g, '-'), mountPath: target, readOnly, source, classification: 'unknown-bind', skipReason: 'Bind mount — may not be needed in K8s (override if needed)' };
+                        };
+
+                        // ── Convert saved-state volume to classification shape ──
+                        // Maps the collector's output fields into the classification
+                        // object that _volRowHtml consumes.  Extra type-specific
+                        // saved values are carried as _saved* for post-render restore.
+                        window._savedVolToClassification = (vol) => ({
+                            type:           vol.type || 'pvc-dynamic',
+                            name:           vol.name || vol.configMapName || vol.secretName || vol.hostPath || '',
+                            mountPath:      vol.mountPath || '',
+                            readOnly:       vol.readOnly || false,
+                            source:         vol.hostPath || '',
+                            defaultSize:    vol.size || '10Gi',
+                            classification: 'saved',
+                            skipReason:     null,
+                            // Carry-through for post-render restore
+                            _savedAccessMode:       vol.accessMode,
+                            _savedStorageClass:     vol.storageClass,
+                            _savedLonghorn:         vol.longhornConfig,
+                            _savedPvName:           vol.pvName,
+                            _savedMedium:           vol.medium,
+                            _savedSizeLimit:        vol.sizeLimit,
+                            _savedCmKey:            vol.key,         // configMap key
+                            _savedSecKey:           vol.key,         // secret key
+                            _savedHostType:         vol.hostType,
+                        });
+
+                        // ── Post-render: restore type-specific fields on volume rows ──
+                        // Called after HTML is in the DOM.  Sets select/input values
+                        // that _volRowHtml hardcodes (accessMode, storageClass, etc).
+                        window._restoreVolFields = (i, j, cl) => {
+                            if (cl.classification !== 'saved') return;
+                            const _set = (id, val) => { const el = document.getElementById(id); if (el && val) el.value = val; };
+                            const t = cl.type || 'pvc-dynamic';
+                            if (t === 'pvc-dynamic' || t === 'pvc-static') {
+                                _set('k8s-svc-vol-access-' + i + '-' + j, cl._savedAccessMode);
+                                _set('k8s-svc-vol-sc-' + i + '-' + j, cl._savedStorageClass);
+                                if (t === 'pvc-static') _set('k8s-svc-vol-pvname-' + i + '-' + j, cl._savedPvName);
+                                if (cl._savedLonghorn) {
+                                    _set('k8s-vol-lh-replicas-' + i + '-' + j, cl._savedLonghorn.replicas);
+                                    _set('k8s-vol-lh-locality-' + i + '-' + j, cl._savedLonghorn.dataLocality);
+                                    // Show longhorn panel if storageClass matches
+                                    const lhPanel = document.getElementById('k8s-vol-lh-' + i + '-' + j);
+                                    if (lhPanel) lhPanel.style.display = 'block';
+                                }
+                            } else if (t === 'emptyDir') {
+                                _set('k8s-svc-vol-medium-' + i + '-' + j, cl._savedMedium);
+                                _set('k8s-svc-vol-sizelimit-' + i + '-' + j, cl._savedSizeLimit);
+                            } else if (t === 'configMap') {
+                                _set('k8s-svc-vol-cmkey-' + i + '-' + j, cl._savedCmKey);
+                            } else if (t === 'secret') {
+                                _set('k8s-svc-vol-seckey-' + i + '-' + j, cl._savedSecKey);
+                            } else if (t === 'hostPath') {
+                                _set('k8s-svc-vol-hosttype-' + i + '-' + j, cl._savedHostType);
+                            }
                         };
 
                         // ── Volume row HTML generator ──
@@ -4306,19 +4552,28 @@
                             const placeholder = list.querySelector('div[style*="font-style:italic"]');
                             if (placeholder) placeholder.remove();
                             const j = list.querySelectorAll('.k8s-comp-env-row').length;
+                            const compId = targetIdx + '-' + sourceIdx;
                             const row = document.createElement('div');
                             row.className = 'k8s-comp-env-row';
-                            row.style.cssText = 'display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:0.2rem;align-items:center';
-                            row.innerHTML = '<input type="text" id="k8s-comp-env-key-' + targetIdx + '-' + sourceIdx + '-' + j + '" class="modal-form-input" placeholder="KEY_NAME" style="font-size:0.76rem;padding:0.15rem 0.25rem;font-family:var(--font-mono,monospace)">'
-                                + '<input type="text" id="k8s-comp-env-val-' + targetIdx + '-' + sourceIdx + '-' + j + '" class="modal-form-input" placeholder="value" style="font-size:0.76rem;padding:0.15rem 0.25rem;font-family:var(--font-mono,monospace)">'
-                                + '<select id="k8s-comp-env-type-' + targetIdx + '-' + sourceIdx + '-' + j + '" class="modal-form-select" style="font-size:0.76rem;padding:0.15rem 0.25rem"'
+                            row.style.cssText = 'margin-bottom:0.15rem';
+                            row.innerHTML = '<div style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:0.2rem;align-items:center">'
+                                + '<input type="text" id="k8s-comp-env-key-' + compId + '-' + j + '" class="modal-form-input" placeholder="KEY_NAME"'
+                                + ' oninput="if(!this.dataset.envTs)this.dataset.envTs=Date.now();window._wizValidation.recheck(\'k8s\')"'
+                                + ' style="font-size:0.76rem;padding:0.15rem 0.25rem;font-family:var(--font-mono,monospace)">'
+                                + '<input type="text" id="k8s-comp-env-val-' + compId + '-' + j + '" class="modal-form-input" placeholder="value" style="font-size:0.76rem;padding:0.15rem 0.25rem;font-family:var(--font-mono,monospace)">'
+                                + '<select id="k8s-comp-env-type-' + compId + '-' + j + '" class="modal-form-select" style="font-size:0.76rem;padding:0.15rem 0.25rem"'
                                 + ' onchange="window._k8sCompEnvTypeChange(this)">'
                                 + '<option value="hardcoded" selected>📋 Hardcoded</option>'
                                 + '<option value="variable">🔄 Variable</option>'
                                 + '<option value="secret">🔒 Secret</option>'
                                 + '</select>'
-                                + '<button type="button" onclick="this.closest(\'.k8s-comp-env-row\').remove()" style="background:none;border:none;cursor:pointer;font-size:0.78rem;color:var(--text-muted);padding:0 2px" title="Remove">✕</button>';
+                                + '<button type="button" onclick="this.closest(\'.k8s-comp-env-row\').remove();window._wizValidation.recheck(\'k8s\')" style="background:none;border:none;cursor:pointer;font-size:0.78rem;color:var(--text-muted);padding:0 2px" title="Remove">✕</button>'
+                                + '</div>'
+                                + '<div id="k8s-comp-env-dupe-' + compId + '-' + j + '" hidden'
+                                + ' style="font-size:0.76rem;margin:1px 0 3px;padding:3px 6px;border-radius:4px">'
+                                + '</div>';
                             list.appendChild(row);
+                            window._wizValidation.recheck('k8s');
                         };
 
                         // Add volume mount to companion
@@ -4381,12 +4636,28 @@
                                 const compMemLim = (dp && dp.memory_limit) || '';
                                 const hasComposeRes = compCpuReq || compCpuLim || compMemReq || compMemLim;
 
+                                // ── Saved state lookup (per-service) ──
+                                const saved = _savedSvc(svc.name);
+                                // Effective values: saved state takes priority, detection as fallback
+                                const effKind     = saved?.kind ?? svc._kindDefault;
+                                const effImage    = saved?.image || imgStr;
+                                const effPort     = saved?.port ?? portVal;
+                                const effReplicas = saved?.replicas ?? (dp && dp.replicas ? dp.replicas : 2);
+                                const effSvcType  = saved?.serviceType || 'ClusterIP';
+                                const effStrategy = saved?.strategy || defaultStrategy;
+                                const effMaxSurge = saved?.maxSurge || '1';
+                                const effMaxUnavail = saved?.maxUnavailable || '1';
+                                const effCpuReq   = saved?.resources?.cpu_request || compCpuReq;
+                                const effCpuLim   = saved?.resources?.cpu_limit || compCpuLim;
+                                const effMemReq   = saved?.resources?.memory_request || compMemReq;
+                                const effMemLim   = saved?.resources?.memory_limit || compMemLim;
+
                                 html += `<div style="border:1px solid var(--border-subtle);border-radius:8px;background:var(--bg-inset);overflow:hidden" id="k8s-svc-card-${i}">
                                     <label style="display:flex;align-items:center;gap:0.5rem;padding:0.5rem 0.6rem;cursor:pointer;font-size:0.82rem"
                                         onmouseover="this.parentElement.style.borderColor='var(--accent)'" onmouseout="this.parentElement.style.borderColor='var(--border-subtle)'">
                                         <input type="checkbox" id="k8s-svc-chk-${i}" checked style="accent-color:var(--accent)"
                                             onchange="document.getElementById('k8s-svc-cfg-${i}').style.display=this.checked?'block':'none'">
-                                        <span style="font-size:1rem" id="k8s-svc-icon-${i}">${_kindIcon(svc._kindDefault)}</span>
+                                        <span style="font-size:1rem" id="k8s-svc-icon-${i}">${_kindIcon(effKind)}</span>
                                         <strong>${esc(svc.name)}</strong>
                                         <code style="font-size:0.72rem;background:var(--bg-primary);padding:1px 5px;border-radius:3px;color:var(--text-secondary)">${esc(svc.image ? svc.image.split('/').pop().split(':')[0] : 'local build')}</code>
                                         <span style="flex:1"></span>
@@ -4395,33 +4666,33 @@
                                             style="font-size:0.68rem;padding:0.1rem 0.3rem;min-width:110px;color:var(--success);font-weight:600;border-color:transparent;background:transparent"
                                             onclick="event.stopPropagation()" onmousedown="event.stopPropagation()"
                                             onchange="var ic=document.getElementById('k8s-svc-icon-'+${i});var hn=document.getElementById('k8s-svc-kind-hint-'+${i});if(ic)ic.textContent={'Deployment':'🚀','StatefulSet':'🗄️','DaemonSet':'🌐','Job':'⚡','CronJob':'⏰','Skip':'⏭️'}[this.value]||'📦';if(hn)hn.textContent='';window._k8sToggleKindPanels(${i},this.value)">
-                                            <option value="Deployment"${svc._kindDefault === 'Deployment' ? ' selected' : ''}>Deployment</option>
-                                            <option value="StatefulSet"${svc._kindDefault === 'StatefulSet' ? ' selected' : ''}>StatefulSet</option>
-                                            <option value="DaemonSet"${svc._kindDefault === 'DaemonSet' ? ' selected' : ''}>DaemonSet</option>
-                                            <option value="Job"${svc._kindDefault === 'Job' ? ' selected' : ''}>Job</option>
-                                            <option value="CronJob"${svc._kindDefault === 'CronJob' ? ' selected' : ''}>CronJob</option>
-                                            <option value="Skip"${svc._kindDefault === 'Skip' ? ' selected' : ''}>Skip</option>
+                                            <option value="Deployment"${effKind === 'Deployment' ? ' selected' : ''}>Deployment</option>
+                                            <option value="StatefulSet"${effKind === 'StatefulSet' ? ' selected' : ''}>StatefulSet</option>
+                                            <option value="DaemonSet"${effKind === 'DaemonSet' ? ' selected' : ''}>DaemonSet</option>
+                                            <option value="Job"${effKind === 'Job' ? ' selected' : ''}>Job</option>
+                                            <option value="CronJob"${effKind === 'CronJob' ? ' selected' : ''}>CronJob</option>
+                                            <option value="Skip"${effKind === 'Skip' ? ' selected' : ''}>Skip</option>
                                         </select>
                                     </label>
-                                    ${svc._kindHint ? `<div id="k8s-svc-kind-hint-${i}" style="font-size:0.62rem;color:var(--text-muted);padding:0 0.6rem 0.2rem;font-style:italic">${svc._kindHint}</div>` : `<div id="k8s-svc-kind-hint-${i}" style="font-size:0.62rem;color:var(--text-muted);padding:0 0.6rem 0.2rem;font-style:italic"></div>`}
+                                    ${(!saved && svc._kindHint) ? `<div id="k8s-svc-kind-hint-${i}" style="font-size:0.62rem;color:var(--text-muted);padding:0 0.6rem 0.2rem;font-style:italic">${svc._kindHint}</div>` : `<div id="k8s-svc-kind-hint-${i}" style="font-size:0.62rem;color:var(--text-muted);padding:0 0.6rem 0.2rem;font-style:italic"></div>`}
                                     <!-- Skip banner (hidden by default) -->
                                     <div id="k8s-svc-skip-banner-${i}" style="display:none;padding:0.6rem;margin:0 0.6rem 0.5rem;background:var(--bg-primary);border-radius:6px;border:1px dashed var(--border-subtle);text-align:center">
                                         <div style="font-size:0.9rem;margin-bottom:0.15rem">⏭️</div>
                                         <div style="font-size:0.72rem;color:var(--text-muted);font-weight:600">Excluded</div>
                                         <div style="font-size:0.66rem;color:var(--text-muted);font-style:italic">This service will not be deployed to Kubernetes.</div>
                                     </div>
-                                    <div id="k8s-svc-cfg-${i}" style="padding:0 0.6rem 0.5rem;display:${svc._kindDefault === 'Skip' ? 'none' : 'block'}">`;
+                                    <div id="k8s-svc-cfg-${i}" style="padding:0 0.6rem 0.5rem;display:${effKind === 'Skip' ? 'none' : 'block'}">`;
                                 html += `
                                         <!-- ─── Primary settings row (shared: image always visible) ─── -->
                                         <div style="display:grid;grid-template-columns:3fr 1fr 1fr 1fr;gap:0.4rem;align-items:start">
-                                            <div><span class="k8s-field-img">${_lbl('Container Image')}${_inp(`k8s-svc-img-${i}`, imgStr, 'ghcr.io/user/app:latest')}</span></div>
-                                            <div id="k8s-svc-port-wrap-${i}">${_lbl('Port')}${_num(`k8s-svc-port-${i}`, portVal)}</div>
-                                            <div id="k8s-svc-replicas-wrap-${i}">${_lbl('Replicas')}${_num(`k8s-svc-replicas-${i}`, dp && dp.replicas ? dp.replicas : 2)}</div>
+                                            <div><span class="k8s-field-img">${_lbl('Container Image')}${_inp(`k8s-svc-img-${i}`, effImage, 'ghcr.io/user/app:latest')}</span></div>
+                                            <div id="k8s-svc-port-wrap-${i}">${_lbl('Port')}${_num(`k8s-svc-port-${i}`, effPort)}</div>
+                                            <div id="k8s-svc-replicas-wrap-${i}">${_lbl('Replicas')}${_num(`k8s-svc-replicas-${i}`, effReplicas)}</div>
                                             <div id="k8s-svc-svctype-wrap-${i}">${_lbl('Service Type')}${_sel(`k8s-svc-type-${i}`, [
                                                 {v:'ClusterIP', l:'ClusterIP'},
                                                 {v:'NodePort', l:'NodePort'},
                                                 {v:'LoadBalancer', l:'LoadBalancer'}
-                                            ], 'ClusterIP')}</div>
+                                            ], effSvcType)}</div>
                                         </div>
 
                                         <!-- ── Deployment/StatefulSet/DaemonSet-only sections ── -->
@@ -4432,18 +4703,18 @@
                                                 ${_lbl('Update Strategy')}
                                                 <select id="k8s-svc-strategy-${i}" class="modal-form-select" style="font-size:0.76rem;padding:0.2rem 0.3rem;width:100%"
                                                     onchange="var r=document.getElementById('k8s-svc-rolling-${i}');var h=document.getElementById('k8s-svc-strat-hint-${i}');if(r)r.style.display=this.value==='RollingUpdate'?'flex':'none';if(h)h.style.display=this.value==='Recreate'?'block':'none'">
-                                                    <option value="RollingUpdate"${defaultStrategy === 'RollingUpdate' ? ' selected' : ''}>RollingUpdate</option>
-                                                    <option value="Recreate"${defaultStrategy === 'Recreate' ? ' selected' : ''}>Recreate</option>
+                                                    <option value="RollingUpdate"${effStrategy === 'RollingUpdate' ? ' selected' : ''}>RollingUpdate</option>
+                                                    <option value="Recreate"${effStrategy === 'Recreate' ? ' selected' : ''}>Recreate</option>
                                                 </select>
                                             </div>
-                                            <div id="k8s-svc-rolling-${i}" style="display:${defaultStrategy === 'RollingUpdate' ? 'flex' : 'none'};align-items:end;gap:0.4rem">
+                                            <div id="k8s-svc-rolling-${i}" style="display:${effStrategy === 'RollingUpdate' ? 'flex' : 'none'};align-items:end;gap:0.4rem">
                                                 <div style="min-width:80px">
                                                     ${_lbl('Max Surge')}
-                                                    ${_inp(`k8s-svc-maxsurge-${i}`, '1', '1')}
+                                                    ${_inp(`k8s-svc-maxsurge-${i}`, effMaxSurge, '1')}
                                                 </div>
                                                 <div style="min-width:80px">
                                                     ${_lbl('Max Unavailable')}
-                                                    ${_inp(`k8s-svc-maxunavail-${i}`, '1', '1')}
+                                                    ${_inp(`k8s-svc-maxunavail-${i}`, effMaxUnavail, '1')}
                                                 </div>
                                             </div>
                                             <div id="k8s-svc-strat-hint-${i}" style="display:${defaultStrategy === 'Recreate' ? 'block' : 'none'};font-size:0.62rem;color:var(--text-muted);font-style:italic;padding-bottom:0.1rem">
@@ -4666,17 +4937,17 @@
                                                     <div style="font-weight:600;color:var(--text-secondary);font-size:0.66rem;text-transform:uppercase;letter-spacing:0.04em">Limit <span style="font-size:0.58rem;opacity:0.7">(hard ceiling)</span></div>
                                                     <!-- CPU row -->
                                                     <div style="font-weight:600;color:var(--text-secondary);font-size:0.72rem">CPU</div>
-                                                    <div>${_inp(`k8s-svc-cpu-req-${i}`, compCpuReq, '100m')}</div>
-                                                    <div>${_inp(`k8s-svc-cpu-lim-${i}`, compCpuLim, '500m')}</div>
+                                                    <div>${_inp(`k8s-svc-cpu-req-${i}`, effCpuReq, '100m')}</div>
+                                                    <div>${_inp(`k8s-svc-cpu-lim-${i}`, effCpuLim, '500m')}</div>
                                                     <!-- Memory row -->
                                                     <div style="font-weight:600;color:var(--text-secondary);font-size:0.72rem">Memory</div>
-                                                    <div>${_inp(`k8s-svc-mem-req-${i}`, compMemReq, '128Mi')}</div>
-                                                    <div>${_inp(`k8s-svc-mem-lim-${i}`, compMemLim, '256Mi')}</div>
+                                                    <div>${_inp(`k8s-svc-mem-req-${i}`, effMemReq, '128Mi')}</div>
+                                                    <div>${_inp(`k8s-svc-mem-lim-${i}`, effMemLim, '256Mi')}</div>
                                                 </div>
                                                 <!-- Live QoS class + guidance -->
                                                 <div style="display:flex;align-items:center;gap:0.5rem;margin-top:0.35rem;padding-top:0.3rem;border-top:1px solid var(--border-subtle)">
                                                     <span style="font-size:0.66rem;color:var(--text-muted)">QoS class →</span>
-                                                    <span id="k8s-svc-qos-live-${i}">${_qosHint(compCpuReq, compCpuLim, compMemReq, compMemLim)}</span>
+                                                    <span id="k8s-svc-qos-live-${i}">${_qosHint(effCpuReq, effCpuLim, effMemReq, effMemLim)}</span>
                                                     <span style="flex:1"></span>
                                                     <span style="font-size:0.6rem;color:var(--text-muted);font-style:italic">Empty = omit from manifest (K8s node defaults apply)</span>
                                                 </div>
@@ -4739,10 +5010,18 @@
                                                     <span></span>
                                                 </div>` : ''}
                                                 <div id="k8s-svc-env-list-${i}" style="display:flex;flex-direction:column;gap:0.2rem">
-                                                    ${Object.entries(envVals).map(([k, v], j) => {
-                                                        const injType = _defaultInjType(k);
-                                                        return _envRowHtml(i, j, k, v || '', injType, injType !== 'hardcoded' ? '${' + k + '}' : '', i);
-                                                    }).join('')}
+                                                    ${(() => {
+                                                        // Use saved env vars when available, otherwise compose detection
+                                                        if (saved?.envVars) {
+                                                            return saved.envVars.map((ev, j) => {
+                                                                return _envRowHtml(i, j, ev.key, ev.value || '', ev.type || 'hardcoded', ev.varName || '', i);
+                                                            }).join('');
+                                                        }
+                                                        return Object.entries(envVals).map(([k, v], j) => {
+                                                            const injType = _defaultInjType(k);
+                                                            return _envRowHtml(i, j, k, v || '', injType, injType !== 'hardcoded' ? '${' + k + '}' : '', i);
+                                                        }).join('');
+                                                    })()}
                                                 </div>
                                                 <button type="button" onclick="_addEnvVar(${i})"
                                                     style="margin-top:0.3rem;font-size:0.66rem;color:var(--accent);background:none;border:1px dashed var(--border-subtle);border-radius:4px;padding:0.2rem 0.5rem;cursor:pointer;width:100%">
@@ -4750,9 +5029,10 @@
                                                 </button>
                                                 <div id="k8s-svc-env-summary-${i}" style="font-size:0.6rem;color:var(--text-muted);margin-top:0.25rem;padding-top:0.2rem;border-top:1px solid var(--border-subtle)">
                                                     ${(() => {
+                                                        const envList = saved?.envVars || envKeys.map(k => ({key: k, type: _defaultInjType(k)}));
                                                         let hc = 0, vr = 0, sc = 0;
-                                                        for (const k of envKeys) {
-                                                            const t = _defaultInjType(k);
+                                                        for (const ev of envList) {
+                                                            const t = ev.type || 'hardcoded';
                                                             if (t === 'secret') sc++;
                                                             else if (t === 'variable') vr++;
                                                             else hc++;
@@ -4785,6 +5065,14 @@
                                                 <!-- Volume rows container -->
                                                 <div id="k8s-svc-vol-list-${i}" style="display:flex;flex-direction:column;gap:0.35rem">
                                                     ${(() => {
+                                                        // Use saved volumes when available, otherwise compose detection
+                                                        if (saved?.volumes) {
+                                                            if (saved.volumes.length === 0) return '<div style="font-size:0.68rem;color:var(--text-muted);font-style:italic">No volumes configured — click \'+ Add volume\' below</div>';
+                                                            return saved.volumes.map((vol, j) => {
+                                                                const cl = window._savedVolToClassification(vol);
+                                                                return window._volRowHtml(i, j, cl);
+                                                            }).join('');
+                                                        }
                                                         const vols = svc.volumes || [];
                                                         if (vols.length === 0) return '<div style="font-size:0.68rem;color:var(--text-muted);font-style:italic">No volumes detected — click "+ Add volume" below</div>';
                                                         return vols.map((v, j) => {
@@ -4808,7 +5096,8 @@
                                             <span style="font-size:0.68rem;color:var(--text-muted);font-weight:600">Depends on</span>
                                             <div style="display:flex;flex-wrap:wrap;gap:0.25rem;margin-top:0.15rem">
                                                 ${infraSvcs.length > 0 ? infraSvcs.map(inf => {
-                                                    const checked = (svc.depends_on || []).includes(inf.name) ? ' checked' : '';
+                                                    const savedDeps = saved?.dependencies || svc.depends_on || [];
+                                                    const checked = savedDeps.includes(inf.name) ? ' checked' : '';
                                                     return `<label style="display:inline-flex;align-items:center;gap:0.2rem;font-size:0.7rem;cursor:pointer">
                                                         <input type="checkbox" class="k8s-dep-${i}" value="${esc(inf.name)}" style="accent-color:var(--accent)"${checked} onchange="window._refreshEnvSelects(${i})"> ${esc(inf.name)}
                                                     </label>`;
@@ -5044,7 +5333,7 @@
                         // Generates a complete infra service card from a service data object.
                         // Used by both initial render and dynamic add.
                         // Defined before Section B so it's available during html string construction.
-                        window._k8sInfraCardHtml = (svc) => {
+                        window._k8sInfraCardHtml = (svc, savedInfra) => {
                             const svcName = svc.name;
                             const infraId = 'infra-' + svcName;
                             const imgShort = (svc.image || '').split('/').pop().split(':')[0] || svcName;
@@ -5053,7 +5342,8 @@
                             const infraEnvKeys = Object.keys(svc.environment || {});
                             const infraEnvVals = svc.environment || {};
                             const eName = esc(svcName);
-                            const infraKindDefault = _classifyWorkloadKind(svc);
+                            // Saved kind overrides detection default
+                            const infraKindDefault = savedInfra?.kind || _classifyWorkloadKind(svc);
                             const infraKindHintText = _kindHint(infraKindDefault, svc);
 
                             let h = '<div data-infra-name="' + eName + '" style="border:1px solid var(--border-subtle);border-radius:8px;background:var(--bg-inset);padding:0.5rem 0.6rem">'
@@ -5138,10 +5428,16 @@
                                     + '</div>';
                             }
                             h += '<div id="k8s-svc-env-list-' + infraId + '" style="display:flex;flex-direction:column;gap:0.2rem">';
-                            Object.entries(infraEnvVals).forEach(([k, v], j) => {
-                                const injType = _isSecretKey(k) ? 'secret' : 'variable';
-                                h += _envRowHtml(infraId, j, k, v || '', injType, '${' + k + '}', infraId);
-                            });
+                            if (savedInfra?.envVars) {
+                                savedInfra.envVars.forEach((ev, j) => {
+                                    h += _envRowHtml(infraId, j, ev.key, ev.value || '', ev.type || 'hardcoded', ev.varName || '', infraId);
+                                });
+                            } else {
+                                Object.entries(infraEnvVals).forEach(([k, v], j) => {
+                                    const injType = _isSecretKey(k) ? 'secret' : 'variable';
+                                    h += _envRowHtml(infraId, j, k, v || '', injType, '${' + k + '}', infraId);
+                                });
+                            }
                             h += '</div>';
                             h += '<button type="button" onclick="_addEnvVar(\'' + infraId + '\')"'
                                 + ' style="margin-top:0.3rem;font-size:0.66rem;color:var(--accent);background:none;border:1px dashed var(--border-subtle);border-radius:4px;padding:0.2rem 0.5rem;cursor:pointer;width:100%">'
@@ -5150,7 +5446,10 @@
 
                             // ── Persistent Storage section (hidden for Managed) ──
                             const infraVols = svc.volumes || [];
-                            const classifiedVols = infraVols.map(v => window._classifyVolume(v)).filter(cl => cl.classification === 'named' || cl.classification === 'data-bind');
+                            // Use saved volumes when available for infra
+                            const classifiedVols = savedInfra?.volumes
+                                ? savedInfra.volumes.map(vol => window._savedVolToClassification(vol))
+                                : infraVols.map(v => window._classifyVolume(v)).filter(cl => cl.classification === 'named' || cl.classification === 'data-bind');
                             const showVolSec = infraKindDefault !== 'Managed' ? 'block' : 'none';
 
                             h += '<div id="k8s-infra-vol-section-' + eName + '" style="display:' + showVolSec + ';margin-top:0.5rem;padding-top:0.4rem;border-top:1px solid var(--border-subtle)">';
@@ -5194,7 +5493,7 @@
 
                         html += `<div style="display:flex;flex-direction:column;gap:0.4rem" id="k8s-infra-list">`;
                         for (let i = 0; i < infraSvcs.length; i++) {
-                            html += window._k8sInfraCardHtml(infraSvcs[i]);
+                            html += window._k8sInfraCardHtml(infraSvcs[i], _savedInfra(infraSvcs[i].name));
                         }
                         html += `</div>`;
                         html += `<div style="margin-top:0.4rem;display:flex;gap:0.4rem;align-items:center">`;
@@ -5211,11 +5510,11 @@
 
                         html += wizSection('Cluster Settings', 'Common settings for all K8s resources.');
                         html += wizFormGrid([
-                            { name: 'k8s-namespace', label: 'Namespace', value: data.namespace || defaultNamespace, hint: 'Target K8s namespace for all resources' },
-                            { name: 'k8s-output-dir', label: 'Output Directory', value: 'k8s/', hint: 'Where manifest files will be written' },
+                            { name: 'k8s-namespace', label: 'Namespace', value: _savedState?.namespace || data.namespace || defaultNamespace, hint: 'Target K8s namespace for all resources' },
+                            { name: 'k8s-output-dir', label: 'Output Directory', value: _savedState?.output_dir || 'k8s/', hint: 'Where manifest files will be written' },
                         ]);
                         html += wizFormGrid([
-                            { name: 'k8s-ingress', label: 'Generate Ingress manifest', type: 'checkbox', value: false, fullWidth: true },
+                            { name: 'k8s-ingress', label: 'Generate Ingress manifest', type: 'checkbox', value: _savedState?.ingress ?? false, fullWidth: true },
                             // ConfigMap checkbox removed — ConfigMaps/Secrets auto-generated per service from envVars
                         ]);
 
@@ -5223,7 +5522,7 @@
                         html += `
                         <div id="k8s-skaffold-panel" style="margin-top:0.6rem;padding:0.7rem 0.8rem;border:1px solid var(--border-subtle);border-radius:8px;background:var(--bg-inset)">
                             <div style="display:flex;align-items:flex-start;gap:0.5rem">
-                                <input type="checkbox" id="k8s-skaffold-toggle" checked
+                                <input type="checkbox" id="k8s-skaffold-toggle"${(_savedState?.skaffold ?? true) ? ' checked' : ''}
                                        style="margin-top:3px;accent-color:var(--accent);cursor:pointer">
                                 <div style="flex:1">
                                     <label for="k8s-skaffold-toggle" style="font-weight:600;font-size:0.82rem;cursor:pointer;display:block;margin-bottom:2px">
@@ -5344,6 +5643,9 @@
 
                             // Refresh all "Move into" dropdowns
                             window._k8sRefreshMoveToDropdowns();
+
+                            // Re-evaluate env collisions (companion's env vars now visible)
+                            window._wizValidation.recheck('k8s');
                         };
 
                         // Split a companion back to its own workload card
@@ -5413,6 +5715,9 @@
                             // Refresh all "Move into" dropdowns
                             delete (window._k8sSvcNames || {})['comp-' + targetIdx + '-' + sourceIdx];
                             window._k8sRefreshMoveToDropdowns();
+
+                            // Re-evaluate env collisions (companion's env vars now removed/moved back)
+                            window._wizValidation.recheck('k8s');
                         };
 
                         // Initial population of move-to dropdowns + kind panel sync (deferred to after DOM render)
@@ -5424,6 +5729,128 @@
                                 const kindSel = document.getElementById('k8s-svc-kind-' + si);
                                 if (kindSel && kindSel.value !== 'Deployment') {
                                     window._k8sToggleKindPanels(si, kindSel.value);
+                                }
+                            }
+
+                            // ── Saved state post-render restoration ──
+                            if (_savedState) {
+                                const _set = (id, val) => { const el = document.getElementById(id); if (el && val !== undefined && val !== null) el.value = String(val); };
+                                const _chk = (id, v) => { const el = document.getElementById(id); if (el) { el.checked = !!v; el.dispatchEvent(new Event('change', {bubbles: true})); } };
+
+                                for (let si = 0; si < svcCount; si++) {
+                                    const sName = hasCompose ? appSvcs[si]?.name : deployableModules[si]?.name;
+                                    const sv = _savedSvc(sName);
+                                    if (!sv) continue;
+
+                                    // 1. Volume sub-fields (accessMode, storageClass, etc.)
+                                    if (sv.volumes) {
+                                        sv.volumes.forEach((vol, j) => {
+                                            const cl = window._savedVolToClassification(vol);
+                                            window._restoreVolFields(si, j, cl);
+                                        });
+                                    }
+
+                                    // 2. Probes (saved as readinessProbe / livenessProbe)
+                                    const _restoreProbe = (pfx, probe) => {
+                                        if (!probe) {
+                                            // Probe was explicitly disabled (null in saved state)
+                                            _chk(pfx + '-enable', false);
+                                            return;
+                                        }
+                                        _chk(pfx + '-enable', true);
+                                        if (probe.type) _set(pfx + '-type', probe.type);
+                                        if (probe.path) _set(pfx + '-path', probe.path);
+                                        if (probe.port) _set(pfx + '-port', probe.port);
+                                        if (probe.command) _set(pfx + '-cmd', probe.command);
+                                        if (probe.initialDelaySeconds != null) _set(pfx + '-delay', probe.initialDelaySeconds);
+                                        if (probe.periodSeconds != null) _set(pfx + '-period', probe.periodSeconds);
+                                        if (probe.extra != null) _set(pfx + '-extra', probe.extra);
+                                    };
+                                    if ('readinessProbe' in sv) {
+                                        _restoreProbe('k8s-svc-rdy-' + si, sv.readinessProbe);
+                                    }
+                                    if ('livenessProbe' in sv) {
+                                        _restoreProbe('k8s-svc-liv-' + si, sv.livenessProbe);
+                                    }
+
+                                    // 3. Mesh
+                                    if (sv.mesh) {
+                                        const m = sv.mesh;
+                                        _chk('k8s-svc-mesh-enable-' + si, true);
+                                        _set('k8s-svc-mesh-provider-' + si, m.provider);
+                                        _set('k8s-svc-mesh-cpureq-' + si, m.proxyCpuRequest);
+                                        _set('k8s-svc-mesh-cpulim-' + si, m.proxyCpuLimit);
+                                        _set('k8s-svc-mesh-memreq-' + si, m.proxyMemRequest);
+                                        _set('k8s-svc-mesh-memlim-' + si, m.proxyMemLimit);
+                                        _set('k8s-svc-mesh-exin-' + si, m.excludeInbound);
+                                        _set('k8s-svc-mesh-exout-' + si, m.excludeOutbound);
+                                        _set('k8s-svc-mesh-log-' + si, m.logLevel);
+                                    }
+
+                                    // 4. CronJob schedule
+                                    if (sv.schedule) _set('k8s-svc-schedule-' + si, sv.schedule);
+
+                                     // 5. Update volume summaries
+                                    if (window._updateVolSummary) window._updateVolSummary(si);
+
+                                    // 6. Init containers
+                                    if (sv.initContainers && sv.initContainers.length > 0) {
+                                        const initList = document.getElementById('k8s-svc-init-list-' + si);
+                                        if (initList) {
+                                            sv.initContainers.forEach((ic, j) => {
+                                                const wrapper = document.createElement('div');
+                                                wrapper.innerHTML = window._k8sInitRowHtml(si, j, ic.name, ic.image, ic.command);
+                                                initList.appendChild(wrapper.firstElementChild);
+                                            });
+                                            window._k8sUpdateInitCount(si);
+                                        }
+                                    }
+
+                                    // 7. Sidecars
+                                    if (sv.sidecars && sv.sidecars.length > 0) {
+                                        const scList = document.getElementById('k8s-svc-sc-list-' + si);
+                                        if (scList) {
+                                            sv.sidecars.forEach((sc, j) => {
+                                                const wrapper = document.createElement('div');
+                                                wrapper.innerHTML = window._k8sSidecarRowHtml(
+                                                    si, j, sc.name, sc.image, sc.command,
+                                                    sc.nativeSidecar, sc.sharedVolume, sc.sharedMount
+                                                );
+                                                scList.appendChild(wrapper.firstElementChild);
+                                            });
+                                            window._k8sUpdateScCount(si);
+                                        }
+                                    }
+
+                                    // 8. Dependency checkboxes
+                                    if (sv.dependencies && sv.dependencies.length > 0) {
+                                        sv.dependencies.forEach(depName => {
+                                            const depChk = document.querySelector(
+                                                '.k8s-dep-' + si + '[value="' + depName + '"]'
+                                            );
+                                            if (depChk) depChk.checked = true;
+                                        });
+                                        // Refresh env selects to reflect restored dependencies
+                                        if (window._refreshEnvSelects) window._refreshEnvSelects(si);
+                                    }
+                                }
+
+                                // ── Infra services post-render restoration ──
+                                if (_savedState?._infraDecisions) {
+                                    for (const inf of _savedState._infraDecisions) {
+                                        // Provider notes (for Managed decisions)
+                                        if (inf.providerNotes) {
+                                            _set('k8s-infra-provider-' + inf.name, inf.providerNotes);
+                                        }
+                                        // Volume sub-fields
+                                        if (inf.volumes) {
+                                            const infraId = 'infra-' + inf.name;
+                                            inf.volumes.forEach((vol, j) => {
+                                                const cl = window._savedVolToClassification(vol);
+                                                window._restoreVolFields(infraId, j, cl);
+                                            });
+                                        }
+                                    }
                                 }
                             }
                         }, 0);
@@ -5511,6 +5938,8 @@
                             window._k8sActiveInfra.delete(name);
                             delete (window._k8sSvcNames || {})['infra-' + name];
                             window._k8sUpdateInfraAddSelect();
+                            // Re-evaluate env collisions (infra env vars removed)
+                            window._wizValidation.recheck('k8s');
                         };
 
                         // ── Add infra card (from removed, catalog, or custom) ──
@@ -5568,6 +5997,8 @@
                             window._infraEnvMap = window._infraEnvMap || {};
                             window._infraEnvMap[svc.name] = Object.keys(svc.environment || {});
                             window._k8sUpdateInfraAddSelect();
+                            // Re-evaluate env collisions (new infra env vars added)
+                            window._wizValidation.recheck('k8s');
                         };
 
                         // ── Rebuild the Add select options ──
@@ -5639,6 +6070,8 @@
                                     if (varSel) window._onVarSelect(varSel);
                                 });
                             }
+                            // Run symmetric collision check after re-evaluating all rows
+                            window._wizValidation.recheck('k8s');
                         };
 
                         // ── Post-render: attach live QoS class updaters ──
@@ -5665,6 +6098,9 @@
 
                             els.forEach(el => { if (el) el.addEventListener('input', updateQoS); });
                         }
+
+                        // ── Initial env key collision check (covers compose/saved pre-populated env vars) ──
+                        window._wizValidation.recheck('k8s');
 
                         // ── Skaffold detection + install flow ──
                         (async () => {
@@ -5994,6 +6430,12 @@
                                     } : null,
                                     _compose: appSvcs[i],
                                     companions: _collectCompanionData(i),
+                                    dependencies: (() => {
+                                        const deps = [];
+                                        document.querySelectorAll('.k8s-dep-' + i + ':checked')
+                                            .forEach(el => deps.push(el.value));
+                                        return deps;
+                                    })(),
                                 };
 
                                 if (isJobKind) {
@@ -6161,17 +6603,220 @@
                                 // Skip services moved into another pod as companions
                                 const srcCard = document.getElementById(`k8s-svc-card-${i}`);
                                 if (srcCard && srcCard.style.display === 'none') continue;
+
+                                // Resource limits — only include non-empty values
+                                const cpuReq = _v(`k8s-svc-cpu-req-${i}`);
+                                const cpuLim = _v(`k8s-svc-cpu-lim-${i}`);
+                                const memReq = _v(`k8s-svc-mem-req-${i}`);
+                                const memLim = _v(`k8s-svc-mem-lim-${i}`);
+                                const hasResources = cpuReq || cpuLim || memReq || memLim;
+
+                                // Strategy
+                                const strategy = _v(`k8s-svc-strategy-${i}`) || 'RollingUpdate';
+
+                                // Probe collection helper
+                                const _collectProbe = (prefix) => {
+                                    const enableEl = document.getElementById(`${prefix}-enable`);
+                                    if (!enableEl || !enableEl.checked) return null;
+                                    const probeType = _v(`${prefix}-type`) || 'http';
+                                    const probe = {
+                                        type: probeType,
+                                        initialDelaySeconds: parseInt(_v(`${prefix}-delay`)) || 0,
+                                        periodSeconds: parseInt(_v(`${prefix}-period`)) || 10,
+                                    };
+                                    if (probeType === 'http') {
+                                        probe.path = _v(`${prefix}-path`) || '/health';
+                                        probe.port = parseInt(_v(`${prefix}-port`)) || 8080;
+                                    } else if (probeType === 'tcp') {
+                                        probe.port = parseInt(_v(`${prefix}-port`)) || 8080;
+                                    } else {
+                                        probe.command = _v(`${prefix}-cmd`) || '';
+                                    }
+                                    probe.extra = parseInt(_v(`${prefix}-extra`)) || 3;
+                                    return probe;
+                                };
+
                                 const selectedKind = _v(`k8s-svc-kind-${i}`) || 'Deployment';
                                 if (selectedKind === 'Skip') continue;
-                                services.push({
+                                const isJobKind = selectedKind === 'Job' || selectedKind === 'CronJob';
+
+                                const svcObj = {
                                     name: deployableModules[i].name,
                                     kind: selectedKind,
                                     image: _v(`k8s-svc-img-${i}`) || `${deployableModules[i].name}:latest`,
-                                    port: _v(`k8s-svc-port-${i}`) || '8080',
-                                    replicas: _v(`k8s-svc-replicas-${i}`) || '2',
-                                    serviceType: _v(`k8s-svc-type-${i}`) || 'ClusterIP',
+                                    envVars: window._collectEnvVars(i),
+                                    resources: hasResources ? {
+                                        cpu_request: cpuReq || null,
+                                        cpu_limit: cpuLim || null,
+                                        memory_request: memReq || null,
+                                        memory_limit: memLim || null,
+                                    } : null,
                                     companions: _collectCompanionData(i),
-                                });
+                                    dependencies: (() => {
+                                        const deps = [];
+                                        document.querySelectorAll('.k8s-dep-' + i + ':checked')
+                                            .forEach(el => deps.push(el.value));
+                                        return deps;
+                                    })(),
+                                };
+
+                                if (isJobKind) {
+                                    // Job-specific fields
+                                    svcObj.command = _v(`k8s-svc-job-cmd-${i}`) || '';
+                                    svcObj.args = _v(`k8s-svc-job-args-${i}`) || '';
+                                    svcObj.restartPolicy = _v(`k8s-svc-job-restart-${i}`) || 'Never';
+                                    svcObj.backoffLimit = parseInt(_v(`k8s-svc-job-backoff-${i}`)) || 3;
+                                    svcObj.completions = parseInt(_v(`k8s-svc-job-completions-${i}`)) || 1;
+                                    svcObj.parallelism = parseInt(_v(`k8s-svc-job-parallelism-${i}`)) || 1;
+                                    const timeout = _v(`k8s-svc-job-timeout-${i}`);
+                                    if (timeout) svcObj.activeDeadlineSeconds = parseInt(timeout);
+                                    svcObj.ttlSecondsAfterFinished = parseInt(_v(`k8s-svc-job-ttl-${i}`)) || 3600;
+
+                                    if (selectedKind === 'CronJob') {
+                                        svcObj.schedule = _v(`k8s-svc-cron-schedule-${i}`) || '*/5 * * * *';
+                                        svcObj.concurrencyPolicy = _v(`k8s-svc-cron-concurrency-${i}`) || 'Forbid';
+                                        const suspendEl = document.getElementById(`k8s-svc-cron-suspend-${i}`);
+                                        svcObj.suspend = suspendEl ? suspendEl.checked : false;
+                                        svcObj.successfulJobsHistoryLimit = parseInt(_v(`k8s-svc-cron-success-${i}`)) || 3;
+                                        svcObj.failedJobsHistoryLimit = parseInt(_v(`k8s-svc-cron-failed-${i}`)) || 1;
+                                        const deadline = _v(`k8s-svc-cron-deadline-${i}`);
+                                        if (deadline) svcObj.startingDeadlineSeconds = parseInt(deadline);
+                                    }
+                                } else if (selectedKind === 'DaemonSet') {
+                                    // DaemonSet-specific fields
+                                    svcObj.port = _v(`k8s-svc-port-${i}`) || '';
+                                    const dsStrategy = _v(`k8s-svc-ds-strategy-${i}`) || 'RollingUpdate';
+                                    svcObj.strategy = dsStrategy;
+                                    svcObj.maxUnavailable = dsStrategy === 'RollingUpdate' ? (_v(`k8s-svc-ds-maxunavail-${i}`) || '1') : null;
+                                    svcObj.nodeSelector = _v(`k8s-svc-ds-nodeselector-${i}`) || '';
+                                    // Tolerations
+                                    const tols = [];
+                                    const tolCpEl = document.getElementById(`k8s-svc-ds-tol-cp-${i}`);
+                                    if (tolCpEl && tolCpEl.checked) tols.push({ key: 'node-role.kubernetes.io/control-plane', effect: 'NoSchedule', operator: 'Exists' });
+                                    const tolNsEl = document.getElementById(`k8s-svc-ds-tol-nosched-${i}`);
+                                    if (tolNsEl && tolNsEl.checked) tols.push({ key: '', operator: 'Exists', effect: 'NoSchedule' });
+                                    svcObj.tolerations = tols;
+                                    // Host access
+                                    const hnEl = document.getElementById(`k8s-svc-ds-hostnet-${i}`);
+                                    svcObj.hostNetwork = hnEl ? hnEl.checked : false;
+                                    const hpEl = document.getElementById(`k8s-svc-ds-hostpid-${i}`);
+                                    svcObj.hostPID = hpEl ? hpEl.checked : false;
+                                    const hiEl = document.getElementById(`k8s-svc-ds-hostipc-${i}`);
+                                    svcObj.hostIPC = hiEl ? hiEl.checked : false;
+                                    // Health checks + volumes (shared with Deployment)
+                                    svcObj.readinessProbe = _collectProbe(`k8s-svc-rdy-${i}`);
+                                    svcObj.livenessProbe = _collectProbe(`k8s-svc-liv-${i}`);
+                                    svcObj.volumes = window._collectVolumes(i);
+                                } else if (selectedKind === 'StatefulSet') {
+                                    // StatefulSet-specific fields
+                                    svcObj.port = _v(`k8s-svc-port-${i}`) || '8080';
+                                    svcObj.replicas = _v(`k8s-svc-replicas-${i}`) || '1';
+                                    svcObj.headlessServiceName = _v(`k8s-svc-ss-headless-${i}`) || `${deployableModules[i].name}-headless`;
+                                    svcObj.podManagementPolicy = _v(`k8s-svc-ss-podmgmt-${i}`) || 'OrderedReady';
+                                    const ssClusterIpEl = document.getElementById(`k8s-svc-ss-clusterip-${i}`);
+                                    svcObj.alsoCreateClusterIP = ssClusterIpEl ? ssClusterIpEl.checked : false;
+                                    const ssStrategy = _v(`k8s-svc-ss-strategy-${i}`) || 'RollingUpdate';
+                                    svcObj.strategy = ssStrategy;
+                                    svcObj.partition = ssStrategy === 'RollingUpdate' ? (parseInt(_v(`k8s-svc-ss-partition-${i}`)) || 0) : null;
+                                    svcObj.readinessProbe = _collectProbe(`k8s-svc-rdy-${i}`);
+                                    svcObj.livenessProbe = _collectProbe(`k8s-svc-liv-${i}`);
+                                    // Collect volumeClaimTemplates
+                                    svcObj.volumeClaimTemplates = (() => {
+                                        const vcts = [];
+                                        const vctList = document.getElementById('k8s-svc-vct-list-' + i);
+                                        if (!vctList) return vcts;
+                                        vctList.querySelectorAll('.k8s-vct-row').forEach(row => {
+                                            const chk = row.querySelector('[id^="k8s-svc-vct-chk-"]');
+                                            if (!chk || !chk.checked) return;
+                                            const ps = chk.id.split('-');
+                                            const j = ps[ps.length - 1];
+                                            const name = _v('k8s-svc-vct-name-' + i + '-' + j);
+                                            const mountPath = _v('k8s-svc-vct-mount-' + i + '-' + j);
+                                            if (!mountPath) return;
+                                            vcts.push({
+                                                name: name || 'data-' + j,
+                                                mountPath,
+                                                size: _v('k8s-svc-vct-size-' + i + '-' + j) || '10Gi',
+                                                accessMode: _v('k8s-svc-vct-access-' + i + '-' + j) || 'ReadWriteOnce',
+                                                storageClass: _v('k8s-svc-vct-sc-' + i + '-' + j) || '',
+                                            });
+                                        });
+                                        return vcts;
+                                    })();
+                                } else {
+                                    // Deployment fields
+                                    svcObj.port = _v(`k8s-svc-port-${i}`) || '8080';
+                                    svcObj.replicas = _v(`k8s-svc-replicas-${i}`) || '2';
+                                    svcObj.serviceType = _v(`k8s-svc-type-${i}`) || 'ClusterIP';
+                                    svcObj.strategy = strategy;
+                                    svcObj.maxSurge = strategy === 'RollingUpdate' ? (_v(`k8s-svc-maxsurge-${i}`) || '1') : null;
+                                    svcObj.maxUnavailable = strategy === 'RollingUpdate' ? (_v(`k8s-svc-maxunavail-${i}`) || '1') : null;
+                                    svcObj.readinessProbe = _collectProbe(`k8s-svc-rdy-${i}`);
+                                    svcObj.livenessProbe = _collectProbe(`k8s-svc-liv-${i}`);
+                                    svcObj.volumes = window._collectVolumes(i);
+                                }
+
+                                // Collect init containers (shared across all non-Skip/Managed kinds)
+                                svcObj.initContainers = (() => {
+                                    const inits = [];
+                                    const initList = document.getElementById('k8s-svc-init-list-' + i);
+                                    if (!initList) return inits;
+                                    initList.querySelectorAll('.k8s-init-row').forEach(row => {
+                                        const j = row.dataset.j;
+                                        const name = _v('k8s-svc-init-name-' + i + '-' + j);
+                                        const image = _v('k8s-svc-init-img-' + i + '-' + j);
+                                        const command = _v('k8s-svc-init-cmd-' + i + '-' + j);
+                                        if (!name && !image) return;
+                                        inits.push({ name: name || 'init-' + j, image: image || 'busybox:1.36', command: command || '' });
+                                    });
+                                    return inits;
+                                })();
+
+                                // Collect sidecar containers
+                                svcObj.sidecars = (() => {
+                                    const scs = [];
+                                    const scList = document.getElementById('k8s-svc-sc-list-' + i);
+                                    if (!scList) return scs;
+                                    scList.querySelectorAll('.k8s-sc-row').forEach(row => {
+                                        const j = row.dataset.j;
+                                        const name = _v('k8s-svc-sc-name-' + i + '-' + j);
+                                        const image = _v('k8s-svc-sc-img-' + i + '-' + j);
+                                        const command = _v('k8s-svc-sc-cmd-' + i + '-' + j);
+                                        if (!name && !image) return;
+                                        const nativeEl = document.getElementById('k8s-svc-sc-native-' + i + '-' + j);
+                                        const sc = {
+                                            name: name || 'sidecar-' + j,
+                                            image: image || '',
+                                            command: command || '',
+                                            nativeSidecar: nativeEl ? nativeEl.checked : true,
+                                        };
+                                        const sharedVol = _v('k8s-svc-sc-shvol-' + i + '-' + j);
+                                        if (sharedVol) {
+                                            sc.sharedVolume = sharedVol;
+                                            sc.sharedMount = _v('k8s-svc-sc-shmount-' + i + '-' + j) || '/shared';
+                                        }
+                                        scs.push(sc);
+                                    });
+                                    return scs;
+                                })();
+
+                                // Collect service mesh config
+                                const meshEl = document.getElementById('k8s-svc-mesh-enable-' + i);
+                                if (meshEl && meshEl.checked) {
+                                    const provSel = document.getElementById('k8s-svc-mesh-provider-' + i);
+                                    svcObj.mesh = {
+                                        provider: provSel ? provSel.value : 'istio',
+                                        proxyCpuRequest: _v('k8s-svc-mesh-cpureq-' + i) || '100m',
+                                        proxyCpuLimit: _v('k8s-svc-mesh-cpulim-' + i) || '500m',
+                                        proxyMemRequest: _v('k8s-svc-mesh-memreq-' + i) || '128Mi',
+                                        proxyMemLimit: _v('k8s-svc-mesh-memlim-' + i) || '256Mi',
+                                        excludeInbound: _v('k8s-svc-mesh-exin-' + i) || '',
+                                        excludeOutbound: _v('k8s-svc-mesh-exout-' + i) || '',
+                                        logLevel: _v('k8s-svc-mesh-log-' + i) || 'warning',
+                                    };
+                                }
+
+                                services.push(svcObj);
                             }
                         } else {
                             // Manual
@@ -6234,6 +6879,23 @@
                             data.replicas = services[0].replicas;
                             data.service_type = services[0].serviceType;
                         }
+
+                        // ── Persist wizard state (fire-and-forget) ──
+                        try {
+                            const stateToSave = {
+                                _services: data._services,
+                                _infraDecisions: data._infraDecisions,
+                                namespace: data.namespace,
+                                output_dir: data.output_dir,
+                                ingress: data.ingress,
+                                skaffold: data.skaffold,
+                            };
+                            api('/k8s/wizard-state', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify(stateToSave),
+                            }).catch(() => {}); // silent — saving is best-effort
+                        } catch (_) {}
                     },
                     validate: (data) => {
                         if (!data._services || data._services.length === 0) return 'At least one service must be selected';
@@ -6381,6 +7043,19 @@
                                     badge: '',
                                     badgeCls: 'muted',
                                 });
+                                // Individual VCT details
+                                if (svc.volumeClaimTemplates && svc.volumeClaimTemplates.length > 0) {
+                                    for (const vct of svc.volumeClaimTemplates) {
+                                        const scLabel = vct.storageClass ? ` (${vct.storageClass})` : '';
+                                        items.push({
+                                            icon: '💾',
+                                            label: `  └ VCT: ${vct.name}`,
+                                            value: `${vct.size} ${vct.accessMode}${scLabel} → ${vct.mountPath}`,
+                                            badge: 'create',
+                                            badgeCls: 'ready',
+                                        });
+                                    }
+                                }
                             } else {
                                 // Deployment review
                                 const stratStr = svc.strategy === 'Recreate' ? ' · Recreate'
@@ -6399,6 +7074,16 @@
                                     value: `${svc.serviceType} → port ${svc.port}`,
                                     badge: 'create',
                                     badgeCls: 'ready',
+                                });
+                            }
+                            // Dependencies (wait-for init containers will be generated)
+                            if (svc.dependencies && svc.dependencies.length > 0) {
+                                items.push({
+                                    icon: '🔗',
+                                    label: `  └ dependencies`,
+                                    value: svc.dependencies.join(', ') + ' (wait-for init containers)',
+                                    badge: '',
+                                    badgeCls: 'muted',
                                 });
                             }
                             // Companion containers (same pod)
@@ -6585,14 +7270,40 @@
                                 badge: isManaged ? 'external' : 'create',
                                 badgeCls: isManaged ? 'muted' : 'ready',
                             });
-                            if (isManaged && infra.envVars && infra.envVars.length > 0) {
-                                items.push({
-                                    icon: '🔗',
-                                    label: `  └ connection vars`,
-                                    value: `${infra.envVars.length} var${infra.envVars.length !== 1 ? 's' : ''} → injected into dependent services`,
-                                    badge: '',
-                                    badgeCls: 'muted',
-                                });
+                            // Env var summary for infra services (managed = connection vars; self-hosted = regular)
+                            if (infra.envVars && infra.envVars.length > 0) {
+                                const iev = infra.envVars;
+                                const iHc = iev.filter(e => e.type === 'hardcoded').length;
+                                const iVr = iev.filter(e => e.type === 'variable').length;
+                                const iSc = iev.filter(e => e.type === 'secret').length;
+                                if (isManaged) {
+                                    items.push({
+                                        icon: '🔗',
+                                        label: `  └ connection vars`,
+                                        value: `${iev.length} var${iev.length !== 1 ? 's' : ''} → injected into dependent services`,
+                                        badge: '',
+                                        badgeCls: 'muted',
+                                    });
+                                } else {
+                                    if (iHc + iVr > 0) {
+                                        items.push({
+                                            icon: '📋',
+                                            label: `  └ ConfigMap: ${infra.name}-config`,
+                                            value: `${iHc} hardcoded${iVr > 0 ? `, ${iVr} \${VAR}` : ''}`,
+                                            badge: 'create',
+                                            badgeCls: 'ready',
+                                        });
+                                    }
+                                    if (iSc > 0) {
+                                        items.push({
+                                            icon: '🔒',
+                                            label: `  └ Secret: ${infra.name}-secrets`,
+                                            value: `${iSc} key${iSc !== 1 ? 's' : ''}`,
+                                            badge: 'create',
+                                            badgeCls: 'ready',
+                                        });
+                                    }
+                                }
                             }
                             // Volume review for infra services
                             if (!isManaged && infra.volumes && infra.volumes.length > 0) {
@@ -6640,9 +7351,7 @@
                                 ${item.badge ? `<span class="wiz-review-badge ${item.badgeCls}">${item.badge}</span>` : ''}
                             </div>`).join('')}
 
-                            ${services.length > 1 ? `<div style="margin-top:0.5rem;font-size:0.74rem;color:var(--text-muted);padding:0.3rem 0.5rem;background:var(--bg-inset);border-radius:6px">
-                                ⚠️ <strong>Note:</strong> Multi-service manifest generation is in progress. The primary service (<strong>${esc(services[0].name)}</strong>) will be fully generated; additional services will be scaffolded.
-                            </div>` : ''}
+
 
                             <div style="margin-top:var(--space-md);padding:var(--space-xs) var(--space-sm);border-left:3px solid var(--accent);background:color-mix(in srgb, var(--accent) 5%, transparent);border-radius:0 6px 6px 0">
                                 <div style="font-size:0.78rem;color:var(--text-secondary)">
@@ -6658,26 +7367,14 @@
             onComplete: async (data) => {
                 const payload = {
                     action: 'setup_k8s',
-                    app_name: data.app_name,
-                    image: data.image,
-                    port: data.port,
-                    replicas: data.replicas,
+                    // Full wizard state — the backend translator handles everything
+                    _services: data._services,
+                    _infraDecisions: data._infraDecisions,
                     namespace: data.namespace,
-                    service_type: data.service_type,
+                    output_dir: data.output_dir,
                     ingress: data.ingress,
-                    // configmap removed — auto-generated per service from envVars
+                    skaffold: data.skaffold,
                 };
-                // Forward resource limits from primary service if configured
-                const primary = (data._services || [])[0];
-                if (primary && primary.resources) {
-                    payload.cpu_limit = primary.resources.cpu_limit;
-                    payload.cpu_request = primary.resources.cpu_request;
-                    payload.memory_limit = primary.resources.memory_limit;
-                    payload.memory_request = primary.resources.memory_request;
-                }
-                // Attach full multi-service config for future backend enhancement
-                payload._services = data._services;
-                payload._infraDecisions = data._infraDecisions;
                 await apiPost('/wizard/setup', payload);
                 _projectStatusTS = 0;
                 cardInvalidate('k8s');

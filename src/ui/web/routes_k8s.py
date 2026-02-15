@@ -11,10 +11,15 @@ Endpoints:
     GET  /k8s/resources           — list resources
     GET  /k8s/storageclasses      — list cluster StorageClasses
     POST /k8s/generate/manifests  — generate K8s manifests
+    GET  /k8s/wizard-state        — load saved wizard state
+    POST /k8s/wizard-state        — save wizard state
+    DEL  /k8s/wizard-state        — wipe saved wizard state
 """
 
 from __future__ import annotations
 
+import json
+from datetime import datetime, timezone
 from pathlib import Path
 
 from flask import Blueprint, current_app, jsonify, request
@@ -299,6 +304,33 @@ def k8s_env_namespaces():  # type: ignore[no-untyped-def]
 # ── K8s Wizard ─────────────────────────────────────────────────────
 
 
+_STATE_FILE = ".wizard-state.json"
+
+# Fields that are transient (derived from detection) and should not be persisted.
+_STRIP_TOP = {
+    "_appSvcCount", "_infraSvcCount", "_configMode",
+    "_appServices", "_infraServices", "_classifiedModules",
+    # backward-compat flat fields (superseded by _services[])
+    "app_name", "image", "port", "replicas", "service_type",
+    # internal keys
+    "action",
+}
+
+
+def _sanitize_state(data: dict) -> dict:
+    """Strip transient/detection fields before persisting."""
+    clean = {k: v for k, v in data.items() if k not in _STRIP_TOP}
+    # Strip raw compose data from each service / infra entry
+    for svc in clean.get("_services", []):
+        svc.pop("_compose", None)
+    for inf in clean.get("_infraDecisions", []):
+        inf.pop("_compose", None)
+    # Add metadata
+    clean["_savedAt"] = datetime.now(timezone.utc).isoformat()
+    clean["_version"] = 1
+    return clean
+
+
 @k8s_bp.route("/k8s/generate/wizard", methods=["POST"])
 def k8s_generate_wizard():  # type: ignore[no-untyped-def]
     """Generate K8s manifests from wizard resource definitions."""
@@ -310,3 +342,47 @@ def k8s_generate_wizard():  # type: ignore[no-untyped-def]
     if "error" in result:
         return jsonify(result), 400
     return jsonify(result)
+
+
+@k8s_bp.route("/k8s/wizard-state", methods=["GET"])
+def k8s_wizard_state_load():  # type: ignore[no-untyped-def]
+    """Load saved wizard state from k8s/.wizard-state.json."""
+    state_path = _project_root() / "k8s" / _STATE_FILE
+    if not state_path.is_file():
+        return jsonify({"ok": False, "reason": "not_found"})
+    try:
+        raw = state_path.read_text(encoding="utf-8")
+        state = json.loads(raw)
+        state["ok"] = True
+        return jsonify(state)
+    except (json.JSONDecodeError, ValueError):
+        return jsonify({"ok": False, "reason": "invalid"})
+
+
+@k8s_bp.route("/k8s/wizard-state", methods=["POST"])
+def k8s_wizard_state_save():  # type: ignore[no-untyped-def]
+    """Persist wizard state to k8s/.wizard-state.json."""
+    data = request.get_json(silent=True) or {}
+    if not data.get("_services") and not data.get("_infraDecisions"):
+        return jsonify({"error": "Empty state — nothing to save"}), 400
+
+    root = _project_root()
+    k8s_dir = root / "k8s"
+    k8s_dir.mkdir(exist_ok=True)
+
+    clean = _sanitize_state(data)
+    state_path = k8s_dir / _STATE_FILE
+    state_path.write_text(
+        json.dumps(clean, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+    return jsonify({"ok": True, "path": f"k8s/{_STATE_FILE}"})
+
+
+@k8s_bp.route("/k8s/wizard-state", methods=["DELETE"])
+def k8s_wizard_state_wipe():  # type: ignore[no-untyped-def]
+    """Delete saved wizard state."""
+    state_path = _project_root() / "k8s" / _STATE_FILE
+    if state_path.is_file():
+        state_path.unlink()
+    return jsonify({"ok": True})

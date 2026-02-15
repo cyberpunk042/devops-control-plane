@@ -1,0 +1,146 @@
+{
+  "_services": [
+    {
+      "name": "cli",
+      "kind": "Deployment",
+      "image": "ghcr.io/cyberpunk042/devops-control-plane-cli:latest",
+      "envVars": [],
+      "resources": null,
+      "companions": [],
+      "dependencies": [],
+      "port": "8000",
+      "replicas": "2",
+      "serviceType": "ClusterIP",
+      "strategy": "RollingUpdate",
+      "maxSurge": "1",
+      "maxUnavailable": "1",
+      "readinessProbe": {
+        "type": "http",
+        "initialDelaySeconds": 5,
+        "periodSeconds": 5,
+        "path": "/health",
+        "port": 8000,
+        "extra": 3
+      },
+      "livenessProbe": {
+        "type": "http",
+        "initialDelaySeconds": 10,
+        "periodSeconds": 15,
+        "path": "/health",
+        "port": 8000,
+        "extra": 3
+      },
+      "volumes": [],
+      "initContainers": [],
+      "sidecars": []
+    },
+    {
+      "name": "web",
+      "kind": "Deployment",
+      "image": "ghcr.io/cyberpunk042/devops-control-plane-web:latest",
+      "envVars": [],
+      "resources": null,
+      "companions": [],
+      "dependencies": [
+        "mysql"
+      ],
+      "port": "8001",
+      "replicas": "2",
+      "serviceType": "ClusterIP",
+      "strategy": "RollingUpdate",
+      "maxSurge": "1",
+      "maxUnavailable": "1",
+      "readinessProbe": {
+        "type": "http",
+        "initialDelaySeconds": 5,
+        "periodSeconds": 5,
+        "path": "/health",
+        "port": 8001,
+        "extra": 3
+      },
+      "livenessProbe": {
+        "type": "http",
+        "initialDelaySeconds": 10,
+        "periodSeconds": 15,
+        "path": "/health",
+        "port": 8001,
+        "extra": 3
+      },
+      "volumes": [],
+      "initContainers": [
+        {
+          "name": "wait-for-http",
+          "image": "curlimages/curl:latest",
+          "command": "sh -c"
+        }
+      ],
+      "sidecars": [
+        {
+          "name": "config-reloader",
+          "image": "jimmidyson/configmap-reload:v0.13",
+          "command": "",
+          "nativeSidecar": true
+        }
+      ],
+      "mesh": {
+        "provider": "istio",
+        "proxyCpuRequest": "100m",
+        "proxyCpuLimit": "500m",
+        "proxyMemRequest": "128Mi",
+        "proxyMemLimit": "256Mi",
+        "excludeInbound": "",
+        "excludeOutbound": "",
+        "logLevel": "warning"
+      }
+    }
+  ],
+  "_infraDecisions": [
+    {
+      "name": "mysql",
+      "kind": "StatefulSet",
+      "image": "mysql:8",
+      "port": "3306",
+      "envVars": [
+        {
+          "key": "MYSQL_DATABASE",
+          "type": "variable",
+          "value": "${MYSQL_DATABASE}",
+          "varName": "${MYSQL_DATABASE}",
+          "createInVault": true,
+          "newValue": ""
+        },
+        {
+          "key": "MYSQL_PASSWORD",
+          "type": "secret",
+          "value": "${MYSQL_PASSWORD}",
+          "varName": "${MYSQL_PASSWORD}",
+          "createInVault": true,
+          "newValue": ""
+        },
+        {
+          "key": "MYSQL_ROOT_PASSWORD",
+          "type": "secret",
+          "value": "${MYSQL_ROOT_PASSWORD}",
+          "varName": "${MYSQL_ROOT_PASSWORD}",
+          "createInVault": true,
+          "newValue": ""
+        },
+        {
+          "key": "MYSQL_USER",
+          "type": "variable",
+          "value": "${MYSQL_USER}",
+          "varName": "${MYSQL_USER}",
+          "createInVault": true,
+          "newValue": ""
+        }
+      ],
+      "volumes": []
+    }
+  ],
+  "namespace": "devops-control-plane-development",
+  "output_dir": "k8s/",
+  "ingress": false,
+  "skaffold": true,
+  "_savedAt": "2026-02-15T03:04:59.973303+00:00",
+  "_version": 1
+}

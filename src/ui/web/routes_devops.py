@@ -684,63 +684,50 @@ def wizard_setup():
 
         # ── setup_k8s ───────────────────────────────────────────
         if action == "setup_k8s":
-            app_name = data.get("app_name", "app")
-            image = data.get("image", f"{app_name}:latest")
-            port = data.get("port", "8080")
-            replicas = data.get("replicas", "1")
-            namespace = data.get("namespace", "default")
-            svc_type = data.get("service_type", "ClusterIP")
-
-            k8s_dir = root / "k8s"
-            k8s_dir.mkdir(exist_ok=True)
-
-            deploy = k8s_dir / "deployment.yml"
-            deploy.write_text(
-                f"apiVersion: apps/v1\n"
-                f"kind: Deployment\n"
-                f"metadata:\n"
-                f"  name: {app_name}\n"
-                f"  namespace: {namespace}\n"
-                f"spec:\n"
-                f"  replicas: {replicas}\n"
-                f"  selector:\n"
-                f"    matchLabels:\n"
-                f"      app: {app_name}\n"
-                f"  template:\n"
-                f"    metadata:\n"
-                f"      labels:\n"
-                f"        app: {app_name}\n"
-                f"    spec:\n"
-                f"      containers:\n"
-                f"        - name: {app_name}\n"
-                f"          image: {image}\n"
-                f"          ports:\n"
-                f"            - containerPort: {port}\n"
+            from src.core.services.k8s_ops import (
+                wizard_state_to_resources,
+                generate_k8s_wizard,
+                _generate_skaffold,
             )
-            files_created.append("k8s/deployment.yml")
 
-            svc = k8s_dir / "service.yml"
-            svc.write_text(
-                f"apiVersion: v1\n"
-                f"kind: Service\n"
-                f"metadata:\n"
-                f"  name: {app_name}\n"
-                f"  namespace: {namespace}\n"
-                f"spec:\n"
-                f"  selector:\n"
-                f"    app: {app_name}\n"
-                f"  ports:\n"
-                f"    - port: 80\n"
-                f"      targetPort: {port}\n"
-                f"  type: {svc_type}\n"
-            )
-            files_created.append("k8s/service.yml")
+            # Translate wizard state → flat resource list
+            resources = wizard_state_to_resources(data)
 
-            return jsonify({
+            # Generate manifests (returns {ok, files} or {error})
+            result = generate_k8s_wizard(root, resources)
+            if result.get("error"):
+                return jsonify({"ok": False, "error": result["error"]}), 400
+
+            # Collect all files to write (manifests + optional skaffold)
+            all_files = list(result.get("files", []))
+
+            # Generate skaffold.yaml if checkbox was checked
+            skaffold_file = _generate_skaffold(data, all_files)
+            if skaffold_file:
+                all_files.append(skaffold_file)
+
+            # Write generated files to disk
+            skipped: list[str] = []
+            for f in all_files:
+                fpath = root / f["path"]
+                # Respect overwrite flag — don't clobber existing user-edited files
+                if fpath.exists() and not f.get("overwrite", True):
+                    skipped.append(f["path"])
+                    continue
+                fpath.parent.mkdir(parents=True, exist_ok=True)
+                fpath.write_text(f["content"])
+                files_created.append(f["path"])
+
+            resp: dict = {
                 "ok": True,
-                "message": "Kubernetes manifests generated",
+                "message": f"Kubernetes manifests generated ({len(files_created)} files)",
                 "files_created": files_created,
-            })
+            }
+            if skipped:
+                resp["files_skipped"] = skipped
+                resp["message"] += f", {len(skipped)} skipped (already exist)"
+
+            return jsonify(resp)
 
         # ── setup_ci ────────────────────────────────────────────
         if action == "setup_ci":
