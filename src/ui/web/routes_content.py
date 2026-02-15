@@ -332,6 +332,10 @@ def content_encrypt():  # type: ignore[no-untyped-def]
                 "original_deleted": delete_original,
             },
             card="content",
+            action="encrypted",
+            target=rel_path,
+            before_state={"size": result["original_size"]},
+            after_state={"size": result["encrypted_size"], "encrypted": True},
         )
 
         return jsonify(result)
@@ -423,6 +427,10 @@ def content_decrypt():  # type: ignore[no-untyped-def]
                 "encrypted_deleted": delete_encrypted,
             },
             card="content",
+            action="decrypted",
+            target=rel_path,
+            before_state={"encrypted": True},
+            after_state={"size": result["decrypted_size"], "encrypted": False},
         )
 
         return jsonify(result)

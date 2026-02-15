@@ -18,6 +18,7 @@ from src.core.services.backup_common import (  # noqa: F401
     get_enc_key,
     encrypt_archive,
     decrypt_archive,
+    SKIP_DIRS,
     MEDIA_EXT,
     DOC_EXT,
 )

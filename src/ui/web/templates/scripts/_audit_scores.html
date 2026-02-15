@@ -7,7 +7,6 @@
 async function loadAuditScores() {
     const detail = document.getElementById('audit-scores-detail');
     const badge = document.getElementById('audit-scores-badge');
-
     const data = await cardLoad('audit:scores', '/audit/scores', badge, detail);
     if (!data) return;
     _renderScoresUI(data, detail, badge);

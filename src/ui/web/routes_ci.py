@@ -103,6 +103,8 @@ def generate_ci():  # type: ignore[no-untyped-def]
         summary=f"CI workflow generated ({len(stack_names)} stack(s))",
         detail={"stacks": stack_names, "project": project.name},
         card="ci",
+        action="generated",
+        target="ci-workflow",
     )
     return jsonify(result)
 
@@ -123,5 +125,7 @@ def generate_lint():  # type: ignore[no-untyped-def]
         summary=f"Lint workflow generated ({len(stack_names)} stack(s))",
         detail={"stacks": stack_names},
         card="ci",
+        action="generated",
+        target="lint-workflow",
     )
     return jsonify(result)

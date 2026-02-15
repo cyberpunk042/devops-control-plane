@@ -109,6 +109,8 @@ def docker_build():  # type: ignore[no-untyped-def]
         summary=f"Image built" + (f" for {service}" if service else "") + (" (no-cache)" if no_cache else ""),
         detail={"service": service, "no_cache": no_cache},
         card="docker",
+        action="built",
+        target=service or "all",
     )
     return jsonify(result)
 
@@ -131,6 +133,8 @@ def docker_up():  # type: ignore[no-untyped-def]
         summary=f"Compose services started" + (f" ({service})" if service else ""),
         detail={"service": service},
         card="docker",
+        action="started",
+        target=service or "all",
     )
     return jsonify(result)
 
@@ -153,6 +157,8 @@ def docker_down():  # type: ignore[no-untyped-def]
         summary=f"Compose services stopped" + (" (volumes removed)" if volumes else ""),
         detail={"volumes": volumes},
         card="docker",
+        action="stopped",
+        target="compose",
     )
     return jsonify(result)
 
@@ -175,6 +181,8 @@ def docker_restart():  # type: ignore[no-untyped-def]
         summary=f"Compose services restarted" + (f" ({service})" if service else ""),
         detail={"service": service},
         card="docker",
+        action="restarted",
+        target=service or "all",
     )
     return jsonify(result)
 
@@ -194,6 +202,8 @@ def docker_prune():  # type: ignore[no-untyped-def]
         summary="Unused Docker resources cleaned up",
         detail={},
         card="docker",
+        action="pruned",
+        target="docker",
     )
     return jsonify(result)
 
@@ -221,6 +231,8 @@ def generate_dockerfile():  # type: ignore[no-untyped-def]
         summary=f"Dockerfile generated for {stack_name} stack",
         detail={"stack": stack_name},
         card="docker",
+        action="generated",
+        target="Dockerfile",
     )
     return jsonify(result)
 
@@ -242,6 +254,8 @@ def generate_dockerignore():  # type: ignore[no-untyped-def]
         summary=f".dockerignore generated for {len(stacks)} stack(s)",
         detail={"stacks": stacks},
         card="docker",
+        action="generated",
+        target=".dockerignore",
     )
     return jsonify(result)
 
@@ -273,6 +287,8 @@ def generate_compose():  # type: ignore[no-untyped-def]
         summary=f"docker-compose.yml generated ({len(modules)} module(s))",
         detail={"modules": len(modules), "project": project.name},
         card="docker",
+        action="generated",
+        target="docker-compose.yml",
     )
     return jsonify(result)
 
@@ -318,6 +334,8 @@ def generate_compose_wizard():  # type: ignore[no-untyped-def]
         summary=f"docker-compose.yml generated from wizard ({len(services)} service(s))",
         detail={"services_count": len(services)},
         card="docker",
+        action="generated",
+        target="docker-compose.yml",
     )
     return jsonify(result)
 
@@ -342,6 +360,8 @@ def write_generated():  # type: ignore[no-untyped-def]
         summary=f"Generated file written: {file_data.get('path', '?')}",
         detail={"file": file_data.get("path", "?")},
         card="docker",
+        action="created",
+        target=file_data.get("path", "?"),
     )
     return jsonify(result)
 
@@ -394,6 +414,8 @@ def docker_pull():  # type: ignore[no-untyped-def]
         summary=f"Image pulled: {image}",
         detail={"image": image},
         card="docker",
+        action="pulled",
+        target=image,
     )
     return jsonify(result)
 
@@ -419,6 +441,8 @@ def docker_exec():  # type: ignore[no-untyped-def]
         summary=f"Command executed in {container}",
         detail={"container": container, "command": command},
         card="docker",
+        action="executed",
+        target=container,
     )
     return jsonify(result)
 
@@ -442,6 +466,8 @@ def docker_rm():  # type: ignore[no-untyped-def]
         summary=f"Container '{container}' removed" + (" (forced)" if force else ""),
         detail={"container": container, "force": force},
         card="docker",
+        action="removed",
+        target=container,
     )
     return jsonify(result)
 
@@ -465,5 +491,7 @@ def docker_rmi():  # type: ignore[no-untyped-def]
         summary=f"Image '{image}' removed" + (" (forced)" if force else ""),
         detail={"image": image, "force": force},
         card="docker",
+        action="removed",
+        target=image,
     )
     return jsonify(result)

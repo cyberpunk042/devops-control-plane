@@ -41,7 +41,7 @@ def create_app(
     )
 
     # Store config on app
-    app.config["PROJECT_ROOT"] = str(project_root or Path.cwd())
+    app.config["PROJECT_ROOT"] = Path(project_root or Path.cwd())
     app.config["CONFIG_PATH"] = str(config_path) if config_path else None
     app.config["MOCK_MODE"] = mock_mode
     app.config["MAX_CONTENT_LENGTH"] = 500 * 1024 * 1024  # 500 MB upload limit
@@ -100,7 +100,7 @@ def create_app(
     # Initialize vault with project root (for auto-lock)
     from src.ui.web import vault as vault_module
 
-    vault_module.set_project_root(Path(app.config["PROJECT_ROOT"]))
+    vault_module.set_project_root(app.config["PROJECT_ROOT"])
 
     # Vault activity tracking — resets auto-lock timer on user actions
     @app.before_request

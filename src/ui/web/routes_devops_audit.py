@@ -65,6 +65,8 @@ def audit_dismissals_add():
                     + (f" — {comment}" if comment else ""),
             detail={"items": ok_items, "comment": comment},
             card="dismissal",
+            action="dismissed",
+            target=files_str,
         )
 
     return jsonify({"ok": len(errors) == 0, "count": len(results), "results": results})
@@ -102,6 +104,8 @@ def audit_dismissals_remove():
             summary=f"# nosec removed from {file}:{line}",
             detail={"file": file, "line": line},
             card="dismissal",
+            action="undismissed",
+            target=f"{file}:{line}",
         )
 
     return jsonify(result)

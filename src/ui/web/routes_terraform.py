@@ -65,6 +65,8 @@ def tf_plan():  # type: ignore[no-untyped-def]
         summary="Plan executed",
         detail={},
         card="terraform",
+        action="planned",
+        target="infrastructure",
     )
     return jsonify(result)
 
@@ -103,6 +105,9 @@ def tf_generate():  # type: ignore[no-untyped-def]
         summary=f"Scaffolding generated (provider={provider}, backend={backend})",
         detail={"provider": provider, "backend": backend},
         card="terraform",
+        action="generated",
+        target="terraform",
+        after_state={"provider": provider, "backend": backend},
     )
     return jsonify(result)
 
@@ -126,6 +131,8 @@ def tf_init():  # type: ignore[no-untyped-def]
         summary="Terraform initialized" + (" (upgrade)" if upgrade else ""),
         detail={"upgrade": upgrade},
         card="terraform",
+        action="initialized",
+        target="terraform",
     )
     return jsonify(result)
 
@@ -144,6 +151,8 @@ def tf_apply():  # type: ignore[no-untyped-def]
         summary="Infrastructure changes applied",
         detail={},
         card="terraform",
+        action="applied",
+        target="infrastructure",
     )
     return jsonify(result)
 
@@ -171,6 +180,8 @@ def tf_destroy():  # type: ignore[no-untyped-def]
         summary="Infrastructure resources destroyed",
         detail={},
         card="terraform",
+        action="destroyed",
+        target="infrastructure",
     )
     return jsonify(result)
 
@@ -193,6 +204,8 @@ def tf_workspace_select():  # type: ignore[no-untyped-def]
         summary=f"Workspace switched to '{workspace}'",
         detail={"workspace": workspace},
         card="terraform",
+        action="switched",
+        target=workspace,
     )
     return jsonify(result)
 
@@ -211,5 +224,7 @@ def tf_fmt():  # type: ignore[no-untyped-def]
         summary="Terraform files formatted",
         detail={},
         card="terraform",
+        action="formatted",
+        target="terraform",
     )
     return jsonify(result)

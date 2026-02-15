@@ -83,5 +83,7 @@ def dns_generate():  # type: ignore[no-untyped-def]
         summary=f"DNS records generated for {domain}",
         detail={"domain": domain},
         card="dns",
+        action="generated",
+        target=domain,
     )
     return jsonify(result)

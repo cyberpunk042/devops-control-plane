@@ -53,34 +53,41 @@ function _auditModal(title, bodyHtml, width) {
     document.addEventListener('keydown', escHandler);
 }
 
+// Audit card metadata — same pattern as _INT_CARDS / _DEVOPS_CARDS
+const _AUDIT_CARDS = {
+    'audit:scores':    { loadFn: () => loadAuditScores(),       badgeId: 'audit-scores-badge',    detailId: 'audit-scores-detail' },
+    'audit:system':    { loadFn: () => loadAuditSystemCard(),   badgeId: 'audit-system-badge',    detailId: 'audit-system-detail' },
+    'audit:deps':      { loadFn: () => loadAuditDepsCard(),     badgeId: 'audit-deps-badge',      detailId: 'audit-deps-detail' },
+    'audit:structure': { loadFn: () => loadAuditStructureCard(), badgeId: 'audit-structure-badge', detailId: 'audit-structure-detail' },
+    'audit:clients':   { loadFn: () => loadAuditClientsCard(),  badgeId: 'audit-clients-badge',   detailId: 'audit-clients-detail' },
+};
+
 async function loadAuditTab(force) {
-    if (_auditLoaded && !force) return;
-    _auditLoaded = true;
-
-
-
-    // Bust server cache if forced
     if (force) {
-        for (const key of ['audit:system', 'audit:deps', 'audit:structure', 'audit:clients', 'audit:scores']) {
+        _auditLoaded = false;
+
+        // Bust client + server caches, show spinners — same as cardRefresh()
+        for (const [key, meta] of Object.entries(_AUDIT_CARDS)) {
             cardInvalidate(key);
-            api('/devops/cache/bust', {
-                method: 'POST',
-                body: JSON.stringify({ card: key }),
-            }).catch(() => {});
+            const badge = document.getElementById(meta.badgeId);
+            const detail = document.getElementById(meta.detailId);
+            if (badge) { badge.className = 'status-badge'; badge.textContent = '—'; }
+            if (detail) detail.innerHTML = '<span class="spinner"></span>';
         }
+        // Bust server-side cache — await so loadFn gets fresh data
+        await Promise.all(Object.keys(_AUDIT_CARDS).map(key =>
+            api('/devops/cache/bust', { method: 'POST', body: JSON.stringify({ card: key }) }).catch(() => {})
+        ));
     }
+    if (_auditLoaded) return;
 
     // Load all cards in parallel
-    await Promise.all([
-        loadAuditScores(),
-        loadAuditSystemCard(),
-        loadAuditDepsCard(),
-        loadAuditStructureCard(),
-        loadAuditClientsCard(),
-    ]);
+    await Promise.all(Object.values(_AUDIT_CARDS).map(meta => meta.loadFn()));
 
     // Auto-load L2 cards that are already cached
     _autoLoadL2Cards();
+
+    _auditLoaded = true;
 }
 
 

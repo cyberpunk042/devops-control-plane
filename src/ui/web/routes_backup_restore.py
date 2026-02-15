@@ -66,6 +66,9 @@ def api_restore():  # type: ignore[no-untyped-def]
             "restored": result.get("restored_count", result.get("restored", 0)),
         },
         card="backup",
+        action="restored",
+        target=backup_path,
+        after_state={"restored_count": result.get("restored_count", result.get("restored", 0))},
     )
     return jsonify(result)
 
@@ -99,6 +102,12 @@ def api_import():  # type: ignore[no-untyped-def]
             "skipped": result.get("skipped_count", result.get("skipped", 0)),
         },
         card="backup",
+        action="imported",
+        target=backup_path,
+        after_state={
+            "imported": result.get("imported_count", result.get("imported", 0)),
+            "skipped": result.get("skipped_count", result.get("skipped", 0)),
+        },
     )
     return jsonify(result)
 
@@ -137,6 +146,9 @@ def api_wipe():  # type: ignore[no-untyped-def]
             "safety_backup": create_backup,
         },
         card="backup",
+        action="wiped",
+        target=target_folder,
+        before_state={"items": len(paths)},
     )
     return jsonify(result)
 
@@ -179,5 +191,7 @@ def api_delete():  # type: ignore[no-untyped-def]
         summary=f"{backup_path} permanently deleted",
         detail={"backup": backup_path},
         card="backup",
+        action="deleted",
+        target=backup_path,
     )
     return jsonify({"success": True, "deleted": backup_path})

@@ -71,6 +71,9 @@ def vault_activate_env():
         summary=f"Active environment switched to '{name}'",
         detail={"environment": name},
         card="vault",
+        action="switched",
+        target=".env",
+        after_state={"active_env": name},
     )
     return jsonify(result)
 
@@ -97,6 +100,10 @@ def vault_lock():
             summary=f"{env_path.name} encrypted and plaintext securely deleted",
             detail={"file": env_path.name},
             card="vault",
+            action="locked",
+            target=env_path.name,
+            before_state={"locked": False},
+            after_state={"locked": True},
         )
         return jsonify(result)
     except ValueError as e:
@@ -132,6 +139,10 @@ def vault_unlock():
             summary=f"{env_path.name} decrypted and restored",
             detail={"file": env_path.name},
             card="vault",
+            action="unlocked",
+            target=env_path.name,
+            before_state={"locked": True},
+            after_state={"locked": False},
         )
         return jsonify(result)
     except ValueError as e:
@@ -167,6 +178,9 @@ def vault_register():
             summary=f"Passphrase stored in memory for {env_path.name}, auto-lock enabled",
             detail={"file": env_path.name},
             card="vault",
+            action="registered",
+            target=env_path.name,
+            after_state={"auto_lock": True},
         )
         return jsonify(result)
     except ValueError as e:
@@ -205,6 +219,9 @@ def vault_auto_lock():
         summary=f"Auto-lock {'set to ' + str(minutes) + 'min' if minutes > 0 else 'disabled'}",
         detail={"minutes": minutes},
         card="vault",
+        action="configured",
+        target="auto-lock",
+        after_state={"minutes": minutes, "enabled": minutes > 0},
     )
 
     return jsonify({
@@ -286,6 +303,9 @@ def vault_create():
             "custom_entries": len(entries),
         },
         card="vault",
+        action="created",
+        target=env_path.name,
+        after_state={"sections": len(sections), "custom_keys": len(entries)},
     )
     return jsonify(result)
 
@@ -324,6 +344,13 @@ def vault_add_keys():
             "updated": result.get("updated", 0),
         },
         card="vault",
+        action="added",
+        target=env_path.name,
+        after_state={
+            "keys_added": result.get("added", 0),
+            "keys_updated": result.get("updated", 0),
+            "key_names": key_names,
+        },
     )
     return jsonify(result)
 
@@ -352,6 +379,9 @@ def vault_move_key():
         summary=f"{key} → section '{section}' in {env_path.name}",
         detail={"file": env_path.name, "key": key, "target_section": section},
         card="vault",
+        action="moved",
+        target=key,
+        after_state={"section": section, "file": env_path.name},
     )
     return jsonify(result)
 
@@ -380,6 +410,10 @@ def vault_rename_section():
         summary=f"'{old_name}' → '{new_name}' in {env_path.name}",
         detail={"file": env_path.name, "old_name": old_name, "new_name": new_name},
         card="vault",
+        action="renamed",
+        target=env_path.name,
+        before_state={"section": old_name},
+        after_state={"section": new_name},
     )
     return jsonify(result)
 
@@ -407,6 +441,8 @@ def vault_update_key():
         summary=f"{key} updated in {env_path.name}",
         detail={"file": env_path.name, "key": key},
         card="vault",
+        action="updated",
+        target=key,
     )
     return jsonify(result)
 
@@ -434,6 +470,8 @@ def vault_delete_key():
         summary=f"{key} removed from {env_path.name}",
         detail={"file": env_path.name, "key": key},
         card="vault",
+        action="deleted",
+        target=key,
     )
     return jsonify(result)
 
@@ -481,6 +519,9 @@ def vault_toggle_local_only():
         summary=f"{key} {'marked' if local_only else 'unmarked'} as local-only in {env_path.name}",
         detail={"file": env_path.name, "key": key, "local_only": local_only},
         card="vault",
+        action="configured",
+        target=key,
+        after_state={"local_only": local_only},
     )
     return jsonify(result)
 
@@ -509,6 +550,9 @@ def vault_set_meta():
         summary=f"{key} metadata updated in {env_path.name}",
         detail={"file": env_path.name, "key": key, "tags": meta_tags},
         card="vault",
+        action="updated",
+        target=key,
+        after_state={"meta_tags": meta_tags},
     )
     return jsonify(result)
 
@@ -537,6 +581,8 @@ def vault_export():
             summary=f"{filename} exported as encrypted envelope",
             detail={"file": filename},
             card="vault",
+            action="exported",
+            target=filename,
         )
         return jsonify({"success": True, "envelope": envelope})
     except ValueError as e:
@@ -581,6 +627,8 @@ def vault_import():
                 summary=f"Encrypted envelope imported to {target}",
                 detail={"target": target},
                 card="vault",
+                action="imported",
+                target=target,
             )
         return jsonify(result)
     except ValueError as e:

@@ -161,6 +161,8 @@ def api_config_save():  # type: ignore[no-untyped-def]
         summary=f"project.yml saved ({config.get('name', '?')})",
         detail={"project": config.get("name", "?"), "path": str(config_path)},
         card="config",
+        action="saved",
+        target="project.yml",
     )
 
     return jsonify({"ok": True, "path": str(config_path)})

@@ -71,6 +71,8 @@ def api_upload_release():  # type: ignore[no-untyped-def]
             summary=f"{file_path.name} upload started to GitHub Release",
             detail={"file": backup_path, "file_id": file_id},
             card="backup",
+            action="uploaded",
+            target=backup_path,
         )
 
         return jsonify({
@@ -113,6 +115,8 @@ def api_encrypt_backup():  # type: ignore[no-untyped-def]
         summary=f"{backup_path} encrypted in place",
         detail={"backup": backup_path},
         card="backup",
+        action="encrypted",
+        target=backup_path,
     )
     return jsonify(result)
 
@@ -137,6 +141,8 @@ def api_decrypt_backup():  # type: ignore[no-untyped-def]
         summary=f"{backup_path} decrypted in place",
         detail={"backup": backup_path},
         card="backup",
+        action="decrypted",
+        target=backup_path,
     )
     return jsonify(result)
 
@@ -183,6 +189,8 @@ def api_delete_release():  # type: ignore[no-untyped-def]
             summary=f"Release asset '{asset_name}' deletion queued",
             detail={"backup": backup_path, "asset": asset_name},
             card="backup",
+            action="deleted",
+            target=asset_name,
         )
 
         return jsonify({
@@ -236,6 +244,10 @@ def api_rename_backup():  # type: ignore[no-untyped-def]
         summary=f"{backup_path} → {safe_name}",
         detail={"old_name": backup_path, "new_name": safe_name},
         card="backup",
+        action="renamed",
+        target=backup_path,
+        before_state={"name": backup_path},
+        after_state={"name": safe_name},
     )
     return jsonify({"success": True, **result})
 
@@ -264,5 +276,7 @@ def api_mark_special():  # type: ignore[no-untyped-def]
         summary=f"{backup_path} {'removed from' if unmark else 'added to'} git tracking",
         detail={"backup": backup_path, "unmark": unmark},
         card="backup",
+        action="unmarked" if unmark else "marked",
+        target=backup_path,
     )
     return jsonify(result)

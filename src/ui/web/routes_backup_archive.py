@@ -68,6 +68,9 @@ def api_export():  # type: ignore[no-untyped-def]
             "archive": result.get("filename", ""),
         },
         card="backup",
+        action="created",
+        target=result.get("filename", target_folder),
+        after_state={"items": len(paths), "encrypted": encrypt_flag},
     )
     return jsonify(result)
 
@@ -189,6 +192,9 @@ def api_upload():  # type: ignore[no-untyped-def]
             "encrypted": is_encrypted,
         },
         card="backup",
+        action="uploaded",
+        target=dest_name,
+        after_state={"size": size_bytes, "encrypted": is_encrypted},
     )
 
     return jsonify({

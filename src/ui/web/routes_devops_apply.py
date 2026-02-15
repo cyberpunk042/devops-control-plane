@@ -134,6 +134,8 @@ def wizard_setup():
                 summary=f"Git configured: {', '.join(results) or 'no changes'}",
                 detail={"results": results, "files_created": files_created},
                 card="wizard",
+                action="configured",
+                target="git",
             )
 
             return jsonify({
@@ -199,6 +201,8 @@ def wizard_setup():
                 summary=f"GitHub configured: {len(results.get('environments_created', []))} env(s), {results.get('secrets_pushed', 0)} secret(s)",
                 detail=results,
                 card="wizard",
+                action="configured",
+                target="github",
             )
 
             return jsonify({
@@ -261,6 +265,8 @@ def wizard_setup():
                 summary=f"Docker configured ({', '.join(files_created)})",
                 detail={"files_created": files_created},
                 card="wizard",
+                action="configured",
+                target="docker",
             )
 
             return jsonify({
@@ -320,6 +326,8 @@ def wizard_setup():
                 summary=f"K8s manifests generated ({len(files_created)} files" + (f", {len(skipped)} skipped" if skipped else "") + ")",
                 detail={"files_created": files_created, "files_skipped": skipped},
                 card="wizard",
+                action="configured",
+                target="kubernetes",
             )
 
             return jsonify(resp)
@@ -378,6 +386,8 @@ def wizard_setup():
                 summary=f"CI workflow generated ({', '.join(files_created)})",
                 detail={"files_created": files_created, "branches": branches},
                 card="wizard",
+                action="configured",
+                target="ci",
             )
 
             return jsonify({
@@ -436,6 +446,8 @@ def wizard_setup():
                 summary=f"Terraform config generated (provider={provider}, backend={backend})",
                 detail={"files_created": files_created, "provider": provider, "backend": backend},
                 card="wizard",
+                action="configured",
+                target="terraform",
             )
 
             return jsonify({
@@ -519,6 +531,8 @@ def wizard_delete_config():
         summary=f"Wizard config deleted: {', '.join(deleted) or 'nothing'}" + (f" ({len(errors)} error(s))" if errors else ""),
         detail={"target": target, "deleted": deleted, "errors": errors},
         card="wizard",
+        action="deleted",
+        target=target,
     )
 
     return jsonify({

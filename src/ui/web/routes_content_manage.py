@@ -119,6 +119,8 @@ def content_setup_enc_key():  # type: ignore[no-untyped-def]
         summary="CONTENT_VAULT_ENC_KEY " + ("auto-generated" if should_generate else "set manually"),
         detail={"generated": should_generate},
         card="content",
+        action="configured",
+        target="CONTENT_VAULT_ENC_KEY",
     )
 
     return jsonify({
@@ -139,6 +141,8 @@ def content_save():  # type: ignore[no-untyped-def]
         path: relative path to the file
         content: the text content to write
     """
+    import difflib
+
     data = request.get_json(silent=True) or {}
     rel_path = data.get("path", "").strip()
     file_content = data.get("content", "")
@@ -164,22 +168,53 @@ def content_save():  # type: ignore[no-untyped-def]
     except ValueError:
         return jsonify({"error": "Invalid path"}), 400
 
+    # ── Capture before-state for audit ──
+    old_content = target.read_text(encoding="utf-8") if target.is_file() else ""
+    old_lines = old_content.count("\n") + (1 if old_content else 0)
+    old_size = len(old_content.encode("utf-8"))
+
+    # ── Write ──
     target.write_text(file_content, encoding="utf-8")
-    size = len(file_content.encode("utf-8"))
+    new_size = len(file_content.encode("utf-8"))
+    new_lines = file_content.count("\n") + (1 if file_content else 0)
+
+    # ── Compute unified diff ──
+    old_lines_list = old_content.splitlines()
+    new_lines_list = file_content.splitlines()
+    diff_lines = list(difflib.unified_diff(
+        old_lines_list, new_lines_list,
+        fromfile=f"a/{rel_path}", tofile=f"b/{rel_path}",
+        lineterm="",
+    ))
+    added = sum(1 for l in diff_lines if l.startswith("+") and not l.startswith("+++"))
+    removed = sum(1 for l in diff_lines if l.startswith("-") and not l.startswith("---"))
+    # Keep diff compact — cap at 50 lines to avoid bloating the log
+    diff_text = "\n".join(diff_lines[:50])
+    if len(diff_lines) > 50:
+        diff_text += f"\n... ({len(diff_lines) - 50} more lines)"
 
     devops_cache.record_event(
         root,
-        label="💾 File Saved",
-        summary=f"{rel_path} saved ({size:,} bytes)",
-        detail={"file": rel_path, "size_bytes": size},
+        label="📝 File Modified",
+        summary=f"{rel_path}: +{added} -{removed} lines ({old_size:,} → {new_size:,} bytes)",
+        detail={
+            "file": rel_path,
+            "lines_added": added,
+            "lines_removed": removed,
+            "diff": diff_text,
+        },
         card="content",
+        action="modified",
+        target=rel_path,
+        before_state={"lines": old_lines, "size": old_size},
+        after_state={"lines": new_lines, "size": new_size},
     )
 
-    logger.info("Saved file: %s (%d bytes)", rel_path, size)
+    logger.info("Saved file: %s (%d bytes, +%d -%d lines)", rel_path, new_size, added, removed)
     return jsonify({
         "success": True,
         "path": rel_path,
-        "size": size,
+        "size": new_size,
     })
 
 
@@ -237,6 +272,10 @@ def content_rename():  # type: ignore[no-untyped-def]
         summary=f"{rel_path} → {new_name}",
         detail={"old_path": rel_path, "new_name": new_name},
         card="content",
+        action="renamed",
+        target=rel_path,
+        before_state={"name": source.name},
+        after_state={"name": new_name, "path": str(dest.relative_to(root))},
     )
 
     return jsonify({
@@ -301,6 +340,10 @@ def content_move():  # type: ignore[no-untyped-def]
             "destination": dest_folder,
         },
         card="content",
+        action="moved",
+        target=rel_path,
+        before_state={"path": rel_path},
+        after_state={"path": str(dest.relative_to(root))},
     )
 
     return jsonify({
@@ -359,6 +402,13 @@ def content_restore_large():  # type: ignore[no-untyped-def]
             "failed": result.get("failed", 0),
         },
         card="content",
+        action="restored",
+        target="content-vault",
+        after_state={
+            "restored": result.get("restored", 0),
+            "skipped": result.get("skipped", 0),
+            "failed": result.get("failed", 0),
+        },
     )
 
     return jsonify({"success": True, **result})

@@ -74,6 +74,9 @@ def content_create_folder():  # type: ignore[no-untyped-def]
         summary=f"Content folder '{name}' created",
         detail={"folder": name},
         card="content",
+        action="created",
+        target=name,
+        after_state={"type": "directory"},
     )
 
     logger.info("Created content folder: %s", name)
@@ -124,6 +127,22 @@ def content_delete():  # type: ignore[no-untyped-def]
     cleanup_release_sidecar(target, _project_root())
 
     is_dir = target.is_dir()
+
+    # ── Capture before-state for audit ──
+    before = {"type": "directory" if is_dir else "file"}
+    if is_dir:
+        children = list(target.rglob("*"))
+        before["children"] = len(children)
+        before["size"] = sum(f.stat().st_size for f in children if f.is_file())
+    else:
+        stat = target.stat()
+        before["size"] = stat.st_size
+        try:
+            content = target.read_text(encoding="utf-8")
+            before["lines"] = content.count("\n") + (1 if content else 0)
+        except (UnicodeDecodeError, OSError):
+            pass  # binary file — no line count
+
     if is_dir:
         shutil.rmtree(target)
         logger.info("Deleted directory: %s", rel_path)
@@ -134,9 +153,16 @@ def content_delete():  # type: ignore[no-untyped-def]
     devops_cache.record_event(
         root,
         label="🗑️ File Deleted",
-        summary=f"{'Directory' if is_dir else 'File'} '{rel_path}' deleted",
+        summary=f"{'Directory' if is_dir else 'File'} '{rel_path}' deleted"
+                + (f" ({before.get('children', 0)} items, {before['size']:,} bytes)" if is_dir
+                   else f" ({before['size']:,} bytes"
+                        + (f", {before['lines']} lines" if "lines" in before else "")
+                        + ")"),
         detail={"path": rel_path, "type": "directory" if is_dir else "file"},
         card="content",
+        action="deleted",
+        target=rel_path,
+        before_state=before,
     )
 
     return jsonify({
@@ -301,6 +327,15 @@ def content_upload():  # type: ignore[no-untyped-def]
             "tier": tier,
         },
         card="content",
+        action="created",
+        target=rel_result,
+        after_state={
+            "size": final_size,
+            "original_size": original_size,
+            "optimized": was_optimized,
+            "tier": tier,
+            "mime": opt_mime,
+        },
     )
 
     # Backup large files to GitHub Releases

@@ -417,12 +417,22 @@ def record_event(
     *,
     detail: dict | None = None,
     card: str = "event",
+    action: str | None = None,
+    target: str | None = None,
+    before_state: dict | None = None,
+    after_state: dict | None = None,
 ) -> None:
     """Record a user-initiated action in the audit activity log.
 
     Unlike ``_record_activity`` (scan computations), this logs
     arbitrary events like finding dismissals, so they appear
     in the Debugging → Audit Log tab.
+
+    Optional audit fields (when provided, enrich the log entry):
+        action       — verb: created, modified, deleted, renamed, etc.
+        target       — what was acted on (file path, resource name)
+        before_state — state before the change (size, lines, hash, etc.)
+        after_state  — state after the change
     """
     import datetime
 
@@ -438,6 +448,14 @@ def record_event(
     }
     if detail:
         entry["detail"] = detail
+    if action:
+        entry["action"] = action
+    if target:
+        entry["target"] = target
+    if before_state:
+        entry["before"] = before_state
+    if after_state:
+        entry["after"] = after_state
 
     path = _activity_path(project_root)
     path.parent.mkdir(parents=True, exist_ok=True)
