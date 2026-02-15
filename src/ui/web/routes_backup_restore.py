@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from flask import jsonify, request
 
-from src.core.services import backup_ops, devops_cache
+from src.core.services import backup_ops
 from .routes_backup import backup_bp, _project_root
 
 
@@ -44,32 +44,8 @@ def api_restore():  # type: ignore[no-untyped-def]
 
     if "error" in result:
         code = 404 if "not found" in result["error"].lower() else 400
-        devops_cache.record_event(
-            root,
-            label="❌ Restore Failed",
-            summary=f"{backup_path}: {result['error']}",
-            detail={"backup": backup_path, "error": result["error"]},
-            card="backup",
-        )
         return jsonify(result), code
 
-    devops_cache.record_event(
-        root,
-        label="♻️ Backup Restored",
-        summary=f"{backup_path} restored"
-                + (f" to {target_folder}" if target_folder else "")
-                + (" (wiped first)" if wipe_first else ""),
-        detail={
-            "backup": backup_path,
-            "target": target_folder,
-            "wipe_first": wipe_first,
-            "restored": result.get("restored_count", result.get("restored", 0)),
-        },
-        card="backup",
-        action="restored",
-        target=backup_path,
-        after_state={"restored_count": result.get("restored_count", result.get("restored", 0))},
-    )
     return jsonify(result)
 
 
@@ -92,23 +68,6 @@ def api_import():  # type: ignore[no-untyped-def]
         code = 404 if "not found" in result["error"].lower() else 400
         return jsonify(result), code
 
-    devops_cache.record_event(
-        root,
-        label="📥 Backup Imported",
-        summary=f"{backup_path} imported (additive merge)",
-        detail={
-            "backup": backup_path,
-            "imported": result.get("imported_count", result.get("imported", 0)),
-            "skipped": result.get("skipped_count", result.get("skipped", 0)),
-        },
-        card="backup",
-        action="imported",
-        target=backup_path,
-        after_state={
-            "imported": result.get("imported_count", result.get("imported", 0)),
-            "skipped": result.get("skipped_count", result.get("skipped", 0)),
-        },
-    )
     return jsonify(result)
 
 
@@ -135,21 +94,6 @@ def api_wipe():  # type: ignore[no-untyped-def]
         code = 404 if "not found" in result["error"].lower() else 400
         return jsonify(result), code
 
-    devops_cache.record_event(
-        root,
-        label="🧹 Folder Wiped",
-        summary=f"{target_folder}: {len(paths)} items wiped"
-                + (" (backed up first)" if create_backup else " (no safety backup)"),
-        detail={
-            "folder": target_folder,
-            "items_wiped": len(paths),
-            "safety_backup": create_backup,
-        },
-        card="backup",
-        action="wiped",
-        target=target_folder,
-        before_state={"items": len(paths)},
-    )
     return jsonify(result)
 
 
@@ -176,22 +120,8 @@ def api_delete():  # type: ignore[no-untyped-def]
     if ".backup" not in file_path.parts:
         return jsonify({"error": "Can only delete files in .backup/ directories"}), 400
 
-    # This route has extra validation (.backup check) beyond what backup_ops.delete_backup does,
-    # plus it calls cleanup_release_sidecar directly. Keep the domain call.
-    from src.core.services.content_release import cleanup_release_sidecar
-    cleanup_release_sidecar(file_path, root)
-
     result = backup_ops.delete_backup(root, backup_path)
     if "error" in result:
         return jsonify(result), 400
 
-    devops_cache.record_event(
-        root,
-        label="🗑️ Backup Deleted",
-        summary=f"{backup_path} permanently deleted",
-        detail={"backup": backup_path},
-        card="backup",
-        action="deleted",
-        target=backup_path,
-    )
     return jsonify({"success": True, "deleted": backup_path})

@@ -124,11 +124,9 @@ def export(ctx: click.Context, file: str, passphrase: str, as_json: bool) -> Non
 @click.pass_context
 def detect_secrets(ctx: click.Context, as_json: bool) -> None:
     """Scan project for secret files (.env, credentials, keys)."""
-    from src.core.services.vault import set_project_root
     from src.core.services.vault_io import detect_secret_files
 
     project_root = _resolve_project_root(ctx)
-    set_project_root(project_root)
 
     result = detect_secret_files(project_root)
 
@@ -167,13 +165,11 @@ def _env_path(project_root: Path, env_name: str = "") -> Path:
 def list_keys(ctx: click.Context, env_name: str, as_json: bool) -> None:
     """List .env keys with masked values."""
     from src.core.services import vault_env_ops
-    from src.core.services.vault import _vault_path_for
 
     project_root = _resolve_project_root(ctx)
     env_path = _env_path(project_root, env_name)
-    vault_path = _vault_path_for(env_path)
 
-    result = vault_env_ops.list_keys_enriched(env_path, vault_path)
+    result = vault_env_ops.list_keys_enriched(env_path)
 
     if as_json:
         click.echo(json.dumps(result, indent=2))

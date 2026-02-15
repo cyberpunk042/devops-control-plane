@@ -25,7 +25,7 @@ from pathlib import Path
 
 from flask import Blueprint, current_app, jsonify, request
 
-from src.core.services import secrets_ops, devops_cache
+from src.core.services import secrets_ops
 
 secrets_bp = Blueprint("secrets", __name__)
 
@@ -83,15 +83,6 @@ def api_keys_generate():
     if "error" in result:
         return jsonify(result), 500 if "failed" in result["error"] else 400
 
-    devops_cache.record_event(
-        _project_root(),
-        label="🔑 Key Generated",
-        summary=f"{data.get('type', 'password')} key generated",
-        detail={"type": data.get("type", "password")},
-        card="secrets",
-        action="generated",
-        target=data.get("type", "password"),
-    )
     return jsonify(result)
 
 
@@ -111,15 +102,6 @@ def api_gh_environment_create():
     if "error" in result:
         return jsonify(result), 400
 
-    devops_cache.record_event(
-        root,
-        label="🌱 Environment Created",
-        summary=f"GitHub environment '{env_name}' created",
-        detail={"environment": env_name},
-        card="secrets",
-        action="created",
-        target=env_name,
-    )
     return jsonify(result)
 
 
@@ -140,16 +122,6 @@ def api_env_cleanup():
     if "error" in result:
         return jsonify(result), 400
 
-    devops_cache.record_event(
-        root,
-        label="🧹 Environment Cleaned",
-        summary=f"Environment '{env_name}' cleaned up",
-        detail={"environment": env_name, "delete_files": data.get("delete_files", True), "delete_github": data.get("delete_github", False)},
-        card="secrets",
-        action="cleaned",
-        target=env_name,
-        before_state={"existed": True},
-    )
     return jsonify(result)
 
 
@@ -166,16 +138,6 @@ def api_env_seed():
         default=data.get("default", ""),
     )
 
-    devops_cache.record_event(
-        root,
-        label="🌱 Environments Seeded",
-        summary=f"{len(envs)} environment(s) seeded",
-        detail={"environments": envs},
-        card="secrets",
-        action="seeded",
-        target="environments",
-        after_state={"count": len(envs), "names": envs},
-    )
     return jsonify(result)
 
 
@@ -210,16 +172,6 @@ def api_secret_set():
     if "error" in result:
         return jsonify(result), 400
 
-    devops_cache.record_event(
-        root,
-        label="🔐 Secret Set",
-        summary=f"Secret '{name}' set (target={data.get('target', 'both')})",
-        detail={"name": name, "target": data.get("target", "both")},
-        card="secrets",
-        action="set",
-        target=name,
-        after_state={"target": data.get("target", "both")},
-    )
     return jsonify(result)
 
 
@@ -244,16 +196,6 @@ def api_secret_remove():
     if "error" in result:
         return jsonify(result), 400
 
-    devops_cache.record_event(
-        root,
-        label="🗑️ Secret Removed",
-        summary=f"Secret '{name}' removed (target={data.get('target', 'both')})",
-        detail={"name": name, "target": data.get("target", "both"), "kind": data.get("kind", "secret")},
-        card="secrets",
-        action="deleted",
-        target=name,
-        before_state={"target": data.get("target", "both")},
-    )
     return jsonify(result)
 
 
@@ -283,15 +225,4 @@ def api_push_secrets():
     if "error" in result:
         return jsonify(result), 400
 
-    pushed_count = len(result.get("pushed", []))
-    devops_cache.record_event(
-        root,
-        label="📤 Secrets Pushed",
-        summary=f"{pushed_count} secret(s) pushed to GitHub",
-        detail={"pushed_count": pushed_count, "push_to_github": data.get("push_to_github", True), "save_to_env": data.get("save_to_env", True)},
-        card="secrets",
-        action="pushed",
-        target="github",
-        after_state={"pushed_count": pushed_count},
-    )
     return jsonify(result)

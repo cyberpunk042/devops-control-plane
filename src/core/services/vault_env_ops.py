@@ -22,6 +22,19 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 
+def _audit(label: str, summary: str, **kwargs) -> None:
+    """Record an audit event if a project root is registered."""
+    try:
+        from src.core.context import get_project_root
+        root = get_project_root()
+    except Exception:
+        return
+    if root is None:
+        return
+    from src.core.services.devops_cache import record_event
+    record_event(root, label=label, summary=summary, card="vault", **kwargs)
+
+
 # ═══════════════════════════════════════════════════════════════════
 #  Constants
 # ═══════════════════════════════════════════════════════════════════
@@ -219,12 +232,21 @@ def activate_env(
     else:
         state = "empty"
 
-    return {
+    result = {
         "success": True,
         "previous": current or "(none)",
         "active": new_name,
         "state": state,
     }
+    _audit(
+        "🔄 Env Activated",
+        f"Active environment switched to '{new_name}'",
+        action="switched",
+        target=".env",
+        detail={"environment": new_name},
+        after_state={"active_env": new_name},
+    )
+    return result
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -232,7 +254,10 @@ def activate_env(
 # ═══════════════════════════════════════════════════════════════════
 
 
-def list_keys_enriched(env_path: Path, vault_path: Path) -> dict:
+def list_keys_enriched(
+    env_path: Path,
+    vault_path: Path | None = None,
+) -> dict:
     """List .env keys with masked values and classification.
 
     Returns:
@@ -242,6 +267,9 @@ def list_keys_enriched(env_path: Path, vault_path: Path) -> dict:
     """
     # Import vault here to use list_env_keys / list_env_sections
     from src.core.services import vault as vault_mod
+
+    if vault_path is None:
+        vault_path = vault_mod._vault_path_for(env_path)
 
     keys = vault_mod.list_env_keys(env_path)
     raw_values = read_env_values(env_path)
@@ -389,6 +417,18 @@ def create_env(
     env_path.write_text("\n".join(lines), encoding="utf-8")
 
     logger.info("Created %s with %d entries", env_path.name, key_count)
+    _audit(
+        "📄 Env Created",
+        f"{env_path.name} created with {key_count} entries",
+        action="created",
+        target=env_path.name,
+        detail={
+            "file": env_path.name,
+            "template_sections": template_sections,
+            "custom_entries": len(entries),
+        },
+        after_state={"sections": len(template_sections), "custom_keys": len(entries)},
+    )
     return {
         "success": True,
         "message": f"{env_path.name} created with {key_count} entries",
@@ -459,7 +499,26 @@ def add_keys(
 
     _write_env(env_path, existing_lines)
 
+    key_names = [e.get("key", "") for e in entries if e.get("key")]
     logger.info("Added %d, updated %d keys in .env", added, updated)
+    _audit(
+        "🔑 Keys Added",
+        f"{added + updated} keys {'added' if added else 'updated'} in {env_path.name}",
+        action="added",
+        target=env_path.name,
+        detail={
+            "file": env_path.name,
+            "keys": key_names,
+            "section": section or "(end of file)",
+            "added": added,
+            "updated": updated,
+        },
+        after_state={
+            "keys_added": added,
+            "keys_updated": updated,
+            "key_names": key_names,
+        },
+    )
     return {
         "success": True,
         "added": added,
@@ -500,6 +559,13 @@ def update_key(env_path: Path, key: str, value: str) -> dict:
     _write_env(env_path, lines)
 
     logger.info("Updated key %s in .env", key)
+    _audit(
+        "✏️ Key Updated",
+        f"{key} updated in {env_path.name}",
+        action="updated",
+        target=key,
+        detail={"file": env_path.name, "key": key},
+    )
     return {"success": True, "key": key, "message": f"Updated {key}"}
 
 
@@ -531,6 +597,13 @@ def delete_key(env_path: Path, key: str) -> dict:
     _write_env(env_path, new_lines)
 
     logger.info("Deleted key %s from .env", key)
+    _audit(
+        "🗑️ Key Deleted",
+        f"{key} removed from {env_path.name}",
+        action="deleted",
+        target=key,
+        detail={"file": env_path.name, "key": key},
+    )
     return {"success": True, "key": key, "message": f"Deleted {key}"}
 
 
@@ -586,6 +659,14 @@ def move_key(env_path: Path, key: str, target_section: str) -> dict:
     _write_env(env_path, lines)
 
     logger.info("Moved key %s to section %s", key, target_section)
+    _audit(
+        "📦 Key Moved",
+        f"{key} → section '{target_section}' in {env_path.name}",
+        action="moved",
+        target=key,
+        detail={"file": env_path.name, "key": key, "target_section": target_section},
+        after_state={"section": target_section, "file": env_path.name},
+    )
     return {"success": True, "key": key, "section": target_section}
 
 
@@ -634,6 +715,15 @@ def rename_section(env_path: Path, old_name: str, new_name: str) -> dict:
     _write_env(env_path, lines)
 
     logger.info("Renamed section '%s' → '%s'", old_name, new_name)
+    _audit(
+        "✏️ Section Renamed",
+        f"'{old_name}' → '{new_name}' in {env_path.name}",
+        action="renamed",
+        target=env_path.name,
+        detail={"file": env_path.name, "old_name": old_name, "new_name": new_name},
+        before_state={"section": old_name},
+        after_state={"section": new_name},
+    )
     return {"success": True, "old_name": old_name, "new_name": new_name}
 
 
@@ -676,6 +766,14 @@ def toggle_local_only(env_path: Path, key: str, *, local_only: bool = True) -> d
     _write_env(env_path, new_lines)
 
     logger.info("Toggled local-only=%s for key %s", local_only, key)
+    _audit(
+        "🏠 Local-Only Toggled",
+        f"{key} {'marked' if local_only else 'unmarked'} as local-only in {env_path.name}",
+        action="configured",
+        target=key,
+        detail={"file": env_path.name, "key": key, "local_only": local_only},
+        after_state={"local_only": local_only},
+    )
     return {"success": True, "key": key, "local_only": local_only}
 
 
@@ -729,4 +827,12 @@ def set_meta(env_path: Path, key: str, meta_tags: str) -> dict:
     _write_env(env_path, new_lines)
 
     logger.info("Set meta tags for key %s: %s", key, meta_tags)
+    _audit(
+        "🏷️ Key Metadata Set",
+        f"{key} metadata updated in {env_path.name}",
+        action="updated",
+        target=key,
+        detail={"file": env_path.name, "key": key, "tags": meta_tags},
+        after_state={"meta_tags": meta_tags},
+    )
     return {"success": True, "key": key, "meta_tags": meta_tags}

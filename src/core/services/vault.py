@@ -37,6 +37,16 @@ from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
+
+def _audit(label: str, summary: str, **kwargs: Any) -> None:
+    """Record an audit event if a project root is registered."""
+    from src.core.context import get_project_root
+    root = get_project_root()
+    if root is None:
+        return
+    from src.core.services.devops_cache import record_event
+    record_event(root, label=label, summary=summary, card="vault", **kwargs)
+
 # ── Crypto constants ─────────────────────────────────────────────────
 KDF_ITERATIONS = 100_000
 SALT_BYTES = 16
@@ -293,46 +303,65 @@ def lock_vault(secret_path: Path, passphrase: str) -> dict:
     if not passphrase or len(passphrase) < 4:
         raise ValueError("Passphrase must be at least 4 characters")
 
-    plaintext = secret_path.read_bytes()
+    try:
+        plaintext = secret_path.read_bytes()
 
-    salt = os.urandom(SALT_BYTES)
-    iv = os.urandom(IV_BYTES)
-    key = _derive_key(passphrase, salt)
+        salt = os.urandom(SALT_BYTES)
+        iv = os.urandom(IV_BYTES)
+        key = _derive_key(passphrase, salt)
 
-    aesgcm = AESGCM(key)
-    ct_and_tag = aesgcm.encrypt(iv, plaintext, None)
-    ciphertext = ct_and_tag[:-TAG_BYTES]
-    tag = ct_and_tag[-TAG_BYTES:]
+        aesgcm = AESGCM(key)
+        ct_and_tag = aesgcm.encrypt(iv, plaintext, None)
+        ciphertext = ct_and_tag[:-TAG_BYTES]
+        tag = ct_and_tag[-TAG_BYTES:]
 
-    envelope = {
-        "vault": True,
-        "version": 1,
-        "algorithm": "aes-256-gcm",
-        "kdf": "pbkdf2-sha256",
-        "kdf_iterations": KDF_ITERATIONS,
-        "salt": base64.b64encode(salt).decode("ascii"),
-        "iv": base64.b64encode(iv).decode("ascii"),
-        "tag": base64.b64encode(tag).decode("ascii"),
-        "ciphertext": base64.b64encode(ciphertext).decode("ascii"),
-        "original_name": secret_path.name,
-    }
+        envelope = {
+            "vault": True,
+            "version": 1,
+            "algorithm": "aes-256-gcm",
+            "kdf": "pbkdf2-sha256",
+            "kdf_iterations": KDF_ITERATIONS,
+            "salt": base64.b64encode(salt).decode("ascii"),
+            "iv": base64.b64encode(iv).decode("ascii"),
+            "tag": base64.b64encode(tag).decode("ascii"),
+            "ciphertext": base64.b64encode(ciphertext).decode("ascii"),
+            "original_name": secret_path.name,
+        }
 
-    vault_path.write_text(
-        json.dumps(envelope, indent=2) + "\n",
-        encoding="utf-8",
-    )
+        vault_path.write_text(
+            json.dumps(envelope, indent=2) + "\n",
+            encoding="utf-8",
+        )
 
-    _secure_delete(secret_path)
+        _secure_delete(secret_path)
 
-    with _lock:
-        # Remove passphrase for this file — it's locked now
-        _session_passphrases.pop(_pp_key(secret_path), None)
+        with _lock:
+            # Remove passphrase for this file — it's locked now
+            _session_passphrases.pop(_pp_key(secret_path), None)
 
-    if not _session_passphrases:
-        _cancel_auto_lock_timer()
+        if not _session_passphrases:
+            _cancel_auto_lock_timer()
 
-    logger.info("Vault locked — %s encrypted and deleted", secret_path.name)
-    return {"success": True, "message": f"Vault locked ({secret_path.name})"}
+        logger.info("Vault locked — %s encrypted and deleted", secret_path.name)
+        _audit(
+            "🔒 Vault Locked",
+            f"{secret_path.name} encrypted and plaintext securely deleted",
+            action="locked",
+            target=secret_path.name,
+            detail={"file": secret_path.name},
+            before_state={"locked": False},
+            after_state={"locked": True},
+        )
+        return {"success": True, "message": f"Vault locked ({secret_path.name})"}
+    except ValueError:
+        raise
+    except Exception as exc:
+        _audit(
+            "❌ Vault Lock Failed",
+            f"{secret_path.name}: {exc}",
+            detail={"file": secret_path.name, "error": str(exc)},
+        )
+        raise
 
 
 def unlock_vault(secret_path: Path, passphrase: str) -> dict:
@@ -382,6 +411,11 @@ def unlock_vault(secret_path: Path, passphrase: str) -> dict:
         plaintext = aesgcm.decrypt(iv, ciphertext + tag, None)
     except Exception:
         _record_failed_attempt()
+        _audit(
+            "❌ Vault Unlock Failed",
+            f"{secret_path.name}: Wrong passphrase",
+            detail={"file": secret_path.name, "error": "Wrong passphrase — decryption failed"},
+        )
         raise ValueError("Wrong passphrase — decryption failed")
 
     _reset_rate_limit()
@@ -399,6 +433,15 @@ def unlock_vault(secret_path: Path, passphrase: str) -> dict:
     _start_auto_lock_timer()
 
     logger.info("Vault unlocked — %s restored", secret_path.name)
+    _audit(
+        "🔓 Vault Unlocked",
+        f"{secret_path.name} decrypted and restored",
+        action="unlocked",
+        target=secret_path.name,
+        detail={"file": secret_path.name},
+        before_state={"locked": True},
+        after_state={"locked": False},
+    )
     return {"success": True, "message": "Vault unlocked"}
 
 
@@ -415,7 +458,8 @@ def auto_lock() -> dict:
         logger.warning("Auto-lock skipped — no passphrases in memory")
         return {"success": False, "message": "No passphrases stored"}
 
-    project_root = _project_root_ref
+    from src.core.context import get_project_root
+    project_root = get_project_root()
     if project_root is None:
         logger.warning("Auto-lock skipped — no project root set")
         return {"success": False, "message": "No project root configured"}
@@ -500,6 +544,11 @@ def register_passphrase(passphrase: str, secret_path: Path) -> dict:
             raise
         except Exception:
             _record_failed_attempt()
+            _audit(
+                "❌ Passphrase Registration Failed",
+                f"{secret_path.name}: Wrong passphrase",
+                detail={"file": secret_path.name, "error": "Wrong passphrase"},
+            )
             raise ValueError("Wrong passphrase")
 
         _reset_rate_limit()
@@ -510,14 +559,25 @@ def register_passphrase(passphrase: str, secret_path: Path) -> dict:
     _start_auto_lock_timer()
 
     logger.info("Passphrase registered — auto-lock enabled")
+    _audit(
+        "🔑 Passphrase Registered",
+        f"Passphrase stored in memory for {secret_path.name}, auto-lock enabled",
+        action="registered",
+        target=secret_path.name,
+        detail={"file": secret_path.name},
+        after_state={"auto_lock": True},
+    )
     return {"success": True, "message": "Passphrase registered — auto-lock enabled"}
 
 
-def set_auto_lock_minutes(minutes: int) -> None:
+def set_auto_lock_minutes(minutes: int) -> dict:
     """Configure the auto-lock timeout.
 
     Args:
         minutes: Minutes of inactivity before auto-lock. 0 to disable.
+
+    Returns:
+        Dict with success, auto_lock_minutes, and message.
     """
     global _auto_lock_minutes
     _auto_lock_minutes = max(0, minutes)
@@ -530,24 +590,36 @@ def set_auto_lock_minutes(minutes: int) -> None:
         _auto_lock_minutes,
         " (disabled)" if _auto_lock_minutes == 0 else "",
     )
+    _audit(
+        "⏱️ Auto-Lock Config",
+        f"Auto-lock {'set to ' + str(minutes) + 'min' if minutes > 0 else 'disabled'}",
+        action="configured",
+        target="auto-lock",
+        detail={"minutes": minutes},
+        after_state={"minutes": minutes, "enabled": minutes > 0},
+    )
+    return {
+        "success": True,
+        "auto_lock_minutes": minutes,
+        "message": f"Auto-lock set to {minutes}min"
+                   if minutes > 0 else "Auto-lock disabled",
+    }
 
 
 # ═══════════════════════════════════════════════════════════════════════
-#  Project root registration (for auto-lock)
+#  Project root registration — delegates to src.core.context
 # ═══════════════════════════════════════════════════════════════════════
-
-_project_root_ref: Optional[Path] = None
-
 
 def set_project_root(root: Path) -> None:
-    """Register the project root for auto-lock operations."""
-    global _project_root_ref
-    _project_root_ref = root
+    """Register the project root (delegates to core.context)."""
+    from src.core.context import set_project_root as _ctx_set
+    _ctx_set(root)
 
 
 def get_project_root() -> Optional[Path]:
-    """Return the registered project root."""
-    return _project_root_ref
+    """Return the registered project root (delegates to core.context)."""
+    from src.core.context import get_project_root as _ctx_get
+    return _ctx_get()
 
 
 # ── Re-exports from vault_io ────────────────────────────────────────

@@ -23,6 +23,19 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 
+def _audit(label: str, summary: str, **kwargs) -> None:
+    """Record an audit event if a project root is registered."""
+    try:
+        from src.core.context import get_project_root
+        root = get_project_root()
+    except Exception:
+        return
+    if root is None:
+        return
+    from src.core.services.devops_cache import record_event
+    record_event(root, label=label, summary=summary, card="secrets", **kwargs)
+
+
 # ═══════════════════════════════════════════════════════════════════
 #  Shared helpers
 # ═══════════════════════════════════════════════════════════════════
@@ -234,6 +247,11 @@ def create_environment(project_root: Path, env_name: str) -> dict:
         )
         if result.returncode == 0:
             logger.info("Created GitHub environment: %s", env_name)
+            _audit(
+                "🌱 Environment Created",
+                f"GitHub environment '{env_name}' created",
+                action="created", target=env_name,
+            )
             return {"success": True, "name": env_name}
         else:
             return {"error": f"Failed to create environment: {result.stderr.strip()}"}
@@ -293,6 +311,12 @@ def cleanup_environment(
                 "error": "gh CLI unavailable or GITHUB_REPOSITORY not set",
             }
 
+    _audit(
+        "🧹 Environment Cleaned",
+        f"Environment '{env_name}' cleaned up",
+        action="cleaned", target=env_name,
+        before_state={"existed": True},
+    )
     return results
 
 
@@ -329,6 +353,12 @@ def seed_environments(
         results["active"] = default.strip().lower()
         logger.info("Set active env -> %s", default)
 
+    _audit(
+        "🌱 Environments Seeded",
+        f"{len(env_names)} environment(s) seeded",
+        action="seeded", target="environments",
+        after_state={"count": len(env_names), "names": env_names},
+    )
     return results
 
 
@@ -414,6 +444,11 @@ def generate_key(
     else:
         return {"error": f"Unknown generator type: {gen_type}"}
 
+    _audit(
+        "🔑 Key Generated",
+        f"{gen_type} key generated",
+        action="generated", target=gen_type,
+    )
     return result
 
 
@@ -564,6 +599,12 @@ def set_secret(
         except Exception as e:
             results["github"] = {"success": False, "error": str(e)}
 
+    _audit(
+        "🔐 Secret Set",
+        f"Secret '{name}' set (target={target})",
+        action="set", target=name,
+        after_state={"target": target},
+    )
     return results
 
 
@@ -619,6 +660,12 @@ def remove_secret(
         except Exception as e:
             results["github"] = {"success": False, "error": str(e)}
 
+    _audit(
+        "🗑️ Secret Removed",
+        f"Secret '{name}' removed (target={target})",
+        action="deleted", target=name,
+        before_state={"target": target},
+    )
     return results
 
 
@@ -810,9 +857,17 @@ def push_secrets(
 
     all_ok = all(r["success"] for r in results) if results else True
 
+    pushed_count = sum(1 for r in results if r.get("success"))
+    _audit(
+        "📤 Secrets Pushed",
+        f"{pushed_count} secret(s) pushed to GitHub",
+        action="pushed", target="github",
+        after_state={"pushed_count": pushed_count},
+    )
     return {
         "env_saved": save_to_env,
         "deletions_applied": deletions_applied,
         "results": results,
         "all_success": all_ok,
+        "pushed": [r["name"] for r in results if r.get("success")],
     }

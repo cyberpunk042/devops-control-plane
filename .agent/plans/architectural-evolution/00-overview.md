@@ -122,13 +122,15 @@ Maturing the platform from "working product" to "architecturally sound platform"
 - Borderline >500-line files assessed, deferred
 - **Plan**: `path-03-file-splitting.md`
 
-### Phase 4: Audit Expansion ← CURRENT
-- Wire `record_event()` into 58 mutating endpoints across 14 categories
-- Vault, Content, Backup, Docker, Terraform, Testing, Secrets, K8s, CI/CD, DNS, Wizard, Config
-- Purely additive — no logic changes, no UI changes
+### Phase 4: Audit Expansion ✅ COMPLETE
+- 80 success-path `record_event()` calls enriched with `action`, `target`, `before_state`, `after_state`
+- 12 error-path calls audited (❌ labels)
+- Unified diff capture for file modifications
+- UI rendering: collapsed detail with action badges, before→after cards, syntax-highlighted diff
 - **Plan**: `path-04-audit-expansion.md`
+- **Enrichment plan**: `../audit-enrichment.md`
 
-### Phase 5: Push Logic Down (Layer Hierarchy)
+### Phase 5: Push Logic Down (Layer Hierarchy) ← CURRENT
 - Identify web-only logic that should be in core
 - Move route business logic into services (routes become thin wrappers)
 - Ensure CLI can access everything core offers

@@ -20,6 +20,8 @@ from src.core.services.security_common import (  # noqa: F401
     _NOSEC_STRIP_RE,
     dismiss_finding,
     undismiss_finding,
+    batch_dismiss_findings,
+    undismiss_finding_audited,
 )
 
 # ── Scanning ──

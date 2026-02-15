@@ -32,6 +32,19 @@ from src.core.services.vault import (
 logger = logging.getLogger(__name__)
 
 
+def _audit(label: str, summary: str, **kwargs) -> None:
+    """Record an audit event if a project root is registered."""
+    try:
+        from src.core.context import get_project_root
+        root = get_project_root()
+    except Exception:
+        return
+    if root is None:
+        return
+    from src.core.services.devops_cache import record_event
+    record_event(root, label=label, summary=summary, card="vault", **kwargs)
+
+
 # ═══════════════════════════════════════════════════════════════════════
 #  Export / Import (portable encrypted backups)
 # ═══════════════════════════════════════════════════════════════════════
@@ -78,7 +91,7 @@ def export_vault_file(secret_path: Path, passphrase: str) -> dict:
     ciphertext = ct_and_tag[:-TAG_BYTES]
     tag = ct_and_tag[-TAG_BYTES:]
 
-    return {
+    envelope = {
         "format": EXPORT_FORMAT,
         "original_name": secret_path.name,
         "created_at": datetime.now(timezone.utc).isoformat(),
@@ -89,6 +102,14 @@ def export_vault_file(secret_path: Path, passphrase: str) -> dict:
         "tag": base64.b64encode(tag).decode("ascii"),
         "ciphertext": base64.b64encode(ciphertext).decode("ascii"),
     }
+    _audit(
+        "📤 Vault Exported",
+        f"{secret_path.name} exported as encrypted envelope",
+        action="exported",
+        target=secret_path.name,
+        detail={"file": secret_path.name},
+    )
+    return envelope
 
 
 def import_vault_file(
@@ -161,6 +182,13 @@ def import_vault_file(
     if not dry_run:
         target_path.write_text(new_content, encoding="utf-8")
         logger.info("Vault imported — written to %s", target_path.name)
+        _audit(
+            "📥 Vault Imported",
+            f"Encrypted envelope imported to {target_path.name}",
+            action="imported",
+            target=target_path.name,
+            detail={"target": target_path.name},
+        )
 
     return {
         "success": True,

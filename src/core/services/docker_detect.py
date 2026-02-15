@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import shutil
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -10,6 +11,13 @@ from typing import Any
 from src.core.services.docker_common import run_docker, run_compose
 
 logger = logging.getLogger(__name__)
+
+_COMPOSE_FILENAMES = (
+    "docker-compose.yml",
+    "docker-compose.yaml",
+    "compose.yml",
+    "compose.yaml",
+)
 
 def find_compose_file(project_root: Path) -> Path | None:
     """Return the first compose file found, or None."""

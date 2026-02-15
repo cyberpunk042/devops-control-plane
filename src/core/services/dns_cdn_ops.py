@@ -25,6 +25,19 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
+def _audit(label: str, summary: str, **kwargs) -> None:
+    """Record an audit event if a project root is registered."""
+    try:
+        from src.core.context import get_project_root
+        root = get_project_root()
+    except Exception:
+        return
+    if root is None:
+        return
+    from src.core.services.devops_cache import record_event
+    record_event(root, label=label, summary=summary, card="dns", **kwargs)
+
+
 # ═══════════════════════════════════════════════════════════════════
 #  Constants
 # ═══════════════════════════════════════════════════════════════════
@@ -538,6 +551,14 @@ def generate_dns_records(
         )
 
     zone_file = "\n".join(zone_lines) + "\n"
+
+    _audit(
+        "🌐 DNS Records Generated",
+        f"DNS records generated for {domain}",
+        action="generated",
+        target=domain,
+        detail={"domain": domain, "record_count": len(records)},
+    )
 
     return {
         "ok": True,

@@ -24,11 +24,10 @@ from .routes_content import (
     _project_root,
     _resolve_safe_path,
     _get_enc_key,
-    _guess_mime,
 )
-from .content_crypto import (
+from src.core.services.content_crypto import (
+    _guess_mime,
     decrypt_file_to_memory,
-    encrypt_file,
     DOC_EXTS,
     CODE_EXTS,
     SCRIPT_EXTS,
@@ -73,89 +72,31 @@ def content_preview():  # type: ignore[no-untyped-def]
     # Check if text-previewable
     is_text = suffix in _TEXT_EXTS or mime.startswith("text/")
 
-    # Check release sidecar
-    meta_path = target.parent / f"{target.name}.release.json"
-    has_release = meta_path.exists()
-    release_orphaned = False
-    release_status = ""
+    # Check release sidecar (delegated to core)
+    from src.core.services.content_file_ops import check_release_sidecar
+    rs = check_release_sidecar(target, _project_root())
 
-    if has_release:
-        try:
-            import json
-            sidecar = json.loads(meta_path.read_text())
-            release_status = sidecar.get("status", "unknown")
-
-            # Detect stale "uploading" — no active upload thread
-            if release_status == "uploading":
-                _fid = sidecar.get("file_id", "")
-                try:
-                    from .content_release import _release_upload_status
-                    live = _release_upload_status.get(_fid, {})
-                    if not live or live.get("status") not in ("uploading", "queued"):
-                        release_status = "stale"
-                except ImportError:
-                    release_status = "stale"
-
-            # Orphan check: skip only genuinely active uploads
-            if release_status != "uploading":
-                asset_name = (
-                    sidecar.get("old_asset_name")
-                    or sidecar.get("asset_name")
-                    or target.name
-                )
-                from .content_release import list_release_assets
-                remote = list_release_assets(_project_root())
-                if remote.get("available"):
-                    remote_names = {a["name"] for a in remote["assets"]}
-                    if asset_name not in remote_names:
-                        release_orphaned = True
-                else:
-                    # Release tag doesn't exist → sidecar is orphaned
-                    release_orphaned = True
-        except Exception:
-            pass
+    # Common release fields for all response shapes
+    rel_fields = {
+        "has_release": rs["has_release"],
+        "release_status": rs["release_status"],
+        "release_orphaned": rs["release_orphaned"],
+    }
 
     if not is_text:
-        # For images, return a URL to the download endpoint for inline display
         if mime.startswith("image/"):
-            return jsonify({
-                "type": "image",
-                "mime": mime,
-                "url": f"/api/content/download?path={rel_path}",
-                "has_release": has_release,
-                "release_status": release_status,
-                "release_orphaned": release_orphaned,
-            })
-        # Video — return a URL for the <video> player
+            return jsonify({"type": "image", "mime": mime,
+                "url": f"/api/content/download?path={rel_path}", **rel_fields})
         if mime.startswith("video/"):
-            return jsonify({
-                "type": "video",
-                "mime": mime,
+            return jsonify({"type": "video", "mime": mime,
                 "url": f"/api/content/download?path={rel_path}",
-                "size": target.stat().st_size,
-                "has_release": has_release,
-                "release_status": release_status,
-                "release_orphaned": release_orphaned,
-            })
-        # Audio — return a URL for the <audio> player
+                "size": target.stat().st_size, **rel_fields})
         if mime.startswith("audio/"):
-            return jsonify({
-                "type": "audio",
-                "mime": mime,
+            return jsonify({"type": "audio", "mime": mime,
                 "url": f"/api/content/download?path={rel_path}",
-                "size": target.stat().st_size,
-                "has_release": has_release,
-                "release_status": release_status,
-                "release_orphaned": release_orphaned,
-            })
-        return jsonify({
-            "type": "binary",
-            "mime": mime,
-            "error": "Cannot preview binary files",
-            "has_release": has_release,
-            "release_status": release_status,
-            "release_orphaned": release_orphaned,
-        })
+                "size": target.stat().st_size, **rel_fields})
+        return jsonify({"type": "binary", "mime": mime,
+            "error": "Cannot preview binary files", **rel_fields})
 
     # Read text content (limited)
     size = target.stat().st_size
@@ -173,9 +114,7 @@ def content_preview():  # type: ignore[no-untyped-def]
         "truncated": truncated,
         "size": size,
         "line_count": content.count("\n") + 1,
-        "has_release": has_release,
-        "release_status": release_status,
-        "release_orphaned": release_orphaned,
+        **rel_fields,
     })
 
 
@@ -301,16 +240,9 @@ def content_preview_encrypted():  # type: ignore[no-untyped-def]
 
 @content_bp.route("/content/save-encrypted", methods=["POST"])
 def content_save_encrypted():  # type: ignore[no-untyped-def]
-    """Save edited content back to an encrypted file.
+    """Save edited content back to an encrypted file."""
+    from src.core.services.content_file_ops import save_encrypted_content
 
-    Decrypts in memory to get the original metadata (filename, mime),
-    then re-encrypts with the new content and writes back.
-
-    JSON body:
-        path: relative path to the .enc file
-        content: the edited plaintext content
-        key: (optional) override key — if not provided, uses CONTENT_VAULT_ENC_KEY
-    """
     data = request.get_json(silent=True) or {}
     rel_path = data.get("path", "").strip()
     content = data.get("content", "")
@@ -328,34 +260,8 @@ def content_save_encrypted():  # type: ignore[no-untyped-def]
         return jsonify({"error": "No encryption key available"}), 400
 
     try:
-        # Verify we can decrypt with this key first
-        _, meta = decrypt_file_to_memory(target, passphrase)
-
-        # Now re-encrypt the edited content as bytes
-        import tempfile
-        import os
-
-        # Write plaintext to a temp file, encrypt, then clean up
-        original_name = meta["filename"]
-        with tempfile.NamedTemporaryFile(
-            delete=False,
-            suffix=Path(original_name).suffix,
-            prefix=Path(original_name).stem + "_",
-        ) as tmp:
-            tmp.write(content.encode("utf-8"))
-            tmp_path = Path(tmp.name)
-
-        try:
-            # Encrypt from temp → overwrite the .enc file
-            encrypt_file(tmp_path, passphrase, output_path=target)
-        finally:
-            tmp_path.unlink(missing_ok=True)
-
-        return jsonify({
-            "success": True,
-            "size": target.stat().st_size,
-        })
-
+        result = save_encrypted_content(target, content, passphrase, rel_path)
+        return jsonify(result)
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
     except Exception as e:

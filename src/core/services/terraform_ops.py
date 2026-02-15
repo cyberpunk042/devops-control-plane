@@ -22,6 +22,19 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
+def _audit(label: str, summary: str, **kwargs) -> None:
+    """Record an audit event if a project root is registered."""
+    try:
+        from src.core.context import get_project_root
+        root = get_project_root()
+    except Exception:
+        return
+    if root is None:
+        return
+    from src.core.services.devops_cache import record_event
+    record_event(root, label=label, summary=summary, card="terraform", **kwargs)
+
+
 # ═══════════════════════════════════════════════════════════════════
 #  Helpers
 # ═══════════════════════════════════════════════════════════════════
@@ -327,8 +340,14 @@ def terraform_plan(project_root: Path) -> dict:
         output = result.stdout + result.stderr
         changes = _parse_plan_output(output)
 
+        ok = result.returncode == 0
+        if ok:
+            _audit(
+                "📋 Terraform Plan", "Plan executed",
+                action="planned", target="infrastructure",
+            )
         return {
-            "ok": result.returncode == 0,
+            "ok": ok,
             "changes": changes,
             "output": output.strip()[-2000:],  # Last 2000 chars
         }
@@ -497,6 +516,11 @@ def terraform_init(project_root: Path, *, upgrade: bool = False) -> dict:
         output = result.stdout.strip() + "\n" + result.stderr.strip()
         if result.returncode != 0:
             return {"ok": False, "error": output.strip()}
+        _audit(
+            "⚙️ Terraform Init",
+            "Terraform initialized" + (" (upgrade)" if upgrade else ""),
+            action="initialized", target="terraform",
+        )
         return {"ok": True, "output": output.strip()}
     except subprocess.TimeoutExpired:
         return {"ok": False, "error": "terraform init timed out (120s)"}
@@ -530,8 +554,14 @@ def terraform_apply(project_root: Path, *, auto_approve: bool = True) -> dict:
         result = _run_terraform(*args, cwd=tf_root, timeout=300)
         output = result.stdout + result.stderr
         changes = _parse_plan_output(output)
+        ok = result.returncode == 0
+        if ok:
+            _audit(
+                "🚀 Terraform Apply", "Infrastructure changes applied",
+                action="applied", target="infrastructure",
+            )
         return {
-            "ok": result.returncode == 0,
+            "ok": ok,
             "output": output.strip()[-3000:],
             "changes": changes,
         }
@@ -603,8 +633,14 @@ def terraform_destroy(project_root: Path, *, auto_approve: bool = True) -> dict:
     try:
         result = _run_terraform(*args, cwd=tf_root, timeout=300)
         output = result.stdout + result.stderr
+        ok = result.returncode == 0
+        if ok:
+            _audit(
+                "💥 Terraform Destroy", "Infrastructure resources destroyed",
+                action="destroyed", target="infrastructure",
+            )
         return {
-            "ok": result.returncode == 0,
+            "ok": ok,
             "output": output.strip()[-3000:],
         }
     except subprocess.TimeoutExpired:
@@ -634,7 +670,17 @@ def terraform_workspace_select(project_root: Path, workspace: str) -> dict:
             result = _run_terraform("workspace", "new", workspace, cwd=tf_root)
             if result.returncode != 0:
                 return {"ok": False, "error": result.stderr.strip()}
+            _audit(
+                "🔀 Terraform Workspace",
+                f"Workspace '{workspace}' created and selected",
+                action="switched", target=workspace,
+            )
             return {"ok": True, "workspace": workspace, "created": True}
+        _audit(
+            "🔀 Terraform Workspace",
+            f"Workspace switched to '{workspace}'",
+            action="switched", target=workspace,
+        )
         return {"ok": True, "workspace": workspace, "created": False}
     except subprocess.TimeoutExpired:
         return {"ok": False, "error": "terraform workspace select timed out"}
@@ -657,11 +703,17 @@ def terraform_fmt(project_root: Path) -> dict:
     try:
         result = _run_terraform("fmt", "-recursive", "-list=true", cwd=tf_root)
         files_changed = [f for f in result.stdout.strip().splitlines() if f.strip()]
+        ok = result.returncode == 0
+        if ok:
+            _audit(
+                "✨ Terraform Fmt", "Terraform files formatted",
+                action="formatted", target="terraform",
+            )
         return {
-            "ok": result.returncode == 0,
+            "ok": ok,
             "files": files_changed,
             "count": len(files_changed),
-            "output": result.stderr.strip() if result.returncode != 0 else "",
+            "output": result.stderr.strip() if not ok else "",
         }
     except subprocess.TimeoutExpired:
         return {"ok": False, "error": "terraform fmt timed out"}
@@ -877,4 +929,10 @@ crash.log
         reason="Terraform .gitignore",
     ).model_dump())
 
+    _audit(
+        "📝 Terraform Generated",
+        f"Scaffolding generated (provider={provider}, backend={backend})",
+        action="generated", target="terraform",
+        after_state={"provider": provider, "backend": backend},
+    )
     return {"ok": True, "files": files}

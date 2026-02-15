@@ -8,6 +8,19 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+
+def _audit(label: str, summary: str, **kwargs) -> None:
+    """Record an audit event if a project root is registered."""
+    try:
+        from src.core.context import get_project_root
+        root = get_project_root()
+    except Exception:
+        return
+    if root is None:
+        return
+    from src.core.services.devops_cache import record_event
+    record_event(root, label=label, summary=summary, card="docker", **kwargs)
+
 def generate_dockerfile(project_root: Path, stack_name: str) -> dict:
     """Generate a Dockerfile for the given stack.
 
@@ -25,6 +38,13 @@ def generate_dockerfile(project_root: Path, stack_name: str) -> dict:
             "supported": supported_stacks(),
         }
 
+    _audit(
+        "📝 Dockerfile Generated",
+        f"Generated Dockerfile for stack: {stack_name}",
+        action="generated",
+        target="Dockerfile",
+        after_state={"stack": stack_name},
+    )
     return {"ok": True, "file": result.model_dump()}
 
 
@@ -37,26 +57,55 @@ def generate_dockerignore(project_root: Path, stack_names: list[str]) -> dict:
     from src.core.services.generators.dockerignore import generate_dockerignore as _gen
 
     result = _gen(project_root, stack_names)
+    _audit(
+        "📝 .dockerignore Generated",
+        f"Generated .dockerignore for stacks: {', '.join(stack_names)}",
+        action="generated",
+        target=".dockerignore",
+        after_state={"stacks": stack_names},
+    )
     return {"ok": True, "file": result.model_dump()}
 
 
 def generate_compose(
     project_root: Path,
-    modules: list[dict],
+    modules: list[dict] | None = None,
     *,
     project_name: str = "",
 ) -> dict:
     """Generate a docker-compose.yml from detected modules.
 
+    If *modules* is not provided, auto-detects from project config.
+
     Returns:
         {"ok": True, "file": {...}} or {"error": "..."}
     """
+    if modules is None or not project_name:
+        from src.core.config.loader import load_project
+        from src.core.config.stack_loader import discover_stacks
+        from src.core.services.detection import detect_modules
+
+        project = load_project(project_root / "project.yml")
+        if not project_name:
+            project_name = project.name
+        if modules is None:
+            stacks = discover_stacks(project_root / "stacks")
+            detection = detect_modules(project, project_root, stacks)
+            modules = [m.model_dump() for m in detection.modules]
+
     from src.core.services.generators.compose import generate_compose as _gen
 
     result = _gen(project_root, modules, project_name=project_name)
     if result is None:
         return {"error": "No eligible modules for compose generation"}
 
+    _audit(
+        "📝 Compose Generated",
+        f"Generated docker-compose.yml ({len(modules)} module(s))",
+        action="generated",
+        target="docker-compose.yml",
+        after_state={"modules": len(modules), "project_name": project_name or "(auto)"},
+    )
     return {"ok": True, "file": result.model_dump()}
 
 
@@ -197,6 +246,54 @@ def generate_compose_from_wizard(
         reason=f"Compose wizard: {len(compose['services'])} service(s)",
     )
 
+    # Compute diff if the file already exists on disk
+    diff_detail: dict[str, Any] = {
+        "file": "docker-compose.yml",
+        "services": list(compose["services"].keys()),
+    }
+    before_state = None
+    try:
+        from src.core.context import get_project_root
+        root = get_project_root()
+        if root:
+            existing = root / "docker-compose.yml"
+            if existing.is_file():
+                import difflib
+                old_content = existing.read_text(encoding="utf-8", errors="ignore")
+                old_lines_list = old_content.splitlines()
+                new_lines_list = content.splitlines()
+                diff_lines = list(difflib.unified_diff(
+                    old_lines_list, new_lines_list,
+                    fromfile="a/docker-compose.yml",
+                    tofile="b/docker-compose.yml",
+                    lineterm="",
+                ))
+                added = sum(1 for l in diff_lines if l.startswith("+") and not l.startswith("+++"))
+                removed = sum(1 for l in diff_lines if l.startswith("-") and not l.startswith("---"))
+                diff_text = "\n".join(diff_lines[:50])
+                if len(diff_lines) > 50:
+                    diff_text += f"\n... ({len(diff_lines) - 50} more lines)"
+                diff_detail["lines_added"] = added
+                diff_detail["lines_removed"] = removed
+                diff_detail["diff"] = diff_text
+                before_state = {"lines": len(old_lines_list), "size": len(old_content.encode())}
+    except Exception:
+        pass
+
+    _audit(
+        "📝 Compose Wizard Generated",
+        f"Generated docker-compose.yml ({len(compose['services'])} service(s) via wizard)"
+        + (f" — +{diff_detail.get('lines_added', 0)} -{diff_detail.get('lines_removed', 0)} lines" if "diff" in diff_detail else ""),
+        action="generated",
+        target="docker-compose.yml",
+        detail=diff_detail,
+        before_state=before_state,
+        after_state={
+            "lines": len(content.splitlines()),
+            "services": list(compose["services"].keys()),
+            "project_name": project_name or "(auto)",
+        },
+    )
     return {"ok": True, "file": file_data.model_dump()}
 
 
@@ -227,8 +324,50 @@ def write_generated_file(project_root: Path, file_data: dict) -> dict:
         }
 
     target.parent.mkdir(parents=True, exist_ok=True)
+    was_override = target.exists()
+
+    # Capture old content for diff if overwriting
+    old_content = ""
+    if was_override:
+        try:
+            old_content = target.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            pass
+
     target.write_text(content, encoding="utf-8")
     logger.info("Wrote generated file: %s", target)
 
+    # Compute diff for audit
+    diff_detail: dict[str, Any] = {"file": rel_path}
+    old_lines = len(old_content.splitlines()) if old_content else 0
+    new_lines = len(content.splitlines())
+
+    if was_override and old_content:
+        import difflib
+        diff_lines = list(difflib.unified_diff(
+            old_content.splitlines(),
+            content.splitlines(),
+            fromfile=f"a/{rel_path}",
+            tofile=f"b/{rel_path}",
+            lineterm="",
+        ))
+        added = sum(1 for l in diff_lines if l.startswith("+") and not l.startswith("+++"))
+        removed = sum(1 for l in diff_lines if l.startswith("-") and not l.startswith("---"))
+        diff_text = "\n".join(diff_lines[:50])
+        if len(diff_lines) > 50:
+            diff_text += f"\n... ({len(diff_lines) - 50} more lines)"
+        diff_detail["lines_added"] = added
+        diff_detail["lines_removed"] = removed
+        diff_detail["diff"] = diff_text
+
+    _audit(
+        "💾 Docker File Written",
+        f"{rel_path}" + (f" (overwritten, +{diff_detail.get('lines_added', 0)} -{diff_detail.get('lines_removed', 0)} lines)" if was_override else " (new)"),
+        action="saved",
+        target=rel_path,
+        detail=diff_detail,
+        before_state={"lines": old_lines, "size": len(old_content.encode())} if was_override else None,
+        after_state={"lines": new_lines, "size": target.stat().st_size},
+    )
     return {"ok": True, "path": rel_path, "written": True}
 

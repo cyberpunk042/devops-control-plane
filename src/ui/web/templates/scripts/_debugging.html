@@ -217,6 +217,46 @@
                         auditDetailHtml += `</div>`;
                     }
 
+                    // File list (for restore, import, wipe, create, etc.)
+                    const fileList = entry.detail && Array.isArray(entry.detail.files) ? entry.detail.files : null;
+                    const overriddenSet = new Set(entry.detail && Array.isArray(entry.detail.overridden) ? entry.detail.overridden : []);
+                    const newSet = new Set(entry.detail && Array.isArray(entry.detail.new) ? entry.detail.new : []);
+                    if (fileList && fileList.length) {
+                        const overrideCount = overriddenSet.size;
+                        const newCount = newSet.size;
+                        let headerParts = [`${fileList.length} total`];
+                        if (overrideCount) headerParts.push(`<span style="color:#f87171">${overrideCount} overridden</span>`);
+                        if (newCount) headerParts.push(`<span style="color:#34d399">${newCount} new</span>`);
+                        auditDetailHtml += `<div style="margin-top:6px">`;
+                        auditDetailHtml += `<div style="font-size:0.6rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:3px">Files — ${headerParts.join(' · ')}</div>`;
+                        auditDetailHtml += `<div style="padding:4px 8px;border-radius:var(--radius-sm);background:var(--bg-tertiary, rgba(255,255,255,0.03));border:1px solid var(--border-subtle);font-family:var(--font-mono);font-size:0.64rem;line-height:1.6;max-height:180px;overflow-y:auto">`;
+                        for (const f of fileList) {
+                            if (overriddenSet.has(f)) {
+                                auditDetailHtml += `<div style="color:#f87171"><span style="font-size:0.58rem;padding:0 3px;border-radius:2px;background:rgba(248,113,113,0.12);margin-right:4px">⚠ OVERRIDE</span>${esc(f)}</div>`;
+                            } else if (newSet.has(f)) {
+                                auditDetailHtml += `<div style="color:#34d399"><span style="font-size:0.58rem;padding:0 3px;border-radius:2px;background:rgba(52,211,153,0.12);margin-right:4px">✚ NEW</span>${esc(f)}</div>`;
+                            } else {
+                                auditDetailHtml += `<div style="color:var(--text-secondary)">${esc(f)}</div>`;
+                            }
+                        }
+                        auditDetailHtml += `</div></div>`;
+                    }
+
+                    // Generic detail keys (excluding files/diff which have dedicated renderers)
+                    if (entry.detail) {
+                        const extraKeys = Object.keys(entry.detail).filter(k => k !== 'files' && k !== 'diff' && k !== 'overridden' && k !== 'new');
+                        if (extraKeys.length) {
+                            auditDetailHtml += `<div style="margin-top:6px;padding:4px 8px;border-radius:var(--radius-sm);background:rgba(99,102,241,0.04);border:1px solid rgba(99,102,241,0.1)">`;
+                            auditDetailHtml += `<div style="font-size:0.6rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:2px">Detail</div>`;
+                            for (const k of extraKeys) {
+                                const v = entry.detail[k];
+                                const displayVal = typeof v === 'object' ? JSON.stringify(v) : String(v);
+                                auditDetailHtml += `<div style="font-size:0.66rem;color:var(--text-secondary)"><span style="color:var(--text-muted)">${esc(k)}:</span> ${esc(displayVal)}</div>`;
+                            }
+                            auditDetailHtml += `</div>`;
+                        }
+                    }
+
                     auditDetailHtml += `</div>`;
                 } else {
                     // No enriched data — fall back to raw JSON detail (for legacy/error entries)

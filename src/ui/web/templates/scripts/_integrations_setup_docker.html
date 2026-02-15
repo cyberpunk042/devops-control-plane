@@ -68,7 +68,7 @@
                     try {
                         const res = await api('/docker/generate/write', {
                             method: 'POST',
-                            body: JSON.stringify({ file }),
+                            body: JSON.stringify({ file: { ...file, overwrite: true } }),
                         });
                         results.push({ path: file.path, ok: !res.error, error: res.error });
                     } catch (e) {

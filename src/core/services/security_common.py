@@ -293,3 +293,89 @@ def undismiss_finding(project_root: Path, file: str, line: int) -> dict:
 
     logger.info("Undismissed finding in %s:%d", file, line)
     return {"ok": True, "file": file, "line": line}
+
+
+# ── Batch / audited wrappers ───────────────────────────────────────
+
+
+def batch_dismiss_findings(
+    project_root: Path,
+    items: list[dict],
+    comment: str = "",
+) -> dict:
+    """Dismiss multiple findings, bust cache, and log to audit.
+
+    Args:
+        items: list of ``{"file": "...", "line": N}``
+        comment: reason for dismissal
+
+    Returns:
+        ``{"ok": bool, "count": int, "results": [...]}``
+    """
+    from src.core.services import devops_cache
+
+    results = []
+    errors = []
+    for item in items:
+        r = dismiss_finding(
+            project_root, item["file"], int(item["line"]), comment,
+        )
+        results.append(r)
+        if not r.get("ok"):
+            errors.append(r)
+
+    # Bust caches once after all writes
+    devops_cache.invalidate(project_root, "audit:l2:risks")
+    devops_cache.invalidate(project_root, "security")
+
+    # Audit: only log newly dismissed items (not already-dismissed)
+    ok_items = [r for r in results if r.get("ok") and not r.get("already")]
+    if ok_items:
+        files_str = ", ".join(f"{r['file']}:{r['line']}" for r in ok_items)
+        devops_cache.record_event(
+            project_root,
+            label="🚫 Finding Dismissed",
+            summary=(
+                f"# nosec added to {len(ok_items)} line(s): {files_str}"
+                + (f" — {comment}" if comment else "")
+            ),
+            detail={"items": ok_items, "comment": comment},
+            card="dismissal",
+            action="dismissed",
+            target=files_str,
+        )
+
+    return {
+        "ok": len(errors) == 0,
+        "count": len(results),
+        "results": results,
+    }
+
+
+def undismiss_finding_audited(
+    project_root: Path, file: str, line: int,
+) -> dict:
+    """Undismiss a finding, bust cache, and log to audit.
+
+    Returns the raw ``undismiss_finding`` result.
+    """
+    from src.core.services import devops_cache
+
+    result = undismiss_finding(project_root, file, line)
+
+    if result.get("ok"):
+        devops_cache.invalidate(project_root, "audit:l2:risks")
+        devops_cache.invalidate(project_root, "security")
+
+        if not result.get("already"):
+            devops_cache.record_event(
+                project_root,
+                label="↩️ Finding Restored",
+                summary=f"# nosec removed from {file}:{line}",
+                detail={"file": file, "line": line},
+                card="dismissal",
+                action="undismissed",
+                target=f"{file}:{line}",
+            )
+
+    return result

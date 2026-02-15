@@ -292,7 +292,7 @@
         try {
             const files = JSON.parse(writeBtn.dataset.files);
             for (const f of files) {
-                await api('/docker/generate/write', { method: 'POST', body: JSON.stringify({ file: f }) });
+                await api('/docker/generate/write', { method: 'POST', body: JSON.stringify({ file: { ...f, overwrite: true } }) });
             }
             toast(`✅ Written ${files.length} file${files.length !== 1 ? 's' : ''}`, 'success');
             writeBtn.textContent = '✅ Written';

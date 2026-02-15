@@ -407,17 +407,7 @@ def gen_compose(ctx: click.Context, write: bool) -> None:
 
     project_root = _resolve_project_root(ctx)
 
-    # Load project config and detect modules
-    from src.core.config.loader import load_project
-    from src.core.config.stack_loader import discover_stacks
-    from src.core.services.detection import detect_modules
-
-    project = load_project(project_root / "project.yml")
-    stacks = discover_stacks(project_root / "stacks")
-    detection = detect_modules(project, project_root, stacks)
-    modules = [m.model_dump() for m in detection.modules]
-
-    result = generate_compose(project_root, modules, project_name=project.name)
+    result = generate_compose(project_root)
 
     if "error" in result:
         click.secho(f"❌ {result['error']}", fg="red")

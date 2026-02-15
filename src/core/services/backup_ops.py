@@ -32,6 +32,8 @@ from src.core.services.backup_archive import (  # noqa: F401
     preview_backup,
     delete_backup,
     rename_backup,
+    sanitize_backup_name,
+    upload_backup,
 )
 
 # ── Restore / import / wipe / in-place encrypt ──
@@ -43,9 +45,11 @@ from src.core.services.backup_restore import (  # noqa: F401
     decrypt_backup_inplace,
 )
 
-# ── Git tracking + file tree ──
+# ── Git tracking + file tree + release ops ──
 from src.core.services.backup_extras import (  # noqa: F401
     mark_special,
     file_tree_scan,
+    upload_backup_to_release,
+    delete_backup_release,
     _cleanup_release_sidecar,
 )

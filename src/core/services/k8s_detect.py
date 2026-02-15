@@ -6,7 +6,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from src.core.services.k8s_common import _SKIP_DIRS, _MANIFEST_DIRS, _parse_k8s_yaml
+from src.core.services.k8s_common import _SKIP_DIRS, _MANIFEST_DIRS, _parse_k8s_yaml, _kubectl_available
 
 
 logger = logging.getLogger(__name__)

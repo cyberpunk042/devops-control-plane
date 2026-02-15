@@ -981,3 +981,93 @@ def generate_k8s_wizard(
         return {"error": "No valid resources to generate"}
 
     return {"ok": True, "files": files}
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  Wizard State Persistence
+# ═══════════════════════════════════════════════════════════════════
+
+
+_STATE_FILE = ".wizard-state.json"
+
+# Fields that are transient (derived from detection) and should not be persisted.
+_STRIP_TOP = {
+    "_appSvcCount", "_infraSvcCount", "_configMode",
+    "_appServices", "_infraServices", "_classifiedModules",
+    # backward-compat flat fields (superseded by _services[])
+    "app_name", "image", "port", "replicas", "service_type",
+    # internal keys
+    "action",
+}
+
+
+def _sanitize_state(data: dict) -> dict:
+    """Strip transient/detection fields before persisting."""
+    from datetime import datetime, timezone
+
+    clean = {k: v for k, v in data.items() if k not in _STRIP_TOP}
+    # Strip raw compose data from each service / infra entry
+    for svc in clean.get("_services", []):
+        svc.pop("_compose", None)
+    for inf in clean.get("_infraDecisions", []):
+        inf.pop("_compose", None)
+    # Add metadata
+    clean["_savedAt"] = datetime.now(timezone.utc).isoformat()
+    clean["_version"] = 1
+    return clean
+
+
+def load_wizard_state(project_root: Path) -> dict:
+    """Load saved wizard state from k8s/.wizard-state.json.
+
+    Returns:
+        {"ok": True, ...state} or {"ok": False, "reason": "not_found"|"invalid"}
+    """
+    import json
+
+    state_path = project_root / "k8s" / _STATE_FILE
+    if not state_path.is_file():
+        return {"ok": False, "reason": "not_found"}
+    try:
+        raw = state_path.read_text(encoding="utf-8")
+        state = json.loads(raw)
+        state["ok"] = True
+        return state
+    except (json.JSONDecodeError, ValueError):
+        return {"ok": False, "reason": "invalid"}
+
+
+def save_wizard_state(project_root: Path, data: dict) -> dict:
+    """Persist wizard state to k8s/.wizard-state.json.
+
+    Returns:
+        {"ok": True, "path": "k8s/.wizard-state.json"} or {"error": ...}
+    """
+    import json
+
+    if not data.get("_services") and not data.get("_infraDecisions"):
+        return {"error": "Empty state — nothing to save"}
+
+    k8s_dir = project_root / "k8s"
+    k8s_dir.mkdir(exist_ok=True)
+
+    clean = _sanitize_state(data)
+    state_path = k8s_dir / _STATE_FILE
+    state_path.write_text(
+        json.dumps(clean, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+    return {"ok": True, "path": f"k8s/{_STATE_FILE}"}
+
+
+def wipe_wizard_state(project_root: Path) -> dict:
+    """Delete saved wizard state.
+
+    Returns:
+        {"ok": True}
+    """
+    state_path = project_root / "k8s" / _STATE_FILE
+    if state_path.is_file():
+        state_path.unlink()
+    return {"ok": True}
+

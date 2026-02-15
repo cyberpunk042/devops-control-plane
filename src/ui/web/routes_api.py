@@ -31,55 +31,15 @@ def _config_path() -> Path | None:
 @api_bp.route("/status")
 def api_status():  # type: ignore[no-untyped-def]
     """Project status overview."""
-    from src.core.config.loader import find_project_file, load_project
-    from src.core.persistence.state_file import default_state_path, load_state
+    from src.core.use_cases.status import get_status
 
-    config_path = _config_path() or find_project_file(_project_root())
-    if config_path is None:
-        return jsonify({"error": "No project.yml found"}), 404
+    config_path = _config_path()
+    result = get_status(config_path=config_path)
 
-    project = load_project(config_path)
-    state_path = default_state_path(_project_root())
-    state = load_state(state_path)
+    if result.error:
+        return jsonify({"error": result.error}), 404
 
-    return jsonify({
-        "project": {
-            "name": project.name,
-            "description": project.description,
-            "repository": project.repository,
-        },
-        "modules": [
-            {
-                "name": m.name,
-                "path": m.path,
-                "domain": m.domain,
-                "stack": m.stack,
-            }
-            for m in project.modules
-        ],
-        "environments": [
-            {"name": e.name, "default": e.default}
-            for e in project.environments
-        ],
-        "state": {
-            "project_name": state.project_name,
-            "last_operation": {
-                "operation_id": state.last_operation.operation_id,
-                "automation": state.last_operation.automation,
-                "status": state.last_operation.status,
-                "actions_total": state.last_operation.actions_total,
-                "actions_succeeded": state.last_operation.actions_succeeded,
-                "actions_failed": state.last_operation.actions_failed,
-            },
-            "modules": {
-                name: {
-                    "last_action_status": ms.last_action_status,
-                    "last_action_at": ms.last_action_at,
-                }
-                for name, ms in state.modules.items()
-            },
-        },
-    })
+    return jsonify(result.to_dict())
 
 
 # ── Detection ────────────────────────────────────────────────────────
@@ -141,18 +101,8 @@ def api_run():  # type: ignore[no-untyped-def]
 def api_health():  # type: ignore[no-untyped-def]
     """System health status."""
     from src.core.observability.health import check_system_health
-    from src.core.reliability.circuit_breaker import CircuitBreakerRegistry
-    from src.core.reliability.retry_queue import RetryQueue
 
-    cb_registry = CircuitBreakerRegistry()
-    retry_path = _project_root() / "state" / "retry_queue.json"
-    retry_q = RetryQueue(path=retry_path)
-
-    health = check_system_health(
-        cb_registry=cb_registry,
-        retry_queue=retry_q,
-    )
-
+    health = check_system_health()
     return jsonify(health.to_dict())
 
 
@@ -217,45 +167,16 @@ def api_stacks():  # type: ignore[no-untyped-def]
 
 @api_bp.route("/capabilities")
 def api_capabilities():  # type: ignore[no-untyped-def]
-    """Capabilities resolved per module.
+    """Capabilities resolved per module."""
+    from src.core.use_cases.status import get_capabilities
 
-    Cross-references modules with their stacks and returns a
-    map of capability → which modules support it and with what command.
-    """
-    from src.core.config.loader import find_project_file, load_project
-    from src.core.config.stack_loader import discover_stacks
-    from src.core.engine.executor import _resolve_stack
+    result = get_capabilities(
+        config_path=_config_path(),
+        project_root=_project_root(),
+    )
 
-    config_path = _config_path() or find_project_file(_project_root())
-    if config_path is None:
-        return jsonify({"error": "No project.yml found"}), 404
+    if "error" in result:
+        return jsonify(result), 404
 
-    project = load_project(config_path)
-    stacks_dir = _project_root() / "stacks"
-    stacks = discover_stacks(stacks_dir)
-
-    # Build capability → module mapping
-    capabilities: dict[str, dict] = {}
-
-    for m in project.modules:
-        stack_name = m.stack or ""
-        stack = _resolve_stack(stack_name, stacks) if stack_name else None
-        if stack is None:
-            continue
-
-        for cap in stack.capabilities:
-            if cap.name not in capabilities:
-                capabilities[cap.name] = {
-                    "name": cap.name,
-                    "description": cap.description,
-                    "modules": [],
-                }
-            capabilities[cap.name]["modules"].append({
-                "module": m.name,
-                "stack": stack.name,
-                "command": cap.command,
-                "adapter": cap.adapter or "shell",
-            })
-
-    return jsonify(capabilities)
+    return jsonify(result)
 

@@ -267,7 +267,7 @@
         writeBtn.textContent = '⏳ Writing…';
         try {
             const fileData = JSON.parse(writeBtn.dataset.file);
-            const result = await api('/docker/generate/write', { method: 'POST', body: JSON.stringify({ file: fileData }) });
+            const result = await api('/docker/generate/write', { method: 'POST', body: JSON.stringify({ file: { ...fileData, overwrite: true } }) });
             if (result.error) {
                 modalError(result.error);
                 writeBtn.textContent = '💾 Write to disk';

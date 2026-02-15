@@ -22,6 +22,48 @@ import yaml
 logger = logging.getLogger(__name__)
 
 
+def _audit(label: str, summary: str, **kwargs) -> None:
+    """Record an audit event if a project root is registered."""
+    try:
+        from src.core.context import get_project_root
+        root = get_project_root()
+    except Exception:
+        return
+    if root is None:
+        return
+    from src.core.services.devops_cache import record_event
+    record_event(root, label=label, summary=summary, card="ci", **kwargs)
+
+
+def _auto_detect_modules(project_root: Path) -> list[dict]:
+    """Load project config and detect modules."""
+    from src.core.config.loader import load_project
+    from src.core.config.stack_loader import discover_stacks
+    from src.core.services.detection import detect_modules
+
+    project = load_project(project_root / "project.yml")
+    stacks = discover_stacks(project_root / "stacks")
+    detection = detect_modules(project, project_root, stacks)
+    return [m.model_dump() for m in detection.modules]
+
+
+def _auto_detect_stack_names(project_root: Path) -> tuple[list[str], str]:
+    """Return (unique_stack_names, project_name) from auto-detected modules."""
+    from src.core.config.loader import load_project
+
+    modules = _auto_detect_modules(project_root)
+    seen: set[str] = set()
+    names: list[str] = []
+    for m in modules:
+        stack = m.get("effective_stack", m.get("stack_name", ""))
+        if stack and stack not in seen:
+            names.append(stack)
+            seen.add(stack)
+
+    project = load_project(project_root / "project.yml")
+    return names, project.name
+
+
 # CI providers we can detect
 _CI_PROVIDERS = {
     "github_actions": {
@@ -311,7 +353,7 @@ def _parse_gitlab_ci(path: Path, project_root: Path) -> dict | None:
     }
 
 
-def ci_coverage(project_root: Path, modules: list[dict]) -> dict:
+def ci_coverage(project_root: Path, modules: list[dict] | None = None) -> dict:
     """Analyze which modules have CI coverage.
 
     Reads workflow files and checks if module paths or stack-related
@@ -328,6 +370,9 @@ def ci_coverage(project_root: Path, modules: list[dict]) -> dict:
             "details": {module_name: {covered: bool, reason: str}, ...},
         }
     """
+    if modules is None:
+        modules = _auto_detect_modules(project_root)
+
     # Gather all CI file content
     ci_content = _gather_ci_content(project_root)
 
@@ -453,37 +498,65 @@ def _check_stack_coverage(stack_name: str, ci_content: str) -> str | None:
 
 def generate_ci_workflow(
     project_root: Path,
-    stack_names: list[str],
+    stack_names: list[str] | None = None,
     *,
     project_name: str = "",
 ) -> dict:
     """Generate a GitHub Actions CI workflow from detected stacks.
 
+    If *stack_names* is not provided, auto-detects from project config.
+
     Returns:
         {"ok": True, "file": {...}} or {"error": "..."}
     """
+    if stack_names is None or not project_name:
+        detected_names, detected_project = _auto_detect_stack_names(project_root)
+        if stack_names is None:
+            stack_names = detected_names
+        if not project_name:
+            project_name = detected_project
+
     from src.core.services.generators.github_workflow import generate_ci
 
     result = generate_ci(project_root, stack_names, project_name=project_name)
     if result is None:
         return {"error": "No CI template available for detected stacks"}
 
+    _audit(
+        "⚙️ CI Workflow Generated",
+        f"CI workflow generated ({len(stack_names)} stack(s))",
+        action="generated",
+        target="ci-workflow",
+        detail={"stacks": stack_names, "project": project_name},
+    )
     return {"ok": True, "file": result.model_dump()}
 
 
 def generate_lint_workflow(
     project_root: Path,
-    stack_names: list[str],
+    stack_names: list[str] | None = None,
 ) -> dict:
     """Generate a GitHub Actions lint workflow.
+
+    If *stack_names* is not provided, auto-detects from project config.
 
     Returns:
         {"ok": True, "file": {...}} or {"error": "..."}
     """
+    if stack_names is None:
+        stack_names, _ = _auto_detect_stack_names(project_root)
+
     from src.core.services.generators.github_workflow import generate_lint
 
     result = generate_lint(project_root, stack_names)
     if result is None:
         return {"error": "No lint template for detected stacks"}
 
+    _audit(
+        "⚙️ Lint Workflow Generated",
+        f"Lint workflow generated ({len(stack_names)} stack(s))",
+        action="generated",
+        target="lint-workflow",
+        detail={"stacks": stack_names},
+    )
     return {"ok": True, "file": result.model_dump()}

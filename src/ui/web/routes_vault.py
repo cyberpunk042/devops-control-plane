@@ -14,8 +14,7 @@ from pathlib import Path
 
 from flask import Blueprint, current_app, jsonify, request
 
-from src.core.services import devops_cache, vault_env_ops
-from . import vault
+from src.core.services import vault, vault_env_ops
 
 vault_bp = Blueprint("vault", __name__)
 
@@ -65,16 +64,6 @@ def vault_activate_env():
     if "error" in result:
         return jsonify(result), 400
 
-    devops_cache.record_event(
-        root,
-        label="🔄 Env Activated",
-        summary=f"Active environment switched to '{name}'",
-        detail={"environment": name},
-        card="vault",
-        action="switched",
-        target=".env",
-        after_state={"active_env": name},
-    )
     return jsonify(result)
 
 
@@ -87,33 +76,14 @@ def vault_lock():
     data = request.get_json(silent=True) or {}
     passphrase = data.get("passphrase", "")
     env_path = _env_path()
-    root = _project_root()
 
     if not passphrase:
         return jsonify({"error": "Missing passphrase"}), 400
 
     try:
         result = vault.lock_vault(env_path, passphrase)
-        devops_cache.record_event(
-            root,
-            label="🔒 Vault Locked",
-            summary=f"{env_path.name} encrypted and plaintext securely deleted",
-            detail={"file": env_path.name},
-            card="vault",
-            action="locked",
-            target=env_path.name,
-            before_state={"locked": False},
-            after_state={"locked": True},
-        )
         return jsonify(result)
     except ValueError as e:
-        devops_cache.record_event(
-            root,
-            label="❌ Vault Lock Failed",
-            summary=f"{env_path.name}: {e}",
-            detail={"file": env_path.name, "error": str(e)},
-            card="vault",
-        )
         return jsonify({"error": str(e)}), 400
 
 
@@ -126,33 +96,14 @@ def vault_unlock():
     data = request.get_json(silent=True) or {}
     passphrase = data.get("passphrase", "")
     env_path = _env_path()
-    root = _project_root()
 
     if not passphrase:
         return jsonify({"error": "Missing passphrase"}), 400
 
     try:
         result = vault.unlock_vault(env_path, passphrase)
-        devops_cache.record_event(
-            root,
-            label="🔓 Vault Unlocked",
-            summary=f"{env_path.name} decrypted and restored",
-            detail={"file": env_path.name},
-            card="vault",
-            action="unlocked",
-            target=env_path.name,
-            before_state={"locked": True},
-            after_state={"locked": False},
-        )
         return jsonify(result)
     except ValueError as e:
-        devops_cache.record_event(
-            root,
-            label="❌ Vault Unlock Failed",
-            summary=f"{env_path.name}: {e}",
-            detail={"file": env_path.name, "error": str(e)},
-            card="vault",
-        )
         return jsonify({"error": str(e)}), 400
 
 
@@ -165,32 +116,14 @@ def vault_register():
     data = request.get_json(silent=True) or {}
     passphrase = data.get("passphrase", "")
     env_path = _env_path()
-    root = _project_root()
 
     if not passphrase:
         return jsonify({"error": "Missing passphrase"}), 400
 
     try:
         result = vault.register_passphrase(passphrase, env_path)
-        devops_cache.record_event(
-            root,
-            label="🔑 Passphrase Registered",
-            summary=f"Passphrase stored in memory for {env_path.name}, auto-lock enabled",
-            detail={"file": env_path.name},
-            card="vault",
-            action="registered",
-            target=env_path.name,
-            after_state={"auto_lock": True},
-        )
         return jsonify(result)
     except ValueError as e:
-        devops_cache.record_event(
-            root,
-            label="❌ Passphrase Registration Failed",
-            summary=f"{env_path.name}: {e}",
-            detail={"file": env_path.name, "error": str(e)},
-            card="vault",
-        )
         return jsonify({"error": str(e)}), 400
 
 
@@ -211,25 +144,8 @@ def vault_auto_lock():
     except (TypeError, ValueError):
         return jsonify({"error": "'minutes' must be an integer"}), 400
 
-    vault.set_auto_lock_minutes(minutes)
-
-    devops_cache.record_event(
-        _project_root(),
-        label="⏱️ Auto-Lock Config",
-        summary=f"Auto-lock {'set to ' + str(minutes) + 'min' if minutes > 0 else 'disabled'}",
-        detail={"minutes": minutes},
-        card="vault",
-        action="configured",
-        target="auto-lock",
-        after_state={"minutes": minutes, "enabled": minutes > 0},
-    )
-
-    return jsonify({
-        "success": True,
-        "auto_lock_minutes": minutes,
-        "message": f"Auto-lock set to {minutes}min"
-                   if minutes > 0 else "Auto-lock disabled",
-    })
+    result = vault.set_auto_lock_minutes(minutes)
+    return jsonify(result)
 
 
 # ── Detect Secret Files ─────────────────────────────────────────────
@@ -249,10 +165,7 @@ def vault_secrets():
 @vault_bp.route("/vault/keys")
 def vault_keys():
     """List .env keys with masked values (no raw secrets exposed)."""
-    env_path = _env_path()
-    vault_path = vault._vault_path_for(env_path)
-
-    result = vault_env_ops.list_keys_enriched(env_path, vault_path)
+    result = vault_env_ops.list_keys_enriched(_env_path())
     return jsonify(result)
 
 
@@ -273,7 +186,6 @@ def vault_create():
     """Create a new .env file from template sections and/or key-value pairs."""
     data = request.get_json(silent=True) or {}
     env_path = _env_path()
-    root = _project_root()
     entries = data.get("entries", [])
     sections = data.get("template_sections", [])
 
@@ -284,29 +196,8 @@ def vault_create():
     )
 
     if "error" in result:
-        devops_cache.record_event(
-            root,
-            label="❌ Env Create Failed",
-            summary=f"{env_path.name}: {result['error']}",
-            detail={"file": env_path.name, "error": result["error"]},
-            card="vault",
-        )
         return jsonify(result), 400
 
-    devops_cache.record_event(
-        root,
-        label="📄 Env Created",
-        summary=result.get("message", f"{env_path.name} created"),
-        detail={
-            "file": env_path.name,
-            "template_sections": sections,
-            "custom_entries": len(entries),
-        },
-        card="vault",
-        action="created",
-        target=env_path.name,
-        after_state={"sections": len(sections), "custom_keys": len(entries)},
-    )
     return jsonify(result)
 
 
@@ -318,7 +209,6 @@ def vault_add_keys():
     """Add or update key-value pairs in an existing .env file."""
     data = request.get_json(silent=True) or {}
     env_path = _env_path()
-    root = _project_root()
     entries = data.get("entries", [])
     section = data.get("section", "").strip()
 
@@ -331,27 +221,6 @@ def vault_add_keys():
     if "error" in result:
         return jsonify(result), 400
 
-    key_names = [e.get("key", "") for e in entries if e.get("key")]
-    devops_cache.record_event(
-        root,
-        label="🔑 Keys Added",
-        summary=result.get("message", f"{len(entries)} keys added"),
-        detail={
-            "file": env_path.name,
-            "keys": key_names,
-            "section": section or "(end of file)",
-            "added": result.get("added", 0),
-            "updated": result.get("updated", 0),
-        },
-        card="vault",
-        action="added",
-        target=env_path.name,
-        after_state={
-            "keys_added": result.get("added", 0),
-            "keys_updated": result.get("updated", 0),
-            "key_names": key_names,
-        },
-    )
     return jsonify(result)
 
 
@@ -363,7 +232,6 @@ def vault_move_key():
     """Move a key from its current section to a different one."""
     data = request.get_json(silent=True) or {}
     env_path = _env_path()
-    root = _project_root()
     key = data.get("key", "").strip()
     section = data.get("section", "").strip()
 
@@ -373,16 +241,6 @@ def vault_move_key():
         code = 404 if "not found" in result.get("error", "") else 400
         return jsonify(result), code
 
-    devops_cache.record_event(
-        root,
-        label="📦 Key Moved",
-        summary=f"{key} → section '{section}' in {env_path.name}",
-        detail={"file": env_path.name, "key": key, "target_section": section},
-        card="vault",
-        action="moved",
-        target=key,
-        after_state={"section": section, "file": env_path.name},
-    )
     return jsonify(result)
 
 
@@ -394,7 +252,6 @@ def vault_rename_section():
     """Rename a section comment in .env."""
     data = request.get_json(silent=True) or {}
     env_path = _env_path()
-    root = _project_root()
     old_name = data.get("old_name", "").strip()
     new_name = data.get("new_name", "").strip()
 
@@ -404,17 +261,6 @@ def vault_rename_section():
         code = 404 if "not found" in result.get("error", "") else 400
         return jsonify(result), code
 
-    devops_cache.record_event(
-        root,
-        label="✏️ Section Renamed",
-        summary=f"'{old_name}' → '{new_name}' in {env_path.name}",
-        detail={"file": env_path.name, "old_name": old_name, "new_name": new_name},
-        card="vault",
-        action="renamed",
-        target=env_path.name,
-        before_state={"section": old_name},
-        after_state={"section": new_name},
-    )
     return jsonify(result)
 
 
@@ -426,7 +272,6 @@ def vault_update_key():
     """Update a single key's value in the .env file."""
     data = request.get_json(silent=True) or {}
     env_path = _env_path()
-    root = _project_root()
     key = data.get("key", "").strip()
 
     result = vault_env_ops.update_key(env_path, key, data.get("value", ""))
@@ -435,15 +280,6 @@ def vault_update_key():
         code = 404 if "not found" in result.get("error", "") else 400
         return jsonify(result), code
 
-    devops_cache.record_event(
-        root,
-        label="✏️ Key Updated",
-        summary=f"{key} updated in {env_path.name}",
-        detail={"file": env_path.name, "key": key},
-        card="vault",
-        action="updated",
-        target=key,
-    )
     return jsonify(result)
 
 
@@ -455,7 +291,6 @@ def vault_delete_key():
     """Remove a key from the .env file."""
     data = request.get_json(silent=True) or {}
     env_path = _env_path()
-    root = _project_root()
     key = data.get("key", "").strip()
 
     result = vault_env_ops.delete_key(env_path, key)
@@ -464,15 +299,6 @@ def vault_delete_key():
         code = 404 if "not found" in result.get("error", "") else 400
         return jsonify(result), code
 
-    devops_cache.record_event(
-        root,
-        label="🗑️ Key Deleted",
-        summary=f"{key} removed from {env_path.name}",
-        detail={"file": env_path.name, "key": key},
-        card="vault",
-        action="deleted",
-        target=key,
-    )
     return jsonify(result)
 
 
@@ -503,7 +329,6 @@ def vault_toggle_local_only():
     """Toggle the # local-only comment on a .env key."""
     data = request.get_json(silent=True) or {}
     env_path = _env_path()
-    root = _project_root()
     key = data.get("key", "").strip()
     local_only = data.get("local_only", True)
 
@@ -513,16 +338,6 @@ def vault_toggle_local_only():
         code = 404 if "not found" in result.get("error", "") else 400
         return jsonify(result), code
 
-    devops_cache.record_event(
-        root,
-        label="🏠 Local-Only Toggled",
-        summary=f"{key} {'marked' if local_only else 'unmarked'} as local-only in {env_path.name}",
-        detail={"file": env_path.name, "key": key, "local_only": local_only},
-        card="vault",
-        action="configured",
-        target=key,
-        after_state={"local_only": local_only},
-    )
     return jsonify(result)
 
 
@@ -534,7 +349,6 @@ def vault_set_meta():
     """Set or update @ metadata tags on a .env key."""
     data = request.get_json(silent=True) or {}
     env_path = _env_path()
-    root = _project_root()
     key = data.get("key", "").strip()
     meta_tags = data.get("meta_tags", "").strip()
 
@@ -544,16 +358,6 @@ def vault_set_meta():
         code = 404 if "not found" in result.get("error", "") else 400
         return jsonify(result), code
 
-    devops_cache.record_event(
-        root,
-        label="🏷️ Key Metadata Set",
-        summary=f"{key} metadata updated in {env_path.name}",
-        detail={"file": env_path.name, "key": key, "tags": meta_tags},
-        card="vault",
-        action="updated",
-        target=key,
-        after_state={"meta_tags": meta_tags},
-    )
     return jsonify(result)
 
 
@@ -575,24 +379,8 @@ def vault_export():
 
     try:
         envelope = vault.export_vault_file(file_path, password)
-        devops_cache.record_event(
-            root,
-            label="📤 Vault Exported",
-            summary=f"{filename} exported as encrypted envelope",
-            detail={"file": filename},
-            card="vault",
-            action="exported",
-            target=filename,
-        )
         return jsonify({"success": True, "envelope": envelope})
     except ValueError as e:
-        devops_cache.record_event(
-            root,
-            label="❌ Vault Export Failed",
-            summary=f"{filename}: {e}",
-            detail={"file": filename, "error": str(e)},
-            card="vault",
-        )
         return jsonify({"error": str(e)}), 400
 
 
@@ -620,23 +408,6 @@ def vault_import():
         result = vault.import_vault_file(
             vault_data, target_path, password, dry_run=dry_run,
         )
-        if not dry_run:
-            devops_cache.record_event(
-                root,
-                label="📥 Vault Imported",
-                summary=f"Encrypted envelope imported to {target}",
-                detail={"target": target},
-                card="vault",
-                action="imported",
-                target=target,
-            )
         return jsonify(result)
     except ValueError as e:
-        devops_cache.record_event(
-            root,
-            label="❌ Vault Import Failed",
-            summary=f"{target}: {e}",
-            detail={"target": target, "error": str(e)},
-            card="vault",
-        )
         return jsonify({"error": str(e)}), 400

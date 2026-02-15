@@ -136,11 +136,27 @@ def check_system_health(
     cb_registry: CircuitBreakerRegistry | None = None,
     retry_queue: RetryQueue | None = None,
 ) -> SystemHealth:
-    """Run all health checks and return aggregate status."""
+    """Run all health checks and return aggregate status.
+
+    If *cb_registry* or *retry_queue* are not provided, they are
+    constructed automatically using the project root from context.
+    """
+    # Auto-construct dependencies when not provided
+    if cb_registry is None:
+        cb_registry = CircuitBreakerRegistry()
+    if retry_queue is None:
+        try:
+            from src.core.context import get_project_root
+            root = get_project_root()
+            if root:
+                retry_path = root / "state" / "retry_queue.json"
+                retry_queue = RetryQueue(path=retry_path)
+        except Exception:
+            pass
+
     health = SystemHealth()
 
-    if cb_registry is not None:
-        health.add(check_circuit_breakers(cb_registry))
+    health.add(check_circuit_breakers(cb_registry))
 
     if retry_queue is not None:
         health.add(check_retry_queue(retry_queue))

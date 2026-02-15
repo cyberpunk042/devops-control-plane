@@ -313,7 +313,7 @@
         try {
             const result = await api('/docker/generate/write', {
                 method: 'POST',
-                body: JSON.stringify({ file: window._cwGenerated }),
+                body: JSON.stringify({ file: { ...window._cwGenerated, overwrite: true } }),
             });
 
             if (result.error) {
@@ -383,7 +383,7 @@
             const fileData = JSON.parse(writeBtn.dataset.file);
             const result = await api('/docker/generate/write', {
                 method: 'POST',
-                body: JSON.stringify({ file: fileData })
+                body: JSON.stringify({ file: { ...fileData, overwrite: true } })
             });
 
             if (result.error) {

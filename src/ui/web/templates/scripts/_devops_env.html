@@ -355,7 +355,7 @@
             }
             if (data.file) {
                 // Write to disk
-                const result = await api('/docker/generate/write', { method: 'POST', body: JSON.stringify({ file: data.file }) });
+                const result = await api('/docker/generate/write', { method: 'POST', body: JSON.stringify({ file: { ...data.file, overwrite: true } }) });
                 if (result.error) { toast(result.error, 'error'); }
                 else { toast(`✅ ${label} written`, 'success'); cardInvalidate('env'); }
             } else {

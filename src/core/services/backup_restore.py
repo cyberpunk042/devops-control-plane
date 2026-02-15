@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import io
 import json
 import logging
 import os
 import shutil
 import tarfile
 import tempfile
+from datetime import datetime, timezone
 from pathlib import Path
 
 from src.core.services.backup_common import (
@@ -16,6 +18,19 @@ from src.core.services.backup_common import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _audit(label: str, summary: str, **kwargs) -> None:
+    """Record an audit event if a project root is registered."""
+    try:
+        from src.core.context import get_project_root
+        root = get_project_root()
+    except Exception:
+        return
+    if root is None:
+        return
+    from src.core.services.devops_cache import record_event
+    record_event(root, label=label, summary=summary, card="backup", **kwargs)
 
 _PROTECTED_DIRS = frozenset({
     ".backup", ".git", ".github", ".venv", "venv", "__pycache__",
@@ -135,6 +150,7 @@ def restore_backup(
             logger.info("Pre-restore wipe: %d files deleted from %s", wiped_count, target_folder)
 
     restored: list[str] = []
+    overridden: list[str] = []
     skipped: list[str] = []
 
     try:
@@ -186,16 +202,72 @@ def restore_backup(
                         except Exception:
                             pass
 
+                    was_override = final_dest.exists()
                     final_dest.write_bytes(content)
-                    restored.append(str(final_dest.relative_to(root)))
+                    rel = str(final_dest.relative_to(root))
+                    restored.append(rel)
+                    if was_override:
+                        overridden.append(rel)
                 else:
                     skipped.append(member.name)
 
-        logger.info("Restore: %d restored, %d skipped from %s", len(restored), len(skipped), backup_path)
-        return {"success": True, "restored": restored, "skipped": skipped, "wiped_count": wiped_count}
+        logger.info(
+            "Restore: %d restored (%d overrides), %d skipped from %s",
+            len(restored), len(overridden), len(skipped), backup_path,
+        )
+        result = {
+            "success": True,
+            "restored": restored,
+            "overridden": overridden,
+            "skipped": skipped,
+            "wiped_count": wiped_count,
+        }
+        new_files = [f for f in restored if f not in overridden]
+        _audit(
+            "♻️ Backup Restored",
+            f"{backup_path} → {target_folder or 'project root'}"
+            + f" ({len(restored)} files"
+            + (f", {len(overridden)} overrides" if overridden else "")
+            + ")"
+            + (" · wiped first" if wipe_first else ""),
+            action="restored",
+            target=backup_path,
+            detail={
+                "files": restored,
+                **({"overridden": overridden} if overridden else {}),
+                **({"new": new_files} if new_files else {}),
+            },
+            before_state={
+                "source": backup_path,
+                "encrypted_archive": is_encrypted,
+                **({
+                    "wiped_files": wiped_count,
+                    "wiped_folder": target_folder,
+                } if wipe_first else {}),
+            },
+            after_state={
+                "destination": target_folder or "(project root)",
+                "restored_files": len(restored),
+                "overridden_files": len(overridden),
+                "new_files": len(new_files),
+                "skipped_files": len(skipped),
+                **({
+                    "encrypt_on_restore": True,
+                } if encrypt_restored else {}),
+                **({
+                    "decrypt_on_restore": True,
+                } if decrypt_restored else {}),
+            },
+        )
+        return result
 
     except Exception as e:
         logger.exception("Restore failed")
+        _audit(
+            "❌ Restore Failed",
+            f"{backup_path}: {e}",
+            detail={"backup": backup_path, "error": str(e)},
+        )
         return {"error": f"Restore failed: {e}"}
     finally:
         if is_encrypted and tar_path != file_path and tar_path.exists():
@@ -262,6 +334,22 @@ def import_backup(project_root: Path, backup_path: str) -> dict:
                     skipped.append(f"{member.name} (empty)")
 
         logger.info("Import: %d imported, %d skipped from %s", len(imported), len(skipped), backup_path)
+        _audit(
+            "📥 Backup Imported",
+            f"{backup_path} → project (additive) · {len(imported)} new, {len(skipped)} skipped",
+            action="imported",
+            target=backup_path,
+            detail={"files": imported},
+            before_state={
+                "source": backup_path,
+                "encrypted_archive": is_encrypted,
+            },
+            after_state={
+                "new_files": len(imported),
+                "skipped_existing": len(skipped),
+                "mode": "additive (no overwrite)",
+            },
+        )
         return {"success": True, "imported": imported, "skipped": skipped}
 
     except Exception as e:
@@ -369,6 +457,23 @@ def wipe_folder(
             pass
 
     logger.info("Wipe: %d deleted, %d errors in %s", len(deleted), len(errors), target_folder)
+    _audit(
+        "🧹 Folder Wiped",
+        f"{target_folder}: {len(deleted)} files removed"
+        + (f" · safety backup: {backup_info['filename']}" if backup_info else " · NO backup"),
+        action="wiped",
+        target=target_folder,
+        detail={"files": deleted},
+        before_state={
+            "folder": target_folder,
+            "selected_items": len(paths),
+            "safety_backup": backup_info["filename"] if backup_info else "(none)",
+        },
+        after_state={
+            "deleted_files": len(deleted),
+            "errors": len(errors),
+        },
+    )
     return {"success": True, "deleted": deleted, "errors": errors, "backup": backup_info}
 
 
@@ -400,6 +505,20 @@ def encrypt_backup_inplace(project_root: Path, backup_path: str) -> dict:
 
     try:
         enc_path = encrypt_archive(file_path, passphrase)
+        _audit(
+            "🔐 Backup Encrypted",
+            f"{backup_path} → {enc_path.name}",
+            action="encrypted",
+            target=backup_path,
+            before_state={
+                "file": backup_path,
+                "size": file_path.stat().st_size if file_path.exists() else 0,
+            },
+            after_state={
+                "file": enc_path.name,
+                "size": enc_path.stat().st_size,
+            },
+        )
         return {
             "success": True,
             "filename": enc_path.name,
@@ -437,6 +556,21 @@ def decrypt_backup_inplace(project_root: Path, backup_path: str) -> dict:
         dec_final = file_path.parent / file_path.name[:-4]
         dec_tmp.rename(dec_final)
         file_path.unlink()
+        _audit(
+            "🔓 Backup Decrypted",
+            f"{backup_path} → {dec_final.name}",
+            action="decrypted",
+            target=backup_path,
+            before_state={
+                "file": file_path.name,
+                "encrypted": True,
+            },
+            after_state={
+                "file": dec_final.name,
+                "size": dec_final.stat().st_size,
+                "encrypted": False,
+            },
+        )
         return {
             "success": True,
             "filename": dec_final.name,

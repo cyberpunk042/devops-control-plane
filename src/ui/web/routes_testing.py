@@ -18,7 +18,7 @@ from pathlib import Path
 
 from flask import Blueprint, current_app, jsonify, request
 
-from src.core.services import testing_ops, devops_cache
+from src.core.services import testing_ops
 
 testing_bp = Blueprint("testing", __name__)
 
@@ -61,15 +61,6 @@ def testing_run():  # type: ignore[no-untyped-def]
     if "error" in result:
         return jsonify(result), 400
 
-    devops_cache.record_event(
-        root,
-        label="🧪 Tests Run",
-        summary="Tests executed" + (f" ({data.get('file')})" if data.get("file") else ""),
-        detail={"file": data.get("file"), "keyword": data.get("keyword"), "verbose": data.get("verbose", False)},
-        card="testing",
-        action="executed",
-        target=data.get("file") or "all",
-    )
     return jsonify(result)
 
 
@@ -78,16 +69,6 @@ def testing_coverage():  # type: ignore[no-untyped-def]
     """Run tests with coverage."""
     root = _project_root()
     result = testing_ops.test_coverage(root)
-
-    devops_cache.record_event(
-        root,
-        label="📊 Coverage Run",
-        summary="Coverage analysis completed",
-        detail={},
-        card="testing",
-        action="executed",
-        target="coverage",
-    )
     return jsonify(result)
 
 
@@ -107,13 +88,4 @@ def testing_generate_template():  # type: ignore[no-untyped-def]
     if "error" in result:
         return jsonify(result), 400
 
-    devops_cache.record_event(
-        root,
-        label="📝 Test Template Generated",
-        summary=f"Test template generated for module '{module}'",
-        detail={"module": module, "stack": data.get("stack", "python")},
-        card="testing",
-        action="generated",
-        target=module,
-    )
     return jsonify(result)

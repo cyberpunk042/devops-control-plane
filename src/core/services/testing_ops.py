@@ -25,6 +25,19 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
+def _audit(label: str, summary: str, **kwargs) -> None:
+    """Record an audit event if a project root is registered."""
+    try:
+        from src.core.context import get_project_root
+        root = get_project_root()
+    except Exception:
+        return
+    if root is None:
+        return
+    from src.core.services.devops_cache import record_event
+    record_event(root, label=label, summary=summary, card="testing", **kwargs)
+
+
 # ═══════════════════════════════════════════════════════════════════
 #  Config / Constants
 # ═══════════════════════════════════════════════════════════════════
@@ -409,6 +422,13 @@ def test_coverage(project_root: Path) -> dict:
             parsed = _parse_coverage_output(output)
             parsed["tool"] = "pytest-cov"
             parsed["ok"] = True
+            _audit(
+                "📊 Coverage Run",
+                f"Coverage analysis completed ({parsed.get('coverage_percent', '?')}%)",
+                action="executed",
+                target="coverage",
+                after_state={"tool": "pytest-cov", "coverage": parsed.get("coverage_percent")},
+            )
             return parsed
 
     except (subprocess.TimeoutExpired, FileNotFoundError):
@@ -430,6 +450,13 @@ def test_coverage(project_root: Path) -> dict:
                 parsed = _parse_coverage_output(result.stdout)
                 parsed["tool"] = "coverage.py"
                 parsed["ok"] = True
+                _audit(
+                    "📊 Coverage Run",
+                    f"Coverage analysis completed ({parsed.get('coverage_percent', '?')}%)",
+                    action="executed",
+                    target="coverage",
+                    after_state={"tool": "coverage.py", "coverage": parsed.get("coverage_percent")},
+                )
                 return parsed
 
         except (subprocess.TimeoutExpired, FileNotFoundError):
@@ -529,6 +556,19 @@ def run_tests(
     output = result.stdout + result.stderr
     parsed = _parse_pytest_output(output, result.returncode)
     parsed["output"] = output.strip()
+
+    _audit(
+        "🧪 Tests Run",
+        "Tests executed" + (f" ({file_path})" if file_path else ""),
+        action="executed",
+        target=file_path or "all",
+        detail={"file": file_path, "keyword": keyword, "verbose": verbose},
+        after_state={
+            "passed": parsed.get("passed", 0),
+            "failed": parsed.get("failed", 0),
+            "errors": parsed.get("errors", 0),
+        },
+    )
 
     return parsed
 
@@ -684,6 +724,14 @@ def generate_test_template(
         content=content,
         overwrite=False,
         reason=f"Test template for {module_name} ({stack})",
+    )
+
+    _audit(
+        "📝 Test Template Generated",
+        f"Test template generated for module '{module_name}'",
+        action="generated",
+        target=module_name,
+        detail={"module": module_name, "stack": stack},
     )
 
     return {"ok": True, "file": file_data.model_dump()}

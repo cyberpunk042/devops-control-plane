@@ -688,3 +688,597 @@ jobs:
         "builders": list(builders_used),
     }
 
+
+# ── Builder / Feature listing ──────────────────────────────────────
+
+
+def list_builders_detail() -> list[dict]:
+    """List all builders with pipeline stages and config schemas.
+
+    Returns:
+        List of dicts with name, label, description, available,
+        requires, install_hint, installable, stages, config_fields.
+    """
+    result = []
+    for b in list_builders():
+        builder_obj = get_builder(b.name)
+        stages = []
+        config_fields = []
+        if builder_obj:
+            stages = [{"name": s.name, "label": s.label}
+                      for s in builder_obj.pipeline_stages()]
+            config_fields = [
+                {
+                    "key": f.key,
+                    "label": f.label,
+                    "type": f.type,
+                    "description": f.description,
+                    "default": f.default,
+                    "placeholder": f.placeholder,
+                    "options": f.options,
+                    "category": f.category,
+                    "required": f.required,
+                }
+                for f in builder_obj.config_schema()
+            ]
+        result.append({
+            "name": b.name,
+            "label": b.label,
+            "description": b.description,
+            "available": b.available,
+            "requires": b.requires,
+            "install_hint": b.install_hint,
+            "installable": bool(b.install_cmd),
+            "stages": stages,
+            "config_fields": config_fields,
+        })
+    return result
+
+
+def list_feature_categories() -> list[dict]:
+    """List builder features grouped by category.
+
+    Returns:
+        List of category dicts with key, label, features.
+    """
+    from src.core.services.pages_builders.template_engine import (
+        FEATURES,
+        FEATURE_CATEGORIES,
+    )
+
+    categories = []
+    for cat_key, cat_label in FEATURE_CATEGORIES:
+        cat_features = []
+        for feat_key, feat_def in FEATURES.items():
+            if feat_def["category"] != cat_key:
+                continue
+            feat_data = {
+                "key": feat_key,
+                "label": feat_def["label"],
+                "description": feat_def["description"],
+                "default": feat_def["default"],
+                "has_deps": bool(feat_def.get("deps") or feat_def.get("deps_dev")),
+            }
+            if "options" in feat_def:
+                feat_data["options"] = feat_def["options"]
+            cat_features.append(feat_data)
+        if cat_features:
+            categories.append({
+                "key": cat_key,
+                "label": cat_label,
+                "features": cat_features,
+            })
+    return categories
+
+
+# ── File → segment resolution ──────────────────────────────────────
+
+
+def resolve_file_to_segments(
+    project_root: Path,
+    file_path: str,
+) -> list[dict]:
+    """Resolve a vault file path to matching segments with preview URLs.
+
+    Args:
+        project_root: Project root.
+        file_path: Relative path to content file (e.g. 'docs/getting-started.md').
+
+    Returns:
+        List of dicts {segment, builder, preview_url, built}.
+    """
+    if not file_path:
+        return []
+
+    segments = get_segments(project_root)
+    matches = []
+
+    for seg in segments:
+        source = seg.source.rstrip("/")
+        if not file_path.startswith(source + "/") and file_path != source:
+            continue
+
+        build = get_build_status(project_root, seg.name)
+        if not build:
+            continue
+
+        rel_path = file_path[len(source) + 1:] if file_path.startswith(source + "/") else ""
+        if not rel_path:
+            continue
+
+        # Strip .md / .mdx extension for URL
+        doc_slug = rel_path
+        for ext in [".mdx", ".md"]:
+            if doc_slug.endswith(ext):
+                doc_slug = doc_slug[:-len(ext)]
+                break
+
+        # Handle index pages
+        if doc_slug == "index":
+            doc_slug = ""
+        elif doc_slug.endswith("/index"):
+            doc_slug = doc_slug[:-6]
+
+        preview_url = (
+            f"/pages/site/{seg.name}/{doc_slug}"
+            if doc_slug
+            else f"/pages/site/{seg.name}/"
+        )
+
+        matches.append({
+            "segment": seg.name,
+            "builder": seg.builder,
+            "preview_url": preview_url,
+            "built": bool(build),
+        })
+
+    return matches
+
+
+# ── Auto-init from project.yml ─────────────────────────────────────
+
+
+def detect_best_builder(
+    folder: Path,
+    get_builder_fn=None,
+) -> tuple[str, str, str]:
+    """Detect the best builder for a content folder.
+
+    Returns:
+        (builder_name, reason, suggestion).
+    """
+    if get_builder_fn is None:
+        get_builder_fn = get_builder
+
+    has_markdown = False
+    for ext in ("*.md", "*.mdx"):
+        if list(folder.glob(ext)) or list(folder.glob(f"*/{ext}")):
+            has_markdown = True
+            break
+
+    if has_markdown:
+        docusaurus = get_builder_fn("docusaurus")
+        if docusaurus and docusaurus.detect():
+            return "docusaurus", "Markdown files detected, Node.js available", ""
+
+        mkdocs = get_builder_fn("mkdocs")
+        if mkdocs and mkdocs.detect():
+            return (
+                "mkdocs",
+                "Markdown files detected, MkDocs available",
+                "Install Node.js for Docusaurus (better UX)",
+            )
+
+        return (
+            "raw",
+            "Markdown files detected but no doc builder available",
+            "Install Node.js (for Docusaurus) or pip install mkdocs",
+        )
+
+    return "raw", "Static files (no markdown detected)", ""
+
+
+def init_pages_from_project(project_root: Path) -> dict:
+    """Initialize pages segments from project.yml content_folders.
+
+    Detects markdown content and picks the best available builder.
+
+    Returns:
+        {"ok": True, "added": [...], "details": [...], "total_segments": int}
+    """
+    project_data = _load_project_yml(project_root)
+    pages = _get_pages_config(project_root)
+    existing_names = {s.get("name") for s in pages.get("segments", [])}
+
+    content_folders = project_data.get("content_folders", [])
+
+    added = []
+    details = []
+    for folder in content_folders:
+        folder_path = project_root / folder
+        if not folder_path.is_dir():
+            continue
+        if folder in existing_names:
+            continue
+
+        builder_name, reason, suggestion = detect_best_builder(folder_path)
+
+        seg = SegmentConfig(
+            name=folder,
+            source=folder,
+            builder=builder_name,
+            path=f"/{folder}",
+            auto=True,
+        )
+        try:
+            add_segment(project_root, seg)
+            added.append(folder)
+            details.append({
+                "name": folder,
+                "builder": builder_name,
+                "reason": reason,
+                "suggestion": suggestion,
+            })
+        except ValueError:
+            pass
+
+    ensure_gitignore(project_root)
+
+    return {
+        "ok": True,
+        "added": added,
+        "details": details,
+        "total_segments": len(pages.get("segments", [])) + len(added),
+    }
+
+
+# ── Builder installation (SSE generator) ───────────────────────────
+
+
+def install_builder_stream(name: str) -> dict | None:
+    """Install a builder's dependencies, yielding SSE events.
+
+    Args:
+        name: Builder name (e.g. 'mkdocs', 'hugo', 'docusaurus').
+
+    Returns:
+        None if builder not found or no install command.
+        Otherwise returns an iterator yielding SSE-formatted lines.
+        Use ``{"error": ...}`` dict to signal pre-flight errors.
+    """
+    builder = get_builder(name)
+    if builder is None:
+        return {"ok": False, "error": f"Builder '{name}' not found"}
+
+    info = builder.info()
+    if not info.install_cmd:
+        return {"ok": False, "error": f"Builder '{name}' has no auto-install command"}
+
+    if builder.detect():
+        return {"ok": True, "already_installed": True}
+
+    # Return None to signal "use the generator"
+    return None
+
+
+def install_builder_events(name: str):
+    """Generator that yields SSE events for builder installation.
+
+    Caller must verify install_builder_stream() returned None first.
+    """
+    import os
+    import platform
+    import subprocess
+    import sys
+    import tarfile
+    import tempfile
+    import urllib.request
+
+    builder = get_builder(name)
+    info = builder.info()
+
+    def _pip_install():
+        cmd = list(info.install_cmd)
+        cmd[0] = str(Path(sys.executable).parent / "pip")
+        cmd_str = ' '.join(cmd)
+        yield {"type": "log", "line": f"▶ {cmd_str}"}
+
+        proc = subprocess.Popen(
+            cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+        )
+        if proc.stdout:
+            for line in proc.stdout:
+                yield {"type": "log", "line": line.rstrip()}
+        proc.wait()
+
+        if proc.returncode == 0:
+            yield {"type": "done", "ok": True, "message": f"{info.label} installed in venv"}
+        else:
+            yield {"type": "done", "ok": False, "error": f"pip install failed (exit {proc.returncode})"}
+
+    def _glibc_version() -> str:
+        try:
+            import ctypes
+            libc = ctypes.CDLL("libc.so.6")
+            libc.gnu_get_libc_version.restype = ctypes.c_char_p
+            return libc.gnu_get_libc_version().decode()
+        except Exception:
+            return "unknown"
+
+    def _hugo_binary_install():
+        local_bin = Path.home() / ".local" / "bin"
+        local_bin.mkdir(parents=True, exist_ok=True)
+
+        machine = platform.machine().lower()
+        if machine in ("x86_64", "amd64"):
+            arch = "amd64"
+        elif machine in ("aarch64", "arm64"):
+            arch = "arm64"
+        else:
+            yield {"type": "done", "ok": False, "error": f"Unsupported arch: {machine}"}
+            return
+
+        system_name = platform.system().lower()
+        if system_name != "linux":
+            yield {"type": "done", "ok": False, "error": f"Hugo binary download only supports Linux, got {system_name}"}
+            return
+
+        yield {"type": "log", "line": f"Detecting latest Hugo release for linux/{arch}..."}
+
+        try:
+            req = urllib.request.Request(
+                "https://api.github.com/repos/gohugoio/hugo/releases/latest",
+                headers={"Accept": "application/vnd.github.v3+json", "User-Agent": "devops-cp"},
+            )
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                release = json.loads(resp.read().decode())
+
+            version = release["tag_name"].lstrip("v")
+            yield {"type": "log", "line": f"Latest version: {version}  (GLIBC: {_glibc_version()})"}
+
+            candidates = [
+                f"hugo_{version}_linux-{arch}.tar.gz",
+                f"hugo_extended_{version}_linux-{arch}.tar.gz",
+            ]
+            dl_url = None
+            tarball_name = None
+            for candidate in candidates:
+                for asset in release.get("assets", []):
+                    if asset["name"] == candidate:
+                        dl_url = asset["browser_download_url"]
+                        tarball_name = candidate
+                        break
+                if dl_url:
+                    break
+
+            if not dl_url:
+                yield {"type": "done", "ok": False, "error": f"Could not find release asset for linux/{arch}"}
+                return
+
+            yield {"type": "log", "line": f"Downloading {tarball_name}..."}
+
+            with tempfile.NamedTemporaryFile(suffix=".tar.gz", delete=False) as tmp:
+                urllib.request.urlretrieve(dl_url, tmp.name)
+                tmp_path = tmp.name
+
+            yield {"type": "log", "line": "Extracting..."}
+
+            with tarfile.open(tmp_path, "r:gz") as tar:
+                for member in tar.getmembers():
+                    if member.name == "hugo" or member.name.endswith("/hugo"):
+                        member.name = "hugo"
+                        tar.extract(member, path=str(local_bin))
+                        break
+
+            os.unlink(tmp_path)
+
+            hugo_path = local_bin / "hugo"
+            hugo_path.chmod(0o755)
+
+            path_dirs = os.environ.get("PATH", "").split(":")
+            if str(local_bin) not in path_dirs:
+                os.environ["PATH"] = f"{local_bin}:{os.environ.get('PATH', '')}"
+
+            r = subprocess.run([str(hugo_path), "version"], capture_output=True, text=True, timeout=5)
+            if r.returncode == 0:
+                yield {"type": "log", "line": r.stdout.strip()}
+                yield {"type": "done", "ok": True, "message": f"Hugo {version} installed to {hugo_path}"}
+            else:
+                err_detail = (r.stderr or r.stdout or "unknown error").strip()
+                yield {"type": "log", "line": f"Execution failed: {err_detail}"}
+                yield {"type": "done", "ok": False, "error": f"Hugo binary failed: {err_detail}"}
+
+        except Exception as e:
+            yield {"type": "done", "ok": False, "error": f"Download failed: {e}"}
+
+    def _npm_install():
+        cmd = list(info.install_cmd)
+        cmd_str = ' '.join(cmd)
+        yield {"type": "log", "line": f"▶ {cmd_str}"}
+
+        proc = subprocess.Popen(
+            cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+        )
+        if proc.stdout:
+            for line in proc.stdout:
+                yield {"type": "log", "line": line.rstrip()}
+        proc.wait()
+
+        if proc.returncode == 0:
+            yield {"type": "done", "ok": True, "message": f"{info.label} installed"}
+        else:
+            yield {"type": "done", "ok": False, "error": f"npm install failed (exit {proc.returncode})"}
+
+    yield {"type": "log", "line": f"Installing {info.label}..."}
+
+    cmd = info.install_cmd
+    if cmd[0] == "pip":
+        yield from _pip_install()
+    elif cmd[0] == "__hugo_binary__":
+        yield from _hugo_binary_install()
+    elif cmd[0] in ("npm", "npx"):
+        yield from _npm_install()
+    else:
+        cmd_str = ' '.join(cmd)
+        yield {"type": "log", "line": f"▶ {cmd_str}"}
+        try:
+            proc = subprocess.Popen(
+                cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+            )
+            if proc.stdout:
+                for line in proc.stdout:
+                    yield {"type": "log", "line": line.rstrip()}
+            proc.wait()
+            ok = proc.returncode == 0
+            if ok:
+                yield {"type": "done", "ok": True, "message": f"{info.label} installed"}
+            else:
+                yield {"type": "done", "ok": False, "error": f"Install failed (exit {proc.returncode})"}
+        except Exception as e:
+            yield {"type": "done", "ok": False, "error": str(e)}
+
+
+# ── Build streaming (SSE generator) ────────────────────────────────
+
+
+def build_segment_stream(
+    project_root: Path,
+    name: str,
+    *,
+    clean: bool = False,
+    wipe: bool = False,
+    no_minify: bool = False,
+):
+    """Generator that yields SSE event dicts for a build pipeline.
+
+    Caller wraps events in ``data: {json}\\n\\n`` for SSE transport.
+
+    Args:
+        project_root: Project root.
+        name: Segment name.
+        clean: If True, pass clean=True to builder config.
+        wipe: If True, nuke entire workspace before building.
+        no_minify: If True, set build_mode to no-minify.
+
+    Yields:
+        Dicts with 'type' key: pipeline_start, stage_start, log,
+        stage_done, stage_error, pipeline_done, error.
+    """
+    ensure_gitignore(project_root)
+
+    segment = get_segment(project_root, name)
+    if segment is None:
+        yield {"type": "error", "message": f"Segment not found: {name}"}
+        return
+
+    builder = get_builder(segment.builder)
+    if builder is None or not builder.detect():
+        yield {"type": "error", "message": f"Builder '{segment.builder}' not available"}
+        return
+
+    source_path = (project_root / segment.source).resolve()
+    if not source_path.is_dir():
+        yield {"type": "error", "message": f"Source not found: {segment.source}"}
+        return
+
+    segment.source = str(source_path)
+    workspace = project_root / PAGES_WORKSPACE / name
+
+    if wipe and workspace.is_dir():
+        shutil.rmtree(workspace)
+    workspace.mkdir(parents=True, exist_ok=True)
+
+    if clean:
+        segment.config["clean"] = True
+    if no_minify:
+        segment.config["build_mode"] = "no-minify"
+
+    pipeline_start = time.monotonic()
+    stages_info = builder.pipeline_stages()
+
+    yield {
+        "type": "pipeline_start",
+        "segment": name,
+        "builder": segment.builder,
+        "stages": [{"name": s.name, "label": s.label} for s in stages_info],
+    }
+
+    stage_results = []
+    all_ok = True
+
+    for si in stages_info:
+        yield {"type": "stage_start", "stage": si.name, "label": si.label}
+
+        stage_start = time.monotonic()
+        error = ""
+
+        try:
+            for line in builder.run_stage(si.name, segment, workspace):
+                yield {"type": "log", "line": line, "stage": si.name}
+            status = "done"
+        except RuntimeError as e:
+            error = str(e)
+            status = "error"
+            all_ok = False
+        except Exception as e:
+            error = f"Unexpected: {e}"
+            status = "error"
+            all_ok = False
+
+        stage_ms = int((time.monotonic() - stage_start) * 1000)
+        stage_results.append({
+            "name": si.name,
+            "label": si.label,
+            "status": status,
+            "duration_ms": stage_ms,
+            "error": error,
+        })
+
+        if status == "done":
+            yield {
+                "type": "stage_done", "stage": si.name,
+                "label": si.label, "duration_ms": stage_ms,
+            }
+        else:
+            yield {
+                "type": "stage_error", "stage": si.name,
+                "label": si.label, "error": error, "duration_ms": stage_ms,
+            }
+            remaining = stages_info[stages_info.index(si) + 1:]
+            for rem in remaining:
+                stage_results.append({
+                    "name": rem.name, "label": rem.label,
+                    "status": "skipped", "duration_ms": 0, "error": "",
+                })
+            break
+
+    total_ms = int((time.monotonic() - pipeline_start) * 1000)
+
+    serve_url = ""
+    if all_ok:
+        output = builder.output_dir(workspace)
+        serve_url = f"/pages/site/{name}/"
+
+        meta = {
+            "segment": name,
+            "builder": segment.builder,
+            "built_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+            "duration_ms": total_ms,
+            "output_dir": str(output),
+            "serve_url": serve_url,
+        }
+        (workspace / "build.json").write_text(
+            json.dumps(meta, indent=2), encoding="utf-8",
+        )
+
+    yield {
+        "type": "pipeline_done",
+        "ok": all_ok,
+        "segment": name,
+        "total_ms": total_ms,
+        "serve_url": serve_url,
+        "stages": stage_results,
+        "duration_ms": total_ms,
+        "error": stage_results[-1]["error"] if not all_ok else "",
+    }
+

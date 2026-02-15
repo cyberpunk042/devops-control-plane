@@ -41,31 +41,35 @@ class StatusResult:
             "description": self.project.description if self.project else "",
             "repository": self.project.repository if self.project else "",
         }
-        result["config_path"] = str(self.config_path) if self.config_path else None
-        result["project_root"] = str(self.project_root) if self.project_root else None
-        result["current_environment"] = self.current_environment
-        result["modules"] = {
-            "total": self.module_count,
-            "detected": self.detected_count,
-        }
-        result["environments"] = self.environment_count
 
         if self.project:
-            result["module_list"] = [
-                {"name": m.name, "path": m.path, "stack": m.stack, "domain": m.domain}
+            result["modules"] = [
+                {"name": m.name, "path": m.path, "domain": m.domain, "stack": m.stack}
                 for m in self.project.modules
             ]
-            result["environment_list"] = [
+            result["environments"] = [
                 {"name": e.name, "default": e.default}
                 for e in self.project.environments
             ]
 
-        if self.state and self.state.last_operation.operation_id:
-            result["last_operation"] = {
-                "id": self.state.last_operation.operation_id,
-                "type": self.state.last_operation.automation,
-                "status": self.state.last_operation.status,
-                "at": self.state.last_operation.ended_at,
+        if self.state:
+            result["state"] = {
+                "project_name": self.state.project_name,
+                "last_operation": {
+                    "operation_id": self.state.last_operation.operation_id,
+                    "automation": self.state.last_operation.automation,
+                    "status": self.state.last_operation.status,
+                    "actions_total": self.state.last_operation.actions_total,
+                    "actions_succeeded": self.state.last_operation.actions_succeeded,
+                    "actions_failed": self.state.last_operation.actions_failed,
+                },
+                "modules": {
+                    name: {
+                        "last_action_status": ms.last_action_status,
+                        "last_action_at": ms.last_action_at,
+                    }
+                    for name, ms in self.state.modules.items()
+                },
             }
 
         return result
@@ -114,3 +118,54 @@ def get_status(config_path: Path | None = None) -> StatusResult:
     )
 
     return result
+
+
+def get_capabilities(
+    config_path: Path | None = None,
+    project_root: Path | None = None,
+) -> dict:
+    """Resolve capabilities per module.
+
+    Cross-references modules with their stacks and returns a
+    map of capability → which modules support it and with what command.
+
+    Returns:
+        {capability_name: {name, description, modules: [...]}, ...}
+        or {"error": "..."} on failure.
+    """
+    from src.core.config.stack_loader import discover_stacks
+    from src.core.engine.executor import _resolve_stack
+
+    if config_path is None:
+        config_path = find_project_file(project_root)
+    if config_path is None:
+        return {"error": "No project.yml found"}
+
+    project = load_project(config_path)
+    root = project_root or config_path.parent.resolve()
+    stacks_dir = root / "stacks"
+    stacks = discover_stacks(stacks_dir)
+
+    capabilities: dict[str, dict] = {}
+
+    for m in project.modules:
+        stack_name = m.stack or ""
+        stack = _resolve_stack(stack_name, stacks) if stack_name else None
+        if stack is None:
+            continue
+
+        for cap in stack.capabilities:
+            if cap.name not in capabilities:
+                capabilities[cap.name] = {
+                    "name": cap.name,
+                    "description": cap.description,
+                    "modules": [],
+                }
+            capabilities[cap.name]["modules"].append({
+                "module": m.name,
+                "stack": stack.name,
+                "command": cap.command,
+                "adapter": cap.adapter or "shell",
+            })
+
+    return capabilities

@@ -123,6 +123,8 @@ def encrypt_file(
     passphrase: str,
     output_path: Path | None = None,
     iterations: int = KDF_ITERATIONS,
+    *,
+    original_filename: str = "",
 ) -> Path:
     """Encrypt a file into COVAULT binary envelope.
 
@@ -132,6 +134,9 @@ def encrypt_file(
         output_path: Where to write the encrypted file.
                      Defaults to ``source_path`` + ``.enc`` appended.
         iterations: KDF iteration count.
+        original_filename: Override the filename stored in the envelope.
+                           Useful when encrypting from a temp file but wanting
+                           to preserve the real filename in metadata.
 
     Returns:
         Path to the encrypted file.
@@ -152,9 +157,10 @@ def encrypt_file(
     # Read source
     plaintext = source_path.read_bytes()
 
-    # Metadata
-    filename = source_path.name.encode("utf-8")
-    mime_type = _guess_mime(source_path.name).encode("utf-8")
+    # Metadata — use original_filename if provided, else source_path.name
+    stored_name = original_filename or source_path.name
+    filename = stored_name.encode("utf-8")
+    mime_type = _guess_mime(stored_name).encode("utf-8")
 
     # Integrity
     sha256 = hashlib.sha256(plaintext).digest()
@@ -765,3 +771,213 @@ def format_size(size_bytes: int) -> str:
         return f"{size_bytes / (1024 * 1024):.1f} MB"
     else:
         return f"{size_bytes / (1024 * 1024 * 1024):.1f} GB"
+
+
+# ── Audit helper ────────────────────────────────────────────────────
+
+
+def _audit(label: str, summary: str, **kwargs) -> None:
+    """Record an audit event if a project root is registered."""
+    try:
+        from src.core.context import get_project_root
+        root = get_project_root()
+    except Exception:
+        return
+    if root is None:
+        return
+    from src.core.services.devops_cache import record_event
+    record_event(root, label=label, summary=summary, card="content", **kwargs)
+
+
+# ── High-level content operations ───────────────────────────────────
+#
+# These orchestrate encryption/decryption + side-effects (delete
+# original, update release artifacts, audit) so routes stay thin.
+#
+
+
+def encrypt_content_file(
+    project_root: Path,
+    rel_path: str,
+    passphrase: str,
+    *,
+    delete_original: bool = False,
+) -> dict:
+    """Encrypt a content file and handle all side-effects.
+
+    Orchestrates: encrypt → optionally delete original → update release
+    artifact if in .large/ → audit.
+
+    Args:
+        project_root: Project root directory.
+        rel_path: Relative path to the source file.
+        passphrase: Encryption passphrase.
+        delete_original: Whether to delete the plaintext after encryption.
+
+    Returns:
+        Dict with success info, sizes, and flags.
+    """
+    import json
+    from datetime import datetime, timezone
+
+    source = (project_root / rel_path).resolve()
+
+    # Security: ensure path is within project
+    try:
+        source.relative_to(project_root)
+    except ValueError:
+        return {"error": "Invalid path"}
+
+    if not source.is_file():
+        return {"error": f"File not found: {rel_path}"}
+
+    if not passphrase:
+        return {"error": "CONTENT_VAULT_ENC_KEY is not set in .env", "needs_key": True}
+
+    try:
+        output = encrypt_file(source, passphrase)
+        result: dict = {
+            "success": True,
+            "source": rel_path,
+            "output": str(output.relative_to(project_root)),
+            "original_size": source.stat().st_size,
+            "encrypted_size": output.stat().st_size,
+        }
+
+        if delete_original:
+            source.unlink()
+            result["original_deleted"] = True
+
+        # Update release artifact if file is in .large/
+        if ".large" in source.parts:
+            from src.core.services.content_release import (
+                cleanup_release_sidecar,
+                upload_to_release_bg,
+            )
+            cleanup_release_sidecar(source, project_root)
+            file_id = output.stem
+            upload_to_release_bg(file_id, output, project_root)
+            new_meta = output.parent / f"{output.name}.release.json"
+            new_meta.write_text(json.dumps({
+                "file_id": file_id,
+                "asset_name": output.name,
+                "uploaded_at": datetime.now(timezone.utc).isoformat(),
+                "status": "uploading",
+            }, indent=2))
+            result["release_updated"] = True
+
+        _audit(
+            "🔒 File Encrypted",
+            f"{rel_path} encrypted ({result['original_size']:,} → "
+            f"{result['encrypted_size']:,} bytes)"
+            + (" — original deleted" if delete_original else ""),
+            action="encrypted",
+            target=rel_path,
+            before_state={"size": result["original_size"]},
+            after_state={"size": result["encrypted_size"], "encrypted": True},
+        )
+        return result
+
+    except ValueError as e:
+        return {"error": str(e)}
+    except Exception as e:
+        logger.exception("Failed to encrypt %s", rel_path)
+        _audit(
+            "❌ Encrypt Failed",
+            f"{rel_path}: {e}",
+            detail={"file": rel_path, "error": str(e)},
+        )
+        return {"error": f"Encryption failed: {e}", "_status": 500}
+
+
+def decrypt_content_file(
+    project_root: Path,
+    rel_path: str,
+    passphrase: str,
+    *,
+    delete_encrypted: bool = False,
+) -> dict:
+    """Decrypt a content file and handle all side-effects.
+
+    Orchestrates: decrypt → optionally delete encrypted → update release
+    artifact if in .large/ → audit.
+
+    Args:
+        project_root: Project root directory.
+        rel_path: Relative path to the .enc file.
+        passphrase: Decryption passphrase.
+        delete_encrypted: Whether to delete the .enc after decryption.
+
+    Returns:
+        Dict with success info, sizes, and flags.
+    """
+    import json
+    from datetime import datetime, timezone
+
+    vault_file = (project_root / rel_path).resolve()
+
+    # Security: ensure path is within project
+    try:
+        vault_file.relative_to(project_root)
+    except ValueError:
+        return {"error": "Invalid path"}
+
+    if not vault_file.is_file():
+        return {"error": f"File not found: {rel_path}"}
+
+    if not passphrase:
+        return {"error": "CONTENT_VAULT_ENC_KEY is not set in .env", "needs_key": True}
+
+    try:
+        output = decrypt_file(vault_file, passphrase)
+        result: dict = {
+            "success": True,
+            "source": rel_path,
+            "output": str(output.relative_to(project_root)),
+            "decrypted_size": output.stat().st_size,
+        }
+
+        if delete_encrypted:
+            vault_file.unlink()
+            result["encrypted_deleted"] = True
+
+        # Update release artifact if file is in .large/
+        if ".large" in vault_file.parts:
+            from src.core.services.content_release import (
+                cleanup_release_sidecar,
+                upload_to_release_bg,
+            )
+            cleanup_release_sidecar(vault_file, project_root)
+            file_id = output.stem
+            upload_to_release_bg(file_id, output, project_root)
+            new_meta = output.parent / f"{output.name}.release.json"
+            new_meta.write_text(json.dumps({
+                "file_id": file_id,
+                "asset_name": output.name,
+                "uploaded_at": datetime.now(timezone.utc).isoformat(),
+                "status": "uploading",
+            }, indent=2))
+            result["release_updated"] = True
+
+        _audit(
+            "🔓 File Decrypted",
+            f"{rel_path} decrypted ({result['decrypted_size']:,} bytes)"
+            + (" — encrypted copy deleted" if delete_encrypted else ""),
+            action="decrypted",
+            target=rel_path,
+            before_state={"encrypted": True},
+            after_state={"size": result["decrypted_size"], "encrypted": False},
+        )
+        return result
+
+    except ValueError as e:
+        return {"error": str(e)}
+    except Exception as e:
+        logger.exception("Failed to decrypt %s", rel_path)
+        _audit(
+            "❌ Decrypt Failed",
+            f"{rel_path}: {e}",
+            detail={"file": rel_path, "error": str(e)},
+        )
+        return {"error": f"Decryption failed: {e}", "_status": 500}
+

@@ -821,11 +821,12 @@ class DocusaurusBuilder(PageBuilder):
 
     @staticmethod
     def _escape_jsx_angles(content: str) -> str:
-        """Escape bare `<` that MDX would misinterpret as JSX tags.
+        """Escape bare `<`, `{`, `}` that MDX would misinterpret as JSX.
 
-        MDX parses `<` as the start of a JSX element. Patterns like
-        `<2s`, `<=`, `<foo` (non-standard tag) cause compilation errors.
-        This escapes them to `&lt;` while preserving:
+        MDX parses `<` as the start of a JSX element and `{`/`}` as
+        expression boundaries. Documentation prose containing patterns
+        like `<2s`, `{name}`, or Python dict literals will fail MDX
+        compilation. This escapes them while preserving:
         - Valid HTML tags: `<div>`, `</div>`, `<br/>`
         - HTML comments: `<!-- ... -->`
         - Content inside fenced code blocks (``` ... ```)
@@ -847,8 +848,14 @@ class DocusaurusBuilder(PageBuilder):
                 result.append(line)
                 continue
 
-            # Outside code fences: escape < that isn't a valid HTML/JSX tag start
-            # Valid starts: <letter, </, <!
+            # Escape bare { and } BEFORE backtick splitting.
+            # MDX treats { } as JSX expression boundaries. In table cells,
+            # | inside inline code can break the backtick span, exposing
+            # braces to the parser. \{ renders as { in both prose and
+            # inline code, so escaping everywhere is safe.
+            line = line.replace("{", "\\{").replace("}", "\\}")
+
+            # Outside code fences: escape < that aren't valid HTML/JSX tags
             # We process segments outside of inline code spans
             parts = line.split("`")
             for i, part in enumerate(parts):
@@ -863,3 +870,4 @@ class DocusaurusBuilder(PageBuilder):
             result.append("`".join(parts))
 
         return "\n".join(result)
+

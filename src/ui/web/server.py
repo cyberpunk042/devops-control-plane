@@ -43,6 +43,10 @@ def create_app(
     # Store config on app
     app.config["PROJECT_ROOT"] = Path(project_root or Path.cwd())
     app.config["CONFIG_PATH"] = str(config_path) if config_path else None
+
+    # Register project root in core context (used by all core services)
+    from src.core.context import set_project_root as _set_ctx_root
+    _set_ctx_root(app.config["PROJECT_ROOT"])
     app.config["MOCK_MODE"] = mock_mode
     app.config["MAX_CONTENT_LENGTH"] = 500 * 1024 * 1024  # 500 MB upload limit
 

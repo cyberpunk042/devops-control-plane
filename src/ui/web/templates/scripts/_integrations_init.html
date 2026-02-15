@@ -96,7 +96,7 @@
     async function _fetchIntPrefs() {
         if (_intPrefs) return _intPrefs;
         try {
-            _intPrefs = await api('/integrations/prefs');
+            _intPrefs = await api('/devops/integration-prefs');
         } catch {
             _intPrefs = Object.fromEntries(Object.keys(_INT_CARDS).map(k => [k, 'auto']));
         }
@@ -226,7 +226,7 @@
             prefs[key] = sel ? sel.value : 'auto';
         }
         try {
-            _intPrefs = await api('/integrations/prefs', { method: 'PUT', body: JSON.stringify(prefs) });
+            _intPrefs = await api('/devops/integration-prefs', { method: 'PUT', body: JSON.stringify(prefs) });
             toast('Integration preferences saved', 'success');
             document.getElementById('int-prefs-modal')?.remove();
             _intLoaded = false;

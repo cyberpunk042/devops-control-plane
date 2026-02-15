@@ -11,6 +11,19 @@ from src.core.services.docker_detect import find_compose_file
 
 logger = logging.getLogger(__name__)
 
+
+def _audit(label: str, summary: str, **kwargs) -> None:
+    """Record an audit event if a project root is registered."""
+    try:
+        from src.core.context import get_project_root
+        root = get_project_root()
+    except Exception:
+        return
+    if root is None:
+        return
+    from src.core.services.devops_cache import record_event
+    record_event(root, label=label, summary=summary, card="docker", **kwargs)
+
 def docker_containers(project_root: Path, *, all_: bool = True) -> dict:
     """List containers.
 
@@ -231,6 +244,12 @@ def docker_build(project_root: Path, *, service: str | None = None, no_cache: bo
     if r.returncode != 0:
         return {"error": r.stderr.strip() or "Build failed"}
 
+    _audit(
+        "📦 Docker Build",
+        f"Image built" + (f" for {service}" if service else "") + (" (no-cache)" if no_cache else ""),
+        action="built",
+        target=service or "all",
+    )
     return {"ok": True, "service": service or "all", "output": r.stdout.strip()}
 
 
@@ -258,6 +277,12 @@ def docker_up(project_root: Path, *, service: str | None = None, detach: bool = 
     if r.returncode != 0:
         return {"error": r.stderr.strip() or "Failed to start services"}
 
+    _audit(
+        "▶️ Docker Up",
+        f"Compose services started" + (f" ({service})" if service else ""),
+        action="started",
+        target=service or "all",
+    )
     return {"ok": True, "service": service or "all", "output": r.stdout.strip() or r.stderr.strip()}
 
 
@@ -282,6 +307,13 @@ def docker_down(project_root: Path, *, volumes: bool = False) -> dict:
     if r.returncode != 0:
         return {"error": r.stderr.strip() or "Failed to stop services"}
 
+    _audit(
+        "⏹️ Docker Down",
+        f"Compose services stopped" + (" (+volumes)" if volumes else ""),
+        action="stopped",
+        target="all",
+        before_state={"remove_volumes": volumes},
+    )
     return {"ok": True, "output": r.stdout.strip() or r.stderr.strip()}
 
 
@@ -306,6 +338,12 @@ def docker_restart(project_root: Path, *, service: str | None = None) -> dict:
     if r.returncode != 0:
         return {"error": r.stderr.strip() or "Restart failed"}
 
+    _audit(
+        "🔄 Docker Restart",
+        f"Compose services restarted" + (f" ({service})" if service else ""),
+        action="restarted",
+        target=service or "all",
+    )
     return {"ok": True, "service": service or "all", "output": r.stdout.strip() or r.stderr.strip()}
 
 
@@ -319,6 +357,12 @@ def docker_prune(project_root: Path) -> dict:
     if r.returncode != 0:
         return {"error": r.stderr.strip() or "Prune failed"}
 
+    _audit(
+        "🧹 Docker Prune",
+        "Removed unused containers, images, networks, and build cache",
+        action="pruned",
+        target="system",
+    )
     return {"ok": True, "output": r.stdout.strip()}
 
 
@@ -445,6 +489,12 @@ def docker_pull(project_root: Path, image: str) -> dict:
     if r.returncode != 0:
         return {"error": r.stderr.strip() or f"Failed to pull '{image}'"}
 
+    _audit(
+        "⬇️ Docker Pull",
+        f"Pulled image: {image}",
+        action="pulled",
+        target=image,
+    )
     return {"ok": True, "image": image, "output": r.stdout.strip()}
 
 
@@ -467,6 +517,13 @@ def docker_exec_cmd(project_root: Path, container_id: str, command: str) -> dict
     cmd_args = command.split()
     r = run_docker("exec", container_id, *cmd_args, cwd=project_root, timeout=30)
 
+    _audit(
+        "▶️ Docker Exec",
+        f"{container_id}: {command}" + ("" if r.returncode == 0 else f" (exit {r.returncode})"),
+        action="executed",
+        target=container_id,
+        after_state={"exit_code": r.returncode},
+    )
     return {
         "ok": r.returncode == 0,
         "container": container_id,
@@ -499,6 +556,12 @@ def docker_rm(project_root: Path, container_id: str, *, force: bool = False) -> 
     if r.returncode != 0:
         return {"error": r.stderr.strip() or f"Failed to remove '{container_id}'"}
 
+    _audit(
+        "🗑️ Container Removed",
+        f"Container removed: {container_id}" + (" (forced)" if force else ""),
+        action="removed",
+        target=container_id,
+    )
     return {"ok": True, "container": container_id}
 
 
@@ -524,4 +587,10 @@ def docker_rmi(project_root: Path, image: str, *, force: bool = False) -> dict:
     if r.returncode != 0:
         return {"error": r.stderr.strip() or f"Failed to remove '{image}'"}
 
+    _audit(
+        "🗑️ Image Removed",
+        f"Image removed: {image}" + (" (forced)" if force else ""),
+        action="removed",
+        target=image,
+    )
     return {"ok": True, "image": image, "output": r.stdout.strip()}

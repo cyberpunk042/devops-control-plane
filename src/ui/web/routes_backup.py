@@ -4,8 +4,7 @@ Admin API — Backup & Restore core module.
 Blueprint: backup_bp
 Prefix: /api
 
-This module defines the blueprint, re-exports helpers from
-``src.core.services.backup_ops``, and hosts the folder-tree endpoints.
+This module defines the blueprint and hosts the folder-tree endpoints.
 
 Route handlers are split across sub-modules for maintainability:
 
@@ -41,41 +40,6 @@ logger = logging.getLogger(__name__)
 def _project_root() -> Path:
     return Path(current_app.config["PROJECT_ROOT"]).resolve()
 
-
-# ── Re-exported helpers (used by sub-route modules) ────────────────
-# Sub-modules import these from here to avoid importing backup_ops directly.
-# This keeps the transition incremental and avoids circular imports.
-
-# Constants
-_SKIP_DIRS = backup_ops.SKIP_DIRS
-MEDIA_EXT = backup_ops.MEDIA_EXT
-DOC_EXT = backup_ops.DOC_EXT
-
-# Helpers
-_classify = backup_ops.classify_file
-_backup_dir_for = backup_ops.backup_dir_for
-_safe_backup_name = backup_ops.safe_backup_name
-_read_manifest = backup_ops.read_manifest
-
-
-def _resolve_folder(rel_path: str) -> Path | None:
-    """Resolve a relative folder — wraps backup_ops with _project_root()."""
-    return backup_ops.resolve_folder(_project_root(), rel_path)
-
-
-def _get_enc_key() -> str:
-    """Read CONTENT_VAULT_ENC_KEY from .env."""
-    return backup_ops.get_enc_key(_project_root())
-
-
-def _encrypt_archive(archive_path: Path, passphrase: str) -> Path:
-    """Encrypt a .tar.gz archive using COVAULT format."""
-    return backup_ops.encrypt_archive(archive_path, passphrase)
-
-
-def _decrypt_archive(enc_path: Path, passphrase: str) -> Path:
-    """Decrypt a .tar.gz.enc archive to a temp file."""
-    return backup_ops.decrypt_archive(enc_path, passphrase)
 
 
 # ── Folder tree endpoint ───────────────────────────────────────────

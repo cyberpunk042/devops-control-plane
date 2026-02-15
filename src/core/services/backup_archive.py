@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import io
 import json
 import logging
 import os
@@ -15,10 +16,23 @@ from pathlib import Path
 from src.core.services.backup_common import (
     classify_file, backup_dir_for, safe_backup_name, resolve_folder,
     read_manifest, get_enc_key, encrypt_archive,
-    MEDIA_EXT, DOC_EXT,
+    SKIP_DIRS, MEDIA_EXT, DOC_EXT,
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _audit(label: str, summary: str, **kwargs) -> None:
+    """Record an audit event if a project root is registered."""
+    try:
+        from src.core.context import get_project_root
+        root = get_project_root()
+    except Exception:
+        return
+    if root is None:
+        return
+    from src.core.services.devops_cache import record_event
+    record_event(root, label=label, summary=summary, card="backup", **kwargs)
 
 def folder_tree(project_root: Path, *, max_depth: int = 6) -> list[dict]:
     """Return the full recursive directory tree for folder selection."""
@@ -196,7 +210,7 @@ def create_backup(
             target_folder, final_name, len(files), final_path.stat().st_size,
         )
 
-        return {
+        result = {
             "success": True,
             "filename": final_name,
             "backup_folder": str(bak_dir.relative_to(project_root)),
@@ -205,9 +219,37 @@ def create_backup(
             "encrypted": encrypt_archive_flag,
             "manifest": manifest,
         }
+        _audit(
+            "📦 Backup Created",
+            f"{target_folder} → {final_name} ({len(files)} files, {final_path.stat().st_size:,} B)"
+            + (" · encrypted" if encrypt_archive_flag else ""),
+            action="created",
+            target=final_name,
+            detail={"files": [p for _, p in files]},
+            before_state={
+                "source_folder": target_folder,
+                "selected_files": len(files),
+                "total_size": f"{total_bytes:,} B",
+                **({
+                    "decrypt_enc_files": True,
+                } if decrypt_enc else {}),
+            },
+            after_state={
+                "archive": final_name,
+                "archive_size": f"{final_path.stat().st_size:,} B",
+                "encrypted": encrypt_archive_flag,
+                **{f"{k}_count": v for k, v in counts.items()},
+            },
+        )
+        return result
 
     except Exception as e:
         logger.exception("Failed to create backup")
+        _audit(
+            "❌ Backup Export Failed",
+            f"{target_folder}: {e}",
+            before_state={"source_folder": target_folder, "attempted_files": len(files)},
+        )
         if archive_path.exists():
             archive_path.unlink()
         return {"error": f"Export failed: {e}"}
@@ -390,14 +432,28 @@ def delete_backup(project_root: Path, backup_path: str) -> dict:
     if not file_path.exists():
         return {"error": "File not found"}
 
+    # Clean up any GitHub Release asset + sidecar before deleting file
+    try:
+        from src.core.services.content_release import cleanup_release_sidecar
+        cleanup_release_sidecar(file_path, project_root)
+    except (ImportError, Exception):
+        pass  # best-effort
+
     file_path.unlink()
 
-    # Also remove release sidecar if present
+    # Belt-and-suspenders: remove release sidecar if cleanup missed it
     release_meta = file_path.parent / f"{file_path.name}.release.json"
     if release_meta.exists():
         release_meta.unlink()
 
     logger.info("Backup deleted: %s", backup_path)
+    _audit(
+        "🗑️ Backup Deleted",
+        f"{backup_path} permanently deleted",
+        action="deleted",
+        target=backup_path,
+        before_state={"file": backup_path},
+    )
     return {"ok": True, "deleted": backup_path}
 
 
@@ -438,9 +494,115 @@ def rename_backup(project_root: Path, backup_path: str, new_name: str) -> dict:
             old_sidecar.rename(new_sidecar)
 
     logger.info("Backup renamed: %s → %s", backup_path, safe_name)
+    _audit(
+        "✏️ Backup Renamed",
+        f"{file_path.name} → {safe_name}",
+        action="renamed",
+        target=backup_path,
+        before_state={"name": file_path.name},
+        after_state={"name": safe_name},
+    )
     return {
         "ok": True,
         "old_name": file_path.name,
         "new_name": safe_name,
         "full_path": str(new_path.relative_to(project_root)),
+    }
+
+
+def sanitize_backup_name(name: str, *, is_encrypted: bool = False) -> str:
+    """Sanitize a backup archive name.
+
+    Strips unsafe characters and ensures proper .tar.gz or .tar.gz.enc extension.
+
+    Args:
+        name: Raw filename to sanitize.
+        is_encrypted: Whether the archive is encrypted.
+
+    Returns:
+        Safe filename string.
+    """
+    safe_name = re.sub(r'[^a-zA-Z0-9._-]', '_', name)
+    if not (safe_name.endswith(".tar.gz") or safe_name.endswith(".tar.gz.enc")):
+        if is_encrypted:
+            safe_name += ".tar.gz.enc"
+        else:
+            safe_name += ".tar.gz"
+    return safe_name
+
+
+def upload_backup(
+    project_root: Path,
+    file_bytes: bytes,
+    filename: str,
+    target_folder: str,
+) -> dict:
+    """Upload a backup archive into a folder's .backup/.
+
+    Validates the archive (manifest must exist for unencrypted archives),
+    generates a safe filename, saves to disk, and records an audit event.
+
+    Args:
+        project_root: Project root directory.
+        file_bytes: Raw bytes of the uploaded file.
+        filename: Original filename of the upload.
+        target_folder: Target folder name (e.g. "docs").
+
+    Returns:
+        Dict with success info, filename, metadata, or error.
+    """
+    if not filename or not filename.endswith((".tar.gz", ".gz", ".tar.gz.enc", ".enc")):
+        return {"error": "File must be a .tar.gz or .tar.gz.enc archive"}
+
+    folder = resolve_folder(project_root, target_folder)
+    if folder is None:
+        return {"error": f"Folder not found: {target_folder}", "_status": 404}
+
+    bak_dir = backup_dir_for(folder)
+
+    # Generate safe name
+    if safe_backup_name(filename):
+        dest_name = filename
+    else:
+        ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
+        is_enc = filename.endswith(".enc")
+        dest_name = f"backup_{ts}.tar.gz{'.enc' if is_enc else ''}"
+
+    dest = bak_dir / dest_name
+    dest.write_bytes(file_bytes)
+
+    # Try to read manifest (only works for unencrypted archives)
+    manifest = None
+    is_encrypted = dest.name.endswith(".enc")
+    if not is_encrypted:
+        manifest = read_manifest(dest)
+        if not manifest:
+            dest.unlink()
+            return {"error": "Invalid archive: no backup_manifest.json found"}
+
+    size_bytes = dest.stat().st_size
+
+    _audit(
+        "📤 Backup Uploaded",
+        f"{dest_name} uploaded to {target_folder}/.backup/ ({size_bytes:,} bytes)"
+        + (" (encrypted)" if is_encrypted else ""),
+        action="uploaded",
+        target=dest_name,
+        detail={
+            "filename": dest_name,
+            "folder": target_folder,
+            "size_bytes": size_bytes,
+            "encrypted": is_encrypted,
+        },
+        after_state={"size": size_bytes, "encrypted": is_encrypted},
+    )
+
+    return {
+        "success": True,
+        "filename": dest_name,
+        "folder": target_folder,
+        "full_path": str(dest.relative_to(project_root)),
+        "size_bytes": size_bytes,
+        "encrypted": is_encrypted,
+        "manifest": manifest,
     }

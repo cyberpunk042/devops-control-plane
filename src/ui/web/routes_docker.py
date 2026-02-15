@@ -26,7 +26,7 @@ from pathlib import Path
 
 from flask import Blueprint, current_app, jsonify, request
 
-from src.core.services import docker_ops, devops_cache
+from src.core.services import docker_ops
 
 docker_bp = Blueprint("docker", __name__)
 
@@ -103,15 +103,6 @@ def docker_build():  # type: ignore[no-untyped-def]
     if "error" in result:
         return jsonify(result), 400
 
-    devops_cache.record_event(
-        root,
-        label="📦 Docker Build",
-        summary=f"Image built" + (f" for {service}" if service else "") + (" (no-cache)" if no_cache else ""),
-        detail={"service": service, "no_cache": no_cache},
-        card="docker",
-        action="built",
-        target=service or "all",
-    )
     return jsonify(result)
 
 
@@ -127,15 +118,6 @@ def docker_up():  # type: ignore[no-untyped-def]
     if "error" in result:
         return jsonify(result), 400
 
-    devops_cache.record_event(
-        root,
-        label="▶️ Docker Up",
-        summary=f"Compose services started" + (f" ({service})" if service else ""),
-        detail={"service": service},
-        card="docker",
-        action="started",
-        target=service or "all",
-    )
     return jsonify(result)
 
 
@@ -151,15 +133,6 @@ def docker_down():  # type: ignore[no-untyped-def]
     if "error" in result:
         return jsonify(result), 400
 
-    devops_cache.record_event(
-        root,
-        label="⏹️ Docker Down",
-        summary=f"Compose services stopped" + (" (volumes removed)" if volumes else ""),
-        detail={"volumes": volumes},
-        card="docker",
-        action="stopped",
-        target="compose",
-    )
     return jsonify(result)
 
 
@@ -175,15 +148,6 @@ def docker_restart():  # type: ignore[no-untyped-def]
     if "error" in result:
         return jsonify(result), 400
 
-    devops_cache.record_event(
-        root,
-        label="🔄 Docker Restart",
-        summary=f"Compose services restarted" + (f" ({service})" if service else ""),
-        detail={"service": service},
-        card="docker",
-        action="restarted",
-        target=service or "all",
-    )
     return jsonify(result)
 
 
@@ -196,15 +160,6 @@ def docker_prune():  # type: ignore[no-untyped-def]
     if "error" in result:
         return jsonify(result), 400
 
-    devops_cache.record_event(
-        root,
-        label="🧹 Docker Prune",
-        summary="Unused Docker resources cleaned up",
-        detail={},
-        card="docker",
-        action="pruned",
-        target="docker",
-    )
     return jsonify(result)
 
 
@@ -225,15 +180,6 @@ def generate_dockerfile():  # type: ignore[no-untyped-def]
     if "error" in result:
         return jsonify(result), 400
 
-    devops_cache.record_event(
-        root,
-        label="📝 Dockerfile Generated",
-        summary=f"Dockerfile generated for {stack_name} stack",
-        detail={"stack": stack_name},
-        card="docker",
-        action="generated",
-        target="Dockerfile",
-    )
     return jsonify(result)
 
 
@@ -248,48 +194,18 @@ def generate_dockerignore():  # type: ignore[no-untyped-def]
     root = _project_root()
     result = docker_ops.generate_dockerignore(root, stacks)
 
-    devops_cache.record_event(
-        root,
-        label="📝 .dockerignore Generated",
-        summary=f".dockerignore generated for {len(stacks)} stack(s)",
-        detail={"stacks": stacks},
-        card="docker",
-        action="generated",
-        target=".dockerignore",
-    )
     return jsonify(result)
 
 
 @docker_bp.route("/docker/generate/compose", methods=["POST"])
 def generate_compose():  # type: ignore[no-untyped-def]
     """Generate a docker-compose.yml from detected modules."""
-    data = request.get_json(silent=True) or {}
-
-    from src.core.config.loader import load_project
-    from src.core.config.stack_loader import discover_stacks
-    from src.core.services.detection import detect_modules
-
     root = _project_root()
-    config_path = root / "project.yml"
-    project = load_project(config_path)
-    stacks = discover_stacks(root / "stacks")
-    detection = detect_modules(project, root, stacks)
-    modules = [m.model_dump() for m in detection.modules]
-
-    result = docker_ops.generate_compose(root, modules, project_name=project.name)
+    result = docker_ops.generate_compose(root)
 
     if "error" in result:
         return jsonify(result), 400
 
-    devops_cache.record_event(
-        root,
-        label="📝 Compose Generated",
-        summary=f"docker-compose.yml generated ({len(modules)} module(s))",
-        detail={"modules": len(modules), "project": project.name},
-        card="docker",
-        action="generated",
-        target="docker-compose.yml",
-    )
     return jsonify(result)
 
 
@@ -328,15 +244,6 @@ def generate_compose_wizard():  # type: ignore[no-untyped-def]
     if "error" in result:
         return jsonify(result), 400
 
-    devops_cache.record_event(
-        root,
-        label="📝 Compose Wizard Generated",
-        summary=f"docker-compose.yml generated from wizard ({len(services)} service(s))",
-        detail={"services_count": len(services)},
-        card="docker",
-        action="generated",
-        target="docker-compose.yml",
-    )
     return jsonify(result)
 
 
@@ -354,15 +261,6 @@ def write_generated():  # type: ignore[no-untyped-def]
     if "error" in result:
         return jsonify(result), 400
 
-    devops_cache.record_event(
-        root,
-        label="💾 Docker File Written",
-        summary=f"Generated file written: {file_data.get('path', '?')}",
-        detail={"file": file_data.get("path", "?")},
-        card="docker",
-        action="created",
-        target=file_data.get("path", "?"),
-    )
     return jsonify(result)
 
 
@@ -408,15 +306,6 @@ def docker_pull():  # type: ignore[no-untyped-def]
     if "error" in result:
         return jsonify(result), 400
 
-    devops_cache.record_event(
-        root,
-        label="⬇️ Docker Pull",
-        summary=f"Image pulled: {image}",
-        detail={"image": image},
-        card="docker",
-        action="pulled",
-        target=image,
-    )
     return jsonify(result)
 
 
@@ -435,15 +324,6 @@ def docker_exec():  # type: ignore[no-untyped-def]
     if "error" in result:
         return jsonify(result), 400
 
-    devops_cache.record_event(
-        root,
-        label="▶️ Docker Exec",
-        summary=f"Command executed in {container}",
-        detail={"container": container, "command": command},
-        card="docker",
-        action="executed",
-        target=container,
-    )
     return jsonify(result)
 
 
@@ -460,15 +340,6 @@ def docker_rm():  # type: ignore[no-untyped-def]
     if "error" in result:
         return jsonify(result), 400
 
-    devops_cache.record_event(
-        root,
-        label="🗑️ Container Removed",
-        summary=f"Container '{container}' removed" + (" (forced)" if force else ""),
-        detail={"container": container, "force": force},
-        card="docker",
-        action="removed",
-        target=container,
-    )
     return jsonify(result)
 
 
@@ -485,13 +356,4 @@ def docker_rmi():  # type: ignore[no-untyped-def]
     if "error" in result:
         return jsonify(result), 400
 
-    devops_cache.record_event(
-        root,
-        label="🗑️ Image Removed",
-        summary=f"Image '{image}' removed" + (" (forced)" if force else ""),
-        detail={"image": image, "force": force},
-        card="docker",
-        action="removed",
-        target=image,
-    )
     return jsonify(result)

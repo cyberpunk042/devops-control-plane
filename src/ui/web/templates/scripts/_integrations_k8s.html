@@ -559,7 +559,7 @@
         try {
             const files = JSON.parse(writeBtn.dataset.files);
             for (const f of files) {
-                await api('/docker/generate/write', { method: 'POST', body: JSON.stringify({ file: f }) });
+                await api('/docker/generate/write', { method: 'POST', body: JSON.stringify({ file: { ...f, overwrite: true } }) });
             }
             toast(`✅ Written ${files.length} file${files.length !== 1 ? 's' : ''}`, 'success');
             writeBtn.textContent = '✅ Written';
@@ -724,7 +724,7 @@
         const w=document.getElementById('kw-write');
         if(w){w.disabled=true;w.textContent='⏳ Writing…';}
         try {
-            for (const f of window._kwGen) await api('/docker/generate/write',{method:'POST',body:JSON.stringify({file:f})});
+            for (const f of window._kwGen) await api('/docker/generate/write',{method:'POST',body:JSON.stringify({file:{...f,overwrite:true}})});
             toast(`✅ Written ${window._kwGen.length} manifest${window._kwGen.length!==1?'s':''}`, 'success');
             if(w) w.textContent='✅ Written';
             cardInvalidate('k8s');

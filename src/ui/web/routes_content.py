@@ -23,21 +23,17 @@ Routes (this file):
 
 from __future__ import annotations
 
-import json
 import logging
-from datetime import datetime, timezone
 from pathlib import Path
 
 from flask import Blueprint, current_app, jsonify, request
 
-from src.core.services import devops_cache
-
-from .content_crypto import (
+from src.core.services.content_crypto import (
     classify_file,
-    decrypt_file,
     decrypt_file_to_memory,
     detect_content_folders,
-    encrypt_file,
+    encrypt_content_file,
+    decrypt_content_file,
     format_size,
     is_covault_file,
     list_folder_contents,
@@ -80,59 +76,6 @@ def _get_enc_key() -> str:
     return env.get("CONTENT_VAULT_ENC_KEY", "").strip()
 
 
-# Extension → MIME lookup (stdlib mimetypes doesn't know .webp, .mkv, etc.)
-_EXT_MIME: dict[str, str] = {
-    # Images
-    ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
-    ".gif": "image/gif", ".webp": "image/webp", ".svg": "image/svg+xml",
-    ".bmp": "image/bmp", ".ico": "image/x-icon", ".tiff": "image/tiff",
-    ".tif": "image/tiff", ".avif": "image/avif",
-    # Video
-    ".mp4": "video/mp4", ".webm": "video/webm", ".mov": "video/quicktime",
-    ".avi": "video/x-msvideo", ".mkv": "video/x-matroska",
-    ".ogv": "video/ogg", ".3gp": "video/3gpp", ".ts": "video/mp2t",
-    # Audio
-    ".mp3": "audio/mpeg", ".m4a": "audio/mp4", ".aac": "audio/aac",
-    ".ogg": "audio/ogg", ".wav": "audio/wav", ".flac": "audio/flac",
-    ".weba": "audio/webm", ".wma": "audio/x-ms-wma", ".opus": "audio/opus",
-    # Documents
-    ".pdf": "application/pdf", ".doc": "application/msword",
-    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    ".xls": "application/vnd.ms-excel",
-    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    # Archives
-    ".zip": "application/zip", ".gz": "application/gzip",
-    ".tar": "application/x-tar", ".7z": "application/x-7z-compressed",
-    ".rar": "application/x-rar-compressed",
-    # Text (supplement — stdlib usually handles these)
-    ".md": "text/markdown", ".json": "application/json",
-    ".xml": "application/xml", ".yaml": "application/x-yaml",
-    ".yml": "application/x-yaml", ".csv": "text/csv",
-    ".toml": "application/toml", ".txt": "text/plain",
-}
-
-
-def _guess_mime(filename: str) -> str:
-    """Resolve MIME type from filename.
-
-    Handles encrypted files: ``photo.webp.enc`` → uses ``.webp``.
-    Uses a hardcoded lookup first (stdlib misses .webp, .mkv, etc.),
-    then falls back to ``mimetypes.guess_type``.
-    """
-    import mimetypes
-
-    name = filename
-    # Strip .enc to get the real extension
-    if name.lower().endswith(".enc"):
-        name = name[:-4]
-
-    ext = Path(name).suffix.lower()
-    if ext in _EXT_MIME:
-        return _EXT_MIME[ext]
-
-    # Fallback to stdlib
-    guessed = mimetypes.guess_type(name)[0]
-    return guessed or "application/octet-stream"
 
 
 # ── Detect content folders ──────────────────────────────────────────
@@ -160,36 +103,12 @@ def content_folders():  # type: ignore[no-untyped-def]
 # ── List all project directories (for "Explore All") ───────────────
 
 
-_EXCLUDED_DIRS = {
-    ".git", ".github", ".vscode", ".idea", ".proj", ".agent", ".gemini",
-    "__pycache__", "node_modules", ".venv", "venv", "env",
-    ".mypy_cache", ".pytest_cache", ".ruff_cache",
-    "build", "dist", ".tox", ".eggs",
-}
-
-
 @content_bp.route("/content/all-folders")
 def content_all_folders():  # type: ignore[no-untyped-def]
-    """List all top-level directories in the project.
+    """List all top-level directories in the project."""
+    from src.core.services.content_file_ops import list_all_project_folders
 
-    Returns a lightweight list for the "Explore All" feature.
-    Hidden/build/cache directories are excluded.
-    """
-    root = _project_root()
-    folders = []
-    try:
-        for entry in sorted(root.iterdir()):
-            if not entry.is_dir():
-                continue
-            name = entry.name
-            if name.startswith(".") and name not in (".backup",):
-                continue
-            if name in _EXCLUDED_DIRS:
-                continue
-            folders.append({"name": name, "path": name})
-    except OSError:
-        pass
-
+    folders = list_all_project_folders(_project_root())
     return jsonify({"folders": folders})
 
 
@@ -223,7 +142,7 @@ def content_list():  # type: ignore[no-untyped-def]
     # ra=None means "skip orphan check", ra=set() means "check assets"
     ra: set[str] | None = None
     if check_release:
-        from .content_release import list_release_assets
+        from src.core.services.content_release import list_release_assets
         remote = list_release_assets(root)
         if remote.get("available"):
             ra = {a["name"] for a in remote["assets"]}
@@ -262,96 +181,25 @@ def content_list():  # type: ignore[no-untyped-def]
 
 @content_bp.route("/content/encrypt", methods=["POST"])
 def content_encrypt():  # type: ignore[no-untyped-def]
-    """Encrypt a file using COVAULT format.
-
-    JSON body:
-        path: relative path to the source file
-        delete_original: whether to delete the original after encryption (default: false)
-
-    Uses CONTENT_VAULT_ENC_KEY from .env as the encryption key.
-    """
+    """Encrypt a file using COVAULT format."""
     data = request.get_json(silent=True) or {}
     rel_path = data.get("path", "").strip()
-    delete_original = data.get("delete_original", False)
-
     if not rel_path:
         return jsonify({"error": "Missing 'path'"}), 400
 
-    source = _resolve_safe_path(rel_path)
-    if source is None:
-        return jsonify({"error": "Invalid path"}), 400
-    if not source.is_file():
-        return jsonify({"error": f"File not found: {rel_path}"}), 404
+    result = encrypt_content_file(
+        _project_root(),
+        rel_path,
+        _get_enc_key() or "",
+        delete_original=data.get("delete_original", False),
+    )
 
-    passphrase = _get_enc_key()
-    if not passphrase:
-        return jsonify({"error": "CONTENT_VAULT_ENC_KEY is not set in .env", "needs_key": True}), 400
-
-    try:
-        output = encrypt_file(source, passphrase)
-        result = {
-            "success": True,
-            "source": rel_path,
-            "output": str(output.relative_to(_project_root())),
-            "original_size": source.stat().st_size,
-            "encrypted_size": output.stat().st_size,
-        }
-
-        if delete_original:
-            source.unlink()
-            result["original_deleted"] = True
-
-        # Update release artifact if file is in .large/
-        if ".large" in source.parts:
-            from .content_release import cleanup_release_sidecar, upload_to_release_bg
-
-            # Remove old release metadata + asset
-            cleanup_release_sidecar(source, _project_root())
-
-            # Upload new encrypted version
-            file_id = output.stem
-            upload_to_release_bg(file_id, output, _project_root())
-            new_meta = output.parent / f"{output.name}.release.json"
-            new_meta.write_text(json.dumps({
-                "file_id": file_id,
-                "asset_name": output.name,
-                "uploaded_at": datetime.now(timezone.utc).isoformat(),
-                "status": "uploading",
-            }, indent=2))
-            result["release_updated"] = True
-
-        devops_cache.record_event(
-            _project_root(),
-            label="🔒 File Encrypted",
-            summary=f"{rel_path} encrypted ({result['original_size']:,} → {result['encrypted_size']:,} bytes)"
-                    + (" — original deleted" if delete_original else ""),
-            detail={
-                "file": rel_path,
-                "original_size": result["original_size"],
-                "encrypted_size": result["encrypted_size"],
-                "original_deleted": delete_original,
-            },
-            card="content",
-            action="encrypted",
-            target=rel_path,
-            before_state={"size": result["original_size"]},
-            after_state={"size": result["encrypted_size"], "encrypted": True},
-        )
-
-        return jsonify(result)
-
-    except ValueError as e:
-        return jsonify({"error": str(e)}), 400
-    except Exception as e:
-        logger.exception("Failed to encrypt %s", rel_path)
-        devops_cache.record_event(
-            _project_root(),
-            label="❌ Encrypt Failed",
-            summary=f"{rel_path}: {e}",
-            detail={"file": rel_path, "error": str(e)},
-            card="content",
-        )
-        return jsonify({"error": f"Encryption failed: {e}"}), 500
+    if "error" in result:
+        code = result.pop("_status", 400)
+        if "not found" in result["error"].lower():
+            code = 404
+        return jsonify(result), code
+    return jsonify(result)
 
 
 # ── Decrypt a file ──────────────────────────────────────────────────
@@ -359,94 +207,25 @@ def content_encrypt():  # type: ignore[no-untyped-def]
 
 @content_bp.route("/content/decrypt", methods=["POST"])
 def content_decrypt():  # type: ignore[no-untyped-def]
-    """Decrypt a .enc file.
-
-    JSON body:
-        path: relative path to the .enc file
-        delete_encrypted: whether to delete the .enc after decryption (default: false)
-
-    Uses CONTENT_VAULT_ENC_KEY from .env as the decryption key.
-    """
+    """Decrypt a .enc file."""
     data = request.get_json(silent=True) or {}
     rel_path = data.get("path", "").strip()
-    delete_encrypted = data.get("delete_encrypted", False)
-
     if not rel_path:
         return jsonify({"error": "Missing 'path'"}), 400
 
-    vault_file = _resolve_safe_path(rel_path)
-    if vault_file is None:
-        return jsonify({"error": "Invalid path"}), 400
-    if not vault_file.is_file():
-        return jsonify({"error": f"File not found: {rel_path}"}), 404
+    result = decrypt_content_file(
+        _project_root(),
+        rel_path,
+        _get_enc_key() or "",
+        delete_encrypted=data.get("delete_encrypted", False),
+    )
 
-    passphrase = _get_enc_key()
-    if not passphrase:
-        return jsonify({"error": "CONTENT_VAULT_ENC_KEY is not set in .env", "needs_key": True}), 400
-
-    try:
-        output = decrypt_file(vault_file, passphrase)
-        result = {
-            "success": True,
-            "source": rel_path,
-            "output": str(output.relative_to(_project_root())),
-            "decrypted_size": output.stat().st_size,
-        }
-
-        if delete_encrypted:
-            vault_file.unlink()
-            result["encrypted_deleted"] = True
-
-        # Update release artifact if file is in .large/
-        if ".large" in vault_file.parts:
-            from .content_release import cleanup_release_sidecar, upload_to_release_bg
-
-            # Remove old release metadata + asset
-            cleanup_release_sidecar(vault_file, _project_root())
-
-            # Upload new decrypted version
-            file_id = output.stem
-            upload_to_release_bg(file_id, output, _project_root())
-            new_meta = output.parent / f"{output.name}.release.json"
-            new_meta.write_text(json.dumps({
-                "file_id": file_id,
-                "asset_name": output.name,
-                "uploaded_at": datetime.now(timezone.utc).isoformat(),
-                "status": "uploading",
-            }, indent=2))
-            result["release_updated"] = True
-
-        devops_cache.record_event(
-            _project_root(),
-            label="🔓 File Decrypted",
-            summary=f"{rel_path} decrypted ({result['decrypted_size']:,} bytes)"
-                    + (" — encrypted copy deleted" if delete_encrypted else ""),
-            detail={
-                "file": rel_path,
-                "decrypted_size": result["decrypted_size"],
-                "encrypted_deleted": delete_encrypted,
-            },
-            card="content",
-            action="decrypted",
-            target=rel_path,
-            before_state={"encrypted": True},
-            after_state={"size": result["decrypted_size"], "encrypted": False},
-        )
-
-        return jsonify(result)
-
-    except ValueError as e:
-        return jsonify({"error": str(e)}), 400
-    except Exception as e:
-        logger.exception("Failed to decrypt %s", rel_path)
-        devops_cache.record_event(
-            _project_root(),
-            label="❌ Decrypt Failed",
-            summary=f"{rel_path}: {e}",
-            detail={"file": rel_path, "error": str(e)},
-            card="content",
-        )
-        return jsonify({"error": f"Decryption failed: {e}"}), 500
+    if "error" in result:
+        code = result.pop("_status", 400)
+        if "not found" in result["error"].lower():
+            code = 404
+        return jsonify(result), code
+    return jsonify(result)
 
 
 # ── Read metadata (no passphrase needed) ─────────────────────────────

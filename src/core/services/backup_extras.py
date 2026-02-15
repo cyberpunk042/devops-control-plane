@@ -8,10 +8,24 @@ import subprocess
 from pathlib import Path
 
 from src.core.services.backup_common import (
-    backup_dir_for, classify_file, resolve_folder, MEDIA_EXT, DOC_EXT,
+    backup_dir_for, classify_file, resolve_folder, SKIP_DIRS, MEDIA_EXT, DOC_EXT,
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _audit(label: str, summary: str, **kwargs) -> None:
+    """Record an audit event if a project root is registered."""
+    try:
+        from src.core.context import get_project_root
+        root = get_project_root()
+    except Exception:
+        return
+    if root is None:
+        return
+    from src.core.services.devops_cache import record_event
+    record_event(root, label=label, summary=summary, card="backup", **kwargs)
+
 
 _SPECIAL_MAX_BYTES = 25 * 1024 * 1024  # 25 MB
 
@@ -38,6 +52,13 @@ def mark_special(project_root: Path, backup_path: str, *, unmark: bool = False) 
                 text=True,
                 timeout=15,
             )
+            _audit(
+                "📌 Backup Unmarked",
+                f"{backup_path} removed from git tracking",
+                action="unmarked",
+                target=backup_path,
+                detail={"backup": backup_path, "unmark": True},
+            )
             return {"success": True, "message": "Removed from git tracking"}
         except Exception as e:
             return {"error": f"git rm --cached failed: {e}"}
@@ -63,6 +84,13 @@ def mark_special(project_root: Path, backup_path: str, *, unmark: bool = False) 
         )
         if result.returncode != 0:
             return {"error": f"git add -f failed: {result.stderr[:200]}"}
+        _audit(
+            "📌 Backup Marked",
+            f"{backup_path} added to git tracking",
+            action="marked",
+            target=backup_path,
+            detail={"backup": backup_path, "unmark": False},
+        )
         return {
             "success": True,
             "message": f"Added to git (force): {file_path.name}",
@@ -174,6 +202,136 @@ def file_tree_scan(
 
     counts = _count(tree)
     return {"root": rel_path, "tree": tree, "counts": counts}
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  Release operations (upload/delete release artifacts for backups)
+# ═══════════════════════════════════════════════════════════════════
+
+
+def upload_backup_to_release(project_root: Path, backup_path: str) -> dict:
+    """Upload a backup file to a GitHub Release as an artifact.
+
+    Creates release metadata sidecar and starts background upload.
+
+    Args:
+        project_root: Project root directory.
+        backup_path: Relative path to the backup file.
+
+    Returns:
+        Dict with success info or error.
+    """
+    import json
+    from datetime import datetime, timezone
+
+    if not backup_path:
+        return {"error": "Missing 'path'"}
+
+    file_path = (project_root / backup_path).resolve()
+    try:
+        file_path.relative_to(project_root)
+    except ValueError:
+        return {"error": "Invalid path"}
+
+    if not file_path.exists():
+        return {"error": "File not found", "_status": 404}
+
+    try:
+        from src.core.services.content_release import upload_to_release_bg
+        file_id = f"backup_{file_path.stem}"
+        upload_to_release_bg(file_id, file_path, project_root)
+
+        meta_path = file_path.parent / f"{file_path.name}.release.json"
+        meta = {
+            "file_id": file_id,
+            "asset_name": file_path.name,
+            "uploaded_at": datetime.now(timezone.utc).isoformat(),
+            "status": "uploading",
+        }
+        meta_path.write_text(json.dumps(meta, indent=2))
+
+        _audit(
+            "☁️ Backup Release Upload",
+            f"{file_path.name} upload started to GitHub Release",
+            action="uploaded",
+            target=backup_path,
+            detail={"file": backup_path, "file_id": file_id},
+        )
+
+        return {
+            "success": True,
+            "file_id": file_id,
+            "message": f"Upload started for {file_path.name}",
+        }
+    except Exception as e:
+        logger.exception("Failed to start release upload")
+        _audit(
+            "❌ Backup Release Upload Failed",
+            f"{file_path.name}: {e}",
+            detail={"file": backup_path, "error": str(e)},
+        )
+        return {"error": f"Upload failed: {e}", "_status": 500}
+
+
+def delete_backup_release(project_root: Path, backup_path: str) -> dict:
+    """Delete a backup file's GitHub Release artifact.
+
+    Reads release metadata sidecar, deletes the asset, and cleans up.
+
+    Args:
+        project_root: Project root directory.
+        backup_path: Relative path to the backup file.
+
+    Returns:
+        Dict with success info or error.
+    """
+    import json
+
+    if not backup_path:
+        return {"error": "Missing 'backup_path'"}
+
+    file_path = (project_root / backup_path).resolve()
+    try:
+        file_path.relative_to(project_root)
+    except ValueError:
+        return {"error": "Invalid path"}
+
+    meta_path = file_path.parent / f"{file_path.name}.release.json"
+    if not meta_path.exists():
+        return {"error": "No release metadata found for this backup", "_status": 404}
+
+    try:
+        meta = json.loads(meta_path.read_text())
+    except Exception:
+        return {"error": "Could not read release metadata", "_status": 500}
+
+    asset_name = meta.get("old_asset_name") or meta.get("asset_name", file_path.name)
+
+    try:
+        from src.core.services.content_release import delete_release_asset
+        delete_release_asset(asset_name, project_root)
+        meta_path.unlink(missing_ok=True)
+
+        _audit(
+            "☁️❌ Release Asset Deleted",
+            f"Release asset '{asset_name}' deletion queued",
+            action="deleted",
+            target=asset_name,
+            detail={"backup": backup_path, "asset": asset_name},
+        )
+
+        return {
+            "success": True,
+            "message": f"Queued deletion of release asset: {asset_name}",
+        }
+    except Exception as e:
+        logger.exception("Failed to delete release asset")
+        _audit(
+            "❌ Release Delete Failed",
+            f"{asset_name}: {e}",
+            detail={"backup": backup_path, "asset": asset_name, "error": str(e)},
+        )
+        return {"error": f"Deletion failed: {e}", "_status": 500}
 
 
 # ═══════════════════════════════════════════════════════════════════

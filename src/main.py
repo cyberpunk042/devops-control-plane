@@ -49,6 +49,12 @@ def cli(
     ctx.obj["debug"] = debug
     ctx.obj["config_path"] = Path(config_path) if config_path else None
 
+    # Register project root in core context (used by all core services for audit)
+    from src.core.config.loader import find_project_file
+    from src.core.context import set_project_root as _set_ctx_root
+    _cfg = ctx.obj["config_path"] or find_project_file()
+    _set_ctx_root(_cfg.parent.resolve() if _cfg else Path.cwd())
+
     # ── Logging setup (once, at process start) ──────────────────
     if debug:
         level = "DEBUG"

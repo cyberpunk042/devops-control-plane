@@ -1,25 +1,8 @@
-"""
-Admin API — Backup archive management endpoints.
-
-Thin HTTP wrappers over ``src.core.services.backup_ops``.
-
-Blueprint: backup_bp (imported from routes_backup)
-Prefix: /api
-Routes:
-    /api/backup/export           — create a backup archive from selected items
-    /api/backup/list             — list backups in .backup/ of a target folder
-    /api/backup/preview          — list files inside a backup archive
-    /api/backup/download/<fn>    — download a backup archive
-    /api/backup/upload           — upload an archive into a folder's .backup/
-"""
-
 from __future__ import annotations
-
-from datetime import datetime, timezone
 
 from flask import jsonify, request, send_file
 
-from src.core.services import backup_ops, devops_cache
+from src.core.services import backup_ops
 from .routes_backup import backup_bp, _project_root
 
 
@@ -47,31 +30,8 @@ def api_export():  # type: ignore[no-untyped-def]
 
     if "error" in result:
         code = 404 if "not found" in result["error"].lower() else 400
-        devops_cache.record_event(
-            root,
-            label="❌ Backup Export Failed",
-            summary=f"{target_folder}: {result['error']}",
-            detail={"folder": target_folder, "error": result["error"]},
-            card="backup",
-        )
         return jsonify(result), code
 
-    devops_cache.record_event(
-        root,
-        label="📦 Backup Created",
-        summary=f"{target_folder}: {len(paths)} items archived"
-                + (" (encrypted)" if encrypt_flag else ""),
-        detail={
-            "folder": target_folder,
-            "items": len(paths),
-            "encrypted": encrypt_flag,
-            "archive": result.get("filename", ""),
-        },
-        card="backup",
-        action="created",
-        target=result.get("filename", target_folder),
-        after_state={"items": len(paths), "encrypted": encrypt_flag},
-    )
     return jsonify(result)
 
 
@@ -149,60 +109,14 @@ def api_upload():  # type: ignore[no-untyped-def]
     file = request.files["file"]
     target_folder = request.form.get("target_folder", "docs")
 
-    if not file.filename or not file.filename.endswith((".tar.gz", ".gz", ".tar.gz.enc", ".enc")):
-        return jsonify({"error": "File must be a .tar.gz or .tar.gz.enc archive"}), 400
-
-    folder = backup_ops.resolve_folder(_project_root(), target_folder)
-    if folder is None:
-        return jsonify({"error": f"Folder not found: {target_folder}"}), 404
-
-    root = _project_root()
-    bak_dir = backup_ops.backup_dir_for(folder)
-
-    # Generate safe name
-    if backup_ops.safe_backup_name(file.filename):
-        dest_name = file.filename
-    else:
-        ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
-        is_enc = file.filename.endswith(".enc")
-        dest_name = f"backup_{ts}.tar.gz{'.enc' if is_enc else ''}"
-
-    dest = bak_dir / dest_name
-    file.save(str(dest))
-
-    # Try to read manifest (only works for unencrypted archives)
-    manifest = None
-    is_encrypted = dest.name.endswith(".enc")
-    if not is_encrypted:
-        manifest = backup_ops.read_manifest(dest)
-        if not manifest:
-            dest.unlink()
-            return jsonify({"error": "Invalid archive: no backup_manifest.json found"}), 400
-
-    size_bytes = dest.stat().st_size
-    devops_cache.record_event(
-        root,
-        label="📤 Backup Uploaded",
-        summary=f"{dest_name} uploaded to {target_folder}/.backup/ ({size_bytes:,} bytes)"
-                + (" (encrypted)" if is_encrypted else ""),
-        detail={
-            "filename": dest_name,
-            "folder": target_folder,
-            "size_bytes": size_bytes,
-            "encrypted": is_encrypted,
-        },
-        card="backup",
-        action="uploaded",
-        target=dest_name,
-        after_state={"size": size_bytes, "encrypted": is_encrypted},
+    result = backup_ops.upload_backup(
+        _project_root(),
+        file.read(),
+        file.filename or "",
+        target_folder,
     )
 
-    return jsonify({
-        "success": True,
-        "filename": dest_name,
-        "folder": target_folder,
-        "full_path": str(dest.relative_to(root)),
-        "size_bytes": size_bytes,
-        "encrypted": is_encrypted,
-        "manifest": manifest,
-    })
+    if "error" in result:
+        code = result.pop("_status", 400)
+        return jsonify(result), code
+    return jsonify(result)

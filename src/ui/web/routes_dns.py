@@ -17,7 +17,7 @@ from pathlib import Path
 
 from flask import Blueprint, current_app, jsonify, request
 
-from src.core.services import dns_cdn_ops, devops_cache
+from src.core.services import dns_cdn_ops
 
 dns_bp = Blueprint("dns", __name__)
 
@@ -76,14 +76,4 @@ def dns_generate():  # type: ignore[no-untyped-def]
     )
     if "error" in result:
         return jsonify(result), 400
-
-    devops_cache.record_event(
-        _project_root(),
-        label="🌐 DNS Records Generated",
-        summary=f"DNS records generated for {domain}",
-        detail={"domain": domain},
-        card="dns",
-        action="generated",
-        target=domain,
-    )
     return jsonify(result)

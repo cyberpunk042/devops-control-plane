@@ -19,7 +19,7 @@ from pathlib import Path
 
 from flask import Blueprint, current_app, jsonify, request
 
-from src.core.services import terraform_ops, devops_cache
+from src.core.services import terraform_ops
 
 terraform_bp = Blueprint("terraform", __name__)
 
@@ -59,15 +59,6 @@ def tf_plan():  # type: ignore[no-untyped-def]
     if "error" in result:
         return jsonify(result), 400
 
-    devops_cache.record_event(
-        root,
-        label="📋 Terraform Plan",
-        summary="Plan executed",
-        detail={},
-        card="terraform",
-        action="planned",
-        target="infrastructure",
-    )
     return jsonify(result)
 
 
@@ -99,16 +90,6 @@ def tf_generate():  # type: ignore[no-untyped-def]
     if "error" in result:
         return jsonify(result), 400
 
-    devops_cache.record_event(
-        root,
-        label="📝 Terraform Generated",
-        summary=f"Scaffolding generated (provider={provider}, backend={backend})",
-        detail={"provider": provider, "backend": backend},
-        card="terraform",
-        action="generated",
-        target="terraform",
-        after_state={"provider": provider, "backend": backend},
-    )
     return jsonify(result)
 
 
@@ -125,15 +106,6 @@ def tf_init():  # type: ignore[no-untyped-def]
     if not result.get("ok"):
         return jsonify(result), 400
 
-    devops_cache.record_event(
-        root,
-        label="⚙️ Terraform Init",
-        summary="Terraform initialized" + (" (upgrade)" if upgrade else ""),
-        detail={"upgrade": upgrade},
-        card="terraform",
-        action="initialized",
-        target="terraform",
-    )
     return jsonify(result)
 
 
@@ -145,15 +117,6 @@ def tf_apply():  # type: ignore[no-untyped-def]
     if not result.get("ok"):
         return jsonify(result), 400
 
-    devops_cache.record_event(
-        root,
-        label="🚀 Terraform Apply",
-        summary="Infrastructure changes applied",
-        detail={},
-        card="terraform",
-        action="applied",
-        target="infrastructure",
-    )
     return jsonify(result)
 
 
@@ -174,15 +137,6 @@ def tf_destroy():  # type: ignore[no-untyped-def]
     if not result.get("ok"):
         return jsonify(result), 400
 
-    devops_cache.record_event(
-        root,
-        label="💥 Terraform Destroy",
-        summary="Infrastructure resources destroyed",
-        detail={},
-        card="terraform",
-        action="destroyed",
-        target="infrastructure",
-    )
     return jsonify(result)
 
 
@@ -198,15 +152,6 @@ def tf_workspace_select():  # type: ignore[no-untyped-def]
     if not result.get("ok"):
         return jsonify(result), 400
 
-    devops_cache.record_event(
-        root,
-        label="🔀 Terraform Workspace",
-        summary=f"Workspace switched to '{workspace}'",
-        detail={"workspace": workspace},
-        card="terraform",
-        action="switched",
-        target=workspace,
-    )
     return jsonify(result)
 
 
@@ -218,13 +163,4 @@ def tf_fmt():  # type: ignore[no-untyped-def]
     if not result.get("ok"):
         return jsonify(result), 400
 
-    devops_cache.record_event(
-        root,
-        label="✨ Terraform Fmt",
-        summary="Terraform files formatted",
-        detail={},
-        card="terraform",
-        action="formatted",
-        target="terraform",
-    )
     return jsonify(result)
