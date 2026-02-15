@@ -10,10 +10,13 @@ Usage:
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 
 import click
+
+from src.core.observability.logging_config import setup_logging
 
 from src import __version__
 
@@ -22,6 +25,7 @@ from src import __version__
 @click.version_option(version=__version__, prog_name="controlplane")
 @click.option("--verbose", "-v", is_flag=True, help="Enable verbose output.")
 @click.option("--quiet", "-q", is_flag=True, help="Suppress non-essential output.")
+@click.option("--debug", is_flag=True, help="Enable debug logging (very verbose).")
 @click.option(
     "--config",
     "-c",
@@ -31,12 +35,36 @@ from src import __version__
     help="Path to project.yml (default: auto-detect).",
 )
 @click.pass_context
-def cli(ctx: click.Context, verbose: bool, quiet: bool, config_path: str | None) -> None:
+def cli(
+    ctx: click.Context,
+    verbose: bool,
+    quiet: bool,
+    debug: bool,
+    config_path: str | None,
+) -> None:
     """DevOps Control Plane — manage your project infrastructure."""
     ctx.ensure_object(dict)
     ctx.obj["verbose"] = verbose
     ctx.obj["quiet"] = quiet
+    ctx.obj["debug"] = debug
     ctx.obj["config_path"] = Path(config_path) if config_path else None
+
+    # ── Logging setup (once, at process start) ──────────────────
+    if debug:
+        level = "DEBUG"
+    elif verbose:
+        level = "INFO"
+    elif quiet:
+        level = "ERROR"
+    else:
+        level = os.environ.get("DCP_LOG_LEVEL", "WARNING")
+
+    setup_logging(
+        level=level,
+        log_file=os.environ.get("DCP_LOG_FILE"),
+        log_file_level=os.environ.get("DCP_LOG_FILE_LEVEL"),
+        quiet_third_party=not debug,
+    )
 
 
 @cli.command()
@@ -393,15 +421,19 @@ def web(ctx: click.Context, host: str, port: int, mock: bool) -> None:
         mock_mode=mock,
     )
 
+    debug = ctx.obj.get("debug", False)
+
     click.echo()
     click.secho("⚡ DevOps Control Plane — Web Admin", bold=True)
     click.echo(f"   Dashboard: http://{host}:{port}")
     click.echo(f"   Project:   {project_root}")
     if mock:
         click.secho("   Mode: mock (no real execution)", fg="yellow")
+    if debug:
+        click.secho("   Logging: DEBUG (all output)", fg="yellow")
     click.echo()
 
-    run_server(app, host=host, port=port)
+    run_server(app, host=host, port=port, debug=debug)
 
 
 # ── Register sub-command groups from src/ui/cli/ ──────────────────

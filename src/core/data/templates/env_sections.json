@@ -1,0 +1,187 @@
+[
+  {
+    "id": "content_vault",
+    "name": "Content Vault",
+    "description": "Encryption key for content file protection",
+    "special": true,
+    "keys": [
+      {
+        "key": "CONTENT_VAULT_ENC_KEY",
+        "default": "__auto_generate__",
+        "comment": "Auto-generated AES-256 key for content encryption"
+      }
+    ]
+  },
+  {
+    "id": "github_ci",
+    "name": "GitHub CI",
+    "description": "GitHub Actions and CI/CD integration",
+    "keys": [
+      {
+        "key": "GITHUB_TOKEN",
+        "default": "",
+        "comment": "Auto-provided by GitHub Actions"
+      },
+      {
+        "key": "GITHUB_REPOSITORY",
+        "default": "",
+        "comment": "owner/repo — auto-detected from git remote"
+      }
+    ]
+  },
+  {
+    "id": "database",
+    "name": "Database",
+    "description": "Database connection settings",
+    "keys": [
+      {
+        "key": "DATABASE_URL",
+        "default": "",
+        "comment": "e.g. postgres://localhost:5432/mydb"
+      },
+      {
+        "key": "DATABASE_HOST",
+        "default": "localhost",
+        "comment": ""
+      },
+      {
+        "key": "DATABASE_PORT",
+        "default": "5432",
+        "comment": ""
+      },
+      {
+        "key": "DATABASE_NAME",
+        "default": "",
+        "comment": ""
+      },
+      {
+        "key": "DATABASE_USER",
+        "default": "",
+        "comment": ""
+      },
+      {
+        "key": "DATABASE_PASSWORD",
+        "default": "",
+        "comment": ""
+      }
+    ]
+  },
+  {
+    "id": "api_keys",
+    "name": "API Keys",
+    "description": "External service API keys and tokens",
+    "keys": [
+      {
+        "key": "API_KEY",
+        "default": "",
+        "comment": "Primary API key"
+      },
+      {
+        "key": "API_SECRET",
+        "default": "",
+        "comment": "Primary API secret"
+      },
+      {
+        "key": "OPENAI_API_KEY",
+        "default": "",
+        "comment": "OpenAI API key"
+      },
+      {
+        "key": "STRIPE_SECRET_KEY",
+        "default": "",
+        "comment": "Stripe secret key"
+      }
+    ]
+  },
+  {
+    "id": "app_config",
+    "name": "App Config",
+    "description": "Application configuration variables",
+    "keys": [
+      {
+        "key": "APP_ENV",
+        "default": "development",
+        "comment": "development | staging | production"
+      },
+      {
+        "key": "DEBUG",
+        "default": "true",
+        "comment": "Enable debug mode"
+      },
+      {
+        "key": "LOG_LEVEL",
+        "default": "info",
+        "comment": "debug | info | warning | error"
+      },
+      {
+        "key": "SECRET_KEY",
+        "default": "",
+        "comment": "App secret key for sessions/CSRF"
+      },
+      {
+        "key": "PORT",
+        "default": "3000",
+        "comment": "Application port"
+      }
+    ]
+  },
+  {
+    "id": "email",
+    "name": "Email / SMTP",
+    "description": "Email and notification service credentials",
+    "keys": [
+      {
+        "key": "SMTP_HOST",
+        "default": "",
+        "comment": "SMTP server hostname"
+      },
+      {
+        "key": "SMTP_PORT",
+        "default": "587",
+        "comment": ""
+      },
+      {
+        "key": "SMTP_USER",
+        "default": "",
+        "comment": ""
+      },
+      {
+        "key": "SMTP_PASSWORD",
+        "default": "",
+        "comment": ""
+      },
+      {
+        "key": "SMTP_FROM",
+        "default": "",
+        "comment": "Default sender address"
+      }
+    ]
+  },
+  {
+    "id": "cloud",
+    "name": "Cloud / Storage",
+    "description": "Cloud provider and object storage credentials",
+    "keys": [
+      {
+        "key": "AWS_ACCESS_KEY_ID",
+        "default": "",
+        "comment": ""
+      },
+      {
+        "key": "AWS_SECRET_ACCESS_KEY",
+        "default": "",
+        "comment": ""
+      },
+      {
+        "key": "AWS_REGION",
+        "default": "us-east-1",
+        "comment": ""
+      },
+      {
+        "key": "S3_BUCKET",
+        "default": "",
+        "comment": ""
+      }
+    ]
+  }
+]

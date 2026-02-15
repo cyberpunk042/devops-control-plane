@@ -1,0 +1,103 @@
+[
+  {
+    "group": "Self-hosted",
+    "items": [
+      {
+        "name": "longhorn",
+        "provisioner": "driver.longhorn.io",
+        "hint": "Distributed block storage for K8s",
+        "hasExtra": true
+      },
+      {
+        "name": "local-path",
+        "provisioner": "rancher.io/local-path",
+        "hint": "Local node storage (Rancher/K3s)"
+      },
+      {
+        "name": "nfs-client",
+        "provisioner": "cluster.local/nfs-subdir-external",
+        "hint": "NFS external provisioner"
+      },
+      {
+        "name": "openebs-hostpath",
+        "provisioner": "openebs.io/local",
+        "hint": "OpenEBS local PV"
+      },
+      {
+        "name": "rook-ceph-block",
+        "provisioner": "rook-ceph.rbd.csi.ceph.com",
+        "hint": "Ceph block via Rook"
+      }
+    ]
+  },
+  {
+    "group": "AWS",
+    "items": [
+      {
+        "name": "gp3",
+        "provisioner": "ebs.csi.aws.com",
+        "hint": "General purpose SSD (recommended)"
+      },
+      {
+        "name": "gp2",
+        "provisioner": "kubernetes.io/aws-ebs",
+        "hint": "General purpose SSD (legacy)"
+      },
+      {
+        "name": "io1",
+        "provisioner": "ebs.csi.aws.com",
+        "hint": "Provisioned IOPS SSD"
+      },
+      {
+        "name": "efs-sc",
+        "provisioner": "efs.csi.aws.com",
+        "hint": "Elastic File System (NFS)"
+      }
+    ]
+  },
+  {
+    "group": "GKE",
+    "items": [
+      {
+        "name": "standard-rwo",
+        "provisioner": "pd.csi.storage.gke.io",
+        "hint": "Standard persistent disk"
+      },
+      {
+        "name": "premium-rwo",
+        "provisioner": "pd.csi.storage.gke.io",
+        "hint": "SSD persistent disk"
+      }
+    ]
+  },
+  {
+    "group": "Azure",
+    "items": [
+      {
+        "name": "managed-csi",
+        "provisioner": "disk.csi.azure.com",
+        "hint": "Azure managed disk (LRS)"
+      },
+      {
+        "name": "managed-csi-premium",
+        "provisioner": "disk.csi.azure.com",
+        "hint": "Premium SSD managed disk"
+      },
+      {
+        "name": "azurefile-csi",
+        "provisioner": "file.csi.azure.com",
+        "hint": "Azure File Share (RWX)"
+      }
+    ]
+  },
+  {
+    "group": "DigitalOcean",
+    "items": [
+      {
+        "name": "do-block-storage",
+        "provisioner": "dobs.csi.digitalocean.com",
+        "hint": "Block storage volume"
+      }
+    ]
+  }
+]

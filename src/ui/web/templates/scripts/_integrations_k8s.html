@@ -632,7 +632,7 @@
 
     // ── K8s: manifest wizard ──────────────────────────────────────────
 
-    const _KW_KINDS = ['Deployment','Service','ConfigMap','Ingress','Namespace','Secret','Job','CronJob','StatefulSet','DaemonSet'];
+    const _KW_KINDS = window._dcp.k8sKinds;
 
     function _k8sWizardModal() {
         const body =

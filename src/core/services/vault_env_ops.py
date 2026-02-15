@@ -26,100 +26,7 @@ logger = logging.getLogger(__name__)
 #  Constants
 # ═══════════════════════════════════════════════════════════════════
 
-_SECRET_PATTERNS = frozenset({
-    "key", "secret", "token", "password", "passwd", "pass",
-    "credential", "auth", "api_key", "apikey", "private",
-    "jwt", "cert", "certificate", "signing",
-})
-
 _ACTIVE_MARKER = ".env.active"
-
-
-# ── .env Template Sections ───────────────────────────────────────
-
-ENV_TEMPLATE_SECTIONS = [
-    {
-        "id": "content_vault",
-        "name": "Content Vault",
-        "description": "Encryption key for content file protection",
-        "special": True,
-        "keys": [
-            {
-                "key": "CONTENT_VAULT_ENC_KEY",
-                "default": "__auto_generate__",
-                "comment": "Auto-generated AES-256 key for content encryption",
-            },
-        ],
-    },
-    {
-        "id": "github_ci",
-        "name": "GitHub CI",
-        "description": "GitHub Actions and CI/CD integration",
-        "keys": [
-            {"key": "GITHUB_TOKEN", "default": "", "comment": "Auto-provided by GitHub Actions"},
-            {"key": "GITHUB_REPOSITORY", "default": "", "comment": "owner/repo — auto-detected from git remote"},
-        ],
-    },
-    {
-        "id": "database",
-        "name": "Database",
-        "description": "Database connection settings",
-        "keys": [
-            {"key": "DATABASE_URL", "default": "", "comment": "e.g. postgres://localhost:5432/mydb"},
-            {"key": "DATABASE_HOST", "default": "localhost", "comment": ""},
-            {"key": "DATABASE_PORT", "default": "5432", "comment": ""},
-            {"key": "DATABASE_NAME", "default": "", "comment": ""},
-            {"key": "DATABASE_USER", "default": "", "comment": ""},
-            {"key": "DATABASE_PASSWORD", "default": "", "comment": ""},
-        ],
-    },
-    {
-        "id": "api_keys",
-        "name": "API Keys",
-        "description": "External service API keys and tokens",
-        "keys": [
-            {"key": "API_KEY", "default": "", "comment": "Primary API key"},
-            {"key": "API_SECRET", "default": "", "comment": "Primary API secret"},
-            {"key": "OPENAI_API_KEY", "default": "", "comment": "OpenAI API key"},
-            {"key": "STRIPE_SECRET_KEY", "default": "", "comment": "Stripe secret key"},
-        ],
-    },
-    {
-        "id": "app_config",
-        "name": "App Config",
-        "description": "Application configuration variables",
-        "keys": [
-            {"key": "APP_ENV", "default": "development", "comment": "development | staging | production"},
-            {"key": "DEBUG", "default": "true", "comment": "Enable debug mode"},
-            {"key": "LOG_LEVEL", "default": "info", "comment": "debug | info | warning | error"},
-            {"key": "SECRET_KEY", "default": "", "comment": "App secret key for sessions/CSRF"},
-            {"key": "PORT", "default": "3000", "comment": "Application port"},
-        ],
-    },
-    {
-        "id": "email",
-        "name": "Email / SMTP",
-        "description": "Email and notification service credentials",
-        "keys": [
-            {"key": "SMTP_HOST", "default": "", "comment": "SMTP server hostname"},
-            {"key": "SMTP_PORT", "default": "587", "comment": ""},
-            {"key": "SMTP_USER", "default": "", "comment": ""},
-            {"key": "SMTP_PASSWORD", "default": "", "comment": ""},
-            {"key": "SMTP_FROM", "default": "", "comment": "Default sender address"},
-        ],
-    },
-    {
-        "id": "cloud",
-        "name": "Cloud / Storage",
-        "description": "Cloud provider and object storage credentials",
-        "keys": [
-            {"key": "AWS_ACCESS_KEY_ID", "default": "", "comment": ""},
-            {"key": "AWS_SECRET_ACCESS_KEY", "default": "", "comment": ""},
-            {"key": "AWS_REGION", "default": "us-east-1", "comment": ""},
-            {"key": "S3_BUCKET", "default": "", "comment": ""},
-        ],
-    },
-]
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -127,13 +34,23 @@ ENV_TEMPLATE_SECTIONS = [
 # ═══════════════════════════════════════════════════════════════════
 
 
-def classify_key(key_name: str) -> str:
-    """Classify a key as 'secret' or 'config' based on name patterns."""
-    lower = key_name.lower()
-    for pattern in _SECRET_PATTERNS:
-        if pattern in lower:
-            return "secret"
-    return "config"
+# Re-export from the data layer — single source of truth.
+from src.core.data import classify_key  # noqa: E402
+from src.core.data import get_registry as _registry  # noqa: E402
+
+
+
+# Module-level alias so existing ``ENV_TEMPLATE_SECTIONS`` references
+# keep working.  It's now a thin wrapper around the registry.
+ENV_TEMPLATE_SECTIONS: list[dict] = []  # populated on first use
+
+
+def _ensure_templates() -> list[dict]:
+    """Return env template sections, loading from registry on first call."""
+    global ENV_TEMPLATE_SECTIONS  # noqa: PLW0603
+    if not ENV_TEMPLATE_SECTIONS:
+        ENV_TEMPLATE_SECTIONS = _registry().env_templates
+    return ENV_TEMPLATE_SECTIONS
 
 
 def read_env_values(env_path: Path) -> dict[str, str]:
@@ -363,7 +280,7 @@ def list_keys_enriched(env_path: Path, vault_path: Path) -> dict:
 def get_templates() -> list[dict]:
     """Return available .env template sections for UI display."""
     sections = []
-    for s in ENV_TEMPLATE_SECTIONS:
+    for s in _ensure_templates():
         sections.append({
             "id": s["id"],
             "name": s["name"],
@@ -410,7 +327,7 @@ def create_env(
     key_count = 0
 
     if template_sections:
-        section_map = {s["id"]: s for s in ENV_TEMPLATE_SECTIONS}
+        section_map = {s["id"]: s for s in _ensure_templates()}
 
         ordered = []
         if "content_vault" in template_sections:

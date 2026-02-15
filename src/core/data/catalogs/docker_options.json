@@ -1,0 +1,14 @@
+{
+    "restart_policies": [
+        "unless-stopped",
+        "always",
+        "on-failure",
+        "no"
+    ],
+    "platform_options": [
+        "",
+        "linux/amd64",
+        "linux/arm64",
+        "linux/amd64,linux/arm64"
+    ]
+}

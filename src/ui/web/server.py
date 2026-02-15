@@ -109,6 +109,16 @@ def create_app(
 
         vault_module.touch_activity(req.path, req.method)
 
+    # Data catalogs — inject into every template context
+    from src.core.data import get_registry
+
+    _registry = get_registry()
+    app.config["DATA_REGISTRY"] = _registry
+
+    @app.context_processor
+    def _inject_data_catalogs():  # type: ignore[no-untyped-def]
+        return {"dcp_data": _registry.to_js_dict()}
+
     logger.info("Web admin app created (root=%s)", project_root)
     return app
 

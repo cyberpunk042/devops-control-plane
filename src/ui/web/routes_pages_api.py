@@ -67,7 +67,7 @@ def list_segments():  # type: ignore[no-untyped-def]
 @pages_api_bp.route("/pages/segments", methods=["POST"])
 def create_segment():  # type: ignore[no-untyped-def]
     """Add a new segment."""
-    from src.ui.web.pages_builders import SegmentConfig
+    from src.core.services.pages_builders import SegmentConfig
     from src.ui.web.pages_engine import add_segment, ensure_gitignore
 
     data = request.get_json(silent=True) or {}
@@ -153,7 +153,7 @@ def set_meta():  # type: ignore[no-untyped-def]
 @pages_api_bp.route("/pages/builders")
 def list_builders_route():  # type: ignore[no-untyped-def]
     """List available page builders with pipeline stage info."""
-    from src.ui.web.pages_builders import get_builder, list_builders
+    from src.core.services.pages_builders import get_builder, list_builders
 
     builders = list_builders()
     result = []
@@ -262,7 +262,7 @@ def list_features_route():  # type: ignore[no-untyped-def]
     descriptions, defaults, and dependency info. The UI renders this
     as the step-by-step configuration wizard.
     """
-    from src.ui.web.pages_builders.template_engine import (
+    from src.core.services.pages_builders.template_engine import (
         FEATURES,
         FEATURE_CATEGORIES,
     )
@@ -313,7 +313,7 @@ def install_builder_route(name: str):  # type: ignore[no-untyped-def]
 
     from flask import Response
 
-    from src.ui.web.pages_builders import get_builder
+    from src.core.services.pages_builders import get_builder
 
     builder = get_builder(name)
     if builder is None:
@@ -595,7 +595,7 @@ def init_pages():  # type: ignore[no-untyped-def]
         add_segment,
         ensure_gitignore,
     )
-    from src.ui.web.pages_builders import SegmentConfig, get_builder
+    from src.core.services.pages_builders import SegmentConfig, get_builder
 
     root = _project_root()
     project_data = _load_project_yml(root)
@@ -739,7 +739,7 @@ def build_stream_route(name: str):  # type: ignore[no-untyped-def]
 
     from flask import Response
 
-    from src.ui.web.pages_builders import get_builder
+    from src.core.services.pages_builders import get_builder
     from src.ui.web.pages_engine import (
         PAGES_WORKSPACE,
         ensure_gitignore,

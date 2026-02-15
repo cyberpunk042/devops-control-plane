@@ -1,0 +1,12 @@
+{
+    "db-rel": "🗄️ Relational Databases",
+    "db-nosql": "🍃 NoSQL & Time-Series",
+    "cache": "⚡ Caches & Key-Value",
+    "mq": "📨 Message Brokers & Queues",
+    "search": "🔍 Search & Analytics",
+    "proxy": "🌐 Reverse Proxies & Load Balancers",
+    "monitor": "📊 Monitoring & Observability",
+    "log": "📝 Logging",
+    "storage": "💾 Storage & Object Store",
+    "devops": "🔧 DevOps & Utilities"
+}

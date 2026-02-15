@@ -27,20 +27,8 @@ logger = logging.getLogger(__name__)
 #  Shared helpers
 # ═══════════════════════════════════════════════════════════════════
 
-_SECRET_PATTERNS = frozenset({
-    "key", "secret", "token", "password", "passwd", "pass",
-    "credential", "auth", "api_key", "apikey", "private",
-    "jwt", "cert", "certificate", "signing",
-})
-
-
-def classify_key(key_name: str) -> str:
-    """Classify a key as 'secret' or 'config' based on name patterns."""
-    lower = key_name.lower()
-    for pattern in _SECRET_PATTERNS:
-        if pattern in lower:
-            return "secret"
-    return "config"
+# Re-export from the data layer — single source of truth.
+from src.core.data import classify_key  # noqa: E402
 
 
 def fresh_env(project_root: Path) -> dict:

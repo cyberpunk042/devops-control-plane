@@ -1,0 +1,12 @@
+[
+    "Deployment",
+    "Service",
+    "ConfigMap",
+    "Ingress",
+    "Namespace",
+    "Secret",
+    "Job",
+    "CronJob",
+    "StatefulSet",
+    "DaemonSet"
+]
