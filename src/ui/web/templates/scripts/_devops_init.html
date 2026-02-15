@@ -37,8 +37,11 @@
     async function loadDevopsTab(force) {
         if (force) {
             cardInvalidateAll();
-            // Bust ALL server-side caches
-            api('/devops/cache/bust', { method: 'POST', body: JSON.stringify({ card: 'all' }) }).catch(() => {});
+            // Bust server-side caches (scoped to devops tab)
+            // MUST await: the server starts a background recompute thread
+            // that grabs locks on slow cards. If we don't wait, our card
+            // GETs race the bg thread and recompute under contention.
+            await api('/devops/cache/bust', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ card: 'devops' }) }).catch(() => {});
             _devopsLoaded = false;
             _devopsPrefs = null; // Re-fetch prefs too
         }

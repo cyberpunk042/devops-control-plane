@@ -83,18 +83,111 @@ def integration_prefs_put():
 def devops_cache_bust():
     """Bust server-side cache.
 
-    Body: {"card": "security"}  — bust one card (with cascade)
-    Body: {} or {"card": "all"} — bust all cards
+    Body: {"card": "security"}       — bust one card (with cascade)
+    Body: {"card": "devops"}         — bust devops tab cards only
+    Body: {"card": "integrations"}   — bust integration tab cards only
+    Body: {} or {"card": "all"}      — bust all cards
+
+    On scoped/all bust, starts a background thread that recomputes
+    the affected cards sequentially (no I/O contention).  Browser GETs
+    that arrive during recompute block on the per-key lock and get
+    fresh results without duplicating work.
     """
     data = request.get_json(silent=True) or {}
     card = data.get("card", "all")
 
-    if card == "all":
-        devops_cache.invalidate_all(_project_root())
-        return jsonify({"ok": True, "busted": "all"})
+    root = _project_root()
+    _ensure_registry()
+
+    # Scoped busts: devops / integrations / audit / all
+    if card in ("all", "devops", "integrations", "audit"):
+        if card == "all":
+            devops_cache.invalidate_all(root)
+            devops_cache.recompute_all(root)
+        else:
+            busted = devops_cache.invalidate_scope(root, card)
+            scope_map = {
+                "devops": devops_cache.DEVOPS_KEYS,
+                "integrations": devops_cache.INTEGRATION_KEYS,
+                "audit": devops_cache.AUDIT_KEYS,
+            }
+            devops_cache.recompute_all(root, keys=scope_map[card])
+        return jsonify({"ok": True, "busted": card})
     else:
-        busted = devops_cache.invalidate_with_cascade(_project_root(), card)
+        # Single card bust (with cascade)
+        busted = devops_cache.invalidate_with_cascade(root, card)
         return jsonify({"ok": True, "busted": busted})
+
+
+# ── Compute function registry (lazy init) ───────────────────────
+# Populated on first bust-all.  Each entry maps a cache key to a
+# function(project_root) → dict.  Imports are deferred to avoid
+# circular import issues at module load time.
+
+_registry_done = False
+
+
+def _ensure_registry() -> None:
+    """Register all card compute functions (once)."""
+    global _registry_done
+    if _registry_done:
+        return
+    _registry_done = True
+
+    from src.core.services import (
+        dns_cdn_ops,
+        docker_ops,
+        docs_ops,
+        env_ops,
+        k8s_ops,
+        package_ops,
+        quality_ops,
+        security_ops as _sec_ops,
+        testing_ops,
+    )
+    from src.core.services import ci_ops
+    from src.core.services import git_ops
+
+    from src.core.services import terraform_ops
+
+    def _compute_security(root: Path) -> dict:
+        scan = _sec_ops.scan_secrets(root)
+        posture = _sec_ops.security_posture(root)
+        return {
+            "findings": scan.get("findings", []),
+            "finding_count": scan.get("count", 0),
+            "posture": posture,
+        }
+
+    reg = devops_cache.register_compute
+    reg("packages", lambda root: package_ops.package_status(root))
+    reg("quality", lambda root: quality_ops.quality_status(root))
+    reg("git", lambda root: git_ops.git_status(root))
+    reg("ci", lambda root: ci_ops.ci_status(root))
+    reg("security", lambda root: _compute_security(root))
+    reg("docker", lambda root: docker_ops.docker_status(root))
+    reg("k8s", lambda root: k8s_ops.k8s_status(root))
+    reg("env", lambda root: env_ops.env_status(root))
+    reg("docs", lambda root: docs_ops.docs_status(root))
+    reg("terraform", lambda root: terraform_ops.terraform_status(root))
+    reg("dns", lambda root: dns_cdn_ops.dns_cdn_status(root))
+    reg("testing", lambda root: testing_ops.testing_status(root))
+    # Integration-only keys
+    reg("github", lambda root: git_ops.gh_status(root))
+    # Note: "pages" uses complex inlined compute (segments + build_status)
+    # so it's not registered here; it computes via the browser GET path.
+
+    # Audit L0/L1 keys
+    from src.core.services.audit import (
+        audit_scores as _audit_scores,
+        l0_system_profile, l1_dependencies,
+        l1_structure, l1_clients,
+    )
+    reg("audit:scores", lambda root: _audit_scores(root))
+    reg("audit:system", lambda root: l0_system_profile(root))
+    reg("audit:deps", lambda root: l1_dependencies(root))
+    reg("audit:structure", lambda root: l1_structure(root))
+    reg("audit:clients", lambda root: l1_clients(root))
 
 
 # ── Sub-module imports (register routes on devops_bp) ───────────

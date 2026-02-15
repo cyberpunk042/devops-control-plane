@@ -68,6 +68,29 @@ _DEFAULT_PREFS: dict[str, str] = {
     "int:pages": "auto",
 }
 
+# ── Card scope sets ─────────────────────────────────────────────
+# Used for scoped invalidation: each tab only busts its own cards.
+
+DEVOPS_KEYS: set[str] = {
+    "security", "testing", "quality", "packages",
+    "env", "docs", "k8s", "terraform", "dns",
+}
+
+INTEGRATION_KEYS: set[str] = {
+    "git", "github", "ci", "docker", "k8s", "terraform", "pages",
+}
+
+AUDIT_KEYS: set[str] = {
+    "audit:scores", "audit:system", "audit:deps",
+    "audit:structure", "audit:clients",
+    # L2 on-demand cards — also bust on full audit refresh
+    "audit:scores:enriched", "audit:l2:structure",
+    "audit:l2:quality", "audit:l2:repo", "audit:l2:risks",
+}
+
+# All card keys that go through get_cached()
+ALL_CARD_KEYS: set[str] = DEVOPS_KEYS | INTEGRATION_KEYS | AUDIT_KEYS
+
 # ── Watch paths per card ────────────────────────────────────────
 #
 # If ANY of these files/dirs has mtime > cache timestamp, the
@@ -219,9 +242,23 @@ def _max_mtime(project_root: Path, watch_paths: list[str]) -> float:
             pass
     return max_mt
 
+# ── Event bus integration (fail-safe) ───────────────────────────
+
+def _publish_event(event_type: str, **kw: object) -> None:
+    """Publish a cache lifecycle event to the SSE bus.
+
+    Fail-safe: if the bus is not available or publish raises,
+    the error is silently swallowed.  The cache function must
+    never break because of observability.
+    """
+    try:
+        from src.core.services.event_bus import bus
+        bus.publish(event_type, **kw)
+    except Exception:
+        pass  # observability must never break the cache
+
 
 # ── Public API: caching ─────────────────────────────────────────
-
 
 def get_cached(
     project_root: Path,
@@ -264,16 +301,21 @@ def get_cached(
             if current_mtime <= cached_mtime:
                 # Nothing changed — return cached data
                 data = entry["data"]
+                age_s = round(time.time() - cached_at)
                 data["_cache"] = {
                     "computed_at": cached_at,
                     "fresh": True,
-                    "age_seconds": round(time.time() - cached_at),
+                    "age_seconds": age_s,
                 }
-                logger.debug("cache HIT for %s (age %ds)", card_key,
-                             round(time.time() - cached_at))
+                logger.debug("cache HIT for %s (age %ds)", card_key, age_s)
+                _publish_event("cache:hit", key=card_key,
+                               data={"age_seconds": age_s, "mtime": current_mtime})
                 return data
 
         # ── Recompute ───────────────────────────────────────────
+        reason = "forced" if force else ("expired" if entry else "absent")
+        _publish_event("cache:miss", key=card_key, data={"reason": reason})
+
         t0 = time.time()
         status = "ok"
         error_msg = ""
@@ -300,6 +342,9 @@ def get_cached(
                     "elapsed_s": elapsed,
                 }
                 _save_cache(project_root, fresh_cache)
+            _publish_event("cache:done", key=card_key, data=data, duration_s=elapsed)
+        else:
+            _publish_event("cache:error", key=card_key, error=error_msg, duration_s=elapsed)
 
         data["_cache"] = {
             "computed_at": now,
@@ -329,6 +374,145 @@ def invalidate_all(project_root: Path) -> None:
     """Invalidate all server-side caches (thread-safe)."""
     with _file_lock:
         _save_cache(project_root, {})
+
+
+def invalidate_scope(project_root: Path, scope: str) -> list[str]:
+    """Invalidate a named scope of cards (thread-safe).
+
+    Scopes:
+        "devops"       — security, testing, quality, packages, env, docs, k8s, tf, dns
+        "integrations" — git, github, ci, docker, k8s, terraform, pages
+        "all"          — everything
+
+    Returns the list of busted keys.
+    """
+    scope_map: dict[str, set[str]] = {
+        "devops": DEVOPS_KEYS,
+        "integrations": INTEGRATION_KEYS,
+        "audit": AUDIT_KEYS,
+        "all": ALL_CARD_KEYS,
+    }
+    keys = scope_map.get(scope, set())
+    if not keys:
+        return []
+
+    busted: list[str] = []
+    with _file_lock:
+        cache = _load_cache(project_root)
+        for key in list(cache.keys()):
+            if key in keys:
+                del cache[key]
+                busted.append(key)
+        _save_cache(project_root, cache)
+
+    _publish_event("cache:bust", data={"scope": scope, "keys": busted})
+    return busted
+
+
+# ── Compute function registry ───────────────────────────────────
+# Route modules register their compute functions so the cache
+# module can recompute cards sequentially in a background thread
+# after bust-all — eliminating I/O contention.
+
+_COMPUTE_REGISTRY: dict[str, Callable[[Path], dict]] = {}
+
+
+def register_compute(card_key: str, fn: Callable[[Path], dict]) -> None:
+    """Register a compute function for a cache key.
+
+    The function receives ``project_root`` and returns the card data dict.
+    Called by route modules at import time.
+    """
+    _COMPUTE_REGISTRY[card_key] = fn
+    logger.debug("registered compute fn for %s", card_key)
+
+
+# Ordered list of card keys for sequential recompute.
+# SLOWEST first: the background thread grabs the per-key lock for
+# slow cards BEFORE browser GETs reach them (browser semaphore
+# queues slow cards behind fast ones).  This ensures slow cards
+# compute without contention in the background, while fast cards
+# (packages, quality, git) are trivially computed by browser GETs.
+_RECOMPUTE_ORDER: list[str] = [
+    # Slowest (6-30s alone, 30s+ under contention)
+    "testing",
+    # Slow (5-20s)
+    "dns", "terraform", "docs",
+    # Medium (1-5s)
+    "env", "k8s", "docker", "security",
+    # Fast (< 1s) — browser can handle these, bg thread skips if done
+    "ci", "git", "quality", "packages",
+    # Integration-only
+    "github",
+    # Audit L0/L1 (fast, 0.5-2s each)
+    "audit:scores", "audit:system", "audit:deps",
+    "audit:structure", "audit:clients",
+]
+
+_recompute_thread: threading.Thread | None = None
+
+
+def recompute_all(
+    project_root: Path,
+    *,
+    keys: set[str] | None = None,
+) -> None:
+    """Recompute registered cards sequentially in a background thread.
+
+    Called after bust to pre-fill the cache without I/O contention.
+    If the browser's GET requests arrive while this is running, they
+    block on the per-key lock and get the fresh result instantly once
+    the background thread finishes that card.
+
+    Parameters
+    ----------
+    project_root : Path
+        Project root path.
+    keys : set[str] | None
+        If provided, only recompute these keys.  If None, recompute
+        all registered keys.
+    """
+    global _recompute_thread
+
+    # Don't stack recompute threads
+    if _recompute_thread is not None and _recompute_thread.is_alive():
+        logger.info("recompute already in progress, skipping")
+        return
+
+    # Build ordered list of keys to recompute
+    target_keys = [
+        k for k in _RECOMPUTE_ORDER
+        if k in _COMPUTE_REGISTRY and (keys is None or k in keys)
+    ]
+
+    def _worker() -> None:
+        t0 = time.time()
+        computed = 0
+        _publish_event("sys:warming", data={
+            "keys": target_keys,
+            "total": len(target_keys),
+        })
+        for key in target_keys:
+            fn = _COMPUTE_REGISTRY[key]
+            try:
+                get_cached(project_root, key, lambda: fn(project_root))
+                computed += 1
+            except Exception as exc:
+                logger.warning("recompute %s failed: %s", key, exc)
+        elapsed = round(time.time() - t0, 2)
+        _publish_event("sys:warm", duration_s=elapsed, data={
+            "keys_computed": computed,
+            "total": len(_COMPUTE_REGISTRY),
+        })
+        logger.info(
+            "background recompute done: %d keys in %.1fs", computed, elapsed,
+        )
+
+    _recompute_thread = threading.Thread(
+        target=_worker, daemon=True, name="cache-recompute",
+    )
+    _recompute_thread.start()
+
 
 
 # ── Cascade invalidation ────────────────────────────────────────

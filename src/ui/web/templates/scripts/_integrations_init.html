@@ -119,8 +119,9 @@
                 if (detail) detail.innerHTML = '<span class="spinner"></span>';
                 if (badge) { badge.className = 'status-badge'; badge.textContent = '—'; }
             }
-            // Bust server-side cache for all integration keys
-            api('/devops/cache/bust', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ card: 'all' }) }).catch(() => {});
+            // Bust server-side cache for integration keys
+            // MUST await: server starts bg recompute thread first
+            await api('/devops/cache/bust', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ card: 'integrations' }) }).catch(() => {});
         }
         if (_intLoaded) return;
 

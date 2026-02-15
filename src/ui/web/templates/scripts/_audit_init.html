@@ -74,10 +74,13 @@ async function loadAuditTab(force) {
             if (badge) { badge.className = 'status-badge'; badge.textContent = '—'; }
             if (detail) detail.innerHTML = '<span class="spinner"></span>';
         }
-        // Bust server-side cache — await so loadFn gets fresh data
-        await Promise.all(Object.keys(_AUDIT_CARDS).map(key =>
-            api('/devops/cache/bust', { method: 'POST', body: JSON.stringify({ card: key }) }).catch(() => {})
-        ));
+        // Bust server-side cache — single scoped bust + bg recompute
+        // MUST await: server starts bg recompute thread first
+        await api('/devops/cache/bust', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ card: 'audit' }),
+        }).catch(() => {});
     }
     if (_auditLoaded) return;
 
