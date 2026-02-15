@@ -25,7 +25,7 @@ from pathlib import Path
 
 from flask import Blueprint, current_app, jsonify, request
 
-from src.core.services import secrets_ops
+from src.core.services import secrets_ops, devops_cache
 
 secrets_bp = Blueprint("secrets", __name__)
 
@@ -82,6 +82,14 @@ def api_keys_generate():
 
     if "error" in result:
         return jsonify(result), 500 if "failed" in result["error"] else 400
+
+    devops_cache.record_event(
+        _project_root(),
+        label="🔑 Key Generated",
+        summary=f"{data.get('type', 'password')} key generated",
+        detail={"type": data.get("type", "password")},
+        card="secrets",
+    )
     return jsonify(result)
 
 
@@ -93,13 +101,21 @@ def api_gh_environment_create():
     """Create a deployment environment on GitHub."""
     data = request.json or {}
 
-    result = secrets_ops.create_environment(
-        _project_root(),
-        data.get("name", "").strip(),
-    )
+    root = _project_root()
+    env_name = data.get("name", "").strip()
+
+    result = secrets_ops.create_environment(root, env_name)
 
     if "error" in result:
         return jsonify(result), 400
+
+    devops_cache.record_event(
+        root,
+        label="🌱 Environment Created",
+        summary=f"GitHub environment '{env_name}' created",
+        detail={"environment": env_name},
+        card="secrets",
+    )
     return jsonify(result)
 
 
@@ -108,15 +124,25 @@ def api_env_cleanup():
     """Clean up an environment: delete local .env files and optionally GitHub env."""
     data = request.json or {}
 
+    root = _project_root()
+    env_name = data.get("name", "").strip().lower()
+
     result = secrets_ops.cleanup_environment(
-        _project_root(),
-        data.get("name", "").strip().lower(),
+        root, env_name,
         delete_files=data.get("delete_files", True),
         delete_github=data.get("delete_github", False),
     )
 
     if "error" in result:
         return jsonify(result), 400
+
+    devops_cache.record_event(
+        root,
+        label="🧹 Environment Cleaned",
+        summary=f"Environment '{env_name}' cleaned up",
+        detail={"environment": env_name, "delete_files": data.get("delete_files", True), "delete_github": data.get("delete_github", False)},
+        card="secrets",
+    )
     return jsonify(result)
 
 
@@ -125,12 +151,21 @@ def api_env_seed():
     """Seed environment files when transitioning from single-env to multi-env."""
     data = request.json or {}
 
+    root = _project_root()
+    envs = data.get("environments", [])
+
     result = secrets_ops.seed_environments(
-        _project_root(),
-        data.get("environments", []),
+        root, envs,
         default=data.get("default", ""),
     )
 
+    devops_cache.record_event(
+        root,
+        label="🌱 Environments Seeded",
+        summary=f"{len(envs)} environment(s) seeded",
+        detail={"environments": envs},
+        card="secrets",
+    )
     return jsonify(result)
 
 
@@ -152,9 +187,11 @@ def api_secret_set():
     """Set a single secret to .env and/or GitHub."""
     data = request.json or {}
 
+    root = _project_root()
+    name = data.get("name", "")
+
     result = secrets_ops.set_secret(
-        _project_root(),
-        data.get("name", ""),
+        root, name,
         data.get("value", ""),
         target=data.get("target", "both"),
         env_name=_env_name(),
@@ -162,6 +199,14 @@ def api_secret_set():
 
     if "error" in result:
         return jsonify(result), 400
+
+    devops_cache.record_event(
+        root,
+        label="🔐 Secret Set",
+        summary=f"Secret '{name}' set (target={data.get('target', 'both')})",
+        detail={"name": name, "target": data.get("target", "both")},
+        card="secrets",
+    )
     return jsonify(result)
 
 
@@ -173,9 +218,11 @@ def api_secret_remove():
     """Remove a secret/variable from .env and/or GitHub."""
     data = request.json or {}
 
+    root = _project_root()
+    name = data.get("name", "")
+
     result = secrets_ops.remove_secret(
-        _project_root(),
-        data.get("name", ""),
+        root, name,
         target=data.get("target", "both"),
         kind=data.get("kind", "secret"),
         env_name=_env_name(),
@@ -183,6 +230,14 @@ def api_secret_remove():
 
     if "error" in result:
         return jsonify(result), 400
+
+    devops_cache.record_event(
+        root,
+        label="🗑️ Secret Removed",
+        summary=f"Secret '{name}' removed (target={data.get('target', 'both')})",
+        detail={"name": name, "target": data.get("target", "both"), "kind": data.get("kind", "secret")},
+        card="secrets",
+    )
     return jsonify(result)
 
 
@@ -194,8 +249,10 @@ def api_push_secrets():
     """Push secrets/variables to GitHub AND save to .env file."""
     data = request.json or {}
 
+    root = _project_root()
+
     result = secrets_ops.push_secrets(
-        _project_root(),
+        root,
         secrets_dict=data.get("secrets", {}),
         variables=data.get("variables", {}),
         env_values=data.get("env_values", {}),
@@ -209,4 +266,13 @@ def api_push_secrets():
 
     if "error" in result:
         return jsonify(result), 400
+
+    pushed_count = len(result.get("pushed", []))
+    devops_cache.record_event(
+        root,
+        label="📤 Secrets Pushed",
+        summary=f"{pushed_count} secret(s) pushed to GitHub",
+        detail={"pushed_count": pushed_count, "push_to_github": data.get("push_to_github", True), "save_to_env": data.get("save_to_env", True)},
+        card="secrets",
+    )
     return jsonify(result)

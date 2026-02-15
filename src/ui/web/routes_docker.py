@@ -26,7 +26,7 @@ from pathlib import Path
 
 from flask import Blueprint, current_app, jsonify, request
 
-from src.core.services import docker_ops
+from src.core.services import docker_ops, devops_cache
 
 docker_bp = Blueprint("docker", __name__)
 
@@ -96,13 +96,20 @@ def docker_build():  # type: ignore[no-untyped-def]
     data = request.get_json(silent=True) or {}
     service = data.get("service")
     no_cache = data.get("no_cache", False)
+    root = _project_root()
 
-    result = docker_ops.docker_build(
-        _project_root(), service=service, no_cache=no_cache,
-    )
+    result = docker_ops.docker_build(root, service=service, no_cache=no_cache)
 
     if "error" in result:
         return jsonify(result), 400
+
+    devops_cache.record_event(
+        root,
+        label="📦 Docker Build",
+        summary=f"Image built" + (f" for {service}" if service else "") + (" (no-cache)" if no_cache else ""),
+        detail={"service": service, "no_cache": no_cache},
+        card="docker",
+    )
     return jsonify(result)
 
 
@@ -111,11 +118,20 @@ def docker_up():  # type: ignore[no-untyped-def]
     """Start compose services."""
     data = request.get_json(silent=True) or {}
     service = data.get("service")
+    root = _project_root()
 
-    result = docker_ops.docker_up(_project_root(), service=service)
+    result = docker_ops.docker_up(root, service=service)
 
     if "error" in result:
         return jsonify(result), 400
+
+    devops_cache.record_event(
+        root,
+        label="▶️ Docker Up",
+        summary=f"Compose services started" + (f" ({service})" if service else ""),
+        detail={"service": service},
+        card="docker",
+    )
     return jsonify(result)
 
 
@@ -124,11 +140,20 @@ def docker_down():  # type: ignore[no-untyped-def]
     """Stop compose services."""
     data = request.get_json(silent=True) or {}
     volumes = data.get("volumes", False)
+    root = _project_root()
 
-    result = docker_ops.docker_down(_project_root(), volumes=volumes)
+    result = docker_ops.docker_down(root, volumes=volumes)
 
     if "error" in result:
         return jsonify(result), 400
+
+    devops_cache.record_event(
+        root,
+        label="⏹️ Docker Down",
+        summary=f"Compose services stopped" + (" (volumes removed)" if volumes else ""),
+        detail={"volumes": volumes},
+        card="docker",
+    )
     return jsonify(result)
 
 
@@ -137,21 +162,39 @@ def docker_restart():  # type: ignore[no-untyped-def]
     """Restart compose services."""
     data = request.get_json(silent=True) or {}
     service = data.get("service")
+    root = _project_root()
 
-    result = docker_ops.docker_restart(_project_root(), service=service)
+    result = docker_ops.docker_restart(root, service=service)
 
     if "error" in result:
         return jsonify(result), 400
+
+    devops_cache.record_event(
+        root,
+        label="🔄 Docker Restart",
+        summary=f"Compose services restarted" + (f" ({service})" if service else ""),
+        detail={"service": service},
+        card="docker",
+    )
     return jsonify(result)
 
 
 @docker_bp.route("/docker/prune", methods=["POST"])
 def docker_prune():  # type: ignore[no-untyped-def]
     """Remove unused Docker resources."""
-    result = docker_ops.docker_prune(_project_root())
+    root = _project_root()
+    result = docker_ops.docker_prune(root)
 
     if "error" in result:
         return jsonify(result), 400
+
+    devops_cache.record_event(
+        root,
+        label="🧹 Docker Prune",
+        summary="Unused Docker resources cleaned up",
+        detail={},
+        card="docker",
+    )
     return jsonify(result)
 
 
@@ -166,10 +209,19 @@ def generate_dockerfile():  # type: ignore[no-untyped-def]
     if not stack_name:
         return jsonify({"error": "Missing 'stack' field"}), 400
 
-    result = docker_ops.generate_dockerfile(_project_root(), stack_name)
+    root = _project_root()
+    result = docker_ops.generate_dockerfile(root, stack_name)
 
     if "error" in result:
         return jsonify(result), 400
+
+    devops_cache.record_event(
+        root,
+        label="📝 Dockerfile Generated",
+        summary=f"Dockerfile generated for {stack_name} stack",
+        detail={"stack": stack_name},
+        card="docker",
+    )
     return jsonify(result)
 
 
@@ -181,7 +233,16 @@ def generate_dockerignore():  # type: ignore[no-untyped-def]
     if not stacks:
         return jsonify({"error": "Missing 'stacks' field (list of stack names)"}), 400
 
-    result = docker_ops.generate_dockerignore(_project_root(), stacks)
+    root = _project_root()
+    result = docker_ops.generate_dockerignore(root, stacks)
+
+    devops_cache.record_event(
+        root,
+        label="📝 .dockerignore Generated",
+        summary=f".dockerignore generated for {len(stacks)} stack(s)",
+        detail={"stacks": stacks},
+        card="docker",
+    )
     return jsonify(result)
 
 
@@ -205,6 +266,14 @@ def generate_compose():  # type: ignore[no-untyped-def]
 
     if "error" in result:
         return jsonify(result), 400
+
+    devops_cache.record_event(
+        root,
+        label="📝 Compose Generated",
+        summary=f"docker-compose.yml generated ({len(modules)} module(s))",
+        detail={"modules": len(modules), "project": project.name},
+        card="docker",
+    )
     return jsonify(result)
 
 
@@ -232,14 +301,24 @@ def generate_compose_wizard():  # type: ignore[no-untyped-def]
     if not services:
         return jsonify({"error": "At least one service is required"}), 400
 
+    root = _project_root()
+
     result = docker_ops.generate_compose_from_wizard(
-        _project_root(),
+        root,
         services,
         project_name=data.get("project_name", ""),
     )
 
     if "error" in result:
         return jsonify(result), 400
+
+    devops_cache.record_event(
+        root,
+        label="📝 Compose Wizard Generated",
+        summary=f"docker-compose.yml generated from wizard ({len(services)} service(s))",
+        detail={"services_count": len(services)},
+        card="docker",
+    )
     return jsonify(result)
 
 
@@ -251,10 +330,19 @@ def write_generated():  # type: ignore[no-untyped-def]
     if not file_data:
         return jsonify({"error": "Missing 'file' field"}), 400
 
-    result = docker_ops.write_generated_file(_project_root(), file_data)
+    root = _project_root()
+    result = docker_ops.write_generated_file(root, file_data)
 
     if "error" in result:
         return jsonify(result), 400
+
+    devops_cache.record_event(
+        root,
+        label="💾 Docker File Written",
+        summary=f"Generated file written: {file_data.get('path', '?')}",
+        detail={"file": file_data.get("path", "?")},
+        card="docker",
+    )
     return jsonify(result)
 
 
@@ -295,9 +383,18 @@ def docker_pull():  # type: ignore[no-untyped-def]
     image = data.get("image", "")
     if not image:
         return jsonify({"error": "Missing 'image' field"}), 400
-    result = docker_ops.docker_pull(_project_root(), image)
+    root = _project_root()
+    result = docker_ops.docker_pull(root, image)
     if "error" in result:
         return jsonify(result), 400
+
+    devops_cache.record_event(
+        root,
+        label="⬇️ Docker Pull",
+        summary=f"Image pulled: {image}",
+        detail={"image": image},
+        card="docker",
+    )
     return jsonify(result)
 
 
@@ -311,9 +408,18 @@ def docker_exec():  # type: ignore[no-untyped-def]
         return jsonify({"error": "Missing 'container' field"}), 400
     if not command:
         return jsonify({"error": "Missing 'command' field"}), 400
-    result = docker_ops.docker_exec_cmd(_project_root(), container, command)
+    root = _project_root()
+    result = docker_ops.docker_exec_cmd(root, container, command)
     if "error" in result:
         return jsonify(result), 400
+
+    devops_cache.record_event(
+        root,
+        label="▶️ Docker Exec",
+        summary=f"Command executed in {container}",
+        detail={"container": container, "command": command},
+        card="docker",
+    )
     return jsonify(result)
 
 
@@ -325,9 +431,18 @@ def docker_rm():  # type: ignore[no-untyped-def]
     if not container:
         return jsonify({"error": "Missing 'container' field"}), 400
     force = data.get("force", False)
-    result = docker_ops.docker_rm(_project_root(), container, force=force)
+    root = _project_root()
+    result = docker_ops.docker_rm(root, container, force=force)
     if "error" in result:
         return jsonify(result), 400
+
+    devops_cache.record_event(
+        root,
+        label="🗑️ Container Removed",
+        summary=f"Container '{container}' removed" + (" (forced)" if force else ""),
+        detail={"container": container, "force": force},
+        card="docker",
+    )
     return jsonify(result)
 
 
@@ -339,7 +454,16 @@ def docker_rmi():  # type: ignore[no-untyped-def]
     if not image:
         return jsonify({"error": "Missing 'image' field"}), 400
     force = data.get("force", False)
-    result = docker_ops.docker_rmi(_project_root(), image, force=force)
+    root = _project_root()
+    result = docker_ops.docker_rmi(root, image, force=force)
     if "error" in result:
         return jsonify(result), 400
+
+    devops_cache.record_event(
+        root,
+        label="🗑️ Image Removed",
+        summary=f"Image '{image}' removed" + (" (forced)" if force else ""),
+        detail={"image": image, "force": force},
+        card="docker",
+    )
     return jsonify(result)

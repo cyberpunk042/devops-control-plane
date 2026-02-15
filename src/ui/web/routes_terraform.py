@@ -19,7 +19,7 @@ from pathlib import Path
 
 from flask import Blueprint, current_app, jsonify, request
 
-from src.core.services import terraform_ops
+from src.core.services import terraform_ops, devops_cache
 
 terraform_bp = Blueprint("terraform", __name__)
 
@@ -54,9 +54,18 @@ def tf_validate():  # type: ignore[no-untyped-def]
 @terraform_bp.route("/terraform/plan", methods=["POST"])
 def tf_plan():  # type: ignore[no-untyped-def]
     """Run terraform plan."""
-    result = terraform_ops.terraform_plan(_project_root())
+    root = _project_root()
+    result = terraform_ops.terraform_plan(root)
     if "error" in result:
         return jsonify(result), 400
+
+    devops_cache.record_event(
+        root,
+        label="📋 Terraform Plan",
+        summary="Plan executed",
+        detail={},
+        card="terraform",
+    )
     return jsonify(result)
 
 
@@ -76,14 +85,25 @@ def tf_workspaces():  # type: ignore[no-untyped-def]
 def tf_generate():  # type: ignore[no-untyped-def]
     """Generate Terraform scaffolding."""
     data = request.get_json(silent=True) or {}
+    root = _project_root()
+    provider = data.get("provider", "aws")
+    backend = data.get("backend", "local")
+
     result = terraform_ops.generate_terraform(
-        _project_root(),
-        data.get("provider", "aws"),
-        backend=data.get("backend", "local"),
+        root, provider,
+        backend=backend,
         project_name=data.get("project_name", ""),
     )
     if "error" in result:
         return jsonify(result), 400
+
+    devops_cache.record_event(
+        root,
+        label="📝 Terraform Generated",
+        summary=f"Scaffolding generated (provider={provider}, backend={backend})",
+        detail={"provider": provider, "backend": backend},
+        card="terraform",
+    )
     return jsonify(result)
 
 
@@ -95,18 +115,36 @@ def tf_init():  # type: ignore[no-untyped-def]
     """Initialize Terraform."""
     data = request.get_json(silent=True) or {}
     upgrade = data.get("upgrade", False)
-    result = terraform_ops.terraform_init(_project_root(), upgrade=upgrade)
+    root = _project_root()
+    result = terraform_ops.terraform_init(root, upgrade=upgrade)
     if not result.get("ok"):
         return jsonify(result), 400
+
+    devops_cache.record_event(
+        root,
+        label="⚙️ Terraform Init",
+        summary="Terraform initialized" + (" (upgrade)" if upgrade else ""),
+        detail={"upgrade": upgrade},
+        card="terraform",
+    )
     return jsonify(result)
 
 
 @terraform_bp.route("/terraform/apply", methods=["POST"])
 def tf_apply():  # type: ignore[no-untyped-def]
     """Apply Terraform plan."""
-    result = terraform_ops.terraform_apply(_project_root())
+    root = _project_root()
+    result = terraform_ops.terraform_apply(root)
     if not result.get("ok"):
         return jsonify(result), 400
+
+    devops_cache.record_event(
+        root,
+        label="🚀 Terraform Apply",
+        summary="Infrastructure changes applied",
+        detail={},
+        card="terraform",
+    )
     return jsonify(result)
 
 
@@ -122,9 +160,18 @@ def tf_output():  # type: ignore[no-untyped-def]
 @terraform_bp.route("/terraform/destroy", methods=["POST"])
 def tf_destroy():  # type: ignore[no-untyped-def]
     """Destroy Terraform resources."""
-    result = terraform_ops.terraform_destroy(_project_root())
+    root = _project_root()
+    result = terraform_ops.terraform_destroy(root)
     if not result.get("ok"):
         return jsonify(result), 400
+
+    devops_cache.record_event(
+        root,
+        label="💥 Terraform Destroy",
+        summary="Infrastructure resources destroyed",
+        detail={},
+        card="terraform",
+    )
     return jsonify(result)
 
 
@@ -135,16 +182,34 @@ def tf_workspace_select():  # type: ignore[no-untyped-def]
     workspace = data.get("workspace", "")
     if not workspace:
         return jsonify({"error": "Missing 'workspace' field"}), 400
-    result = terraform_ops.terraform_workspace_select(_project_root(), workspace)
+    root = _project_root()
+    result = terraform_ops.terraform_workspace_select(root, workspace)
     if not result.get("ok"):
         return jsonify(result), 400
+
+    devops_cache.record_event(
+        root,
+        label="🔀 Terraform Workspace",
+        summary=f"Workspace switched to '{workspace}'",
+        detail={"workspace": workspace},
+        card="terraform",
+    )
     return jsonify(result)
 
 
 @terraform_bp.route("/terraform/fmt", methods=["POST"])
 def tf_fmt():  # type: ignore[no-untyped-def]
     """Format Terraform files."""
-    result = terraform_ops.terraform_fmt(_project_root())
+    root = _project_root()
+    result = terraform_ops.terraform_fmt(root)
     if not result.get("ok"):
         return jsonify(result), 400
+
+    devops_cache.record_event(
+        root,
+        label="✨ Terraform Fmt",
+        summary="Terraform files formatted",
+        detail={},
+        card="terraform",
+    )
     return jsonify(result)

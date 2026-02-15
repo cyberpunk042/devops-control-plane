@@ -14,6 +14,8 @@ from pathlib import Path
 import yaml
 from flask import Blueprint, current_app, jsonify, request
 
+from src.core.services import devops_cache
+
 logger = logging.getLogger(__name__)
 
 config_bp = Blueprint("config", __name__)
@@ -152,6 +154,14 @@ def api_config_save():  # type: ignore[no-untyped-def]
         config_path.write_text(header + yaml_content, encoding="utf-8")
     except Exception as e:
         return jsonify({"error": f"Failed to save: {e}"}), 500
+
+    devops_cache.record_event(
+        _project_root(),
+        label="⚙️ Config Saved",
+        summary=f"project.yml saved ({config.get('name', '?')})",
+        detail={"project": config.get("name", "?"), "path": str(config_path)},
+        card="config",
+    )
 
     return jsonify({"ok": True, "path": str(config_path)})
 

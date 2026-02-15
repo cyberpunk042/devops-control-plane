@@ -30,6 +30,8 @@ from pathlib import Path
 
 from flask import Blueprint, current_app, jsonify, request
 
+from src.core.services import devops_cache
+
 from .content_crypto import (
     classify_file,
     decrypt_file,
@@ -318,12 +320,33 @@ def content_encrypt():  # type: ignore[no-untyped-def]
             }, indent=2))
             result["release_updated"] = True
 
+        devops_cache.record_event(
+            _project_root(),
+            label="🔒 File Encrypted",
+            summary=f"{rel_path} encrypted ({result['original_size']:,} → {result['encrypted_size']:,} bytes)"
+                    + (" — original deleted" if delete_original else ""),
+            detail={
+                "file": rel_path,
+                "original_size": result["original_size"],
+                "encrypted_size": result["encrypted_size"],
+                "original_deleted": delete_original,
+            },
+            card="content",
+        )
+
         return jsonify(result)
 
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
     except Exception as e:
         logger.exception("Failed to encrypt %s", rel_path)
+        devops_cache.record_event(
+            _project_root(),
+            label="❌ Encrypt Failed",
+            summary=f"{rel_path}: {e}",
+            detail={"file": rel_path, "error": str(e)},
+            card="content",
+        )
         return jsonify({"error": f"Encryption failed: {e}"}), 500
 
 
@@ -389,12 +412,32 @@ def content_decrypt():  # type: ignore[no-untyped-def]
             }, indent=2))
             result["release_updated"] = True
 
+        devops_cache.record_event(
+            _project_root(),
+            label="🔓 File Decrypted",
+            summary=f"{rel_path} decrypted ({result['decrypted_size']:,} bytes)"
+                    + (" — encrypted copy deleted" if delete_encrypted else ""),
+            detail={
+                "file": rel_path,
+                "decrypted_size": result["decrypted_size"],
+                "encrypted_deleted": delete_encrypted,
+            },
+            card="content",
+        )
+
         return jsonify(result)
 
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
     except Exception as e:
         logger.exception("Failed to decrypt %s", rel_path)
+        devops_cache.record_event(
+            _project_root(),
+            label="❌ Decrypt Failed",
+            summary=f"{rel_path}: {e}",
+            detail={"file": rel_path, "error": str(e)},
+            card="content",
+        )
         return jsonify({"error": f"Decryption failed: {e}"}), 500
 
 

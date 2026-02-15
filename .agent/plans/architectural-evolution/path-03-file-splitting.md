@@ -247,20 +247,64 @@ Pure helpers extracted to separate `<script>` file; closure-bound code into raw 
 | `k8s_wizard/_raw_step2_collectors.html` | 636 |
 | `k8s_wizard/_raw_step3_review.html` | 461 |
 
-### Phase 3C: Python Service Splits
+### Phase 3C: Python Service Splits ✅ COMPLETE (5 of 5)
 
 Lower risk — Python imports are straightforward to rewire.
+Pattern: extract to sub-modules, keep original as re-export hub.
 
-1. Split `k8s_ops.py`
-2. Split `docker_ops.py`
-3. Split `backup_ops.py`
-4. Split `security_ops.py`
-5. Split `routes_devops.py`
+1. ✅ Split `k8s_ops.py` (2,754 → 8 files, largest 983)
+   - `k8s_common.py` (99) — constants + shared helpers
+   - `k8s_ops.py` (73) — re-export hub
+   - `k8s_detect.py` (159) — offline manifest detection
+   - `k8s_validate.py` (231) — manifest validation
+   - `k8s_cluster.py` (419) — online kubectl ops
+   - `k8s_helm.py` (172) — Helm CLI operations
+   - `k8s_generate.py` (723) — templates + pod builder
+   - `k8s_wizard.py` (983) — wizard translator + generator
 
-### Phase 3D: Other >500-line JS (if desired)
+2. ✅ Split `docker_ops.py` (1,174 → 5 files, largest 527)
+   - `docker_common.py` (36) — shared command runners
+   - `docker_ops.py` (56) — re-export hub
+   - `docker_detect.py` (363) — compose parsing + status
+   - `docker_containers.py` (527) — observe + act
+   - `docker_generate.py` (234) — Dockerfile/compose generation
 
-The 14 other JS files at 500–700 lines. These are borderline — some
-may be fine at their current size. Assess individually.
+3. ✅ Split `backup_ops.py` (1,180 → 5 files, largest 448)
+   - `backup_common.py` (130) — constants + helpers
+   - `backup_ops.py` (50) — re-export hub
+   - `backup_archive.py` (446) — create/list/preview/delete/rename
+   - `backup_restore.py` (448) — restore/import/wipe/encrypt
+   - `backup_extras.py` (190) — git tracking + file tree
+
+4. ✅ Split `security_ops.py` (995 → 4 files, largest 409)
+   - `security_common.py` (295) — patterns, constants, nosec helpers, dismiss/undismiss
+   - `security_ops.py` (40) — re-export hub
+   - `security_scan.py` (409) — secret scanning, sensitive files, gitignore analysis
+   - `security_posture.py` (301) — unified security posture scoring
+
+5. ✅ Split `routes_devops.py` (1,021 → 4 files, largest 472)
+   - `routes_devops.py` (104) — blueprint, prefs, cache bust
+   - `routes_devops_detect.py` (400) — wizard environment detection + data helpers
+   - `routes_devops_apply.py` (472) — wizard setup actions + config generation
+   - `routes_devops_audit.py` (108) — audit finding dismissals
+
+### Phase 3D: Other >500-line JS
+
+#### 3D-1: Docker Wizard Split ✅ COMPLETE
+
+Split Docker wizard (1,303 lines) using Jinja inline includes into `docker_wizard/` subfolder.
+Same pattern as K8s wizard: helpers stay in skeleton, steps are raw JS includes.
+
+| File | Lines |
+|------|------:|
+| `_integrations_setup_docker.html` (skeleton) | 93 |
+| `docker_wizard/_raw_step1_detect.html` | 106 |
+| `docker_wizard/_raw_step2_configure.html` | 875 |
+| `docker_wizard/_raw_step3_preview.html` | 239 |
+
+#### 3D-2: Remaining >500-line JS (13 files, all borderline 500-730)
+
+These are borderline — assess individually. May not need splitting.
 
 ---
 

@@ -34,6 +34,8 @@ from .routes_content import (
 )
 from .content_crypto import DEFAULT_CONTENT_DIRS
 
+from src.core.services import devops_cache
+
 logger = logging.getLogger(__name__)
 
 
@@ -65,6 +67,14 @@ def content_create_folder():  # type: ignore[no-untyped-def]
 
     # Create a .gitkeep so git tracks it
     (folder / ".gitkeep").touch()
+
+    devops_cache.record_event(
+        _project_root(),
+        label="📁 Folder Created",
+        summary=f"Content folder '{name}' created",
+        detail={"folder": name},
+        card="content",
+    )
 
     logger.info("Created content folder: %s", name)
     return jsonify({
@@ -113,12 +123,21 @@ def content_delete():  # type: ignore[no-untyped-def]
     from .content_release import cleanup_release_sidecar
     cleanup_release_sidecar(target, _project_root())
 
-    if target.is_dir():
+    is_dir = target.is_dir()
+    if is_dir:
         shutil.rmtree(target)
         logger.info("Deleted directory: %s", rel_path)
     else:
         target.unlink()
         logger.info("Deleted file: %s", rel_path)
+
+    devops_cache.record_event(
+        root,
+        label="🗑️ File Deleted",
+        summary=f"{'Directory' if is_dir else 'File'} '{rel_path}' deleted",
+        detail={"path": rel_path, "type": "directory" if is_dir else "file"},
+        card="content",
+    )
 
     return jsonify({
         "success": True,
@@ -265,6 +284,23 @@ def content_upload():  # type: ignore[no-untyped-def]
         f"{original_size:,}", f"{final_size:,}",
         "optimized" if was_optimized else "as-is",
         tier,
+    )
+
+    devops_cache.record_event(
+        root,
+        label="⬆️ File Uploaded",
+        summary=f"{safe_name} uploaded to {folder_rel}"
+                + (f" (optimized {result.get('savings_pct', 0)}%)" if was_optimized else "")
+                + (f" [tier={tier}]" if tier == "large" else ""),
+        detail={
+            "file": safe_name,
+            "folder": folder_rel,
+            "original_size": original_size,
+            "final_size": final_size,
+            "optimized": was_optimized,
+            "tier": tier,
+        },
+        card="content",
     )
 
     # Backup large files to GitHub Releases

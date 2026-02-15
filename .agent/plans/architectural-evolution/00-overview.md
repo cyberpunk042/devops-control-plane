@@ -95,65 +95,59 @@ Maturing the platform from "working product" to "architecturally sound platform"
 
 ## 3. Phase Plan
 
-### Phase 0: Documentation & Analysis Deep-Dive
-- Update `ARCHITECTURE.md` to reflect actual state
-- Document the layer hierarchy (CLI → TUI → Web)
-- Document the data flow for catalogs/datasets
-- Create per-dimension analysis docs (one per phase below)
+### Phase 0: Documentation & Analysis Deep-Dive ✅ COMPLETE
+- Deep analysis created: `01-deep-analysis.md`
+- Per-dimension analysis docs created
 - **No code changes.** Pure documentation.
 
-### Phase 1: Logging & Debug Infrastructure
-- Add `logging.getLogger(__name__)` to ALL Python modules
-- Add `--debug` flag to CLI (`logging.DEBUG` level)
-- Wire `--verbose` to `logging.INFO`
-- Add log-to-file configuration (env var or config)
-- Integration-level debug logging for subprocess calls
-- **Why first**: Every subsequent phase benefits from being able to debug.
+### Phase 1: Logging & Debug Infrastructure ✅ COMPLETE
+- `src/core/observability/logging_config.py` — central log config
+- `--debug` flag → `logging.DEBUG`, `--verbose` → `logging.INFO`
+- File output via `DCP_LOG_FILE` env var
+- Third-party noise control
+- **Plan**: `path-01-logging-debug.md`
 
-### Phase 2: Audit Expansion
-- Inject `AuditWriter` into all core services that perform operations
-- Standardize audit entry types (vault, content, backup, git, pages, secrets, config, docker, k8s)
-- Make audit opt-in per operation category via config
-- Web UI audit tab already exists — connect it to richer data
-- **Why second**: Audit is a cross-cutting concern. Getting it right early means all future work is automatically tracked.
+### Phase 2: Static Data / Datasets ✅ COMPLETE
+- `DataRegistry` in `src/core/data/` with JSON catalogs
+- Jinja injection (`window._dcp = ...`) at render time
+- Python consumers wired (secret_patterns, env_templates)
+- Pages builder dedup (web copy deleted)
+- **Plan**: `path-02-data-extraction.md`
 
-### Phase 3: Static Data / Datasets
-- Extract `_infraOptions`, `_infraCategories`, `_SC_CATALOG`, `_dockerStackDefaults` to data files (`data/catalogs/*.json`)
-- Create a `DatasetLoader` in core that loads base + user additions (JSON/CSV merge)
-- Serve datasets via Jinja template injection at render time (`window._datasets = {{ datasets | tojson }}`)
-- Make it explicit: these don't change at runtime, loaded at startup
-- Fallback to defaults if user file is corrupt/missing
-- Document: "restart required for data changes" or implement hot-reload
-- **Why third**: This is the prerequisite for file splitting (the monster file shrinks by ~500 lines just from extracting catalogs).
+### Phase 3: File Splitting & Template Extraction ✅ COMPLETE
+- Monster file split into 6 wizard files + shared infra + dispatcher
+- K8s wizard split into skeleton + 9 raw files
+- Docker wizard split into skeleton + 3 raw files
+- 5 Python services split (k8s_ops, docker_ops, backup_ops, security_ops, routes_devops)
+- Borderline >500-line files assessed, deferred
+- **Plan**: `path-03-file-splitting.md`
 
-### Phase 4: File Splitting & Template Extraction
-- Split `_integrations_setup_modals.html` into per-wizard files
-- Split `k8s_ops.py` into `k8s_detect.py`, `k8s_validate.py`, `k8s_cluster.py`, `k8s_generate.py`, `k8s_wizard.py`
-- Split other >500-line files
-- Update all `{% include %}` references
-- Verify no broken references
-- **Why fourth**: Now that data is extracted (Phase 3), the splits are cleaner.
+### Phase 4: Audit Expansion ← CURRENT
+- Wire `record_event()` into 58 mutating endpoints across 14 categories
+- Vault, Content, Backup, Docker, Terraform, Testing, Secrets, K8s, CI/CD, DNS, Wizard, Config
+- Purely additive — no logic changes, no UI changes
+- **Plan**: `path-04-audit-expansion.md`
 
 ### Phase 5: Push Logic Down (Layer Hierarchy)
 - Identify web-only logic that should be in core
 - Move route business logic into services (routes become thin wrappers)
 - Ensure CLI can access everything core offers
 - Plan TUI sub-menus (vault interactive, content browsing, backup management)
-- **Why fifth**: File splitting (Phase 4) makes this easier because the code is now modular.
+- **Why next**: File splitting (Phase 3) makes this easier because the code is now modular.
 
 ### Phase 6: Caching Architecture
 - Design onion-layer cache: core (persistent, `.state/cache/`) → server (in-memory) → client (sessionStorage)
 - Implement two-sided cache coherency
 - Load static data on `window.*` at boot via Jinja injection
 - Implement cache burst (server-side + client-side)
-- **Why sixth**: Depends on Phase 3 (datasets) and Phase 5 (which data lives where).
+- **Why later**: Depends on Phase 2 (datasets) and Phase 5 (which data lives where).
 
 ### Phase 7: Modal Preview & UI Settings
 - Implement ModalPreview component (Content Vault in-place modal)
 - Add UI Settings section (ModalPreview vs ForwardPreview, Scale profiles)
 - Persist settings in localStorage
 - Wire all intra-links to use configurable preview mode
-- **Why seventh**: UI polish layer, depends on stable architecture underneath.
+- **Why later**: UI polish layer, depends on stable architecture underneath.
 
 ### Phase 8: TUI Enhancement
 - Progressive feature parity with key web features

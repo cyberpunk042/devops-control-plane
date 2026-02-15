@@ -19,7 +19,7 @@ from datetime import datetime, timezone
 
 from flask import jsonify, request, send_file
 
-from src.core.services import backup_ops
+from src.core.services import backup_ops, devops_cache
 from .routes_backup import backup_bp, _project_root
 
 
@@ -30,20 +30,45 @@ from .routes_backup import backup_bp, _project_root
 def api_export():  # type: ignore[no-untyped-def]
     """Create a backup archive from selected files/folders."""
     data = request.get_json(silent=True) or {}
+    root = _project_root()
+    target_folder = data.get("target_folder", "").strip()
+    paths = data.get("paths", [])
+    encrypt_flag = data.get("encrypt_archive", False)
 
     result = backup_ops.create_backup(
-        _project_root(),
-        data.get("target_folder", "").strip(),
-        data.get("paths", []),
+        root,
+        target_folder,
+        paths,
         label=data.get("label", "admin_export"),
         decrypt_enc=data.get("decrypt_enc", False),
-        encrypt_archive_flag=data.get("encrypt_archive", False),
+        encrypt_archive_flag=encrypt_flag,
         custom_name=data.get("custom_name", "").strip(),
     )
 
     if "error" in result:
         code = 404 if "not found" in result["error"].lower() else 400
+        devops_cache.record_event(
+            root,
+            label="❌ Backup Export Failed",
+            summary=f"{target_folder}: {result['error']}",
+            detail={"folder": target_folder, "error": result["error"]},
+            card="backup",
+        )
         return jsonify(result), code
+
+    devops_cache.record_event(
+        root,
+        label="📦 Backup Created",
+        summary=f"{target_folder}: {len(paths)} items archived"
+                + (" (encrypted)" if encrypt_flag else ""),
+        detail={
+            "folder": target_folder,
+            "items": len(paths),
+            "encrypted": encrypt_flag,
+            "archive": result.get("filename", ""),
+        },
+        card="backup",
+    )
     return jsonify(result)
 
 
@@ -151,12 +176,27 @@ def api_upload():  # type: ignore[no-untyped-def]
             dest.unlink()
             return jsonify({"error": "Invalid archive: no backup_manifest.json found"}), 400
 
+    size_bytes = dest.stat().st_size
+    devops_cache.record_event(
+        root,
+        label="📤 Backup Uploaded",
+        summary=f"{dest_name} uploaded to {target_folder}/.backup/ ({size_bytes:,} bytes)"
+                + (" (encrypted)" if is_encrypted else ""),
+        detail={
+            "filename": dest_name,
+            "folder": target_folder,
+            "size_bytes": size_bytes,
+            "encrypted": is_encrypted,
+        },
+        card="backup",
+    )
+
     return jsonify({
         "success": True,
         "filename": dest_name,
         "folder": target_folder,
         "full_path": str(dest.relative_to(root)),
-        "size_bytes": dest.stat().st_size,
+        "size_bytes": size_bytes,
         "encrypted": is_encrypted,
         "manifest": manifest,
     })

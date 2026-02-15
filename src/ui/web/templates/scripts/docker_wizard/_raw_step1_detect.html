@@ -1,0 +1,106 @@
+                {
+                    id: 'detect', title: 'Detect', cacheable: true,
+                    render: async (data, el) => {
+                        // ── Serve from cache if available (instant, zero API calls) ──
+                        const _CK = 'docker:detect';
+                        const cached = wizCached(_CK);
+                        if (cached) {
+                            Object.assign(data, cached.d);
+                            el.innerHTML = _wizDetectBanner(_CK) + cached.h;
+                            return;
+                        }
+
+                        // ── Fresh scan ──
+                        el.innerHTML = '<p style="text-align:center;padding:2rem"><span class="spinner"></span> Detecting Docker environment…</p>';
+                        try {
+                            const _bust = window._wizForceRescan ? '?bust=1' : ''; window._wizForceRescan = false;
+                            const wizDetect = wizCached('detect') || await api('/wizard/detect' + _bust).then(d => { wizStore('detect', d); return d; });
+                            const _serverTs = (wizDetect._cache?.computed_at || 0) * 1000;
+                            const probes = wizDetect.status_probes || {};
+                            const docker = probes.docker || {};
+                            data._docker = docker;
+                            data._dockerStatus = wizDetect.docker_status || {};
+                            const dockerStatus = data._dockerStatus;
+                            const modules = (wizDetect.config_data || {}).modules || [];
+                            data._modules = modules;
+
+                            // Classify modules
+                            const classified = modules.map(m => {
+                                const cls = _dockerModClass(m);
+                                const family = _dockerStackFamily(m.stack || '');
+                                return { ...m, _class: cls, _family: family,
+                                         _port: family ? _dockerPort(family) : null };
+                            });
+                            data._classified = classified;
+
+                            const deployable = classified.filter(m => m._class === 'deployable' && m._family);
+
+                            // Docker status
+                            let html = wizSection('Docker Environment', 'Current Docker configuration detected in this project.');
+                            html += `<div class="wiz-status-grid">
+                                ${wizStatusRow('🐳', 'Docker Engine',
+                                    dockerStatus.available ? (dockerStatus.version || '').replace('Docker version ','').split(',')[0] || 'Available' : 'Not found',
+                                    dockerStatus.available ? 'ok' : 'error')}
+                                ${dockerStatus.compose_available ? wizStatusRow('⚙️', 'Docker Compose', (dockerStatus.compose_version || '✓'), 'ok') : ''}
+                                ${wizStatusRow('📄', 'Dockerfile', docker.has_dockerfile ? 'Present' : 'Missing', docker.has_dockerfile ? 'ok' : 'warn')}
+                                ${wizStatusRow('📋', 'Compose file', docker.has_compose ? 'Present' : 'Missing', docker.has_compose ? 'ok' : 'warn')}
+                                ${wizStatusRow('🚫', '.dockerignore', docker.has_dockerignore ? 'Present' : 'Missing', docker.has_dockerignore ? 'ok' : 'warn')}
+                            </div>`;
+
+                            if (!dockerStatus.available) {
+                                html += `<div class="wiz-step-warn-panel" style="margin-top:1rem">
+                                    <span>⚠️</span>
+                                    <span>Docker is not installed. You can still generate config files, but won't be able to build/run until Docker is available.</span>
+                                </div>`;
+                            }
+
+                            // Module table
+                            html += wizSection('Project Modules', `${modules.length} module${modules.length !== 1 ? 's' : ''} detected — ${deployable.length} deployable.`);
+                            if (modules.length > 0) {
+                                html += `<div style="display:flex;flex-direction:column;gap:0.25rem">`;
+                                for (const m of classified) {
+                                    const isDep = m._class === 'deployable' && m._family;
+                                    const badge = isDep ? 'deployable' : m._class;
+                                    const badgeColor = isDep ? 'var(--success)' : 'var(--text-muted)';
+                                    const badgeIcon = isDep ? '🟢' : m._class === 'library' ? '📚' : m._class === 'docs' ? '📝' : '⚙️';
+                                    html += `<div style="display:flex;align-items:center;gap:0.5rem;font-size:0.82rem;padding:0.3rem 0.5rem;border-radius:6px;background:var(--bg-inset)">
+                                        <span style="width:18px;text-align:center">${badgeIcon}</span>
+                                        <strong style="min-width:80px">${esc(m.name)}</strong>
+                                        <code style="font-size:0.72rem;background:var(--bg-primary);padding:1px 5px;border-radius:3px;color:var(--text-secondary)">${esc(m.stack || '?')}</code>
+                                        <span style="flex:1;color:var(--text-muted);font-size:0.72rem">${esc(m.path || '')}</span>
+                                        <span style="font-size:0.68rem;color:${badgeColor}">${badge}</span>
+                                    </div>`;
+                                }
+                                html += `</div>`;
+
+                                if (deployable.length > 0) {
+                                    html += `<div style="margin-top:0.75rem;font-size:0.8rem;color:var(--text-secondary)">
+                                        💡 <strong>${deployable.length}</strong> deployable module${deployable.length !== 1 ? 's' : ''} detected.
+                                        The next step lets you choose which ones become containers.
+                                    </div>`;
+                                } else {
+                                    html += `<div class="wiz-step-warn-panel" style="margin-top:0.75rem">
+                                        <span>ℹ️</span>
+                                        <span>No deployable modules detected — you'll be able to pick a stack template manually in the next step.</span>
+                                    </div>`;
+                                }
+                            } else {
+                                html += `<div style="font-size:0.82rem;color:var(--text-muted);padding:0.5rem">
+                                    No modules configured. You can still pick a stack template manually.
+                                </div>`;
+                            }
+
+                            // Fetch vault keys (secrets + config vars)
+                            try {
+                                const vaultData = await api('/vault/keys');
+                                data._vaultKeys = (vaultData && vaultData.keys) || [];
+                            } catch(e) { data._vaultKeys = []; }
+
+                            // Store complete detect result in cache
+                            wizStore(_CK, { h: html, d: { _docker: data._docker, _dockerStatus: data._dockerStatus, _modules: data._modules, _classified: data._classified, _vaultKeys: data._vaultKeys } }, _serverTs);
+                            el.innerHTML = _wizDetectBanner(_CK) + html;
+                        } catch (e) {
+                            el.innerHTML = `<div class="wiz-step-error-panel"><span>⚠️</span><span>${esc(e.message)}</span></div>`;
+                        }
+                    },
+                },

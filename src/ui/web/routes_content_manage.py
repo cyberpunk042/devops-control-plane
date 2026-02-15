@@ -36,6 +36,8 @@ from .routes_content import (
 )
 from .content_crypto import DEFAULT_CONTENT_DIRS
 
+from src.core.services import devops_cache
+
 logger = logging.getLogger(__name__)
 
 
@@ -110,6 +112,15 @@ def content_setup_enc_key():  # type: ignore[no-untyped-def]
     env_path.write_text(final, encoding="utf-8")
 
     logger.info("Set CONTENT_VAULT_ENC_KEY in .env (generated=%s)", should_generate)
+
+    devops_cache.record_event(
+        _project_root(),
+        label="🔐 Enc Key Configured",
+        summary="CONTENT_VAULT_ENC_KEY " + ("auto-generated" if should_generate else "set manually"),
+        detail={"generated": should_generate},
+        card="content",
+    )
+
     return jsonify({
         "success": True,
         "generated": should_generate,
@@ -154,12 +165,21 @@ def content_save():  # type: ignore[no-untyped-def]
         return jsonify({"error": "Invalid path"}), 400
 
     target.write_text(file_content, encoding="utf-8")
+    size = len(file_content.encode("utf-8"))
 
-    logger.info("Saved file: %s (%d bytes)", rel_path, len(file_content))
+    devops_cache.record_event(
+        root,
+        label="💾 File Saved",
+        summary=f"{rel_path} saved ({size:,} bytes)",
+        detail={"file": rel_path, "size_bytes": size},
+        card="content",
+    )
+
+    logger.info("Saved file: %s (%d bytes)", rel_path, size)
     return jsonify({
         "success": True,
         "path": rel_path,
-        "size": len(file_content.encode("utf-8")),
+        "size": size,
     })
 
 
@@ -210,6 +230,15 @@ def content_rename():  # type: ignore[no-untyped-def]
             old_meta.rename(new_meta)
 
     logger.info("Renamed: %s → %s", rel_path, new_name)
+
+    devops_cache.record_event(
+        root,
+        label="✏️ File Renamed",
+        summary=f"{rel_path} → {new_name}",
+        detail={"old_path": rel_path, "new_name": new_name},
+        card="content",
+    )
+
     return jsonify({
         "success": True,
         "old_path": rel_path,
@@ -261,6 +290,19 @@ def content_move():  # type: ignore[no-untyped-def]
         shutil.move(str(old_meta), str(new_meta))
 
     logger.info("Moved: %s → %s", rel_path, str(dest.relative_to(root)))
+
+    devops_cache.record_event(
+        root,
+        label="📦 File Moved",
+        summary=f"{rel_path} → {dest_folder}/{source.name}",
+        detail={
+            "old_path": rel_path,
+            "new_path": str(dest.relative_to(root)),
+            "destination": dest_folder,
+        },
+        card="content",
+    )
+
     return jsonify({
         "success": True,
         "old_path": rel_path,
@@ -304,7 +346,21 @@ def content_restore_large():  # type: ignore[no-untyped-def]
     """Download missing large files from the 'content-vault' GitHub Release."""
     from .content_release import restore_large_files
 
-    result = restore_large_files(_project_root())
+    root = _project_root()
+    result = restore_large_files(root)
+
+    devops_cache.record_event(
+        root,
+        label="⬇️ Large Files Restored",
+        summary=f"{result.get('restored', 0)} large files downloaded from release",
+        detail={
+            "restored": result.get("restored", 0),
+            "skipped": result.get("skipped", 0),
+            "failed": result.get("failed", 0),
+        },
+        card="content",
+    )
+
     return jsonify({"success": True, **result})
 
 

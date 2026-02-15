@@ -1,0 +1,239 @@
+                // ── Step 3: Preview & Edit ─────────────────────────────
+                {
+                    id: 'preview', title: 'Preview',
+                    render: async (data, el) => {
+                        el.innerHTML = '<p style="text-align:center;padding:2rem"><span class="spinner"></span> Generating files…</p>';
+                        const docker = data._docker || {};
+                        data._generatedFiles = [];
+                        let fileIdx = 0;
+
+                        let html = wizSection('File Preview', 'Review and edit the generated files before writing to disk.');
+
+                        try {
+                            // ── Generate Dockerfiles ───────────────────
+                            for (const c of data._selectedContainers) {
+                                if (docker.has_dockerfile && !data.overwrite && c.dockerfilePath === 'Dockerfile') {
+                                    html += `<div style="margin-bottom:0.75rem">
+                                        <div style="display:flex;align-items:center;gap:0.4rem">
+                                            <span>📄</span>
+                                            <strong style="font-size:0.82rem">${esc(c.dockerfilePath)}</strong>
+                                            <span style="font-size:0.68rem;color:var(--text-muted);margin-left:auto">exists — skipped</span>
+                                        </div>
+                                    </div>`;
+                                    continue;
+                                }
+
+                                // Build Dockerfile content from user settings
+                                let dfContent = '';
+                                const img = c.baseImage || 'ubuntu:22.04';
+                                const wd = c.workdir || '/app';
+
+                                // Build stage
+                                dfContent += `# ── Build stage ─────────────────────────────────────────────────\n`;
+                                dfContent += `FROM ${img} AS builder\n\nWORKDIR ${wd}\n\n`;
+                                if (c.install) {
+                                    dfContent += `# Install dependencies\nRUN ${c.install}\n\n`;
+                                }
+                                dfContent += `COPY . .\n`;
+                                if (c.buildCmd) {
+                                    dfContent += `RUN ${c.buildCmd}\n`;
+                                }
+
+                                // Runtime stage
+                                dfContent += `\n# ── Runtime stage ───────────────────────────────────────────────\n`;
+                                dfContent += `FROM ${img}\n\nWORKDIR ${wd}\n\n`;
+                                dfContent += `# Create non-root user\n`;
+                                if (img.includes('alpine')) {
+                                    dfContent += `RUN addgroup -g 1000 app && adduser -u 1000 -G app -s /bin/sh -D app\n\n`;
+                                } else {
+                                    dfContent += `RUN groupadd --gid 1000 app \\\n    && useradd --uid 1000 --gid app --shell /bin/bash --create-home app\n\n`;
+                                }
+                                dfContent += `COPY --from=builder ${wd} ${wd}\n\n`;
+                                dfContent += `USER app\n\n`;
+
+                                if (c.expose) {
+                                    dfContent += `EXPOSE ${c.expose}\n\n`;
+                                }
+                                if (c.entrypoint) {
+                                    dfContent += `ENTRYPOINT ["${c.entrypoint}"]\n`;
+                                }
+                                if (c.cmd) {
+                                    // Convert space-separated command to JSON array format
+                                    const parts = c.cmd.split(/\s+/);
+                                    dfContent += `CMD [${parts.map(p => `"${p}"`).join(', ')}]\n`;
+                                }
+
+                                const idx = fileIdx++;
+                                const file = { path: c.dockerfilePath, content: dfContent, overwrite: !!data.overwrite };
+                                data._generatedFiles.push(file);
+
+                                html += `<div style="margin-bottom:0.75rem">
+                                    <details open>
+                                        <summary style="cursor:pointer;display:flex;align-items:center;gap:0.4rem;font-size:0.82rem;padding:0.3rem 0;user-select:none">
+                                            <span>📄</span>
+                                            <strong>${esc(c.dockerfilePath)}</strong>
+                                            <code style="font-size:0.68rem;background:var(--bg-inset);padding:1px 5px;border-radius:3px;color:var(--text-muted)">${esc(img)}</code>
+                                            <span style="font-size:0.68rem;color:var(--success);margin-left:auto">create</span>
+                                        </summary>
+                                        <textarea id="dk-preview-${idx}"
+                                            style="width:100%;min-height:200px;max-height:350px;resize:vertical;background:var(--bg-inset);border:1px solid var(--border-subtle);border-radius:6px;padding:0.5rem;font-size:0.72rem;font-family:var(--font-mono,monospace);color:var(--text-secondary);margin-top:0.25rem;line-height:1.4"
+                                        >${esc(file.content)}</textarea>
+                                    </details>
+                                </div>`;
+                            }
+
+                            // ── Generate compose ──────────────────────
+                            if (data.genCompose) {
+                                const services = [];
+
+                                // Module services (use all user-configured settings)
+                                for (const c of data._selectedContainers) {
+                                    const svc = {
+                                        name: c.name,
+                                        ports: [`${c.port}:${c.port}`],
+                                        restart: c.restart || 'unless-stopped',
+                                    };
+                                    if (c.dockerfilePath === 'Dockerfile') {
+                                        svc.build_context = '.';
+                                    } else {
+                                        svc.build_context = `./${c.path}`;
+                                        svc.dockerfile = c.dockerfilePath.split('/').pop() || 'Dockerfile';
+                                    }
+                                    if (c.cmd) svc.command = c.cmd;
+                                    // Convert envVars to compose environment format
+                                    if (c.envVars && c.envVars.length > 0) {
+                                        svc.environment = {};
+                                        for (const ev of c.envVars) {
+                                            if (ev.type === 'hardcoded') svc.environment[ev.key] = ev.value;
+                                            else svc.environment[ev.key] = ev.varName || '${' + ev.key + '}';
+                                        }
+                                    }
+                                    if (c.volumes) svc.volumes = c.volumes;
+                                    if (c.depends_on) svc.depends_on = c.depends_on;
+                                    if (c.containerName) svc.container_name = c.containerName;
+                                    if (c.networks) svc.networks = c.networks;
+                                    if (c.build_args) svc.build_args = c.build_args;
+                                    if (data.platform) svc.platform = data.platform;
+                                    if (c.healthcheck) {
+                                        svc.healthcheck = {
+                                            test: ['CMD-SHELL', c.healthcheck],
+                                            interval: '30s',
+                                            timeout: '10s',
+                                            retries: 3,
+                                        };
+                                    }
+                                    services.push(svc);
+                                }
+
+                                // Infra services — use user-configured values
+                                for (const inf of data._selectedInfra) {
+                                    const svc = {
+                                        name: inf.key,
+                                        image: inf.image,
+                                        restart: inf.restart || 'unless-stopped',
+                                    };
+                                    if (inf.ports && inf.ports.length > 0) svc.ports = inf.ports;
+                                    // Convert envVars to compose environment format
+                                    if (inf.envVars && inf.envVars.length > 0) {
+                                        svc.environment = {};
+                                        for (const ev of inf.envVars) {
+                                            if (ev.type === 'hardcoded') svc.environment[ev.key] = ev.value;
+                                            else svc.environment[ev.key] = ev.varName || '${' + ev.key + '}';
+                                        }
+                                    }
+                                    if (inf.volumes) svc.volumes = inf.volumes;
+                                    if (inf.command) svc.command = inf.command;
+                                    if (data.platform) svc.platform = data.platform;
+                                    services.push(svc);
+                                }
+
+                                if (services.length > 0) {
+                                    const composeResult = await apiPost('/docker/generate/compose-wizard', {
+                                        services,
+                                        project_name: data.projectName || '',
+                                    });
+
+                                    if (composeResult.ok && composeResult.file) {
+                                        const idx = fileIdx++;
+                                        const file = { ...composeResult.file, overwrite: true };
+                                        data._generatedFiles.push(file);
+
+                                        html += `<div style="margin-bottom:0.75rem">
+                                            <details open>
+                                                <summary style="cursor:pointer;display:flex;align-items:center;gap:0.4rem;font-size:0.82rem;padding:0.3rem 0;user-select:none">
+                                                    <span>📋</span>
+                                                    <strong>docker-compose.yml</strong>
+                                                    <span style="font-size:0.68rem;color:var(--text-muted)">${services.length} service${services.length !== 1 ? 's' : ''}</span>
+                                                    <span style="font-size:0.68rem;color:var(--success);margin-left:auto">create</span>
+                                                </summary>
+                                                <textarea id="dk-preview-${idx}"
+                                                    style="width:100%;min-height:200px;max-height:350px;resize:vertical;background:var(--bg-inset);border:1px solid var(--border-subtle);border-radius:6px;padding:0.5rem;font-size:0.72rem;font-family:var(--font-mono,monospace);color:var(--text-secondary);margin-top:0.25rem;line-height:1.4"
+                                                >${esc(composeResult.file.content)}</textarea>
+                                            </details>
+                                        </div>`;
+                                    }
+                                }
+                            }
+
+                            // ── Generate .dockerignore ────────────────
+                            if (data.genIgnore) {
+                                const allStacks = [...new Set(data._selectedContainers.map(c => c.family))];
+                                const ignoreResult = await apiPost('/docker/generate/dockerignore', {
+                                    stacks: allStacks.length > 0 ? allStacks : ['python'],
+                                });
+
+                                if (ignoreResult.ok && ignoreResult.file) {
+                                    const idx = fileIdx++;
+                                    const file = { ...ignoreResult.file, overwrite: true };
+                                    data._generatedFiles.push(file);
+
+                                    html += `<div style="margin-bottom:0.75rem">
+                                        <details>
+                                            <summary style="cursor:pointer;display:flex;align-items:center;gap:0.4rem;font-size:0.82rem;padding:0.3rem 0;user-select:none">
+                                                <span>🚫</span>
+                                                <strong>.dockerignore</strong>
+                                                <span style="font-size:0.68rem;color:var(--text-muted)">${allStacks.join(', ')} patterns</span>
+                                                <span style="font-size:0.68rem;color:var(--success);margin-left:auto">create</span>
+                                            </summary>
+                                            <textarea id="dk-preview-${idx}"
+                                                style="width:100%;min-height:120px;max-height:250px;resize:vertical;background:var(--bg-inset);border:1px solid var(--border-subtle);border-radius:6px;padding:0.5rem;font-size:0.72rem;font-family:var(--font-mono,monospace);color:var(--text-secondary);margin-top:0.25rem;line-height:1.4"
+                                            >${esc(ignoreResult.file.content)}</textarea>
+                                        </details>
+                                    </div>`;
+                                }
+                            }
+
+                            if (data._generatedFiles.length === 0) {
+                                html += `<div style="text-align:center;padding:var(--space-sm);color:var(--text-muted);font-size:0.85rem">
+                                    No files to generate. Existing files are kept as-is.
+                                </div>`;
+                            } else {
+                                html += `<div style="margin-top:0.5rem;font-size:0.78rem;color:var(--text-secondary)">
+                                    ✏️ ${data._generatedFiles.length} file${data._generatedFiles.length !== 1 ? 's' : ''} generated — edit content above if needed, then click Apply.
+                                </div>`;
+                            }
+
+                            // Next integration CTA
+                            html += `<div style="margin-top:var(--space-md);padding:var(--space-xs) var(--space-sm);border-left:3px solid var(--accent);background:color-mix(in srgb, var(--accent) 5%, transparent);border-radius:0 6px 6px 0">
+                                <div style="font-size:0.78rem;color:var(--text-secondary)">
+                                    💡 <strong>Next:</strong> Set up CI/CD to automate builds and deployments.
+                                    <button class="btn btn-sm btn-ghost" style="font-size:0.72rem;padding:0.1rem 0.4rem;margin-left:4px;color:var(--accent)"
+                                        onclick="wizardModalClose();setTimeout(openCICDSetupWizard,300)">Set up CI/CD →</button>
+                                </div>
+                            </div>`;
+
+                            el.innerHTML = html;
+                        } catch (e) {
+                            el.innerHTML = `<div class="wiz-step-error-panel"><span>⚠️</span><span>Generation failed: ${esc(e.message)}</span></div>`;
+                        }
+                    },
+                    // Collect any user edits from the textareas before writing
+                    collect: (data) => {
+                        for (let i = 0; i < data._generatedFiles.length; i++) {
+                            const ta = document.getElementById(`dk-preview-${i}`);
+                            if (ta) {
+                                data._generatedFiles[i].content = ta.value;
+                            }
+                        }
+                    },
+                },

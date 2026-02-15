@@ -22,7 +22,7 @@ from datetime import datetime, timezone
 
 from flask import jsonify, request
 
-from src.core.services import backup_ops
+from src.core.services import backup_ops, devops_cache
 from .routes_backup import backup_bp, _project_root
 
 logger = logging.getLogger(__name__)
@@ -65,6 +65,14 @@ def api_upload_release():  # type: ignore[no-untyped-def]
         }
         meta_path.write_text(json.dumps(meta, indent=2))
 
+        devops_cache.record_event(
+            root,
+            label="☁️ Backup Release Upload",
+            summary=f"{file_path.name} upload started to GitHub Release",
+            detail={"file": backup_path, "file_id": file_id},
+            card="backup",
+        )
+
         return jsonify({
             "success": True,
             "file_id": file_id,
@@ -72,6 +80,13 @@ def api_upload_release():  # type: ignore[no-untyped-def]
         })
     except Exception as e:
         logger.exception("Failed to start release upload")
+        devops_cache.record_event(
+            root,
+            label="❌ Backup Release Upload Failed",
+            summary=f"{file_path.name}: {e}",
+            detail={"file": backup_path, "error": str(e)},
+            card="backup",
+        )
         return jsonify({"error": f"Upload failed: {e}"}), 500
 
 
@@ -83,13 +98,22 @@ def api_encrypt_backup():  # type: ignore[no-untyped-def]
     """Encrypt an existing .tar.gz backup in place."""
     data = request.get_json(silent=True) or {}
     backup_path = data.get("backup_path", "").strip()
+    root = _project_root()
 
     if not backup_path:
         return jsonify({"error": "Missing 'backup_path'"}), 400
 
-    result = backup_ops.encrypt_backup_inplace(_project_root(), backup_path)
+    result = backup_ops.encrypt_backup_inplace(root, backup_path)
     if "error" in result:
         return jsonify(result), 400
+
+    devops_cache.record_event(
+        root,
+        label="🔐 Backup Encrypted",
+        summary=f"{backup_path} encrypted in place",
+        detail={"backup": backup_path},
+        card="backup",
+    )
     return jsonify(result)
 
 
@@ -98,13 +122,22 @@ def api_decrypt_backup():  # type: ignore[no-untyped-def]
     """Decrypt an existing .tar.gz.enc backup in place."""
     data = request.get_json(silent=True) or {}
     backup_path = data.get("backup_path", "").strip()
+    root = _project_root()
 
     if not backup_path:
         return jsonify({"error": "Missing 'backup_path'"}), 400
 
-    result = backup_ops.decrypt_backup_inplace(_project_root(), backup_path)
+    result = backup_ops.decrypt_backup_inplace(root, backup_path)
     if "error" in result:
         return jsonify(result), 400
+
+    devops_cache.record_event(
+        root,
+        label="🔓 Backup Decrypted",
+        summary=f"{backup_path} decrypted in place",
+        detail={"backup": backup_path},
+        card="backup",
+    )
     return jsonify(result)
 
 
@@ -143,12 +176,28 @@ def api_delete_release():  # type: ignore[no-untyped-def]
         from src.core.services.content_release import delete_release_asset
         delete_release_asset(asset_name, root)
         meta_path.unlink(missing_ok=True)
+
+        devops_cache.record_event(
+            root,
+            label="☁️❌ Release Asset Deleted",
+            summary=f"Release asset '{asset_name}' deletion queued",
+            detail={"backup": backup_path, "asset": asset_name},
+            card="backup",
+        )
+
         return jsonify({
             "success": True,
             "message": f"Queued deletion of release asset: {asset_name}",
         })
     except Exception as e:
         logger.exception("Failed to delete release asset")
+        devops_cache.record_event(
+            root,
+            label="❌ Release Delete Failed",
+            summary=f"{asset_name}: {e}",
+            detail={"backup": backup_path, "asset": asset_name, "error": str(e)},
+            card="backup",
+        )
         return jsonify({"error": f"Deletion failed: {e}"}), 500
 
 
@@ -165,6 +214,8 @@ def api_rename_backup():  # type: ignore[no-untyped-def]
     if not backup_path or not new_name:
         return jsonify({"error": "Missing 'backup_path' or 'new_name'"}), 400
 
+    root = _project_root()
+
     # Ensure proper extension
     import re
     safe_name = re.sub(r'[^a-zA-Z0-9._-]', '_', new_name)
@@ -174,10 +225,18 @@ def api_rename_backup():  # type: ignore[no-untyped-def]
         else:
             safe_name += ".tar.gz"
 
-    result = backup_ops.rename_backup(_project_root(), backup_path, safe_name)
+    result = backup_ops.rename_backup(root, backup_path, safe_name)
     if "error" in result:
         code = 409 if "already exists" in result.get("error", "") else 400
         return jsonify(result), code
+
+    devops_cache.record_event(
+        root,
+        label="✏️ Backup Renamed",
+        summary=f"{backup_path} → {safe_name}",
+        detail={"old_name": backup_path, "new_name": safe_name},
+        card="backup",
+    )
     return jsonify({"success": True, **result})
 
 
@@ -194,7 +253,16 @@ def api_mark_special():  # type: ignore[no-untyped-def]
     if not backup_path:
         return jsonify({"error": "Missing 'backup_path'"}), 400
 
-    result = backup_ops.mark_special(_project_root(), backup_path, unmark=unmark)
+    root = _project_root()
+    result = backup_ops.mark_special(root, backup_path, unmark=unmark)
     if "error" in result:
         return jsonify(result), 400
+
+    devops_cache.record_event(
+        root,
+        label="📌 Backup " + ("Unmarked" if unmark else "Marked"),
+        summary=f"{backup_path} {'removed from' if unmark else 'added to'} git tracking",
+        detail={"backup": backup_path, "unmark": unmark},
+        card="backup",
+    )
     return jsonify(result)

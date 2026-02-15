@@ -20,7 +20,7 @@ from pathlib import Path
 
 from flask import Blueprint, current_app, jsonify, request
 
-from src.core.services import ci_ops
+from src.core.services import ci_ops, devops_cache
 
 ci_bp = Blueprint("ci", __name__)
 
@@ -96,6 +96,14 @@ def generate_ci():  # type: ignore[no-untyped-def]
 
     if "error" in result:
         return jsonify(result), 400
+
+    devops_cache.record_event(
+        root,
+        label="⚙️ CI Workflow Generated",
+        summary=f"CI workflow generated ({len(stack_names)} stack(s))",
+        detail={"stacks": stack_names, "project": project.name},
+        card="ci",
+    )
     return jsonify(result)
 
 
@@ -103,8 +111,17 @@ def generate_ci():  # type: ignore[no-untyped-def]
 def generate_lint():  # type: ignore[no-untyped-def]
     """Generate a lint workflow from detected stacks."""
     stack_names = _get_stack_names()
-    result = ci_ops.generate_lint_workflow(_project_root(), stack_names)
+    root = _project_root()
+    result = ci_ops.generate_lint_workflow(root, stack_names)
 
     if "error" in result:
         return jsonify(result), 400
+
+    devops_cache.record_event(
+        root,
+        label="⚙️ Lint Workflow Generated",
+        summary=f"Lint workflow generated ({len(stack_names)} stack(s))",
+        detail={"stacks": stack_names},
+        card="ci",
+    )
     return jsonify(result)

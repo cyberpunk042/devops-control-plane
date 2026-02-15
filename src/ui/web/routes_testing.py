@@ -18,7 +18,7 @@ from pathlib import Path
 
 from flask import Blueprint, current_app, jsonify, request
 
-from src.core.services import testing_ops
+from src.core.services import testing_ops, devops_cache
 
 testing_bp = Blueprint("testing", __name__)
 
@@ -51,21 +51,40 @@ def testing_inventory():  # type: ignore[no-untyped-def]
 def testing_run():  # type: ignore[no-untyped-def]
     """Run tests."""
     data = request.get_json(silent=True) or {}
+    root = _project_root()
     result = testing_ops.run_tests(
-        _project_root(),
+        root,
         verbose=data.get("verbose", False),
         file_path=data.get("file"),
         keyword=data.get("keyword"),
     )
     if "error" in result:
         return jsonify(result), 400
+
+    devops_cache.record_event(
+        root,
+        label="🧪 Tests Run",
+        summary="Tests executed" + (f" ({data.get('file')})" if data.get("file") else ""),
+        detail={"file": data.get("file"), "keyword": data.get("keyword"), "verbose": data.get("verbose", False)},
+        card="testing",
+    )
     return jsonify(result)
 
 
 @testing_bp.route("/testing/coverage", methods=["POST"])
 def testing_coverage():  # type: ignore[no-untyped-def]
     """Run tests with coverage."""
-    return jsonify(testing_ops.test_coverage(_project_root()))
+    root = _project_root()
+    result = testing_ops.test_coverage(root)
+
+    devops_cache.record_event(
+        root,
+        label="📊 Coverage Run",
+        summary="Coverage analysis completed",
+        detail={},
+        card="testing",
+    )
+    return jsonify(result)
 
 
 @testing_bp.route("/testing/generate/template", methods=["POST"])
@@ -76,11 +95,19 @@ def testing_generate_template():  # type: ignore[no-untyped-def]
     if not module:
         return jsonify({"error": "Missing 'module' field"}), 400
 
+    root = _project_root()
     result = testing_ops.generate_test_template(
-        _project_root(),
-        module,
+        root, module,
         stack=data.get("stack", "python"),
     )
     if "error" in result:
         return jsonify(result), 400
+
+    devops_cache.record_event(
+        root,
+        label="📝 Test Template Generated",
+        summary=f"Test template generated for module '{module}'",
+        detail={"module": module, "stack": data.get("stack", "python")},
+        card="testing",
+    )
     return jsonify(result)

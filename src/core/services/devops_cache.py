@@ -288,6 +288,17 @@ _CARD_LABELS: dict[str, str] = {
     "audit:l2:repo": "📁 Repo Health",
     "audit:l2:risks": "⚠️ Risks & Issues",
     "wiz:detect": "🧙 Wizard Detect",
+    # ── Phase 4 audit expansion cards ──
+    "vault": "🔐 Vault",
+    "backup": "💾 Backup",
+    "content": "📝 Content",
+    "event": "📋 Event",
+    "dismissal": "🚫 Dismissal",
+    "docker": "🐳 Docker",
+    "secrets": "🔑 Secrets",
+    "ci": "⚙️ CI/CD",
+    "wizard": "🧙 Wizard",
+    "config": "⚙️ Config",
 }
 
 
