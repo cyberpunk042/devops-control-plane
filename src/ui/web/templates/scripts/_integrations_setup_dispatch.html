@@ -1,0 +1,33 @@
+<!-- Integrations — Setup Wizard Dispatcher
+     Routes openSetupWizard(key) to the correct wizard function.
+     Must load AFTER all individual wizard files.
+     Depends on: all _integrations_setup_*.html wizard files
+-->
+<script>
+
+    // ── Setup Modal Dispatcher ──────────────────────────────────────────
+    // Single function to open the right setup wizard by integration key.
+
+    function openSetupWizard(key) {
+        const wizards = {
+            git: openGitSetupWizard,
+            docker: openDockerSetupWizard,
+            cicd: openCICDSetupWizard,
+            k8s: openK8sSetupWizard,
+            terraform: openTerraformSetupWizard,
+            github: openGitHubSetupWizard,
+            pages: () => {
+                toast('Pages setup is available via the Pages card — check the Integrations tab.', 'info');
+                switchTab('integrations');
+            },
+            dns: () => {
+                toast('DNS configuration wizard coming soon.', 'info');
+            },
+        };
+        const fn = wizards[key];
+        if (fn) fn();
+        else toast(`No setup wizard for "${key}" yet`, 'warn');
+    }
+</script>
+
+</script>

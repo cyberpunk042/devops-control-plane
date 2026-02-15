@@ -33,7 +33,7 @@ _FMT_FILE = "%(asctime)s %(levelname)-5s %(name)s:%(lineno)d — %(message)s"
 _DATEFMT_FILE = "%Y-%m-%d %H:%M:%S"
 
 # Third-party loggers that are noisy at INFO/DEBUG
-_NOISY_LOGGERS = ("urllib3", "werkzeug", "watchdog", "PIL", "charset_normalizer")
+_NOISY_LOGGERS = ("urllib3", "watchdog", "PIL", "charset_normalizer")
 
 
 def setup_logging(

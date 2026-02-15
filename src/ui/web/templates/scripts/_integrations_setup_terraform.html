@@ -1,0 +1,154 @@
+<!-- Integrations — Terraform Setup Wizard
+     Depends on: _integrations_setup_shared.html
+-->
+<script>
+
+    // ── Terraform Setup Wizard ──────────────────────────────────────────
+
+    function openTerraformSetupWizard() {
+        wizardModalOpen({
+            title: '🏗️ Terraform Setup',
+            size: 'wide',
+            steps: [
+                {
+                    id: 'detect', title: 'Detect', cacheable: true,
+                    render: async (data, el) => {
+                        // ── Serve from cache if available (instant, zero API calls) ──
+                        const _CK = 'tf:detect';
+                        const cached = wizCached(_CK);
+                        if (cached) {
+                            Object.assign(data, cached.d);
+                            el.innerHTML = _wizDetectBanner(_CK) + cached.h;
+                            return;
+                        }
+
+                        // ── Fresh scan ──
+                        el.innerHTML = '<p style="text-align:center;padding:2rem"><span class="spinner"></span> Detecting Terraform environment…</p>';
+                        try {
+                            const _bust = window._wizForceRescan ? '?bust=1' : ''; window._wizForceRescan = false;
+                            const wizDetect = wizCached('detect') || await api('/wizard/detect' + _bust).then(d => { wizStore('detect', d); return d; });
+                            const _serverTs = (wizDetect._cache?.computed_at || 0) * 1000;
+                            const probes = wizDetect.status_probes || {};
+                            const tf = probes.terraform || {};
+                            data._tf = tf;
+
+                            const html = `
+                                ${wizSection('Terraform Environment', 'Current Infrastructure as Code configuration.')}
+                                <div class="wiz-status-grid">
+                                    ${wizStatusRow('🏗️', 'Terraform CLI', tf.has_cli ? 'Available' : 'Not found', tf.has_cli ? 'ok' : 'error')}
+                                    ${wizStatusRow('📄', 'TF files', String(tf.tf_file_count || 0), tf.tf_file_count > 0 ? 'ok' : 'warn')}
+                                    ${wizStatusRow('📁', 'Initialized', tf.initialized ? 'Yes' : 'No', tf.initialized ? 'ok' : 'muted')}
+                                    ${wizStatusRow('💾', 'State file', tf.has_state ? 'Present' : 'None', tf.has_state ? 'ok' : 'muted')}
+                                </div>
+                            `;
+
+                            // Store complete detect result in cache
+                            wizStore(_CK, { h: html, d: { _tf: data._tf } }, _serverTs);
+                            el.innerHTML = _wizDetectBanner(_CK) + html;
+                        } catch (e) {
+                            el.innerHTML = `<div class="wiz-step-error-panel"><span>⚠️</span><span>${esc(e.message)}</span></div>`;
+                        }
+                    },
+                },
+                {
+                    id: 'config', title: 'Configure',
+                    render: (data, el) => {
+                        el.innerHTML = `
+                            ${wizSection('Provider', 'Which cloud provider are you targeting?')}
+                            ${wizFormGrid([
+                                { name: 'tf-provider', label: 'Cloud Provider', type: 'select', value: data.provider || 'aws', options: [
+                                    { value: 'aws', label: 'AWS' },
+                                    { value: 'gcp', label: 'Google Cloud' },
+                                    { value: 'azure', label: 'Microsoft Azure' },
+                                    { value: 'digitalocean', label: 'DigitalOcean' },
+                                    { value: 'custom', label: 'Custom / Other' },
+                                ], required: true },
+                                { name: 'tf-region', label: 'Region', value: data.region || 'us-east-1', hint: 'Primary deployment region' },
+                            ])}
+
+                            ${wizSection('Resources', 'What infrastructure do you want to provision?')}
+                            ${wizFormGrid([
+                                { name: 'tf-k8s', label: 'Kubernetes cluster (EKS/GKE/AKS)', type: 'checkbox', value: false, fullWidth: true },
+                                { name: 'tf-rds', label: 'Database (RDS/Cloud SQL)', type: 'checkbox', value: false, fullWidth: true },
+                                { name: 'tf-s3', label: 'Object storage (S3/GCS)', type: 'checkbox', value: false, fullWidth: true },
+                                { name: 'tf-networking', label: 'VPC / Networking', type: 'checkbox', value: true, fullWidth: true },
+                            ])}
+
+                            ${wizSection('Backend', 'Where should Terraform store its state?')}
+                            ${wizFormGrid([
+                                { name: 'tf-backend', label: 'State Backend', type: 'select', value: data.backend || 'local', options: [
+                                    { value: 'local', label: 'Local (terraform.tfstate)' },
+                                    { value: 's3', label: 'AWS S3' },
+                                    { value: 'gcs', label: 'Google Cloud Storage' },
+                                    { value: 'azurerm', label: 'Azure Blob Storage' },
+                                ], fullWidth: true },
+                            ])}
+                        `;
+                    },
+                    collect: (data) => {
+                        data.provider = mfVal('tf-provider');
+                        data.region = mfVal('tf-region');
+                        data.k8sCluster = mfVal('tf-k8s');
+                        data.database = mfVal('tf-rds');
+                        data.storage = mfVal('tf-s3');
+                        data.networking = mfVal('tf-networking');
+                        data.backend = mfVal('tf-backend');
+                    },
+                },
+                {
+                    id: 'review', title: 'Review & Apply',
+                    render: (data, el) => {
+                        const resources = [];
+                        if (data.networking) resources.push('VPC, Subnets, Security Groups');
+                        if (data.k8sCluster) resources.push('Kubernetes Cluster');
+                        if (data.database) resources.push('Database Instance');
+                        if (data.storage) resources.push('Object Storage Bucket');
+
+                        const files = [
+                            { icon: '📄', label: 'main.tf', value: `Provider: ${data.provider}, Region: ${data.region}` },
+                            { icon: '📋', label: 'variables.tf', value: 'Input variable definitions' },
+                            { icon: '📤', label: 'outputs.tf', value: 'Output value definitions' },
+                        ];
+                        if (data.backend !== 'local') {
+                            files.push({ icon: '💾', label: 'backend.tf', value: `State backend: ${data.backend}` });
+                        }
+
+                        el.innerHTML = `
+                            ${wizSection('Review', 'The following Terraform configuration will be generated.')}
+                            ${files.map(item => `<div class="wiz-review-item">
+                                <span class="wiz-review-icon">${item.icon}</span>
+                                <div class="wiz-review-content">
+                                    <div class="wiz-review-label">${esc(item.label)}</div>
+                                    <div class="wiz-review-value">${esc(item.value)}</div>
+                                </div>
+                                <span class="wiz-review-badge ready">create</span>
+                            </div>`).join('')}
+
+                            ${resources.length > 0 ? `
+                                ${wizSection('Resources to provision')}
+                                <div style="padding:0 0.5rem;font-size:0.82rem;color:var(--text-secondary)">
+                                    ${resources.map(r => `<div style="padding:4px 0">• ${esc(r)}</div>`).join('')}
+                                </div>
+                            ` : ''}
+                        `;
+                    },
+                },
+            ],
+            onComplete: async (data) => {
+                await apiPost('/wizard/setup', {
+                    action: 'setup_terraform',
+                    provider: data.provider,
+                    region: data.region,
+                    k8s_cluster: data.k8sCluster,
+                    database: data.database,
+                    storage: data.storage,
+                    networking: data.networking,
+                    backend: data.backend,
+                });
+                _projectStatusTS = 0;
+            },
+            successMessage: 'Terraform configuration generated!',
+        });
+    }
+
+</script>

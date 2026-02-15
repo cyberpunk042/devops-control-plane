@@ -1,0 +1,150 @@
+<!-- Integrations — CI/CD Setup Wizard
+     Depends on: _integrations_setup_shared.html
+-->
+<script>
+
+    // ── CI/CD Setup Wizard ─────────────────────────────────────────────
+
+    function openCICDSetupWizard() {
+        wizardModalOpen({
+            title: '⚡ CI/CD Pipeline Setup',
+            size: 'wide',
+            steps: [
+                {
+                    id: 'detect', title: 'Detect', cacheable: true,
+                    render: async (data, el) => {
+                        // ── Serve from cache if available (instant, zero API calls) ──
+                        const _CK = 'cicd:detect';
+                        const cached = wizCached(_CK);
+                        if (cached) {
+                            Object.assign(data, cached.d);
+                            el.innerHTML = _wizDetectBanner(_CK) + cached.h;
+                            return;
+                        }
+
+                        // ── Fresh scan ──
+                        el.innerHTML = '<p style="text-align:center;padding:2rem"><span class="spinner"></span> Detecting CI/CD configuration…</p>';
+                        try {
+                            const _bust = window._wizForceRescan ? '?bust=1' : ''; window._wizForceRescan = false;
+                            const wizDetect = wizCached('detect') || await api('/wizard/detect' + _bust).then(d => { wizStore('detect', d); return d; });
+                            const _serverTs = (wizDetect._cache?.computed_at || 0) * 1000;
+                            const probes = wizDetect.status_probes || {};
+                            const cicd = probes.cicd || {};
+                            const docker = probes.docker || {};
+                            data._cicd = cicd;
+                            data._docker = docker;
+                            data._ciStatus = wizDetect.ci_status || {};
+
+                            const html = `
+                                ${wizSection('CI/CD Configuration', 'Current continuous integration / deployment setup.')}
+                                <div class="wiz-status-grid">
+                                    ${wizStatusRow('⚡', 'Provider', cicd.provider || 'Not configured', cicd.provider ? 'ok' : 'warn')}
+                                    ${wizStatusRow('📄', 'Workflow files', String(cicd.workflow_count || 0), cicd.workflow_count > 0 ? 'ok' : 'warn')}
+                                    ${wizStatusRow('🐳', 'Docker available', docker.has_dockerfile ? 'Yes' : 'No', docker.has_dockerfile ? 'ok' : 'muted')}
+                                </div>
+                                ${!docker.has_dockerfile ? `
+                                    <div class="wiz-action-row" style="margin-top:1rem">
+                                        <span class="wiz-action-label">💡 Set up Docker first for container-based CI/CD workflows.</span>
+                                        <button class="btn btn-sm btn-secondary" onclick="wizardModalClose(); openDockerSetupWizard();">Setup Docker →</button>
+                                    </div>
+                                ` : ''}
+                            `;
+
+                            // Store complete detect result in cache
+                            wizStore(_CK, { h: html, d: { _cicd: data._cicd, _docker: data._docker, _ciStatus: data._ciStatus } }, _serverTs);
+                            el.innerHTML = _wizDetectBanner(_CK) + html;
+                        } catch (e) {
+                            el.innerHTML = `<div class="wiz-step-error-panel"><span>⚠️</span><span>${esc(e.message)}</span></div>`;
+                        }
+                    },
+                },
+                {
+                    id: 'config', title: 'Configure',
+                    render: (data, el) => {
+                        const docker = data._docker || {};
+                        el.innerHTML = `
+                            ${wizSection('Workflow Configuration', 'What should the CI pipeline do?')}
+                            ${wizFormGrid([
+                                { name: 'ci-test', label: 'Run tests', type: 'checkbox', value: true },
+                                { name: 'ci-lint', label: 'Run linting', type: 'checkbox', value: true },
+                                { name: 'ci-typecheck', label: 'Type checking', type: 'checkbox', value: true },
+                                { name: 'ci-coverage', label: 'Upload coverage', type: 'checkbox', value: false },
+                                { name: 'ci-docker', label: 'Build Docker image', type: 'checkbox', value: docker.has_dockerfile },
+                                { name: 'ci-docker-push', label: 'Push to registry', type: 'checkbox', value: false },
+                            ])}
+
+                            ${wizSection('Trigger', 'When should the pipeline run?')}
+                            ${wizFormGrid([
+                                { name: 'ci-trigger', label: 'Trigger', type: 'select', value: 'push-pr', options: [
+                                    { value: 'push-pr', label: 'Push + Pull Request' },
+                                    { value: 'push', label: 'Push only' },
+                                    { value: 'pr', label: 'Pull Request only' },
+                                    { value: 'manual', label: 'Manual only' },
+                                ]},
+                                { name: 'ci-branch', label: 'Branch filter', value: 'main', placeholder: 'main, develop' },
+                            ])}
+                        `;
+                    },
+                    collect: (data) => {
+                        data.runTests = mfVal('ci-test');
+                        data.runLint = mfVal('ci-lint');
+                        data.typeCheck = mfVal('ci-typecheck');
+                        data.coverage = mfVal('ci-coverage');
+                        data.dockerBuild = mfVal('ci-docker');
+                        data.dockerPush = mfVal('ci-docker-push');
+                        data.trigger = mfVal('ci-trigger');
+                        data.branch = mfVal('ci-branch');
+                    },
+                },
+                {
+                    id: 'review', title: 'Review & Apply',
+                    render: (data, el) => {
+                        const steps = [];
+                        if (data.runLint) steps.push('Lint');
+                        if (data.typeCheck) steps.push('Type check');
+                        if (data.runTests) steps.push('Test');
+                        if (data.coverage) steps.push('Coverage');
+                        if (data.dockerBuild) steps.push('Docker build');
+                        if (data.dockerPush) steps.push('Docker push');
+
+                        el.innerHTML = `
+                            ${wizSection('Review', 'A GitHub Actions workflow will be generated.')}
+                            <div class="wiz-review-item">
+                                <span class="wiz-review-icon">📄</span>
+                                <div class="wiz-review-content">
+                                    <div class="wiz-review-label">.github/workflows/ci.yml</div>
+                                    <div class="wiz-review-value">Steps: ${steps.join(' → ')}</div>
+                                </div>
+                                <span class="wiz-review-badge ready">create</span>
+                            </div>
+                            <div class="wiz-review-item">
+                                <span class="wiz-review-icon">🔀</span>
+                                <div class="wiz-review-content">
+                                    <div class="wiz-review-label">Trigger</div>
+                                    <div class="wiz-review-value">${esc(data.trigger || 'push-pr')} on ${esc(data.branch || 'main')}</div>
+                                </div>
+                            </div>
+                        `;
+                    },
+                },
+            ],
+            onComplete: async (data) => {
+                await apiPost('/wizard/setup', {
+                    action: 'setup_ci',
+                    test: data.runTests,
+                    lint: data.runLint,
+                    typecheck: data.typeCheck,
+                    coverage: data.coverage,
+                    docker_build: data.dockerBuild,
+                    docker_push: data.dockerPush,
+                    trigger: data.trigger,
+                    branch: data.branch,
+                });
+                _projectStatusTS = 0;
+            },
+            successMessage: 'CI/CD pipeline created!',
+        });
+    }
+
+
+</script>

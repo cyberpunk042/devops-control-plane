@@ -1,0 +1,733 @@
+<!-- Integrations — GitHub Setup Wizard
+     Depends on: _integrations_setup_shared.html
+-->
+<script>
+
+    // ── GitHub Setup Wizard ──────────────────────────────────────────
+    // Integration #2 — reads environments from project.yml, aligns
+    // them with GitHub deployment environments, offers secret sync.
+
+    async function openGitHubSetupWizard() {
+        wizardModalOpen({
+            title: '🐙 GitHub Setup',
+            size: 'wide',
+            steps: [
+                // ── Step 1: DETECT ─────────────────────────────────────
+                {
+                    id: 'detect', title: 'Detect', cacheable: true,
+                    render: async (data, el) => {
+                        // ── Serve from cache if available (instant, zero API calls) ──
+                        const _CK = 'gh:detect';
+                        const cached = wizCached(_CK);
+                        if (cached) {
+                            Object.assign(data, cached.d);
+                            el.innerHTML = _wizDetectBanner(_CK) + cached.h;
+                            return;
+                        }
+
+                        // ── Fresh scan ──
+                        el.innerHTML = '<span class="spinner"></span> Detecting GitHub status…';
+
+                        // ONE call: wizDetect is the one-stop-shop
+                        const _bust = window._wizForceRescan ? '?bust=1' : ''; window._wizForceRescan = false;
+                        const wizDetect = wizCached('detect') || await api('/wizard/detect' + _bust).then(d => { wizStore('detect', d); return d; });
+                        const _serverTs = (wizDetect._cache?.computed_at || 0) * 1000;
+
+                        const probes = wizDetect.status_probes || {};
+                        const gh = probes.github || {};
+                        const ghStatus = wizDetect.gh_cli_status || { available: false };
+                        const ghUser = wizDetect.gh_user || { available: false };
+                        const ghRepoInfo = wizDetect.gh_repo_info || { available: false };
+                        const ghEnvData = wizDetect.gh_environments || { available: false, environments: [] };
+                        data._ghStatus = ghStatus;
+                        data._ghUser = ghUser;
+                        data._ghRepoInfo = ghRepoInfo;
+                        data._projectStatus = { integrations: probes };
+                        data._config = wizDetect.config_data || {};
+                        data._ghEnvData = ghEnvData;
+                        data._localEnvs = (wizDetect.config_data?.environments || []);
+                        data._codeownersContent = wizDetect.codeowners_content || '';
+
+                        // Remote env names (lowercase for comparison)
+                        const remoteEnvNames = (ghEnvData.environments || []).map(e =>
+                            (typeof e === 'string' ? e : e.name || String(e)).toLowerCase());
+                        data._remoteEnvNames = remoteEnvNames;
+
+                        // Secrets: multi-env → per-environment, single → repo-scoped
+                        const localEnvs = data._localEnvs;
+                        const multiEnv = localEnvs.length > 1;
+                        let totalSecrets = 0, totalVars = 0;
+                        const perEnvSecrets = {};
+
+                        if (multiEnv) {
+                            const envQueries = localEnvs.map(e =>
+                                api(`/gh/secrets?env=${encodeURIComponent(e.name)}`)
+                                    .catch(() => ({ available: false, secrets: [], variables: [] }))
+                            );
+                            const envResults = await Promise.all(envQueries);
+                            for (let i = 0; i < localEnvs.length; i++) {
+                                const r = envResults[i];
+                                const envName = localEnvs[i].name;
+                                perEnvSecrets[envName] = r;
+                                totalSecrets += (r.secrets || []).length;
+                                totalVars += (r.variables || []).length;
+                            }
+                            data._secretsAvailable = true;
+                        } else {
+                            const ghSecrets = await api('/gh/secrets').catch(() => ({ available: false, secrets: [], variables: [] }));
+                            totalSecrets = (ghSecrets.secrets || []).length;
+                            totalVars = (ghSecrets.variables || []).length;
+                            data._secretsAvailable = ghSecrets.available !== false;
+                            perEnvSecrets['_repo'] = ghSecrets;
+                        }
+                        data._perEnvSecrets = perEnvSecrets;
+                        data._totalSecrets = totalSecrets;
+                        data._totalVars = totalVars;
+                        data._multiEnv = multiEnv;
+
+                        // ── Build detection display ──
+                        let html = `<div style="display:flex;align-items:center;gap:0.6rem;padding:0.5rem 0.75rem;margin-bottom:var(--space-sm);font-size:0.82rem;background:color-mix(in srgb, var(--accent) 10%, var(--bg-inset));border:1px solid color-mix(in srgb, var(--accent) 30%, transparent);border-radius:8px">
+                            <span style="font-size:1.1rem">🔍</span>
+                            <span style="flex:1;color:var(--text-secondary)">This is a <strong>read-only scan</strong>. To manage visibility, environments, CODEOWNERS, and secrets, proceed to Configure.</span>
+                            <button type="button" class="btn btn-xs" style="background:var(--accent);color:white;border:none;padding:4px 12px;border-radius:6px;font-size:0.78rem;white-space:nowrap;cursor:pointer"
+                                onclick="document.getElementById('wiz-btn-next')?.click()">Configure →</button>
+                        </div>`;
+
+                        // ── gh CLI ──
+                        html += wizSection('GitHub CLI', 'Tool, authentication, and account.');
+                        html += '<div class="wiz-status-grid">';
+
+                        if (!ghStatus.available) {
+                            html += wizStatusRow('❌', 'gh CLI', 'Not installed', 'error');
+                            html += '</div>';
+                            html += `<div style="padding:0.5rem 0.75rem;background:var(--bg-inset);border:1px solid var(--error);border-radius:8px;font-size:0.82rem;margin-top:var(--space-sm)">
+                                <strong style="color:var(--error)">GitHub CLI required.</strong> Install it first:
+                                <div style="margin-top:0.3rem;display:flex;gap:0.5rem;flex-wrap:wrap">
+                                    <code style="background:var(--bg-tertiary);padding:2px 8px;border-radius:4px">sudo apt install gh</code>
+                                    <code style="background:var(--bg-tertiary);padding:2px 8px;border-radius:4px">brew install gh</code>
+                                </div>
+                            </div>`;
+                            el.innerHTML = html;
+                            return;
+                        }
+
+                        html += wizStatusRow('✅', 'gh CLI', `Installed (${esc(ghStatus.version || 'unknown')})`, 'ok');
+
+                        // ── Auth + User ──
+                        if (!ghStatus.authenticated) {
+                            html += wizStatusRow('❌', 'Authentication', 'Not logged in', 'error');
+                            html += '</div>';
+                            html += `<div style="padding:0.6rem 0.75rem;background:var(--bg-inset);border:1px solid var(--warning);border-radius:8px;font-size:0.82rem;margin-top:var(--space-sm)">
+                                <strong>Login required.</strong> Run this in your terminal:
+                                <div style="display:flex;align-items:center;gap:0.5rem;margin-top:0.4rem">
+                                    <code id="gh-auth-cmd" style="flex:1;background:var(--bg-tertiary);padding:4px 10px;border-radius:4px;font-size:0.8rem">gh auth login</code>
+                                    <button type="button" class="btn btn-xs btn-secondary" style="font-size:0.7rem;padding:2px 8px"
+                                        onclick="navigator.clipboard.writeText('gh auth login').then(()=>this.textContent='✓ Copied').catch(()=>{});setTimeout(()=>this.textContent='📋 Copy',2000)">📋 Copy</button>
+                                </div>
+                                <div style="font-size:0.72rem;color:var(--text-muted);margin-top:0.3rem">
+                                    After logging in, click <strong>Re-scan</strong> above to refresh.
+                                </div>
+                            </div>`;
+                            el.innerHTML = html;
+                            return;
+                        }
+
+                        // Authenticated — show user info
+                        const userLogin = ghUser.login || 'unknown';
+                        const userName = ghUser.name || '';
+                        const userAvatar = ghUser.avatar_url || '';
+                        html += wizStatusRow('✅', 'Authentication', 'Logged in', 'ok');
+                        html += '</div>';
+
+                        // ── User card ──
+                        html += `<div style="display:flex;align-items:center;gap:0.7rem;padding:0.6rem 0.75rem;background:var(--bg-inset);border:1px solid var(--border-subtle);border-radius:8px;margin:var(--space-sm) 0">
+                            ${userAvatar ? `<img src="${esc(userAvatar)}" style="width:32px;height:32px;border-radius:50%;border:2px solid var(--accent)" alt="">` : '<span style="font-size:1.3rem">👤</span>'}
+                            <div style="flex:1">
+                                <div style="font-size:0.85rem;font-weight:600;color:var(--text-primary)">@${esc(userLogin)}</div>
+                                ${userName ? `<div style="font-size:0.72rem;color:var(--text-muted)">${esc(userName)}</div>` : ''}
+                            </div>
+                            <button type="button" class="btn btn-xs btn-secondary" style="font-size:0.68rem;padding:2px 8px;color:var(--error)"
+                                onclick="(async()=>{if(!confirm('Log out from GitHub CLI?'))return;const r=await apiPost('/gh/auth/logout',{});toast(r.ok?'Logged out — Re-scan to refresh':'Logout failed: '+(r.error||''),'info');})()">🔓 Logout</button>
+                        </div>`;
+
+                        // ── Repository ──
+                        html += wizSection('Repository', 'GitHub repository linked via git remote.');
+                        html += '<div class="wiz-status-grid">';
+
+                        if (ghStatus.repo) {
+                            const vis = ghRepoInfo.visibility || '?';
+                            const visColor = vis === 'PUBLIC' ? 'var(--success)' : vis === 'PRIVATE' ? 'var(--warning)' : 'var(--text-muted)';
+                            const visIcon = vis === 'PUBLIC' ? '🌐' : vis === 'PRIVATE' ? '🔒' : '❓';
+                            html += wizStatusRow('✅', 'Repository', esc(ghStatus.repo), 'ok');
+                            html += wizStatusRow(visIcon, 'Visibility',
+                                `<span style="color:${visColor};font-weight:600">${esc(vis)}</span>`, 'ok', true);
+                            if (ghRepoInfo.description) {
+                                html += wizStatusRow('📝', 'Description', esc(ghRepoInfo.description), 'muted');
+                            }
+                            html += wizStatusRow('🌿', 'Default branch', esc(ghRepoInfo.default_branch || '?'), 'muted');
+                        } else {
+                            html += wizStatusRow('⚠️', 'Repository', 'No GitHub repository linked', 'warn');
+                        }
+
+                        // .github dir + workflows
+                        if (gh.has_github_dir) {
+                            const wfNote = gh.workflow_count > 0
+                                ? `${gh.workflow_count} workflow${gh.workflow_count !== 1 ? 's' : ''}`
+                                : 'no workflows';
+                            html += wizStatusRow('✅', '.github/ dir', `Exists (${wfNote})`, 'ok');
+                        } else {
+                            html += wizStatusRow('❌', '.github/ dir', 'Not found', 'error');
+                        }
+
+                        // CODEOWNERS
+                        html += wizStatusRow(gh.has_codeowners ? '✅' : '❌', 'CODEOWNERS',
+                            gh.has_codeowners ? 'Found' : 'Not configured',
+                            gh.has_codeowners ? 'ok' : 'muted');
+
+                        html += '</div>';
+
+                        // ── Environments ──
+                        const localCount = data._localEnvs.length;
+                        const matchCount = data._localEnvs.filter(e =>
+                            remoteEnvNames.includes(e.name.toLowerCase())).length;
+
+                        html += wizSection('Integration Status', '');
+                        html += '<div class="wiz-status-grid">';
+                        if (localCount > 0) {
+                            html += wizStatusRow(matchCount === localCount ? '✅' : '⚠️',
+                                'Environments', `${matchCount} of ${localCount} aligned`,
+                                matchCount === localCount ? 'ok' : 'warn');
+                        } else {
+                            html += wizStatusRow('➖', 'Environments', 'None defined in project config', 'muted');
+                        }
+
+                        // Secrets summary
+                        if (data._secretsAvailable) {
+                            const scopeLabel = multiEnv ? `across ${localEnvs.length} envs` : 'repo-scoped';
+                            html += wizStatusRow('📊', 'GitHub Secrets',
+                                `${totalSecrets} secret${totalSecrets !== 1 ? 's' : ''}, ${totalVars} variable${totalVars !== 1 ? 's' : ''} (${scopeLabel})`);
+                        }
+                        html += '</div>';
+
+
+
+                        // ── Hints ──
+                        const hints = [];
+                        if (matchCount < localCount) {
+                            hints.push(`Your project defines ${localCount} environments. We can create the ${localCount - matchCount} missing ones on GitHub.`);
+                        }
+                        if (!ghStatus.repo) {
+                            hints.push('No GitHub repository linked. You can <strong>create a new one</strong> or <strong>connect an existing one</strong> in the Configure step.');
+                        }
+
+                        if (hints.length > 0) {
+                            html += `<div style="margin-top:var(--space-sm);padding:var(--space-xs) var(--space-sm);border-left:3px solid var(--accent);background:color-mix(in srgb, var(--accent) 5%, transparent);border-radius:0 6px 6px 0">`;
+                            hints.forEach(h => { html += `<div style="font-size:0.78rem;color:var(--text-secondary);padding:2px 0">💡 ${h}</div>`; });
+                            html += `</div>`;
+                        }
+
+                        // Store complete detect result in cache
+                        wizStore(_CK, { h: html, d: {
+                            _ghStatus: data._ghStatus, _ghUser: data._ghUser,
+                            _ghRepoInfo: data._ghRepoInfo,
+                            _projectStatus: data._projectStatus,
+                            _config: data._config, _ghEnvData: data._ghEnvData,
+                            _localEnvs: data._localEnvs, _remoteEnvNames: data._remoteEnvNames,
+                            _perEnvSecrets: data._perEnvSecrets, _totalSecrets: data._totalSecrets,
+                            _totalVars: data._totalVars, _multiEnv: data._multiEnv,
+                            _secretsAvailable: data._secretsAvailable,
+                            _codeownersContent: data._codeownersContent,
+                        }}, _serverTs);
+                        el.innerHTML = _wizDetectBanner(_CK) + html;
+                    },
+                },
+
+                // ── Step 2: CONFIGURE ──────────────────────────────────
+                {
+                    id: 'config', title: 'Configure',
+                    render: async (data, el) => {
+                        const ghStatus = data._ghStatus;
+                        const ghRepoInfo = data._ghRepoInfo || {};
+                        const localEnvs = data._localEnvs;
+                        const remoteEnvNames = data._remoteEnvNames;
+
+                        let html = '';
+
+                        // ── Section A: Repository ──────────────────────
+                        html += wizSection('Repository', 'GitHub repository and settings.');
+
+                        if (ghStatus.repo) {
+                            // ── Linked repo: show info + visibility toggle ──
+                            const vis = ghRepoInfo.visibility || '?';
+                            const isPrivate = vis === 'PRIVATE';
+                            const visColor = isPrivate ? 'var(--warning)' : 'var(--success)';
+                            const visIcon = isPrivate ? '🔒' : '🌐';
+                            const toggleTo = isPrivate ? 'public' : 'private';
+                            const toggleIcon = isPrivate ? '🌐' : '🔒';
+
+                            html += `<div style="background:var(--bg-inset);border:1px solid var(--success);border-radius:8px;padding:0.6rem 0.75rem;margin-bottom:var(--space-sm)">
+                                <div style="display:flex;align-items:center;gap:0.6rem;margin-bottom:0.4rem">
+                                    <span style="font-size:1.1rem">🔗</span>
+                                    <code style="font-size:0.85rem;font-weight:600">${esc(ghStatus.repo)}</code>
+                                    <span style="flex:1"></span>
+                                    <a href="https://github.com/${esc(ghStatus.repo)}" target="_blank"
+                                       style="font-size:0.72rem;color:var(--accent);text-decoration:none">Open on GitHub ↗</a>
+                                </div>
+                                <div style="display:flex;align-items:center;gap:0.7rem;padding-top:0.4rem;border-top:1px solid var(--border-subtle)">
+                                    <div style="display:flex;align-items:center;gap:0.4rem">
+                                        <span>${visIcon}</span>
+                                        <span style="font-size:0.82rem;font-weight:600;color:${visColor}">${esc(vis)}</span>
+                                    </div>
+                                    ${ghRepoInfo.description ? `<span style="font-size:0.72rem;color:var(--text-muted);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(ghRepoInfo.description)}</span>` : '<span style="flex:1"></span>'}
+                                    <button type="button" class="btn btn-xs btn-secondary" id="gh-vis-toggle"
+                                        style="font-size:0.68rem;padding:2px 10px;border:1px solid ${visColor}"
+                                        onclick="(async()=>{
+                                            const btn=document.getElementById('gh-vis-toggle');
+                                            const target='${toggleTo}';
+                                            const slug='${esc(ghStatus.repo)}';
+                                            if(!confirm('Change ' + slug + ' to ' + target.toUpperCase() + '?\\n\\n' +
+                                                (target==='public' ? '⚠️ This will make your code visible to everyone on the internet.' : '🔒 This will restrict access to collaborators only.') +
+                                                '\\n\\nAre you sure?')) return;
+                                            btn.disabled=true; btn.textContent='Changing…';
+                                            try {
+                                                await apiPost('/gh/repo/visibility', {visibility:target});
+                                                toast('✅ Visibility changed to ' + target, 'success');
+                                                wizInvalidate('gh:detect'); wizInvalidate('detect');
+                                                _wizModalRender();
+                                            } catch(e) { toast('❌ ' + e.message, 'error'); btn.disabled=false; btn.textContent='${toggleIcon} Make ${toggleTo}'; }
+                                        })()">${toggleIcon} Make ${toggleTo}</button>
+                                </div>
+                            </div>`;
+                        } else {
+                            // ── No repo linked: create or connect ──
+                            html += `<div style="background:var(--bg-inset);border:1px solid var(--warning);border-radius:8px;padding:0.6rem 0.75rem;margin-bottom:var(--space-sm)">
+                                <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.5rem">
+                                    <span>⚠️</span>
+                                    <span style="font-size:0.85rem;font-weight:500">No GitHub repository linked</span>
+                                </div>
+                                <div style="font-size:0.78rem;color:var(--text-muted);margin-bottom:0.6rem">
+                                    Create a new GitHub repository from this project, or set a git remote pointing to an existing one via the <strong>Git Setup</strong> wizard.
+                                </div>
+                                <div style="border-top:1px solid var(--border-subtle);padding-top:0.5rem">
+                                    <div style="font-size:0.72rem;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:0.4rem">Create New Repository</div>
+                                    <div style="display:flex;flex-direction:column;gap:0.4rem">
+                                        <div style="display:flex;gap:0.5rem;align-items:center">
+                                            <input type="text" id="mf-gh-repo-name" class="modal-form-input" style="flex:1;font-size:0.82rem;padding:4px 8px"
+                                                placeholder="${esc((data._config?.modules?.[0]?.name || '').replace(/[^a-zA-Z0-9._-]/g,'') || 'my-project')}" value="">
+                                            <select id="mf-gh-repo-vis" class="modal-form-input" style="width:110px;font-size:0.82rem;padding:4px 8px">
+                                                <option value="private" selected>🔒 Private</option>
+                                                <option value="public">🌐 Public</option>
+                                            </select>
+                                        </div>
+                                        <input type="text" id="mf-gh-repo-desc" class="modal-form-input" style="font-size:0.82rem;padding:4px 8px"
+                                            placeholder="Optional description">
+                                        <button type="button" class="btn btn-sm" id="gh-create-repo-btn"
+                                            style="align-self:flex-start;font-size:0.78rem;padding:4px 14px;background:var(--accent);color:white;border:none;border-radius:6px"
+                                            onclick="(async()=>{
+                                                const btn=document.getElementById('gh-create-repo-btn');
+                                                const name=document.getElementById('mf-gh-repo-name').value.trim();
+                                                if(!name){toast('Enter a repository name','warn');return}
+                                                const vis=document.getElementById('mf-gh-repo-vis').value;
+                                                const desc=document.getElementById('mf-gh-repo-desc').value.trim();
+                                                btn.disabled=true; btn.textContent='Creating…';
+                                                try {
+                                                    const r = await apiPost('/gh/repo/create', {name, private:vis==='private', description:desc, add_remote:true});
+                                                    if(r.ok){
+                                                        toast('✅ '+r.message,'success');
+                                                        wizInvalidate('gh:detect'); wizInvalidate('detect');
+                                                        cardInvalidate('git'); cardInvalidate('github');
+                                                        _wizModalRender();
+                                                    } else {
+                                                        toast('❌ '+(r.error||'Failed'),'error');
+                                                        btn.disabled=false; btn.textContent='🚀 Create Repository';
+                                                    }
+                                                } catch(e) { toast('❌ '+e.message,'error'); btn.disabled=false; btn.textContent='🚀 Create Repository'; }
+                                            })()">🚀 Create Repository</button>
+                                    </div>
+                                </div>
+                            </div>`;
+                        }
+
+                        // ── Section A2: Default Branch ──────────────────
+                        if (ghStatus.repo && ghRepoInfo.available) {
+                            html += wizSection('Default Branch', 'The branch GitHub treats as the base for pull requests and the repository landing page.');
+
+                            const currentBranch = ghRepoInfo.default_branch || 'main';
+                            html += `<div style="display:flex;align-items:center;gap:0.6rem;padding:0.5rem 0.65rem;background:var(--bg-inset);border:1px solid var(--border-subtle);border-radius:8px;margin-bottom:var(--space-sm)">
+                                <span style="font-size:0.95rem">🌿</span>
+                                <code style="font-size:0.85rem;font-weight:600">${esc(currentBranch)}</code>
+                                <span style="flex:1"></span>
+                                <button type="button" class="btn btn-xs btn-secondary" style="font-size:0.68rem;padding:2px 8px"
+                                    onclick="(async()=>{
+                                        const newBranch=prompt('Set default branch to:', '${esc(currentBranch)}');
+                                        if(!newBranch||newBranch==='${esc(currentBranch)}')return;
+                                        const res=await apiPost('/gh/repo/default-branch',{branch:newBranch});
+                                        if(res.ok){toast('✅ '+res.message,'success');wizInvalidate('gh:detect');wizInvalidate('detect');_wizModalRender()}
+                                        else{toast('❌ '+(res.error||'Failed'),'error')}
+                                    })()">✏️ Change</button>
+                            </div>`;
+                        }
+
+                        // ── Section A3: CODEOWNERS ──────────────────────
+                        if (ghStatus.repo) {
+                            html += wizSection('CODEOWNERS', 'Define reviewers who are automatically requested for PRs affecting their files.');
+
+                            // Use pre-loaded CODEOWNERS content from detect response
+                            const existingContent = data._codeownersContent || '';
+
+                            const hasExisting = existingContent.trim().length > 0;
+                            const owner = ghRepoInfo.owner || ghStatus.repo?.split('/')[0] || '';
+                            const defaultContent = hasExisting ? existingContent : `# CODEOWNERS — auto-assign reviewers for pull requests\n# Docs: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners\n\n# Default owner for everything\n* @${esc(owner)}\n`;
+
+                            if (hasExisting) {
+                                html += `<div style="padding:0.4rem 0.65rem;background:var(--bg-inset);border:1px solid var(--success);border-radius:8px;margin-bottom:var(--space-sm)">
+                                    <div style="display:flex;align-items:center;gap:0.4rem;margin-bottom:0.3rem">
+                                        <span>✅</span>
+                                        <span style="font-size:0.82rem;font-weight:500">CODEOWNERS exists</span>
+                                        <span style="flex:1"></span>
+                                        <button type="button" class="btn btn-xs btn-ghost" style="font-size:0.68rem"
+                                            onclick="document.getElementById('co-editor-wrap').style.display=document.getElementById('co-editor-wrap').style.display==='none'?'block':'none'">✏️ Edit</button>
+                                    </div>
+                                    <div class="modal-preview" style="max-height:120px;overflow-y:auto;font-size:0.72rem">
+                                        <pre style="margin:0;white-space:pre-wrap;font-family:var(--font-mono);font-size:0.72rem;line-height:1.4">${esc(existingContent)}</pre>
+                                    </div>
+                                </div>`;
+                            } else {
+                                html += `<div style="padding:0.4rem 0.65rem;background:var(--bg-inset);border:1px solid var(--border-subtle);border-radius:8px;margin-bottom:var(--space-sm)">
+                                    <div style="display:flex;align-items:center;gap:0.4rem;margin-bottom:0.3rem">
+                                        <span>📝</span>
+                                        <span style="font-size:0.82rem;color:var(--text-muted)">No CODEOWNERS file found</span>
+                                    </div>
+                                </div>`;
+                            }
+
+                            html += `<div id="co-editor-wrap" style="${hasExisting ? 'display:none;' : ''}margin-bottom:var(--space-sm)">
+                                <label class="modal-form-check" style="margin-bottom:var(--space-xs)">
+                                    <input type="checkbox" id="mf-write-codeowners" ${hasExisting ? '' : 'checked'}>
+                                    <span style="font-size:0.82rem">${hasExisting ? 'Update' : 'Create'} CODEOWNERS file</span>
+                                </label>
+                                <textarea id="mf-codeowners-content"
+                                    class="modal-form-textarea" style="font-family:var(--font-mono);font-size:0.72rem;min-height:120px;width:100%;line-height:1.5"
+                                >${esc(defaultContent)}</textarea>
+                                <span class="modal-form-hint">File will be saved as <code>.github/CODEOWNERS</code>.</span>
+                            </div>`;
+                        }
+
+                        // ── Section B: Environment Alignment ───────────
+                        if (localEnvs.length > 0) {
+                            html += wizSection('Environment Alignment',
+                                'Align local environments (from Project Configuration) with GitHub deployment environments.');
+
+                            html += `<div style="background:var(--bg-inset);border:1px solid var(--border-subtle);border-radius:8px;overflow:hidden;margin-bottom:var(--space-sm)">`;
+
+                            // Header row
+                            html += `<div style="display:flex;align-items:center;padding:0.35rem 0.65rem;font-size:0.68rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;border-bottom:1px solid var(--border-subtle);background:color-mix(in srgb, var(--bg-tertiary) 40%, transparent)">
+                                <span style="width:28px"></span>
+                                <span style="flex:1">Local</span>
+                                <span style="width:100px;text-align:center">GitHub</span>
+                                <span style="width:90px;text-align:right">Action</span>
+                            </div>`;
+
+                            for (const env of localEnvs) {
+                                const aligned = remoteEnvNames.includes(env.name.toLowerCase());
+                                const icon = aligned ? '✅' : '⬜';
+                                const ghLabel = aligned
+                                    ? `<span style="color:var(--success)">✅ exists</span>`
+                                    : `<span style="color:var(--text-muted)">❌ missing</span>`;
+                                const action = aligned
+                                    ? `<span style="font-size:0.72rem;color:var(--success)">aligned</span>`
+                                    : `<label style="font-size:0.72rem;cursor:pointer;display:flex;align-items:center;gap:4px;justify-content:flex-end">
+                                        <input type="checkbox" class="gh-env-create" data-env="${esc(env.name)}" checked
+                                            style="width:13px;height:13px;accent-color:var(--accent)">
+                                        Create
+                                    </label>`;
+
+                                html += `<div style="display:flex;align-items:center;padding:0.4rem 0.65rem;font-size:0.82rem;border-bottom:1px solid var(--border-subtle)">
+                                    <span style="width:28px;text-align:center">${icon}</span>
+                                    <span style="flex:1">
+                                        <code style="font-size:0.8rem;font-weight:500">${esc(env.name)}</code>
+                                        ${env.default ? '<span style="font-size:0.65rem;color:var(--warning);margin-left:4px">⭐ default</span>' : ''}
+                                    </span>
+                                    <span style="width:100px;text-align:center;font-size:0.75rem">${ghLabel}</span>
+                                    <span style="width:90px;text-align:right">${action}</span>
+                                </div>`;
+                            }
+
+                            // Show extra remote envs not defined locally
+                            const localNames = localEnvs.map(e => e.name.toLowerCase());
+                            const extraRemote = (data._ghEnvData.environments || [])
+                                .map(e => typeof e === 'string' ? e : e.name || String(e))
+                                .filter(name => !localNames.includes(name.toLowerCase()));
+
+                            for (const name of extraRemote) {
+                                html += `<div style="display:flex;align-items:center;padding:0.4rem 0.65rem;font-size:0.82rem;border-bottom:1px solid var(--border-subtle);opacity:0.6">
+                                    <span style="width:28px;text-align:center">➖</span>
+                                    <span style="flex:1;color:var(--text-muted)">
+                                        <code style="font-size:0.8rem">${esc(name)}</code>
+                                        <span style="font-size:0.65rem;margin-left:4px">(GitHub only)</span>
+                                    </span>
+                                    <span style="width:100px;text-align:center;font-size:0.75rem"><span style="color:var(--success)">✅ exists</span></span>
+                                    <span style="width:90px;text-align:right;font-size:0.72rem;color:var(--text-muted)">—</span>
+                                </div>`;
+                            }
+
+                            html += `</div>`;
+
+                            html += `<div style="font-size:0.72rem;color:var(--text-muted);padding:0 0.25rem;margin-bottom:var(--space-sm)">
+                                💡 Environments are defined in <strong>Project Configuration</strong>. Use the Wizard to add/remove them.
+                            </div>`;
+                        } else {
+                            html += wizSection('Environments',
+                                'No environments defined in your project configuration.');
+                            html += `<div style="font-size:0.78rem;color:var(--text-muted);padding:0.5rem 0">
+                                💡 Go to the Wizard → Step 1 (Project Configuration) to define environments like dev, staging, production.
+                            </div>`;
+                        }
+
+                        // ── Section C: Secrets Sync ────────────────────
+                        if (data._secretsAvailable) {
+                            html += wizSection('Secrets Sync',
+                                'Push local vault secrets to GitHub for CI/CD and deployments.');
+
+                            const totalSecrets = data._totalSecrets;
+                            const totalVars = data._totalVars;
+                            const perEnvSecrets = data._perEnvSecrets;
+                            const multiEnv = data._multiEnv;
+
+                            html += `<div style="display:flex;gap:var(--space-sm);margin-bottom:var(--space-sm)">
+                                <div style="flex:1;padding:0.5rem;background:var(--bg-inset);border:1px solid var(--border-subtle);border-radius:8px;text-align:center">
+                                    <div style="font-size:1.2rem;font-weight:700">${totalSecrets}</div>
+                                    <div style="font-size:0.68rem;color:var(--text-muted)">Secrets on GitHub</div>
+                                </div>
+                                <div style="flex:1;padding:0.5rem;background:var(--bg-inset);border:1px solid var(--border-subtle);border-radius:8px;text-align:center">
+                                    <div style="font-size:1.2rem;font-weight:700">${totalVars}</div>
+                                    <div style="font-size:0.68rem;color:var(--text-muted)">Variables on GitHub</div>
+                                </div>
+                            </div>`;
+
+                            // Per-environment breakdown (multi-env) or repo-level list
+                            for (const [envKey, envData] of Object.entries(perEnvSecrets)) {
+                                const envLabel = envKey === '_repo' ? 'Repository' : envKey;
+                                const secrets = envData.secrets || [];
+                                const vars = envData.variables || [];
+                                if (secrets.length === 0 && vars.length === 0) continue;
+
+                                if (multiEnv) {
+                                    html += `<div style="font-size:0.72rem;font-weight:600;color:var(--text-secondary);margin:var(--space-xs) 0 2px;text-transform:uppercase;letter-spacing:0.04em">
+                                        ${esc(envLabel)} (${secrets.length}s / ${vars.length}v)</div>`;
+                                }
+
+                                html += `<div style="display:flex;flex-wrap:wrap;gap:0.25rem;margin-bottom:var(--space-xs)">`;
+                                for (const s of secrets) {
+                                    const name = typeof s === 'string' ? s : s.name || String(s);
+                                    html += `<span style="font-size:0.65rem;padding:0.1rem 0.35rem;border-radius:4px;background:color-mix(in srgb, var(--success) 10%, transparent);color:var(--success);border:1px solid color-mix(in srgb, var(--success) 25%, transparent)">🔒 ${esc(name)}</span>`;
+                                }
+                                for (const v of vars) {
+                                    const name = typeof v === 'string' ? v : v.name || String(v);
+                                    html += `<span style="font-size:0.65rem;padding:0.1rem 0.35rem;border-radius:4px;background:color-mix(in srgb, var(--accent) 10%, transparent);color:var(--accent);border:1px solid color-mix(in srgb, var(--accent) 25%, transparent)">📋 ${esc(name)}</span>`;
+                                }
+                                html += `</div>`;
+                            }
+
+                            html += `<div style="margin-top:var(--space-sm);padding:0.5rem 0.65rem;background:var(--bg-inset);border:1px solid var(--border-subtle);border-radius:8px">
+                                <label class="modal-form-check" style="margin:0">
+                                    <input type="checkbox" id="mf-push-secrets">
+                                    <span style="font-weight:500">Push local vault secrets to GitHub now</span>
+                                </label>
+                                <div style="font-size:0.72rem;color:var(--text-muted);margin-top:4px;padding-left:24px">
+                                    Syncs all vault keys. Use the <strong>🔐 Secrets</strong> tab for granular per-key management.
+                                </div>
+                            </div>`;
+                        }
+
+                        el.innerHTML = html;
+                    },
+                    collect: (data) => {
+                        // Collect which environments to create
+                        const toCreate = [];
+                        document.querySelectorAll('.gh-env-create:checked').forEach(cb => {
+                            toCreate.push(cb.dataset.env);
+                        });
+                        data.envsToCreate = toCreate;
+                        data.pushSecrets = document.getElementById('mf-push-secrets')?.checked || false;
+
+                        // CODEOWNERS
+                        const writeCodeowners = document.getElementById('mf-write-codeowners')?.checked || false;
+                        if (writeCodeowners) {
+                            const coContent = document.getElementById('mf-codeowners-content')?.value || '';
+                            data.codeownersContent = coContent.trim();
+                        } else {
+                            data.codeownersContent = '';
+                        }
+                    },
+                },
+
+                // ── Step 3: REVIEW & APPLY ─────────────────────────────
+                {
+                    id: 'review', title: 'Review',
+                    render: (data, el) => {
+                        let html = wizSection('Review', 'Confirm the actions to perform.');
+                        html += `<div style="display:flex;flex-direction:column;gap:0.4rem;margin-bottom:var(--space-md)">`;
+
+                        // Repository
+                        const ghRepo = data._ghStatus?.repo;
+                        html += `<div style="display:flex;align-items:center;gap:0.5rem;font-size:0.82rem;padding:0.35rem 0.5rem;border-radius:6px;background:var(--bg-inset)">
+                            <span style="width:22px;text-align:center">${ghRepo ? '✅' : '⚠️'}</span>
+                            <span style="flex:1">Repository: <strong>${ghRepo ? esc(ghRepo) : 'not linked'}</strong></span>
+                            <span style="font-size:0.68rem;color:var(--text-muted)">${ghRepo ? '✓' : ''}</span>
+                        </div>`;
+
+                        // Environments to create
+                        if ((data.envsToCreate || []).length > 0) {
+                            for (const env of data.envsToCreate) {
+                                html += `<div style="display:flex;align-items:center;gap:0.5rem;font-size:0.82rem;padding:0.35rem 0.5rem;border-radius:6px;background:var(--bg-inset)">
+                                    <span style="width:22px;text-align:center">🆕</span>
+                                    <span style="flex:1">Create environment: <strong>${esc(env)}</strong></span>
+                                    <span style="font-size:0.68rem;color:var(--accent)">NEW</span>
+                                </div>`;
+                            }
+                        } else {
+                            html += `<div style="display:flex;align-items:center;gap:0.5rem;font-size:0.82rem;padding:0.35rem 0.5rem;border-radius:6px;background:var(--bg-inset)">
+                                <span style="width:22px;text-align:center">✅</span>
+                                <span style="flex:1;color:var(--text-muted)">All environments aligned</span>
+                                <span style="font-size:0.68rem;color:var(--success)">✓</span>
+                            </div>`;
+                        }
+
+                        // Secrets push
+                        html += `<div style="display:flex;align-items:center;gap:0.5rem;font-size:0.82rem;padding:0.35rem 0.5rem;border-radius:6px;background:var(--bg-inset)">
+                            <span style="width:22px;text-align:center">${data.pushSecrets ? '⬆' : '⊘'}</span>
+                            <span style="flex:1">Secrets push: <strong>${data.pushSecrets ? 'vault → GitHub' : 'skipped'}</strong></span>
+                            <span style="font-size:0.68rem;color:${data.pushSecrets ? 'var(--accent)' : 'var(--text-muted)'}">${data.pushSecrets ? 'PUSH' : '—'}</span>
+                        </div>`;
+
+                        // CODEOWNERS
+                        if (data.codeownersContent) {
+                            html += `<div style="display:flex;align-items:center;gap:0.5rem;font-size:0.82rem;padding:0.35rem 0.5rem;border-radius:6px;background:var(--bg-inset)">
+                                <span style="width:22px;text-align:center">📋</span>
+                                <span style="flex:1">Write CODEOWNERS: <strong>.github/CODEOWNERS</strong></span>
+                                <span style="font-size:0.68rem;color:var(--accent)">WRITE</span>
+                            </div>`;
+                        }
+
+                        html += `</div>`;
+
+                        // Nothing to do?
+                        const hasWork = (data.envsToCreate || []).length > 0 || data.pushSecrets || data.codeownersContent;
+                        if (!hasWork) {
+                            html += `<div style="text-align:center;padding:var(--space-sm);color:var(--success);font-size:0.85rem">
+                                ✅ Everything is already aligned! Nothing to apply.
+                            </div>`;
+                        }
+                        // Next integration hint
+                        html += `<div style="margin-top:var(--space-md);padding:var(--space-xs) var(--space-sm);border-left:3px solid var(--accent);background:color-mix(in srgb, var(--accent) 5%, transparent);border-radius:0 6px 6px 0">
+                            <div style="font-size:0.78rem;color:var(--text-secondary)">
+                                💡 <strong>Next:</strong> Set up Docker to containerize your application.
+                                <button class="btn btn-sm btn-ghost" style="font-size:0.72rem;padding:0.1rem 0.4rem;margin-left:4px;color:var(--accent)"
+                                    onclick="wizardModalClose();setTimeout(openDockerSetupWizard,300)">Set up Docker →</button>
+                            </div>
+                        </div>`;
+
+                        el.innerHTML = html;
+                    },
+                },
+            ],
+
+            onComplete: async (data) => {
+                const envsToCreate = data.envsToCreate || [];
+                const doPush = data.pushSecrets;
+                const coContent = data.codeownersContent || '';
+                const hasWork = envsToCreate.length > 0 || doPush || coContent;
+                if (!hasWork) return;
+
+                const parts = [];
+
+                // 1. Create environments + write CODEOWNERS via setup_github
+                if (envsToCreate.length > 0 || coContent) {
+                    const payload = { action: 'setup_github' };
+                    if (envsToCreate.length > 0) payload.create_environments = envsToCreate;
+                    if (coContent) payload.codeowners_content = coContent;
+
+                    const result = await apiPost('/wizard/setup', payload);
+                    const r = result.results || {};
+                    if ((r.environments_created || []).length > 0)
+                        parts.push(`✅ Created ${r.environments_created.length} env${r.environments_created.length !== 1 ? 's' : ''}: ${r.environments_created.join(', ')}`);
+                    if ((r.environments_failed || []).length > 0)
+                        parts.push(`❌ Failed: ${r.environments_failed.map(f => f.name + ' (' + f.error + ')').join(', ')}`);
+                    if (r.codeowners_written)
+                        parts.push('✅ CODEOWNERS written');
+                }
+
+                // 2. Push secrets — fetch vault keys and push like syncEnvToGithub
+                if (doPush) {
+                    try {
+                        const localEnvs = data._localEnvs || [];
+                        const multiEnv = localEnvs.length > 1;
+                        const envNames = multiEnv ? localEnvs.map(e => e.name) : [''];
+
+                        let totalPushed = 0;
+                        for (const envName of envNames) {
+                            const qs = envName ? `?env=${encodeURIComponent(envName)}` : '';
+                            const keysData = await api(`/vault/keys${qs}`);
+                            const keys = keysData.keys || [];
+
+                            // Classify keys — secrets use sync_keys (backend reads .env),
+                            // variables send values directly
+                            const variables = {};
+                            const syncKeys = [];
+                            const AUTO = ['GITHUB_TOKEN', 'GITHUB_REPOSITORY'];
+                            for (const k of keys) {
+                                if (!k.has_value) continue;
+                                if (AUTO.includes(k.key)) continue;
+                                if (k.local_only) continue;
+                                if (k.kind === 'secret') {
+                                    syncKeys.push(k.key);
+                                } else if (k.value) {
+                                    variables[k.key] = k.value;
+                                }
+                            }
+
+                            const count = syncKeys.length + Object.keys(variables).length;
+                            if (count === 0) continue;
+
+                            const pushResult = await api(`/secrets/push${qs}`, {
+                                method: 'POST',
+                                body: JSON.stringify({
+                                    variables,
+                                    sync_keys: syncKeys,
+                                    push_to_github: true,
+                                    save_to_env: false,
+                                }),
+                            });
+
+                            if (pushResult.error) {
+                                parts.push(`❌ Secrets push${envName ? ` (${envName})` : ''}: ${pushResult.error}`);
+                            } else {
+                                const ok = (pushResult.results || []).filter(r => r.success).length;
+                                totalPushed += ok;
+                            }
+                        }
+                        if (totalPushed > 0) {
+                            parts.push(`✅ Pushed ${totalPushed} secret${totalPushed !== 1 ? 's' : ''} to GitHub`);
+                        }
+                    } catch (e) {
+                        parts.push(`❌ Secrets push failed: ${e.message}`);
+                    }
+                }
+
+                if (parts.length > 0) toast(parts.join('\n'), 'success');
+
+                // Invalidate caches
+                _projectStatusTS = 0;
+                wizInvalidate('gh:detect');
+                wizInvalidate('detect');
+                cardInvalidate('github');
+                if (typeof loadGitHubCard === 'function') loadGitHubCard();
+            },
+            successMessage: 'GitHub configuration applied!',
+            finishLabel: '✅ Apply Changes',
+        });
+    }
+
+
+</script>

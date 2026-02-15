@@ -1,0 +1,493 @@
+<!-- Integrations — Git Setup Wizard
+     Depends on: _integrations_setup_shared.html
+-->
+<script>
+
+    // ── Git Setup Wizard ───────────────────────────────────────────────
+
+    function openGitSetupWizard() {
+        wizardModalOpen({
+            title: '🔀 Git Setup',
+            size: 'wide',
+            steps: [
+                // ── Step 1: DETECT ─────────────────────────────────────
+                {
+                    id: 'detect', title: 'Detect', cacheable: true,
+                    render: async (data, el) => {
+                        // ── Serve from cache if available (instant, zero API calls) ──
+                        const _CK = 'git:detect';
+                        const cached = wizCached(_CK);
+                        if (cached) {
+                            Object.assign(data, cached.d);
+                            el.innerHTML = _wizDetectBanner(_CK) + cached.h;
+                            return;
+                        }
+
+                        // ── Fresh scan ──
+                        el.innerHTML = '<p style="text-align:center;padding:2rem"><span class="spinner"></span> Analyzing your project…</p>';
+                        try {
+                            // ONE call: wizDetect is the one-stop-shop (cached server-side)
+                            const _bust = window._wizForceRescan ? '?bust=1' : ''; window._wizForceRescan = false;
+                            const wizDetect = wizCached('detect') || await api('/wizard/detect' + _bust).then(d => { wizStore('detect', d); return d; });
+                            const _serverTs = (wizDetect._cache?.computed_at || 0) * 1000;
+
+                            const probes = wizDetect.status_probes || {};
+                            const git = probes.git || {};
+                            data._git = git;
+                            data._tools = wizDetect.tools || {};
+                            data._gitignoreAnalysis = wizDetect.gitignore_analysis || { exists: false, coverage: 0, missing_patterns: [] };
+                            data._ghStatus = wizDetect.gh_cli_status || { available: false };
+                            data._gitRemotes = (wizDetect.git_remotes || {}).remotes || [];
+                            data._projectStatus = { integrations: probes };
+                            const gitignoreAnalysis = data._gitignoreAnalysis;
+                            const ghStatus = data._ghStatus;
+                            const gitRemotes = data._gitRemotes;
+
+                            // Detect lint tools for hook suggestion
+                            const lintTools = [];
+                            if (data._tools.ruff) lintTools.push('ruff');
+                            if (data._tools.mypy) lintTools.push('mypy');
+                            if (data._tools.eslint || data._tools.npm) lintTools.push('eslint');
+                            data._lintTools = lintTools;
+
+                            // Version display
+                            const gitVer = git.git_version ? `v${git.git_version}` : '';
+
+                            // Build status rows
+                            let html = `<div style="display:flex;align-items:center;gap:0.6rem;padding:0.5rem 0.75rem;margin-bottom:var(--space-sm);font-size:0.82rem;background:color-mix(in srgb, var(--accent) 10%, var(--bg-inset));border:1px solid color-mix(in srgb, var(--accent) 30%, transparent);border-radius:8px">
+                                <span style="font-size:1.1rem">🔍</span>
+                                <span style="flex:1;color:var(--text-secondary)">This is a <strong>read-only scan</strong>. To manage remotes, branch, and settings, proceed to Configure.</span>
+                                <button type="button" class="btn btn-xs" style="background:var(--accent);color:white;border:none;padding:4px 12px;border-radius:6px;font-size:0.78rem;white-space:nowrap;cursor:pointer"
+                                    onclick="document.getElementById('wiz-btn-next')?.click()">Configure →</button>
+                            </div>`;
+                            html += wizSection('Git Repository', 'Current Git configuration detected in this project.');
+                            html += '<div class="wiz-status-grid">';
+                            html += wizStatusRow('⚙️', 'Git CLI',
+                                data._tools.git ? `Installed ${gitVer ? '(' + gitVer + ')' : ''}` : 'Not found',
+                                data._tools.git ? 'ok' : 'error');
+                            html += wizStatusRow('📁', 'Repository',
+                                git.initialized ? `Initialized (branch: ${git.branch || 'n/a'})` : 'Not initialized',
+                                git.initialized ? 'ok' : 'error');
+                            // Remotes — show each one
+                            if (gitRemotes.length > 0) {
+                                for (const r of gitRemotes) {
+                                    const shortUrl = (r.fetch || r.push || '').replace(/^https?:\/\//, '').replace(/\.git$/, '');
+                                    html += wizStatusRow('🌐', `Remote: ${r.name}`, shortUrl, 'ok');
+                                }
+                            } else {
+                                html += wizStatusRow('🌐', 'Remote', 'Not configured', 'warn');
+                            }
+                            html += wizStatusRow('📄', '.gitignore',
+                                git.has_gitignore
+                                  ? `Present (${Math.round((gitignoreAnalysis.coverage || 0) * 100)}% coverage)`
+                                  : 'Missing',
+                                git.has_gitignore ? (gitignoreAnalysis.coverage >= 0.9 ? 'ok' : 'warn') : 'error');
+                            html += wizStatusRow('🪝', 'Hooks',
+                                git.hook_count > 0 ? `${git.hook_count} active (${git.hooks.join(', ')})` : 'None configured',
+                                git.hook_count > 0 ? 'ok' : 'muted');
+                            html += wizStatusRow('🐙', 'gh CLI',
+                                ghStatus.available !== false
+                                  ? (ghStatus.authenticated ? `Authenticated${ghStatus.repo ? ' — ' + ghStatus.repo : ''}` : 'Installed but not authenticated')
+                                  : 'Not installed',
+                                ghStatus.authenticated ? 'ok' : 'muted');
+                            html += '</div>';
+
+
+
+                            // Context hints
+                            const hints = [];
+                            // Get module/stack info from project status
+                            const proj = (data._projectStatus?.integrations || {}).project;
+                            if (proj && proj.modules > 0) {
+                                // Try to get stack names from wizard detect
+                                const stacks = wizDetect.detected_stacks || [];
+                                if (stacks.length > 0) {
+                                    hints.push(`📦 Detected stacks: <strong>${esc(stacks.join(', '))}</strong>`);
+                                }
+                            }
+                            if (!git.has_gitignore) {
+                                hints.push('💡 We\'ll generate a stack-aware .gitignore for your project.');
+                            } else if (gitignoreAnalysis.missing_count > 0) {
+                                hints.push(`⚠️ Your .gitignore is missing <strong>${gitignoreAnalysis.missing_count}</strong> recommended pattern(s).`);
+                            }
+                            if (!git.initialized) {
+                                hints.push('💡 We\'ll initialize a Git repository for you.');
+                            }
+                            if (lintTools.length > 0) {
+                                hints.push(`🔧 Lint tools detected: <strong>${lintTools.join(', ')}</strong>. We can set up a pre-commit hook.`);
+                            }
+
+                            if (hints.length > 0) {
+                                html += `<div class="wiz-hint-box" style="margin-top:var(--space-md);padding:var(--space-sm) var(--space-md);background:var(--bg-card);border-radius:var(--radius-sm);border:1px solid var(--border-subtle)">`
+                                    + hints.map(h => `<div style="padding:2px 0;font-size:0.82rem;color:var(--text-secondary)">${h}</div>`).join('')
+                                    + '</div>';
+                            }
+
+                            // Store complete detect result in cache
+                            wizStore(_CK, { h: html, d: { _git: data._git, _tools: data._tools, _gitignoreAnalysis: data._gitignoreAnalysis, _ghStatus: data._ghStatus, _gitRemotes: data._gitRemotes, _projectStatus: data._projectStatus, _lintTools: data._lintTools } }, _serverTs);
+                            el.innerHTML = _wizDetectBanner(_CK) + html;
+                        } catch (e) {
+                            el.innerHTML = `<div class="wiz-step-error-panel"><span>⚠️</span><span>Failed to detect Git status: ${esc(e.message)}</span></div>`;
+                        }
+                    }
+                },
+                // ── Step 2: CONFIGURE ──────────────────────────────────
+                {
+                    id: 'config', title: 'Configure',
+                    render: async (data, el) => {
+                        const git = data._git || {};
+                        const ghStatus = data._ghStatus || {};
+                        const giAnalysis = data._gitignoreAnalysis || {};
+                        const lintTools = data._lintTools || [];
+
+                        // Always live-fetch remotes so mutations (add/remove/change URL) reflect instantly
+                        let gitRemotes = data._gitRemotes || [];
+                        try {
+                            const freshRemotes = await api('/git/remotes');
+                            if (Array.isArray(freshRemotes.remotes)) {
+                                gitRemotes = freshRemotes.remotes;
+                                data._gitRemotes = gitRemotes;  // update shared data
+                            }
+                        } catch(e) { /* fall back to cached */ }
+
+                        let html = '';
+
+                        // ── Section A: Remotes ──────────────────────────
+                        html += wizSection('Remotes', 'Manage remote connections for push/pull operations.');
+
+                        // Current remotes table
+                        if (gitRemotes.length > 0) {
+                            html += `<div style="background:var(--bg-inset);border:1px solid var(--border-subtle);border-radius:8px;overflow:hidden;margin-bottom:var(--space-sm)">`;
+                            // Header
+                            html += `<div style="display:flex;align-items:center;padding:0.3rem 0.65rem;font-size:0.65rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;border-bottom:1px solid var(--border-subtle);background:color-mix(in srgb, var(--bg-tertiary) 40%, transparent)">
+                                <span style="width:80px">Name</span>
+                                <span style="flex:1">URL</span>
+                                <span style="width:120px;text-align:right">Actions</span>
+                            </div>`;
+                            for (const r of gitRemotes) {
+                                const url = r.fetch || r.push || '';
+                                const shortUrl = url.replace(/^https?:\/\//, '').replace(/\.git$/, '');
+                                const rId = r.name.replace(/[^a-zA-Z0-9]/g, '_');
+                                html += `<div style="display:flex;align-items:center;padding:0.4rem 0.65rem;font-size:0.82rem;border-bottom:1px solid var(--border-subtle)" id="remote-row-${rId}">
+                                    <span style="width:80px;font-weight:600"><code style="font-size:0.8rem">${esc(r.name)}</code></span>
+                                    <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+                                        <code style="font-size:0.75rem;color:var(--text-secondary)">${esc(shortUrl)}</code>
+                                    </span>
+                                    <span style="width:120px;display:flex;gap:4px;justify-content:flex-end">
+                                        <button type="button" class="btn btn-xs btn-secondary" style="font-size:0.65rem;padding:1px 6px"
+                                            onclick="(async()=>{
+                                                try{
+                                                    const newUrl=prompt('New URL for remote \\'${esc(r.name)}\\':', '${esc(url).replace(/'/g,"\\'")}');
+                                                    if(!newUrl||newUrl==='${esc(url).replace(/'/g,"\\'")}')return;
+                                                    await apiPost('/git/remote/set-url',{name:'${esc(r.name)}',url:newUrl});
+                                                    toast('✅ Remote URL updated','success');wizInvalidate('git:detect');wizInvalidate('detect');_wizModalRender();
+                                                }catch(e){toast('❌ '+e.message,'error')}
+                                            })()">✏️ URL</button>
+                                        <button type="button" class="btn btn-xs btn-secondary" style="font-size:0.65rem;padding:1px 6px;color:var(--error)"
+                                            onclick="if(!this.dataset.c){this.textContent='Sure?';this.dataset.c='1';setTimeout(()=>{this.textContent='🗑';delete this.dataset.c},2500);return}
+                                            (async()=>{
+                                                try{
+                                                    await apiPost('/git/remote/remove',{name:'${esc(r.name)}'});
+                                                    toast('✅ Remote removed','success');wizInvalidate('git:detect');wizInvalidate('detect');_wizModalRender();
+                                                }catch(e){toast('❌ '+e.message,'error')}
+                                            })()">🗑</button>
+                                    </span>
+                                </div>`;
+                            }
+                            html += `</div>`;
+                        } else {
+                            html += `<div style="padding:0.6rem 0.75rem;background:var(--bg-inset);border:1px solid var(--border-subtle);border-radius:8px;font-size:0.82rem;color:var(--text-muted);margin-bottom:var(--space-sm)">
+                                No remotes configured. Add one below.
+                            </div>`;
+                        }
+
+                        // Add remote form
+                        html += `<div style="background:var(--bg-inset);border:1px solid var(--border-subtle);border-radius:8px;padding:0.5rem 0.65rem;margin-bottom:var(--space-sm)">
+                            <div style="font-size:0.72rem;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:0.4rem">Add Remote</div>
+                            <div style="display:flex;gap:0.4rem;align-items:center">
+                                <input type="text" id="mf-add-remote-name" class="modal-form-input" style="width:90px;font-size:0.82rem;padding:4px 8px"
+                                    placeholder="${gitRemotes.length === 0 ? 'origin' : 'upstream'}" value="">
+                                <input type="text" id="mf-add-remote-url" class="modal-form-input" style="flex:1;font-size:0.82rem;padding:4px 8px"
+                                    placeholder="https://github.com/user/repo.git"
+                                    ${ghStatus.authenticated && ghStatus.repo && gitRemotes.length === 0 ? `value="https://github.com/${ghStatus.repo}.git"` : ''}>
+                                <button type="button" class="btn btn-xs" id="git-add-remote-btn"
+                                    style="font-size:0.75rem;padding:3px 10px;background:var(--accent);color:white;border:none;border-radius:6px;white-space:nowrap"
+                                    onclick="(async()=>{
+                                        const btn=document.getElementById('git-add-remote-btn');
+                                        const name=document.getElementById('mf-add-remote-name').value.trim()||'${gitRemotes.length === 0 ? 'origin' : 'upstream'}';
+                                        const url=document.getElementById('mf-add-remote-url').value.trim();
+                                        if(!url){toast('Enter a remote URL','warn');return}
+                                        btn.disabled=true;btn.textContent='Adding…';
+                                        try{
+                                            await apiPost('/git/remote/add',{name,url});
+                                            toast('✅ Remote \\'' +name+ '\\' added','success');wizInvalidate('git:detect');wizInvalidate('detect');_wizModalRender();
+                                        }catch(e){toast('❌ '+e.message,'error');btn.disabled=false;btn.textContent='＋ Add'}
+                                    })()">＋ Add</button>
+                            </div>
+                            ${ghStatus.authenticated && ghStatus.repo && gitRemotes.length === 0
+                                ? `<div style="font-size:0.7rem;color:var(--text-muted);margin-top:4px">🐙 Pre-filled from GitHub CLI: ${esc(ghStatus.repo)}</div>`
+                                : ''}
+                        </div>`;
+
+                        // ── Section B: Default Branch ──────────────────
+                        html += wizSection('Default Branch', '');
+                        html += wizFormGrid([
+                            { name: 'git-branch', label: 'Branch name',
+                              value: git.branch || 'main', placeholder: 'main',
+                              hint: git.branch ? `Current: ${git.branch}` : 'Will be set on init.' },
+                        ]);
+
+                        // ── Section C: .gitignore ──────────────────────
+                        html += wizSection('.gitignore', 'Stack-aware patterns to protect your repository.');
+
+                        if (git.has_gitignore && giAnalysis.missing_count === 0) {
+                            // Already complete
+                            html += `<div class="wiz-info-row" style="padding:var(--space-sm);background:var(--bg-card);border-radius:var(--radius-sm);border:1px solid var(--border-subtle);font-size:0.82rem;color:var(--text-secondary);margin-bottom:var(--space-md)">
+                                ✅ Your .gitignore is complete — ${giAnalysis.current_patterns} patterns, ${Math.round((giAnalysis.coverage || 0) * 100)}% coverage.
+                            </div>`;
+                            data._skipGitignore = true;
+                        } else {
+                            // Either missing or incomplete — generate a preview
+                            el.innerHTML = '<p style="text-align:center;padding:2rem"><span class="spinner"></span> Generating .gitignore preview…</p>';
+
+                            let gitignoreContent = '';
+                            try {
+                                const genResult = await apiPost('/security/generate/gitignore', {});
+                                if (genResult.ok && genResult.file) {
+                                    gitignoreContent = genResult.file.content || '';
+                                }
+                            } catch (e) {
+                                gitignoreContent = '# Failed to generate — add patterns manually\n';
+                            }
+                            data._generatedGitignore = gitignoreContent;
+
+                            if (git.has_gitignore) {
+                                // Existing but incomplete
+                                const missingList = (giAnalysis.missing_patterns || [])
+                                    .map(p => `<span style="color:var(--error);font-size:0.78rem">❌ ${esc(p.pattern)}</span> <span style="color:var(--text-muted);font-size:0.72rem">(${esc(p.reason)})</span>`)
+                                    .join('<br>');
+                                html += `<div style="padding:var(--space-sm);background:var(--bg-card);border-radius:var(--radius-sm);border:1px solid var(--border-subtle);margin-bottom:var(--space-sm)">
+                                    <div style="font-size:0.82rem;color:var(--warning);margin-bottom:var(--space-xs)">
+                                        ⚠️ Your .gitignore is missing ${giAnalysis.missing_count} pattern(s):
+                                    </div>
+                                    <div style="padding-left:var(--space-sm)">${missingList}</div>
+                                </div>`;
+                                html += `<label class="modal-form-check full-width" style="margin-bottom:var(--space-sm)">
+                                    <input type="checkbox" id="mf-gitignore-replace" checked>
+                                    Replace with generated .gitignore (recommended)
+                                </label>`;
+                            } else {
+                                html += `<label class="modal-form-check full-width" style="margin-bottom:var(--space-sm)">
+                                    <input type="checkbox" id="mf-gitignore-create" checked>
+                                    Create .gitignore
+                                </label>`;
+                            }
+
+                            // Count patterns for display
+                            const patCount = gitignoreContent ? gitignoreContent.split('\n').filter(l => l.trim() && !l.trim().startsWith('#')).length : 0;
+
+                            html += `<div style="margin-bottom:var(--space-sm)">
+                                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--space-xs)">
+                                    <span style="font-size:0.78rem;color:var(--text-muted)">📋 Preview (${patCount} patterns)</span>
+                                    <button class="btn btn-xs btn-ghost" type="button" onclick="document.getElementById('gi-edit-wrap').style.display=document.getElementById('gi-edit-wrap').style.display==='none'?'block':'none'"
+                                        style="font-size:0.7rem">✏️ Edit</button>
+                                </div>
+                                <div class="modal-preview" style="max-height:200px;overflow-y:auto">
+                                    <div class="modal-preview-body" style="white-space:pre;font-family:var(--font-mono);font-size:0.72rem;line-height:1.5">${esc(gitignoreContent)}</div>
+                                </div>
+                                <div id="gi-edit-wrap" style="display:none;margin-top:var(--space-xs)">
+                                    <textarea id="mf-gitignore-content"
+                                        class="modal-form-textarea" style="font-family:var(--font-mono);font-size:0.72rem;min-height:200px;width:100%"
+                                    >${esc(gitignoreContent)}</textarea>
+                                    <span class="modal-form-hint">Edit the content above. Changes will be used when applying.</span>
+                                </div>
+                            </div>`;
+                        }
+
+                        // ── Section D: Pre-commit hooks ────────────────
+                        if (lintTools.length > 0 && git.hook_count === 0) {
+                            html += wizSection('Pre-commit Hook', 'Run checks automatically before each commit.');
+                            html += `<label class="modal-form-check full-width" style="margin-bottom:var(--space-xs)">
+                                <input type="checkbox" id="mf-setup-hooks">
+                                Set up pre-commit hook
+                            </label>`;
+                            html += `<div style="font-size:0.75rem;color:var(--text-muted);padding-left:1.5rem;margin-bottom:var(--space-sm)">
+                                Will run: ${lintTools.map(t => `<code style="background:var(--bg-tertiary);padding:1px 4px;border-radius:3px">${esc(t)}</code>`).join(', ')} before each commit.
+                            </div>`;
+                        }
+
+                        // ── Section E: Initial commit ──────────────────
+                        if (git.commit_count === 0 || !git.initialized) {
+                            html += wizSection('Initial Commit', '');
+                            html += `<label class="modal-form-check full-width" style="margin-bottom:var(--space-xs)">
+                                <input type="checkbox" id="mf-initial-commit">
+                                Create initial commit after setup
+                            </label>`;
+                            html += wizFormGrid([
+                                { name: 'commit-msg', label: 'Commit message',
+                                  value: 'Initial commit', placeholder: 'Initial commit',
+                                  hint: 'Only used if the checkbox above is checked.' },
+                            ]);
+                        }
+
+                        el.innerHTML = html;
+                    },
+                    collect: (data) => {
+                        // Remotes are managed live (instant API calls), no deferred collection needed
+                        data.remote = '';
+                        data.branch = mfVal('git-branch');
+                        data.setupHooks = mfVal('setup-hooks');
+                        data.createInitialCommit = mfVal('initial-commit');
+                        data.commitMessage = mfVal('commit-msg') || 'Initial commit';
+
+                        // .gitignore decision
+                        if (data._skipGitignore) {
+                            data.writeGitignore = false;
+                        } else {
+                            const createEl = document.getElementById('mf-gitignore-create');
+                            const replaceEl = document.getElementById('mf-gitignore-replace');
+                            data.writeGitignore = (createEl && createEl.checked) || (replaceEl && replaceEl.checked);
+
+                            // Use edited content if available, otherwise generated
+                            const editedEl = document.getElementById('mf-gitignore-content');
+                            data.gitignoreContent = editedEl ? editedEl.value : (data._generatedGitignore || '');
+                        }
+                    },
+                },
+                // ── Step 3: REVIEW & APPLY ─────────────────────────────
+                {
+                    id: 'review', title: 'Review',
+                    render: (data, el) => {
+                        const git = data._git || {};
+                        const actions = [];
+
+                        if (!git.initialized) {
+                            actions.push({ icon: '📁', label: 'Initialize Git repository', value: 'git init', status: 'new' });
+                        }
+
+                        const branchVal = data.branch || 'main';
+                        if (git.branch && git.branch !== branchVal) {
+                            actions.push({ icon: '🌿', label: 'Rename branch', value: `${git.branch} → ${branchVal}`, status: 'change' });
+                        }
+
+                        if (data.writeGitignore && data.gitignoreContent) {
+                            const patCount = data.gitignoreContent.split('\n').filter(l => l.trim() && !l.trim().startsWith('#')).length;
+                            const verb = git.has_gitignore ? 'Replace' : 'Create';
+                            actions.push({ icon: '📄', label: `${verb} .gitignore`, value: `${patCount} patterns`, status: 'new' });
+                        }
+
+                        // Remotes — already applied live, just show summary
+                        const gitRemotes = data._gitRemotes || [];
+                        if (gitRemotes.length > 0) {
+                            actions.push({ icon: '🌐', label: 'Remotes configured', value: gitRemotes.map(r => r.name).join(', '), status: 'ok' });
+                        } else {
+                            actions.push({ icon: '🌐', label: 'No remotes', value: 'Add via Configure step', status: 'ok' });
+                        }
+
+                        if (data.setupHooks) {
+                            const tools = (data._lintTools || []).join(', ');
+                            actions.push({ icon: '🪝', label: 'Install pre-commit hook', value: tools, status: 'new' });
+                        }
+
+                        if (data.createInitialCommit) {
+                            actions.push({ icon: '💾', label: 'Create initial commit', value: data.commitMessage, status: 'new' });
+                        }
+
+                        if (actions.length === 0) {
+                            actions.push({ icon: '✅', label: 'Everything looks good', value: 'No changes needed', status: 'ok' });
+                        }
+
+                        const statusColors = { new: 'var(--success)', change: 'var(--warning)', ok: 'var(--text-muted)' };
+
+                        let html = wizSection('Review Changes', 'The following actions will be performed when you click Finish.');
+                        html += actions.map(a => `<div class="wiz-review-item" style="display:flex;gap:var(--space-sm);align-items:flex-start;padding:var(--space-sm) 0;border-bottom:1px solid var(--border-subtle)">
+                            <span style="font-size:1.1rem;flex-shrink:0">${a.icon}</span>
+                            <div style="flex:1;min-width:0">
+                                <div style="font-size:0.85rem;font-weight:500;color:var(--text-primary)">${esc(a.label)}</div>
+                                <div style="font-size:0.78rem;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(a.value)}</div>
+                            </div>
+                            <span style="font-size:0.7rem;padding:1px 6px;border-radius:8px;background:${statusColors[a.status] || 'var(--bg-tertiary)'};color:var(--bg-primary);flex-shrink:0">${a.status === 'new' ? 'NEW' : a.status === 'change' ? 'UPDATE' : '✓'}</span>
+                        </div>`).join('');
+                        // Next integration hint
+                        html += `<div style="margin-top:var(--space-md);padding:var(--space-xs) var(--space-sm);border-left:3px solid var(--accent);background:color-mix(in srgb, var(--accent) 5%, transparent);border-radius:0 6px 6px 0">
+                            <div style="font-size:0.78rem;color:var(--text-secondary)">
+                                💡 <strong>Next:</strong> Set up GitHub to manage environments, secrets, and CI/CD.
+                                <button class="btn btn-sm btn-ghost" style="font-size:0.72rem;padding:0.1rem 0.4rem;margin-left:4px;color:var(--accent)"
+                                    onclick="wizardModalClose();setTimeout(openGitHubSetupWizard,300)">Set up GitHub →</button>
+                            </div>
+                        </div>`;
+
+                        el.innerHTML = html;
+                    },
+                },
+            ],
+            onComplete: async (data) => {
+                const git = data._git || {};
+                const payload = {
+                    action: 'setup_git',
+                };
+
+                // Conditional fields — only send what the user chose
+                if (!git.initialized) {
+                    payload._init = true; // covered by setup_git logic
+                }
+
+                const branchVal = data.branch || '';
+                if (branchVal && git.branch !== branchVal) {
+                    payload.default_branch = branchVal;
+                }
+
+                if (data.writeGitignore && data.gitignoreContent) {
+                    payload.gitignore_content = data.gitignoreContent;
+                }
+
+                if (data.remote) {
+                    payload.remote = data.remote;
+                }
+
+                // Remotes are managed live — no deferred actions needed
+
+                if (data.setupHooks && data._lintTools && data._lintTools.length > 0) {
+                    payload.setup_hooks = true;
+                    // Build hook commands from detected lint tools
+                    const hookCmds = [];
+                    if (data._lintTools.includes('ruff')) hookCmds.push('ruff check .');
+                    if (data._lintTools.includes('mypy')) hookCmds.push('mypy src/');
+                    if (data._lintTools.includes('eslint')) hookCmds.push('npx eslint .');
+                    payload.hook_commands = hookCmds;
+                }
+
+                if (data.createInitialCommit) {
+                    payload.create_initial_commit = true;
+                    payload.commit_message = data.commitMessage || 'Initial commit';
+                }
+
+                const result = await apiPost('/wizard/setup', payload);
+
+                if (!result.ok) {
+                    throw new Error(result.error || 'Setup failed');
+                }
+
+                // Show detailed results
+                if (result.results && result.results.length > 0) {
+                    const details = result.results.map(r => `✓ ${r}`).join('\n');
+                    toast(details, 'success', 5000);
+                }
+
+                // Invalidate caches
+                _projectStatusTS = 0;
+                wizInvalidate('git:detect');
+                wizInvalidate('detect');
+                cardInvalidate('git');
+                // Reload git card if on Integrations tab
+                if (typeof loadGitCard === 'function') {
+                    setTimeout(() => loadGitCard(), 300);
+                }
+            },
+            successMessage: 'Git repository configured!',
+            finishLabel: '✅ Apply Changes',
+        });
+    }
+
+
+</script>

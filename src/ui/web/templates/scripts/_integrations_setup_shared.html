@@ -1,0 +1,222 @@
+<!-- Integrations — Shared Setup Wizard Infrastructure
+     Cache banner, validation system, env collision detector, data aliases.
+     Must load BEFORE any individual setup wizard file.
+     Depends on: _globals_wizard_modal.html, _globals.html (api, esc, toast)
+-->
+<script>
+
+    // ═══════════════════════════════════════════════════════════════════
+    // ── Integration Setup Modals — Shared Infrastructure ──────────────
+    // ═══════════════════════════════════════════════════════════════════
+
+
+
+    // ── Wizard detect cache banner ────────────────────────────────────
+    // Global flag: when true, detect steps add ?bust=1 to force server recompute
+    window._wizForceRescan = false;
+
+    function _wizDetectBanner(key) {
+        const ageSec = wizAge(key);
+        if (ageSec == null) return '';
+        const stale = ageSec > 300; // > 5 min = red
+        const ageColor = stale ? 'var(--danger)' : 'var(--text-muted)';
+        return `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.5rem">
+            <span style="font-size:0.78rem;color:${ageColor}">Last scan: ${_formatAge(ageSec)}</span>
+            <button type="button" class="btn btn-secondary" style="font-size:0.76rem;padding:0.2rem 0.6rem"
+                onclick="wizInvalidate('${key}'); wizInvalidate('detect'); window._wizForceRescan = true; _wizModalRender();">🔄 Re-scan</button>
+        </div>`;
+    }
+
+    // ── Shared Wizard Validation System ───────────────────────────────
+    // Registry-based: validators are registered with a scope
+    //   '*'  → runs for any wizard prefix
+    //   'k8s' → runs only for K8s wizard
+    //   'dk'  → runs only for Docker wizard
+    // Each validator fn(prefix) receives the active wizard prefix.
+    window._wizValidation = {
+        _validators: { '*': [], 'k8s': [], 'dk': [] },
+
+        register: (scope, name, fn) => {
+            if (!window._wizValidation._validators[scope])
+                window._wizValidation._validators[scope] = [];
+            window._wizValidation._validators[scope].push({ name, fn });
+        },
+
+        recheck: (prefix) => {
+            const shared = window._wizValidation._validators['*'] || [];
+            const specific = window._wizValidation._validators[prefix] || [];
+            [...shared, ...specific].forEach(v => v.fn(prefix));
+        }
+    };
+
+    // ── Validator: Env Key Collision ──────────────────────────────────
+    // Scans ALL env rows in the active wizard, builds key→owners map,
+    // marks duplicates. Direction-independent — pure data scan.
+    window._wizValidation.register('*', 'envCollision', (prefix) => {
+
+        const svcNames = prefix === 'dk'
+            ? (window._dkSvcNames || {})
+            : (window._k8sSvcNames || {});
+
+        // Collect key inputs from ACTIVE env list containers only.
+        // Each wizard has env lists with id: {prefix}-svc-env-list-{svcId}
+        // Docker infra lists are only active when their checkbox is checked.
+        // K8s hidden cards (companion source) are skipped via card display check.
+        const keyInputs = [];
+        const svcKeyPfx = prefix + '-svc-env-key-';
+        const listPfx = prefix + '-svc-env-list-';
+
+        document.querySelectorAll('[id^="' + listPfx + '"]').forEach(list => {
+            const svcPart = list.id.substring(listPfx.length);
+
+            // Docker: skip unchecked infra services
+            if (prefix === 'dk' && svcPart.startsWith('infra-')) {
+                const infraKey = svcPart.substring(6);
+                const chk = document.getElementById('mf-dk-infra-' + infraKey);
+                if (!chk || !chk.checked) return;
+            }
+
+            // K8s: skip env lists inside hidden service cards (moved-into companions)
+            if (prefix === 'k8s') {
+                const card = list.closest('[id^="k8s-mod-card-"]');
+                if (card && card.style.display === 'none') return;
+            }
+
+            list.querySelectorAll('[id^="' + svcKeyPfx + '"]').forEach(el => keyInputs.push(el));
+        });
+
+        // K8s: also collect from companion-specific env lists (from _k8sAddCompEnv)
+        if (prefix === 'k8s') {
+            document.querySelectorAll('[id^="k8s-comp-env-list-"]').forEach(list => {
+                list.querySelectorAll('[id^="k8s-comp-env-key-"]').forEach(el => keyInputs.push(el));
+            });
+        }
+
+        // Stamp any inputs that have values but no timestamp yet.
+        // This captures pre-populated keys (infra, saved state) on their first recheck.
+        keyInputs.forEach(el => {
+            if (el.value.trim() && !el.dataset.envTs) el.dataset.envTs = Date.now();
+        });
+
+        // Phase 1: Build key → owners map
+        const keyMap = {};
+        const svcKeyPrefix = prefix + '-svc-env-key-';
+        const compKeyPrefix = prefix + '-comp-env-key-';
+
+        keyInputs.forEach(el => {
+            const key = el.value.trim().toUpperCase();
+            if (!key) return;
+            let svcId, j;
+            if (el.id.startsWith(compKeyPrefix)) {
+                const suffix = el.id.substring(compKeyPrefix.length);
+                const lastDash = suffix.lastIndexOf('-');
+                j = suffix.substring(lastDash + 1);
+                svcId = 'comp-' + suffix.substring(0, lastDash);
+            } else {
+                const suffix = el.id.substring(svcKeyPrefix.length);
+                const lastDash = suffix.lastIndexOf('-');
+                svcId = suffix.substring(0, lastDash);
+                j = suffix.substring(lastDash + 1);
+            }
+            if (!keyMap[key]) keyMap[key] = [];
+            keyMap[key].push({ svcId, j, el });
+        });
+
+        // Phase 2: For each input, show/hide dupe warning + manage elsewhere
+        keyInputs.forEach(el => {
+            const key = el.value.trim().toUpperCase();
+            let svcId, j, dupeElId;
+            if (el.id.startsWith(compKeyPrefix)) {
+                const suffix = el.id.substring(compKeyPrefix.length);
+                const lastDash = suffix.lastIndexOf('-');
+                j = suffix.substring(lastDash + 1);
+                svcId = 'comp-' + suffix.substring(0, lastDash);
+                dupeElId = prefix + '-comp-env-dupe-' + suffix;
+            } else {
+                const suffix = el.id.substring(svcKeyPrefix.length);
+                const lastDash = suffix.lastIndexOf('-');
+                svcId = suffix.substring(0, lastDash);
+                j = suffix.substring(lastDash + 1);
+                dupeElId = prefix + '-svc-env-dupe-' + svcId + '-' + j;
+            }
+            const dupeEl = document.getElementById(dupeElId);
+            if (!dupeEl) return;
+            const matches = keyMap[key] || [];
+            // Helper: hide/restore vault notice when collision is present
+            const _setElsewhere = (show, ownerSvcId) => {
+                const ntc = document.getElementById(prefix + '-svc-env-notice-' + svcId + '-' + j);
+                if (!ntc) return;
+                if (show) {
+                    if (!ntc.hidden) {
+                        ntc.dataset.hiddenByCollision = '1';
+                        ntc.hidden = true;
+                    }
+                } else {
+                    if (ntc.dataset.hiddenByCollision) {
+                        delete ntc.dataset.hiddenByCollision;
+                        ntc.hidden = false;
+                        // Restore creation form
+                        const vb = document.getElementById(prefix + '-svc-env-valbox-' + svcId + '-' + j);
+                        const ew = document.getElementById(prefix + '-svc-env-elsewhere-' + svcId + '-' + j);
+                        const cr = document.getElementById(prefix + '-svc-env-create-' + svcId + '-' + j);
+                        if (vb) vb.style.display = 'flex';
+                        if (cr) { cr.checked = true; cr.disabled = false; }
+                        if (ew) ew.hidden = true;
+                    }
+                }
+            };
+            if (matches.length <= 1 || !key) {
+                dupeEl.hidden = true;
+                el.style.borderColor = '';
+                _setElsewhere(false);
+                return;
+            }
+            const others = matches.filter(m => !(m.svcId === svcId && m.j === j));
+            const sameService = others.filter(m => m.svcId === svcId);
+            const crossService = others.filter(m => m.svcId !== svcId);
+            if (sameService.length > 0) {
+                // Same-service duplicate: always show on BOTH sides (real error)
+                dupeEl.innerHTML = '⚠️ <strong>Duplicate key</strong> on same service';
+                dupeEl.style.cssText = 'font-size:0.76rem;margin:1px 0 3px;padding:3px 6px;border-radius:4px;color:var(--error,#e05252);background:rgba(224,82,82,0.06);border:1px solid rgba(224,82,82,0.15)';
+                el.style.borderColor = 'var(--error, #e05252)';
+                dupeEl.hidden = false;
+            } else if (crossService.length > 0) {
+                // Cross-service: only the NEWER input gets the warning (temporal order)
+                const myTs = parseInt(el.dataset.envTs || '0');
+                const earliest = crossService.reduce((best, m) => {
+                    const mTs = parseInt(m.el.dataset.envTs || '0');
+                    const bTs = parseInt(best.el.dataset.envTs || '0');
+                    if (mTs < bTs) return m;
+                    if (mTs === bTs) return keyInputs.indexOf(m.el) < keyInputs.indexOf(best.el) ? m : best;
+                    return best;
+                });
+                const eTs = parseInt(earliest.el.dataset.envTs || '0');
+                if (myTs > eTs || (myTs === eTs && keyInputs.indexOf(el) > keyInputs.indexOf(earliest.el))) {
+                    // I'm newer — show collision + vault creation handled by owner
+                    const names = [...new Set(crossService.map(m => svcNames[m.svcId] || m.svcId))];
+                    dupeEl.innerHTML = 'ℹ️ Also defined on: <strong>' + names.join('</strong>, <strong>') + '</strong>';
+                    dupeEl.style.cssText = 'font-size:0.76rem;margin:1px 0 3px;padding:3px 6px;border-radius:4px;color:var(--warning,#e8a820);background:rgba(232,168,32,0.06);border:1px solid rgba(232,168,32,0.15)';
+                    el.style.borderColor = 'var(--warning, #e8a820)';
+                    dupeEl.hidden = false;
+                    _setElsewhere(true, earliest.svcId);
+                } else {
+                    // I'm the owner — no collision warning, keep my creation form
+                    dupeEl.hidden = true;
+                    el.style.borderColor = '';
+                    _setElsewhere(false);
+                }
+            } else {
+                dupeEl.hidden = true;
+                el.style.borderColor = '';
+                _setElsewhere(false);
+            }
+        });
+    });
+
+    // ── Infrastructure service catalog — loaded from DataRegistry ──
+    const _infraOptions = window._dcp.infraOptions;
+    const _infraCategories = window._dcp.infraCategories;
+    window._infraOptions = _infraOptions;
+    window._infraCategories = _infraCategories;
+
+</script>

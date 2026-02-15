@@ -1,0 +1,1303 @@
+<!-- Integrations — Docker Setup Wizard
+     Depends on: _integrations_setup_shared.html
+-->
+<script>
+
+    // ── Docker Setup Wizard ────────────────────────────────────────────
+
+    function openDockerSetupWizard() {
+
+        // ── Helpers ────────────────────────────────────────────────────
+
+        /** Determine if a module is a container candidate based on domain + stack. */
+        function _dockerModClass(mod) {
+            const dom = (mod.domain || '').toLowerCase();
+            const st  = (mod.stack  || '').toLowerCase();
+            if (dom === 'library')  return 'library';
+            if (dom === 'docs' || st === 'markdown') return 'docs';
+            if (['kubernetes', 'helm', 'terraform', 'docker-compose'].includes(st)) return 'ops-tool';
+            return 'deployable';
+        }
+
+        /** Resolve the Dockerfile template family a stack maps to. */
+        function _dockerStackFamily(stack) {
+            const families = ['python','node','typescript','go','rust','java-maven','java-gradle','dotnet','elixir','ruby'];
+            if (families.includes(stack)) return stack;
+            for (const f of families) {
+                if (stack.startsWith(f + '-')) return f;
+            }
+            return null;
+        }
+
+        /** Default port for a stack family. */
+        function _dockerPort(family) {
+            return (_dockerStackDefaults[family] || {}).expose || 8080;
+        }
+
+        // ── Docker stack defaults — loaded from DataRegistry ──
+        const _dockerStackDefaults = window._dcp.dockerDefaults;
+        const _restartPolicies = window._dcp.dockerOptions.restart_policies;
+        const _platformOptions = window._dcp.dockerOptions.platform_options;
+
+
+        wizardModalOpen({
+            title: '🐳 Docker Setup',
+            size: 'wide',
+            steps: [
+                // ── Step 1: Detect ─────────────────────────────────────
+                {
+                    id: 'detect', title: 'Detect', cacheable: true,
+                    render: async (data, el) => {
+                        // ── Serve from cache if available (instant, zero API calls) ──
+                        const _CK = 'docker:detect';
+                        const cached = wizCached(_CK);
+                        if (cached) {
+                            Object.assign(data, cached.d);
+                            el.innerHTML = _wizDetectBanner(_CK) + cached.h;
+                            return;
+                        }
+
+                        // ── Fresh scan ──
+                        el.innerHTML = '<p style="text-align:center;padding:2rem"><span class="spinner"></span> Detecting Docker environment…</p>';
+                        try {
+                            const _bust = window._wizForceRescan ? '?bust=1' : ''; window._wizForceRescan = false;
+                            const wizDetect = wizCached('detect') || await api('/wizard/detect' + _bust).then(d => { wizStore('detect', d); return d; });
+                            const _serverTs = (wizDetect._cache?.computed_at || 0) * 1000;
+                            const probes = wizDetect.status_probes || {};
+                            const docker = probes.docker || {};
+                            data._docker = docker;
+                            data._dockerStatus = wizDetect.docker_status || {};
+                            const dockerStatus = data._dockerStatus;
+                            const modules = (wizDetect.config_data || {}).modules || [];
+                            data._modules = modules;
+
+                            // Classify modules
+                            const classified = modules.map(m => {
+                                const cls = _dockerModClass(m);
+                                const family = _dockerStackFamily(m.stack || '');
+                                return { ...m, _class: cls, _family: family,
+                                         _port: family ? _dockerPort(family) : null };
+                            });
+                            data._classified = classified;
+
+                            const deployable = classified.filter(m => m._class === 'deployable' && m._family);
+
+                            // Docker status
+                            let html = wizSection('Docker Environment', 'Current Docker configuration detected in this project.');
+                            html += `<div class="wiz-status-grid">
+                                ${wizStatusRow('🐳', 'Docker Engine',
+                                    dockerStatus.available ? (dockerStatus.version || '').replace('Docker version ','').split(',')[0] || 'Available' : 'Not found',
+                                    dockerStatus.available ? 'ok' : 'error')}
+                                ${dockerStatus.compose_available ? wizStatusRow('⚙️', 'Docker Compose', (dockerStatus.compose_version || '✓'), 'ok') : ''}
+                                ${wizStatusRow('📄', 'Dockerfile', docker.has_dockerfile ? 'Present' : 'Missing', docker.has_dockerfile ? 'ok' : 'warn')}
+                                ${wizStatusRow('📋', 'Compose file', docker.has_compose ? 'Present' : 'Missing', docker.has_compose ? 'ok' : 'warn')}
+                                ${wizStatusRow('🚫', '.dockerignore', docker.has_dockerignore ? 'Present' : 'Missing', docker.has_dockerignore ? 'ok' : 'warn')}
+                            </div>`;
+
+                            if (!dockerStatus.available) {
+                                html += `<div class="wiz-step-warn-panel" style="margin-top:1rem">
+                                    <span>⚠️</span>
+                                    <span>Docker is not installed. You can still generate config files, but won't be able to build/run until Docker is available.</span>
+                                </div>`;
+                            }
+
+                            // Module table
+                            html += wizSection('Project Modules', `${modules.length} module${modules.length !== 1 ? 's' : ''} detected — ${deployable.length} deployable.`);
+                            if (modules.length > 0) {
+                                html += `<div style="display:flex;flex-direction:column;gap:0.25rem">`;
+                                for (const m of classified) {
+                                    const isDep = m._class === 'deployable' && m._family;
+                                    const badge = isDep ? 'deployable' : m._class;
+                                    const badgeColor = isDep ? 'var(--success)' : 'var(--text-muted)';
+                                    const badgeIcon = isDep ? '🟢' : m._class === 'library' ? '📚' : m._class === 'docs' ? '📝' : '⚙️';
+                                    html += `<div style="display:flex;align-items:center;gap:0.5rem;font-size:0.82rem;padding:0.3rem 0.5rem;border-radius:6px;background:var(--bg-inset)">
+                                        <span style="width:18px;text-align:center">${badgeIcon}</span>
+                                        <strong style="min-width:80px">${esc(m.name)}</strong>
+                                        <code style="font-size:0.72rem;background:var(--bg-primary);padding:1px 5px;border-radius:3px;color:var(--text-secondary)">${esc(m.stack || '?')}</code>
+                                        <span style="flex:1;color:var(--text-muted);font-size:0.72rem">${esc(m.path || '')}</span>
+                                        <span style="font-size:0.68rem;color:${badgeColor}">${badge}</span>
+                                    </div>`;
+                                }
+                                html += `</div>`;
+
+                                if (deployable.length > 0) {
+                                    html += `<div style="margin-top:0.75rem;font-size:0.8rem;color:var(--text-secondary)">
+                                        💡 <strong>${deployable.length}</strong> deployable module${deployable.length !== 1 ? 's' : ''} detected.
+                                        The next step lets you choose which ones become containers.
+                                    </div>`;
+                                } else {
+                                    html += `<div class="wiz-step-warn-panel" style="margin-top:0.75rem">
+                                        <span>ℹ️</span>
+                                        <span>No deployable modules detected — you'll be able to pick a stack template manually in the next step.</span>
+                                    </div>`;
+                                }
+                            } else {
+                                html += `<div style="font-size:0.82rem;color:var(--text-muted);padding:0.5rem">
+                                    No modules configured. You can still pick a stack template manually.
+                                </div>`;
+                            }
+
+                            // Fetch vault keys (secrets + config vars)
+                            try {
+                                const vaultData = await api('/vault/keys');
+                                data._vaultKeys = (vaultData && vaultData.keys) || [];
+                            } catch(e) { data._vaultKeys = []; }
+
+                            // Store complete detect result in cache
+                            wizStore(_CK, { h: html, d: { _docker: data._docker, _dockerStatus: data._dockerStatus, _modules: data._modules, _classified: data._classified, _vaultKeys: data._vaultKeys } }, _serverTs);
+                            el.innerHTML = _wizDetectBanner(_CK) + html;
+                        } catch (e) {
+                            el.innerHTML = `<div class="wiz-step-error-panel"><span>⚠️</span><span>${esc(e.message)}</span></div>`;
+                        }
+                    },
+                },
+
+                // ── Step 2: Configure — Container selection ────────────
+                {
+                    id: 'config', title: 'Configure',
+                    render: (data, el) => {
+                        const docker   = data._docker || {};
+                        const modules  = data._classified || [];
+                        const deployable = modules.filter(m => m._class === 'deployable' && m._family);
+                        const stackOpts = Object.keys(_dockerStackDefaults);
+
+                        // Helper to render a base-image select with custom option
+                        function _imgSelect(id, family) {
+                            const d = _dockerStackDefaults[family] || {};
+                            const imgs = d.images || ['ubuntu:22.04'];
+                            return `<select id="${id}" class="modal-form-select" style="font-size:0.76rem;padding:0.2rem 0.3rem"
+                                onchange="var ci=document.getElementById('${id}-custom');if(ci)ci.style.display=this.value==='__custom'?'block':'none'">
+                                ${imgs.map((img, j) => `<option value="${img}"${j === 0 ? ' selected' : ''}>${img}</option>`).join('')}
+                                <option value="__custom">Custom…</option>
+                            </select>
+                            <input type="text" id="${id}-custom" class="modal-form-input" placeholder="e.g. python:3.10-bullseye"
+                                style="font-size:0.74rem;padding:0.2rem 0.3rem;margin-top:3px;display:none">`;
+                        }
+
+                        // Helper: mini label
+                        const _lbl = (txt, sub) => `<label style="display:block;font-size:0.7rem;color:var(--text-muted);margin-bottom:2px">${txt}${sub ? ` <span style="font-size:0.62rem;opacity:0.7">(${sub})</span>` : ''}</label>`;
+                        const _inp = (id, val, ph) => `<input type="text" id="${id}" class="modal-form-input" value="${esc(val || '')}" placeholder="${ph || ''}" style="font-size:0.76rem;padding:0.2rem 0.3rem">`;
+                        const _num = (id, val) => `<input type="number" id="${id}" class="modal-form-input" value="${val}" style="font-size:0.76rem;padding:0.2rem 0.3rem">`;
+                        const _ta = (id, val, ph, rows) => `<textarea id="${id}" class="modal-form-input" rows="${rows || 2}" placeholder="${ph || ''}" style="font-size:0.72rem;padding:0.2rem 0.3rem;font-family:var(--font-mono,monospace);resize:vertical;min-height:38px">${esc(val || '')}</textarea>`;
+
+                        // ── Vault env var helpers (same pattern as K8s) ──
+                        const _dkIsSecretKey = (k) => {
+                            const l = k.toLowerCase();
+                            const secretWords = ['password','secret','token','key','api_key','apikey','auth','credential','private','cert'];
+                            return secretWords.some(sw => l.includes(sw));
+                        };
+                        const _dkDefaultInjType = (k) => {
+                            if (_dkIsSecretKey(k)) return 'secret';
+                            const l = k.toLowerCase();
+                            const varWords = ['host','port','url','uri','endpoint','database','db_name','user','username','redis_url','mysql_host','postgres_host','node_env','app_env','environment','env'];
+                            if (varWords.some(vw => l.includes(vw))) return 'variable';
+                            return 'hardcoded';
+                        };
+
+                        // Build vault sets
+                        const _dkVaultKeys = data._vaultKeys || [];
+                        const _dkAllEnvKeys = new Set();
+                        const _dkAvailableVars = [];
+                        const _dkAvailableSecrets = [];
+                        _dkVaultKeys.forEach(vk => {
+                            const k = vk.key;
+                            if (_dkAllEnvKeys.has(k)) return;
+                            _dkAllEnvKeys.add(k);
+                            if (vk.kind === 'secret') _dkAvailableSecrets.push(k);
+                            else _dkAvailableVars.push(k);
+                        });
+                        _dkAvailableVars.sort();
+                        _dkAvailableSecrets.sort();
+
+                        // Build per-infra-key env suggestion map
+                        const _dkInfraEnvMap = {};
+                        for (const inf of _infraOptions) {
+                            _dkInfraEnvMap[inf.key] = inf.envFields.map(ef => ef.key);
+                        }
+
+                        // Build <option> HTML — svcIdx used to read checked deps
+                        const _dkVarSelectOpts = (injType, currentKey, currentVarName, svcIdx) => {
+                            // Compute suggestions from checked infra deps
+                            const suggestedSet = new Set();
+                            if (typeof svcIdx === 'string' && svcIdx.startsWith('infra-')) {
+                                // Infra service: suggest own env fields
+                                const ik = svcIdx.replace('infra-', '');
+                                (_dkInfraEnvMap[ik] || []).forEach(k => suggestedSet.add(k));
+                            } else if (svcIdx !== undefined && svcIdx !== null) {
+                                // App service: suggest from checked deps
+                                const depCbs = document.querySelectorAll('.dk-dep-' + svcIdx + ':checked');
+                                if (depCbs.length > 0) {
+                                    depCbs.forEach(cb => {
+                                        const depKey = cb.value;
+                                        (_dkInfraEnvMap[depKey] || []).forEach(k => suggestedSet.add(k));
+                                    });
+                                } else if (document.querySelectorAll('.dk-dep-' + svcIdx).length === 0) {
+                                    // DOM not ready — fallback to all
+                                    Object.values(_dkInfraEnvMap).forEach(keys => keys.forEach(k => suggestedSet.add(k)));
+                                }
+                                // If dep checkboxes exist but none checked — no suggestions (intentional)
+                            } else {
+                                // No svcIdx — show all infra env fields
+                                Object.values(_dkInfraEnvMap).forEach(keys => keys.forEach(k => suggestedSet.add(k)));
+                            }
+                            const _dkSuggested = [...suggestedSet].sort();
+                            const dlr = '$';
+                            const match = currentVarName || (dlr + '{' + currentKey + '}');
+                            const shown = new Set();
+                            let opts = '';
+                            if (currentKey) {
+                                const selfVal = dlr + '{' + currentKey + '}';
+                                opts += '<option value="' + esc(selfVal) + '"' + (match === selfVal ? ' selected' : '') + '>' + dlr + '{' + esc(currentKey) + '}</option>';
+                                shown.add(currentKey);
+                            }
+                            const suggested = _dkSuggested.filter(k => !shown.has(k));
+                            if (suggested.length > 0) {
+                                opts += '<optgroup label="Suggested">';
+                                suggested.forEach(k => {
+                                    const val = dlr + '{' + k + '}';
+                                    opts += '<option value="' + esc(val) + '"' + (match === val ? ' selected' : '') + '>' + dlr + '{' + esc(k) + '}</option>';
+                                    shown.add(k);
+                                });
+                                opts += '</optgroup>';
+                            }
+                            const secrets = _dkAvailableSecrets.filter(k => !shown.has(k));
+                            if (secrets.length > 0) {
+                                opts += '<optgroup label="Secrets">';
+                                secrets.forEach(k => {
+                                    const val = dlr + '{' + k + '}';
+                                    opts += '<option value="' + esc(val) + '"' + (match === val ? ' selected' : '') + '>' + dlr + '{' + esc(k) + '}</option>';
+                                    shown.add(k);
+                                });
+                                opts += '</optgroup>';
+                            }
+                            const vars = _dkAvailableVars.filter(k => !shown.has(k));
+                            if (vars.length > 0) {
+                                opts += '<optgroup label="Variables">';
+                                vars.forEach(k => {
+                                    const val = dlr + '{' + k + '}';
+                                    opts += '<option value="' + esc(val) + '"' + (match === val ? ' selected' : '') + '>' + dlr + '{' + esc(k) + '}</option>';
+                                    shown.add(k);
+                                });
+                                opts += '</optgroup>';
+                            }
+                            const stripped = match ? match.replace(/^\$\{|\}$/g, '') : '';
+                            const isCustom = stripped && stripped !== currentKey && !_dkAllEnvKeys.has(stripped);
+                            opts += '<option value="__custom__"' + (isCustom ? ' selected' : '') + '>Custom...</option>';
+                            return opts;
+                        }; // end _dkVarSelectOpts
+
+                        // Per-variable row HTML (dk- prefix)
+                        const _dkEnvRowHtml = (i, j, key, value, injType, varName) => {
+                            const isSubst = injType !== 'hardcoded';
+                            const isSec = injType === 'secret';
+                            const dlr = '$';
+                            const varN = varName || (isSubst ? dlr + '{' + key + '}' : '');
+                            const isCustomVar = varN && key && varN !== (dlr + '{' + key + '}') && !_dkAllEnvKeys.has(varN.replace(/^\$\{|\}$/g, ''));
+                            const selKey = isSubst ? (varN.replace(/^\$\{/, '').replace(/\}$/, '') || key) : key;
+                            const varMissing = isSubst && selKey && !_dkAllEnvKeys.has(selKey);
+                            return '<div class="dk-env-row" style="margin-bottom:0.15rem">'
+                                + '<div style="display:grid;grid-template-columns:2fr 2fr 1.5fr 1.2fr auto;gap:0.25rem;align-items:center">'
+                                + '<input type="text" id="dk-svc-env-key-' + i + '-' + j + '" class="modal-form-input"'
+                                + ' value="' + esc(key) + '" placeholder="KEY_NAME"'
+                                + ' oninput="if(!this.dataset.envTs)this.dataset.envTs=Date.now();window._wizValidation.recheck(\'dk\')"'
+                                + ' style="font-size:0.82rem;padding:0.25rem 0.35rem;font-family:var(--font-mono,monospace)">'
+                                + '<input type="' + (isSec ? 'password' : 'text') + '" id="dk-svc-env-val-' + i + '-' + j + '" class="modal-form-input"'
+                                + ' value="' + esc(value) + '" placeholder="' + (isSec ? '••••••' : 'value') + '"'
+                                + ' style="font-size:0.82rem;padding:0.25rem 0.35rem;font-family:var(--font-mono,monospace)"' + (isSubst ? ' hidden' : '') + '>'
+                                + '<div id="dk-svc-env-varbox-' + i + '-' + j + '"' + (isSubst ? '' : ' hidden') + '>'
+                                +   '<select id="dk-svc-env-var-' + i + '-' + j + '" class="modal-form-select" data-i="' + i + '" data-j="' + j + '" data-pfx="dk"'
+                                +   ' style="font-size:0.82rem;padding:0.25rem 0.35rem;color:var(--accent)"'
+                                +   ' onchange="window._dkOnVarSelect(this)">'
+                                +   (isSubst ? _dkVarSelectOpts(injType, key, varN, i) : '<option>--</option>')
+                                +   '</select>'
+                                +   '<input type="text" id="dk-svc-env-varcustom-' + i + '-' + j + '" class="modal-form-input"'
+                                +   ' value="' + (isCustomVar ? esc(varN) : '') + '" placeholder="' + dlr + '{MY_VAR}"'
+                                +   ' style="font-size:0.82rem;padding:0.25rem 0.35rem;font-family:var(--font-mono,monospace);color:var(--accent);margin-top:2px;display:' + (isCustomVar ? '' : 'none') + '">'
+                                + '</div>'
+                                + '<select id="dk-svc-env-type-' + i + '-' + j + '" class="modal-form-select" data-i="' + i + '" data-j="' + j + '"'
+                                + ' style="font-size:0.82rem;padding:0.25rem 0.35rem"'
+                                + ' onchange="((sel)=>{'
+                                +   'var si=sel.dataset.i,sj=sel.dataset.j;'
+                                +   'var vb=document.getElementById(\'dk-svc-env-varbox-\'+si+\'-\'+sj);'
+                                +   'var ve=document.getElementById(\'dk-svc-env-val-\'+si+\'-\'+sj);'
+                                +   'var vs=document.getElementById(\'dk-svc-env-var-\'+si+\'-\'+sj);'
+                                +   'var isSub=sel.value!==\'hardcoded\';'
+                                +   'if(vb)vb.hidden=!isSub;'
+                                +   'if(ve)ve.hidden=isSub;'
+                                +   'if(!isSub){var nt=document.getElementById(\'dk-svc-env-notice-\'+si+\'-\'+sj);if(nt)nt.hidden=true;}'
+                                +   'if(vs&&isSub){vs.innerHTML=window._dkVarSelectOpts(sel.value,document.getElementById(\'dk-svc-env-key-\'+si+\'-\'+sj).value,\'\',si);window._dkOnVarSelect(vs);}'
+                                +   'window._wizValidation.recheck(\'dk\');'
+                                + '})(this)">'
+                                + '<option value="hardcoded"' + (injType === 'hardcoded' ? ' selected' : '') + '>📋 Hardcoded</option>'
+                                + '<option value="variable"' + (injType === 'variable' ? ' selected' : '') + '>🔄 Variable</option>'
+                                + '<option value="secret"' + (injType === 'secret' ? ' selected' : '') + '>🔒 Secret</option>'
+                                + '</select>'
+                                + '<button type="button" onclick="this.closest(\'.dk-env-row\').remove();window._wizValidation.recheck(\'dk\')"'
+                                + ' style="background:none;border:none;cursor:pointer;font-size:0.82rem;color:var(--text-muted);padding:0 2px"'
+                                + ' title="Remove variable">✕</button>'
+                                + '</div>'
+                                + '<div id="dk-svc-env-notice-' + i + '-' + j + '"' + (varMissing ? '' : ' hidden')
+                                + ' style="font-size:0.78rem;color:var(--warning,#e8a820);margin:2px 0 4px;padding:4px 6px;border-radius:4px;background:rgba(232,168,32,0.06);border:1px solid rgba(232,168,32,0.15)">'
+                                +   '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">'
+                                +     '<span>\u26a0\ufe0f <strong id="dk-svc-env-notice-name-' + i + '-' + j + '">' + esc(selKey) + '</strong> does not exist in vault</span>'
+                                +     '<label style="display:flex;align-items:center;gap:3px;cursor:pointer">'
+                                +       '<input type="checkbox" id="dk-svc-env-create-' + i + '-' + j + '" checked style="margin:0">'
+                                +       '<span>Create on execution</span>'
+                                +     '</label>'
+                                +   '</div>'
+                                +   '<div id="dk-svc-env-valbox-' + i + '-' + j + '" style="display:flex;align-items:center;gap:4px;margin-top:3px">'
+                                +     '<input type="text" id="dk-svc-env-newval-' + i + '-' + j + '" class="modal-form-input"'
+                                +     ' placeholder="value (leave empty or generate)" style="flex:1;font-size:0.78rem;padding:0.25rem 0.35rem;font-family:var(--font-mono,monospace)">'
+                                +     '<button type="button" onclick="window._dkGenerateVarValue(this)" data-i="' + i + '" data-j="' + j + '"'
+                                +     ' style="font-size:0.78rem;padding:0.25rem 0.5rem;border:1px solid var(--border-subtle);border-radius:3px;background:var(--bg-card);cursor:pointer;white-space:nowrap"'
+                                +     ' title="Generate a random value">🎲 Generate</button>'
+                                +   '</div>'
+                                +   '<div id="dk-svc-env-elsewhere-' + i + '-' + j + '" hidden style="font-size:0.76rem;color:var(--text-muted);font-style:italic;margin-top:3px">'
+                                +     '\u2139\ufe0f Value already being created by <strong id="dk-svc-env-elsewhere-src-' + i + '-' + j + '"></strong>'
+                                +   '</div>'
+                                + '</div>'
+                                + '<div id="dk-svc-env-dupe-' + i + '-' + j + '" hidden'
+                                + ' style="font-size:0.76rem;margin:1px 0 3px;padding:3px 6px;border-radius:4px">'
+                                + '</div>'
+                                + '</div>';
+                        };
+
+                        // Expose on window
+                        window._dkVarSelectOpts = _dkVarSelectOpts;
+                        window._dkOnVarSelect = (sel) => {
+                            const ci = sel.dataset.i, cj = sel.dataset.j;
+                            const tb = document.getElementById('dk-svc-env-varcustom-' + ci + '-' + cj);
+                            const nt = document.getElementById('dk-svc-env-notice-' + ci + '-' + cj);
+                            if (sel.value === '__custom__') {
+                                if (tb) tb.style.display = '';
+                                if (nt) nt.hidden = true;
+                            } else {
+                                if (tb) tb.style.display = 'none';
+                                if (nt) {
+                                    const varKey = sel.value.replace(/^\$\{/, '').replace(/\}$/, '');
+                                    // Smart key sync: update key if empty or still matches prev var
+                                    const keyInput = document.getElementById('dk-svc-env-key-' + ci + '-' + cj);
+                                    if (keyInput) {
+                                        const curKey = keyInput.value.trim().toUpperCase();
+                                        const prevVar = (keyInput.dataset.lastVar || '').toUpperCase();
+                                        if (!curKey || curKey === prevVar) {
+                                            keyInput.value = varKey;
+                                            keyInput.dataset.envTs = Date.now();
+                                        }
+                                        keyInput.dataset.lastVar = varKey;
+                                    }
+                                    const exists = _dkAllEnvKeys.has(varKey);
+                                    nt.hidden = exists;
+                                    const nameEl = document.getElementById('dk-svc-env-notice-name-' + ci + '-' + cj);
+                                    if (nameEl) nameEl.textContent = varKey;
+                                    const valbox = document.getElementById('dk-svc-env-valbox-' + ci + '-' + cj);
+                                    const elsewhere = document.getElementById('dk-svc-env-elsewhere-' + ci + '-' + cj);
+                                    if (!exists && varKey) {
+                                        if (valbox) valbox.style.display = 'flex';
+                                        if (elsewhere) elsewhere.hidden = true;
+                                    } else {
+                                        if (valbox) valbox.style.display = 'flex';
+                                        if (elsewhere) elsewhere.hidden = true;
+                                    }
+                                }
+                            }
+                            // Shared symmetric collision check
+                            window._wizValidation.recheck('dk');
+                        };
+                        // Refresh all env var selects for a service when deps change
+                        window._dkRefreshEnvSelects = (svcIdx) => {
+                            const list = document.getElementById('dk-svc-env-list-' + svcIdx);
+                            if (!list) return;
+                            list.querySelectorAll('.dk-env-row').forEach((row, j) => {
+                                const typeSel = document.getElementById('dk-svc-env-type-' + svcIdx + '-' + j);
+                                const varSel = document.getElementById('dk-svc-env-var-' + svcIdx + '-' + j);
+                                if (!typeSel || !varSel || typeSel.value === 'hardcoded') return;
+                                const keySel = document.getElementById('dk-svc-env-key-' + svcIdx + '-' + j);
+                                const currentKey = keySel ? keySel.value : '';
+                                const currentVar = varSel.value;
+                                varSel.innerHTML = window._dkVarSelectOpts(typeSel.value, currentKey, currentVar, svcIdx);
+                                window._dkOnVarSelect(varSel);
+                            });
+                        };
+                        window._dkGenerateVarValue = (btn) => {
+                            const ci = btn.dataset.i, cj = btn.dataset.j;
+                            const inp = document.getElementById('dk-svc-env-newval-' + ci + '-' + cj);
+                            if (!inp) return;
+                            const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#%&*';
+                            let val = '';
+                            for (let n = 0; n < 32; n++) val += chars[Math.floor(Math.random() * chars.length)];
+                            inp.value = val;
+                        };
+                        window._dkCollectEnvVars = (i) => {
+                            const list = document.getElementById('dk-svc-env-list-' + i);
+                            if (!list) return [];
+                            const vars = [];
+                            list.querySelectorAll('.dk-env-row').forEach((row, j) => {
+                                const key = (document.getElementById('dk-svc-env-key-' + i + '-' + j) || {}).value || '';
+                                if (!key.trim()) return;
+                                const type = (document.getElementById('dk-svc-env-type-' + i + '-' + j) || {}).value || 'hardcoded';
+                                const value = (document.getElementById('dk-svc-env-val-' + i + '-' + j) || {}).value || '';
+                                const varSel = document.getElementById('dk-svc-env-var-' + i + '-' + j);
+                                const varCustom = document.getElementById('dk-svc-env-varcustom-' + i + '-' + j);
+                                let varName = null;
+                                if (type !== 'hardcoded') {
+                                    if (varSel && varSel.value === '__custom__' && varCustom && varCustom.value.trim()) {
+                                        varName = varCustom.value.trim();
+                                    } else if (varSel && varSel.value && varSel.value !== '__custom__') {
+                                        varName = varSel.value;
+                                    } else {
+                                        varName = '${' + key.trim() + '}';
+                                    }
+                                }
+                                const createChk = document.getElementById('dk-svc-env-create-' + i + '-' + j);
+                                const newValInp = document.getElementById('dk-svc-env-newval-' + i + '-' + j);
+                                const notice = document.getElementById('dk-svc-env-notice-' + i + '-' + j);
+                                const createInVault = notice && !notice.hidden && createChk && createChk.checked;
+                                const newValue = createInVault && newValInp ? newValInp.value.trim() : '';
+                                vars.push({ key: key.trim(), type, value: value.trim(), varName, createInVault: !!createInVault, newValue });
+                            });
+                            return vars;
+                        };
+                        window._dkAddEnvVar = (i) => {
+                            const list = document.getElementById('dk-svc-env-list-' + i);
+                            if (!list) return;
+                            const j = list.querySelectorAll('.dk-env-row').length;
+                            const row = document.createElement('div');
+                            row.innerHTML = _dkEnvRowHtml(i, j, '', '', 'hardcoded', '');
+                            list.appendChild(row.firstChild);
+                            window._wizValidation.recheck('dk');
+                        };
+
+                        let html = '';
+
+                        // ── Global compose settings ─────────────────
+                        html += wizSection('Compose Project', 'Global settings for docker-compose.yml.');
+                        html += `<div style="display:grid;grid-template-columns:1fr 1fr;gap:0.4rem;max-width:500px">
+                            <div>${_lbl('Project name', 'optional')}${_inp('mf-dk-project-name', '', 'my-project')}</div>
+                            <div>${_lbl('Platform', 'optional')}
+                                <select id="mf-dk-platform" class="modal-form-select" style="font-size:0.76rem;padding:0.2rem 0.3rem">
+                                    ${_platformOptions.map(p => `<option value="${p}">${p || 'auto (default)'}</option>`).join('')}
+                                </select>
+                            </div>
+                        </div>`;
+
+                        // ── Section A: Module containers ───────────────
+                        html += wizSection('Containers',
+                            deployable.length > 0
+                                ? 'Select which modules should become Docker containers and configure each one.'
+                                : 'No deployable modules found — configure a container manually.'
+                        );
+
+                        if (deployable.length > 0) {
+                            const allSvcNames = deployable.map(m => m.name);
+                            const allInfraNames = _infraOptions.map(o => o.key);
+                            // Map svcIdx -> human name for cross-row awareness
+                            window._dkSvcNames = {};
+                            deployable.forEach((m, idx) => { window._dkSvcNames[String(idx)] = m.name; });
+                            _infraOptions.forEach(inf => { window._dkSvcNames['infra-' + inf.key] = inf.label || inf.key; });
+
+                            html += `<div style="display:flex;flex-direction:column;gap:0.5rem" id="dk-mod-list">`;
+                            for (let i = 0; i < deployable.length; i++) {
+                                const m = deployable[i];
+                                const d = _dockerStackDefaults[m._family] || {};
+                                const nextPort = (d.expose || 8080) + i;
+                                const otherSvcs = allSvcNames.filter(n => n !== m.name).concat(allInfraNames);
+
+                                html += `<div style="border:1px solid var(--border-subtle);border-radius:8px;background:var(--bg-inset);overflow:hidden" id="dk-mod-card-${i}">
+                                    <label style="display:flex;align-items:center;gap:0.5rem;padding:0.5rem 0.6rem;cursor:pointer;font-size:0.82rem"
+                                        onmouseover="this.parentElement.style.borderColor='var(--accent)'" onmouseout="this.parentElement.style.borderColor='var(--border-subtle)'">
+                                        <input type="checkbox" id="mf-dk-mod-${i}" checked style="accent-color:var(--accent)"
+                                            onchange="document.getElementById('dk-mod-cfg-${i}').style.display=this.checked?'block':'none'">
+                                        <strong>${esc(m.name)}</strong>
+                                        <code style="font-size:0.72rem;background:var(--bg-primary);padding:1px 5px;border-radius:3px;color:var(--text-secondary)">${esc(m.stack || '?')}</code>
+                                        <span style="flex:1;color:var(--text-muted);font-size:0.72rem">${esc(m.path || '')}</span>
+                                    </label>
+                                    <div id="dk-mod-cfg-${i}" style="padding:0 0.6rem 0.5rem;display:block">
+                                        <!-- Primary: base image, port, path, restart -->
+                                        <div style="display:grid;grid-template-columns:2fr 1fr 1fr 1fr;gap:0.4rem;align-items:start">
+                                            <div>${_lbl('Base image')}${_imgSelect(`mf-dk-img-${i}`, m._family)}</div>
+                                            <div>${_lbl('Port')}${_num(`mf-dk-port-${i}`, nextPort)}</div>
+                                            <div>${_lbl('Dockerfile path')}${_inp(`mf-dk-dkpath-${i}`, deployable.length > 1 ? m.path + '/Dockerfile' : 'Dockerfile', '')}</div>
+                                            <div>${_lbl('Restart policy')}
+                                                <select id="mf-dk-restart-${i}" class="modal-form-select" style="font-size:0.76rem;padding:0.2rem 0.3rem">
+                                                    ${_restartPolicies.map(r => `<option value="${r}"${r === 'unless-stopped' ? ' selected' : ''}>${r}</option>`).join('')}
+                                                </select>
+                                            </div>
+                                        </div>
+
+                                        <!-- Dockerfile settings -->
+                                        <details style="margin-top:0.4rem">
+                                            <summary style="cursor:pointer;font-size:0.72rem;color:var(--accent);user-select:none;padding:0.15rem 0">▸ Dockerfile Settings</summary>
+                                            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:0.4rem;margin-top:0.3rem">
+                                                <div>${_lbl('Working directory')}${_inp(`mf-dk-workdir-${i}`, d.workdir, '/app')}</div>
+                                                <div>${_lbl('Install command')}${_inp(`mf-dk-install-${i}`, d.install, 'pip install -r requirements.txt')}</div>
+                                                <div>${_lbl('Build command', 'optional')}${_inp(`mf-dk-build-${i}`, d.build, 'npm run build')}</div>
+                                                <div>${_lbl('Entrypoint', 'optional')}${_inp(`mf-dk-entrypoint-${i}`, d.entrypoint, 'gunicorn')}</div>
+                                                <div>${_lbl('CMD')}${_inp(`mf-dk-cmd-${i}`, d.cmd, 'python app.py')}</div>
+                                                <div>${_lbl('EXPOSE port')}${_num(`mf-dk-expose-${i}`, d.expose)}</div>
+                                            </div>
+                                        </details>
+
+                                        <!-- Compose settings -->
+                                        <details style="margin-top:0.3rem">
+                                            <summary style="cursor:pointer;font-size:0.72rem;color:var(--accent);user-select:none;padding:0.15rem 0">▸ Compose Settings</summary>
+                                            <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.4rem;margin-top:0.3rem">
+                                                <div>${_lbl('Container name', 'optional')}${_inp(`mf-dk-cname-${i}`, '', m.name)}</div>
+                                                <div>${_lbl('Health check', 'optional')}${_inp(`mf-dk-health-${i}`, '', 'curl -f http://localhost:' + nextPort + '/health')}</div>
+                                                <div>${_lbl('Build args', 'KEY=VAL per line')}${_ta(`mf-dk-buildargs-${i}`, '', 'ENV=production', 2)}</div>
+                                                <div>${_lbl('Networks', 'one per line')}${_ta(`mf-dk-networks-${i}`, '', 'backend\nfrontend', 2)}</div>
+                                                <div style="grid-column:1/-1">
+                                                    <details open style="margin-top:0.2rem">
+                                                        <summary style="cursor:pointer;font-size:0.78rem;color:var(--accent);user-select:none;padding:0.15rem 0">▸ Environment Variables</summary>
+                                                        <div style="margin-top:0.25rem">
+                                                            <div style="display:grid;grid-template-columns:2fr 2fr 1.5fr 1.2fr auto;gap:0.25rem;margin-bottom:0.15rem;padding:0 0.25rem">
+                                                                <span style="font-size:0.78rem;color:var(--text-muted);font-weight:600">Key</span>
+                                                                <span style="font-size:0.78rem;color:var(--text-muted);font-weight:600">Value</span>
+                                                                <span style="font-size:0.78rem;color:var(--text-muted);font-weight:600">Var / Secret</span>
+                                                                <span style="font-size:0.78rem;color:var(--text-muted);font-weight:600">Injection</span>
+                                                                <span></span>
+                                                            </div>
+                                                            <div id="dk-svc-env-list-${i}" style="display:flex;flex-direction:column;gap:0.15rem"></div>
+                                                            <button type="button" onclick="window._dkAddEnvVar(${i})"
+                                                                style="margin-top:0.25rem;font-size:0.78rem;padding:0.2rem 0.7rem;border:1px dashed var(--border-subtle);border-radius:4px;background:none;color:var(--accent);cursor:pointer">
+                                                                + Add variable
+                                                            </button>
+                                                        </div>
+                                                    </details>
+                                                </div>
+                                                <div>${_lbl('Volumes', 'host:container per line')}${_ta(`mf-dk-vol-${i}`, '', './data:/app/data', 2)}</div>
+                                                <div style="grid-column:1/-1">
+                                                    ${_lbl('Depends on')}
+                                                    <div style="display:flex;flex-wrap:wrap;gap:0.25rem">
+                                                        ${otherSvcs.map(sn => `<label style="display:inline-flex;align-items:center;gap:0.2rem;font-size:0.7rem;cursor:pointer">
+                                                            <input type="checkbox" class="dk-dep-${i}" value="${sn}" style="accent-color:var(--accent)" onchange="window._dkRefreshEnvSelects(${i})"> ${sn}
+                                                        </label>`).join('')}
+                                                        ${otherSvcs.length === 0 ? '<span style="font-size:0.7rem;color:var(--text-muted)">—</span>' : ''}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </details>
+                                    </div>
+                                </div>`;
+                            }
+                            html += `</div>`;
+                        } else {
+                            // Manual container config
+                            const defFamily = 'python';
+                            const d = _dockerStackDefaults[defFamily];
+                            html += `<div style="border:1px solid var(--border-subtle);border-radius:8px;background:var(--bg-inset);padding:0.6rem">
+                                <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:0.4rem;align-items:start">
+                                    <div>${_lbl('Stack template')}
+                                        <select id="mf-dk-manual-stack" class="modal-form-select" style="font-size:0.76rem;padding:0.2rem 0.3rem"
+                                            onchange="var f=this.value;var sd=window._dkStackDefaults||{};var dd=sd[f]||{};
+                                                var imgEl=document.getElementById('mf-dk-manual-img');if(imgEl){imgEl.innerHTML=(dd.images||[]).map(function(im,j){return '<option value=\"'+im+'\"'+(j===0?' selected':'')+'>'+im+'</option>'}).join('')+'<option value=\"__custom\">Custom…</option>';}
+                                                var flds={'mf-dk-manual-workdir':'workdir','mf-dk-manual-install':'install','mf-dk-manual-build':'build','mf-dk-manual-cmd':'cmd','mf-dk-manual-entrypoint':'entrypoint'};
+                                                for(var k in flds){var el=document.getElementById(k);if(el)el.value=dd[flds[k]]||'';}
+                                                var pe=document.getElementById('mf-dk-manual-port');if(pe)pe.value=dd.expose||8080;
+                                                var ee=document.getElementById('mf-dk-manual-expose');if(ee)ee.value=dd.expose||8080;">
+                                            ${stackOpts.map(s => `<option value="${s}">${s}</option>`).join('')}
+                                        </select>
+                                    </div>
+                                    <div>${_lbl('Base image')}${_imgSelect('mf-dk-manual-img', defFamily)}</div>
+                                    <div>${_lbl('Port')}${_num('mf-dk-manual-port', d.expose)}</div>
+                                    <div>${_lbl('Restart policy')}
+                                        <select id="mf-dk-manual-restart" class="modal-form-select" style="font-size:0.76rem;padding:0.2rem 0.3rem">
+                                            ${_restartPolicies.map(r => `<option value="${r}"${r === 'unless-stopped' ? ' selected' : ''}>${r}</option>`).join('')}
+                                        </select>
+                                    </div>
+                                </div>
+                                <details style="margin-top:0.4rem">
+                                    <summary style="cursor:pointer;font-size:0.72rem;color:var(--accent);user-select:none;padding:0.15rem 0">▸ Dockerfile Settings</summary>
+                                    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:0.4rem;margin-top:0.3rem">
+                                        <div>${_lbl('Working directory')}${_inp('mf-dk-manual-workdir', d.workdir, '/app')}</div>
+                                        <div>${_lbl('Install command')}${_inp('mf-dk-manual-install', d.install, '')}</div>
+                                        <div>${_lbl('Build command', 'optional')}${_inp('mf-dk-manual-build', d.build, '')}</div>
+                                        <div>${_lbl('Entrypoint', 'optional')}${_inp('mf-dk-manual-entrypoint', d.entrypoint, '')}</div>
+                                        <div>${_lbl('CMD')}${_inp('mf-dk-manual-cmd', d.cmd, '')}</div>
+                                        <div>${_lbl('EXPOSE port')}${_num('mf-dk-manual-expose', d.expose)}</div>
+                                    </div>
+                                </details>
+                                <details style="margin-top:0.3rem">
+                                    <summary style="cursor:pointer;font-size:0.72rem;color:var(--accent);user-select:none;padding:0.15rem 0">▸ Compose Settings</summary>
+                                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.4rem;margin-top:0.3rem">
+                                        <div>${_lbl('Container name', 'optional')}${_inp('mf-dk-manual-cname', '', 'app')}</div>
+                                        <div>${_lbl('Health check', 'optional')}${_inp('mf-dk-manual-health', '', '')}</div>
+                                        <div style="grid-column:1/-1">
+                                            <details open style="margin-top:0.2rem">
+                                                <summary style="cursor:pointer;font-size:0.78rem;color:var(--accent);user-select:none;padding:0.15rem 0">▸ Environment Variables</summary>
+                                                <div style="margin-top:0.25rem">
+                                                    <div style="display:grid;grid-template-columns:2fr 2fr 1.5fr 1.2fr auto;gap:0.25rem;margin-bottom:0.15rem;padding:0 0.25rem">
+                                                        <span style="font-size:0.78rem;color:var(--text-muted);font-weight:600">Key</span>
+                                                        <span style="font-size:0.78rem;color:var(--text-muted);font-weight:600">Value</span>
+                                                        <span style="font-size:0.78rem;color:var(--text-muted);font-weight:600">Var / Secret</span>
+                                                        <span style="font-size:0.78rem;color:var(--text-muted);font-weight:600">Injection</span>
+                                                        <span></span>
+                                                    </div>
+                                                    <div id="dk-svc-env-list-manual" style="display:flex;flex-direction:column;gap:0.15rem"></div>
+                                                    <button type="button" onclick="window._dkAddEnvVar('manual')"
+                                                        style="margin-top:0.25rem;font-size:0.78rem;padding:0.2rem 0.7rem;border:1px dashed var(--border-subtle);border-radius:4px;background:none;color:var(--accent);cursor:pointer">
+                                                        + Add variable
+                                                    </button>
+                                                </div>
+                                            </details>
+                                        </div>
+                                        <div>${_lbl('Volumes', 'host:container per line')}${_ta('mf-dk-manual-vol', '', '', 2)}</div>
+                                    </div>
+                                </details>
+                            </div>`;
+                            // Expose stack defaults to window for manual mode onchange
+                            // Expose stack defaults for manual mode onchange handler
+                            window._dkStackDefaults = _dockerStackDefaults;
+                        }
+
+                        // Overwrite warning
+                        if (docker.has_dockerfile) {
+                            html += `<div style="margin-top:0.5rem">
+                                ${modalFormField({ name: 'dk-overwrite', label: 'Overwrite existing Dockerfile(s)', type: 'checkbox', value: false })}
+                            </div>`;
+                        }
+
+                        // ── Section B: Infra services ──────────────────
+                        html += wizSection('Infrastructure Services', 'Optionally add common services to your compose file.');
+                        html += `<div id="dk-infra-list" style="display:flex;flex-direction:column;gap:0.35rem">`;
+
+                        // Helper: render the inline config panel for a service
+                        const _infraCfgPanel = (inf) => {
+                            const k = inf.key;
+                            let p = `<div id="dk-infra-cfg-${k}" style="display:none;padding:0.55rem 0.6rem 0.6rem;border-top:1px solid var(--border-subtle);background:color-mix(in srgb,var(--bg-inset) 60%,transparent);font-size:0.82rem;color:var(--text-primary)">`;
+
+                            // ── Image selector
+                            p += `<div style="display:flex;flex-wrap:wrap;gap:0.3rem 0.6rem;align-items:center;margin-bottom:0.35rem">`;
+                            p += `<label style="font-weight:600;min-width:4rem;color:var(--text-secondary)">Image</label>`;
+                            p += `<select id="mf-dk-infra-img-${k}" style="flex:1;min-width:10rem;padding:0.3rem 0.4rem;border-radius:4px;border:1px solid var(--border-subtle);background:var(--bg-base);color:var(--text-primary);color-scheme:dark;font-size:0.8rem;font-family:monospace">`;
+                            for (const img of inf.images) {
+                                p += `<option value="${esc(img)}">${esc(img)}</option>`;
+                            }
+                            p += `<option value="__custom">⌨ Custom…</option></select>`;
+                            p += `<input id="mf-dk-infra-imgcustom-${k}" type="text" placeholder="e.g. myregistry/image:tag" style="display:none;flex:1;min-width:10rem;padding:0.3rem 0.4rem;border-radius:4px;border:1px solid var(--border-subtle);background:var(--bg-base);color:var(--text-primary);font-size:0.8rem;font-family:monospace">`;
+                            p += `</div>`;
+
+                            // ── Ports
+                            if (inf.ports.length > 0) {
+                                p += `<div style="display:flex;flex-wrap:wrap;gap:0.2rem 0.5rem;align-items:center;margin-bottom:0.35rem">`;
+                                p += `<span style="font-weight:600;min-width:4rem;color:var(--text-secondary)">Ports</span>`;
+                                for (const pt of inf.ports) {
+                                    p += `<label style="display:inline-flex;align-items:center;gap:0.2rem">`;
+                                    p += `<input type="number" id="mf-dk-infra-port-${k}-${pt.port}" value="${pt.port}" min="1" max="65535" style="width:5rem;padding:0.25rem 0.3rem;border-radius:4px;border:1px solid var(--border-subtle);background:var(--bg-base);color:var(--text-primary);font-size:0.8rem;font-family:monospace;text-align:center">`;
+                                    p += `<span style="color:var(--text-secondary);font-size:0.78rem">${esc(pt.label)}</span>`;
+                                    p += `</label>`;
+                                }
+                                p += `</div>`;
+                            }
+
+                            // ── Environment fields (per-row with vault)
+                            if (inf.envFields.length > 0) {
+                                p += `<div style="margin-bottom:0.35rem">`;
+                                p += `<details open style="margin-top:0.2rem">`;
+                                p += `<summary style="cursor:pointer;font-size:0.78rem;color:var(--accent);user-select:none;padding:0.15rem 0">▸ Environment Variables</summary>`;
+                                p += `<div style="margin-top:0.25rem">`;
+                                p += `<div style="display:grid;grid-template-columns:2fr 2fr 1.5fr 1.2fr auto;gap:0.25rem;margin-bottom:0.15rem;padding:0 0.25rem">`;
+                                p += `<span style="font-size:0.78rem;color:var(--text-muted);font-weight:600">Key</span>`;
+                                p += `<span style="font-size:0.78rem;color:var(--text-muted);font-weight:600">Value</span>`;
+                                p += `<span style="font-size:0.78rem;color:var(--text-muted);font-weight:600">Var / Secret</span>`;
+                                p += `<span style="font-size:0.78rem;color:var(--text-muted);font-weight:600">Injection</span>`;
+                                p += `<span></span>`;
+                                p += `</div>`;
+                                p += `<div id="dk-svc-env-list-infra-${k}" style="display:flex;flex-direction:column;gap:0.15rem">`;
+                                inf.envFields.forEach((ef, j) => {
+                                    const injType = _dkDefaultInjType(ef.key);
+                                    p += _dkEnvRowHtml('infra-' + k, j, ef.key, ef.default || '', injType, '');
+                                });
+                                p += `</div>`;
+                                p += `<button type="button" onclick="window._dkAddEnvVar('infra-${k}')"
+                                    style="margin-top:0.25rem;font-size:0.78rem;padding:0.2rem 0.7rem;border:1px dashed var(--border-subtle);border-radius:4px;background:none;color:var(--accent);cursor:pointer">
+                                    + Add variable
+                                </button>`;
+                                p += `</div></details></div>`;
+                            }
+
+                            // ── Volumes
+                            if (inf.volumes.length > 0) {
+                                p += `<div style="display:flex;flex-wrap:wrap;gap:0.2rem 0.5rem;align-items:center;margin-bottom:0.35rem">`;
+                                p += `<span style="font-weight:600;min-width:4rem;color:var(--text-secondary)">Volumes</span>`;
+                                for (const v of inf.volumes) {
+                                    // host-bind (starts with /) vs named volume
+                                    const isHostBind = v.name.startsWith('/');
+                                    const volStr = isHostBind ? `${v.name}:${v.mount}` : `${v.name}:${v.mount}`;
+                                    p += `<label style="display:inline-flex;align-items:center;gap:0.2rem">`;
+                                    p += `<input type="checkbox" id="mf-dk-infra-vol-${k}-${v.name.replace(/[^a-zA-Z0-9]/g,'_')}" checked style="accent-color:var(--accent);width:14px;height:14px">`;
+                                    p += `<code style="font-size:0.76rem;color:var(--text-secondary);background:var(--bg-base);padding:0.1rem 0.3rem;border-radius:3px">${esc(volStr)}</code>`;
+                                    p += `</label>`;
+                                }
+                                p += `</div>`;
+                            }
+
+                            // ── Command override
+                            if (inf.command) {
+                                p += `<div style="display:flex;gap:0.3rem;align-items:center;margin-bottom:0.35rem">`;
+                                p += `<span style="font-weight:600;min-width:4rem;color:var(--text-secondary)">Command</span>`;
+                                p += `<input type="text" id="mf-dk-infra-cmd-${k}" value="${esc(inf.command)}" style="flex:1;padding:0.25rem 0.3rem;border-radius:4px;border:1px solid var(--border-subtle);background:var(--bg-base);color:var(--text-primary);font-size:0.8rem;font-family:monospace">`;
+                                p += `</div>`;
+                            }
+
+                            // ── Restart policy
+                            p += `<div style="display:flex;gap:0.3rem;align-items:center;margin-bottom:0.2rem">`;
+                            p += `<span style="font-weight:600;min-width:4rem;color:var(--text-secondary)">Restart</span>`;
+                            p += `<select id="mf-dk-infra-restart-${k}" style="padding:0.25rem 0.3rem;border-radius:4px;border:1px solid var(--border-subtle);background:var(--bg-base);color:var(--text-primary);color-scheme:dark;font-size:0.8rem">`;
+                            for (const rp of _restartPolicies) {
+                                p += `<option value="${rp}"${rp === 'unless-stopped' ? ' selected' : ''}>${rp}</option>`;
+                            }
+                            p += `</select>`;
+                            p += `</div>`;
+
+                            // ── Note
+                            if (inf.note) {
+                                p += `<div style="font-size:0.76rem;color:var(--text-secondary);font-style:italic;margin-top:0.25rem">ℹ️ ${inf.note}</div>`;
+                            }
+
+                            p += `</div>`;
+                            return p;
+                        };
+
+                        // Group by category
+                        const catOrder = Object.keys(_infraCategories);
+                        for (const cat of catOrder) {
+                            const items = _infraOptions.filter(o => o.cat === cat);
+                            if (items.length === 0) continue;
+                            const isPopular = ['db-rel','cache','mq'].includes(cat);
+                            html += `<details${isPopular ? ' open' : ''} style="border:1px solid var(--border-subtle);border-radius:6px;background:var(--bg-inset);overflow:hidden">
+                                <summary style="cursor:pointer;padding:0.4rem 0.55rem;font-size:0.84rem;font-weight:600;color:var(--text-primary);user-select:none;display:flex;align-items:center;gap:0.3rem">
+                                    ${_infraCategories[cat]}
+                                    <span style="font-size:0.74rem;opacity:0.6;margin-left:auto">${items.length}</span>
+                                </summary>
+                                <div style="padding:0.3rem 0.5rem 0.4rem">`;
+                            for (const inf of items) {
+                                const primaryPort = inf.ports.length > 0 ? inf.ports[0].port : '';
+                                html += `<div style="border:1px solid var(--border-subtle);border-radius:5px;margin-bottom:0.25rem;overflow:hidden;transition:border-color 0.15s"
+                                    onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border-subtle)'">
+                                    <label style="display:flex;align-items:center;gap:0.3rem;padding:0.3rem 0.5rem;cursor:pointer;font-size:0.82rem;color:var(--text-primary)">
+                                        <input type="checkbox" id="mf-dk-infra-${inf.key}" data-infra-key="${inf.key}" class="dk-infra-toggle" style="accent-color:var(--accent);width:15px;height:15px">
+                                        <strong>${esc(inf.label)}</strong>
+                                        ${primaryPort ? `<span style="color:var(--text-secondary);font-size:0.76rem;margin-left:auto">:${primaryPort}</span>` : ''}
+                                        <span style="font-size:0.72rem;color:var(--text-secondary);margin-left:${primaryPort ? '0.3rem' : 'auto'}">${inf.images[0].split(':')[0].split('/').pop()}</span>
+                                    </label>
+                                    ${_infraCfgPanel(inf)}
+                                </div>`;
+                            }
+                            html += `</div></details>`;
+                        }
+                        html += `</div>`;
+
+                        // ── Section C: Options ─────────────────────────
+                        html += wizSection('Generation Options', 'What files to create.');
+                        html += `<div class="modal-form-grid">`;
+                        html += modalFormField({ name: 'dk-compose', label: 'Generate docker-compose.yml', type: 'checkbox', value: !docker.has_compose || deployable.length > 1, fullWidth: true });
+                        html += modalFormField({ name: 'dk-ignore',  label: 'Generate .dockerignore',      type: 'checkbox', value: !docker.has_dockerignore, fullWidth: true });
+                        html += `</div>`;
+
+                        el.innerHTML = html;
+
+                        // Initial env collision check after render
+                        window._wizValidation.recheck('dk');
+
+                        // ── Wire up infra checkbox toggle + custom image selector
+                        el.addEventListener('change', (e) => {
+                            const cb = e.target;
+                            // Toggle config panel
+                            if (cb.classList.contains('dk-infra-toggle')) {
+                                const key = cb.dataset.infraKey;
+                                const cfg = document.getElementById(`dk-infra-cfg-${key}`);
+                                if (cfg) cfg.style.display = cb.checked ? 'block' : 'none';
+                                // Trigger cross-row awareness for infra env rows
+                                if (cb.checked) {
+                                    const list = document.getElementById('dk-svc-env-list-infra-' + key);
+                                    if (list) {
+                                        list.querySelectorAll('.dk-env-row').forEach((row, j) => {
+                                            const varSel = document.getElementById('dk-svc-env-var-infra-' + key + '-' + j);
+                                            if (varSel) window._dkOnVarSelect(varSel);
+                                        });
+                                    }
+                                }
+                                window._wizValidation.recheck('dk');
+                            }
+                            // Custom image select
+                            if (cb.tagName === 'SELECT' && cb.id && cb.id.startsWith('mf-dk-infra-img-')) {
+                                const key = cb.id.replace('mf-dk-infra-img-', '');
+                                const custom = document.getElementById(`mf-dk-infra-imgcustom-${key}`);
+                                if (custom) custom.style.display = cb.value === '__custom' ? 'inline-block' : 'none';
+                            }
+                        });
+                    },
+                    collect: (data) => {
+                        const deployable = (data._classified || []).filter(m => m._class === 'deployable' && m._family);
+
+                        // Helper: parse KEY=VALUE textarea into dict
+                        function _parseEnv(id) {
+                            const el = document.getElementById(id);
+                            if (!el || !el.value.trim()) return null;
+                            const env = {};
+                            for (const line of el.value.trim().split('\n')) {
+                                const eq = line.indexOf('=');
+                                if (eq > 0) env[line.slice(0, eq).trim()] = line.slice(eq + 1).trim();
+                            }
+                            return Object.keys(env).length > 0 ? env : null;
+                        }
+
+                        // Helper: parse line-separated textarea into array
+                        function _parseLines(id) {
+                            const el = document.getElementById(id);
+                            if (!el || !el.value.trim()) return null;
+                            const lines = el.value.trim().split('\n').map(l => l.trim()).filter(Boolean);
+                            return lines.length > 0 ? lines : null;
+                        }
+
+                        // Helper: collect checked checkboxes by class
+                        function _parseDeps(className) {
+                            const cbs = document.querySelectorAll(`.${className}:checked`);
+                            const deps = Array.from(cbs).map(cb => cb.value);
+                            return deps.length > 0 ? deps : null;
+                        }
+
+                        // Helper: read a text/number input value
+                        function _val(id) {
+                            const el = document.getElementById(id);
+                            return el ? el.value.trim() : '';
+                        }
+
+                        // Helper: read select value
+                        function _sel(id) {
+                            const el = document.getElementById(id);
+                            return el ? el.value : '';
+                        }
+
+                        // Helper: resolve base image (handles custom option)
+                        function _resolveImg(id) {
+                            const sel = _sel(id);
+                            if (sel === '__custom') return _val(id + '-custom') || '';
+                            return sel || '';
+                        }
+
+                        // Global compose settings
+                        data.projectName = _val('mf-dk-project-name');
+                        data.platform    = _sel('mf-dk-platform');
+
+                        // Collect selected module containers with all settings
+                        data._selectedContainers = [];
+                        if (deployable.length > 0) {
+                            for (let i = 0; i < deployable.length; i++) {
+                                if (mfVal(`dk-mod-${i}`)) {
+                                    const m = deployable[i];
+                                    const container = {
+                                        name: m.name,
+                                        path: m.path,
+                                        stack: m.stack,
+                                        family: m._family,
+                                        // Primary
+                                        baseImage: _resolveImg(`mf-dk-img-${i}`),
+                                        port: parseInt(_val(`mf-dk-port-${i}`)) || m._port,
+                                        dockerfilePath: _val(`mf-dk-dkpath-${i}`) || 'Dockerfile',
+                                        restart: _sel(`mf-dk-restart-${i}`) || 'unless-stopped',
+                                        // Dockerfile settings
+                                        workdir: _val(`mf-dk-workdir-${i}`) || '/app',
+                                        install: _val(`mf-dk-install-${i}`),
+                                        buildCmd: _val(`mf-dk-build-${i}`),
+                                        entrypoint: _val(`mf-dk-entrypoint-${i}`),
+                                        cmd: _val(`mf-dk-cmd-${i}`),
+                                        expose: parseInt(_val(`mf-dk-expose-${i}`)) || null,
+                                        // Compose settings
+                                        containerName: _val(`mf-dk-cname-${i}`),
+                                        healthcheck: _val(`mf-dk-health-${i}`),
+                                    };
+                                    container.envVars = window._dkCollectEnvVars(i);
+                                    const vols = _parseLines(`mf-dk-vol-${i}`);
+                                    if (vols) container.volumes = vols;
+                                    const deps = _parseDeps(`dk-dep-${i}`);
+                                    if (deps) container.depends_on = deps;
+                                    const buildArgs = _parseEnv(`mf-dk-buildargs-${i}`);
+                                    if (buildArgs) container.build_args = buildArgs;
+                                    const nets = _parseLines(`mf-dk-networks-${i}`);
+                                    if (nets) container.networks = nets;
+                                    data._selectedContainers.push(container);
+                                }
+                            }
+                        } else {
+                            // Manual mode
+                            const family = _sel('mf-dk-manual-stack') || 'python';
+                            const d = _dockerStackDefaults[family] || {};
+                            const container = {
+                                name: 'app',
+                                path: '.',
+                                stack: family,
+                                family: family,
+                                baseImage: _resolveImg('mf-dk-manual-img'),
+                                port: parseInt(_val('mf-dk-manual-port')) || d.expose || 8080,
+                                dockerfilePath: 'Dockerfile',
+                                restart: _sel('mf-dk-manual-restart') || 'unless-stopped',
+                                workdir: _val('mf-dk-manual-workdir') || d.workdir || '/app',
+                                install: _val('mf-dk-manual-install') || d.install || '',
+                                buildCmd: _val('mf-dk-manual-build'),
+                                entrypoint: _val('mf-dk-manual-entrypoint'),
+                                cmd: _val('mf-dk-manual-cmd') || d.cmd || '',
+                                expose: parseInt(_val('mf-dk-manual-expose')) || d.expose || null,
+                                containerName: _val('mf-dk-manual-cname'),
+                                healthcheck: _val('mf-dk-manual-health'),
+                            };
+                            container.envVars = window._dkCollectEnvVars('manual');
+                            const vols = _parseLines('mf-dk-manual-vol');
+                            if (vols) container.volumes = vols;
+                            data._selectedContainers.push(container);
+                        }
+
+                        // Infra services — collect configured values
+                        data._selectedInfra = [];
+                        for (const inf of _infraOptions) {
+                            if (!mfVal(`dk-infra-${inf.key}`)) continue;
+                            const k = inf.key;
+
+                            // Image
+                            let image = _sel(`mf-dk-infra-img-${k}`) || inf.images[0];
+                            if (image === '__custom') {
+                                image = _val(`mf-dk-infra-imgcustom-${k}`) || inf.images[0];
+                            }
+
+                            // Ports — read edited port values
+                            const ports = [];
+                            for (const pt of inf.ports) {
+                                const edited = parseInt(_val(`mf-dk-infra-port-${k}-${pt.port}`)) || pt.port;
+                                ports.push(`${edited}:${edited}`);
+                            }
+
+                            // Environment — collect from per-row env vars
+                            const envVars = window._dkCollectEnvVars('infra-' + k);
+
+                            // Volumes — only include checked ones
+                            const volumes = [];
+                            for (const v of inf.volumes) {
+                                const volId = `mf-dk-infra-vol-${k}-${v.name.replace(/[^a-zA-Z0-9]/g,'_')}`;
+                                if (mfVal(volId)) {
+                                    const isHostBind = v.name.startsWith('/');
+                                    volumes.push(isHostBind ? `${v.name}:${v.mount}` : `${v.name}:${v.mount}`);
+                                }
+                            }
+
+                            // Command override
+                            const command = _val(`mf-dk-infra-cmd-${k}`) || inf.command || '';
+
+                            // Restart policy
+                            const restart = _sel(`mf-dk-infra-restart-${k}`) || 'unless-stopped';
+
+                            data._selectedInfra.push({
+                                key: k,
+                                label: inf.label,
+                                image,
+                                ports,
+                                envVars,
+                                volumes: volumes.length > 0 ? volumes : null,
+                                command: command || null,
+                                restart,
+                            });
+                        }
+
+                        data.overwrite   = mfVal('dk-overwrite');
+                        data.genCompose  = mfVal('dk-compose');
+                        data.genIgnore   = mfVal('dk-ignore');
+                    },
+                    validate: (data) => {
+                        if (data._selectedContainers.length === 0 && !data.genCompose && !data.genIgnore) {
+                            return 'Select at least one module to containerize, or enable compose/.dockerignore generation.';
+                        }
+                        // Port conflict check using user-entered ports
+                        const portMap = new Map();
+                        for (const c of data._selectedContainers) {
+                            if (portMap.has(c.port)) {
+                                return `Port conflict: "${c.name}" and "${portMap.get(c.port)}" both use port ${c.port}.`;
+                            }
+                            portMap.set(c.port, c.name);
+                        }
+                        for (const inf of data._selectedInfra) {
+                            for (const portMapping of (inf.ports || [])) {
+                                const p = parseInt(portMapping.split(':')[0]);
+                                if (!p) continue;
+                                if (portMap.has(p)) {
+                                    return `Port conflict: "${inf.label}" port ${p} conflicts with "${portMap.get(p)}".`;
+                                }
+                                portMap.set(p, inf.label);
+                            }
+                        }
+                        return null;
+                    },
+                },
+
+                // ── Step 3: Preview & Edit ─────────────────────────────
+                {
+                    id: 'preview', title: 'Preview',
+                    render: async (data, el) => {
+                        el.innerHTML = '<p style="text-align:center;padding:2rem"><span class="spinner"></span> Generating files…</p>';
+                        const docker = data._docker || {};
+                        data._generatedFiles = [];
+                        let fileIdx = 0;
+
+                        let html = wizSection('File Preview', 'Review and edit the generated files before writing to disk.');
+
+                        try {
+                            // ── Generate Dockerfiles ───────────────────
+                            for (const c of data._selectedContainers) {
+                                if (docker.has_dockerfile && !data.overwrite && c.dockerfilePath === 'Dockerfile') {
+                                    html += `<div style="margin-bottom:0.75rem">
+                                        <div style="display:flex;align-items:center;gap:0.4rem">
+                                            <span>📄</span>
+                                            <strong style="font-size:0.82rem">${esc(c.dockerfilePath)}</strong>
+                                            <span style="font-size:0.68rem;color:var(--text-muted);margin-left:auto">exists — skipped</span>
+                                        </div>
+                                    </div>`;
+                                    continue;
+                                }
+
+                                // Build Dockerfile content from user settings
+                                let dfContent = '';
+                                const img = c.baseImage || 'ubuntu:22.04';
+                                const wd = c.workdir || '/app';
+
+                                // Build stage
+                                dfContent += `# ── Build stage ─────────────────────────────────────────────────\n`;
+                                dfContent += `FROM ${img} AS builder\n\nWORKDIR ${wd}\n\n`;
+                                if (c.install) {
+                                    dfContent += `# Install dependencies\nRUN ${c.install}\n\n`;
+                                }
+                                dfContent += `COPY . .\n`;
+                                if (c.buildCmd) {
+                                    dfContent += `RUN ${c.buildCmd}\n`;
+                                }
+
+                                // Runtime stage
+                                dfContent += `\n# ── Runtime stage ───────────────────────────────────────────────\n`;
+                                dfContent += `FROM ${img}\n\nWORKDIR ${wd}\n\n`;
+                                dfContent += `# Create non-root user\n`;
+                                if (img.includes('alpine')) {
+                                    dfContent += `RUN addgroup -g 1000 app && adduser -u 1000 -G app -s /bin/sh -D app\n\n`;
+                                } else {
+                                    dfContent += `RUN groupadd --gid 1000 app \\\n    && useradd --uid 1000 --gid app --shell /bin/bash --create-home app\n\n`;
+                                }
+                                dfContent += `COPY --from=builder ${wd} ${wd}\n\n`;
+                                dfContent += `USER app\n\n`;
+
+                                if (c.expose) {
+                                    dfContent += `EXPOSE ${c.expose}\n\n`;
+                                }
+                                if (c.entrypoint) {
+                                    dfContent += `ENTRYPOINT ["${c.entrypoint}"]\n`;
+                                }
+                                if (c.cmd) {
+                                    // Convert space-separated command to JSON array format
+                                    const parts = c.cmd.split(/\s+/);
+                                    dfContent += `CMD [${parts.map(p => `"${p}"`).join(', ')}]\n`;
+                                }
+
+                                const idx = fileIdx++;
+                                const file = { path: c.dockerfilePath, content: dfContent, overwrite: !!data.overwrite };
+                                data._generatedFiles.push(file);
+
+                                html += `<div style="margin-bottom:0.75rem">
+                                    <details open>
+                                        <summary style="cursor:pointer;display:flex;align-items:center;gap:0.4rem;font-size:0.82rem;padding:0.3rem 0;user-select:none">
+                                            <span>📄</span>
+                                            <strong>${esc(c.dockerfilePath)}</strong>
+                                            <code style="font-size:0.68rem;background:var(--bg-inset);padding:1px 5px;border-radius:3px;color:var(--text-muted)">${esc(img)}</code>
+                                            <span style="font-size:0.68rem;color:var(--success);margin-left:auto">create</span>
+                                        </summary>
+                                        <textarea id="dk-preview-${idx}"
+                                            style="width:100%;min-height:200px;max-height:350px;resize:vertical;background:var(--bg-inset);border:1px solid var(--border-subtle);border-radius:6px;padding:0.5rem;font-size:0.72rem;font-family:var(--font-mono,monospace);color:var(--text-secondary);margin-top:0.25rem;line-height:1.4"
+                                        >${esc(file.content)}</textarea>
+                                    </details>
+                                </div>`;
+                            }
+
+                            // ── Generate compose ──────────────────────
+                            if (data.genCompose) {
+                                const services = [];
+
+                                // Module services (use all user-configured settings)
+                                for (const c of data._selectedContainers) {
+                                    const svc = {
+                                        name: c.name,
+                                        ports: [`${c.port}:${c.port}`],
+                                        restart: c.restart || 'unless-stopped',
+                                    };
+                                    if (c.dockerfilePath === 'Dockerfile') {
+                                        svc.build_context = '.';
+                                    } else {
+                                        svc.build_context = `./${c.path}`;
+                                        svc.dockerfile = c.dockerfilePath.split('/').pop() || 'Dockerfile';
+                                    }
+                                    if (c.cmd) svc.command = c.cmd;
+                                    // Convert envVars to compose environment format
+                                    if (c.envVars && c.envVars.length > 0) {
+                                        svc.environment = {};
+                                        for (const ev of c.envVars) {
+                                            if (ev.type === 'hardcoded') svc.environment[ev.key] = ev.value;
+                                            else svc.environment[ev.key] = ev.varName || '${' + ev.key + '}';
+                                        }
+                                    }
+                                    if (c.volumes) svc.volumes = c.volumes;
+                                    if (c.depends_on) svc.depends_on = c.depends_on;
+                                    if (c.containerName) svc.container_name = c.containerName;
+                                    if (c.networks) svc.networks = c.networks;
+                                    if (c.build_args) svc.build_args = c.build_args;
+                                    if (data.platform) svc.platform = data.platform;
+                                    if (c.healthcheck) {
+                                        svc.healthcheck = {
+                                            test: ['CMD-SHELL', c.healthcheck],
+                                            interval: '30s',
+                                            timeout: '10s',
+                                            retries: 3,
+                                        };
+                                    }
+                                    services.push(svc);
+                                }
+
+                                // Infra services — use user-configured values
+                                for (const inf of data._selectedInfra) {
+                                    const svc = {
+                                        name: inf.key,
+                                        image: inf.image,
+                                        restart: inf.restart || 'unless-stopped',
+                                    };
+                                    if (inf.ports && inf.ports.length > 0) svc.ports = inf.ports;
+                                    // Convert envVars to compose environment format
+                                    if (inf.envVars && inf.envVars.length > 0) {
+                                        svc.environment = {};
+                                        for (const ev of inf.envVars) {
+                                            if (ev.type === 'hardcoded') svc.environment[ev.key] = ev.value;
+                                            else svc.environment[ev.key] = ev.varName || '${' + ev.key + '}';
+                                        }
+                                    }
+                                    if (inf.volumes) svc.volumes = inf.volumes;
+                                    if (inf.command) svc.command = inf.command;
+                                    if (data.platform) svc.platform = data.platform;
+                                    services.push(svc);
+                                }
+
+                                if (services.length > 0) {
+                                    const composeResult = await apiPost('/docker/generate/compose-wizard', {
+                                        services,
+                                        project_name: data.projectName || '',
+                                    });
+
+                                    if (composeResult.ok && composeResult.file) {
+                                        const idx = fileIdx++;
+                                        const file = { ...composeResult.file, overwrite: true };
+                                        data._generatedFiles.push(file);
+
+                                        html += `<div style="margin-bottom:0.75rem">
+                                            <details open>
+                                                <summary style="cursor:pointer;display:flex;align-items:center;gap:0.4rem;font-size:0.82rem;padding:0.3rem 0;user-select:none">
+                                                    <span>📋</span>
+                                                    <strong>docker-compose.yml</strong>
+                                                    <span style="font-size:0.68rem;color:var(--text-muted)">${services.length} service${services.length !== 1 ? 's' : ''}</span>
+                                                    <span style="font-size:0.68rem;color:var(--success);margin-left:auto">create</span>
+                                                </summary>
+                                                <textarea id="dk-preview-${idx}"
+                                                    style="width:100%;min-height:200px;max-height:350px;resize:vertical;background:var(--bg-inset);border:1px solid var(--border-subtle);border-radius:6px;padding:0.5rem;font-size:0.72rem;font-family:var(--font-mono,monospace);color:var(--text-secondary);margin-top:0.25rem;line-height:1.4"
+                                                >${esc(composeResult.file.content)}</textarea>
+                                            </details>
+                                        </div>`;
+                                    }
+                                }
+                            }
+
+                            // ── Generate .dockerignore ────────────────
+                            if (data.genIgnore) {
+                                const allStacks = [...new Set(data._selectedContainers.map(c => c.family))];
+                                const ignoreResult = await apiPost('/docker/generate/dockerignore', {
+                                    stacks: allStacks.length > 0 ? allStacks : ['python'],
+                                });
+
+                                if (ignoreResult.ok && ignoreResult.file) {
+                                    const idx = fileIdx++;
+                                    const file = { ...ignoreResult.file, overwrite: true };
+                                    data._generatedFiles.push(file);
+
+                                    html += `<div style="margin-bottom:0.75rem">
+                                        <details>
+                                            <summary style="cursor:pointer;display:flex;align-items:center;gap:0.4rem;font-size:0.82rem;padding:0.3rem 0;user-select:none">
+                                                <span>🚫</span>
+                                                <strong>.dockerignore</strong>
+                                                <span style="font-size:0.68rem;color:var(--text-muted)">${allStacks.join(', ')} patterns</span>
+                                                <span style="font-size:0.68rem;color:var(--success);margin-left:auto">create</span>
+                                            </summary>
+                                            <textarea id="dk-preview-${idx}"
+                                                style="width:100%;min-height:120px;max-height:250px;resize:vertical;background:var(--bg-inset);border:1px solid var(--border-subtle);border-radius:6px;padding:0.5rem;font-size:0.72rem;font-family:var(--font-mono,monospace);color:var(--text-secondary);margin-top:0.25rem;line-height:1.4"
+                                            >${esc(ignoreResult.file.content)}</textarea>
+                                        </details>
+                                    </div>`;
+                                }
+                            }
+
+                            if (data._generatedFiles.length === 0) {
+                                html += `<div style="text-align:center;padding:var(--space-sm);color:var(--text-muted);font-size:0.85rem">
+                                    No files to generate. Existing files are kept as-is.
+                                </div>`;
+                            } else {
+                                html += `<div style="margin-top:0.5rem;font-size:0.78rem;color:var(--text-secondary)">
+                                    ✏️ ${data._generatedFiles.length} file${data._generatedFiles.length !== 1 ? 's' : ''} generated — edit content above if needed, then click Apply.
+                                </div>`;
+                            }
+
+                            // Next integration CTA
+                            html += `<div style="margin-top:var(--space-md);padding:var(--space-xs) var(--space-sm);border-left:3px solid var(--accent);background:color-mix(in srgb, var(--accent) 5%, transparent);border-radius:0 6px 6px 0">
+                                <div style="font-size:0.78rem;color:var(--text-secondary)">
+                                    💡 <strong>Next:</strong> Set up CI/CD to automate builds and deployments.
+                                    <button class="btn btn-sm btn-ghost" style="font-size:0.72rem;padding:0.1rem 0.4rem;margin-left:4px;color:var(--accent)"
+                                        onclick="wizardModalClose();setTimeout(openCICDSetupWizard,300)">Set up CI/CD →</button>
+                                </div>
+                            </div>`;
+
+                            el.innerHTML = html;
+                        } catch (e) {
+                            el.innerHTML = `<div class="wiz-step-error-panel"><span>⚠️</span><span>Generation failed: ${esc(e.message)}</span></div>`;
+                        }
+                    },
+                    // Collect any user edits from the textareas before writing
+                    collect: (data) => {
+                        for (let i = 0; i < data._generatedFiles.length; i++) {
+                            const ta = document.getElementById(`dk-preview-${i}`);
+                            if (ta) {
+                                data._generatedFiles[i].content = ta.value;
+                            }
+                        }
+                    },
+                },
+            ],
+
+            onComplete: async (data) => {
+                const files = data._generatedFiles || [];
+                if (files.length === 0) return;
+
+                const results = [];
+                for (const file of files) {
+                    try {
+                        const res = await api('/docker/generate/write', {
+                            method: 'POST',
+                            body: JSON.stringify({ file }),
+                        });
+                        results.push({ path: file.path, ok: !res.error, error: res.error });
+                    } catch (e) {
+                        results.push({ path: file.path, ok: false, error: e.message });
+                    }
+                }
+
+                const ok = results.filter(r => r.ok).length;
+                const fail = results.filter(r => !r.ok);
+                if (fail.length > 0) {
+                    console.warn('Docker write failures:', fail);
+                }
+
+                _projectStatusTS = 0;
+                cardInvalidate('docker');
+            },
+            successMessage: 'Docker setup complete!',
+        });
+    }
+
+
+</script>
