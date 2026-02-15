@@ -21,6 +21,29 @@ from src.core.services.audit.models import wrap_result
 logger = logging.getLogger(__name__)
 
 
+# ── Cache-first data access ────────────────────────────────────
+# l2_risks calls many ops functions (testing_status, scan_secrets,
+# package_audit, etc.) that are already cached by the devops/audit
+# tabs.  Reading from cache is instant (0ms) vs re-calling the ops
+# (6-30s under contention).  Falls back to None on cache miss.
+
+def _cached_or_compute(project_root: Path, key: str) -> dict | None:
+    """Read cached card data if available, else return None.
+
+    Unlike get_cached(), this does NOT compute — it only reads.
+    Callers should fall back to live ops calls if this returns None.
+    """
+    try:
+        from src.core.services.devops_cache import _load_cache
+        cache = _load_cache(project_root)
+        entry = cache.get(key)
+        if entry and "data" in entry:
+            return entry["data"]
+    except Exception:
+        pass
+    return None
+
+
 # ═══════════════════════════════════════════════════════════════════
 #  Risk finding helpers
 # ═══════════════════════════════════════════════════════════════════
@@ -331,57 +354,58 @@ def _docs_findings(project_root: Path) -> list[dict]:
 
 
 def _testing_findings(project_root: Path) -> list[dict]:
-    """Collect testing-related risk findings."""
+    """Collect testing-related risk findings.
+
+    Reads from the devops cache if available (instant), otherwise
+    falls back to calling testing_ops directly.
+    """
     findings = []
 
     try:
-        from src.core.services.testing_ops import testing_status
-
-        try:
+        status = _cached_or_compute(project_root, "testing")
+        if status is None:
+            from src.core.services.testing_ops import testing_status
             status = testing_status(project_root)
 
-            if not status.get("has_tests"):
+        if not status.get("has_tests"):
+            findings.append(_make_finding(
+                "testing", "high",
+                "No tests detected",
+                "No test framework or test files found",
+                "testing_ops.testing_status",
+                recommendation="Add a test directory and write tests for critical modules",
+            ))
+        else:
+            stats = status.get("stats", {})
+            ratio = stats.get("test_ratio", 0)
+            test_files = stats.get("test_files", 0)
+            src_files = stats.get("source_files", 0)
+            if ratio < 0.1 and src_files > 10:
+                frameworks = status.get("frameworks", [])
+                fw_str = ", ".join(frameworks) if frameworks else "unknown"
+
+                # Include key ratio data as file-level detail
+                test_detail = [
+                    {"file": f"Test files: {test_files}", "pattern": f"Source files: {src_files}"},
+                    {"file": f"Ratio: {ratio:.1%}", "pattern": f"Framework: {fw_str}"},
+                ]
+
+                # List test directories found
+                test_dirs = status.get("test_dirs", [])
+                for td in test_dirs[:5]:
+                    test_detail.append({"file": td, "pattern": "test directory"})
+
                 findings.append(_make_finding(
-                    "testing", "high",
-                    "No tests detected",
-                    "No test framework or test files found",
+                    "testing", "medium",
+                    "Low test coverage",
+                    f"Test-to-source ratio: {ratio:.1%} ({test_files} test files vs {src_files} source files). Framework: {fw_str}",
                     "testing_ops.testing_status",
-                    recommendation="Add a test directory and write tests for critical modules",
+                    recommendation=f"Add tests for the largest source modules. Run: pytest --co to see existing test inventory",
+                    files=test_detail,
                 ))
-            else:
-                stats = status.get("stats", {})
-                ratio = stats.get("test_ratio", 0)
-                test_files = stats.get("test_files", 0)
-                src_files = stats.get("source_files", 0)
-                if ratio < 0.1 and src_files > 10:
-                    frameworks = status.get("frameworks", [])
-                    fw_str = ", ".join(frameworks) if frameworks else "unknown"
 
-                    # Include key ratio data as file-level detail
-                    test_detail = [
-                        {"file": f"Test files: {test_files}", "pattern": f"Source files: {src_files}"},
-                        {"file": f"Ratio: {ratio:.1%}", "pattern": f"Framework: {fw_str}"},
-                    ]
-
-                    # List test directories found
-                    test_dirs = status.get("test_dirs", [])
-                    for td in test_dirs[:5]:
-                        test_detail.append({"file": td, "pattern": "test directory"})
-
-                    findings.append(_make_finding(
-                        "testing", "medium",
-                        "Low test coverage",
-                        f"Test-to-source ratio: {ratio:.1%} ({test_files} test files vs {src_files} source files). Framework: {fw_str}",
-                        "testing_ops.testing_status",
-                        recommendation=f"Add tests for the largest source modules. Run: pytest --co to see existing test inventory",
-                        files=test_detail,
-                    ))
-
-        except Exception as e:
-            logger.debug("Testing status failed: %s", e)
-
-    except ImportError:
-        logger.debug("testing_ops not available")
+    except Exception as e:
+        logger.debug("Testing findings failed: %s", e)
 
     return findings
 
