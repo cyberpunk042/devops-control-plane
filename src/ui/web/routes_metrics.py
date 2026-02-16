@@ -78,7 +78,7 @@ def project_health():  # type: ignore[no-untyped-def]
                 }
 
     # Assemble composite score (same logic as metrics_ops.project_health)
-    weights = metrics_ops._WEIGHTS
+    weights = metrics_ops._weights()
     total_score = 0.0
     for probe_id, result in probes.items():
         weighted = result.get("score", 0) * weights.get(probe_id, 0)
@@ -106,7 +106,7 @@ def project_health():  # type: ignore[no-untyped-def]
 
     return jsonify({
         "score": round(total_score, 1),
-        "max_score": metrics_ops._MAX_SCORE,
+        "max_score": metrics_ops._max_score(),
         "grade": grade,
         "timestamp": datetime.now(UTC).isoformat(),
         "probes": probes,

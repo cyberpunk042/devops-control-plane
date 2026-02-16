@@ -626,6 +626,5 @@ from src.core.services.vault_io import (  # noqa: E402, F401
     detect_secret_files,
     list_env_keys,
     list_env_sections,
-    SECRET_FILE_PATTERNS,
     _parse_env_lines,
 )

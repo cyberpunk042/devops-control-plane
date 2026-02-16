@@ -626,54 +626,17 @@ def _build_env_vars(env_spec, *, svc_name: str = "") -> list[dict]:
     return []
 
 
-_MESH_ANNOTATION_PREFIXES = {
-    "istio": {
-        "inject": "sidecar.istio.io/inject",
-        "proxyCPU": "sidecar.istio.io/proxyCPU",
-        "proxyCPULimit": "sidecar.istio.io/proxyCPULimit",
-        "proxyMemory": "sidecar.istio.io/proxyMemory",
-        "proxyMemoryLimit": "sidecar.istio.io/proxyMemoryLimit",
-        "logLevel": "sidecar.istio.io/logLevel",
-        "excludeInbound": "traffic.sidecar.istio.io/excludeInboundPorts",
-        "excludeOutbound": "traffic.sidecar.istio.io/excludeOutboundPorts",
-    },
-    "linkerd": {
-        "inject": "linkerd.io/inject",
-        "proxyCPU": "config.linkerd.io/proxy-cpu-request",
-        "proxyCPULimit": "config.linkerd.io/proxy-cpu-limit",
-        "proxyMemory": "config.linkerd.io/proxy-memory-request",
-        "proxyMemoryLimit": "config.linkerd.io/proxy-memory-limit",
-        "logLevel": "config.linkerd.io/proxy-log-level",
-        "excludeInbound": "config.linkerd.io/skip-inbound-ports",
-        "excludeOutbound": "config.linkerd.io/skip-outbound-ports",
-    },
-    "consul": {
-        "inject": "consul.hashicorp.com/connect-inject",
-        "proxyCPU": "consul.hashicorp.com/sidecar-proxy-cpu-request",
-        "proxyCPULimit": "consul.hashicorp.com/sidecar-proxy-cpu-limit",
-        "proxyMemory": "consul.hashicorp.com/sidecar-proxy-memory-request",
-        "proxyMemoryLimit": "consul.hashicorp.com/sidecar-proxy-memory-limit",
-        "logLevel": "",
-        "excludeInbound": "",
-        "excludeOutbound": "",
-    },
-    "kuma": {
-        "inject": "kuma.io/sidecar-injection",
-        "proxyCPU": "kuma.io/sidecar-proxy-cpu-requests",
-        "proxyCPULimit": "kuma.io/sidecar-proxy-cpu-limits",
-        "proxyMemory": "kuma.io/sidecar-proxy-memory-requests",
-        "proxyMemoryLimit": "kuma.io/sidecar-proxy-memory-limits",
-        "logLevel": "",
-        "excludeInbound": "",
-        "excludeOutbound": "",
-    },
-}
+def _mesh_annotation_prefixes() -> dict[str, dict]:
+    """Mesh annotation prefixes — loaded from DataRegistry."""
+    from src.core.data import get_registry
+    return get_registry().mesh_annotations
 
 
 def _build_mesh_annotations(mesh: dict) -> dict:
     """Build mesh-provider-specific annotations for pod template."""
     provider = mesh.get("provider", "istio")
-    prefixes = _MESH_ANNOTATION_PREFIXES.get(provider, _MESH_ANNOTATION_PREFIXES["istio"])
+    all_prefixes = _mesh_annotation_prefixes()
+    prefixes = all_prefixes.get(provider, all_prefixes["istio"])
 
     annotations: dict = {}
 

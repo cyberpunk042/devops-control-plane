@@ -395,35 +395,19 @@ def run_all_probes(root: Path) -> dict:
 # ── Dependency graph (defines the "next" recommendation) ───────────
 
 
-INTEGRATION_ORDER = [
-    "git",
-    "docker",
-    "github",
-    "cicd",
-    "k8s",
-    "terraform",
-    "pages",
-    "dns",
-]
-
-DEPENDENCY_MAP = {
-    "git": [],
-    "docker": ["git"],
-    "github": ["git"],
-    "cicd": ["git", "docker"],
-    "k8s": ["docker"],
-    "terraform": [],
-    "pages": ["git"],
-    "dns": ["pages"],
-}
+def _integration_graph() -> dict:
+    """Integration graph — loaded from DataRegistry."""
+    from src.core.data import get_registry
+    return get_registry().integration_graph
 
 
 def suggest_next(statuses: dict) -> str | None:
     """Suggest the next integration to configure."""
-    for key in INTEGRATION_ORDER:
+    graph = _integration_graph()
+    for key in graph["order"]:
         info = statuses.get(key, {})
         if info.get("status") in ("missing", "partial"):
-            deps = DEPENDENCY_MAP.get(key, [])
+            deps = graph["dependencies"].get(key, [])
             deps_met = all(
                 statuses.get(d, {}).get("status") == "ready"
                 for d in deps
@@ -435,9 +419,10 @@ def suggest_next(statuses: dict) -> str | None:
 
 def compute_progress(statuses: dict) -> dict:
     """Compute overall setup progress."""
-    total = len(INTEGRATION_ORDER)
+    order = _integration_graph()["order"]
+    total = len(order)
     ready = sum(
-        1 for k in INTEGRATION_ORDER
+        1 for k in order
         if statuses.get(k, {}).get("status") == "ready"
     )
     return {
@@ -445,3 +430,4 @@ def compute_progress(statuses: dict) -> dict:
         "total": total,
         "percent": round(ready / total * 100) if total > 0 else 0,
     }
+

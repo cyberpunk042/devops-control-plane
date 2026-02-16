@@ -217,6 +217,49 @@ The layer architecture is **already well-structured**. The analysis reveals:
 - **Only 6 inline operations** across 5,600+ lines of route code (99.9% clean)
 
 The project does NOT need a layer revolution. It needs:
-1. Fix 4 minor violations (30 min total)
+1. Fix 4 minor violations (30 min total) ✅ DONE
 2. Keep following the established patterns
 3. Use this document as the reference for future development
+
+---
+
+## Phase 8C: Static Data & Datasets ✅ DONE
+
+Extracted two high-value inline data structures to JSON catalogs in `src/core/data/catalogs/`:
+
+### Extracted
+
+| Catalog File | Entries | Was In | Consumed By |
+|---|---|---|---|
+| `card_labels.json` | 33 labels | `devops_cache._CARD_LABELS` (30 lines) | Python: `_card_label()`, JS: `_dcp.cardLabels` |
+| `iac_providers.json` | 6 providers | `env_ops._IAC_PROVIDERS` (38 lines) | `env_ops._iac_providers()` |
+
+### Not Extracted (assessed, intentionally kept inline)
+
+| Data | File | Lines | Reason |
+|---|---|---|---|
+| `_PROVIDER_BLOCKS` | terraform_ops.py | 25 | Template strings, tightly coupled to codegen logic |
+| `_BACKEND_BLOCKS` | terraform_ops.py | 19 | Template strings, tightly coupled to codegen logic |
+| `_MESH_ANNOTATION_PREFIXES` | k8s_generate.py | 41 | Tightly coupled to mesh generation logic |
+| `_SENSITIVE_PATTERNS` | security_scan.py | 17 | Small, only used in one function |
+| `_API_SPEC_FILES` | docs_ops.py | 15 | Simple file list, only used locally |
+| `_ENV_FILES` | env_ops.py | 10 | Simple file list, only used locally |
+| `_WEIGHTS` | metrics_ops.py | 8 | Tiny config, only used in one place |
+| `INTEGRATION_ORDER` | project_probes.py | 9 | Logic-specific ordering |
+| `DEPENDENCY_MAP` | project_probes.py | 9 | Logic-specific dependency graph |
+| `SECRET_FILE_PATTERNS` | vault_io.py | 9 | Already covered by `secret_patterns.json` |
+
+### DataRegistry now serves
+
+8 JSON catalogs + 2 new = **10 total catalogs**:
+- `infra_services.json` (34 KB, 60+ services)
+- `infra_categories.json`
+- `docker_defaults.json`
+- `docker_options.json`
+- `storage_classes.json`
+- `k8s_kinds.json`
+- `secret_patterns.json`
+- `env_sections.json`
+- **`card_labels.json`** ← NEW
+- **`iac_providers.json`** ← NEW
+

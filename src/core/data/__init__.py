@@ -96,6 +96,112 @@ class DataRegistry:
         logger.debug("Loaded %d K8s resource kinds", len(data))
         return data
 
+    # ── Card labels ──────────────────────────────────────────────
+
+    @cached_property
+    def card_labels(self) -> dict[str, str]:
+        """Card key → display label (e.g. 'security' → '🔐 Security Posture')."""
+        data = _load_json("catalogs/card_labels.json")
+        logger.debug("Loaded %d card labels", len(data))
+        return data
+
+    # ── IaC providers ────────────────────────────────────────────
+
+    @cached_property
+    def iac_providers(self) -> dict[str, dict]:
+        """IaC provider detection catalog (Terraform, K8s, Helm, …)."""
+        data = _load_json("catalogs/iac_providers.json")
+        logger.debug("Loaded %d IaC provider definitions", len(data))
+        return data
+
+    # ── Mesh annotations ─────────────────────────────────────────
+
+    @cached_property
+    def mesh_annotations(self) -> dict[str, dict]:
+        """Service mesh annotation prefixes (Istio, Linkerd, Consul, Kuma)."""
+        data = _load_json("catalogs/mesh_annotations.json")
+        logger.debug("Loaded %d mesh annotation providers", len(data))
+        return data
+
+    # ── Terraform ────────────────────────────────────────────────
+
+    @cached_property
+    def terraform_providers(self) -> dict[str, dict]:
+        """Cloud provider configs for Terraform scaffolding."""
+        data = _load_json("catalogs/terraform_providers.json")
+        logger.debug("Loaded %d Terraform provider configs", len(data))
+        return data
+
+    @cached_property
+    def terraform_backends(self) -> dict[str, str]:
+        """HCL backend templates for Terraform scaffolding."""
+        data = _load_json("catalogs/terraform_backends.json")
+        logger.debug("Loaded %d Terraform backend templates", len(data))
+        return data
+
+    # ── Security catalogs ────────────────────────────────────────
+
+    @cached_property
+    def sensitive_files(self) -> list[list]:
+        """Sensitive file detection patterns [glob, description]."""
+        data = _load_json("catalogs/sensitive_files.json")
+        logger.debug("Loaded %d sensitive file patterns", len(data))
+        return data
+
+    @cached_property
+    def gitignore_patterns(self) -> dict:
+        """Stack-specific + universal .gitignore patterns."""
+        data = _load_json("catalogs/gitignore_patterns.json")
+        logger.debug("Loaded gitignore patterns for %d stacks",
+                      len(data.get("stacks", {})))
+        return data
+
+    # ── Docs ─────────────────────────────────────────────────────
+
+    @cached_property
+    def api_spec_files(self) -> list[list]:
+        """API spec file detection patterns [filename, type, format]."""
+        data = _load_json("catalogs/api_spec_files.json")
+        logger.debug("Loaded %d API spec patterns", len(data))
+        return data
+
+    # ── Environment ──────────────────────────────────────────────
+
+    @cached_property
+    def env_files(self) -> list[str]:
+        """Standard .env file variants to scan for."""
+        data = _load_json("catalogs/env_files.json")
+        logger.debug("Loaded %d env file patterns", len(data))
+        return data
+
+    # ── Metrics ──────────────────────────────────────────────────
+
+    @cached_property
+    def health_weights(self) -> dict[str, int]:
+        """Health score weights per dimension (sums to 100)."""
+        data = _load_json("catalogs/health_weights.json")
+        logger.debug("Loaded %d health weight dimensions", len(data))
+        return data
+
+    # ── Integration graph ────────────────────────────────────────
+
+    @cached_property
+    def integration_graph(self) -> dict:
+        """Integration setup order and dependency map."""
+        data = _load_json("catalogs/integration_graph.json")
+        logger.debug("Loaded integration graph: %d integrations",
+                      len(data.get("order", [])))
+        return data
+
+    # ── Secret file patterns ─────────────────────────────────────
+
+    @cached_property
+    def secret_file_patterns(self) -> list[str]:
+        """Static secret file patterns for vault detection."""
+        data = _load_json("catalogs/secret_file_patterns.json")
+        logger.debug("Loaded %d secret file patterns", len(data))
+        return data
+
     # ── Patterns ─────────────────────────────────────────────────
 
     @cached_property
@@ -132,6 +238,7 @@ class DataRegistry:
             "storageClasses": self.storage_classes,
             "k8sKinds": self.k8s_kinds,
             "secretPatterns": list(self.secret_patterns),
+            "cardLabels": self.card_labels,
         }
 
 

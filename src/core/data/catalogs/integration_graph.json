@@ -1,0 +1,35 @@
+{
+    "order": [
+        "git",
+        "docker",
+        "github",
+        "cicd",
+        "k8s",
+        "terraform",
+        "pages",
+        "dns"
+    ],
+    "dependencies": {
+        "git": [],
+        "docker": [
+            "git"
+        ],
+        "github": [
+            "git"
+        ],
+        "cicd": [
+            "git",
+            "docker"
+        ],
+        "k8s": [
+            "docker"
+        ],
+        "terraform": [],
+        "pages": [
+            "git"
+        ],
+        "dns": [
+            "pages"
+        ]
+    }
+}

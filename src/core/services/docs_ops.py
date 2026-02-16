@@ -35,22 +35,10 @@ _DOC_DIRS = frozenset({
     "docs", "doc", "documentation", "wiki",
 })
 
-_API_SPEC_FILES = [
-    ("openapi.yaml", "OpenAPI", "openapi"),
-    ("openapi.yml", "OpenAPI", "openapi"),
-    ("openapi.json", "OpenAPI", "openapi"),
-    ("swagger.yaml", "Swagger", "openapi"),
-    ("swagger.yml", "Swagger", "openapi"),
-    ("swagger.json", "Swagger", "openapi"),
-    ("api.yaml", "API Spec", "openapi"),
-    ("api.yml", "API Spec", "openapi"),
-    ("schema.graphql", "GraphQL", "graphql"),
-    ("schema.gql", "GraphQL", "graphql"),
-    ("*.graphql", "GraphQL", "graphql"),
-    ("*.proto", "Protocol Buffers", "protobuf"),
-    ("asyncapi.yaml", "AsyncAPI", "asyncapi"),
-    ("asyncapi.yml", "AsyncAPI", "asyncapi"),
-]
+def _api_spec_files() -> list[list]:
+    """API spec file detection patterns — loaded from DataRegistry."""
+    from src.core.data import get_registry
+    return get_registry().api_spec_files
 
 _SKIP_DIRS = frozenset({
     ".git", ".venv", "venv", "node_modules", "__pycache__",
@@ -166,7 +154,7 @@ def _detect_api_specs(project_root: Path) -> list[dict]:
     """Detect API specification files."""
     found: list[dict] = []
 
-    for filename, spec_type, spec_format in _API_SPEC_FILES:
+    for filename, spec_type, spec_format in _api_spec_files():
         if "*" in filename:
             # Glob pattern
             for match in project_root.rglob(filename):

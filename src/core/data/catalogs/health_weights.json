@@ -1,0 +1,9 @@
+{
+    "git": 15,
+    "docker": 10,
+    "ci": 20,
+    "packages": 15,
+    "env": 10,
+    "quality": 20,
+    "structure": 10
+}

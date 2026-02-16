@@ -1,0 +1,66 @@
+[
+    [
+        "*.pem",
+        "PEM certificate/key file"
+    ],
+    [
+        "*.key",
+        "Private key file"
+    ],
+    [
+        "*.p12",
+        "PKCS12 keystore"
+    ],
+    [
+        "*.pfx",
+        "PKCS12 keystore"
+    ],
+    [
+        "*.jks",
+        "Java keystore"
+    ],
+    [
+        "*.keystore",
+        "Keystore file"
+    ],
+    [
+        "id_rsa",
+        "SSH private key"
+    ],
+    [
+        "id_ed25519",
+        "SSH private key"
+    ],
+    [
+        "id_dsa",
+        "SSH private key"
+    ],
+    [
+        "id_ecdsa",
+        "SSH private key"
+    ],
+    [
+        ".htpasswd",
+        "HTTP auth password file"
+    ],
+    [
+        ".netrc",
+        "Network credentials file"
+    ],
+    [
+        ".npmrc",
+        "npm config (may contain tokens)"
+    ],
+    [
+        ".pypirc",
+        "PyPI credentials"
+    ],
+    [
+        "credentials.json",
+        "Service account credentials"
+    ],
+    [
+        "service-account*.json",
+        "GCP service account"
+    ]
+]

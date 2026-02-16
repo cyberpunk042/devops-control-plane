@@ -1,0 +1,26 @@
+{
+    "aws": {
+        "source": "hashicorp/aws",
+        "version": "~> 5.0",
+        "config": "region = var.region",
+        "default_region": "us-east-1"
+    },
+    "google": {
+        "source": "hashicorp/google",
+        "version": "~> 5.0",
+        "config": "project = var.project\n  region  = var.region",
+        "default_region": "us-central1"
+    },
+    "azurerm": {
+        "source": "hashicorp/azurerm",
+        "version": "~> 3.0",
+        "config": "features {}",
+        "default_region": "eastus"
+    },
+    "digitalocean": {
+        "source": "digitalocean/digitalocean",
+        "version": "~> 2.0",
+        "config": "# token = var.do_token",
+        "default_region": "nyc1"
+    }
+}

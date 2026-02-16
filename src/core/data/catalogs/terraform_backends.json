@@ -1,0 +1,6 @@
+{
+    "s3": "backend \"s3\" {{\n    bucket = \"{project}-terraform-state\"\n    key    = \"state/terraform.tfstate\"\n    region = \"{region}\"\n  }}",
+    "gcs": "backend \"gcs\" {{\n    bucket = \"{project}-terraform-state\"\n    prefix = \"state\"\n  }}",
+    "azurerm": "backend \"azurerm\" {{\n    resource_group_name  = \"terraform-state\"\n    storage_account_name = \"{project}tfstate\"\n    container_name       = \"state\"\n    key                  = \"terraform.tfstate\"\n  }}",
+    "local": "backend \"local\" {{\n    path = \"terraform.tfstate\"\n  }}"
+}

@@ -26,17 +26,14 @@ logger = logging.getLogger(__name__)
 
 # ── Scoring weights ─────────────────────────────────────────────
 
-_WEIGHTS = {
-    "git": 15,
-    "docker": 10,
-    "ci": 20,
-    "packages": 15,
-    "env": 10,
-    "quality": 20,
-    "structure": 10,
-}
+def _weights() -> dict[str, int]:
+    """Health score weights — loaded from DataRegistry."""
+    from src.core.data import get_registry
+    return get_registry().health_weights
 
-_MAX_SCORE = sum(_WEIGHTS.values())  # 100
+def _max_score() -> int:
+    """Sum of all health weights (should be 100)."""
+    return sum(_weights().values())
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -416,7 +413,7 @@ def project_health(project_root: Path) -> dict:
         try:
             result = fn(project_root)
             probes[probe_id] = result
-            weighted = result.get("score", 0) * _WEIGHTS.get(probe_id, 0)
+            weighted = result.get("score", 0) * _weights().get(probe_id, 0)
             total_score += weighted
         except Exception as e:
             logger.debug("Probe %s failed: %s", probe_id, e)
@@ -436,7 +433,8 @@ def project_health(project_root: Path) -> dict:
 
     # Gather all recommendations, sorted by probe weight
     all_recs: list[str] = []
-    for probe_id in sorted(_WEIGHTS, key=lambda k: _WEIGHTS[k], reverse=True):
+    weights = _weights()
+    for probe_id in sorted(weights, key=lambda k: weights[k], reverse=True):
         probe = probes.get(probe_id, {})
         for rec in probe.get("recommendations", []):
             if rec not in all_recs:
@@ -444,7 +442,7 @@ def project_health(project_root: Path) -> dict:
 
     return {
         "score": round(total_score, 1),
-        "max_score": _MAX_SCORE,
+        "max_score": _max_score(),
         "grade": grade,
         "timestamp": datetime.now(UTC).isoformat(),
         "probes": probes,

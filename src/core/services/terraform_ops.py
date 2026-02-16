@@ -783,53 +783,15 @@ _OUTPUTS_TF_TEMPLATE = '''# ── Outputs ────────────�
 # }}
 '''
 
-_PROVIDER_BLOCKS = {
-    "aws": {
-        "source": "hashicorp/aws",
-        "version": "~> 5.0",
-        "config": 'region = var.region',
-        "default_region": "us-east-1",
-    },
-    "google": {
-        "source": "hashicorp/google",
-        "version": "~> 5.0",
-        "config": 'project = var.project\n  region  = var.region',
-        "default_region": "us-central1",
-    },
-    "azurerm": {
-        "source": "hashicorp/azurerm",
-        "version": "~> 3.0",
-        "config": 'features {}',
-        "default_region": "eastus",
-    },
-    "digitalocean": {
-        "source": "digitalocean/digitalocean",
-        "version": "~> 2.0",
-        "config": '# token = var.do_token',
-        "default_region": "nyc1",
-    },
-}
+def _provider_blocks() -> dict[str, dict]:
+    """Terraform cloud provider configs — loaded from DataRegistry."""
+    from src.core.data import get_registry
+    return get_registry().terraform_providers
 
-_BACKEND_BLOCKS = {
-    "s3": '''backend "s3" {{
-    bucket = "{project}-terraform-state"
-    key    = "state/terraform.tfstate"
-    region = "{region}"
-  }}''',
-    "gcs": '''backend "gcs" {{
-    bucket = "{project}-terraform-state"
-    prefix = "state"
-  }}''',
-    "azurerm": '''backend "azurerm" {{
-    resource_group_name  = "terraform-state"
-    storage_account_name = "{project}tfstate"
-    container_name       = "state"
-    key                  = "terraform.tfstate"
-  }}''',
-    "local": '''backend "local" {{
-    path = "terraform.tfstate"
-  }}''',
-}
+def _backend_blocks() -> dict[str, str]:
+    """Terraform backend HCL templates — loaded from DataRegistry."""
+    from src.core.data import get_registry
+    return get_registry().terraform_backends
 
 
 def generate_terraform(
@@ -849,9 +811,10 @@ def generate_terraform(
     if not project_name:
         project_name = project_root.name
 
-    prov_config = _PROVIDER_BLOCKS.get(provider)
+    providers = _provider_blocks()
+    prov_config = providers.get(provider)
     if not prov_config:
-        return {"error": f"Unknown provider: {provider}. Available: {', '.join(_PROVIDER_BLOCKS.keys())}"}
+        return {"error": f"Unknown provider: {provider}. Available: {', '.join(providers.keys())}"}
 
     # Build provider block
     provider_block = f"""{provider} = {{
@@ -860,7 +823,8 @@ def generate_terraform(
     }}"""
 
     # Build backend block
-    backend_template = _BACKEND_BLOCKS.get(backend, _BACKEND_BLOCKS["local"])
+    backends = _backend_blocks()
+    backend_template = backends.get(backend, backends["local"])
     backend_block = backend_template.format(
         project=project_name.replace("-", "").replace("_", ""),
         region=prov_config.get("default_region", "us-east-1"),

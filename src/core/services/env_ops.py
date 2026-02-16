@@ -32,17 +32,10 @@ _audit = make_auditor("env")
 # ═══════════════════════════════════════════════════════════════════
 
 
-_ENV_FILES = [
-    ".env",
-    ".env.local",
-    ".env.development",
-    ".env.staging",
-    ".env.production",
-    ".env.test",
-    ".env.example",
-    ".env.sample",
-    ".env.template",
-]
+def _env_files() -> list[str]:
+    """Env file variants — loaded from DataRegistry."""
+    from src.core.data import get_registry
+    return get_registry().env_files
 
 
 def _parse_env_file(path: Path) -> dict[str, str]:
@@ -118,7 +111,7 @@ def env_status(project_root: Path) -> dict:
     has_env = False
     has_example = False
 
-    for name in _ENV_FILES:
+    for name in _env_files():
         path = project_root / name
         if path.is_file():
             parsed = _parse_env_file(path)
@@ -391,45 +384,10 @@ def generate_env_from_example(project_root: Path) -> dict:
 # ═══════════════════════════════════════════════════════════════════
 
 
-_IAC_PROVIDERS = {
-    "terraform": {
-        "name": "Terraform",
-        "files": ["*.tf", "*.tf.json"],
-        "dirs": ["terraform", "infra", "infrastructure"],
-        "cli": "terraform",
-    },
-    "kubernetes": {
-        "name": "Kubernetes",
-        "files": [],
-        "dirs": ["k8s", "kubernetes", "manifests", "deploy"],
-        "cli": "kubectl",
-        "marker_files": ["kustomization.yaml", "kustomization.yml"],
-    },
-    "helm": {
-        "name": "Helm",
-        "files": ["Chart.yaml", "Chart.yml"],
-        "dirs": ["charts", "helm"],
-        "cli": "helm",
-    },
-    "pulumi": {
-        "name": "Pulumi",
-        "files": ["Pulumi.yaml", "Pulumi.yml"],
-        "dirs": [],
-        "cli": "pulumi",
-    },
-    "cloudformation": {
-        "name": "CloudFormation",
-        "dirs": ["cloudformation", "cfn"],
-        "files": [],
-        "cli": "aws",
-    },
-    "ansible": {
-        "name": "Ansible",
-        "files": ["ansible.cfg", "playbook.yml", "site.yml"],
-        "dirs": ["ansible", "playbooks", "roles"],
-        "cli": "ansible",
-    },
-}
+def _iac_providers() -> dict[str, dict]:
+    """IaC provider detection catalog — loaded from DataRegistry."""
+    from src.core.data import get_registry
+    return get_registry().iac_providers
 
 
 def iac_status(project_root: Path) -> dict:
@@ -443,7 +401,7 @@ def iac_status(project_root: Path) -> dict:
     """
     providers = []
 
-    for prov_id, spec in _IAC_PROVIDERS.items():
+    for prov_id, spec in _iac_providers().items():
         files_found: list[str] = []
         dirs_found: list[str] = []
 

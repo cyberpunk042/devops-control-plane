@@ -1,0 +1,74 @@
+{
+    "terraform": {
+        "name": "Terraform",
+        "files": [
+            "*.tf",
+            "*.tf.json"
+        ],
+        "dirs": [
+            "terraform",
+            "infra",
+            "infrastructure"
+        ],
+        "cli": "terraform"
+    },
+    "kubernetes": {
+        "name": "Kubernetes",
+        "files": [],
+        "dirs": [
+            "k8s",
+            "kubernetes",
+            "manifests",
+            "deploy"
+        ],
+        "cli": "kubectl",
+        "marker_files": [
+            "kustomization.yaml",
+            "kustomization.yml"
+        ]
+    },
+    "helm": {
+        "name": "Helm",
+        "files": [
+            "Chart.yaml",
+            "Chart.yml"
+        ],
+        "dirs": [
+            "charts",
+            "helm"
+        ],
+        "cli": "helm"
+    },
+    "pulumi": {
+        "name": "Pulumi",
+        "files": [
+            "Pulumi.yaml",
+            "Pulumi.yml"
+        ],
+        "dirs": [],
+        "cli": "pulumi"
+    },
+    "cloudformation": {
+        "name": "CloudFormation",
+        "dirs": [
+            "cloudformation",
+            "cfn"
+        ],
+        "files": [],
+        "cli": "aws"
+    },
+    "ansible": {
+        "name": "Ansible",
+        "files": [
+            "ansible.cfg",
+            "playbook.yml",
+            "site.yml"
+        ],
+        "dirs": [
+            "ansible",
+            "playbooks",
+            "roles"
+        ],
+        "cli": "ansible"
+    }
+}

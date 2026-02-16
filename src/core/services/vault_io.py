@@ -193,17 +193,10 @@ def import_vault_file(
 #  Secret file detection and parsing
 # ═══════════════════════════════════════════════════════════════════════
 
-# Known secret file patterns
-SECRET_FILE_PATTERNS = [
-    ".env",
-    ".env.local",
-    ".env.production",
-    ".env.staging",
-    "secrets.yml",
-    "secrets.yaml",
-    "credentials.json",
-    ".secrets",
-]
+def _secret_file_patterns() -> list[str]:
+    """Secret file patterns — loaded from DataRegistry."""
+    from src.core.data import get_registry
+    return get_registry().secret_file_patterns
 
 
 def detect_secret_files(project_root: Path) -> list[dict]:
@@ -215,7 +208,7 @@ def detect_secret_files(project_root: Path) -> list[dict]:
     Returns a list of dicts with file info and vault status.
     """
     # Build the pattern list — start with static patterns
-    patterns = list(SECRET_FILE_PATTERNS)
+    patterns = list(_secret_file_patterns())
 
     # Add dynamic .env.<envname> from project.yml environments
     config_file = project_root / "project.yml"

@@ -120,24 +120,10 @@ def _iter_files(root: Path, max_count: int) -> list[Path]:
 # ═══════════════════════════════════════════════════════════════════
 
 
-_SENSITIVE_PATTERNS = [
-    ("*.pem", "PEM certificate/key file"),
-    ("*.key", "Private key file"),
-    ("*.p12", "PKCS12 keystore"),
-    ("*.pfx", "PKCS12 keystore"),
-    ("*.jks", "Java keystore"),
-    ("*.keystore", "Keystore file"),
-    ("id_rsa", "SSH private key"),
-    ("id_ed25519", "SSH private key"),
-    ("id_dsa", "SSH private key"),
-    ("id_ecdsa", "SSH private key"),
-    (".htpasswd", "HTTP auth password file"),
-    (".netrc", "Network credentials file"),
-    (".npmrc", "npm config (may contain tokens)"),
-    (".pypirc", "PyPI credentials"),
-    ("credentials.json", "Service account credentials"),
-    ("service-account*.json", "GCP service account"),
-]
+def _sensitive_patterns() -> list[list]:
+    """Sensitive file patterns — loaded from DataRegistry."""
+    from src.core.data import get_registry
+    return get_registry().sensitive_files
 
 
 def detect_sensitive_files(project_root: Path) -> dict:
@@ -160,7 +146,7 @@ def detect_sensitive_files(project_root: Path) -> dict:
         except OSError:
             pass
 
-    for pattern, description in _SENSITIVE_PATTERNS:
+    for pattern, description in _sensitive_patterns():
         if "*" in pattern:
             matches = list(project_root.rglob(pattern))
         else:
@@ -224,49 +210,10 @@ def _is_gitignored(rel_path: str, pattern: str, gitignore_content: str) -> bool:
 # ═══════════════════════════════════════════════════════════════════
 
 
-_STACK_GITIGNORE_PATTERNS: dict[str, list[str]] = {
-    "python": [
-        "__pycache__/", "*.py[cod]", "*$py.class", "*.so",
-        "*.egg-info/", "dist/", "build/", "*.egg",
-        ".venv/", "venv/", ".pytest_cache/", ".mypy_cache/",
-        ".ruff_cache/", ".coverage", "htmlcov/",
-    ],
-    "node": [
-        "node_modules/", "dist/", "build/", ".next/",
-        "*.tsbuildinfo", ".npm/", ".yarn/",
-    ],
-    "typescript": [
-        "node_modules/", "dist/", "build/", ".next/",
-        "*.tsbuildinfo", "*.js.map",
-    ],
-    "go": [
-        "*.exe", "*.exe~", "*.dll", "*.so", "*.dylib",
-        "*.test", "*.out", "vendor/",
-    ],
-    "rust": [
-        "target/", "Cargo.lock",  # lock in libraries (not apps)
-    ],
-    "java": [
-        "*.class", "*.jar", "*.war", "*.ear",
-        "target/", "build/", ".gradle/", "*.iml",
-    ],
-    "dotnet": [
-        "bin/", "obj/", "*.user", "*.suo",
-        "packages/", ".vs/",
-    ],
-    "ruby": [
-        "*.gem", ".bundle/", "vendor/bundle/",
-    ],
-    "elixir": [
-        "_build/", "deps/", ".fetch", "*.ez",
-    ],
-}
-
-_UNIVERSAL_PATTERNS = [
-    ".env", ".env.*", "*.pem", "*.key",
-    ".DS_Store", "Thumbs.db",
-    ".vscode/", ".idea/", "*.swp", "*.swo",
-]
+def _gitignore_catalog() -> dict:
+    """Gitignore patterns — loaded from DataRegistry."""
+    from src.core.data import get_registry
+    return get_registry().gitignore_patterns
 
 
 def gitignore_analysis(project_root: Path, *, stack_names: list[str] | None = None) -> dict:
@@ -304,13 +251,15 @@ def gitignore_analysis(project_root: Path, *, stack_names: list[str] | None = No
     # Build expected patterns
     expected: list[tuple[str, str, str]] = []  # (pattern, category, reason)
 
-    for pattern in _UNIVERSAL_PATTERNS:
+    catalog = _gitignore_catalog()
+
+    for pattern in catalog["universal"]:
         expected.append((pattern, "security", "Universal security pattern"))
 
     if stack_names:
         for stack in stack_names:
             base = stack.split("-")[0]  # python-flask → python
-            patterns = _STACK_GITIGNORE_PATTERNS.get(base, [])
+            patterns = catalog["stacks"].get(base, [])
             for p in patterns:
                 expected.append((p, base, f"Required for {base} projects"))
 
@@ -392,7 +341,7 @@ def generate_gitignore(
             continue
         seen_bases.add(base)
 
-        patterns = _STACK_GITIGNORE_PATTERNS.get(base)
+        patterns = _gitignore_catalog()["stacks"].get(base)
         if not patterns:
             continue
 

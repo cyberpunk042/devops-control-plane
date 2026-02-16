@@ -624,40 +624,11 @@ def invalidate_with_cascade(project_root: Path, card_key: str) -> list[str]:
 
 # ── Audit scan activity log ─────────────────────────────────────
 
-# Human-friendly labels for card keys
-_CARD_LABELS: dict[str, str] = {
-    "security": "🔐 Security Posture",
-    "testing": "🧪 Testing",
-    "quality": "🔧 Code Quality",
-    "packages": "📦 Packages",
-    "env": "⚙️ Environment",
-    "docs": "📚 Documentation",
-    "k8s": "☸️ Kubernetes",
-    "terraform": "🏗️ Terraform",
-    "dns": "🌐 DNS & CDN",
-    "audit:system": "🖥️ System Profile",
-    "audit:deps": "📦 Dependencies",
-    "audit:structure": "🏗️ Structure & Modules",
-    "audit:clients": "🔌 Clients & Services",
-    "audit:scores": "📊 Audit Scores",
-    "audit:scores:enriched": "📊 Enriched Scores",
-    "audit:l2:structure": "🔬 Structure Analysis",
-    "audit:l2:quality": "💎 Code Health",
-    "audit:l2:repo": "📁 Repo Health",
-    "audit:l2:risks": "⚠️ Risks & Issues",
-    "wiz:detect": "🧙 Wizard Detect",
-    # ── Phase 4 audit expansion cards ──
-    "vault": "🔐 Vault",
-    "backup": "💾 Backup",
-    "content": "📝 Content",
-    "event": "📋 Event",
-    "dismissal": "🚫 Dismissal",
-    "docker": "🐳 Docker",
-    "secrets": "🔑 Secrets",
-    "ci": "⚙️ CI/CD",
-    "wizard": "🧙 Wizard",
-    "config": "⚙️ Config",
-}
+# Human-friendly labels for card keys — loaded from DataRegistry
+def _card_label(key: str) -> str:
+    """Look up the display label for a card key."""
+    from src.core.data import get_registry
+    return get_registry().card_labels.get(key, key)
 
 
 def _activity_path(project_root: Path) -> Path:
@@ -738,7 +709,7 @@ def _record_activity(
         "ts": time.time(),
         "iso": datetime.datetime.now(datetime.UTC).isoformat(),
         "card": card_key,
-        "label": _CARD_LABELS.get(card_key, card_key),
+        "label": _card_label(card_key),
         "status": status,
         "duration_s": elapsed_s,
         "summary": _extract_summary(card_key, data) if status == "ok" else error_msg,
@@ -869,7 +840,7 @@ def load_activity(project_root: Path, n: int = 50) -> list[dict]:
                     "ts": cached_at,
                     "iso": iso,
                     "card": card_key,
-                    "label": _CARD_LABELS.get(card_key, card_key),
+                    "label": _card_label(card_key),
                     "status": "ok",
                     "duration_s": elapsed,
                     "summary": "loaded from cache (historical)",

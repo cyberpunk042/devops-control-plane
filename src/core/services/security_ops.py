@@ -28,7 +28,7 @@ from src.core.services.security_common import (  # noqa: F401
 from src.core.services.security_scan import (  # noqa: F401
     scan_secrets,
     _iter_files,
-    _SENSITIVE_PATTERNS,
+    _sensitive_patterns,
     detect_sensitive_files,
     _is_gitignored,
     gitignore_analysis,
