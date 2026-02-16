@@ -298,6 +298,7 @@ _releasePollTimer = null;
 // #content/archive/backups → archive with folder context
 
 function contentUpdateHash() {
+if (typeof _modalPreviewActive !== 'undefined' && _modalPreviewActive) return;
 if (contentCurrentMode === 'archive') {
 const parts = ['content', 'archive'];
 if (_archiveSelectedFolder) parts.push(_archiveSelectedFolder);

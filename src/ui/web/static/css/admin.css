@@ -930,6 +930,119 @@ body {
     color: var(--text-primary);
 }
 
+/* ── Settings gear + panel ─────────────────────────────────────── */
+
+.settings-gear {
+    position: relative;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-xl);
+    padding: 0.3rem 0.6rem;
+    cursor: pointer;
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    user-select: none;
+}
+
+.settings-gear:hover {
+    border-color: var(--accent);
+    color: var(--text-primary);
+}
+
+.settings-panel {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
+    width: 280px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    z-index: 200;
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(-6px);
+    transition: opacity 0.15s, visibility 0.15s, transform 0.15s;
+    overflow: hidden;
+}
+
+.settings-panel.open {
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(0);
+}
+
+.settings-panel-header {
+    padding: 0.6rem 0.85rem;
+    border-bottom: 1px solid var(--border-subtle);
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.settings-panel-body {
+    padding: 0.5rem 0.85rem 0.75rem;
+}
+
+.settings-group {
+    margin-bottom: 0.65rem;
+}
+
+.settings-group:last-child {
+    margin-bottom: 0;
+}
+
+.settings-label {
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--text-secondary);
+    margin-bottom: 0.35rem;
+}
+
+.settings-hint {
+    font-size: 0.65rem;
+    color: var(--text-muted);
+    margin-bottom: 0.3rem;
+}
+
+.settings-btn-group {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+
+.settings-btn {
+    background: var(--bg-input);
+    border: 1px solid var(--border-subtle);
+    border-radius: 6px;
+    padding: 0.2rem 0.5rem;
+    font-size: 0.72rem;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.15s;
+    font-family: var(--font-sans);
+    white-space: nowrap;
+}
+
+.settings-btn:hover {
+    border-color: var(--accent);
+    color: var(--text-primary);
+    background: var(--bg-card-hover);
+}
+
+.settings-btn.active {
+    border-color: var(--accent);
+    color: var(--accent);
+    background: var(--accent-glow);
+    font-weight: 500;
+}
+
 /* ── GitHub shortcut menu ──────────────────────────────────────── */
 
 .gh-menu {
@@ -2762,6 +2875,28 @@ body {
 
 .modal-box.narrow {
     max-width: 440px;
+}
+
+.modal-box.preview {
+    max-width: 85vw;
+    max-height: 85vh;
+    display: flex;
+    flex-direction: column;
+}
+
+.modal-box.preview .modal-body {
+    flex: 1 1 auto;
+    overflow: auto;
+    min-height: 0;
+}
+
+.modal-box.preview .modal-footer {
+    flex-shrink: 0;
+}
+
+/* Cap Monaco height inside modal so it doesn't force overflow */
+.modal-box.preview #monaco-editor-container {
+    max-height: 55vh;
 }
 
 /* ── Modal header ────────────────────────────────────────────────── */

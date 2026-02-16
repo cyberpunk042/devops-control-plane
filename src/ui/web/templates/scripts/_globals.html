@@ -285,11 +285,21 @@
 
     /**
      * Navigate to the Content Vault and open a file for viewing/editing.
+     * Respects the user's preview mode preference:
+     *   - 'modal'   → opens a peek modal (no tab navigation)
+     *   - 'forward' → navigates to Content tab (original behavior)
      * @param {string} filePath - relative path to the file (e.g. "Dockerfile", "k8s/deployment.yaml")
      * @param {string} [mode='raw'] - view mode: 'raw' | 'edit' | 'preview'
      * @param {number} [line=0] - optional line number to focus
      */
     function openFileInEditor(filePath, mode = 'raw', line = 0) {
+        // Check if we should open in modal (only when NOT already in content tab)
+        if (typeof activeTab !== 'undefined' && activeTab !== 'content'
+                && prefsGet('previewMode') === 'modal'
+                && typeof openFileInModal === 'function') {
+            openFileInModal(filePath);
+            return;
+        }
         const hashSuffix = line > 0 ? `@${mode}:${line}` : `@${mode}`;
         switchTab(`content/docs/${filePath}${hashSuffix}`);
     }

@@ -197,132 +197,128 @@ const editBar = document.getElementById('content-preview-edit-bar');
 previewIsText = (data.type === 'text' || data.type === 'markdown');
 
 if (data.type === 'image') {
-body.innerHTML = `<div style="text-align:center;padding:1rem">
-    <img src="${data.url}" alt="${esc(name)}" style="max-width:100%;max-height:70vh;border-radius:var(--radius-sm)">
-</div>`;
+    body.innerHTML = `<div style="text-align:center;padding:1rem">
+        <img src="${data.url}" alt="${esc(name)}" style="max-width:100%;max-height:70vh;border-radius:var(--radius-sm)">
+    </div>`;
 
 } else if (data.type === 'video') {
-// Video player with fallback + optimize option
-const canPlayNatively = ['video/mp4', 'video/webm'].includes(data.mime);
-body.innerHTML = `
-<div style="text-align:center;padding:1rem">
-    <video id="content-video-player" controls ${!canPlayNatively ? 'style="display:none"' : '' }
-        style="max-width:100%;max-height:55vh;border-radius:var(--radius-sm);background:#000">
-        <source src="${data.url}">
-    </video>
-    <div id="content-video-fallback" style="${canPlayNatively ? 'display:none;' : ''}padding:1.5rem">
-        <div style="font-size:2.5rem;margin-bottom:0.5rem;opacity:0.5">🎬</div>
-        <p style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:0.75rem">
-            ${canPlayNatively ? 'Cannot play this video.' : `<strong>${esc(name)}</strong> (${data.mime}) can't play in
-            browser.`}
-        </p>
-        <a href="${data.url}" download="${esc(name)}" class="btn btn-secondary btn-sm">
-            ⬇️ Download (${formatFileSize(data.size)})
-        </a>
-    </div>
-    <div
-        style="margin-top:1rem;padding:0.75rem;background:var(--bg-inset);border-radius:var(--radius-sm);border:1px solid var(--border-subtle)">
-        <div style="display:flex;align-items:center;gap:0.5rem;justify-content:center;flex-wrap:wrap">
-            <span style="font-size:0.8rem;color:var(--text-secondary)">
-                ${formatFileSize(data.size)} · ${data.mime}
-            </span>
-            <a href="${data.url}" download="${esc(name)}" class="btn btn-secondary btn-sm">⬇️ Download</a>
+    const canPlayNatively = ['video/mp4', 'video/webm'].includes(data.mime);
+    body.innerHTML = `
+    <div style="text-align:center;padding:1rem">
+        <video id="content-video-player" controls ${!canPlayNatively ? 'style="display:none"' : '' }
+            style="max-width:100%;max-height:55vh;border-radius:var(--radius-sm);background:#000">
+            <source src="${data.url}">
+        </video>
+        <div id="content-video-fallback" style="${canPlayNatively ? 'display:none;' : ''}padding:1.5rem">
+            <div style="font-size:2.5rem;margin-bottom:0.5rem;opacity:0.5">🎬</div>
+            <p style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:0.75rem">
+                ${canPlayNatively ? 'Cannot play this video.' : `<strong>${esc(name)}</strong> (${data.mime}) can't play in
+                browser.`}
+            </p>
+            <a href="${data.url}" download="${esc(name)}" class="btn btn-secondary btn-sm">
+                ⬇️ Download (${formatFileSize(data.size)})
+            </a>
         </div>
-    </div>
-</div>`;
-// If browser can't decode, show download fallback
-if (canPlayNatively) {
-const videoEl = document.getElementById('content-video-player');
-if (videoEl) {
-videoEl.addEventListener('error', () => {
-videoEl.style.display = 'none';
-const fb = document.getElementById('content-video-fallback');
-if (fb) fb.style.display = 'block';
-}, true);
-}
-}
+        <div
+            style="margin-top:1rem;padding:0.75rem;background:var(--bg-inset);border-radius:var(--radius-sm);border:1px solid var(--border-subtle)">
+            <div style="display:flex;align-items:center;gap:0.5rem;justify-content:center;flex-wrap:wrap">
+                <span style="font-size:0.8rem;color:var(--text-secondary)">
+                    ${formatFileSize(data.size)} · ${data.mime}
+                </span>
+                <a href="${data.url}" download="${esc(name)}" class="btn btn-secondary btn-sm">⬇️ Download</a>
+            </div>
+        </div>
+    </div>`;
+    if (canPlayNatively) {
+        const videoEl = body.querySelector('#content-video-player');
+        if (videoEl) {
+            videoEl.addEventListener('error', () => {
+                videoEl.style.display = 'none';
+                const fb = body.querySelector('#content-video-fallback');
+                if (fb) fb.style.display = 'block';
+            }, true);
+        }
+    }
 
 } else if (data.type === 'audio') {
-// Audio player
-body.innerHTML = `
-<div style="text-align:center;width:100%;padding:2rem">
-    <div style="font-size:3rem;margin-bottom:1rem;opacity:0.4">🎵</div>
-    <p style="font-size:0.9rem;color:var(--text-secondary);margin-bottom:1rem">${esc(name)}</p>
-    <audio controls style="width:100%;max-width:450px">
-        <source src="${data.url}" type="${data.mime}">
-    </audio>
-    <div style="margin-top:1rem">
-        <a href="${data.url}" download="${esc(name)}" class="btn btn-secondary btn-sm">⬇️ Download
-            (${formatFileSize(data.size)})</a>
-    </div>
-</div>`;
+    body.innerHTML = `
+    <div style="text-align:center;width:100%;padding:2rem">
+        <div style="font-size:3rem;margin-bottom:1rem;opacity:0.4">🎵</div>
+        <p style="font-size:0.9rem;color:var(--text-secondary);margin-bottom:1rem">${esc(name)}</p>
+        <audio controls style="width:100%;max-width:450px">
+            <source src="${data.url}" type="${data.mime}">
+        </audio>
+        <div style="margin-top:1rem">
+            <a href="${data.url}" download="${esc(name)}" class="btn btn-secondary btn-sm">⬇️ Download
+                (${formatFileSize(data.size)})</a>
+        </div>
+    </div>`;
 
 } else if (data.type === 'markdown' || data.type === 'text') {
-previewOrigContent = data.content;
+    previewOrigContent = data.content;
 
-// Build toggle buttons
-toggle.style.display = 'flex';
-let toggleHtml = '';
-if (data.type === 'markdown') {
-toggleHtml += `
-<button class="btn btn-sm ${previewRawMode && !previewEditMode ? 'btn-primary' : 'btn-secondary'}"
-    onclick="contentSetPreviewMode('raw')">Raw</button>
-<button class="btn btn-sm ${!previewRawMode && !previewEditMode ? 'btn-primary' : 'btn-secondary'}"
-    onclick="contentSetPreviewMode('preview')">Preview</button>`;
-}
-toggleHtml += `<button class="btn btn-sm ${previewEditMode ? 'btn-primary' : 'btn-secondary'}"
-    onclick="contentSetPreviewMode('edit')">✏️ Edit</button>`;
-toggle.innerHTML = toggleHtml;
+    toggle.style.display = 'flex';
+    let toggleHtml = '';
+    if (data.type === 'markdown') {
+        toggleHtml += `
+        <button class="btn btn-sm ${previewRawMode && !previewEditMode ? 'btn-primary' : 'btn-secondary'}"
+            onclick="contentSetPreviewMode('raw')">Raw</button>
+        <button class="btn btn-sm ${!previewRawMode && !previewEditMode ? 'btn-primary' : 'btn-secondary'}"
+            onclick="contentSetPreviewMode('preview')">Preview</button>`;
+    }
+    toggleHtml += `<button class="btn btn-sm ${previewEditMode ? 'btn-primary' : 'btn-secondary'}"
+        onclick="contentSetPreviewMode('edit')">✏️ Edit</button>`;
+    toggle.innerHTML = toggleHtml;
 
-if (previewEditMode) {
-body.innerHTML = `<div id="monaco-editor-container" style="border:1px solid var(--border);border-radius:var(--radius-sm);overflow:hidden"></div>`;
-monacoCreate('monaco-editor-container', {
-    content: data.content,
-    filePath: path,
-    readOnly: false,
-    minHeight: 400,
-});
-editBar.style.display = 'flex';
-editBar.innerHTML = `
-<button class="btn btn-secondary btn-sm" onclick="contentDiscardEdit()">↩️ Discard</button>
-<button class="btn btn-primary btn-sm" onclick="contentSaveEdit()">💾 Save</button>`;
-} else if (data.type === 'markdown' && !previewRawMode) {
-body.innerHTML = `<div class="content-preview-rendered notranslate" translate="no">
-    <div style="display:flex;justify-content:flex-end;margin-bottom:0.5rem"><button class="btn btn-secondary btn-sm"
-            style="font-size:0.7rem;padding:0.15rem 0.5rem" onclick="contentToggleTranslate(this)">🌐 Translate</button>
-    </div>${renderMarkdown(data.content)}
-</div>`;
-_attachPreviewLinkHandlers(body);
-editBar.style.display = 'none';
-} else {
-// Raw code view — Monaco read-only
-body.innerHTML = `<div id="monaco-editor-container" style="border:1px solid var(--border);border-radius:var(--radius-sm);overflow:hidden"></div>`;
-const focusLine = window._contentFocusLine || 0;
-window._contentFocusLine = 0;
-monacoCreate('monaco-editor-container', {
-    content: data.content,
-    filePath: path,
-    readOnly: true,
-    minHeight: 300,
-    focusLine: focusLine,
-});
-editBar.style.display = 'none';
-}
+    if (previewEditMode) {
+        body.innerHTML = `<div id="monaco-editor-container" style="border:1px solid var(--border);border-radius:var(--radius-sm);overflow:hidden"></div>`;
+        monacoCreate('monaco-editor-container', {
+            content: data.content,
+            filePath: path,
+            readOnly: false,
+            minHeight: 400,
+        });
+        editBar.style.display = 'flex';
+        editBar.innerHTML = `
+        <button class="btn btn-secondary btn-sm" onclick="contentDiscardEdit()">↩️ Discard</button>
+        <button class="btn btn-primary btn-sm" onclick="contentSaveEdit()">💾 Save</button>`;
+    } else if (data.type === 'markdown' && !previewRawMode) {
+        body.innerHTML = `<div class="content-preview-rendered notranslate" translate="no">
+            <div style="display:flex;justify-content:flex-end;margin-bottom:0.5rem"><button class="btn btn-secondary btn-sm"
+                    style="font-size:0.7rem;padding:0.15rem 0.5rem" onclick="contentToggleTranslate(this)">🌐 Translate</button>
+            </div>${renderMarkdown(data.content)}
+        </div>`;
+        _attachPreviewLinkHandlers(body);
+        editBar.style.display = 'none';
+    } else {
+        body.innerHTML = `<div id="monaco-editor-container" style="border:1px solid var(--border);border-radius:var(--radius-sm);overflow:hidden"></div>`;
+        const focusLine = window._contentFocusLine || 0;
+        window._contentFocusLine = 0;
+        monacoCreate('monaco-editor-container', {
+            content: data.content,
+            filePath: path,
+            readOnly: true,
+            minHeight: 300,
+            focusLine: focusLine,
+        });
+        editBar.style.display = 'none';
+    }
 
-if (data.truncated) {
-body.innerHTML += `<p style="color:var(--warning);font-size:0.8rem;padding:0.5rem">⚠️ File truncated (showing first 512
-    KB of ${formatFileSize(data.size)})</p>`;
-}
+    if (data.truncated) {
+        body.innerHTML += `<p style="color:var(--warning);font-size:0.8rem;padding:0.5rem">⚠️ File truncated (showing first 512
+            KB of ${formatFileSize(data.size)})</p>`;
+    }
 
 } else if (data.type === 'binary') {
-body.innerHTML = `<div class="empty-state" style="padding:2rem">
-    <span style="font-size:2rem">📦</span>
-    <p>Binary file — cannot preview</p>
-    <p style="font-size:0.8rem;color:var(--text-muted)">${data.mime || 'unknown type'}</p>
-    <a class="btn btn-primary btn-sm" href="/api/content/download?path=${encodeURIComponent(path)}&download=1"
-        style="margin-top:0.75rem">⬇️ Download</a>
-</div>`;
+    body.innerHTML = `<div class="empty-state" style="padding:2rem">
+        <span style="font-size:2rem">📦</span>
+        <p>Binary file — cannot preview</p>
+        <p style="font-size:0.8rem;color:var(--text-muted)">${data.mime || 'unknown type'}</p>
+        <a class="btn btn-primary btn-sm" href="/api/content/download?path=${encodeURIComponent(path)}&download=1"
+            style="margin-top:0.75rem">⬇️ Download</a>
+    </div>`;
 }
+
 } catch (e) {
 document.getElementById('content-preview-body').innerHTML =
 `<p class="empty-state" style="color:var(--error)">❌ ${esc(e.message)}</p>`;

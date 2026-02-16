@@ -24,11 +24,10 @@ function _auditFileLink(filePath, line) {
 }
 
 function _auditNavToFile(path, line) {
-    // Close modal first
+    // Close audit modal first (if open)
     const modal = document.getElementById('audit-modal-overlay');
     if (modal) modal.remove();
-    const linePart = line ? ':' + line : '';
-    switchTab('content/docs/' + path + '@preview' + linePart);
+    openFileInEditor(path, 'preview', line || 0);
 }
 
 function _auditModal(title, bodyHtml, width) {

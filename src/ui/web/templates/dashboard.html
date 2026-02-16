@@ -32,6 +32,7 @@
 <!-- Pre-injected card data — zero-RTT first paint (Phase 7C) -->
 <script>window.__INITIAL_STATE__ = {{ initial_state | tojson | safe }};</script>
 
+{% include 'scripts/_settings.html' %}
 {% include 'scripts/_globals.html' %}
 {% include 'scripts/_event_stream.html' %}
 {% include 'scripts/_globals_wizard_modal.html' %}

@@ -1,0 +1,203 @@
+<script>
+    // ─────────────────────────────────────────────────────────────────
+    //  _settings.html
+    //  User preferences: UI scale, density, theme, preview mode
+    //  Persisted in localStorage('dcp_prefs') as JSON
+    //  Included by: dashboard.html (Jinja2 include)
+    // ─────────────────────────────────────────────────────────────────
+
+    // ── Default preferences ─────────────────────────────────────────
+    const _PREFS_KEY = 'dcp_prefs';
+    const _PREFS_DEFAULTS = {
+        theme: 'dark',
+        uiScale: 'default',      // compact | default | comfortable | large
+        density: 'normal',       // dense | normal | spacious
+        previewMode: 'modal',    // modal | forward
+    };
+
+    // ── Scale profiles ──────────────────────────────────────────────
+    const _SCALE_PROFILES = {
+        compact:     { label: 'Compact',     rootPx: 12.75, icon: '🔍' },
+        default:     { label: 'Default',     rootPx: 15,    icon: '📐' },
+        comfortable: { label: 'Comfortable', rootPx: 16.5,  icon: '👓' },
+        large:       { label: 'Large',       rootPx: 18.75, icon: '🔎' },
+    };
+
+    // ── Density profiles ────────────────────────────────────────────
+    const _DENSITY_PROFILES = {
+        dense:   { label: 'Dense',   xs: '0.15rem', sm: '0.3rem',  md: '0.7rem',  lg: '1rem',   xl: '1.4rem', xxl: '2rem'   },
+        normal:  { label: 'Normal',  xs: '0.25rem', sm: '0.5rem',  md: '1rem',    lg: '1.5rem', xl: '2rem',   xxl: '3rem'   },
+        spacious:{ label: 'Spacious',xs: '0.35rem', sm: '0.65rem', md: '1.25rem', lg: '1.85rem',xl: '2.5rem', xxl: '3.5rem' },
+    };
+
+    // ── Preference helpers ──────────────────────────────────────────
+
+    function prefsLoad() {
+        try {
+            const raw = localStorage.getItem(_PREFS_KEY);
+            if (raw) return { ..._PREFS_DEFAULTS, ...JSON.parse(raw) };
+        } catch (_) {}
+        return { ..._PREFS_DEFAULTS };
+    }
+
+    function prefsSave(prefs) {
+        localStorage.setItem(_PREFS_KEY, JSON.stringify(prefs));
+    }
+
+    function prefsGet(key) {
+        return prefsLoad()[key] ?? _PREFS_DEFAULTS[key];
+    }
+
+    function prefsSet(key, value) {
+        const prefs = prefsLoad();
+        prefs[key] = value;
+        prefsSave(prefs);
+    }
+
+    // ── Apply functions ─────────────────────────────────────────────
+
+    function applyTheme(theme) {
+        document.documentElement.setAttribute('data-theme', theme);
+        const btn = document.getElementById('theme-toggle');
+        if (btn) btn.textContent = theme === 'light' ? '☀️' : '🌙';
+    }
+
+    function applyScale(profileKey) {
+        const profile = _SCALE_PROFILES[profileKey] || _SCALE_PROFILES.default;
+        document.documentElement.style.fontSize = profile.rootPx + 'px';
+    }
+
+    function applyDensity(profileKey) {
+        const profile = _DENSITY_PROFILES[profileKey] || _DENSITY_PROFILES.normal;
+        const root = document.documentElement.style;
+        root.setProperty('--space-xs',  profile.xs);
+        root.setProperty('--space-sm',  profile.sm);
+        root.setProperty('--space-md',  profile.md);
+        root.setProperty('--space-lg',  profile.lg);
+        root.setProperty('--space-xl',  profile.xl);
+        root.setProperty('--space-2xl', profile.xxl);
+    }
+
+    function applyAllPrefs() {
+        const prefs = prefsLoad();
+        applyTheme(prefs.theme);
+        applyScale(prefs.uiScale);
+        applyDensity(prefs.density);
+    }
+
+    // ── Settings panel toggle ───────────────────────────────────────
+
+    function toggleSettingsPanel() {
+        const panel = document.getElementById('settings-panel');
+        if (!panel) return;
+        const isOpen = panel.classList.contains('open');
+        if (isOpen) {
+            panel.classList.remove('open');
+        } else {
+            _renderSettingsPanel();
+            panel.classList.add('open');
+        }
+    }
+
+    function _renderSettingsPanel() {
+        const body = document.getElementById('settings-panel-body');
+        if (!body) return;
+        const prefs = prefsLoad();
+
+        let html = '';
+
+        // ── Theme ────────────────────────────────────────────────
+        html += `<div class="settings-group">
+            <div class="settings-label">Theme</div>
+            <div class="settings-btn-group">
+                <button class="settings-btn ${prefs.theme === 'dark' ? 'active' : ''}"
+                    onclick="_prefSetTheme('dark')">🌙 Dark</button>
+                <button class="settings-btn ${prefs.theme === 'light' ? 'active' : ''}"
+                    onclick="_prefSetTheme('light')">☀️ Light</button>
+            </div>
+        </div>`;
+
+        // ── UI Scale ─────────────────────────────────────────────
+        html += `<div class="settings-group">
+            <div class="settings-label">UI Scale</div>
+            <div class="settings-btn-group">`;
+        for (const [key, prof] of Object.entries(_SCALE_PROFILES)) {
+            html += `<button class="settings-btn ${prefs.uiScale === key ? 'active' : ''}"
+                onclick="_prefSetScale('${key}')" title="${prof.rootPx}px root">${prof.icon} ${prof.label}</button>`;
+        }
+        html += `</div></div>`;
+
+        // ── Density ──────────────────────────────────────────────
+        html += `<div class="settings-group">
+            <div class="settings-label">Density</div>
+            <div class="settings-btn-group">`;
+        for (const [key, prof] of Object.entries(_DENSITY_PROFILES)) {
+            const icons = { dense: '▪️', normal: '◾', spacious: '⬛' };
+            html += `<button class="settings-btn ${prefs.density === key ? 'active' : ''}"
+                onclick="_prefSetDensity('${key}')">${icons[key] || '◾'} ${prof.label}</button>`;
+        }
+        html += `</div></div>`;
+
+        // ── Preview Mode ──────────────────────────────────────────
+        html += `<div class="settings-group">
+            <div class="settings-label">File Preview</div>
+            <div class="settings-hint">When clicking files from other tabs</div>
+            <div class="settings-btn-group">
+                <button class="settings-btn ${prefs.previewMode === 'modal' ? 'active' : ''}"
+                    onclick="_prefSetPreviewMode('modal')">🔍 Modal</button>
+                <button class="settings-btn ${prefs.previewMode === 'forward' ? 'active' : ''}"
+                    onclick="_prefSetPreviewMode('forward')">➡️ Navigate</button>
+            </div>
+        </div>`;
+
+        body.innerHTML = html;
+    }
+
+    // ── Preference setters (called by settings UI) ──────────────
+
+    function _prefSetTheme(theme) {
+        prefsSet('theme', theme);
+        applyTheme(theme);
+        _renderSettingsPanel();
+    }
+
+    function _prefSetScale(scale) {
+        prefsSet('uiScale', scale);
+        applyScale(scale);
+        _renderSettingsPanel();
+    }
+
+    function _prefSetDensity(density) {
+        prefsSet('density', density);
+        applyDensity(density);
+        _renderSettingsPanel();
+    }
+
+    function _prefSetPreviewMode(mode) {
+        prefsSet('previewMode', mode);
+        _renderSettingsPanel();
+    }
+
+    // ── Migration from legacy localStorage('theme') ─────────────
+    (function _migrateTheme() {
+        const legacy = localStorage.getItem('theme');
+        if (legacy && !localStorage.getItem(_PREFS_KEY)) {
+            const prefs = { ..._PREFS_DEFAULTS, theme: legacy };
+            prefsSave(prefs);
+            localStorage.removeItem('theme');
+        }
+    })();
+
+    // ── Apply on load (immediate — before DOMContentLoaded) ─────
+    applyAllPrefs();
+
+    // ── Close panel on outside click ────────────────────────────
+    document.addEventListener('click', (e) => {
+        const panel = document.getElementById('settings-panel');
+        const gear = document.getElementById('settings-gear');
+        if (!panel || !gear) return;
+        if (!panel.contains(e.target) && !gear.contains(e.target)) {
+            panel.classList.remove('open');
+        }
+    });
+</script>
