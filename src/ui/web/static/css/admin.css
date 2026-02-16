@@ -3267,3 +3267,41 @@ select option {
     background: var(--bg-inset);
     color: var(--text-muted);
 }
+
+/* ═══════════════════════════════════════════════════════════════════ */
+/* ── Card Header Controls (age badge + refresh button) ───────────── */
+/* ═══════════════════════════════════════════════════════════════════ */
+
+.card-age {
+    font-size: 0.72rem !important;
+    color: var(--text-muted);
+}
+
+.card-header .btn-icon {
+    font-size: 0.92rem !important;
+    padding: 2px 4px !important;
+    cursor: pointer;
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    border-radius: var(--radius-sm);
+    transition: all 0.15s ease;
+    line-height: 1;
+}
+
+.card-header .btn-icon:hover {
+    color: var(--accent);
+    background: var(--accent-glow);
+}
+
+/* ── Staleness Indicators (SSE Event Stream) ─────────────────────── */
+
+.card-age.stale {
+    color: var(--warning) !important;
+}
+
+.card-age.stale::after {
+    content: ' ⚠';
+    font-size: 0.82rem;
+    animation: fadeIn 0.3s ease;
+}

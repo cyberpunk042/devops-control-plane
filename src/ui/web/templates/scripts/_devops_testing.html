@@ -4,18 +4,36 @@
 */
     // ── Testing Card ───────────────────────────────────────────────────
 
+    // Register renderer for SSE-driven updates (cache:done → storeSet → render)
+    storeRegister('testing', renderTestingCard);
+
     async function loadTestingCard() {
         const badge = document.getElementById('devops-testing-badge');
         const detail = document.getElementById('devops-testing-detail');
+
+        // 1. Check SSE state store (fastest — populated by cache:done events)
+        const storeData = storeGet('testing');
+        if (storeData) { renderTestingCard(storeData); return; }
+
+        // 2. Check sessionStorage (backward compat)
         const cached = cardCached('testing');
-        const data = cached || await api('/testing/status').catch(e => ({ _err: e }));
+        if (cached) { renderTestingCard(cached); return; }
+
+        // 3. Fall back to API fetch
+        const data = await api('/testing/status').catch(e => ({ _err: e }));
         if (data._err) {
             badge.className = 'status-badge failed';
             badge.innerHTML = '<span class="status-dot"></span>Error';
             detail.innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(data._err.message)}</p>`;
             return;
         }
-        if (!cached) cardStore('testing', data);
+        storeSet('testing', data);  // populates store + sessionStorage + notifies renderers
+    }
+
+    function renderTestingCard(data) {
+        const badge = document.getElementById('devops-testing-badge');
+        const detail = document.getElementById('devops-testing-detail');
+        if (!badge || !detail) return;
 
         const frameworks = data.frameworks || [];
         const stats = data.stats || {};

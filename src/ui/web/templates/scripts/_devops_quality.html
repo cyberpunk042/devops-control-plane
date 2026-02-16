@@ -4,18 +4,33 @@
 */
     // ── Quality Card ──────────────────────────────────────────────────
 
+    // Register renderer for SSE-driven updates
+    storeRegister('quality', renderQualityCard);
+
     async function loadQualityCard() {
         const badge = document.getElementById('devops-quality-badge');
         const detail = document.getElementById('devops-quality-detail');
+
+        const storeData = storeGet('quality');
+        if (storeData) { renderQualityCard(storeData); return; }
+
         const cached = cardCached('quality');
-        const data = cached || await api('/quality/status').catch(e => ({ _err: e }));
+        if (cached) { renderQualityCard(cached); return; }
+
+        const data = await api('/quality/status').catch(e => ({ _err: e }));
         if (data._err) {
             badge.className = 'status-badge failed';
             badge.innerHTML = '<span class="status-dot"></span>Error';
             detail.innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(data._err.message)}</p>`;
             return;
         }
-        if (!cached) cardStore('quality', data);
+        storeSet('quality', data);
+    }
+
+    function renderQualityCard(data) {
+        const badge = document.getElementById('devops-quality-badge');
+        const detail = document.getElementById('devops-quality-detail');
+        if (!badge || !detail) return;
 
         const tools = data.tools || [];
         const cats = data.categories || {};

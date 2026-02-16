@@ -4,14 +4,23 @@
 */
     // ── Security Card (lightweight summary — heavy scanning lives in Audit) ──
 
+    // Register renderer for SSE-driven updates
+    storeRegister('security', renderSecurityCard);
+
     async function loadSecurityCard() {
         const badge = document.getElementById('devops-security-badge');
         const detail = document.getElementById('devops-security-detail');
 
-        // Try reading from client-side cache first (populated by a previous load)
+        // 1. SSE state store
+        const storeData = storeGet('security');
+        if (storeData) { renderSecurityCard(storeData); return; }
+
+        // 2. sessionStorage
         const cached = cardCached('security');
-        // If not cached, try a lightweight API call that returns cache-only data
-        const data = cached || await api('/security/posture-summary').catch(e => ({ _err: e }));
+        if (cached) { renderSecurityCard(cached); return; }
+
+        // 3. API fallback
+        const data = await api('/security/posture-summary').catch(e => ({ _err: e }));
         if (data._err || data.empty) {
             // No data yet — guide user to Audit tab
             badge.className = 'status-badge';
@@ -35,7 +44,13 @@
             </div>`;
             return;
         }
-        if (!cached) cardStore('security', data);
+        storeSet('security', data);
+    }
+
+    function renderSecurityCard(data) {
+        const badge = document.getElementById('devops-security-badge');
+        const detail = document.getElementById('devops-security-detail');
+        if (!badge || !detail) return;
 
         const posture = data.posture || {};
         const score = posture.score ?? 0;

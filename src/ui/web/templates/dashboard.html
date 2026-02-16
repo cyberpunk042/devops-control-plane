@@ -29,7 +29,11 @@
 <!-- Data catalogs from Python DataRegistry (single source of truth) -->
 <script>window._dcp = {{ dcp_data | tojson | safe }};</script>
 
+<!-- Pre-injected card data — zero-RTT first paint (Phase 7C) -->
+<script>window.__INITIAL_STATE__ = {{ initial_state | tojson | safe }};</script>
+
 {% include 'scripts/_globals.html' %}
+{% include 'scripts/_event_stream.html' %}
 {% include 'scripts/_globals_wizard_modal.html' %}
 {% include 'scripts/_integrations_setup_shared.html' %}
 {% include 'scripts/_integrations_setup_git.html' %}

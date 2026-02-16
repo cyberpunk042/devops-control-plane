@@ -121,9 +121,47 @@ def create_app(
     _registry = get_registry()
     app.config["DATA_REGISTRY"] = _registry
 
+    # Keys safe to pre-inject into HTML (~10 KB total).
+    # Audit L2 keys (audit:l2:*) are excluded — too large (200+ KB).
+    _INJECT_KEYS = frozenset({
+        # DevOps tab (9 cards)
+        "security", "testing", "quality", "packages", "env", "docs",
+        "k8s", "terraform", "dns",
+        # Integrations tab
+        "git", "github", "ci", "docker",
+        "gh-pulls", "gh-runs", "gh-workflows",
+        # Dashboard
+        "project-status",
+        # Audit L0/L1 (small summaries)
+        "audit:system", "audit:deps", "audit:structure",
+        "audit:clients", "audit:scores",
+        # Wizard detect
+        "wiz:detect",
+    })
+
     @app.context_processor
     def _inject_data_catalogs():  # type: ignore[no-untyped-def]
-        return {"dcp_data": _registry.to_js_dict()}
+        from src.core.services.devops_cache import _load_cache
+
+        # Build initial state from disk cache (available even on cold start)
+        initial: dict[str, dict] = {}
+        try:
+            cache = _load_cache(Path(project_root))
+            for key in _INJECT_KEYS:
+                entry = cache.get(key)
+                if entry and "data" in entry:
+                    initial[key] = {"data": entry["data"]}
+        except Exception:
+            pass  # Degrade gracefully — cards will fall back to API
+
+        return {
+            "dcp_data": _registry.to_js_dict(),
+            "initial_state": initial,
+        }
+
+    # Start staleness watcher (background mtime polling → state:stale events)
+    from src.core.services.staleness_watcher import start_watcher
+    start_watcher(app.config["PROJECT_ROOT"])
 
     logger.info("Web admin app created (root=%s)", project_root)
     return app

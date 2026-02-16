@@ -4,18 +4,32 @@
 */
     // ── Environment & IaC Card ────────────────────────────────────────
 
+    storeRegister('env', renderEnvCard);
+
     async function loadEnvCard() {
         const badge = document.getElementById('devops-env-badge');
         const detail = document.getElementById('devops-env-detail');
+
+        const storeData = storeGet('env');
+        if (storeData) { renderEnvCard(storeData); return; }
+
         const cached = cardCached('env');
-        const data = cached || await api('/env/card-status').catch(e => ({ _err: e }));
+        if (cached) { renderEnvCard(cached); return; }
+
+        const data = await api('/env/card-status').catch(e => ({ _err: e }));
         if (data._err) {
             badge.className = 'status-badge failed';
             badge.innerHTML = '<span class="status-dot"></span>Error';
             detail.innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(data._err.message)}</p>`;
             return;
         }
-        if (!cached) cardStore('env', data);
+        storeSet('env', data);
+    }
+
+    function renderEnvCard(data) {
+        const badge = document.getElementById('devops-env-badge');
+        const detail = document.getElementById('devops-env-detail');
+        if (!badge || !detail) return;
 
         const envs = data.environments || [];
         const activeEnv = data.active || '';

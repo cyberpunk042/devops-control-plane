@@ -4,18 +4,32 @@
 */
     // ── Terraform Card ─────────────────────────────────────────────────
 
+    storeRegister('terraform', renderTerraformCard);
+
     async function loadTerraformCard() {
         const badge = document.getElementById('devops-terraform-badge');
         const detail = document.getElementById('devops-terraform-detail');
+
+        const storeData = storeGet('terraform');
+        if (storeData) { renderTerraformCard(storeData); return; }
+
         const cached = cardCached('terraform');
-        const data = cached || await api('/terraform/status').catch(e => ({ _err: e }));
+        if (cached) { renderTerraformCard(cached); return; }
+
+        const data = await api('/terraform/status').catch(e => ({ _err: e }));
         if (data._err) {
             badge.className = 'status-badge failed';
             badge.innerHTML = '<span class="status-dot"></span>Error';
             detail.innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(data._err.message)}</p>`;
             return;
         }
-        if (!cached) cardStore('terraform', data);
+        storeSet('terraform', data);
+    }
+
+    function renderTerraformCard(data) {
+        const badge = document.getElementById('devops-terraform-badge');
+        const detail = document.getElementById('devops-terraform-detail');
+        if (!badge || !detail) return;
 
         const cli = data.cli || {};
         const hasTf = data.has_terraform;

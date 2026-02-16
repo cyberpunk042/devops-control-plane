@@ -1,0 +1,302 @@
+<script>
+/* ═══════════════════════════════════════════════════════════════════
+ *  Event Stream — SSE client + reactive state store (Phase 7B)
+ *
+ *  Connects to GET /api/events (Server-Sent Events) and maintains
+ *  an in-memory state store.  When the server publishes cache:done,
+ *  the store updates and any registered renderers re-paint.
+ *
+ *  Depends on: _globals.html (cardStore, cardInvalidate, toast)
+ *  Consumed by: any card script that calls storeRegister(key, fn)
+ *
+ *  This is ADDITIVE — existing api()/cardCached() flows are untouched.
+ *  Cards that haven't opted in continue working as before.
+ * ═══════════════════════════════════════════════════════════════════ */
+
+    // ── State Store ────────────────────────────────────────────────
+    //
+    // In-memory store keyed by cache key (e.g. "testing", "docker").
+    // When data arrives (via SSE or explicit set), registered renderers
+    // are notified.  sessionStorage is also updated for backward compat.
+
+    const _store = {};               // key → data dict
+    const _renderers = {};           // key → [renderFn, ...]
+    const _staleKeys = new Set();    // keys marked stale by watcher
+
+    /** Update the store for a key and notify renderers. */
+    function storeSet(key, data) {
+        _store[key] = data;
+        _staleKeys.delete(key);      // fresh data clears stale marker
+
+        // Clear stale visual indicator on the DOM
+        document.querySelectorAll(`[data-cache-key="${key}"]`).forEach(el => {
+            el.classList.remove('stale');
+            el.title = '';
+        });
+
+        // Keep sessionStorage in sync (backward compat with cardCached)
+        cardStore(key, data);
+
+        // Notify registered renderers
+        const fns = _renderers[key];
+        if (fns) {
+            for (const fn of fns) {
+                try { fn(data); } catch (e) {
+                    console.error(`[EventStream] render ${key}:`, e);
+                }
+            }
+        }
+    }
+
+    /** Read from the store; returns null if not present. */
+    function storeGet(key) {
+        return _store[key] || null;
+    }
+
+    /** Register a render function for a cache key.
+     *  The function is called with (data) whenever storeSet(key, ...) fires.
+     *  Multiple renderers per key are supported. */
+    function storeRegister(key, renderFn) {
+        (_renderers[key] ??= []).push(renderFn);
+    }
+
+    /** Check if a key is marked stale by the watcher. */
+    function storeIsStale(key) {
+        return _staleKeys.has(key);
+    }
+
+    // ── SSE Connection Manager ─────────────────────────────────────
+
+    const _sse = {
+        /** @type {EventSource|null} */
+        source: null,
+        /** Server instance ID — changes on server restart. */
+        instanceId: null,
+        /** Last received sequence number (for replay on reconnect). */
+        lastSeq: 0,
+        /** Whether the SSE connection is currently open. */
+        connected: false,
+        /** Known event types to listen for. */
+        _eventTypes: [
+            'sys:ready', 'sys:warming', 'sys:warm', 'sys:heartbeat',
+            'state:snapshot',
+            'cache:miss', 'cache:done', 'cache:error', 'cache:bust',
+            'state:stale',
+        ],
+
+        /** Open the SSE connection. Safe to call multiple times. */
+        connect() {
+            if (this.source) return;
+
+            const url = '/api/events' + (this.lastSeq ? '?since=' + this.lastSeq : '');
+            this.source = new EventSource(url);
+
+            // Register a listener for each known event type
+            for (const type of this._eventTypes) {
+                this.source.addEventListener(type, (e) => this._dispatch(type, e));
+            }
+
+            this.source.onopen = () => {
+                this.connected = true;
+                console.debug('[SSE] connected');
+            };
+
+            this.source.onerror = () => {
+                // EventSource auto-reconnects and sends Last-Event-Id header.
+                // We just update our state flag.
+                if (this.connected) {
+                    this.connected = false;
+                    console.debug('[SSE] disconnected — will auto-reconnect');
+                }
+            };
+        },
+
+        /** Route an SSE event to the appropriate handler. */
+        _dispatch(type, sseEvent) {
+            let payload;
+            try {
+                payload = JSON.parse(sseEvent.data);
+            } catch (e) {
+                console.error('[SSE] bad JSON:', sseEvent.data);
+                return;
+            }
+
+            // Track sequence for replay on reconnect
+            if (payload.seq) {
+                this.lastSeq = payload.seq;
+            }
+
+            switch (type) {
+                case 'sys:ready':      this._onReady(payload);      break;
+                case 'state:snapshot': this._onSnapshot(payload);   break;
+                case 'cache:done':     this._onCacheDone(payload);  break;
+                case 'cache:miss':     this._onCacheMiss(payload);  break;
+                case 'cache:error':    this._onCacheError(payload); break;
+                case 'cache:bust':     this._onCacheBust(payload);  break;
+                case 'state:stale':    this._onStateStale(payload); break;
+                // sys:warming, sys:warm, sys:heartbeat — silently ignored for now
+            }
+        },
+
+        // ── Event Handlers ─────────────────────────────────────────
+
+        /** Server hello — detect restarts. */
+        _onReady(payload) {
+            const newId = payload.data?.instance_id;
+            if (this.instanceId && this.instanceId !== newId) {
+                // Server restarted — discard stale local state
+                console.info('[SSE] server restarted (instance %s → %s), clearing store',
+                    this.instanceId, newId);
+                for (const key of Object.keys(_store)) {
+                    delete _store[key];
+                }
+                _staleKeys.clear();
+                cardInvalidateAll();
+            }
+            this.instanceId = newId;
+            this.connected = true;
+        },
+
+        /** Full state replacement (new connection or buffer exhausted). */
+        _onSnapshot(payload) {
+            const snapshot = payload.data || {};
+            for (const [key, entry] of Object.entries(snapshot)) {
+                if (entry.data) {
+                    storeSet(key, entry.data);
+                }
+            }
+            console.debug('[SSE] snapshot loaded (%d keys)', Object.keys(snapshot).length);
+        },
+
+        /** Card computation finished — fresh data available. */
+        _onCacheDone(payload) {
+            const key = payload.key;
+            if (!key) return;
+
+            // The payload.data contains the full card data
+            storeSet(key, payload.data);
+
+            // Clear any loading indicator that _onCacheMiss may have set
+            _sse._clearLoadingIndicator(key);
+
+            const dur = payload.duration_s;
+            if (dur != null) {
+                console.debug('[SSE] cache:done %s (%.2fs)', key, dur);
+            }
+        },
+
+        /** Card computation starting — show loading indicator if visible. */
+        _onCacheMiss(payload) {
+            const key = payload.key;
+            if (!key) return;
+
+            // Try common badge/detail ID patterns
+            // DevOps:        devops-{key}-badge, devops-{key}-detail
+            // Integrations:  int-{key}-badge, int-{key}-detail
+            // Audit:         audit-{key}-badge, audit-{key}-detail
+            for (const prefix of ['devops-', 'int-', 'audit-']) {
+                const badge = document.getElementById(prefix + key + '-badge');
+                const detail = document.getElementById(prefix + key + '-detail');
+                if (badge) {
+                    badge.className = 'status-badge';
+                    badge.textContent = '—';
+                }
+                if (detail && !detail.querySelector('.spinner')) {
+                    // Only set spinner if there isn't one already
+                    detail.innerHTML = '<span class="spinner"></span>';
+                }
+            }
+        },
+
+        /** Card computation failed. */
+        _onCacheError(payload) {
+            const key = payload.key;
+            if (!key) return;
+
+            const msg = payload.error || 'Computation failed';
+
+            for (const prefix of ['devops-', 'int-', 'audit-']) {
+                const badge = document.getElementById(prefix + key + '-badge');
+                const detail = document.getElementById(prefix + key + '-detail');
+                if (badge) {
+                    badge.className = 'status-badge failed';
+                    badge.innerHTML = '<span class="status-dot"></span>Error';
+                }
+                if (detail) {
+                    detail.innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(msg)}</p>`;
+                }
+            }
+        },
+
+        /** Cache invalidated (user clicked refresh or cascade). */
+        _onCacheBust(payload) {
+            const scope = payload.data?.scope || '';
+            console.debug('[SSE] cache:bust scope=%s', scope);
+            // The explicit bust from the UI already invalidated sessionStorage.
+            // This handler is for CROSS-TAB sync: another tab busted →
+            // this tab should know.  We mark keys stale but don't re-render
+            // (the subsequent cache:miss → cache:done events will handle rendering).
+        },
+
+        /** File watcher detected underlying files changed. */
+        _onStateStale(payload) {
+            const key = payload.key;
+            if (!key) return;
+
+            _staleKeys.add(key);
+
+            // Add stale indicator to card age badges
+            document.querySelectorAll(`[data-cache-key="${key}"]`).forEach(el => {
+                el.classList.add('stale');
+                el.title = 'Underlying files changed — click 🔄 to refresh';
+            });
+
+            console.debug('[SSE] state:stale %s (stale by %.1fs)',
+                key, payload.data?.stale_by_s || 0);
+        },
+
+        // ── Helpers ────────────────────────────────────────────────
+
+        /** Remove loading spinner for a card (called after cache:done). */
+        _clearLoadingIndicator(key) {
+            // If the card still shows a spinner but we just got data,
+            // the registered renderer will overwrite it.  No extra work needed.
+        },
+
+        /** Disconnect the SSE stream (for cleanup / testing). */
+        disconnect() {
+            if (this.source) {
+                this.source.close();
+                this.source = null;
+                this.connected = false;
+                console.debug('[SSE] disconnected (manual)');
+            }
+        },
+    };
+
+    // ── Hydrate from pre-injected state (Phase 7C) ───────────────────
+    // The server embeds cached card data as __INITIAL_STATE__ in the HTML.
+    // We populate _store + sessionStorage SILENTLY (no storeSet) because
+    // renderers haven't been registered yet (those scripts load later).
+    // When loadXxxCard() runs, storeGet() finds data → instant render.
+
+    if (window.__INITIAL_STATE__) {
+        let _hydrated = 0;
+        for (const [key, entry] of Object.entries(window.__INITIAL_STATE__)) {
+            if (entry.data) {
+                _store[key] = entry.data;        // populate in-memory store
+                cardStore(key, entry.data);       // sync sessionStorage (backward compat)
+                _hydrated++;
+            }
+        }
+        console.debug('[EventStream] hydrated %d keys from __INITIAL_STATE__', _hydrated);
+        delete window.__INITIAL_STATE__;          // GC
+    }
+
+    // ── Auto-connect on page load ───────────────────────────────────
+    // The SSE connection opens immediately.  It runs alongside the
+    // existing api()-based card loading.  As cards migrate to storeRegister(),
+    // the SSE-delivered data becomes the primary source.
+
+    _sse.connect();
+</script>

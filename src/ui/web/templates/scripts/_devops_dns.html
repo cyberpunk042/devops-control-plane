@@ -4,18 +4,32 @@
 */
     // ── DNS & CDN Card ─────────────────────────────────────────────────
 
+    storeRegister('dns', renderDnsCard);
+
     async function loadDnsCard() {
         const badge = document.getElementById('devops-dns-badge');
         const detail = document.getElementById('devops-dns-detail');
+
+        const storeData = storeGet('dns');
+        if (storeData) { renderDnsCard(storeData); return; }
+
         const cached = cardCached('dns');
-        const data = cached || await api('/dns/status').catch(e => ({ _err: e }));
+        if (cached) { renderDnsCard(cached); return; }
+
+        const data = await api('/dns/status').catch(e => ({ _err: e }));
         if (data._err) {
             badge.className = 'status-badge failed';
             badge.innerHTML = '<span class="status-dot"></span>Error';
             detail.innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(data._err.message)}</p>`;
             return;
         }
-        if (!cached) cardStore('dns', data);
+        storeSet('dns', data);
+    }
+
+    function renderDnsCard(data) {
+        const badge = document.getElementById('devops-dns-badge');
+        const detail = document.getElementById('devops-dns-detail');
+        if (!badge || !detail) return;
 
         const providers = data.cdn_providers || [];
         const domains = data.domains || [];

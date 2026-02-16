@@ -4,18 +4,32 @@
 */
     // ── Packages Card ─────────────────────────────────────────────────
 
+    storeRegister('packages', renderPackagesCard);
+
     async function loadPackagesCard() {
         const badge = document.getElementById('devops-packages-badge');
         const detail = document.getElementById('devops-packages-detail');
+
+        const storeData = storeGet('packages');
+        if (storeData) { renderPackagesCard(storeData); return; }
+
         const cached = cardCached('packages');
-        const data = cached || await api('/packages/status').catch(e => ({ _err: e }));
+        if (cached) { renderPackagesCard(cached); return; }
+
+        const data = await api('/packages/status').catch(e => ({ _err: e }));
         if (data._err) {
             badge.className = 'status-badge failed';
             badge.innerHTML = '<span class="status-dot"></span>Error';
             detail.innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(data._err.message)}</p>`;
             return;
         }
-        if (!cached) cardStore('packages', data);
+        storeSet('packages', data);
+    }
+
+    function renderPackagesCard(data) {
+        const badge = document.getElementById('devops-packages-badge');
+        const detail = document.getElementById('devops-packages-detail');
+        if (!badge || !detail) return;
 
         const managers = data.managers || [];
         const hasPkgs = data.has_packages;

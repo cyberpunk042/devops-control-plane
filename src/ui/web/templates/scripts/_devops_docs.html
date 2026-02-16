@@ -4,18 +4,32 @@
 */
     // ── Documentation Card ─────────────────────────────────────────────
 
+    storeRegister('docs', renderDocsCard);
+
     async function loadDocsCard() {
         const badge = document.getElementById('devops-docs-badge');
         const detail = document.getElementById('devops-docs-detail');
+
+        const storeData = storeGet('docs');
+        if (storeData) { renderDocsCard(storeData); return; }
+
         const cached = cardCached('docs');
-        const data = cached || await api('/docs/status').catch(e => ({ _err: e }));
+        if (cached) { renderDocsCard(cached); return; }
+
+        const data = await api('/docs/status').catch(e => ({ _err: e }));
         if (data._err) {
             badge.className = 'status-badge failed';
             badge.innerHTML = '<span class="status-dot"></span>Error';
             detail.innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(data._err.message)}</p>`;
             return;
         }
-        if (!cached) cardStore('docs', data);
+        storeSet('docs', data);
+    }
+
+    function renderDocsCard(data) {
+        const badge = document.getElementById('devops-docs-badge');
+        const detail = document.getElementById('devops-docs-detail');
+        if (!badge || !detail) return;
 
         const readme = data.readme || {};
         const docDirs = data.doc_dirs || [];

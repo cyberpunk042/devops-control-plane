@@ -171,7 +171,7 @@ _WATCH_PATHS: dict[str, list[str]] = {
         "Dockerfile", "docker-compose.yml", "docker-compose.yaml",
         "k8s/", "kubernetes/",
         "terraform/", "main.tf",
-        "project.yml", ".pages/",
+        "project.yml",
         "CNAME", "netlify.toml", "vercel.json",
     ],
     # ── Integration cards ──────────────────────────────────────
@@ -190,7 +190,7 @@ _WATCH_PATHS: dict[str, list[str]] = {
         ".dockerignore",
     ],
     "pages": [
-        "project.yml", ".pages/",
+        "project.yml",
     ],
     # GitHub live-tab data — changes independently of local files.
     # Watch paths are a proxy: bust on push (HEAD) or workflow edits.
@@ -231,15 +231,63 @@ def _save_cache(project_root: Path, cache: dict) -> None:
 
 
 def _max_mtime(project_root: Path, watch_paths: list[str]) -> float:
-    """Get the most recent mtime among the watch paths."""
+    """Get the most recent mtime among the watch paths.
+
+    For directory entries (paths ending with ``/``), walks the directory
+    tree (depth-limited) and checks file mtimes — not just the dir mtime.
+    On Linux, a directory's mtime only changes on file create/delete,
+    NOT on edits to existing files inside it.
+    """
     max_mt = 0.0
     for rel in watch_paths:
         p = project_root / rel
         try:
-            st = os.stat(p)
-            max_mt = max(max_mt, st.st_mtime)
+            if rel.endswith("/") and p.is_dir():
+                max_mt = max(max_mt, _walk_max_mtime(p))
+            else:
+                st = os.stat(p)
+                max_mt = max(max_mt, st.st_mtime)
         except (FileNotFoundError, OSError):
             pass
+    return max_mt
+
+
+# Directories to skip during mtime walks — build artifacts, VCS, caches
+_WALK_SKIP = frozenset({
+    ".git", ".backup", "node_modules", "__pycache__", ".venv", "venv",
+    "build", "dist", ".tox", ".mypy_cache", ".ruff_cache",
+    ".pytest_cache", ".next", ".nuxt", "site-packages",
+    "_build",       # Sphinx
+})
+
+_WALK_MAX_DEPTH = 3  # 3 levels deep is enough for meaningful changes
+
+
+def _walk_max_mtime(directory: Path) -> float:
+    """Walk a directory (depth-limited, filtered) and return the max file mtime."""
+    max_mt = 0.0
+    base = str(directory)
+
+    for root, dirs, files in os.walk(directory):
+        # Enforce depth limit
+        depth = root[len(base):].count(os.sep)
+        if depth >= _WALK_MAX_DEPTH:
+            dirs.clear()  # don't recurse deeper
+            continue
+
+        # Prune skipped directories (modifies dirs in-place for os.walk)
+        dirs[:] = [d for d in dirs if d not in _WALK_SKIP and not d.startswith(".")]
+
+        for fname in files:
+            if fname.startswith(".") or fname.endswith(".release.json"):
+                continue  # skip hidden files and release artifacts
+            try:
+                mt = os.stat(os.path.join(root, fname)).st_mtime
+                if mt > max_mt:
+                    max_mt = mt
+            except (FileNotFoundError, OSError):
+                pass
+
     return max_mt
 
 # ── Event bus integration (fail-safe) ───────────────────────────

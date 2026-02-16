@@ -4,18 +4,32 @@
 */
     // ── Kubernetes Card ────────────────────────────────────────────────
 
+    storeRegister('k8s', renderK8sCard);
+
     async function loadK8sCard() {
         const badge = document.getElementById('devops-k8s-badge');
         const detail = document.getElementById('devops-k8s-detail');
+
+        const storeData = storeGet('k8s');
+        if (storeData) { renderK8sCard(storeData); return; }
+
         const cached = cardCached('k8s');
-        const data = cached || await api('/k8s/status').catch(e => ({ _err: e }));
+        if (cached) { renderK8sCard(cached); return; }
+
+        const data = await api('/k8s/status').catch(e => ({ _err: e }));
         if (data._err) {
             badge.className = 'status-badge failed';
             badge.innerHTML = '<span class="status-dot"></span>Error';
             detail.innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(data._err.message)}</p>`;
             return;
         }
-        if (!cached) cardStore('k8s', data);
+        storeSet('k8s', data);
+    }
+
+    function renderK8sCard(data) {
+        const badge = document.getElementById('devops-k8s-badge');
+        const detail = document.getElementById('devops-k8s-detail');
+        if (!badge || !detail) return;
 
         const kubectl = data.kubectl || {};
         const totalRes = data.total_resources || 0;
