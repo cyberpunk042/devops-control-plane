@@ -57,3 +57,10 @@ This document represents a CONTRACT between the AI and the user.
 
 *This document must be consulted before every interaction.
 Failure to follow it is a violation of the user's trust and authority.*
+
+
+MUST ACKNOWLEDGE: 
+.agent/workflows/why-do-AI-get-obliterated-RESTATEMENT-3.md
+.agent/workflows/why-do-AI-get-obliterated-RESTATEMENT-2.md
+.agent/workflows/why-do-AI-get-obliterated-RESTATEMENT-1.md
+.agent/workflows/why-do-AI-get-unplugged.md

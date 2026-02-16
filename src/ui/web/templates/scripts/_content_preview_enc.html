@@ -28,7 +28,7 @@
                     <div id="content-preview-toggle" style="display:none;gap:4px"></div>
                     <div style="flex:1"></div>
                     <div id="content-preview-actions" style="display:flex;gap:4px">
-                        <button class="btn btn-secondary btn-sm" onclick="contentDecryptFile('${esc(path)}')" title="Decrypt to disk">🔓 Decrypt</button>
+                        <button class="btn btn-secondary btn-sm" onclick="contentDecryptFile('${esc(path)}', false, true)" title="Decrypt to disk">🔓 Decrypt</button>
                         <button class="btn btn-secondary btn-sm" onclick="contentMoveFile()" title="Move to…">📂 Move</button>
                         <button class="btn btn-secondary btn-sm" onclick="contentDeleteFromPreview()" title="Delete" style="color:var(--error)">🗑️ Delete</button>
                     </div>
@@ -497,7 +497,7 @@
 
     function contentEncryptFromPreview() {
         monacoGuardUnsaved(() => {
-            contentEncryptFile(previewCurrentPath, previewCurrentHasRelease);
+            contentEncryptFile(previewCurrentPath, previewCurrentHasRelease, true);
         });
     }
 

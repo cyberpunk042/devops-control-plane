@@ -64,7 +64,11 @@ function openFileInModal(filePath) {
 
     // Call the existing function — it renders into #content-browser as always
     const fileName = filePath.split('/').pop();
-    contentPreviewFile(filePath, fileName);
+    if (filePath.endsWith('.enc')) {
+        contentPreviewEncrypted(filePath, fileName);
+    } else {
+        contentPreviewFile(filePath, fileName);
+    }
 }
 
 /**

@@ -107,3 +107,10 @@ Before making ANY change, answer these questions:
 6. **Not matching SYNCABLE_SECRETS to cron.yml** → mirror missing critical secrets
 7. **Adding `<script>` tags inside `scripts/*.html`** → These files are raw JS inside a shared `<script>` block (opened by `_globals.html`, closed by `_boot.html`). Adding `<script>` tags causes a syntax error. Put HTML in `partials/`, JS in `scripts/`. See `src/admin/templates/README.md`.
 8. **Modifying vault without understanding the session lifecycle** → The passphrase is held in RAM for auto-lock. See `src/admin/vault.py`.
+
+
+MUST ACKNOWLEDGE: 
+.agent/workflows/why-do-AI-get-obliterated-RESTATEMENT-3.md
+.agent/workflows/why-do-AI-get-obliterated-RESTATEMENT-2.md
+.agent/workflows/why-do-AI-get-obliterated-RESTATEMENT-1.md
+.agent/workflows/why-do-AI-get-unplugged.md

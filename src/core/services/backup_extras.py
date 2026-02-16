@@ -308,7 +308,7 @@ def delete_backup_release(project_root: Path, backup_path: str) -> dict:
             "☁️❌ Release Asset Deleted",
             f"Release asset '{asset_name}' deletion queued",
             action="deleted",
-            target=asset_name,
+            target=backup_path,
             detail={"backup": backup_path, "asset": asset_name},
         )
 

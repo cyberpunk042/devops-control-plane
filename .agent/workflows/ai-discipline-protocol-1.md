@@ -339,3 +339,9 @@ When editing HTML template files with embedded JavaScript:
 ---
 
 See Next : ".agent/workflows/ai-discipline-protocol-2-contract.md"
+
+See also: 
+.agent/workflows/why-do-AI-get-obliterated-RESTATEMENT-3.md
+.agent/workflows/why-do-AI-get-obliterated-RESTATEMENT-2.md
+.agent/workflows/why-do-AI-get-obliterated-RESTATEMENT-1.md
+.agent/workflows/why-do-AI-get-unplugged.md

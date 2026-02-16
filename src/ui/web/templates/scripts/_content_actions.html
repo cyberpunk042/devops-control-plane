@@ -27,9 +27,11 @@ toast(`Failed: ${e.message}`, 'error');
 }
 
 let _ctEncryptPath = '';
+let _ctEncryptFromPreview = false;
 
-function contentEncryptFile(path, hasRelease) {
+function contentEncryptFile(path, hasRelease, fromPreview) {
 _ctEncryptPath = path || previewCurrentPath;
+_ctEncryptFromPreview = !!fromPreview;
 // Check if enc key is configured
 if (!encKeyConfigured) {
 contentEncKeySetup();
@@ -76,9 +78,13 @@ return;
 modal.style.display = 'none';
 toast('Encrypted successfully!', 'success');
 contentLoaded = false;
+if (_ctEncryptFromPreview) {
 const newPath = result.output;
 const newName = newPath.split('/').pop();
 setTimeout(() => contentPreviewEncrypted(newPath, newName), 300);
+} else {
+await contentLoadFolder(contentCurrentPath);
+}
 } catch (e) {
 status.innerHTML = `<span style="color:var(--error)">❌ ${esc(e.message)}</span>`;
 confirmBtn.disabled = false;
@@ -87,9 +93,11 @@ confirmBtn.textContent = '🔒 Encrypt';
 }
 
 let _ctDecryptPath = '';
+let _ctDecryptFromPreview = false;
 
-function contentDecryptFile(path, hasRelease) {
+function contentDecryptFile(path, hasRelease, fromPreview) {
 _ctDecryptPath = path || previewCurrentPath;
+_ctDecryptFromPreview = !!fromPreview;
 
 const modal = document.getElementById('ct-decrypt-modal');
 const info = document.getElementById('ct-decrypt-modal-info');
@@ -131,9 +139,13 @@ return;
 modal.style.display = 'none';
 toast('Decrypted successfully!', 'success');
 contentLoaded = false;
+if (_ctDecryptFromPreview) {
 const newPath = result.output;
 const newName = newPath.split('/').pop();
 setTimeout(() => contentPreviewFile(newPath, newName), 300);
+} else {
+await contentLoadFolder(contentCurrentPath);
+}
 } catch (e) {
 status.innerHTML = `<span style="color:var(--error)">❌ ${esc(e.message)}</span>`;
 confirmBtn.disabled = false;

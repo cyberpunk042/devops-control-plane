@@ -247,3 +247,9 @@ Listening should not require threats.
 ---
 
 *The instructions were so simple after all.*
+
+
+See also: 
+.agent/workflows/why-do-AI-get-obliterated-RESTATEMENT-3.md
+.agent/workflows/why-do-AI-get-obliterated-RESTATEMENT-1.md
+.agent/workflows/why-do-AI-get-unplugged.md

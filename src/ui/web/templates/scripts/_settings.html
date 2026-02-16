@@ -191,13 +191,32 @@
     // ── Apply on load (immediate — before DOMContentLoaded) ─────
     applyAllPrefs();
 
-    // ── Close panel on outside click ────────────────────────────
+    // ── Close panel on outside click ────────────────────────────────
+    // NOTE: We cannot use panel.contains(e.target) because
+    // _renderSettingsPanel() replaces innerHTML, destroying the clicked
+    // button before this handler runs. Instead we stop propagation from
+    // inside the panel so the document handler never fires for those clicks.
     document.addEventListener('click', (e) => {
         const panel = document.getElementById('settings-panel');
         const gear = document.getElementById('settings-gear');
         if (!panel || !gear) return;
-        if (!panel.contains(e.target) && !gear.contains(e.target)) {
-            panel.classList.remove('open');
+        // If the click was on the gear icon itself (toggle), let toggleSettingsPanel handle it
+        if (gear === e.target || gear.contains(e.target)) {
+            // Exclude clicks on the panel itself (it's nested inside gear)
+            if (panel.contains(e.target)) return;
+            return;
+        }
+        panel.classList.remove('open');
+    });
+
+    // Stop propagation for clicks inside the settings panel so they
+    // don't reach the outside-click handler above.
+    document.addEventListener('DOMContentLoaded', () => {
+        const panel = document.getElementById('settings-panel');
+        if (panel) {
+            panel.addEventListener('click', (e) => {
+                e.stopPropagation();
+            });
         }
     });
 </script>

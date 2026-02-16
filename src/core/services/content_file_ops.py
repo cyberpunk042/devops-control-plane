@@ -542,14 +542,15 @@ def rename_content_file(
 
     logger.info("Renamed: %s → %s", rel_path, new_name)
 
+    new_path = str(dest.relative_to(project_root))
     _audit(
         "✏️ File Renamed",
         f"{rel_path} → {new_name}",
         action="renamed",
-        target=rel_path,
-        detail={"old_path": rel_path, "new_name": new_name},
-        before_state={"name": source.name},
-        after_state={"name": new_name, "path": str(dest.relative_to(project_root))},
+        target=new_path,
+        detail={"source": rel_path, "new_name": new_name, "new_path": new_path},
+        before_state={"name": source.name, "path": rel_path},
+        after_state={"name": new_name, "path": new_path},
     )
 
     return {
@@ -609,24 +610,26 @@ def move_content_file(
 
     logger.info("Moved: %s → %s", rel_path, str(dest.relative_to(project_root)))
 
+    new_path = str(dest.relative_to(project_root))
+
     _audit(
         "📦 File Moved",
         f"{rel_path} → {dest_folder}/{source.name}",
         action="moved",
-        target=rel_path,
+        target=new_path,
         detail={
-            "old_path": rel_path,
-            "new_path": str(dest.relative_to(project_root)),
+            "source": rel_path,
+            "new_path": new_path,
             "destination": dest_folder,
         },
         before_state={"path": rel_path},
-        after_state={"path": str(dest.relative_to(project_root))},
+        after_state={"path": new_path},
     )
 
     return {
         "success": True,
         "old_path": rel_path,
-        "new_path": str(dest.relative_to(project_root)),
+        "new_path": new_path,
     }
 
 

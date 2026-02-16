@@ -87,14 +87,16 @@ def encrypt_content_file(
             }, indent=2))
             result["release_updated"] = True
 
+        output_rel = str(output.relative_to(project_root))
         _audit(
             "🔒 File Encrypted",
             f"{rel_path} encrypted ({result['original_size']:,} → "
             f"{result['encrypted_size']:,} bytes)"
             + (" — original deleted" if delete_original else ""),
             action="encrypted",
-            target=rel_path,
-            before_state={"size": result["original_size"]},
+            target=output_rel,
+            detail={"source": rel_path, "output": output_rel},
+            before_state={"size": result["original_size"], "file": rel_path},
             after_state={"size": result["encrypted_size"], "encrypted": True},
         )
         return result
@@ -180,13 +182,15 @@ def decrypt_content_file(
             }, indent=2))
             result["release_updated"] = True
 
+        output_rel = str(output.relative_to(project_root))
         _audit(
             "🔓 File Decrypted",
             f"{rel_path} decrypted ({result['decrypted_size']:,} bytes)"
             + (" — encrypted copy deleted" if delete_encrypted else ""),
             action="decrypted",
-            target=rel_path,
-            before_state={"encrypted": True},
+            target=output_rel,
+            detail={"source": rel_path, "output": output_rel},
+            before_state={"encrypted": True, "file": rel_path},
             after_state={"size": result["decrypted_size"], "encrypted": False},
         )
         return result

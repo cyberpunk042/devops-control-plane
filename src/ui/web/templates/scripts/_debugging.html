@@ -7,6 +7,27 @@
     let _debugViewMode = {};  // panel → 'preview' | 'source'
     let _debugAuditMode = 'scans'; // 'scans' or 'ops'
 
+    /** Quick test: does this string look like a relative file path? */
+    function _debugIsFilePath(s) {
+        if (!s || typeof s !== 'string') return false;
+        // Must look like a relative path (no spaces at start, has extension or known bare file)
+        if (/\s{2,}/.test(s) || s.startsWith('http')) return false;
+        // Has a dot-extension (foo.py, k8s/deploy.yml, docs/README.md, …)
+        if (/\/[^/]+\.[a-zA-Z0-9]{1,10}$/.test('/' + s)) return true;
+        // Known extensionless files
+        if (/(?:^|\/)(?:Dockerfile|Makefile|Vagrantfile|Procfile|Gemfile|Brewfile)$/i.test(s)) return true;
+        return false;
+    }
+
+    /**
+     * Render a file path as a clickable link that opens the preview modal.
+     * Uses event.stopPropagation() so it doesn't toggle the parent row.
+     */
+    function _debugFileLink(filePath) {
+        const escapedPath = filePath.replace(/'/g, "\\'");
+        return `<a href="#" class="audit-file-link" onclick="event.stopPropagation();openFileInEditor('${escapedPath}','preview');return false" title="Preview file" style="font-family:var(--font-mono);font-size:0.7rem;color:var(--accent);text-decoration:underline dotted;cursor:pointer;word-break:break-all">${esc(filePath)}</a>`;
+    }
+
     function debugSwitchMode(mode) {
         debugCurrentMode = mode;
         document.querySelectorAll('#tab-debugging .debug-modes > .content-mode').forEach(b => b.classList.remove('active'));
@@ -257,7 +278,10 @@
             auditDetailHtml += `<div id="audit-log-detail-${idx}" style="display:none;padding:6px 10px;margin-top:4px;border-radius:var(--radius-sm);background:var(--bg-primary);border:1px solid var(--border-subtle);font-size:0.72rem">`;
 
             if (entry.target) {
-                auditDetailHtml += `<div style="margin-bottom:4px"><span style="font-size:0.6rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px">Target:</span> <span style="font-family:var(--font-mono);font-size:0.7rem;color:var(--text-secondary)">${esc(entry.target)}</span></div>`;
+                const targetDisplay = _debugIsFilePath(entry.target)
+                    ? _debugFileLink(entry.target)
+                    : `<span style="font-family:var(--font-mono);font-size:0.7rem;color:var(--text-secondary)">${esc(entry.target)}</span>`;
+                auditDetailHtml += `<div style="margin-bottom:4px"><span style="font-size:0.6rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px">Target:</span> ${targetDisplay}</div>`;
             }
 
             if (entry.before || entry.after) {
@@ -267,7 +291,8 @@
                     auditDetailHtml += `<div style="font-size:0.6rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:2px">Before</div>`;
                     for (const [k, v] of Object.entries(entry.before)) {
                         const displayVal = typeof v === 'number' && k.includes('size') ? v.toLocaleString() + ' B' : String(v);
-                        auditDetailHtml += `<div style="font-size:0.66rem;color:var(--text-secondary)"><span style="color:var(--text-muted)">${esc(k)}:</span> ${esc(displayVal)}</div>`;
+                        const bValHtml = (typeof v === 'string' && _debugIsFilePath(v)) ? _debugFileLink(v) : esc(displayVal);
+                        auditDetailHtml += `<div style="font-size:0.66rem;color:var(--text-secondary)"><span style="color:var(--text-muted)">${esc(k)}:</span> ${bValHtml}</div>`;
                     }
                     auditDetailHtml += `</div>`;
                 }
@@ -276,7 +301,8 @@
                     auditDetailHtml += `<div style="font-size:0.6rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:2px">After</div>`;
                     for (const [k, v] of Object.entries(entry.after)) {
                         const displayVal = typeof v === 'number' && k.includes('size') ? v.toLocaleString() + ' B' : String(v);
-                        auditDetailHtml += `<div style="font-size:0.66rem;color:var(--text-secondary)"><span style="color:var(--text-muted)">${esc(k)}:</span> ${esc(displayVal)}</div>`;
+                        const aValHtml = (typeof v === 'string' && _debugIsFilePath(v)) ? _debugFileLink(v) : esc(displayVal);
+                        auditDetailHtml += `<div style="font-size:0.66rem;color:var(--text-secondary)"><span style="color:var(--text-muted)">${esc(k)}:</span> ${aValHtml}</div>`;
                     }
                     auditDetailHtml += `</div>`;
                 }
@@ -312,12 +338,13 @@
                 auditDetailHtml += `<div style="font-size:0.6rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:3px">Files — ${headerParts.join(' · ')}</div>`;
                 auditDetailHtml += `<div style="padding:4px 8px;border-radius:var(--radius-sm);background:var(--bg-tertiary, rgba(255,255,255,0.03));border:1px solid var(--border-subtle);font-family:var(--font-mono);font-size:0.64rem;line-height:1.6;max-height:180px;overflow-y:auto">`;
                 for (const f of fileList) {
+                    const fDisplay = _debugIsFilePath(f) ? _debugFileLink(f) : esc(f);
                     if (overriddenSet.has(f)) {
-                        auditDetailHtml += `<div style="color:#f87171"><span style="font-size:0.58rem;padding:0 3px;border-radius:2px;background:rgba(248,113,113,0.12);margin-right:4px">⚠ OVERRIDE</span>${esc(f)}</div>`;
+                        auditDetailHtml += `<div style="color:#f87171"><span style="font-size:0.58rem;padding:0 3px;border-radius:2px;background:rgba(248,113,113,0.12);margin-right:4px">⚠ OVERRIDE</span>${fDisplay}</div>`;
                     } else if (newSet.has(f)) {
-                        auditDetailHtml += `<div style="color:#34d399"><span style="font-size:0.58rem;padding:0 3px;border-radius:2px;background:rgba(52,211,153,0.12);margin-right:4px">✚ NEW</span>${esc(f)}</div>`;
+                        auditDetailHtml += `<div style="color:#34d399"><span style="font-size:0.58rem;padding:0 3px;border-radius:2px;background:rgba(52,211,153,0.12);margin-right:4px">✚ NEW</span>${fDisplay}</div>`;
                     } else {
-                        auditDetailHtml += `<div style="color:var(--text-secondary)">${esc(f)}</div>`;
+                        auditDetailHtml += `<div style="color:var(--text-secondary)">${fDisplay}</div>`;
                     }
                 }
                 auditDetailHtml += `</div></div>`;
@@ -332,7 +359,10 @@
                     for (const k of extraKeys) {
                         const v = entry.detail[k];
                         const displayVal = typeof v === 'object' ? JSON.stringify(v) : String(v);
-                        auditDetailHtml += `<div style="font-size:0.66rem;color:var(--text-secondary)"><span style="color:var(--text-muted)">${esc(k)}:</span> ${esc(displayVal)}</div>`;
+                        const valHtml = (typeof v === 'string' && _debugIsFilePath(v))
+                            ? _debugFileLink(v)
+                            : esc(displayVal);
+                        auditDetailHtml += `<div style="font-size:0.66rem;color:var(--text-secondary)"><span style="color:var(--text-muted)">${esc(k)}:</span> ${valHtml}</div>`;
                     }
                     auditDetailHtml += `</div>`;
                 }

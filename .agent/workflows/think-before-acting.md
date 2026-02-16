@@ -99,3 +99,9 @@ instead of extending the existing modal with a new mode.
 □ Fix, don't delete
 □ Confirm the fix direction before implementing
 ```
+
+MUST ACKNOWLEDGE: 
+.agent/workflows/why-do-AI-get-obliterated-RESTATEMENT-3.md
+.agent/workflows/why-do-AI-get-obliterated-RESTATEMENT-2.md
+.agent/workflows/why-do-AI-get-obliterated-RESTATEMENT-1.md
+.agent/workflows/why-do-AI-get-unplugged.md
