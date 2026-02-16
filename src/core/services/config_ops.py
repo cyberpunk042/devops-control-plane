@@ -159,6 +159,24 @@ def save_config(
     if config_path is None:
         config_path = project_root / "project.yml"
 
+    # ── Preserve keys that save_config doesn't manage ───────────
+    # Other subsystems (e.g. Pages) store their config under their
+    # own top-level key in project.yml.  We must not silently drop
+    # those sections when the wizard saves.
+    _WIZARD_KEYS = {
+        "version", "name", "description", "repository",
+        "domains", "environments", "modules",
+        "content_folders", "external",
+    }
+    if config_path.is_file():
+        try:
+            existing = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+        except Exception:
+            existing = {}
+        for k, v in existing.items():
+            if k not in _WIZARD_KEYS and k not in yml:
+                yml[k] = v
+
     # Add a comment header
     header = (
         "# project.yml — Control Plane Configuration\n"

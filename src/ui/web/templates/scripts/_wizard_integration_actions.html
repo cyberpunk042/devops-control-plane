@@ -339,12 +339,18 @@ function _wizCollectIntegrations() {
     const prefs = {};
     for (const key of Object.keys(_wizIntDetection.integrations)) {
         const cb = document.getElementById('wiz-int-' + key.replace(':', '-'));
-        prefs[key] = (cb && cb.checked) ? 'visible' : 'auto';
+        prefs[key] = (cb && cb.checked) ? 'visible' : 'hidden';
     }
     for (const [key, info] of Object.entries(_wizIntDetection.devops_cards)) {
-        if (!info.tools_needed && info.detected === true) continue;
         const cb = document.getElementById('wiz-int-' + key);
-        const val = (cb && cb.checked) ? 'visible' : 'auto';
+        let val;
+        if (cb) {
+            val = cb.checked ? 'visible' : 'hidden';
+        } else {
+            // Card was not rendered (detected, no tools needed) — preserve existing pref
+            const savedPrefs = (_wizardConfig && _wizardConfig._integrationPrefs) || _wizIntDetection.current_prefs || {};
+            val = savedPrefs[key] || 'auto';
+        }
         prefs[key] = val;
         // Also set int:* key for Integration tab cards (k8s → int:k8s, etc.)
         if (!key.startsWith('int:')) {

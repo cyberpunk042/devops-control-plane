@@ -48,3 +48,11 @@ content_folders:
 - docs
 external:
   ci: github-actions
+pages:
+  segments:
+  - name: docs
+    source: docs
+    builder: docusaurus
+    path: /docs
+    auto: true
+    config: {}

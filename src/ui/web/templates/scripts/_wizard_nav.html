@@ -56,6 +56,7 @@
     async function wizardFinish() {
         // Collect any final state
         _wizardCollectWelcome();
+        if (typeof _wizCollectIntegrations === 'function') _wizCollectIntegrations();
 
         if (!_wizardConfig || !_wizardConfig.name) {
             toast('Project name is required. Go back to step 1.', 'warning');
@@ -76,17 +77,15 @@
                     // that the user hasn't touched in the wizard)
                     const existing = await api('/devops/prefs');
                     const merged = { ...existing, ..._wizardConfig._integrationPrefs };
-                    await api('/devops/prefs', {
+                    const saved = await api('/devops/prefs', {
                         method: 'PUT',
                         body: JSON.stringify(merged),
                     });
                     toast('🔌 Integration preferences saved!', 'info');
 
-                    // Invalidate cached prefs in tabs
-                    if (typeof _devopsPrefs !== 'undefined') _devopsPrefs = null;
-                    if (typeof _intPrefs !== 'undefined') _intPrefs = null;
-                    if (typeof _devopsLoaded !== 'undefined') _devopsLoaded = false;
-                    if (typeof _intLoaded !== 'undefined') _intLoaded = false;
+                    // Update cached prefs in tabs so modals read correct values
+                    if (typeof _devopsPrefs !== 'undefined') _devopsPrefs = saved;
+                    if (typeof _intPrefs !== 'undefined') _intPrefs = saved;
                 } catch (prefErr) {
                     console.warn('Integration pref save failed:', prefErr);
                 }

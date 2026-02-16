@@ -54,8 +54,13 @@
 
         const integrations = status.integrations || {};
         const suggested = status.suggested_next;
+
+        // Fetch user prefs so we don't suggest integrations the user hid
+        let prefs = {};
+        try { prefs = await api('/devops/prefs'); } catch (_) {}
+
         const incomplete = Object.entries(integrations)
-            .filter(([, v]) => v.status !== 'ready')
+            .filter(([k, v]) => v.status !== 'ready' && prefs[k] !== 'hidden' && prefs['int:' + k] !== 'hidden')
             .slice(0, 3);
 
         if (incomplete.length === 0) return; // everything's configured already

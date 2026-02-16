@@ -105,6 +105,7 @@
                 ${needsTools ? `<span style="font-size:0.68rem;color:var(--warning)">needs: ${info.tools_needed.join(', ')}</span>` : ''}
                 <select id="wiz-${key.replace(':','-')}" style="font-size:0.78rem;padding:0.2rem 0.4rem;border-radius:4px;border:1px solid var(--border-subtle);background:var(--bg-inset);color:var(--text-primary)">
                     <option value="auto" ${cur==='auto'?'selected':''}>Auto</option>
+                    <option value="visible" ${cur==='visible'?'selected':''}>Visible (always)</option>
                     <option value="manual" ${cur==='manual'?'selected':''}>Manual</option>
                     <option value="hidden" ${cur==='hidden'?'selected':''}>Hidden</option>
                 </select>
@@ -122,6 +123,7 @@
                 ${needsTools ? `<span style="font-size:0.68rem;color:var(--warning)">needs: ${info.tools_needed.join(', ')}</span>` : ''}
                 <select id="wiz-${key}" style="font-size:0.78rem;padding:0.2rem 0.4rem;border-radius:4px;border:1px solid var(--border-subtle);background:var(--bg-inset);color:var(--text-primary)">
                     <option value="auto" ${cur==='auto'?'selected':''}>Auto</option>
+                    <option value="visible" ${cur==='visible'?'selected':''}>Visible (always)</option>
                     <option value="manual" ${cur==='manual'?'selected':''}>Manual</option>
                     <option value="hidden" ${cur==='hidden'?'selected':''}>Hidden</option>
                 </select>
@@ -308,18 +310,19 @@
             toast('Setup wizard complete — preferences saved!', 'success');
             document.getElementById('setup-wizard-modal')?.remove();
 
-            // Reset cached prefs so tabs reload with new settings
+            // Reset cached prefs so next fetch gets fresh values
             if (typeof _devopsPrefs !== 'undefined') _devopsPrefs = null;
             if (typeof _intPrefs !== 'undefined') _intPrefs = null;
-            if (typeof _devopsLoaded !== 'undefined') _devopsLoaded = false;
-            if (typeof _intLoaded !== 'undefined') _intLoaded = false;
 
-            // Reload current tab
-            const current = document.querySelector('.tab-btn.active');
-            if (current) {
-                const tabId = current.dataset.tab || current.getAttribute('data-tab');
-                if (tabId === 'devops') loadDevopsTab();
-                else if (tabId === 'integrations') loadIntegrationsTab();
+            // Re-apply visibility from new prefs (no data reload needed)
+            const newPrefs = await _fetchIntPrefs().catch(() => ({}));
+            if (typeof _INT_CARDS !== 'undefined') {
+                for (const [key, meta] of Object.entries(_INT_CARDS)) {
+                    const card = document.getElementById(meta.cardId);
+                    if (!card) continue;
+                    const pref = newPrefs[key] || 'auto';
+                    card.style.display = pref === 'hidden' ? 'none' : '';
+                }
             }
         } catch (e) {
             toast('Failed to save: ' + e.message, 'error');

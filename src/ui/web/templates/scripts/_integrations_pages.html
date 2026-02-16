@@ -13,9 +13,9 @@
             const cached = cardCached('pages');
             let segData, bdData;
             if (cached) {
-                segData = cached.segData;
-                bdData = cached.bdData;
-            } else {
+                    segData = cached.segData;
+                    bdData = cached.bdData;
+                } else {
                 [segData, bdData] = await Promise.all([
                     api('/pages/segments'),
                     api('/pages/builders').catch(() => ({ builders: [] })),
@@ -164,6 +164,7 @@
             } else {
                 toast('No new segments to add — segments already configured', 'info');
             }
+            cardInvalidate('pages');
             await loadPagesCard();
         } catch (e) {
             toast('Init failed: ' + e.message, 'error');
@@ -256,6 +257,7 @@
                             statusEl.innerHTML = `<span style="color:var(--error)">❌ ${esc(data.error)}</span>`;
                         }
                         reinitBtn.style.display = '';
+                        cardInvalidate('pages');
                         loadPagesCard();
                         resolve();
                     });
@@ -272,6 +274,7 @@
                                 statusEl.innerHTML = '<span style="color:var(--warning)">⚠️ Stream ended</span>';
                             }
                             reinitBtn.style.display = '';
+                            cardInvalidate('pages');
                             loadPagesCard();
                             resolve();
                             return;
@@ -294,6 +297,7 @@
                                     } else {
                                         statusEl.innerHTML = `<span style="color:var(--error)">❌ ${esc(evt.error)}</span>`;
                                     }
+                                    cardInvalidate('pages');
                                     loadPagesCard();
                                     resolve();
                                 }
@@ -505,6 +509,7 @@
                         });
                         closeVaultModal();
                         toast(`Segment '${_wizData.name}' created`, 'success');
+                        cardInvalidate('pages');
                         await loadPagesCard();
                     } catch (e) {
                         errEl.textContent = e.message;
@@ -523,6 +528,7 @@
         try {
             await api('/pages/segments/' + encodeURIComponent(name), { method: 'DELETE' });
             toast(`Segment '${name}' removed`, 'success');
+            cardInvalidate('pages');
             await loadPagesCard();
         } catch (e) {
             toast('Remove failed: ' + e.message, 'error');

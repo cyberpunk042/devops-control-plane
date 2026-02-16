@@ -162,6 +162,30 @@ def wizard_detect(root: Path) -> dict:
             "label": "📄 Pages",
             "setup_actions": [],
         },
+        "int:k8s": {
+            "detected": files["k8s_manifests"] and _kubectl_ok,
+            "status": ("ready" if files["k8s_manifests"] and _kubectl_ok
+                       else "installed" if tools["kubectl"]
+                       else "not_installed"),
+            "suggest": ("auto" if files["k8s_manifests"] and _kubectl_ok
+                        else "hidden"),
+            "tools_needed": [t for t in ["kubectl", "helm"]
+                            if not tools[t]],
+            "label": "☸️ Kubernetes",
+            "setup_actions": [],
+        },
+        "int:terraform": {
+            "detected": files["terraform_dir"] and _terraform_ok,
+            "status": ("ready" if files["terraform_dir"] and _terraform_ok
+                       else "installed" if tools["terraform"]
+                       else "not_installed"),
+            "suggest": ("auto" if files["terraform_dir"] and _terraform_ok
+                        else "hidden"),
+            "tools_needed": ([] if tools["terraform"]
+                            else ["terraform"]),
+            "label": "🏗️ Terraform",
+            "setup_actions": [],
+        },
     }
 
     devops_cards = {

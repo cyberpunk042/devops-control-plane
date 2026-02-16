@@ -46,10 +46,12 @@ def devops_prefs_get():
 
 @devops_bp.route("/devops/prefs", methods=["PUT"])
 def devops_prefs_put():
-    """Save card load preferences."""
+    """Save card load preferences (merges into existing)."""
     data = request.get_json(silent=True) or {}
-    devops_cache.save_prefs(_project_root(), data)
-    return jsonify({"ok": True})
+    all_prefs = devops_cache.load_prefs(_project_root())
+    all_prefs.update(data)
+    devops_cache.save_prefs(_project_root(), all_prefs)
+    return jsonify(all_prefs)
 
 
 # ── Integration card preferences ────────────────────────────────
@@ -73,7 +75,8 @@ def integration_prefs_put():
         if key.startswith("int:"):
             all_prefs[key] = val
     devops_cache.save_prefs(_project_root(), all_prefs)
-    return jsonify({"ok": True})
+    int_prefs = {k: v for k, v in all_prefs.items() if k.startswith("int:")}
+    return jsonify(int_prefs)
 
 
 # ── Cache bust ──────────────────────────────────────────────────
