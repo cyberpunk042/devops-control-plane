@@ -53,7 +53,6 @@
         } catch (_) { return; }
 
         const integrations = status.integrations || {};
-        const suggested = status.suggested_next;
 
         // Fetch user prefs so we don't suggest integrations the user hid
         let prefs = {};
@@ -64,6 +63,10 @@
             .slice(0, 3);
 
         if (incomplete.length === 0) return; // everything's configured already
+
+        // Use first visible incomplete integration as the suggestion
+        // (backend suggested_next ignores user prefs and may be cached/stale)
+        let suggested = incomplete[0][0];
 
         const meta = {
             git: { icon: '🔀', label: 'Git Repository' },

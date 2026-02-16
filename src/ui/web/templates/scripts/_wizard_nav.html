@@ -56,7 +56,7 @@
     async function wizardFinish() {
         // Collect any final state
         _wizardCollectWelcome();
-        if (typeof _wizCollectIntegrations === 'function') _wizCollectIntegrations();
+        if (wizardSteps[currentWizardStep].id === 'integrations' && typeof _wizCollectIntegrations === 'function') _wizCollectIntegrations();
 
         if (!_wizardConfig || !_wizardConfig.name) {
             toast('Project name is required. Go back to step 1.', 'warning');
@@ -86,6 +86,27 @@
                     // Update cached prefs in tabs so modals read correct values
                     if (typeof _devopsPrefs !== 'undefined') _devopsPrefs = saved;
                     if (typeof _intPrefs !== 'undefined') _intPrefs = saved;
+                    // Apply card visibility immediately (no reload needed)
+                    if (typeof _DEVOPS_CARDS !== 'undefined') {
+                        for (const [key, meta] of Object.entries(_DEVOPS_CARDS)) {
+                            const card = document.getElementById('devops-' + key + '-card');
+                            if (!card) continue;
+                            const wasHidden = card.style.display === 'none';
+                            const nowHidden = saved[key] === 'hidden';
+                            card.style.display = nowHidden ? 'none' : '';
+                            if (wasHidden && !nowHidden) meta.loadFn();
+                        }
+                    }
+                    if (typeof _INT_CARDS !== 'undefined') {
+                        for (const [key, meta] of Object.entries(_INT_CARDS)) {
+                            const card = document.getElementById(meta.cardId);
+                            if (!card) continue;
+                            const wasHidden = card.style.display === 'none';
+                            const nowHidden = saved[key] === 'hidden';
+                            card.style.display = nowHidden ? 'none' : '';
+                            if (wasHidden && !nowHidden) meta.loadFn();
+                        }
+                    }
                 } catch (prefErr) {
                     console.warn('Integration pref save failed:', prefErr);
                 }

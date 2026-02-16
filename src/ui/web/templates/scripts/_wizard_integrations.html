@@ -83,6 +83,9 @@ function _wizRenderIntegrations() {
             <div style="display:flex;flex-direction:column;gap:0.5rem;margin-bottom:var(--space-md)">`;
 
     for (const [key, info] of Object.entries(d.integrations)) {
+        // Skip if this integration also exists in devops_cards (avoid duplicates)
+        const bareKey = key.replace(/^int:/, '');
+        if (d.devops_cards[bareKey]) continue;
         const enabled = (savedPrefs[key] || info.suggest) !== 'hidden';
         cardsHtml += _wizIntCard(key, info, enabled, descs[key] || '');
     }
