@@ -17,6 +17,10 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
+from src.core.services.audit_helpers import make_auditor
+
+_audit = make_auditor("wizard")
+
 
 # ── Main detection ──────────────────────────────────────────────────
 

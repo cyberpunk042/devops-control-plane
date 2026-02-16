@@ -28,6 +28,10 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
+from src.core.services.audit_helpers import make_auditor
+
+_audit = make_auditor("content")
+
 # Release tag used for large content file backup
 CONTENT_RELEASE_TAG = "content-vault"
 
@@ -76,6 +80,28 @@ def cleanup_release_sidecar(
 
     meta_path.unlink(missing_ok=True)
     return True
+
+
+def remove_orphaned_sidecar(file_path: Path) -> dict:
+    """Remove just the .release.json sidecar file (no GitHub asset deletion).
+
+    Use this when the sidecar is orphaned (content file still exists but
+    sidecar is stale). For full cleanup including remote asset deletion,
+    use ``cleanup_release_sidecar()`` instead.
+
+    Args:
+        file_path: Path to the content file whose sidecar to remove.
+
+    Returns:
+        {"success": True, "path": ...} or {"error": ...}
+    """
+    meta_path = file_path.parent / f"{file_path.name}.release.json"
+    if not meta_path.exists():
+        return {"error": "No sidecar found"}
+
+    meta_path.unlink(missing_ok=True)
+    logger.info("Cleaned orphaned release sidecar: %s", meta_path.name)
+    return {"success": True, "path": str(file_path)}
 
 
 # ── Sidecar helpers ─────────────────────────────────────────

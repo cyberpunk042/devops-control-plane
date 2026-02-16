@@ -22,6 +22,10 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+from src.core.services.audit_helpers import make_auditor
+
+_audit = make_auditor("env")
+
 
 # ═══════════════════════════════════════════════════════════════════
 #  Environment Variables

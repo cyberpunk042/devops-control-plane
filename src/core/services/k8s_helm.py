@@ -10,6 +10,10 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
+from src.core.services.audit_helpers import make_auditor
+
+_audit = make_auditor("k8s")
+
 def _helm_available() -> bool:
     """Check if helm CLI is available."""
     import shutil

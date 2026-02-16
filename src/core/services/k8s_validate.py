@@ -7,6 +7,10 @@ from pathlib import Path
 
 from src.core.services.k8s_common import _K8S_API_VERSIONS, _parse_k8s_yaml
 from src.core.services.k8s_detect import k8s_status
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 
 def validate_manifests(project_root: Path) -> dict:

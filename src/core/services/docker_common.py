@@ -4,6 +4,10 @@ from __future__ import annotations
 
 import subprocess
 from pathlib import Path
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 
 def run_docker(

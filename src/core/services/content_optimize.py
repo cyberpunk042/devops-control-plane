@@ -40,6 +40,10 @@ from typing import Tuple
 
 logger = logging.getLogger(__name__)
 
+from src.core.services.audit_helpers import make_auditor
+
+_audit = make_auditor("content")
+
 # ── Defaults ─────────────────────────────────────────────────
 
 MAX_DIMENSION = 2048       # px — longest side (images)

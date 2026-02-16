@@ -100,189 +100,263 @@
 
     // ── Audit Scan Activity ───────────────────────────────────────────
 
-    async function loadDebugAuditScans() {
+    let _auditState = { offset: 0, limit: 50, total: 0, loading: false };
+    let _auditSearchTimer = null;
+
+    function _auditSearchDebounce() {
+        clearTimeout(_auditSearchTimer);
+        _auditSearchTimer = setTimeout(() => loadDebugAuditScans(), 300);
+    }
+
+    function _auditLoadMore() {
+        if (_auditState.loading) return;
+        _auditState.offset += _auditState.limit;
+        _loadAuditPage(true);
+    }
+
+    async function loadDebugAuditScans(resetOffset = true) {
+        if (resetOffset) _auditState.offset = 0;
+        _loadAuditPage(false);
+    }
+
+    async function _loadAuditPage(append) {
         const container = document.getElementById('debug-audit-scans');
+        const moreBtn = document.getElementById('debug-audit-scans-more');
+        const countBadge = document.getElementById('debug-audit-count');
+        const filteredLabel = document.getElementById('debug-audit-filtered-count');
+        const cardFilter = document.getElementById('debug-audit-card-filter');
+        const searchInput = document.getElementById('debug-audit-search');
+
+        if (_auditState.loading) return;
+        _auditState.loading = true;
+
+        if (!append) {
+            container.innerHTML = `<div class="activity-item" style="color:var(--text-muted)">
+                <span class="spinner"></span>&nbsp; Loading…
+            </div>`;
+        }
+
         try {
-            const data = await api('/audit/activity?n=100');
+            const params = new URLSearchParams({
+                offset: _auditState.offset,
+                limit: _auditState.limit,
+            });
+            const card = cardFilter ? cardFilter.value : '';
+            const q = searchInput ? searchInput.value.trim() : '';
+            if (card) params.set('card', card);
+            if (q) params.set('q', q);
+
+            const data = await api('/audit/activity?' + params.toString());
+
+            // Update count badge
+            if (countBadge) countBadge.textContent = data.total_all;
+
+            // Update filter dropdown (only on first load or reset)
+            if (!append && cardFilter && data.cards) {
+                const current = cardFilter.value;
+                // Keep "All types" option, rebuild the rest
+                cardFilter.innerHTML = '<option value="">All types</option>';
+                for (const c of data.cards) {
+                    const opt = document.createElement('option');
+                    opt.value = c;
+                    opt.textContent = c;
+                    if (c === current) opt.selected = true;
+                    cardFilter.appendChild(opt);
+                }
+            }
+
+            // Update filtered count label
+            if (filteredLabel) {
+                if (card || q) {
+                    filteredLabel.textContent = `${data.total_filtered} of ${data.total_all} entries`;
+                } else {
+                    filteredLabel.textContent = '';
+                }
+            }
 
             if (!data.entries || !data.entries.length) {
-                container.innerHTML = `<div class="activity-item" style="color:var(--text-muted)">
-                    No scan activity yet. Load the <strong>Audit</strong> or <strong>DevOps</strong> tab to trigger scans.
-                </div>`;
+                if (!append) {
+                    container.innerHTML = `<div class="activity-item" style="color:var(--text-muted)">
+                        ${(card || q) ? 'No matching entries.' : 'No scan activity yet. Load the <strong>Audit</strong> or <strong>DevOps</strong> tab to trigger scans.'}
+                    </div>`;
+                }
+                moreBtn.style.display = 'none';
+                _auditState.loading = false;
                 return;
             }
 
-            container.innerHTML = data.entries.slice().reverse().map((entry, idx) => {
-                const statusIcon = entry.status === 'ok' ? '✅' : '❌';
-                const statusColor = entry.status === 'ok' ? 'var(--success)' : 'var(--danger)';
-                const time = new Date(entry.iso || entry.ts * 1000).toLocaleString();
-                const duration = entry.duration_s != null ? `${entry.duration_s.toFixed(1)}s` : '';
-                const bust = entry.bust ? '<span style="font-size:0.6rem;color:var(--warning);background:rgba(245,158,11,0.1);padding:1px 4px;border-radius:3px" title="Cache was force-busted">💥 bust</span>' : '';
+            const globalOffset = _auditState.offset;
+            const html = data.entries.map((entry, i) => _renderAuditEntry(entry, globalOffset + i)).join('');
 
-                // Card type badge
-                const isDismissal = entry.card === 'dismissal';
-                const isAudit = entry.card && entry.card.startsWith('audit:');
-                let typeBadge;
-                if (isDismissal) {
-                    typeBadge = '<span style="font-size:0.6rem;padding:1px 5px;border-radius:3px;background:rgba(52,211,153,0.1);color:var(--success)">Dismiss</span>';
-                } else if (isAudit) {
-                    typeBadge = '<span style="font-size:0.6rem;padding:1px 5px;border-radius:3px;background:rgba(139,92,246,0.1);color:#a78bfa">Audit</span>';
-                } else {
-                    typeBadge = '<span style="font-size:0.6rem;padding:1px 5px;border-radius:3px;background:rgba(59,130,246,0.1);color:#60a5fa">DevOps</span>';
-                }
+            if (append) {
+                container.insertAdjacentHTML('beforeend', html);
+            } else {
+                container.innerHTML = html;
+            }
 
-                // ── Enriched audit fields ──
-                // Action badge goes inline in the header; the rest is collapsible detail
-                let actionBadgeHtml = '';
-                let auditDetailHtml = '';
-                const hasEnriched = entry.action || entry.target || entry.before || entry.after;
+            // Show/hide "Load More"
+            moreBtn.style.display = data.has_more ? '' : 'none';
 
-                if (hasEnriched) {
-                    // Action badge + target for inline header
-                    const actionColors = {
-                        created: '#34d399', modified: '#60a5fa', deleted: '#f87171',
-                        renamed: '#fbbf24', moved: '#a78bfa', encrypted: '#818cf8',
-                        decrypted: '#38bdf8', configured: '#94a3b8', locked: '#f87171',
-                        unlocked: '#34d399', restored: '#60a5fa', imported: '#a78bfa',
-                        exported: '#fbbf24', generated: '#94a3b8', started: '#34d399',
-                        stopped: '#f87171', restarted: '#fbbf24', built: '#60a5fa',
-                        pulled: '#38bdf8', pushed: '#a78bfa', executed: '#94a3b8',
-                        removed: '#f87171', pruned: '#818cf8', set: '#60a5fa',
-                        switched: '#fbbf24', planned: '#a78bfa', applied: '#34d399',
-                        destroyed: '#f87171', formatted: '#94a3b8', initialized: '#60a5fa',
-                        dismissed: '#f87171', undismissed: '#34d399', uploaded: '#a78bfa',
-                        marked: '#818cf8', unmarked: '#94a3b8', wiped: '#f87171',
-                        cleaned: '#fbbf24', seeded: '#34d399', registered: '#60a5fa',
-                        saved: '#60a5fa',
-                    };
-                    if (entry.action) {
-                        const ac = entry.action;
-                        const acColor = actionColors[ac] || '#94a3b8';
-                        actionBadgeHtml = `<span style="display:inline-block;font-size:0.58rem;padding:1px 5px;border-radius:3px;background:${acColor}22;color:${acColor};font-weight:600;text-transform:uppercase;letter-spacing:0.5px">${esc(ac)}</span>`;
-                    }
-
-                    // Collapsible detail section
-                    auditDetailHtml += `<div id="audit-log-detail-${idx}" style="display:none;padding:6px 10px;margin-top:4px;border-radius:var(--radius-sm);background:var(--bg-primary);border:1px solid var(--border-subtle);font-size:0.72rem">`;
-
-                    // Target
-                    if (entry.target) {
-                        auditDetailHtml += `<div style="margin-bottom:4px"><span style="font-size:0.6rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px">Target:</span> <span style="font-family:var(--font-mono);font-size:0.7rem;color:var(--text-secondary)">${esc(entry.target)}</span></div>`;
-                    }
-
-                    // Before → After comparison
-                    if (entry.before || entry.after) {
-                        auditDetailHtml += `<div style="display:flex;gap:12px;margin-top:4px;flex-wrap:wrap">`;
-
-                        if (entry.before && Object.keys(entry.before).length) {
-                            auditDetailHtml += `<div style="flex:1;min-width:120px;padding:4px 8px;border-radius:var(--radius-sm);background:rgba(239,68,68,0.06);border:1px solid rgba(239,68,68,0.12)">`;
-                            auditDetailHtml += `<div style="font-size:0.6rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:2px">Before</div>`;
-                            for (const [k, v] of Object.entries(entry.before)) {
-                                const displayVal = typeof v === 'number' && k.includes('size') ? v.toLocaleString() + ' B' : String(v);
-                                auditDetailHtml += `<div style="font-size:0.66rem;color:var(--text-secondary)"><span style="color:var(--text-muted)">${esc(k)}:</span> ${esc(displayVal)}</div>`;
-                            }
-                            auditDetailHtml += `</div>`;
-                        }
-
-                        if (entry.after && Object.keys(entry.after).length) {
-                            auditDetailHtml += `<div style="flex:1;min-width:120px;padding:4px 8px;border-radius:var(--radius-sm);background:rgba(52,211,153,0.06);border:1px solid rgba(52,211,153,0.12)">`;
-                            auditDetailHtml += `<div style="font-size:0.6rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:2px">After</div>`;
-                            for (const [k, v] of Object.entries(entry.after)) {
-                                const displayVal = typeof v === 'number' && k.includes('size') ? v.toLocaleString() + ' B' : String(v);
-                                auditDetailHtml += `<div style="font-size:0.66rem;color:var(--text-secondary)"><span style="color:var(--text-muted)">${esc(k)}:</span> ${esc(displayVal)}</div>`;
-                            }
-                            auditDetailHtml += `</div>`;
-                        }
-
-                        auditDetailHtml += `</div>`;
-                    }
-
-                    // Inline diff (for file modifications)
-                    const diffText = entry.detail && entry.detail.diff;
-                    if (diffText) {
-                        auditDetailHtml += `<div style="margin-top:6px;padding:6px 8px;border-radius:var(--radius-sm);background:#0d1117;border:1px solid var(--border-subtle);font-family:var(--font-mono);font-size:0.64rem;line-height:1.5;overflow-x:auto;max-height:200px;overflow-y:auto;white-space:pre">`;
-                        for (const line of diffText.split('\n')) {
-                            let color = 'var(--text-muted)';
-                            let bg = 'transparent';
-                            if (line.startsWith('+++') || line.startsWith('---')) {
-                                color = '#8b949e';
-                            } else if (line.startsWith('+')) {
-                                color = '#3fb950'; bg = 'rgba(63,185,80,0.1)';
-                            } else if (line.startsWith('-')) {
-                                color = '#f85149'; bg = 'rgba(248,81,73,0.1)';
-                            } else if (line.startsWith('@@')) {
-                                color = '#a78bfa'; bg = 'rgba(167,139,250,0.06)';
-                            }
-                            auditDetailHtml += `<div style="color:${color};background:${bg};padding:0 4px">${esc(line)}</div>`;
-                        }
-                        auditDetailHtml += `</div>`;
-                    }
-
-                    // File list (for restore, import, wipe, create, etc.)
-                    const fileList = entry.detail && Array.isArray(entry.detail.files) ? entry.detail.files : null;
-                    const overriddenSet = new Set(entry.detail && Array.isArray(entry.detail.overridden) ? entry.detail.overridden : []);
-                    const newSet = new Set(entry.detail && Array.isArray(entry.detail.new) ? entry.detail.new : []);
-                    if (fileList && fileList.length) {
-                        const overrideCount = overriddenSet.size;
-                        const newCount = newSet.size;
-                        let headerParts = [`${fileList.length} total`];
-                        if (overrideCount) headerParts.push(`<span style="color:#f87171">${overrideCount} overridden</span>`);
-                        if (newCount) headerParts.push(`<span style="color:#34d399">${newCount} new</span>`);
-                        auditDetailHtml += `<div style="margin-top:6px">`;
-                        auditDetailHtml += `<div style="font-size:0.6rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:3px">Files — ${headerParts.join(' · ')}</div>`;
-                        auditDetailHtml += `<div style="padding:4px 8px;border-radius:var(--radius-sm);background:var(--bg-tertiary, rgba(255,255,255,0.03));border:1px solid var(--border-subtle);font-family:var(--font-mono);font-size:0.64rem;line-height:1.6;max-height:180px;overflow-y:auto">`;
-                        for (const f of fileList) {
-                            if (overriddenSet.has(f)) {
-                                auditDetailHtml += `<div style="color:#f87171"><span style="font-size:0.58rem;padding:0 3px;border-radius:2px;background:rgba(248,113,113,0.12);margin-right:4px">⚠ OVERRIDE</span>${esc(f)}</div>`;
-                            } else if (newSet.has(f)) {
-                                auditDetailHtml += `<div style="color:#34d399"><span style="font-size:0.58rem;padding:0 3px;border-radius:2px;background:rgba(52,211,153,0.12);margin-right:4px">✚ NEW</span>${esc(f)}</div>`;
-                            } else {
-                                auditDetailHtml += `<div style="color:var(--text-secondary)">${esc(f)}</div>`;
-                            }
-                        }
-                        auditDetailHtml += `</div></div>`;
-                    }
-
-                    // Generic detail keys (excluding files/diff which have dedicated renderers)
-                    if (entry.detail) {
-                        const extraKeys = Object.keys(entry.detail).filter(k => k !== 'files' && k !== 'diff' && k !== 'overridden' && k !== 'new');
-                        if (extraKeys.length) {
-                            auditDetailHtml += `<div style="margin-top:6px;padding:4px 8px;border-radius:var(--radius-sm);background:rgba(99,102,241,0.04);border:1px solid rgba(99,102,241,0.1)">`;
-                            auditDetailHtml += `<div style="font-size:0.6rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:2px">Detail</div>`;
-                            for (const k of extraKeys) {
-                                const v = entry.detail[k];
-                                const displayVal = typeof v === 'object' ? JSON.stringify(v) : String(v);
-                                auditDetailHtml += `<div style="font-size:0.66rem;color:var(--text-secondary)"><span style="color:var(--text-muted)">${esc(k)}:</span> ${esc(displayVal)}</div>`;
-                            }
-                            auditDetailHtml += `</div>`;
-                        }
-                    }
-
-                    auditDetailHtml += `</div>`;
-                } else {
-                    // No enriched data — fall back to raw JSON detail (for legacy/error entries)
-                    const detailObj = entry.detail || entry;
-                    auditDetailHtml = `<div id="audit-log-detail-${idx}" style="display:none;margin-top:8px;padding:8px 10px;border-radius:var(--radius-sm);background:var(--bg-primary);font-size:0.68rem;font-family:var(--font-mono);white-space:pre-wrap;word-break:break-all;max-height:200px;overflow-y:auto;border:1px solid var(--border-subtle)">${esc(JSON.stringify(detailObj, null, 2))}</div>`;
-                }
-
-                return `<div style="padding:10px 14px;margin-bottom:5px;border-radius:var(--radius-sm);background:var(--bg-secondary);border-left:3px solid ${statusColor};display:flex;flex-direction:column;gap:3px;cursor:pointer" onclick="const d=document.getElementById('audit-log-detail-${idx}');if(d)d.style.display=d.style.display==='none'?'':'none'">
-                    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-                        <span style="font-size:0.88rem">${statusIcon}</span>
-                        <strong style="font-size:0.8rem">${esc(entry.label || entry.card)}</strong>
-                        ${actionBadgeHtml}
-                        ${typeBadge}
-                        ${bust}
-                        ${duration && !isDismissal ? `<span style="font-size:0.66rem;color:var(--text-muted)">⏱ ${duration}</span>` : ''}
-                        <span style="font-size:0.64rem;color:var(--text-muted);margin-left:auto">${time}</span>
-                    </div>
-                    ${entry.summary ? `<div style="font-size:0.72rem;color:var(--text-secondary);padding-left:26px">${esc(entry.summary)}</div>` : ''}
-                    ${auditDetailHtml}
-                </div>`;
-            }).join('');
         } catch (e) {
-            container.innerHTML = `<div class="activity-item" style="color:var(--error)">
-                Failed to load scan activity: ${esc(e.message)}
-            </div>`;
+            if (!append) {
+                container.innerHTML = `<div class="activity-item" style="color:var(--error)">
+                    Failed to load scan activity: ${esc(e.message)}
+                </div>`;
+            }
         }
+        _auditState.loading = false;
+    }
+
+    function _renderAuditEntry(entry, idx) {
+        const statusIcon = entry.status === 'ok' ? '✅' : '❌';
+        const statusColor = entry.status === 'ok' ? 'var(--success)' : 'var(--danger)';
+        const time = new Date(entry.iso || entry.ts * 1000).toLocaleString();
+        const duration = entry.duration_s != null ? `${entry.duration_s.toFixed(1)}s` : '';
+        const bust = entry.bust ? '<span style="font-size:0.6rem;color:var(--warning);background:rgba(245,158,11,0.1);padding:1px 4px;border-radius:3px" title="Cache was force-busted">💥 bust</span>' : '';
+
+        // Card type badge
+        const isDismissal = entry.card === 'dismissal';
+        const isAudit = entry.card && entry.card.startsWith('audit:');
+        let typeBadge;
+        if (isDismissal) {
+            typeBadge = '<span style="font-size:0.6rem;padding:1px 5px;border-radius:3px;background:rgba(52,211,153,0.1);color:var(--success)">Dismiss</span>';
+        } else if (isAudit) {
+            typeBadge = '<span style="font-size:0.6rem;padding:1px 5px;border-radius:3px;background:rgba(139,92,246,0.1);color:#a78bfa">Audit</span>';
+        } else {
+            typeBadge = `<span style="font-size:0.6rem;padding:1px 5px;border-radius:3px;background:rgba(59,130,246,0.1);color:#60a5fa">${esc(entry.card || 'DevOps')}</span>`;
+        }
+
+        // ── Enriched audit fields ──
+        let actionBadgeHtml = '';
+        let auditDetailHtml = '';
+        const hasEnriched = entry.action || entry.target || entry.before || entry.after;
+
+        if (hasEnriched) {
+            const actionColors = {
+                created: '#34d399', modified: '#60a5fa', deleted: '#f87171',
+                renamed: '#fbbf24', moved: '#a78bfa', encrypted: '#818cf8',
+                decrypted: '#38bdf8', configured: '#94a3b8', locked: '#f87171',
+                unlocked: '#34d399', restored: '#60a5fa', imported: '#a78bfa',
+                exported: '#fbbf24', generated: '#94a3b8', started: '#34d399',
+                stopped: '#f87171', restarted: '#fbbf24', built: '#60a5fa',
+                pulled: '#38bdf8', pushed: '#a78bfa', executed: '#94a3b8',
+                removed: '#f87171', pruned: '#818cf8', set: '#60a5fa',
+                switched: '#fbbf24', planned: '#a78bfa', applied: '#34d399',
+                destroyed: '#f87171', formatted: '#94a3b8', initialized: '#60a5fa',
+                dismissed: '#f87171', undismissed: '#34d399', uploaded: '#a78bfa',
+                marked: '#818cf8', unmarked: '#94a3b8', wiped: '#f87171',
+                cleaned: '#fbbf24', seeded: '#34d399', registered: '#60a5fa',
+                saved: '#60a5fa',
+            };
+            if (entry.action) {
+                const ac = entry.action;
+                const acColor = actionColors[ac] || '#94a3b8';
+                actionBadgeHtml = `<span style="display:inline-block;font-size:0.58rem;padding:1px 5px;border-radius:3px;background:${acColor}22;color:${acColor};font-weight:600;text-transform:uppercase;letter-spacing:0.5px">${esc(ac)}</span>`;
+            }
+
+            auditDetailHtml += `<div id="audit-log-detail-${idx}" style="display:none;padding:6px 10px;margin-top:4px;border-radius:var(--radius-sm);background:var(--bg-primary);border:1px solid var(--border-subtle);font-size:0.72rem">`;
+
+            if (entry.target) {
+                auditDetailHtml += `<div style="margin-bottom:4px"><span style="font-size:0.6rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px">Target:</span> <span style="font-family:var(--font-mono);font-size:0.7rem;color:var(--text-secondary)">${esc(entry.target)}</span></div>`;
+            }
+
+            if (entry.before || entry.after) {
+                auditDetailHtml += `<div style="display:flex;gap:12px;margin-top:4px;flex-wrap:wrap">`;
+                if (entry.before && Object.keys(entry.before).length) {
+                    auditDetailHtml += `<div style="flex:1;min-width:120px;padding:4px 8px;border-radius:var(--radius-sm);background:rgba(239,68,68,0.06);border:1px solid rgba(239,68,68,0.12)">`;
+                    auditDetailHtml += `<div style="font-size:0.6rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:2px">Before</div>`;
+                    for (const [k, v] of Object.entries(entry.before)) {
+                        const displayVal = typeof v === 'number' && k.includes('size') ? v.toLocaleString() + ' B' : String(v);
+                        auditDetailHtml += `<div style="font-size:0.66rem;color:var(--text-secondary)"><span style="color:var(--text-muted)">${esc(k)}:</span> ${esc(displayVal)}</div>`;
+                    }
+                    auditDetailHtml += `</div>`;
+                }
+                if (entry.after && Object.keys(entry.after).length) {
+                    auditDetailHtml += `<div style="flex:1;min-width:120px;padding:4px 8px;border-radius:var(--radius-sm);background:rgba(52,211,153,0.06);border:1px solid rgba(52,211,153,0.12)">`;
+                    auditDetailHtml += `<div style="font-size:0.6rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:2px">After</div>`;
+                    for (const [k, v] of Object.entries(entry.after)) {
+                        const displayVal = typeof v === 'number' && k.includes('size') ? v.toLocaleString() + ' B' : String(v);
+                        auditDetailHtml += `<div style="font-size:0.66rem;color:var(--text-secondary)"><span style="color:var(--text-muted)">${esc(k)}:</span> ${esc(displayVal)}</div>`;
+                    }
+                    auditDetailHtml += `</div>`;
+                }
+                auditDetailHtml += `</div>`;
+            }
+
+            // Inline diff
+            const diffText = entry.detail && entry.detail.diff;
+            if (diffText) {
+                auditDetailHtml += `<div style="margin-top:6px;padding:6px 8px;border-radius:var(--radius-sm);background:#0d1117;border:1px solid var(--border-subtle);font-family:var(--font-mono);font-size:0.64rem;line-height:1.5;overflow-x:auto;max-height:200px;overflow-y:auto;white-space:pre">`;
+                for (const line of diffText.split('\n')) {
+                    let color = 'var(--text-muted)', bg = 'transparent';
+                    if (line.startsWith('+++') || line.startsWith('---')) { color = '#8b949e'; }
+                    else if (line.startsWith('+')) { color = '#3fb950'; bg = 'rgba(63,185,80,0.1)'; }
+                    else if (line.startsWith('-')) { color = '#f85149'; bg = 'rgba(248,81,73,0.1)'; }
+                    else if (line.startsWith('@@')) { color = '#a78bfa'; bg = 'rgba(167,139,250,0.06)'; }
+                    auditDetailHtml += `<div style="color:${color};background:${bg};padding:0 4px">${esc(line)}</div>`;
+                }
+                auditDetailHtml += `</div>`;
+            }
+
+            // File list
+            const fileList = entry.detail && Array.isArray(entry.detail.files) ? entry.detail.files : null;
+            const overriddenSet = new Set(entry.detail && Array.isArray(entry.detail.overridden) ? entry.detail.overridden : []);
+            const newSet = new Set(entry.detail && Array.isArray(entry.detail.new) ? entry.detail.new : []);
+            if (fileList && fileList.length) {
+                const overrideCount = overriddenSet.size;
+                const newCount = newSet.size;
+                let headerParts = [`${fileList.length} total`];
+                if (overrideCount) headerParts.push(`<span style="color:#f87171">${overrideCount} overridden</span>`);
+                if (newCount) headerParts.push(`<span style="color:#34d399">${newCount} new</span>`);
+                auditDetailHtml += `<div style="margin-top:6px">`;
+                auditDetailHtml += `<div style="font-size:0.6rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:3px">Files — ${headerParts.join(' · ')}</div>`;
+                auditDetailHtml += `<div style="padding:4px 8px;border-radius:var(--radius-sm);background:var(--bg-tertiary, rgba(255,255,255,0.03));border:1px solid var(--border-subtle);font-family:var(--font-mono);font-size:0.64rem;line-height:1.6;max-height:180px;overflow-y:auto">`;
+                for (const f of fileList) {
+                    if (overriddenSet.has(f)) {
+                        auditDetailHtml += `<div style="color:#f87171"><span style="font-size:0.58rem;padding:0 3px;border-radius:2px;background:rgba(248,113,113,0.12);margin-right:4px">⚠ OVERRIDE</span>${esc(f)}</div>`;
+                    } else if (newSet.has(f)) {
+                        auditDetailHtml += `<div style="color:#34d399"><span style="font-size:0.58rem;padding:0 3px;border-radius:2px;background:rgba(52,211,153,0.12);margin-right:4px">✚ NEW</span>${esc(f)}</div>`;
+                    } else {
+                        auditDetailHtml += `<div style="color:var(--text-secondary)">${esc(f)}</div>`;
+                    }
+                }
+                auditDetailHtml += `</div></div>`;
+            }
+
+            // Generic detail keys
+            if (entry.detail) {
+                const extraKeys = Object.keys(entry.detail).filter(k => k !== 'files' && k !== 'diff' && k !== 'overridden' && k !== 'new');
+                if (extraKeys.length) {
+                    auditDetailHtml += `<div style="margin-top:6px;padding:4px 8px;border-radius:var(--radius-sm);background:rgba(99,102,241,0.04);border:1px solid rgba(99,102,241,0.1)">`;
+                    auditDetailHtml += `<div style="font-size:0.6rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:2px">Detail</div>`;
+                    for (const k of extraKeys) {
+                        const v = entry.detail[k];
+                        const displayVal = typeof v === 'object' ? JSON.stringify(v) : String(v);
+                        auditDetailHtml += `<div style="font-size:0.66rem;color:var(--text-secondary)"><span style="color:var(--text-muted)">${esc(k)}:</span> ${esc(displayVal)}</div>`;
+                    }
+                    auditDetailHtml += `</div>`;
+                }
+            }
+
+            auditDetailHtml += `</div>`;
+        } else {
+            const detailObj = entry.detail || entry;
+            auditDetailHtml = `<div id="audit-log-detail-${idx}" style="display:none;margin-top:8px;padding:8px 10px;border-radius:var(--radius-sm);background:var(--bg-primary);font-size:0.68rem;font-family:var(--font-mono);white-space:pre-wrap;word-break:break-all;max-height:200px;overflow-y:auto;border:1px solid var(--border-subtle)">${esc(JSON.stringify(detailObj, null, 2))}</div>`;
+        }
+
+        return `<div style="padding:10px 14px;margin-bottom:5px;border-radius:var(--radius-sm);background:var(--bg-secondary);border-left:3px solid ${statusColor};display:flex;flex-direction:column;gap:3px;cursor:pointer" onclick="const d=document.getElementById('audit-log-detail-${idx}');if(d)d.style.display=d.style.display==='none'?'':'none'">
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                <span style="font-size:0.88rem">${statusIcon}</span>
+                <strong style="font-size:0.8rem">${esc(entry.label || entry.card)}</strong>
+                ${actionBadgeHtml}
+                ${typeBadge}
+                ${bust}
+                ${duration && !isDismissal ? `<span style="font-size:0.66rem;color:var(--text-muted)">⏱ ${duration}</span>` : ''}
+                <span style="font-size:0.64rem;color:var(--text-muted);margin-left:auto">${time}</span>
+            </div>
+            ${entry.summary ? `<div style="font-size:0.72rem;color:var(--text-secondary);padding-left:26px">${esc(entry.summary)}</div>` : ''}
+            ${auditDetailHtml}
+        </div>`;
     }
 
     // ── CLI Operations (audit.ndjson) ──────────────────────────────────

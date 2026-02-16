@@ -11,6 +11,10 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+from src.core.services.audit_helpers import make_auditor
+
+_audit = make_auditor("k8s")
+
 _DEPLOYMENT_TEMPLATE = """apiVersion: apps/v1
 kind: Deployment
 metadata:

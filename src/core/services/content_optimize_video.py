@@ -35,6 +35,10 @@ from src.core.services.content_optimize import (
 
 logger = logging.getLogger(__name__)
 
+from src.core.services.audit_helpers import make_auditor
+
+_audit = make_auditor("content")
+
 
 # ═════════════════════════════════════════════════════════════════
 #  State / globals

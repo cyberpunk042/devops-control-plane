@@ -15,6 +15,10 @@ from src.core.services.k8s_generate import (
 
 logger = logging.getLogger(__name__)
 
+from src.core.services.audit_helpers import make_auditor
+
+_audit = make_auditor("k8s")
+
 def skaffold_status(project_root: Path) -> dict:
     """Detect Skaffold configuration.
 

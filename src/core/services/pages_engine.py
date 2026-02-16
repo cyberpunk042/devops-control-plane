@@ -24,6 +24,10 @@ from src.core.services.pages_builders import BuildResult, SegmentConfig, get_bui
 
 logger = logging.getLogger(__name__)
 
+from src.core.services.audit_helpers import make_auditor
+
+_audit = make_auditor("pages")
+
 # ── Constants ───────────────────────────────────────────────────────
 
 PAGES_WORKSPACE = ".pages"

@@ -29,6 +29,10 @@ from pathlib import Path
 #       Content here
 # Hugo uses shortcodes:
 #   {{< admonition note >}} Content {{< /admonition >}}
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 _ADMONITION_RE = re.compile(
     r"^(:::)\s*(note|tip|warning|danger|info|caution|important)[ \t]*(.*?)$"

@@ -15,19 +15,36 @@
     <div class="grid">
         <!-- Audit log viewer -->
         <div class="card full-width" id="debug-audit">
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-md)">
-                <h2 class="card-title" style="margin:0">Audit Log</h2>
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-sm);flex-wrap:wrap;gap:8px">
+                <div style="display:flex;align-items:center;gap:8px">
+                    <h2 class="card-title" style="margin:0">Audit Log</h2>
+                    <span id="debug-audit-count" style="font-size:0.64rem;padding:2px 7px;border-radius:10px;background:var(--accent);color:#fff;font-weight:600;min-width:18px;text-align:center" title="Total entries"></span>
+                </div>
                 <div style="display:flex;gap:0.4rem">
                     <button class="btn btn-sm btn-ghost debug-audit-toggle active" data-mode="scans" onclick="debugAuditToggle('scans')" style="font-size:0.7rem" title="Scan activity from Audit & DevOps tabs">🔬 Scan Activity</button>
                     <button class="btn btn-sm btn-ghost debug-audit-toggle" data-mode="ops" onclick="debugAuditToggle('ops')" style="font-size:0.7rem" title="CLI operation log from audit.ndjson">⚡ CLI Operations</button>
                 </div>
             </div>
-            <div id="debug-audit-scans" class="activity-list">
+            <!-- Search & Filter bar -->
+            <div id="debug-audit-toolbar" style="display:flex;align-items:center;gap:8px;margin-bottom:var(--space-sm);flex-wrap:wrap">
+                <div style="position:relative;flex:1;min-width:180px;max-width:360px">
+                    <input id="debug-audit-search" type="text" placeholder="Search label, summary, target…" style="width:100%;padding:5px 10px 5px 30px;border-radius:var(--radius-sm);border:1px solid var(--border-subtle);background:var(--bg-primary);color:var(--text-primary);font-size:0.72rem;outline:none" oninput="_auditSearchDebounce()">
+                    <span style="position:absolute;left:9px;top:50%;transform:translateY(-50%);font-size:0.72rem;opacity:0.5">🔍</span>
+                </div>
+                <select id="debug-audit-card-filter" onchange="loadDebugAuditScans()" style="padding:5px 8px;border-radius:var(--radius-sm);border:1px solid var(--border-subtle);background:var(--bg-primary);color:var(--text-primary);font-size:0.72rem;outline:none;min-width:100px">
+                    <option value="">All types</option>
+                </select>
+                <span id="debug-audit-filtered-count" style="font-size:0.62rem;color:var(--text-muted);white-space:nowrap"></span>
+            </div>
+            <div id="debug-audit-scans" class="activity-list" style="max-height:600px;overflow-y:auto">
                 <div class="activity-item" style="color:var(--text-muted)">
                     <span class="spinner"></span>&nbsp; Loading scan activity...
                 </div>
             </div>
-            <div id="debug-audit-ops" class="activity-list" style="display:none">
+            <div id="debug-audit-scans-more" style="display:none;text-align:center;padding:8px">
+                <button class="btn btn-sm btn-ghost" onclick="_auditLoadMore()" style="font-size:0.72rem">⬇ Load more</button>
+            </div>
+            <div id="debug-audit-ops" class="activity-list" style="display:none;max-height:600px;overflow-y:auto">
                 <div class="activity-item" style="color:var(--text-muted)">
                     <span class="spinner"></span>&nbsp; Loading CLI operations...
                 </div>

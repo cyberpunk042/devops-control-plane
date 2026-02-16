@@ -12,6 +12,10 @@ from src.core.services.k8s_common import _run_kubectl, _kubectl_available
 
 logger = logging.getLogger(__name__)
 
+from src.core.services.audit_helpers import make_auditor
+
+_audit = make_auditor("k8s")
+
 def cluster_status() -> dict:
     """Get cluster connection info and node status.
 

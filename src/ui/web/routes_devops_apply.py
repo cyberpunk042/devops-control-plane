@@ -13,7 +13,6 @@ Endpoints:
 
 from __future__ import annotations
 
-import subprocess
 from pathlib import Path
 
 from flask import current_app, jsonify, request
@@ -43,12 +42,6 @@ def wizard_setup():  # type: ignore[no-untyped-def]
             return jsonify(result), 400
         return jsonify(result)
 
-    except subprocess.CalledProcessError as e:
-        return jsonify({
-            "ok": False,
-            "error": f"Command failed: {e.cmd}",
-            "stderr": (e.stderr or b"").decode(errors="replace"),
-        })
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
 

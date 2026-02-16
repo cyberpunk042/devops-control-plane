@@ -173,6 +173,8 @@ def content_release_inventory():  # type: ignore[no-untyped-def]
 @content_bp.route("/content/clean-release-sidecar", methods=["POST"])
 def content_clean_release_sidecar():  # type: ignore[no-untyped-def]
     """Delete a stale .release.json sidecar without touching the content file."""
+    from src.core.services.content_release import remove_orphaned_sidecar
+
     data = request.get_json(silent=True) or {}
     rel_path = data.get("path", "").strip()
     if not rel_path:
@@ -182,14 +184,7 @@ def content_clean_release_sidecar():  # type: ignore[no-untyped-def]
     if target is None or not target.is_file():
         return jsonify({"error": "File not found"}), 404
 
-    meta_path = target.parent / f"{target.name}.release.json"
-    if not meta_path.exists():
-        return jsonify({"error": "No sidecar found"}), 404
-
-    meta_path.unlink(missing_ok=True)
-    logger.info("Cleaned orphaned release sidecar: %s", meta_path)
-    return jsonify({
-        "success": True,
-        "path": rel_path,
-        "message": "Sidecar removed",
-    })
+    result = remove_orphaned_sidecar(target)
+    if "error" in result:
+        return jsonify(result), 404
+    return jsonify({**result, "path": rel_path, "message": "Sidecar removed"})

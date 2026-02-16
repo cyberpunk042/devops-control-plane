@@ -14,6 +14,10 @@ from src.core.services.security_common import (
 
 logger = logging.getLogger(__name__)
 
+from src.core.services.audit_helpers import make_auditor
+
+_audit = make_auditor("security")
+
 def scan_secrets(
     project_root: Path,
     *,

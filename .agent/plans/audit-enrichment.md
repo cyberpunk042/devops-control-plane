@@ -251,8 +251,6 @@ The Audit Log UI (`_debugging.html` → `loadDebugAuditScans`) now renders:
 - Size values auto-formatted with locale separators + "B" suffix
 - Raw JSON detail toggle preserved for power users
 
----
-
 ## Scope Consideration
 
 This is a significant but **evolutionary** change:
@@ -262,3 +260,51 @@ This is a significant but **evolutionary** change:
 - UI rendering is updated once to handle new fields
 
 ~90 call sites across 15 files. 80 enriched, 12 error-only events left as-is.
+
+### Phase 6: Consolidate `_audit()` into shared helper ✅ DONE
+Created `src/core/services/audit_helpers.py` with:
+- `audit_event(card, label, summary, **kwargs)` — direct call
+- `make_auditor(card)` — factory that returns a pre-bound `_audit(label, summary, **kwargs)`
+
+Replaced **17 identical** `_audit()` copy-paste functions across:
+vault.py, vault_io.py, vault_env_ops.py, backup_archive.py, backup_extras.py,
+backup_restore.py, content_file_ops.py, content_crypto.py, testing_ops.py,
+terraform_ops.py, docker_containers.py, docker_generate.py, secrets_ops.py,
+ci_ops.py, dns_cdn_ops.py, config_ops.py, tool_install.py
+
+Each now uses: `from src.core.services.audit_helpers import make_auditor; _audit = make_auditor("card_name")`
+
+### Phase 7: Add audit + logger to unaudited services ✅ DONE
+Added `make_auditor` + `logger = logging.getLogger(__name__)` to **12 services** that perform
+user-facing write operations but lacked audit instrumentation:
+content_release.py, content_optimize.py, content_optimize_video.py, git_ops.py,
+env_ops.py, k8s_wizard.py, k8s_generate.py, k8s_cluster.py, k8s_helm.py,
+wizard_ops.py, security_scan.py, pages_engine.py
+
+Also added standalone `logger` to 3 services that were missing it:
+docker_common.py, k8s_validate.py, md_transforms.py
+
+Skipped (read-only / pure utility / re-export hubs):
+backup_ops.py, docker_ops.py, k8s_ops.py, security_ops.py, detection.py,
+docker_detect.py, k8s_common.py, k8s_detect.py, metrics_ops.py,
+project_probes.py, quality_ops.py, staleness_watcher.py, event_bus.py, etc.
+
+### Phase 8: Audit Log UI — pagination, filtering, search ✅ DONE
+Enhanced the Debugging → Audit Log panel:
+
+**Server-side** (`routes_api.py` `/audit/activity`):
+- `offset`/`limit` pagination (default: 50 entries per page)
+- `card` filter (exact match on card type)
+- `q` text search (case-insensitive, searches label/summary/target/card)
+- Returns `total_all`, `total_filtered`, `has_more`, `cards[]` for UI
+
+**Client-side** (`_debugging.html` + `_tab_debugging.html`):
+- Search input with 🔍 icon and 300ms debounce
+- Card-type dropdown filter (auto-populated from server)
+- "X of Y entries" filtered count label
+- Total entry count badge next to "Audit Log" title
+- "⬇ Load more" button for lazy-loading next page
+- Entry list capped at 600px with scroll
+- Entries now sorted newest-first by server (no client-side reversal)
+- Card badge now shows actual card name instead of generic "DevOps"
+- Rendering logic extracted to `_renderAuditEntry()` function for reuse

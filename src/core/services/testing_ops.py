@@ -25,17 +25,9 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
-def _audit(label: str, summary: str, **kwargs) -> None:
-    """Record an audit event if a project root is registered."""
-    try:
-        from src.core.context import get_project_root
-        root = get_project_root()
-    except Exception:
-        return
-    if root is None:
-        return
-    from src.core.services.devops_cache import record_event
-    record_event(root, label=label, summary=summary, card="testing", **kwargs)
+from src.core.services.audit_helpers import make_auditor
+
+_audit = make_auditor("testing")
 
 
 # ═══════════════════════════════════════════════════════════════════
