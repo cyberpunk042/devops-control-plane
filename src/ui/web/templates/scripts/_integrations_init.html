@@ -111,9 +111,14 @@
             _intPrefs = null;
             _intProjectStatus = null;  // clear project status cache
             cardInvalidate('project-status');
+            if (typeof _store !== 'undefined') delete _store['project-status'];
             for (const [key, meta] of Object.entries(_INT_CARDS)) {
                 const cacheKey = key.replace('int:', '');
                 cardInvalidate(cacheKey === 'github' ? 'github' : cacheKey);
+                // Also clear in-memory SSE store
+                if (typeof _store !== 'undefined') {
+                    delete _store[cacheKey === 'github' ? 'github' : cacheKey];
+                }
                 const detail = document.getElementById(meta.detailId);
                 const badge = document.getElementById(meta.badgeId);
                 if (detail) detail.innerHTML = '<span class="spinner"></span>';

@@ -68,6 +68,8 @@ async function loadAuditTab(force) {
         // Bust client + server caches, show spinners — same as cardRefresh()
         for (const [key, meta] of Object.entries(_AUDIT_CARDS)) {
             cardInvalidate(key);
+            // Also clear in-memory SSE store
+            if (typeof _store !== 'undefined') delete _store[key];
             const badge = document.getElementById(meta.badgeId);
             const detail = document.getElementById(meta.detailId);
             if (badge) { badge.className = 'status-badge'; badge.textContent = '—'; }

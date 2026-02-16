@@ -98,19 +98,21 @@ def security_posture_summary():  # type: ignore[no-untyped-def]
     risks_entry = cache.get("audit:l2:risks")
     if risks_entry and "data" in risks_entry:
         risk_data = risks_entry["data"]
-        # audit:l2:risks stores findings in a different shape — extract
-        # security-relevant data and map to the shape the DevOps card expects
         all_findings = risk_data.get("findings", [])
         sec_findings = [
             f for f in all_findings
             if f.get("category") in ("secrets", "security")
         ]
-        return jsonify({
-            "findings": sec_findings,
-            "finding_count": len(sec_findings),
-            "posture": {},  # No posture from audit cache
-            "_source": "audit:l2:risks",
-        })
+        # Only use this fallback if we actually have findings to show.
+        # Returning posture:{} causes the card to render with score=0/grade=?
+        # which is misleading — better to show the "not yet loaded" state.
+        if sec_findings:
+            return jsonify({
+                "findings": sec_findings,
+                "finding_count": len(sec_findings),
+                "posture": {},  # No posture from audit cache
+                "_source": "audit:l2:risks",
+            })
 
     return jsonify({"empty": True})
 

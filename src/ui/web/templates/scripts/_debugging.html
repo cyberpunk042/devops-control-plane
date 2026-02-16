@@ -228,6 +228,25 @@
         _auditState.loading = false;
     }
 
+    function _auditToggleSource(idx) {
+        const srcEl = document.getElementById(`audit-log-source-${idx}`);
+        const detEl = document.getElementById(`audit-log-detail-${idx}`);
+        const btn = document.getElementById(`audit-log-source-btn-${idx}`);
+        if (!srcEl) return;
+
+        const showing = srcEl.style.display !== 'none';
+        if (showing) {
+            // Hide source, restore visual
+            srcEl.style.display = 'none';
+            if (btn) { btn.style.color = 'var(--text-muted)'; btn.style.background = 'none'; }
+        } else {
+            // Show source, hide visual detail
+            srcEl.style.display = '';
+            if (detEl) detEl.style.display = 'none';
+            if (btn) { btn.style.color = 'var(--accent)'; btn.style.background = 'rgba(99,102,241,0.1)'; }
+        }
+    }
+
     function _renderAuditEntry(entry, idx) {
         const statusIcon = entry.status === 'ok' ? '✅' : '❌';
         const statusColor = entry.status === 'ok' ? 'var(--success)' : 'var(--danger)';
@@ -358,24 +377,67 @@
                     auditDetailHtml += `<div style="font-size:0.6rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:2px">Detail</div>`;
                     for (const k of extraKeys) {
                         const v = entry.detail[k];
+                        const label = k.replace(/_/g, ' ');
                         const displayVal = typeof v === 'object' ? JSON.stringify(v) : String(v);
-                        const valHtml = (typeof v === 'string' && _debugIsFilePath(v))
-                            ? _debugFileLink(v)
-                            : esc(displayVal);
-                        auditDetailHtml += `<div style="font-size:0.66rem;color:var(--text-secondary)"><span style="color:var(--text-muted)">${esc(k)}:</span> ${valHtml}</div>`;
+                        let valHtml;
+                        if (typeof v === 'string' && _debugIsFilePath(v)) {
+                            valHtml = _debugFileLink(v);
+                        } else if (typeof v === 'string' && /^https?:\/\//.test(v)) {
+                            valHtml = `<a href="${esc(v)}" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:underline dotted;font-size:0.7rem">${esc(v)}</a>`;
+                        } else if (typeof v === 'string' && /^git@/.test(v)) {
+                            const httpsUrl = v.replace(/^git@([^:]+):/, 'https://$1/').replace(/\.git$/, '');
+                            valHtml = `<a href="${esc(httpsUrl)}" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:underline dotted;font-size:0.7rem">${esc(v)}</a>`;
+                        } else {
+                            valHtml = `<span style="font-family:var(--font-mono);font-size:0.68rem">${esc(displayVal)}</span>`;
+                        }
+                        auditDetailHtml += `<div style="display:flex;align-items:baseline;gap:6px;padding:1px 0;font-size:0.66rem;color:var(--text-secondary)"><span style="min-width:80px;color:var(--text-muted);text-transform:capitalize;font-size:0.6rem">${esc(label)}:</span> ${valHtml}</div>`;
                     }
                     auditDetailHtml += `</div>`;
                 }
             }
 
             auditDetailHtml += `</div>`;
+        } else if (entry.detail && typeof entry.detail === 'object') {
+            // Non-enriched entry WITH detail — render detail keys nicely
+            auditDetailHtml = `<div id="audit-log-detail-${idx}" style="display:none;margin-top:6px;padding:6px 10px;border-radius:var(--radius-sm);background:var(--bg-primary);border:1px solid var(--border-subtle);font-size:0.72rem">`;
+            for (const [k, v] of Object.entries(entry.detail)) {
+                if (k === '_cache' || k === '_meta') continue;
+                const label = k.replace(/_/g, ' ');
+                const displayVal = typeof v === 'object' ? JSON.stringify(v) : String(v);
+                let valHtml;
+                if (typeof v === 'string' && _debugIsFilePath(v)) {
+                    valHtml = _debugFileLink(v);
+                } else if (typeof v === 'string' && /^https?:\/\//.test(v)) {
+                    valHtml = `<a href="${esc(v)}" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:underline dotted;font-size:0.7rem" title="Open in browser">${esc(v)}</a>`;
+                } else if (typeof v === 'string' && /^git@/.test(v)) {
+                    // Transform git@ SSH URL to HTTPS for linking
+                    const httpsUrl = v.replace(/^git@([^:]+):/, 'https://$1/').replace(/\.git$/, '');
+                    valHtml = `<a href="${esc(httpsUrl)}" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:underline dotted;font-size:0.7rem" title="Open repository">${esc(v)}</a>`;
+                } else if (displayVal === '✓ detected') {
+                    valHtml = `<span style="color:var(--success);font-weight:600">✓ detected</span>`;
+                } else {
+                    valHtml = `<span style="font-family:var(--font-mono);font-size:0.68rem">${esc(displayVal)}</span>`;
+                }
+                auditDetailHtml += `<div style="display:flex;align-items:baseline;gap:6px;padding:1px 0"><span style="min-width:100px;color:var(--text-muted);text-transform:capitalize;font-size:0.62rem;letter-spacing:0.3px">${esc(label)}:</span> ${valHtml}</div>`;
+            }
+            auditDetailHtml += `</div>`;
         } else {
-            const detailObj = entry.detail || entry;
-            auditDetailHtml = `<div id="audit-log-detail-${idx}" style="display:none;margin-top:8px;padding:8px 10px;border-radius:var(--radius-sm);background:var(--bg-primary);font-size:0.68rem;font-family:var(--font-mono);white-space:pre-wrap;word-break:break-all;max-height:200px;overflow-y:auto;border:1px solid var(--border-subtle)">${esc(JSON.stringify(detailObj, null, 2))}</div>`;
+            // Pure scan entry (no enriched fields, no detail) — no expandable needed
+            auditDetailHtml = '';
         }
 
-        return `<div style="padding:10px 14px;margin-bottom:5px;border-radius:var(--radius-sm);background:var(--bg-secondary);border-left:3px solid ${statusColor};display:flex;flex-direction:column;gap:3px;cursor:pointer" onclick="const d=document.getElementById('audit-log-detail-${idx}');if(d)d.style.display=d.style.display==='none'?'':'none'">
-            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        // Raw JSON source (always available, hidden by default)
+        const rawJson = JSON.stringify(entry, null, 2);
+        const rawSourceHtml = `<div id="audit-log-source-${idx}" style="display:none;margin-top:6px;padding:8px 10px;border-radius:var(--radius-sm);background:#0d1117;border:1px solid var(--border-subtle);font-size:0.66rem;font-family:var(--font-mono);white-space:pre-wrap;word-break:break-all;max-height:280px;overflow-y:auto;color:#c9d1d9;line-height:1.5">${esc(rawJson)}</div>`;
+
+        // If no visual detail exists, row click toggles source; otherwise toggles detail
+        const hasDetail = auditDetailHtml !== '';
+        const rowClick = hasDetail
+            ? `const d=document.getElementById('audit-log-detail-${idx}');if(d)d.style.display=d.style.display==='none'?'':'none'`
+            : `_auditToggleSource(${idx})`;
+
+        return `<div style="padding:10px 14px;margin-bottom:5px;border-radius:var(--radius-sm);background:var(--bg-secondary);border-left:3px solid ${statusColor};display:flex;flex-direction:column;gap:3px">
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;cursor:pointer" onclick="${rowClick}">
                 <span style="font-size:0.88rem">${statusIcon}</span>
                 <strong style="font-size:0.8rem">${esc(entry.label || entry.card)}</strong>
                 ${actionBadgeHtml}
@@ -383,9 +445,11 @@
                 ${bust}
                 ${duration && !isDismissal ? `<span style="font-size:0.66rem;color:var(--text-muted)">⏱ ${duration}</span>` : ''}
                 <span style="font-size:0.64rem;color:var(--text-muted);margin-left:auto">${time}</span>
+                <button onclick="event.stopPropagation();_auditToggleSource(${idx})" style="background:none;border:1px solid var(--border-subtle);border-radius:3px;padding:1px 5px;font-size:0.58rem;font-family:var(--font-mono);color:var(--text-muted);cursor:pointer;line-height:1.3" title="Toggle raw JSON source" id="audit-log-source-btn-${idx}">{ }</button>
             </div>
             ${entry.summary ? `<div style="font-size:0.72rem;color:var(--text-secondary);padding-left:26px">${esc(entry.summary)}</div>` : ''}
             ${auditDetailHtml}
+            ${rawSourceHtml}
         </div>`;
     }
 

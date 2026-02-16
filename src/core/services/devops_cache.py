@@ -661,21 +661,21 @@ def load_prefs(project_root: Path) -> dict:
     """Load card preferences (auto / manual / visible / hidden per card)."""
     pf = _prefs_path(project_root)
     if not pf.exists():
-        return dict(DEFAULT_CARD_PREFS)
+        return dict(_DEFAULT_PREFS)
     try:
         raw = json.loads(pf.read_text(encoding="utf-8"))
-        merged = dict(DEFAULT_CARD_PREFS)
+        merged = dict(_DEFAULT_PREFS)
         for k, v in raw.items():
             if v in _VALID_PREFS:
                 merged[k] = v
         return merged
     except (json.JSONDecodeError, IOError):
-        return dict(DEFAULT_CARD_PREFS)
+        return dict(_DEFAULT_PREFS)
 
 
 def save_prefs(project_root: Path, prefs: dict) -> dict:
     """Save card preferences.  Returns the validated result."""
-    merged = dict(DEFAULT_CARD_PREFS)
+    merged = dict(_DEFAULT_PREFS)
     for k, v in prefs.items():
         if v in _VALID_PREFS:
             merged[k] = v

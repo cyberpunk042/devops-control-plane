@@ -25,7 +25,7 @@ async function loadAuditScoresEnriched() {
 
     // Bust cache and fetch enriched
     cardInvalidate('audit:scores:enriched');
-    const data = await api('/audit/scores/enriched?bust').catch(e => ({ _err: e }));
+    const data = await api('/audit/scores/enriched?bust', { timeout: 120000 }).catch(e => ({ _err: e }));
 
     btn.disabled = false;
     btn.textContent = '🔬 Enrich';

@@ -37,6 +37,10 @@
     async function loadDevopsTab(force) {
         if (force) {
             cardInvalidateAll();
+            // Also clear in-memory SSE store for devops cards
+            if (typeof _store !== 'undefined') {
+                for (const key of Object.keys(_DEVOPS_CARDS)) delete _store[key];
+            }
             // Bust server-side caches (scoped to devops tab)
             // MUST await: the server starts a background recompute thread
             // that grabs locks on slow cards. If we don't wait, our card
