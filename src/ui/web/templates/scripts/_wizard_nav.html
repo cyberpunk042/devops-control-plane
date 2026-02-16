@@ -138,6 +138,8 @@
             secretsLoaded = false;
 
             toast('✅ Configuration saved to project.yml!', 'success');
+            // Prefs changed — dashboard needs to re-render (uses cached data, no API calls)
+            _dashLoaded = false;
             switchTab('dashboard');
 
             // Trigger post-wizard "Next Steps" modal after a short delay

@@ -200,9 +200,9 @@ async function _wizDeleteConfig(target, btnEl) {
 
 /** Re-run detection and re-render */
 async function _wizRedetect() {
-    toast('🔄 Re-detecting…', 'info');
+    toast('🔄 Re-scanning…', 'info');
     try {
-        _wizIntDetection = await api('/wizard/detect');
+        _wizIntDetection = await _wizFetchDetect(true);
         _wizRenderIntegrations();
         toast('✅ Updated!', 'success');
     } catch (e) { toast('Detection failed: ' + e.message, 'error'); }

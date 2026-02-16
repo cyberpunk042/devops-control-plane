@@ -2,6 +2,7 @@
     // ── Tab switching ───────────────────────────────────────────────────
 
     let activeTab = 'dashboard';
+    let _dashLoaded = false;
     let _navDepth = 0;       // how many pushState calls we've made
     let _popstateActive = false; // suppress hashchange during popstate
 
@@ -46,8 +47,12 @@
 
         // Load data for the tab
         if (tabId === 'dashboard') {
-            loadStatus();
-            loadHealthScore();
+            if (!_dashLoaded) {
+                loadStatus();
+                loadHealthScore();
+                loadSetupProgress();
+                _dashLoaded = true;
+            }
         } else if (tabId === 'commands') {
             if (!capabilitiesLoaded) loadCapabilities();
         } else if (tabId === 'wizard') {

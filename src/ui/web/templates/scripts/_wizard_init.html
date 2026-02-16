@@ -16,6 +16,28 @@
 
     let _wizIntDetection = null;  // cached wizard/detect result
 
+    /**
+     * Fetch wizard detect data with proper caching.
+     * Checks: in-memory → sessionStorage → API (last resort).
+     * @param {boolean} force — if true, bypass all caches and use ?bust=1
+     * @returns {Promise<object>} detect data
+     */
+    async function _wizFetchDetect(force = false) {
+        if (!force && _wizIntDetection) return _wizIntDetection;
+        if (!force) {
+            const cached = wizCached('detect');
+            if (cached) {
+                _wizIntDetection = cached;
+                return cached;
+            }
+        }
+        const url = '/wizard/detect' + (force ? '?bust=1' : '');
+        const data = await api(url);
+        _wizIntDetection = data;
+        wizStore('detect', data);
+        return data;
+    }
+
     const wizardSteps = [
         { id: 'welcome',      title: 'Welcome',      icon: '👋' },
         { id: 'modules',      title: 'Modules',      icon: '🔍' },

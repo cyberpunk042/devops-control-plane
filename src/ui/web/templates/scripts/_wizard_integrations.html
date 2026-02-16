@@ -21,6 +21,38 @@ function _wizRenderIntegrations() {
 
     const savedPrefs = (_wizardConfig && _wizardConfig._integrationPrefs) || d.current_prefs || {};
 
+    // ── Scan info bar ──────────────────────────────────────────
+    const scanAge = wizAge('detect');
+    const scanAgeStr = scanAge != null ? _formatAge(scanAge) : 'unknown';
+    const isStale = storeIsStale('wiz:detect');
+    const wasCached = d._cache?.fresh !== false;
+
+    let scanBarHtml = `
+            <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:var(--space-md);
+                        padding:0.4rem 0.75rem;border-radius:var(--radius-sm);
+                        background:var(--bg-inset);border:1px solid var(--border-subtle);font-size:0.72rem">
+                <span style="color:var(--text-muted)">🔍 Last scanned: <strong>${esc(scanAgeStr)}</strong></span>`;
+
+    if (isStale) {
+        scanBarHtml += `
+                <span style="display:inline-flex;align-items:center;gap:0.25rem;padding:0.1rem 0.4rem;
+                             border-radius:4px;font-size:0.65rem;font-weight:600;
+                             background:color-mix(in srgb, var(--warning) 12%, transparent);
+                             color:var(--warning);border:1px solid color-mix(in srgb, var(--warning) 30%, transparent)">
+                    ⚡ Files changed — rescan recommended
+                </span>`;
+    } else if (wasCached && scanAge != null && scanAge < 30) {
+        scanBarHtml += `
+                <span style="font-size:0.65rem;color:var(--success)">✓ fresh</span>`;
+    }
+
+    scanBarHtml += `
+                <button class="btn btn-sm btn-secondary" onclick="_wizRedetect()"
+                    style="margin-left:auto;font-size:0.65rem;padding:1px 8px">
+                    🔄 Re-scan
+                </button>
+            </div>`;
+
     // ── Tools section (compact) ────────────────────────────────
     const toolEntries = Object.entries(d.tools);
     const avail = toolEntries.filter(([, v]) => v).length;
@@ -104,7 +136,7 @@ function _wizRenderIntegrations() {
     cardsHtml += `</div>`;
 
     el.style.display = 'block';
-    el.innerHTML = toolsHtml + cardsHtml + `
+    el.innerHTML = scanBarHtml + toolsHtml + cardsHtml + `
             <p style="color:var(--text-muted);font-size:0.75rem;margin-top:0.5rem">
                 💡 Click <strong>⚙️ Setup</strong> on any card to configure it.
                 Uncheck to hide from UI.

@@ -26,7 +26,7 @@
 
         // Fetch detection data
         try {
-            _wizardData = await api('/wizard/detect');
+            _wizardData = await _wizFetchDetect();
         } catch (e) {
             document.getElementById('setup-wizard-body').innerHTML = `
                 <div style="text-align:center;color:var(--error)">

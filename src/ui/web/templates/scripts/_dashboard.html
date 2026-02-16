@@ -285,20 +285,11 @@
             const cached = cardCached('project-status');
             const data = cached || await api('/project/status');
             if (!cached) cardStore('project-status', data);
-            const { integrations, progress, suggested_next } = data;
+            const { integrations, suggested_next } = data;
 
-            // Progress badge
-            if (progress.percent >= 100) {
-                badge.className = 'status-badge ok';
-                badge.innerHTML = '<span class="status-dot"></span>Complete';
-            } else {
-                badge.className = 'status-badge degraded';
-                badge.innerHTML = `<span class="status-dot"></span>${progress.complete}/${progress.total}`;
-            }
-
-            // Progress bar
-            const pct = progress.percent || 0;
-            const barColor = pct >= 80 ? 'var(--success)' : pct >= 50 ? 'var(--warning)' : 'var(--accent)';
+            // Use in-memory cached prefs (no API call if already fetched)
+            let prefs = {};
+            try { prefs = await _fetchDevopsPrefs(); } catch (_) {}
 
             // Integration items
             const integrationMeta = {
@@ -316,9 +307,34 @@
             const statusLabels = { ready: 'Ready', partial: 'Partial', missing: 'Not set up' };
             const statusColors = { ready: 'var(--success)', partial: 'var(--warning)', missing: 'var(--text-muted)' };
 
+            // Filter to visible integrations only
+            const order = ['git', 'docker', 'github', 'cicd', 'k8s', 'terraform', 'pages', 'dns'];
+            const visible = order.filter(k => prefs[k] !== 'hidden' && prefs['int:' + k] !== 'hidden');
+
+            // Recalculate progress from visible integrations
+            const visibleComplete = visible.filter(k => (integrations[k] || {}).status === 'ready').length;
+            const visibleTotal = visible.length;
+            const pct = visibleTotal > 0 ? Math.round((visibleComplete / visibleTotal) * 100) : 100;
+
+            // Pick suggestion: backend's if visible, else first visible incomplete
+            let suggestion = suggested_next;
+            if (suggestion && (prefs[suggestion] === 'hidden' || prefs['int:' + suggestion] === 'hidden')) {
+                suggestion = visible.find(k => (integrations[k] || {}).status !== 'ready') || null;
+            }
+
+            // Progress badge
+            if (pct >= 100) {
+                badge.className = 'status-badge ok';
+                badge.innerHTML = '<span class="status-dot"></span>Complete';
+            } else {
+                badge.className = 'status-badge degraded';
+                badge.innerHTML = `<span class="status-dot"></span>${visibleComplete}/${visibleTotal}`;
+            }
+
             let html = '';
 
             // Progress bar
+            const barColor = pct >= 80 ? 'var(--success)' : pct >= 50 ? 'var(--warning)' : 'var(--accent)';
             html += `<div style="margin-bottom:var(--space-lg)">
                 <div style="display:flex;justify-content:space-between;font-size:0.72rem;color:var(--text-muted);margin-bottom:4px">
                     <span>Setup progress</span>
@@ -329,15 +345,14 @@
                 </div>
             </div>`;
 
-            // Integration list
-            const order = ['git', 'docker', 'github', 'cicd', 'k8s', 'terraform', 'pages', 'dns'];
+            // Integration list (visible only)
             html += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:8px">';
 
-            for (const key of order) {
+            for (const key of visible) {
                 const meta = integrationMeta[key];
                 const info = integrations[key] || {};
                 const st = info.status || 'missing';
-                const isSuggested = key === suggested_next;
+                const isSuggested = key === suggestion;
 
                 html += `<div style="
                     display:flex;align-items:center;gap:0.6rem;
@@ -363,8 +378,8 @@
             html += '</div>';
 
             // Suggested next hint
-            if (suggested_next && integrationMeta[suggested_next]) {
-                const next = integrationMeta[suggested_next];
+            if (suggestion && integrationMeta[suggestion]) {
+                const next = integrationMeta[suggestion];
                 html += `<div style="
                     margin-top:var(--space-md);padding:var(--space-sm) var(--space-md);
                     background:var(--accent-glow);border:1px solid var(--accent);border-radius:var(--radius-sm);

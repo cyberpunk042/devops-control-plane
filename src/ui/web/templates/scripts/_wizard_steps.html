@@ -507,7 +507,7 @@
 
             try {
                 if (!_wizardConfig) await wizardLoadConfig();
-                _wizIntDetection = await api('/wizard/detect');
+                _wizIntDetection = await _wizFetchDetect();
             } catch (e) {
                 document.getElementById('wiz-int-body').innerHTML =
                     `<p style="color:var(--error)">❌ Detection failed: ${esc(e.message)}</p>`;
