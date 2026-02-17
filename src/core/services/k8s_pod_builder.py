@@ -124,6 +124,10 @@ def _build_wizard_volume(vol: dict, index: int, svc_name: str) -> tuple[dict | N
     else:
         return None, None
 
+    # readOnly flag
+    if vol.get("readOnly"):
+        vm["readOnly"] = True
+
     return pod_vol, vm
 
 
@@ -492,7 +496,9 @@ def _mesh_annotation_prefixes() -> dict[str, dict]:
 
 def _build_mesh_annotations(mesh: dict) -> dict:
     """Build mesh-provider-specific annotations for pod template."""
-    provider = mesh.get("provider", "istio")
+    if not mesh or not mesh.get("provider"):
+        return {}
+    provider = mesh["provider"]
     all_prefixes = _mesh_annotation_prefixes()
     prefixes = all_prefixes.get(provider, all_prefixes["istio"])
 

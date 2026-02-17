@@ -318,17 +318,118 @@ EXPOSE 3000
 CMD ["bundle", "exec", "ruby", "app.rb"]
 """
 
+_C_DOCKERFILE = """\
+# ── Build stage ─────────────────────────────────────────────────
+FROM gcc:13 AS builder
+
+WORKDIR /app
+
+# Copy build files first for layer caching
+COPY Makefile CMakeLists.txt* ./
+COPY . .
+
+RUN make clean 2>/dev/null || true \
+    && make CFLAGS="-O2 -static"
+
+# ── Runtime stage ───────────────────────────────────────────────
+FROM alpine:3.19
+
+WORKDIR /app
+
+# Create non-root user
+RUN addgroup -g 1000 app && adduser -u 1000 -G app -s /bin/sh -D app
+
+COPY --from=builder /app/server /app/server
+
+USER app
+
+EXPOSE 8080
+
+CMD ["/app/server"]
+"""
+
+_CPP_DOCKERFILE = """\
+# ── Build stage ─────────────────────────────────────────────────
+FROM gcc:13 AS builder
+
+RUN apt-get update && apt-get install -y --no-install-recommends cmake \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy build files first for layer caching
+COPY CMakeLists.txt Makefile* ./
+COPY . .
+
+RUN if [ -f CMakeLists.txt ]; then \
+        mkdir -p build && cd build && cmake -DCMAKE_BUILD_TYPE=Release .. && make -j$(nproc); \
+    else \
+        make CXXFLAGS="-O2 -static"; \
+    fi
+
+# ── Runtime stage ───────────────────────────────────────────────
+FROM alpine:3.19
+
+WORKDIR /app
+
+# Create non-root user
+RUN addgroup -g 1000 app && adduser -u 1000 -G app -s /bin/sh -D app
+
+COPY --from=builder /app/build/server /app/server 2>/dev/null || true
+COPY --from=builder /app/server /app/server 2>/dev/null || true
+
+USER app
+
+EXPOSE 8080
+
+CMD ["/app/server"]
+"""
+
+_PHP_DOCKERFILE = """\
+# ── Build stage ─────────────────────────────────────────────────
+FROM composer:2 AS builder
+
+WORKDIR /app
+
+COPY composer.json composer.lock* ./
+RUN composer install --no-dev --optimize-autoloader --no-scripts
+
+COPY . .
+
+# ── Runtime stage ───────────────────────────────────────────────
+FROM php:8.3-fpm-alpine
+
+WORKDIR /app
+
+# Create non-root user
+RUN addgroup -g 1000 app && adduser -u 1000 -G app -s /bin/sh -D app
+
+COPY --from=builder /app /app
+
+USER app
+
+EXPOSE 9000
+
+CMD ["php-fpm"]
+"""
+
 # Map stack names (and prefixes) to Dockerfile templates
 _STACK_TEMPLATES: dict[str, str] = {
     "python": _PYTHON_DOCKERFILE,
     "node": _NODE_DOCKERFILE,
     "typescript": _TYPESCRIPT_DOCKERFILE,
     "go": _GO_DOCKERFILE,
+    "c": _C_DOCKERFILE,
+    "cpp": _CPP_DOCKERFILE,
     "rust": _RUST_DOCKERFILE,
     "java-maven": _JAVA_MAVEN_DOCKERFILE,
     "java-gradle": _JAVA_GRADLE_DOCKERFILE,
+    "java-spring": _JAVA_MAVEN_DOCKERFILE,     # Spring Boot defaults to Maven
+    "java-quarkus": _JAVA_MAVEN_DOCKERFILE,     # Quarkus defaults to Maven
+    "java-micronaut": _JAVA_MAVEN_DOCKERFILE,   # Micronaut defaults to Maven
     "dotnet": _DOTNET_DOCKERFILE,
     "elixir": _ELIXIR_DOCKERFILE,
+    "php": _PHP_DOCKERFILE,
     "ruby": _RUBY_DOCKERFILE,
 }
 
@@ -359,6 +460,7 @@ def generate_dockerfile(
     stack_name: str,
     *,
     output_path: str = "Dockerfile",
+    base_image: str | None = None,
 ) -> GeneratedFile | None:
     """Generate a Dockerfile for the given stack.
 
@@ -366,6 +468,8 @@ def generate_dockerfile(
         project_root: Project root (used for existence checks).
         stack_name: Detected or declared stack name.
         output_path: Relative path for the Dockerfile.
+        base_image: Optional custom base image to replace the builder
+                     stage's FROM line. If None, the template default is used.
 
     Returns:
         GeneratedFile or None if no template matches the stack.
@@ -374,9 +478,28 @@ def generate_dockerfile(
     if template is None:
         return None
 
+    content = template
+
+    # Replace builder stage base image if custom one provided
+    if base_image:
+        lines = content.splitlines(keepends=True)
+        for i, line in enumerate(lines):
+            stripped = line.strip()
+            if stripped.upper().startswith("FROM "):
+                # Preserve the AS alias if present
+                parts = stripped.split()
+                alias = ""
+                for j, part in enumerate(parts):
+                    if part.upper() == "AS" and j + 1 < len(parts):
+                        alias = f" AS {parts[j + 1]}"
+                        break
+                lines[i] = f"FROM {base_image}{alias}\n"
+                break  # Only replace the FIRST FROM (builder stage)
+        content = "".join(lines)
+
     return GeneratedFile(
         path=output_path,
-        content=template,
+        content=content,
         overwrite=False,
         reason=f"Generated Dockerfile for {stack_name} stack",
     )

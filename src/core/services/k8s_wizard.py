@@ -186,32 +186,36 @@ def wizard_state_to_resources(data: dict) -> list[dict]:
         # Env vars
         env_vars = svc.get("envVars", [])
         if env_vars:
-            env_list, env_from_refs = _build_env_vars(env_vars)
-            spec["env"] = env_list
-            if env_from_refs:
-                spec["envFrom"] = env_from_refs
+            # _build_env_vars returns a flat list of K8s env entries
+            env_list = _build_env_vars(env_vars, svc_name=svc_name)
+            if env_list:
+                spec["env"] = env_list
 
             # ConfigMap / Secret resources for env vars
             env_resources, has_config, has_secrets = _svc_env_to_resources(
                 svc_name, env_vars, namespace, output_dir,
             )
             resources.extend(env_resources)
+            # Wire envFrom references for bulk injection
+            env_from: list[dict] = []
             if has_config:
-                spec.setdefault("envFrom", []).append(
+                env_from.append(
                     {"configMapRef": {"name": f"{svc_name}-config"}},
                 )
             if has_secrets:
-                spec.setdefault("envFrom", []).append(
+                env_from.append(
                     {"secretRef": {"name": f"{svc_name}-secrets"}},
                 )
+            if env_from:
+                spec["envFrom"] = env_from
 
         # Volumes
         volumes = svc.get("volumes", [])
         if volumes:
             vol_mounts = []
             vol_defs = []
-            for vol in volumes:
-                vm, vd = _build_wizard_volume(svc_name, vol)
+            for vi, vol in enumerate(volumes):
+                vd, vm = _build_wizard_volume(vol, vi, svc_name)
                 if vm:
                     vol_mounts.append(vm)
                 if vd:
@@ -271,8 +275,7 @@ def wizard_state_to_resources(data: dict) -> list[dict]:
         # Service mesh
         mesh = svc.get("mesh", {})
         if mesh and mesh.get("enabled"):
-            mesh_name = mesh.get("provider", "istio")
-            mesh_annotations = _build_mesh_annotations(mesh_name, mesh)
+            mesh_annotations = _build_mesh_annotations(mesh)
             if mesh_annotations:
                 spec["annotations"] = mesh_annotations
 
@@ -312,6 +315,17 @@ def wizard_state_to_resources(data: dict) -> list[dict]:
                 if val is not None and val != "":
                     spec[jk] = val
 
+        # Multi-container pods — sidecars, init containers, companions
+        sidecars = svc.get("sidecars", [])
+        if sidecars:
+            spec["sidecars"] = sidecars
+        init_containers = svc.get("initContainers", [])
+        if init_containers:
+            spec["initContainers"] = init_containers
+        companions = svc.get("companions", [])
+        if companions:
+            spec["companions"] = companions
+
         # Command override
         command = svc.get("command")
         if command:
@@ -327,6 +341,32 @@ def wizard_state_to_resources(data: dict) -> list[dict]:
             "output_dir": output_dir,
             "spec": spec,
         })
+
+        # ── HPA (HorizontalPodAutoscaler) ───────────────────────
+        autoscaling = svc.get("autoscaling", {})
+        if autoscaling and autoscaling.get("enabled"):
+            hpa_spec: dict = {
+                "scaleTargetRef": {
+                    "apiVersion": "apps/v1",
+                    "kind": svc_kind,
+                    "name": svc_name,
+                },
+                "minReplicas": autoscaling.get("minReplicas", 1),
+                "maxReplicas": autoscaling.get("maxReplicas", 10),
+            }
+            target_cpu = autoscaling.get("targetCPU")
+            if target_cpu:
+                hpa_spec["targetCPUUtilizationPercentage"] = target_cpu
+            target_mem = autoscaling.get("targetMemory")
+            if target_mem:
+                hpa_spec["targetMemoryUtilizationPercentage"] = target_mem
+            resources.append({
+                "kind": "HorizontalPodAutoscaler",
+                "name": f"{svc_name}-hpa",
+                "namespace": namespace,
+                "output_dir": output_dir,
+                "spec": hpa_spec,
+            })
 
         # Track for Service generation
         if port and svc_kind in ("Deployment", "StatefulSet", "DaemonSet"):

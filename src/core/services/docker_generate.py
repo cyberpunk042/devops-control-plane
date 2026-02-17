@@ -13,7 +13,12 @@ from src.core.services.audit_helpers import make_auditor
 
 _audit = make_auditor("docker")
 
-def generate_dockerfile(project_root: Path, stack_name: str) -> dict:
+def generate_dockerfile(
+    project_root: Path,
+    stack_name: str,
+    *,
+    base_image: str | None = None,
+) -> dict:
     """Generate a Dockerfile for the given stack.
 
     Returns:
@@ -21,7 +26,7 @@ def generate_dockerfile(project_root: Path, stack_name: str) -> dict:
     """
     from src.core.services.generators.dockerfile import generate_dockerfile as _gen
 
-    result = _gen(project_root, stack_name)
+    result = _gen(project_root, stack_name, base_image=base_image)
     if result is None:
         from src.core.services.generators.dockerfile import supported_stacks
 
@@ -306,7 +311,11 @@ def write_generated_file(project_root: Path, file_data: dict) -> dict:
     if not rel_path or not content:
         return {"error": "Missing path or content"}
 
-    target = project_root / rel_path
+    target = (project_root / rel_path).resolve()
+
+    # Security: reject path traversal outside project root
+    if not target.is_relative_to(project_root.resolve()):
+        return {"error": f"Path traversal outside project root: {rel_path}"}
 
     if target.exists() and not overwrite:
         return {

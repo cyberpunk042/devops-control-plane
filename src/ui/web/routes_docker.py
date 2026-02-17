@@ -182,8 +182,9 @@ def generate_dockerfile():  # type: ignore[no-untyped-def]
     if not stack_name:
         return jsonify({"error": "Missing 'stack' field"}), 400
 
+    base_image = data.get("base_image") or None
     root = _project_root()
-    result = docker_ops.generate_dockerfile(root, stack_name)
+    result = docker_ops.generate_dockerfile(root, stack_name, base_image=base_image)
 
     if "error" in result:
         return jsonify(result), 400

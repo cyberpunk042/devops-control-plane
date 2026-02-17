@@ -90,9 +90,25 @@
             }
             html += cardStatusGrid(stats);
 
-            // Detection list (files)
+            // Detection list (files + parsed Dockerfile info)
             const detections = [];
-            (data.dockerfiles||[]).forEach(f => detections.push({ icon: '📄', label: 'Dockerfile', value: f, click: `openFileInEditor('${esc(f)}','edit')` }));
+            const dfDetails = data.dockerfile_details || [];
+            (data.dockerfiles||[]).forEach((f, i) => {
+                const detail = dfDetails[i];
+                let desc = f;
+                if (detail) {
+                    const parts = [];
+                    if (detail.base_images && detail.base_images.length) {
+                        // Show unique base images
+                        const unique = [...new Set(detail.base_images)];
+                        parts.push(unique.join(', '));
+                    }
+                    if (detail.stage_count > 1) parts.push(`${detail.stage_count}-stage`);
+                    if (detail.ports && detail.ports.length) parts.push(`ports: ${detail.ports.join(', ')}`);
+                    if (parts.length) desc = `${f}  ·  ${parts.join(' · ')}`;
+                }
+                detections.push({ icon: '📄', label: 'Dockerfile', value: desc, click: `openFileInEditor('${esc(f)}','edit')` });
+            });
             if (data.has_compose) detections.push({ icon: '📋', label: 'Compose', value: data.compose_file || 'docker-compose.yml', click: `openFileInEditor('${esc(data.compose_file||'docker-compose.yml')}','edit')` });
             if (detections.length) html += cardDetectionList(detections);
 

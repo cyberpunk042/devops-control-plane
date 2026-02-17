@@ -10,6 +10,8 @@ from typing import Any
 
 from src.core.services.docker_common import run_docker, run_compose
 
+import re
+
 logger = logging.getLogger(__name__)
 
 _COMPOSE_FILENAMES = (
@@ -31,6 +33,9 @@ def find_compose_file(project_root: Path) -> Path | None:
 def docker_status(project_root: Path) -> dict:
     """Docker integration status: availability, version, project files.
 
+    File detection (Dockerfiles, compose) always runs regardless of CLI
+    availability so the return shape is consistent.
+
     Returns:
         {
             "available": bool,
@@ -42,8 +47,60 @@ def docker_status(project_root: Path) -> dict:
             "compose_file": str | None,
             "dockerfiles": [str, ...],
             "compose_services": [str, ...],
+            "compose_service_details": [dict, ...],
+            "services_count": int,
         }
     """
+    # ── File detection (always runs) ──────────────────────────────
+    dockerfiles: list[str] = []
+    if (project_root / "Dockerfile").is_file():
+        dockerfiles.append("Dockerfile")
+    for p in project_root.rglob("Dockerfile*"):
+        rel = str(p.relative_to(project_root))
+        if rel not in dockerfiles and ".git" not in rel and "node_modules" not in rel:
+            dockerfiles.append(rel)
+            if len(dockerfiles) >= 20:
+                break
+
+    # Parse Dockerfile content
+    dockerfile_details: list[dict] = []
+    for df in dockerfiles:
+        dockerfile_details.append(_parse_dockerfile(project_root / df, df))
+
+    compose_path = find_compose_file(project_root)
+    compose_services: list[str] = []
+    compose_service_details: list[dict] = []
+    if compose_path:
+        compose_services = _parse_compose_services(compose_path)
+        compose_service_details = _parse_compose_service_details(compose_path)
+
+    # .dockerignore
+    dockerignore_path = project_root / ".dockerignore"
+    dockerignore_patterns: list[str] = []
+    if dockerignore_path.is_file():
+        try:
+            content = dockerignore_path.read_text(encoding="utf-8")
+            for line in content.splitlines():
+                stripped = line.strip()
+                if stripped and not stripped.startswith("#"):
+                    dockerignore_patterns.append(stripped)
+        except Exception:
+            logger.debug("Failed to read .dockerignore: %s", dockerignore_path, exc_info=True)
+
+    file_info = {
+        "has_dockerfile": len(dockerfiles) > 0,
+        "has_compose": compose_path is not None,
+        "compose_file": str(compose_path.relative_to(project_root)) if compose_path else None,
+        "dockerfiles": dockerfiles,
+        "dockerfile_details": dockerfile_details,
+        "compose_services": compose_services,
+        "compose_service_details": compose_service_details,
+        "services_count": len(compose_services),
+        "has_dockerignore": dockerignore_path.is_file(),
+        "dockerignore_patterns": dockerignore_patterns,
+    }
+
+    # ── CLI detection ─────────────────────────────────────────────
     docker_path = shutil.which("docker")
     if not docker_path:
         return {
@@ -51,8 +108,7 @@ def docker_status(project_root: Path) -> dict:
             "error": "Docker CLI not installed",
             "daemon_running": False,
             "compose_available": False,
-            "has_dockerfile": False,
-            "has_compose": False,
+            **file_info,
         }
 
     # Version
@@ -68,39 +124,83 @@ def docker_status(project_root: Path) -> dict:
     compose_available = r_compose.returncode == 0
     compose_version = r_compose.stdout.strip() if compose_available else None
 
-    # Find Dockerfiles
-    dockerfiles = []
-    if (project_root / "Dockerfile").is_file():
-        dockerfiles.append("Dockerfile")
-    # Check common patterns
-    for p in project_root.rglob("Dockerfile*"):
-        rel = str(p.relative_to(project_root))
-        if rel not in dockerfiles and ".git" not in rel and "node_modules" not in rel:
-            dockerfiles.append(rel)
-            if len(dockerfiles) >= 20:
-                break
-
-    # Compose file
-    compose_path = find_compose_file(project_root)
-    compose_services: list[str] = []
-    compose_service_details: list[dict] = []
-    if compose_path:
-        compose_services = _parse_compose_services(compose_path)
-        compose_service_details = _parse_compose_service_details(compose_path)
-
     return {
         "available": True,
         "version": version,
         "daemon_running": daemon_running,
         "compose_available": compose_available,
         "compose_version": compose_version,
-        "has_dockerfile": len(dockerfiles) > 0,
-        "has_compose": compose_path is not None,
-        "compose_file": str(compose_path.relative_to(project_root)) if compose_path else None,
-        "dockerfiles": dockerfiles,
-        "compose_services": compose_services,
-        "compose_service_details": compose_service_details,
+        **file_info,
     }
+
+
+def _parse_dockerfile(path: Path, rel_path: str) -> dict:
+    """Parse a Dockerfile and extract key information.
+
+    Returns:
+        {
+            "path": str,            # relative path
+            "base_images": [str],   # FROM image references
+            "stages": [str],        # stage names (FROM ... AS name)
+            "stage_count": int,     # number of FROM lines
+            "ports": [int],         # EXPOSE ports
+            "warnings": [str],      # validation warnings
+        }
+    """
+    result: dict[str, Any] = {
+        "path": rel_path,
+        "base_images": [],
+        "stages": [],
+        "stage_count": 0,
+        "ports": [],
+        "warnings": [],
+    }
+    try:
+        content = path.read_text(encoding="utf-8")
+    except Exception:
+        logger.debug("Failed to read Dockerfile: %s", path, exc_info=True)
+        result["warnings"].append(f"Could not read file: {rel_path}")
+        return result
+
+    has_content = False
+    for line in content.splitlines():
+        stripped = line.strip()
+        # Skip comments and empty lines
+        if not stripped or stripped.startswith("#"):
+            continue
+        has_content = True
+
+        upper = stripped.upper()
+
+        # FROM lines
+        if upper.startswith("FROM "):
+            parts = stripped.split()
+            if len(parts) >= 2:
+                image = parts[1]
+                result["base_images"].append(image)
+                result["stage_count"] += 1
+                # Check for AS alias
+                if len(parts) >= 4 and parts[2].upper() == "AS":
+                    result["stages"].append(parts[3])
+
+        # EXPOSE lines
+        elif upper.startswith("EXPOSE "):
+            tokens = stripped.split()[1:]
+            for token in tokens:
+                # Remove protocol suffix (e.g. 8080/tcp)
+                port_str = token.split("/")[0]
+                try:
+                    result["ports"].append(int(port_str))
+                except ValueError:
+                    pass  # skip non-numeric (e.g. $PORT)
+
+    # Validation warnings
+    if not has_content:
+        result["warnings"].append("Dockerfile is empty")
+    elif result["stage_count"] == 0:
+        result["warnings"].append("No FROM instruction found")
+
+    return result
 
 
 def _parse_compose_services(compose_path: Path) -> list[str]:
@@ -119,41 +219,34 @@ def _parse_compose_services(compose_path: Path) -> list[str]:
 def _parse_compose_service_details(compose_path: Path) -> list[dict]:
     """Extract full service specifications from a compose file.
 
-    Returns a list of dicts, one per service, with normalised fields::
+    Returns a list of dicts, one per service, with 42 normalised fields.
+    Excludes Security (cap_add, cap_drop, security_opt) and Limits
+    (ulimits, sysctls) per project scope.
 
-        {
-            "name":        str,             # service key
-            "image":       str | None,      # explicit image tag
-            "build":       {                # build config (if present)
-                "context":    str,
-                "dockerfile": str | None,
-                "args":       {str: str} | None,
-            } | None,
-            "ports":       [                # normalised port mappings
-                {"host": int, "container": int, "protocol": "tcp"|"udp"},
-            ],
-            "environment": {str: str},      # merged env vars (list or dict)
-            "volumes":     [str],           # raw volume strings
-            "depends_on":  [str],           # dependency service names
-            "command":     str | None,      # command override
-            "entrypoint":  str | None,      # entrypoint override
-            "restart":     str | None,      # restart policy
-            "healthcheck": {               # health check (if present)
-                "test":     str | None,
-                "interval": str | None,
-                "timeout":  str | None,
-                "retries":  int | None,
-            } | None,
-            "deploy":      {               # deploy resources (if present)
-                "replicas":       int | None,
-                "cpu_limit":      str | None,
-                "memory_limit":   str | None,
-                "cpu_request":    str | None,
-                "memory_request": str | None,
-            } | None,
-            "networks":    [str],           # network names
-            "labels":      {str: str},      # labels dict
-        }
+    Fields by category::
+
+        Original 14:
+            name, image, build, ports, environment, volumes, depends_on,
+            command, entrypoint, restart, healthcheck, deploy, networks, labels
+
+        Identity (5):
+            container_name, hostname, domainname, platform, profiles
+
+        Runtime (9):
+            user, working_dir, stdin_open, tty, privileged, init,
+            read_only, pid, shm_size
+
+        Networking (5):
+            network_mode, dns, dns_search, extra_hosts, expose
+
+        Files (5):
+            env_file, configs, secrets, tmpfs, devices
+
+        Logging (1):
+            logging  →  {"driver": str, "options": dict}
+
+        Lifecycle (3):
+            stop_signal, stop_grace_period, pull_policy
     """
     try:
         import yaml
@@ -308,6 +401,106 @@ def _parse_compose_service_details(compose_path: Path) -> list[dict]:
             detail["labels"] = _env_list_to_dict(labels)
         else:
             detail["labels"] = {}
+
+        # ── Identity (5) ───────────────────────────────────────────
+        detail["container_name"] = svc.get("container_name") or None
+        detail["hostname"] = svc.get("hostname") or None
+        detail["domainname"] = svc.get("domainname") or None
+        detail["platform"] = svc.get("platform") or None
+        profiles = svc.get("profiles")
+        detail["profiles"] = list(profiles) if isinstance(profiles, list) else []
+
+        # ── Runtime (9) ────────────────────────────────────────────
+        detail["user"] = str(svc["user"]) if "user" in svc and svc["user"] is not None else None
+        detail["working_dir"] = svc.get("working_dir") or None
+        detail["stdin_open"] = bool(svc.get("stdin_open", False))
+        detail["tty"] = bool(svc.get("tty", False))
+        detail["privileged"] = bool(svc.get("privileged", False))
+        detail["init"] = bool(svc.get("init", False))
+        detail["read_only"] = bool(svc.get("read_only", False))
+        detail["pid"] = svc.get("pid") or None
+        shm = svc.get("shm_size")
+        detail["shm_size"] = str(shm) if shm is not None else None
+
+        # ── Networking (5) ─────────────────────────────────────────
+        detail["network_mode"] = svc.get("network_mode") or None
+        dns_raw = svc.get("dns")
+        if isinstance(dns_raw, str):
+            detail["dns"] = [dns_raw]
+        elif isinstance(dns_raw, list):
+            detail["dns"] = list(dns_raw)
+        else:
+            detail["dns"] = []
+        dns_search_raw = svc.get("dns_search")
+        if isinstance(dns_search_raw, str):
+            detail["dns_search"] = [dns_search_raw]
+        elif isinstance(dns_search_raw, list):
+            detail["dns_search"] = list(dns_search_raw)
+        else:
+            detail["dns_search"] = []
+        extra_hosts_raw = svc.get("extra_hosts")
+        if isinstance(extra_hosts_raw, list):
+            detail["extra_hosts"] = [str(h) for h in extra_hosts_raw]
+        else:
+            detail["extra_hosts"] = []
+        expose_raw = svc.get("expose")
+        if isinstance(expose_raw, list):
+            detail["expose"] = [int(p) for p in expose_raw]
+        else:
+            detail["expose"] = []
+
+        # ── Files (5) ──────────────────────────────────────────────
+        env_file_raw = svc.get("env_file")
+        if isinstance(env_file_raw, str):
+            detail["env_file"] = [env_file_raw]
+        elif isinstance(env_file_raw, list):
+            detail["env_file"] = list(env_file_raw)
+        else:
+            detail["env_file"] = []
+        configs_raw = svc.get("configs")
+        if isinstance(configs_raw, list):
+            # configs can be strings or dicts; normalise to strings
+            detail["configs"] = [
+                c if isinstance(c, str) else c.get("source", str(c))
+                for c in configs_raw
+            ]
+        else:
+            detail["configs"] = []
+        secrets_raw = svc.get("secrets")
+        if isinstance(secrets_raw, list):
+            detail["secrets"] = [
+                s if isinstance(s, str) else s.get("source", str(s))
+                for s in secrets_raw
+            ]
+        else:
+            detail["secrets"] = []
+        tmpfs_raw = svc.get("tmpfs")
+        if isinstance(tmpfs_raw, str):
+            detail["tmpfs"] = [tmpfs_raw]
+        elif isinstance(tmpfs_raw, list):
+            detail["tmpfs"] = list(tmpfs_raw)
+        else:
+            detail["tmpfs"] = []
+        devices_raw = svc.get("devices")
+        if isinstance(devices_raw, list):
+            detail["devices"] = [str(d) for d in devices_raw]
+        else:
+            detail["devices"] = []
+
+        # ── Logging (1) ────────────────────────────────────────────
+        logging_raw = svc.get("logging")
+        if isinstance(logging_raw, dict):
+            detail["logging"] = {
+                "driver": logging_raw.get("driver"),
+                "options": logging_raw.get("options", {}),
+            }
+        else:
+            detail["logging"] = None
+
+        # ── Lifecycle (3) ──────────────────────────────────────────
+        detail["stop_signal"] = svc.get("stop_signal") or None
+        detail["stop_grace_period"] = svc.get("stop_grace_period") or None
+        detail["pull_policy"] = svc.get("pull_policy") or None
 
         result.append(detail)
 

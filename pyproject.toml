@@ -53,6 +53,7 @@ addopts = [
     "-v",
     "--tb=short",
     "--strict-markers",
+    "-m", "not integration",
 ]
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",

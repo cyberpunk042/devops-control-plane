@@ -340,13 +340,14 @@ def generate() -> None:
 @generate.command("dockerfile")
 @click.argument("stack_name")
 @click.option("--write", is_flag=True, help="Write to disk (default: preview only).")
+@click.option("--base-image", default=None, help="Custom base image for the builder stage.")
 @click.pass_context
-def gen_dockerfile(ctx: click.Context, stack_name: str, write: bool) -> None:
+def gen_dockerfile(ctx: click.Context, stack_name: str, write: bool, base_image: str | None) -> None:
     """Generate a Dockerfile for a stack (e.g. python, node, go)."""
     from src.core.services.docker_ops import generate_dockerfile, write_generated_file
 
     project_root = _resolve_project_root(ctx)
-    result = generate_dockerfile(project_root, stack_name)
+    result = generate_dockerfile(project_root, stack_name, base_image=base_image)
 
     if "error" in result:
         click.secho(f"❌ {result['error']}", fg="red")
