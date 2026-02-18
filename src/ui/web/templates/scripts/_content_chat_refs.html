@@ -433,10 +433,8 @@ for (let i = 0; i < _chatRefCategories.length; i++) { const cat=_chatRefCategori
                                                 return;
                                                 }
                                                 if (refType === 'code' || refType === 'doc' || refType === 'file') {
-                                                if (typeof contentPreviewFile === 'function') {
-                                                contentPreviewFile(refId, refId.split('/').pop());
-                                                } else if (typeof openFileInEditor === 'function') {
-                                                openFileInEditor(refId);
+                                                if (typeof openFileInModal === 'function') {
+                                                openFileInModal(refId);
                                                 }
                                                 return;
                                                 }
@@ -471,8 +469,8 @@ for (let i = 0; i < _chatRefCategories.length; i++) { const cat=_chatRefCategori
                                                 }
 
                                                 function chatRefClickMedia(refId) {
-                                                if (typeof contentPreviewFile === 'function') {
-                                                contentPreviewFile(refId, refId.split('/').pop());
+                                                if (typeof openFileInModal === 'function') {
+                                                openFileInModal(refId);
                                                 }
                                                 }
 

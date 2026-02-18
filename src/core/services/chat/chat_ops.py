@@ -334,6 +334,77 @@ def list_messages(
     return messages
 
 
+def delete_message(
+    project_root: Path,
+    *,
+    thread_id: str,
+    message_id: str,
+) -> bool:
+    """Delete a message from a thread by its ID.
+
+    Rewrites the thread's ``messages.jsonl`` without the target line
+    and commits the change to the ledger branch.
+
+    Args:
+        project_root: Repository root.
+        thread_id: Thread containing the message.
+        message_id: The message ``id`` field to remove.
+
+    Returns:
+        True if the message was found and deleted, False if not found.
+    """
+    ensure_worktree(project_root)
+
+    td = _thread_dir(project_root, thread_id)
+    messages_file = td / "messages.jsonl"
+
+    if not messages_file.is_file():
+        return False
+
+    lines = messages_file.read_text(encoding="utf-8").splitlines()
+    kept: list[str] = []
+    found = False
+
+    for line in lines:
+        line_stripped = line.strip()
+        if not line_stripped:
+            continue
+        try:
+            msg = ChatMessage.from_jsonl(line_stripped)
+            if msg.id == message_id:
+                found = True
+                continue  # skip this message
+        except Exception:
+            pass  # keep corrupt lines to avoid data loss
+        kept.append(line_stripped)
+
+    if not found:
+        return False
+
+    # Rewrite the file
+    messages_file.write_text(
+        "\n".join(kept) + ("\n" if kept else ""),
+        encoding="utf-8",
+    )
+
+    # Commit to ledger branch
+    rel_path = f"chat/threads/{thread_id}/messages.jsonl"
+    ledger_add_and_commit(
+        project_root,
+        paths=[rel_path],
+        message=f"chat: deleted message {message_id} from {thread_id}",
+    )
+
+    # Emit event
+    if _bus:
+        _bus.publish("chat:message_deleted", data={
+            "thread_id": thread_id,
+            "message_id": message_id,
+        })
+
+    logger.info("Deleted message %s from thread %s", message_id, thread_id)
+    return True
+
 def create_thread(
     project_root: Path,
     title: str,

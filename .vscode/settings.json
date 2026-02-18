@@ -1,0 +1,8 @@
+{
+    "git.ignoredRepositories": [
+        ".scp-ledger"
+    ],
+    "[html]": {
+        "editor.formatOnSave": false
+    }
+}

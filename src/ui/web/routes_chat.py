@@ -9,6 +9,7 @@ Endpoints:
     /api/chat/threads/create     — create a new thread
     /api/chat/messages           — list messages by thread/run
     /api/chat/send               — send a message
+    /api/chat/delete-message     — delete a message
     /api/chat/refs/resolve       — resolve an @-reference
     /api/chat/refs/autocomplete  — autocomplete @-reference prefix
     /api/chat/sync               — push/pull chat data
@@ -24,6 +25,7 @@ from flask import Blueprint, current_app, jsonify, request
 from src.core.services.chat import (
     autocomplete,
     create_thread,
+    delete_message,
     list_messages,
     list_threads,
     pull_chat,
@@ -149,6 +151,43 @@ def chat_send():
         return jsonify({"error": str(e)}), 400
     except Exception as e:
         logger.exception("Failed to send message")
+        return jsonify({"error": str(e)}), 500
+
+
+# ── Delete message ──────────────────────────────────────────────────────
+
+@chat_bp.route("/chat/delete-message", methods=["POST"])
+def chat_delete_message():
+    """Delete a chat message by ID.
+
+    Body (JSON):
+        thread_id  — thread containing the message (required)
+        message_id — message ID to delete (required)
+    """
+    try:
+        root = _project_root()
+        body = request.get_json(silent=True) or {}
+
+        thread_id = body.get("thread_id", "").strip()
+        message_id = body.get("message_id", "").strip()
+
+        if not thread_id:
+            return jsonify({"error": "thread_id is required"}), 400
+        if not message_id:
+            return jsonify({"error": "message_id is required"}), 400
+
+        deleted = delete_message(
+            root,
+            thread_id=thread_id,
+            message_id=message_id,
+        )
+
+        if not deleted:
+            return jsonify({"error": "Message not found"}), 404
+
+        return jsonify({"deleted": True, "message_id": message_id})
+    except Exception as e:
+        logger.exception("Failed to delete message")
         return jsonify({"error": str(e)}), 500
 
 

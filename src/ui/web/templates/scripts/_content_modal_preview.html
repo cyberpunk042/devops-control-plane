@@ -1,115 +1,128 @@
 // ─────────────────────────────────────────────────────────────────
-//  _content_modal_preview.html
-//  Modal file preview — moves #content-browser into a modal overlay,
-//  calls contentPreviewFile() (same code, same container, zero dup),
-//  moves it back on close.
+// _content_modal_preview.html
+// Modal file preview — moves #content-browser into a modal overlay,
+// calls contentPreviewFile() (same code, same container, zero dup),
+// moves it back on close.
 // ─────────────────────────────────────────────────────────────────
 
 let _modalPreviewActive = false;
-let _modalPreviewParent = null;    // original parent of #content-browser
-let _modalPreviewSavedHTML = '';   // original innerHTML before we took over
-let _modalPreviewSavedPath = '';   // previewCurrentPath before modal
-let _modalPreviewSavedName = '';   // previewCurrentName before modal
+let _modalPreviewParent = null; // original parent of #content-browser
+let _modalPreviewSavedHTML = ''; // original innerHTML before we took over
+let _modalPreviewSavedPath = ''; // previewCurrentPath before modal
+let _modalPreviewSavedName = ''; // previewCurrentName before modal
 
 function openFileInModal(filePath) {
-    const browser = document.getElementById('content-browser');
-    if (!browser) return;
+const browser = document.getElementById('content-browser');
+if (!browser) return;
 
-    // Save state
-    _modalPreviewParent = browser.parentNode;
-    _modalPreviewSavedHTML = browser.innerHTML;
-    _modalPreviewSavedPath = previewCurrentPath;
-    _modalPreviewSavedName = previewCurrentName;
-    _modalPreviewActive = true;
+// Save state
+_modalPreviewParent = browser.parentNode;
+_modalPreviewSavedHTML = browser.innerHTML;
+_modalPreviewSavedPath = previewCurrentPath;
+_modalPreviewSavedName = previewCurrentName;
+_modalPreviewActive = true;
 
-    // Open modal with empty body — we'll move #content-browser into it
-    modalOpen({
-        title: `📄 ${esc(filePath.split('/').pop())}`,
-        body: '',
-        size: 'preview',
-        footerButtons: [
-            { label: '📁 Open in Content Tab', cls: 'btn-secondary',
-              onclick: `_modalPreviewGoToContent()` },
-            { label: 'Close', cls: 'btn-ghost', onclick: '_modalPreviewClose()' },
-        ],
-    });
+// Open modal with empty body — we'll move #content-browser into it
+modalOpen({
+title: `📄 ${esc(filePath.split('/').pop())}`,
+body: '',
+size: 'preview',
+footerButtons: [
+{ label: '📁 Open in Content Tab', cls: 'btn-secondary',
+onclick: `_modalPreviewGoToContent()` },
+{ label: 'Close', cls: 'btn-ghost', onclick: '_modalPreviewClose()' },
+],
+});
 
-    // Replace default close behavior — we need to rescue #content-browser
-    // BEFORE overlay.remove() destroys it. Override the ✕ button and
-    // overlay-click and Escape to go through our close path.
-    const overlay = document.getElementById('active-modal-overlay');
-    if (!overlay) return;
+// Replace default close behavior — we need to rescue #content-browser
+// BEFORE overlay.remove() destroys it. Override the ✕ button and
+// overlay-click and Escape to go through our close path.
+const overlay = document.getElementById('active-modal-overlay');
+if (!overlay) return;
 
-    // Override ✕ button
-    const closeBtn = overlay.querySelector('.modal-close');
-    if (closeBtn) closeBtn.setAttribute('onclick', '_modalPreviewClose()');
+// Override ✕ button
+const closeBtn = overlay.querySelector('.modal-close');
+if (closeBtn) closeBtn.setAttribute('onclick', '_modalPreviewClose()');
 
-    // Override overlay click (click on backdrop)
-    overlay.addEventListener('click', (e) => {
-        if (e.target === overlay) { e.stopImmediatePropagation(); _modalPreviewClose(); }
-    }, true);  // capture phase to beat modalOpen's listener
+// Override overlay click (click on backdrop)
+overlay.addEventListener('click', (e) => {
+if (e.target === overlay) { e.stopImmediatePropagation(); _modalPreviewClose(); }
+}, true); // capture phase to beat modalOpen's listener
 
-    // Override Escape handler — modalOpen's default calls modalClose() directly
-    if (_activeModal && _activeModal.escHandler) {
-        document.removeEventListener('keydown', _activeModal.escHandler);
-    }
-    const _modalPreviewEsc = (e) => { if (e.key === 'Escape') _modalPreviewClose(); };
-    document.addEventListener('keydown', _modalPreviewEsc);
-    // Store so modalClose() can still clean it up
-    if (_activeModal) _activeModal.escHandler = _modalPreviewEsc;
+// Override Escape handler — modalOpen's default calls modalClose() directly
+if (_activeModal && _activeModal.escHandler) {
+document.removeEventListener('keydown', _activeModal.escHandler);
+}
+const _modalPreviewEsc = (e) => { if (e.key === 'Escape') _modalPreviewClose(); };
+document.addEventListener('keydown', _modalPreviewEsc);
+// Store so modalClose() can still clean it up
+if (_activeModal) _activeModal.escHandler = _modalPreviewEsc;
 
-    // Move #content-browser into the modal body
-    const modalBody = overlay.querySelector('.modal-body');
-    modalBody.appendChild(browser);
+// Move #content-browser into the modal body and ensure it's visible
+const modalBody = overlay.querySelector('.modal-body');
+modalBody.appendChild(browser);
+browser.style.display = '';
 
-    // Call the existing function — it renders into #content-browser as always
-    const fileName = filePath.split('/').pop();
-    if (filePath.endsWith('.enc')) {
-        contentPreviewEncrypted(filePath, fileName);
-    } else {
-        contentPreviewFile(filePath, fileName);
-    }
+// Call the existing function — it renders into #content-browser as always
+const fileName = filePath.split('/').pop();
+if (filePath.endsWith('.enc')) {
+contentPreviewEncrypted(filePath, fileName);
+} else {
+contentPreviewFile(filePath, fileName);
+}
 }
 
 /**
- * Close the modal preview safely — rescues #content-browser BEFORE
- * the overlay is removed from the DOM.
- */
+* Close the modal preview safely — rescues #content-browser BEFORE
+* the overlay is removed from the DOM.
+*/
 function _modalPreviewClose() {
-    _modalPreviewRestore();
-    modalClose();
+_modalPreviewRestore();
+modalClose();
 }
 
 function _modalPreviewRestore() {
-    if (!_modalPreviewActive) return;
-    _modalPreviewActive = false;
+if (!_modalPreviewActive) return;
+_modalPreviewActive = false;
 
-    const browser = document.getElementById('content-browser');
-    if (!browser || !_modalPreviewParent) return;
+const browser = document.getElementById('content-browser');
+if (!browser || !_modalPreviewParent) return;
 
-    // Dispose Monaco if active
-    if (typeof monacoDispose === 'function') monacoDispose();
+// Dispose Monaco if active
+if (typeof monacoDispose === 'function') monacoDispose();
 
-    // Move #content-browser back to its original parent
-    _modalPreviewParent.appendChild(browser);
+// Move #content-browser back to its original parent
+_modalPreviewParent.appendChild(browser);
 
-    // Restore previous content and state
-    browser.innerHTML = _modalPreviewSavedHTML;
-    previewCurrentPath = _modalPreviewSavedPath;
-    previewCurrentName = _modalPreviewSavedName;
-    previewEditMode = false;
+// If chat mode is active, keep content-browser hidden
+if (typeof contentCurrentMode !== 'undefined' && contentCurrentMode === 'chat') {
+browser.style.display = 'none';
+}
 
-    _modalPreviewParent = null;
-    _modalPreviewSavedHTML = '';
+// Restore previous content and state
+browser.innerHTML = _modalPreviewSavedHTML;
+previewCurrentPath = _modalPreviewSavedPath;
+previewCurrentName = _modalPreviewSavedName;
+previewEditMode = false;
+
+_modalPreviewParent = null;
+_modalPreviewSavedHTML = '';
 }
 
 function _modalPreviewGoToContent() {
-    const path = previewCurrentPath;
-    _modalPreviewRestore();
-    modalClose();
-    if (path) {
-        switchTab(`content/docs/${path}@raw`);
-    } else {
-        switchTab('content');
-    }
+const path = previewCurrentPath;
+_modalPreviewRestore();
+modalClose();
+
+// Ensure chat panel is hidden and content-browser is visible
+const chatPanel = document.getElementById('content-chat-panel');
+if (chatPanel) chatPanel.style.display = 'none';
+const browser = document.getElementById('content-browser');
+if (browser) browser.style.display = '';
+
+if (path) {
+switchTab(`content/docs/${path}@raw`);
+} else {
+switchTab('content');
+}
 }

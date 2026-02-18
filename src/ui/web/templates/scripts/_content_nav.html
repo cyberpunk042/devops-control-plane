@@ -234,11 +234,15 @@ if (mode === 'archive') {
 // Archive mode: own panel with folder context selector
 document.getElementById('content-folder-bar').style.display = 'none';
 document.getElementById('content-breadcrumb').style.display = 'none';
+document.getElementById('content-browser').style.display = '';
+document.getElementById('content-chat-panel').style.display = 'none';
 renderArchivePanel();
 } else if (mode === 'chat') {
-// Chat mode: own panel
+// Chat mode: own panel — hide content-browser, show chat panel
 document.getElementById('content-folder-bar').style.display = 'none';
 document.getElementById('content-breadcrumb').style.display = 'none';
+document.getElementById('content-browser').style.display = 'none';
+document.getElementById('content-chat-panel').style.display = '';
 renderChatPanel();
 } else {
 // Show folder bar again
@@ -246,6 +250,8 @@ if (contentFolders.length > 0) {
 document.getElementById('content-folder-bar').style.display = '';
 }
 document.getElementById('content-breadcrumb').style.display = '';
+document.getElementById('content-browser').style.display = '';
+document.getElementById('content-chat-panel').style.display = 'none';
 
 // Clear the browser immediately to remove any stale archive HTML
 const browser = document.getElementById('content-browser');
@@ -360,6 +366,8 @@ return;
 if (contentCurrentMode === 'chat') {
 document.getElementById('content-folder-bar').style.display = 'none';
 document.getElementById('content-breadcrumb').style.display = 'none';
+document.getElementById('content-browser').style.display = 'none';
+document.getElementById('content-chat-panel').style.display = '';
 if (subParts.length >= 2) {
 _chatSelectedThread = subParts.slice(1).join('/');
 }

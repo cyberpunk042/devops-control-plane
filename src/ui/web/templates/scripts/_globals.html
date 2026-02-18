@@ -96,7 +96,7 @@
     // real freshness via mtime tracking.  Manual refresh busts BOTH caches.
 
     const _CARD_PREFIX = '_cc:';     // sessionStorage key prefix
-    const _CARD_TTL    = 600_000;    // 10 min (server checks mtimes for freshness)
+    const _CARD_TTL = 600_000;    // 10 min (server checks mtimes for freshness)
 
     /** Return cached data if fresh, else null. */
     function cardCached(key) {
@@ -161,7 +161,7 @@
 
     // ── Wizard step cache (same pattern as cards, separate namespace) ──
     const _WIZ_PREFIX = '_wz:';      // sessionStorage key prefix
-    const _WIZ_TTL    = 600_000;     // 10 min
+    const _WIZ_TTL = 600_000;     // 10 min
 
     /** Return cached wizard data if fresh, else null. */
     function wizCached(key) {
@@ -235,10 +235,10 @@
 
     // Cascade: when key X is refreshed, also invalidate dependent client caches.
     const _CASCADE = {
-        'git':    ['github', 'docker', 'ci', 'pages'],
+        'git': ['github', 'docker', 'ci', 'pages'],
         'docker': ['ci', 'k8s'],
         'github': ['ci'],
-        'pages':  ['dns'],
+        'pages': ['dns'],
     };
 
     /**
@@ -256,7 +256,7 @@
             for (const dep of _CASCADE[cacheKey] || []) delete _store[dep];
         }
         // Bust server-side cache (server also cascades) — AWAIT so loadFn gets fresh data
-        try { await api('/devops/cache/bust', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ card: cacheKey }) }); } catch {}
+        try { await api('/devops/cache/bust', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ card: cacheKey }) }); } catch { }
         const badge = document.getElementById(badgeId);
         const detail = document.getElementById(detailId);
         if (badge) { badge.className = 'status-badge'; badge.textContent = '—'; }
@@ -298,10 +298,12 @@
      * @param {number} [line=0] - optional line number to focus
      */
     function openFileInEditor(filePath, mode = 'raw', line = 0) {
-        // Check if we should open in modal (only when NOT already in content tab)
-        if (typeof activeTab !== 'undefined' && activeTab !== 'content'
-                && prefsGet('previewMode') === 'modal'
-                && typeof openFileInModal === 'function') {
+        // Open in modal unless we're in a docs/media browsing view
+        const inDocsBrowser = (typeof activeTab !== 'undefined' && activeTab === 'content'
+            && typeof contentCurrentMode !== 'undefined'
+            && (contentCurrentMode === 'docs' || contentCurrentMode === 'media'));
+        if (!inDocsBrowser
+            && typeof openFileInModal === 'function') {
             openFileInModal(filePath);
             return;
         }
@@ -575,7 +577,7 @@
         if (!el) return;
         el.textContent = text;
         el.style.color = type === 'error' ? 'var(--error)' :
-                         type === 'success' ? 'var(--success)' : 'var(--text-muted)';
+            type === 'success' ? 'var(--success)' : 'var(--text-muted)';
     }
 
     /** Show inline error in modal body. */

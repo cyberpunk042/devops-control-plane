@@ -87,6 +87,7 @@ def ensure_worktree(project_root: Path) -> Path:
       2. If ``scp-ledger`` branch doesn't exist locally, create it as orphan
       3. If ``.scp-ledger/`` dir doesn't exist, ``git worktree add``
       4. Ensure ``.scp-ledger/`` is in ``.gitignore``
+      5. Ensure VS Code ignores the worktree repo
 
     Idempotent — safe to call on every operation.
     Returns the worktree path.
@@ -112,6 +113,9 @@ def ensure_worktree(project_root: Path) -> Path:
 
     # 4. Ensure .gitignore contains the entry
     _ensure_gitignore(project_root)
+
+    # 5. Ensure VS Code ignores the worktree repository
+    _ensure_vscode_git_ignored(project_root)
 
     return wt
 
@@ -218,6 +222,45 @@ def _ensure_gitignore(project_root: Path) -> None:
     content += f"\n# SCP Ledger worktree (Phase 1A)\n{GITIGNORE_ENTRY}\n"
     gitignore.write_text(content, encoding="utf-8")
     logger.debug("Added %s to .gitignore", GITIGNORE_ENTRY)
+
+
+def _ensure_vscode_git_ignored(project_root: Path) -> None:
+    """Ensure VS Code ignores the ``.scp-ledger`` worktree in its Git panel.
+
+    Adds ``".scp-ledger"`` to ``git.ignoredRepositories`` in
+    ``.vscode/settings.json``.  Idempotent.
+    """
+    import json
+
+    vscode_dir = project_root / ".vscode"
+    settings_file = vscode_dir / "settings.json"
+
+    settings: dict = {}
+    if settings_file.is_file():
+        try:
+            raw = settings_file.read_text(encoding="utf-8")
+            settings = json.loads(raw)
+        except (json.JSONDecodeError, OSError) as e:
+            logger.warning("Could not parse .vscode/settings.json: %s", e)
+            return  # Don't risk corrupting an existing file
+
+    ignored = settings.get("git.ignoredRepositories", [])
+    if not isinstance(ignored, list):
+        ignored = []
+
+    entry = ".scp-ledger"
+    if entry in ignored:
+        return  # Already configured
+
+    ignored.append(entry)
+    settings["git.ignoredRepositories"] = ignored
+
+    vscode_dir.mkdir(parents=True, exist_ok=True)
+    settings_file.write_text(
+        json.dumps(settings, indent=4) + "\n",
+        encoding="utf-8",
+    )
+    logger.debug("Added %s to .vscode/settings.json git.ignoredRepositories", entry)
 
 
 # ═══════════════════════════════════════════════════════════════════════

@@ -16,6 +16,7 @@ from src.core.services.chat.chat_crypto import (
 )
 from src.core.services.chat.chat_ops import (
     create_thread,
+    delete_message,
     list_messages,
     list_threads,
     pull_chat,
@@ -40,6 +41,7 @@ __all__ = [
     "autocomplete",
     "create_thread",
     "decrypt_text",
+    "delete_message",
     "encrypt_text",
     "is_encrypted",
     "list_messages",

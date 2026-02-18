@@ -14,7 +14,7 @@ if (popup) popup.style.display = 'none';
 // ═══════════════════════════════════════════════════════════════
 
 async function renderChatPanel() {
-const browser = document.getElementById('content-browser');
+const browser = document.getElementById('content-chat-panel');
 
 browser.innerHTML = `
 <div class="chat-panel">
@@ -288,22 +288,73 @@ for (let i = 0; i < _chatThreads.length; i++) { if (_chatThreads[i].title==='Gen
                 for (let i = 0; i < messages.length; i++) { html +=_chatRenderBubble(messages[i]); }
                     container.innerHTML=html; if (!_chatSortNewest) container.scrollTop=container.scrollHeight; }
                     function _chatRenderBubble(msg) { const src=msg.source || 'manual' ; const isEnc=msg.encrypted ||
-                    false; const relTime=_chatRelativeTime(msg.ts); const displayText=esc(msg.text); const srcLabels={
-                    manual: '&#x1F464; Manual' , trace: '&#x1F4CB; Trace' , system: '&#x2699;&#xFE0F; System' }; const
-                    sourceLabel=srcLabels[src] || src; let badges=`<span class="chat-msg-badge ${src}">
+                    false; const relTime=_chatRelativeTime(msg.ts); const escaped=esc(msg.text); const
+                    refs=_chatEmbedRefs(escaped); const displayText=refs.html; const mediaHtml=refs.mediaEmbeds; const
+                    srcLabels={ manual: '&#x1F464; Manual' , trace: '&#x1F4CB; Trace' ,
+                    system: '&#x2699;&#xFE0F; System' }; const sourceLabel=srcLabels[src] || src; let badges=`<span
+                    class="chat-msg-badge ${src}">
                     ${sourceLabel}</span>`;
                     if (msg.trace_id) badges += `<span class="chat-msg-badge trace">trace</span>`;
                     if (isEnc) badges += `<span class="chat-msg-badge encrypted">&#x1F510; encrypted</span>`;
 
-                    return `<div class="chat-message ${src}">
+                    return `<div class="chat-message ${src}" data-msg-id="${esc(msg.id)}">
                         <div class="chat-msg-header">
                             <span class="chat-msg-avatar">${(esc(msg.user || 'U'))[0].toUpperCase()}</span>
                             <span class="chat-msg-user">${esc(msg.user || 'Unknown')}</span>
                             ${badges}
                             <span class="chat-msg-time">${relTime}</span>
+                            <span class="chat-msg-actions">
+                                <button class="chat-msg-delete-btn" onclick="chatConfirmDelete('${esc(msg.id)}')"
+                                    title="Delete message">🗑️</button>
+                            </span>
                         </div>
                         <div class="chat-msg-body">${displayText}</div>
+                        ${mediaHtml}
                     </div>`;
+                    }
+
+                    // ═══════════════════════════════════════════════════════════════
+                    // Feature 4b — Delete Message
+                    // ═══════════════════════════════════════════════════════════════
+
+                    function chatConfirmDelete(msgId) {
+                    var delBody = '<p style="color:var(--text-secondary)">'
+                        + 'Are you sure you want to delete this message?'
+                        + ' This cannot be undone.</p>';
+                    var delClick = "chatDoDelete('" + esc(msgId) + "')";
+                    modalOpen({
+                    title: '\u{1F5D1}\uFE0F Delete Message',
+                    body: delBody,
+                    footerButtons: [
+                    { label: 'Cancel', cls: 'btn-ghost',
+                    onclick: 'modalClose()' },
+                    { label: 'Delete', cls: 'btn-primary',
+                    style: 'background:var(--error)',
+                    onclick: delClick },
+                    ],
+                    });
+                    }
+
+                    async function chatDoDelete(msgId) {
+                    try {
+                    const resp = await api('/chat/delete-message', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                    thread_id: _chatSelectedThread,
+                    message_id: msgId,
+                    }),
+                    });
+                    modalClose();
+                    if (resp.deleted) {
+                    toast('Message deleted', 'success');
+                    chatSelectThread(_chatSelectedThread);
+                    } else {
+                    toast('Message not found', 'warning');
+                    }
+                    } catch (e) {
+                    modalClose();
+                    toast('Delete failed: ' + e.message, 'error');
+                    }
                     }
 
 
