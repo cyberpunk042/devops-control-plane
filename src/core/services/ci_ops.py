@@ -74,7 +74,6 @@ _CI_PROVIDERS = {
     "circleci": {
         "name": "CircleCI",
         "paths": [".circleci"],
-        "files": [".circleci/config.yml"],
     },
     "travis": {
         "name": "Travis CI",
@@ -325,7 +324,10 @@ def _parse_gitlab_ci(path: Path, project_root: Path) -> dict | None:
     jobs = []
     # In GitLab CI, top-level keys that don't start with . are jobs
     for key, val in data.items():
-        if key.startswith(".") or key in ("stages", "variables", "include", "default", "image"):
+        if key.startswith(".") or key in (
+            "stages", "variables", "include", "default", "image",
+            "before_script", "after_script", "workflow", "cache", "services",
+        ):
             continue
         if isinstance(val, dict):
             jobs.append({
@@ -552,3 +554,36 @@ def generate_lint_workflow(
         detail={"stacks": stack_names},
     )
     return {"ok": True, "file": result.model_dump()}
+
+
+def generate_terraform_workflow(
+    terraform_config: dict,
+    *,
+    project_name: str = "",
+) -> dict:
+    """Generate a GitHub Actions Terraform CI workflow.
+
+    Args:
+        terraform_config: Dict with provider, working_directory,
+            workspaces, project_name.
+        project_name: Optional project name for workflow naming.
+
+    Returns:
+        {"ok": True, "file": {...}} or {"error": "..."}
+    """
+    from src.core.services.generators.github_workflow import generate_terraform_ci
+
+    result = generate_terraform_ci(terraform_config, project_name=project_name)
+    if result is None:
+        return {"error": "Failed to generate Terraform CI workflow"}
+
+    provider = terraform_config.get("provider", "unknown")
+    _audit(
+        "⚙️ Terraform CI Workflow Generated",
+        f"Terraform CI workflow generated (provider={provider})",
+        action="generated",
+        target="terraform-ci-workflow",
+        detail={"provider": provider, "project": project_name},
+    )
+    return {"ok": True, "file": result.model_dump()}
+

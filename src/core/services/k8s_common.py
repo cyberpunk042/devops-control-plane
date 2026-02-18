@@ -63,11 +63,21 @@ def _run_kubectl(
 
 
 def _kubectl_available() -> dict:
-    """Check if kubectl is available and configured."""
+    """Check if kubectl is available and configured.
+
+    Uses ``kubectl version --client -o json`` (the ``--short`` flag
+    was removed in kubectl v1.28+).
+    """
     try:
-        result = _run_kubectl("version", "--client", "--short")
+        result = _run_kubectl("version", "--client", "-o", "json")
         if result.returncode == 0:
-            version = result.stdout.strip()
+            import json as _json
+            try:
+                data = _json.loads(result.stdout)
+                version = data.get("clientVersion", {}).get("gitVersion", "")
+            except (ValueError, KeyError):
+                # Fall back to raw output
+                version = result.stdout.strip()
             return {"available": True, "version": version}
     except (FileNotFoundError, subprocess.TimeoutExpired):
         pass

@@ -379,21 +379,109 @@ def setup_k8s(root: Path, data: dict) -> dict:
     return resp
 
 
+def _build_test_jobs_from_stacks(
+    stacks: list[str],
+    resolve_job: callable,
+) -> dict[str, dict]:
+    """Bridge stack generators (YAML strings) → workflow job dicts.
+
+    Calls the per-stack job generators from
+    ``generators/github_workflow.py``, parses the YAML fragment they
+    return, and merges the resulting job dicts.
+    """
+    import yaml as _yaml
+
+    jobs: dict[str, dict] = {}
+    seen: set[int] = set()
+
+    for stack_name in stacks:
+        gen = resolve_job(stack_name)
+        if gen is None or id(gen) in seen:
+            continue
+        seen.add(id(gen))
+        fragment = gen()  # returns a YAML string fragment like "  python:\n ..."
+        try:
+            parsed = _yaml.safe_load(fragment)
+        except Exception:
+            continue
+        if isinstance(parsed, dict):
+            jobs.update(parsed)
+
+    return jobs
+
+
 def setup_ci(root: Path, data: dict) -> dict:
-    """Generate CI workflow YAML."""
+    """Generate CI workflow YAML from wizard state.
+
+    Composes test, Docker build/push, and K8s deploy jobs based on
+    the ``data`` dict.  Uses ``yaml.dump()`` for reliable output.
+
+    Supported data keys:
+        branches       – comma-separated trigger branches (default "main, master")
+        python_version – Python version for test job (default "3.12")
+        install_cmd    – pip install command (default 'pip install -e ".[dev]"')
+        test_cmd       – test command (default "python -m pytest tests/ -v --tb=short")
+        lint           – bool, add lint step
+        lint_cmd       – lint command (default "ruff check src/")
+        overwrite      – bool, replace existing ci.yml
+
+        docker              – bool, add Docker build job
+        docker_registry     – registry URL (e.g. "ghcr.io/myorg")
+        docker_image        – image name (e.g. "myapp")
+        docker_build_args   – dict of build-arg key→value
+
+        k8s                 – bool, add K8s deploy job
+        k8s_deploy_method   – "kubectl" | "skaffold" | "helm"
+        k8s_manifest_dir    – manifest directory for kubectl
+        k8s_namespace       – namespace flag
+        helm_chart          – Helm chart path
+        helm_release        – Helm release name
+        skaffold_file       – custom skaffold file path
+
+        environments        – list of env dicts for multi-env deploys
+            Each: {name, namespace, branch, kubeconfig_secret,
+                   skaffold_profile, values_file}
+    """
+    import yaml as _yaml
+
     from src.core.services import devops_cache
 
+    # ── Parse inputs ────────────────────────────────────────────────
     branches_str = data.get("branches", "main, master")
     branches = [b.strip() for b in branches_str.split(",") if b.strip()]
     py_ver = data.get("python_version", "3.12")
     install_cmd = data.get("install_cmd", 'pip install -e ".[dev]"')
-    test_cmd = data.get("test_cmd", "python -m pytest tests/ -v --tb=short")
+    test_cmd = data.get("test_cmd", "")
     lint = data.get("lint", False)
     lint_cmd = data.get("lint_cmd", "ruff check src/")
     overwrite = data.get("overwrite", False)
 
-    files_created: list[str] = []
+    stacks: list[str] = data.get("stacks", [])
 
+    docker_enabled = data.get("docker", False)
+    docker_registry = data.get("docker_registry", "")
+    docker_image = data.get("docker_image", "app")
+    docker_build_args = data.get("docker_build_args", {})
+
+    k8s_enabled = data.get("k8s", False)
+    k8s_method = data.get("k8s_deploy_method", "kubectl")
+    k8s_manifest_dir = data.get("k8s_manifest_dir", "k8s/")
+    k8s_namespace = data.get("k8s_namespace", "")
+    helm_chart = data.get("helm_chart", "")
+    helm_release = data.get("helm_release", "")
+    skaffold_file = data.get("skaffold_file", "")
+
+    environments: list[dict] = data.get("environments", [])
+
+    # ── Validate: mutually exclusive deploy methods ─────────────────
+    if k8s_enabled and k8s_method not in ("kubectl", "skaffold", "helm"):
+        return {
+            "ok": False,
+            "error": f"Invalid k8s_deploy_method: {k8s_method!r}. "
+                     f"Must be 'kubectl', 'skaffold', or 'helm'.",
+        }
+
+    # ── Guard: file exists ──────────────────────────────────────────
     wf_dir = root / ".github" / "workflows"
     wf_dir.mkdir(parents=True, exist_ok=True)
     dest = wf_dir / "ci.yml"
@@ -404,32 +492,232 @@ def setup_ci(root: Path, data: dict) -> dict:
             "error": "CI workflow already exists. Check 'Overwrite' to replace.",
         }
 
-    branch_list = ", ".join(branches)
-    steps = (
-        f"      - uses: actions/checkout@v4\n"
-        f"      - uses: actions/setup-python@v5\n"
-        f"        with:\n"
-        f'          python-version: "{py_ver}"\n'
-        f"      - run: {install_cmd}\n"
-        f"      - run: {test_cmd}\n"
-    )
-    if lint:
-        steps += f"      - run: {lint_cmd}\n"
+    # ── Build workflow dict ─────────────────────────────────────────
+    workflow: dict = {
+        "name": "CI",
+        "on": {
+            "push": {"branches": branches},
+            "pull_request": {"branches": branches},
+        },
+        "permissions": {"contents": "read"},
+        "jobs": {},
+    }
 
-    dest.write_text(
-        f"name: CI\n"
-        f"on:\n"
-        f"  push:\n"
-        f"    branches: [{branch_list}]\n"
-        f"  pull_request:\n"
-        f"    branches: [{branch_list}]\n\n"
-        f"jobs:\n"
-        f"  test:\n"
-        f"    runs-on: ubuntu-latest\n"
-        f"    steps:\n"
-        f"{steps}"
+    # ── 1. Test job ─────────────────────────────────────────────────
+    #  Priority: stacks → explicit test_cmd → default Python fallback.
+    #  When only Docker/K8s is enabled (no stacks, no test_cmd), skip
+    #  the test job entirely.
+    has_test_job = False
+
+    if stacks:
+        # Delegate to generators/github_workflow.py
+        from src.core.services.generators.github_workflow import _resolve_job
+
+        test_jobs = _build_test_jobs_from_stacks(stacks, _resolve_job)
+        if test_jobs:
+            workflow["jobs"].update(test_jobs)
+            has_test_job = True
+    elif test_cmd:
+        # Explicit test command (legacy / wizard mode)
+        test_steps: list[dict] = [
+            {"uses": "actions/checkout@v4"},
+            {"uses": "actions/setup-python@v5", "with": {"python-version": py_ver}},
+            {"name": "Install dependencies", "run": install_cmd},
+            {"name": "Run tests", "run": test_cmd},
+        ]
+        if lint:
+            test_steps.append({"name": "Lint", "run": lint_cmd})
+
+        workflow["jobs"]["test"] = {
+            "runs-on": "ubuntu-latest",
+            "steps": test_steps,
+        }
+        has_test_job = True
+    elif not (docker_enabled or k8s_enabled):
+        # No stacks, no test_cmd, no Docker, no K8s → default Python fallback
+        default_test_cmd = "python -m pytest tests/ -v --tb=short"
+        test_steps = [
+            {"uses": "actions/checkout@v4"},
+            {"uses": "actions/setup-python@v5", "with": {"python-version": py_ver}},
+            {"name": "Install dependencies", "run": install_cmd},
+            {"name": "Run tests", "run": default_test_cmd},
+        ]
+        if lint:
+            test_steps.append({"name": "Lint", "run": lint_cmd})
+
+        workflow["jobs"]["test"] = {
+            "runs-on": "ubuntu-latest",
+            "steps": test_steps,
+        }
+        has_test_job = True
+    # else: Docker/K8s only — no test job
+
+    # ── 2. Docker build/push job ────────────────────────────────────
+    if docker_enabled:
+        # Permissions for GHCR push
+        if docker_registry and "ghcr.io" in docker_registry:
+            workflow["permissions"]["packages"] = "write"
+
+        docker_steps: list[dict] = [
+            {"uses": "actions/checkout@v4"},
+            {"name": "Set up Docker Buildx",
+             "uses": "docker/setup-buildx-action@v3"},
+        ]
+
+        # Registry login
+        if docker_registry:
+            if "ghcr.io" in docker_registry:
+                docker_steps.append({
+                    "name": "Login to GHCR",
+                    "uses": "docker/login-action@v3",
+                    "with": {
+                        "registry": "ghcr.io",
+                        "username": "${{ github.actor }}",
+                        "password": "${{ secrets.GITHUB_TOKEN }}",
+                    },
+                })
+            elif "docker.io" in docker_registry:
+                docker_steps.append({
+                    "name": "Login to DockerHub",
+                    "uses": "docker/login-action@v3",
+                    "with": {
+                        "username": "${{ secrets.DOCKERHUB_USERNAME }}",
+                        "password": "${{ secrets.DOCKERHUB_TOKEN }}",
+                    },
+                })
+            else:
+                docker_steps.append({
+                    "name": f"Login to {docker_registry}",
+                    "uses": "docker/login-action@v3",
+                    "with": {
+                        "registry": docker_registry.split("/")[0],
+                        "username": "${{ secrets.REGISTRY_USERNAME }}",
+                        "password": "${{ secrets.REGISTRY_PASSWORD }}",
+                    },
+                })
+
+        # Image tag
+        full_image = (
+            f"{docker_registry}/{docker_image}"
+            if docker_registry else docker_image
+        )
+        tags = f"{full_image}:${{{{ github.sha }}}},{full_image}:latest"
+
+        # Build args
+        build_args_str = ""
+        if isinstance(docker_build_args, dict) and docker_build_args:
+            build_args_str = "\n".join(
+                f"{k}={v}" for k, v in docker_build_args.items()
+            )
+
+        build_push_with: dict = {
+            "context": ".",
+            "push": bool(docker_registry),
+            "tags": tags,
+            "cache-from": "type=gha",
+            "cache-to": "type=gha,mode=max",
+        }
+        if build_args_str:
+            build_push_with["build-args"] = build_args_str
+
+        docker_steps.append({
+            "name": "Build and push Docker image",
+            "uses": "docker/build-push-action@v5",
+            "with": build_push_with,
+        })
+
+        workflow["jobs"]["docker"] = {
+            "runs-on": "ubuntu-latest",
+            "needs": ["test"] if has_test_job else [],
+            "if": "github.event_name == 'push'",
+            "steps": docker_steps,
+        }
+
+    # ── 3. K8s deploy job(s) ────────────────────────────────────────
+    if k8s_enabled:
+        prev_job = (
+            "docker" if docker_enabled
+            else "test" if has_test_job
+            else None
+        )
+
+        if environments:
+            # Multi-environment: one deploy job per environment
+            for i, env in enumerate(environments):
+                env_name = env.get("name", f"env{i}")
+                job_id = f"deploy-{env_name}"
+                ns = env.get("namespace", k8s_namespace) or ""
+                branch = env.get("branch", "")
+                kube_secret = env.get("kubeconfig_secret", "KUBECONFIG")
+
+                # Chain environments: each depends on previous
+                if i == 0:
+                    needs = [prev_job] if prev_job else []
+                else:
+                    prev_env = environments[i - 1].get("name", f"env{i-1}")
+                    needs = [f"deploy-{prev_env}"]
+
+                deploy_steps = _build_deploy_steps(
+                    method=k8s_method,
+                    kubeconfig_secret=kube_secret,
+                    namespace=ns,
+                    manifest_dir=k8s_manifest_dir,
+                    helm_chart=helm_chart,
+                    helm_release=helm_release,
+                    skaffold_file=skaffold_file,
+                    docker_registry=docker_registry,
+                    docker_image=docker_image,
+                    docker_enabled=docker_enabled,
+                    env=env,
+                )
+
+                job_def: dict = {
+                    "runs-on": "ubuntu-latest",
+                    "needs": needs,
+                    "steps": deploy_steps,
+                }
+
+                # Branch constraint
+                if branch:
+                    job_def["if"] = (
+                        f"github.event_name == 'push' && "
+                        f"github.ref == 'refs/heads/{branch}'"
+                    )
+                else:
+                    job_def["if"] = "github.event_name == 'push'"
+
+                workflow["jobs"][job_id] = job_def
+        else:
+            # Single deploy job
+            deploy_steps = _build_deploy_steps(
+                method=k8s_method,
+                kubeconfig_secret="KUBECONFIG",
+                namespace=k8s_namespace,
+                manifest_dir=k8s_manifest_dir,
+                helm_chart=helm_chart,
+                helm_release=helm_release,
+                skaffold_file=skaffold_file,
+                docker_registry=docker_registry,
+                docker_image=docker_image,
+                docker_enabled=docker_enabled,
+            )
+            workflow["jobs"]["deploy"] = {
+                "runs-on": "ubuntu-latest",
+                "needs": [prev_job] if prev_job else [],
+                "if": "github.event_name == 'push'",
+                "steps": deploy_steps,
+            }
+
+    # ── Write YAML ──────────────────────────────────────────────────
+    content = _yaml.dump(
+        workflow,
+        default_flow_style=False,
+        sort_keys=False,
+        allow_unicode=True,
     )
-    files_created.append(".github/workflows/ci.yml")
+    dest.write_text(content, encoding="utf-8")
+
+    files_created = [".github/workflows/ci.yml"]
 
     devops_cache.record_event(
         root,
@@ -448,20 +736,117 @@ def setup_ci(root: Path, data: dict) -> dict:
     }
 
 
+def _build_deploy_steps(
+    *,
+    method: str,
+    kubeconfig_secret: str,
+    namespace: str,
+    manifest_dir: str,
+    helm_chart: str,
+    helm_release: str,
+    skaffold_file: str,
+    docker_registry: str,
+    docker_image: str,
+    docker_enabled: bool,
+    env: dict | None = None,
+) -> list[dict]:
+    """Build deploy steps for a single environment."""
+    steps: list[dict] = [
+        {"uses": "actions/checkout@v4"},
+        {
+            "name": "Set up kubeconfig",
+            "run": (
+                "mkdir -p $HOME/.kube && "
+                f"echo \"${{{{ secrets.{kubeconfig_secret} }}}}\" "
+                "> $HOME/.kube/config"
+            ),
+        },
+    ]
+
+    if method == "kubectl":
+        # Dry-run validation
+        ns_flag = f" -n {namespace}" if namespace else ""
+        steps.append({
+            "name": "Validate manifests",
+            "run": (
+                f"kubectl apply -f {manifest_dir} --dry-run=client"
+                f"{ns_flag}"
+            ),
+        })
+        # Apply
+        steps.append({
+            "name": "Deploy with kubectl",
+            "run": f"kubectl apply -f {manifest_dir}{ns_flag}",
+        })
+        # Rollout wait
+        steps.append({
+            "name": "Wait for rollout",
+            "run": f"kubectl rollout status deployment --timeout=300s{ns_flag}",
+        })
+
+    elif method == "skaffold":
+        # Install skaffold
+        steps.append({
+            "name": "Install Skaffold",
+            "run": (
+                "curl -Lo skaffold https://storage.googleapis.com/skaffold"
+                "/releases/v2.13.2/skaffold-linux-amd64 && "
+                "chmod +x skaffold && sudo mv skaffold /usr/local/bin/"
+            ),
+        })
+        # Build skaffold command
+        cmd = "skaffold run"
+        if skaffold_file:
+            cmd += f" -f {skaffold_file}"
+        if env and env.get("skaffold_profile"):
+            cmd += f" -p {env['skaffold_profile']}"
+        if docker_registry:
+            cmd += f" --default-repo={docker_registry}"
+        steps.append({
+            "name": "Deploy with Skaffold",
+            "run": cmd,
+        })
+
+    elif method == "helm":
+        # Build helm command
+        release = helm_release or "app"
+        chart = helm_chart or "./charts/app"
+        cmd = f"helm upgrade --install {release} {chart}"
+        if namespace:
+            cmd += f" --namespace {namespace}"
+        if env and env.get("values_file"):
+            cmd += f" -f {env['values_file']}"
+        if docker_enabled:
+            tag = "${{ github.sha }}"
+            full_image = (
+                f"{docker_registry}/{docker_image}"
+                if docker_registry else docker_image
+            )
+            cmd += f" --set image.repository={full_image}"
+            cmd += f" --set image.tag={tag}"
+        steps.append({
+            "name": "Deploy with Helm",
+            "run": cmd,
+        })
+
+    return steps
+
+
 def setup_terraform(root: Path, data: dict) -> dict:
-    """Generate Terraform main.tf with provider and backend."""
+    """Generate Terraform scaffolding via generate_terraform().
+
+    Delegates to the generator to produce main.tf, variables.tf,
+    outputs.tf, and .gitignore — then writes them to disk.
+    """
     from src.core.services import devops_cache
+    from src.core.services.terraform_generate import generate_terraform
 
     provider = data.get("provider", "aws")
-    region = data.get("region", "us-east-1")
-    project_name = data.get("project_name", "app")
     backend = data.get("backend", "local")
+    project_name = data.get("project_name", root.name)
     overwrite = data.get("overwrite", False)
 
-    files_created: list[str] = []
-
     tf_dir = root / "terraform"
-    tf_dir.mkdir(exist_ok=True)
     tf_main = tf_dir / "main.tf"
 
     if tf_main.exists() and not overwrite:
@@ -470,49 +855,23 @@ def setup_terraform(root: Path, data: dict) -> dict:
             "error": "Terraform config exists. Check 'Overwrite' to replace.",
         }
 
-    provider_blocks = {
-        "aws": f'provider "aws" {{\n  region = "{region}"\n}}\n',
-        "google": f'provider "google" {{\n  project = "{project_name}"\n  region  = "{region}"\n}}\n',
-        "azurerm": f'provider "azurerm" {{\n  features {{}}\n}}\n',
-        "digitalocean": f'provider "digitalocean" {{\n  # token = var.do_token\n}}\n',
-    }
-    prov_block = provider_blocks.get(provider, f'# provider "{provider}" {{}}\n')
-
-    backend_blocks = {
-        "local": "",
-        "s3": (
-            f'  backend "s3" {{\n'
-            f'    bucket = "{project_name}-tfstate"\n'
-            f'    key    = "state/terraform.tfstate"\n'
-            f'    region = "{region}"\n'
-            f"  }}\n"
-        ),
-        "gcs": (
-            f'  backend "gcs" {{\n'
-            f'    bucket = "{project_name}-tfstate"\n'
-            f'    prefix = "terraform/state"\n'
-            f"  }}\n"
-        ),
-        "azurerm": (
-            f'  backend "azurerm" {{\n'
-            f'    resource_group_name  = "{project_name}-rg"\n'
-            f'    storage_account_name = "{project_name}sa"\n'
-            f'    container_name       = "tfstate"\n'
-            f'    key                  = "terraform.tfstate"\n'
-            f"  }}\n"
-        ),
-    }
-    be_block = backend_blocks.get(backend, "")
-
-    tf_main.write_text(
-        f'terraform {{\n'
-        f'  required_version = ">= 1.0"\n'
-        f'{be_block}'
-        f'}}\n\n'
-        f'{prov_block}\n'
-        f'# Add resources below\n'
+    # Delegate to the generator
+    gen_result = generate_terraform(
+        root,
+        provider,
+        backend=backend,
+        project_name=project_name,
     )
-    files_created.append("terraform/main.tf")
+    if "error" in gen_result:
+        return {"ok": False, "error": gen_result["error"]}
+
+    # Write generated files to disk
+    files_created: list[str] = []
+    for f in gen_result["files"]:
+        path = root / f["path"]
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f["content"])
+        files_created.append(f["path"])
 
     devops_cache.record_event(
         root,
@@ -594,10 +953,11 @@ def delete_generated_configs(root: Path, target: str) -> dict:
                     _shutil.rmtree(k8s_dir)
                     deleted.append("k8s/")
             elif t == "ci":
-                ci = root / ".github" / "workflows" / "ci.yml"
-                if ci.is_file():
-                    ci.unlink()
-                    deleted.append(".github/workflows/ci.yml")
+                for ci_file in ["ci.yml", "lint.yml"]:
+                    ci = root / ".github" / "workflows" / ci_file
+                    if ci.is_file():
+                        ci.unlink()
+                        deleted.append(f".github/workflows/{ci_file}")
             elif t == "terraform":
                 tf_dir = root / "terraform"
                 if tf_dir.is_dir():

@@ -11,6 +11,8 @@ from src.core.services.wizard_setup import (
     setup_docker,
     setup_ci,
     setup_terraform,
+    setup_k8s,
+    delete_generated_configs,
 )
 
 
@@ -394,3 +396,494 @@ class TestSetupTerraform:
         assert result["ok"] is True
         content = (tmp_path / "terraform" / "main.tf").read_text()
         assert '>= 1.0' in content
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  0.2.17  setup_k8s — end-to-end manifest writing pipeline
+# ═══════════════════════════════════════════════════════════════════
+
+
+class TestSetupK8s:
+    """0.2.17 — setup_k8s integration: wizard state → files on disk.
+
+    Source of truth: setup_k8s orchestrates:
+    1. wizard_state_to_resources (translate)
+    2. generate_k8s_wizard (render YAML)
+    3. Write files to disk
+    4. Optional skaffold.yaml
+    5. Record activity event
+    """
+
+    def _minimal_state(self, **overrides):
+        """Build minimal wizard state for setup_k8s."""
+        state = {
+            "namespace": "default",
+            "_services": [
+                {"name": "api", "image": "api:latest", "port": 8080,
+                 "replicas": 1},
+            ],
+        }
+        state.update(overrides)
+        return state
+
+    def test_creates_manifest_files(self, tmp_path: Path):
+        """setup_k8s with simple state → YAML files on disk.
+
+        Verifies:
+        1. result["ok"] is True
+        2. result["files_created"] is non-empty
+        3. Files actually exist on disk
+        4. Files are valid YAML content (start with apiVersion or similar)
+        """
+        result = setup_k8s(tmp_path, self._minimal_state())
+
+        assert result["ok"] is True
+        assert len(result["files_created"]) >= 1
+        assert result["message"], "message should be non-empty"
+
+        for rel_path in result["files_created"]:
+            fp = tmp_path / rel_path
+            assert fp.is_file(), f"Expected file: {rel_path}"
+            content = fp.read_text()
+            assert content.strip(), f"Empty file: {rel_path}"
+
+    def test_output_dir_created(self, tmp_path: Path):
+        """setup_k8s auto-creates output directory (k8s/)."""
+        k8s_dir = tmp_path / "k8s"
+        assert not k8s_dir.exists()
+
+        result = setup_k8s(tmp_path, self._minimal_state())
+        assert result["ok"] is True
+        assert k8s_dir.is_dir()
+
+    def test_custom_output_dir(self, tmp_path: Path):
+        """Custom output_dir → files written there, not k8s/."""
+        result = setup_k8s(tmp_path, self._minimal_state(
+            output_dir="manifests",
+        ))
+        assert result["ok"] is True
+        manifests_dir = tmp_path / "manifests"
+        assert manifests_dir.is_dir()
+        # At least one file in custom dir
+        files = list(manifests_dir.glob("*.yaml")) + list(manifests_dir.glob("*.yml"))
+        assert len(files) >= 1
+
+    def test_multiple_resource_types(self, tmp_path: Path):
+        """State with multiple services → multiple files created."""
+        state = {
+            "namespace": "production",
+            "_services": [
+                {"name": "api", "image": "api:v1", "port": 8080, "replicas": 2},
+                {"name": "worker", "image": "worker:v1", "replicas": 1},
+            ],
+        }
+        result = setup_k8s(tmp_path, state)
+        assert result["ok"] is True
+        # Namespace + 2 Deployments + 1 Service (api has port, worker doesn't)
+        assert len(result["files_created"]) >= 3
+
+    def test_skaffold_generated_when_requested(self, tmp_path: Path):
+        """skaffold=True → skaffold.yaml created alongside manifests."""
+        result = setup_k8s(tmp_path, self._minimal_state(skaffold=True))
+        assert result["ok"] is True
+        # Look for skaffold file
+        skaffold_created = any(
+            "skaffold" in f for f in result["files_created"]
+        )
+        assert skaffold_created, f"Expected skaffold in {result['files_created']}"
+        # File on disk
+        skaffold_path = tmp_path / "skaffold.yaml"
+        assert skaffold_path.is_file()
+
+    def test_no_skaffold_when_not_requested(self, tmp_path: Path):
+        """No skaffold key → no skaffold.yaml (negative test)."""
+        result = setup_k8s(tmp_path, self._minimal_state())
+        assert result["ok"] is True
+        skaffold_created = any(
+            "skaffold" in f for f in result["files_created"]
+        )
+        assert not skaffold_created
+
+    def test_idempotent_with_overwrite(self, tmp_path: Path):
+        """setup_k8s run twice → second run skips existing files.
+
+        By design, generated manifests have overwrite=False, so the
+        second run reports files_skipped rather than re-creating.
+        """
+        state = self._minimal_state()
+        result1 = setup_k8s(tmp_path, state)
+        assert result1["ok"] is True
+        first_files = set(result1["files_created"])
+        assert len(first_files) >= 1
+
+        result2 = setup_k8s(tmp_path, state)
+        assert result2["ok"] is True
+        # Second run skips all existing files
+        assert result2.get("files_skipped") is not None
+        assert set(result2["files_skipped"]) == first_files
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  0.2.18  delete_generated_configs
+# ═══════════════════════════════════════════════════════════════════
+
+
+class TestDeleteGeneratedConfigs:
+    """0.2.18 — delete_generated_configs for all target types.
+
+    Source of truth: delete_generated_configs behaviour for
+    docker, k8s, ci, terraform, all.
+    """
+
+    def test_delete_docker(self, tmp_path: Path):
+        """target=docker → Dockerfile, .dockerignore, compose deleted."""
+        (tmp_path / "Dockerfile").write_text("FROM alpine\n")
+        (tmp_path / ".dockerignore").write_text(".git\n")
+        (tmp_path / "docker-compose.yml").write_text("version: '3'\n")
+
+        result = delete_generated_configs(tmp_path, "docker")
+        assert result["ok"] is True
+        assert "Dockerfile" in result["deleted"]
+        assert ".dockerignore" in result["deleted"]
+        assert not (tmp_path / "Dockerfile").exists()
+        assert not (tmp_path / ".dockerignore").exists()
+        assert not (tmp_path / "docker-compose.yml").exists()
+
+    def test_delete_k8s(self, tmp_path: Path):
+        """target=k8s → k8s/ directory removed."""
+        k8s_dir = tmp_path / "k8s"
+        k8s_dir.mkdir()
+        (k8s_dir / "deploy.yaml").write_text("kind: Deployment\n")
+
+        result = delete_generated_configs(tmp_path, "k8s")
+        assert result["ok"] is True
+        assert "k8s/" in result["deleted"]
+        assert not k8s_dir.exists()
+
+    def test_delete_ci(self, tmp_path: Path):
+        """target=ci → .github/workflows/ci.yml deleted."""
+        ci_path = tmp_path / ".github" / "workflows" / "ci.yml"
+        ci_path.parent.mkdir(parents=True)
+        ci_path.write_text("name: CI\n")
+
+        result = delete_generated_configs(tmp_path, "ci")
+        assert result["ok"] is True
+        assert ".github/workflows/ci.yml" in result["deleted"]
+        assert not ci_path.exists()
+
+    def test_delete_terraform(self, tmp_path: Path):
+        """target=terraform → terraform/ directory removed."""
+        tf_dir = tmp_path / "terraform"
+        tf_dir.mkdir()
+        (tf_dir / "main.tf").write_text("terraform {}\n")
+
+        result = delete_generated_configs(tmp_path, "terraform")
+        assert result["ok"] is True
+        assert "terraform/" in result["deleted"]
+        assert not tf_dir.exists()
+
+    def test_delete_all(self, tmp_path: Path):
+        """target=all → all known targets deleted."""
+        # Create files for each target
+        (tmp_path / "Dockerfile").write_text("FROM alpine\n")
+        k8s = tmp_path / "k8s"
+        k8s.mkdir()
+        (k8s / "deploy.yaml").write_text("kind: Deployment\n")
+        ci = tmp_path / ".github" / "workflows"
+        ci.mkdir(parents=True)
+        (ci / "ci.yml").write_text("name: CI\n")
+        tf = tmp_path / "terraform"
+        tf.mkdir()
+        (tf / "main.tf").write_text("terraform {}\n")
+
+        result = delete_generated_configs(tmp_path, "all")
+        assert result["ok"] is True
+        assert len(result["deleted"]) >= 4
+
+    def test_delete_nonexistent_is_ok(self, tmp_path: Path):
+        """Deleting target that doesn't exist → ok, empty deleted list."""
+        result = delete_generated_configs(tmp_path, "k8s")
+        assert result["ok"] is True
+        assert result["deleted"] == []
+
+    def test_unknown_target(self, tmp_path: Path):
+        """Unknown target → error in errors list."""
+        result = delete_generated_configs(tmp_path, "foobar")
+        assert result["ok"] is False
+        assert len(result["errors"]) >= 1
+        assert "foobar" in result["errors"][0]
+
+    def test_round_trip_setup_delete_setup(self, tmp_path: Path):
+        """setup_k8s → delete k8s → setup_k8s → same result.
+
+        Round-trip: proves delete fully cleans and setup can re-create.
+        """
+        state = {
+            "namespace": "default",
+            "_services": [
+                {"name": "api", "image": "api:v1", "port": 8080, "replicas": 1},
+            ],
+        }
+
+        # First setup
+        r1 = setup_k8s(tmp_path, state)
+        assert r1["ok"] is True
+        files1 = set(r1["files_created"])
+
+        # Delete
+        rd = delete_generated_configs(tmp_path, "k8s")
+        assert rd["ok"] is True
+        assert not (tmp_path / "k8s").exists()
+
+        # Re-setup
+        r2 = setup_k8s(tmp_path, state)
+        assert r2["ok"] is True
+        files2 = set(r2["files_created"])
+
+        # Same files created
+        assert files1 == files2
+
+    def test_delete_filesystem_error_captured(self, tmp_path: Path):
+        """Filesystem error during delete → captured in errors, not raised.
+
+        Verifies: exceptions from rmtree are caught and reported in errors
+        list rather than propagating to the caller.
+        """
+        import os
+        import stat
+
+        # Create k8s dir, then make parent read-only to prevent deletion
+        k8s_dir = tmp_path / "k8s"
+        k8s_dir.mkdir()
+        (k8s_dir / "deploy.yaml").write_text("kind: Deployment\n")
+
+        # Make k8s dir read-only (so rmtree fails inside it)
+        (k8s_dir / "deploy.yaml").chmod(0)
+        k8s_dir.chmod(stat.S_IRUSR | stat.S_IXUSR)
+
+        try:
+            result = delete_generated_configs(tmp_path, "k8s")
+            # Should NOT raise — error captured in errors list
+            assert len(result["errors"]) >= 1
+            assert result["ok"] is False
+        finally:
+            # Restore permissions for cleanup
+            k8s_dir.chmod(stat.S_IRWXU)
+            (k8s_dir / "deploy.yaml").chmod(stat.S_IRWXU)
+
+    def test_setup_k8s_records_activity_event(self, tmp_path: Path):
+        """setup_k8s → activity event recorded in .state/audit_activity.json.
+
+        Verifies: record_event is called with card=wizard, action=configured,
+        target=kubernetes.
+        """
+        import json
+
+        state = {
+            "namespace": "default",
+            "_services": [
+                {"name": "api", "image": "api:v1", "port": 8080, "replicas": 1},
+            ],
+        }
+        setup_k8s(tmp_path, state)
+
+        activity_path = tmp_path / ".state" / "audit_activity.json"
+        assert activity_path.is_file()
+        entries = json.loads(activity_path.read_text())
+        assert len(entries) >= 1
+        last = entries[-1]
+        assert last["card"] == "wizard"
+        assert last["action"] == "configured"
+        assert last["target"] == "kubernetes"
+        assert "K8s" in last["label"]
+
+    def test_delete_records_activity_event(self, tmp_path: Path):
+        """delete_generated_configs → activity event recorded.
+
+        Verifies: record_event is called with action=deleted after config
+        deletion.
+        """
+        import json
+
+        k8s_dir = tmp_path / "k8s"
+        k8s_dir.mkdir()
+        (k8s_dir / "deploy.yaml").write_text("kind: Deployment\n")
+
+        delete_generated_configs(tmp_path, "k8s")
+
+        activity_path = tmp_path / ".state" / "audit_activity.json"
+        assert activity_path.is_file()
+        entries = json.loads(activity_path.read_text())
+        assert len(entries) >= 1
+        last = entries[-1]
+        assert last["card"] == "wizard"
+        assert last["action"] == "deleted"
+
+    def test_setup_k8s_generator_error(self, tmp_path: Path):
+        """Empty services → generator error → ok=False returned.
+
+        Verifies: when wizard_state_to_resources produces no valid resources,
+        generate_k8s_wizard returns an error and setup_k8s returns ok=False.
+        """
+        state = {
+            "namespace": "default",
+            "_services": [],  # No services at all
+        }
+        result = setup_k8s(tmp_path, state)
+        assert result["ok"] is False
+        assert "error" in result
+
+    def test_setup_k8s_configmap_file_created(self, tmp_path: Path):
+        """Wizard state with env vars → ConfigMap YAML file on disk."""
+        state = {
+            "namespace": "default",
+            "_services": [
+                {
+                    "name": "api",
+                    "image": "api:v1",
+                    "port": 8080,
+                    "replicas": 1,
+                    "envVars": [
+                        {"key": "APP_MODE", "value": "production", "type": "hardcoded"},
+                    ],
+                },
+            ],
+        }
+        result = setup_k8s(tmp_path, state)
+        assert result["ok"] is True
+        config_files = [f for f in result["files_created"] if "config" in f.lower()]
+        assert len(config_files) >= 1
+
+    def test_setup_k8s_secret_file_created(self, tmp_path: Path):
+        """Wizard state with secret env vars → Secret YAML file on disk."""
+        state = {
+            "namespace": "default",
+            "_services": [
+                {
+                    "name": "api",
+                    "image": "api:v1",
+                    "port": 8080,
+                    "replicas": 1,
+                    "envVars": [
+                        {"key": "DB_PASS", "value": "s3cret", "type": "secret"},
+                    ],
+                },
+            ],
+        }
+        result = setup_k8s(tmp_path, state)
+        assert result["ok"] is True
+        secret_files = [f for f in result["files_created"] if "secret" in f.lower()]
+        assert len(secret_files) >= 1
+
+    def test_setup_k8s_namespace_file_created(self, tmp_path: Path):
+        """Non-default namespace → Namespace resource YAML created."""
+        state = {
+            "namespace": "production",
+            "_services": [
+                {"name": "api", "image": "api:v1", "port": 8080, "replicas": 1},
+            ],
+        }
+        result = setup_k8s(tmp_path, state)
+        assert result["ok"] is True
+        ns_files = [f for f in result["files_created"] if "namespace" in f.lower()]
+        assert len(ns_files) >= 1
+
+    def test_setup_k8s_ingress_file_created(self, tmp_path: Path):
+        """Wizard state with ingress host → Ingress YAML created.
+
+        Note: ingress is a top-level data key, not per-service.
+        """
+        state = {
+            "namespace": "default",
+            "ingress": "api.example.com",
+            "_services": [
+                {
+                    "name": "api",
+                    "image": "api:v1",
+                    "port": 8080,
+                    "replicas": 1,
+                },
+            ],
+        }
+        result = setup_k8s(tmp_path, state)
+        assert result["ok"] is True
+        ingress_files = [f for f in result["files_created"] if "ingress" in f.lower()]
+        assert len(ingress_files) >= 1
+
+    def test_setup_k8s_pvc_file_created(self, tmp_path: Path):
+        """Wizard state with PVC volume → PVC YAML file on disk."""
+        state = {
+            "namespace": "default",
+            "_services": [
+                {
+                    "name": "api",
+                    "image": "api:v1",
+                    "port": 8080,
+                    "replicas": 1,
+                    "volumes": [
+                        {
+                            "name": "data",
+                            "mountPath": "/data",
+                            "type": "pvc-dynamic",
+                            "size": "10Gi",
+                        },
+                    ],
+                },
+            ],
+        }
+        result = setup_k8s(tmp_path, state)
+        assert result["ok"] is True
+        pvc_files = [f for f in result["files_created"]
+                     if "persistentvolumeclaim" in f.lower() or "pvc" in f.lower()]
+        assert len(pvc_files) >= 1
+
+    def test_setup_k8s_multi_service_all_files(self, tmp_path: Path):
+        """Multiple services → all Deployments + Services + ConfigMaps/Secrets."""
+        state = {
+            "namespace": "default",
+            "_services": [
+                {
+                    "name": "api",
+                    "image": "api:v1",
+                    "port": 8080,
+                    "replicas": 2,
+                    "envVars": [
+                        {"key": "MODE", "value": "prod", "type": "hardcoded"},
+                    ],
+                },
+                {
+                    "name": "worker",
+                    "image": "worker:v1",
+                    "replicas": 1,
+                    "envVars": [
+                        {"key": "SECRET_KEY", "value": "abc", "type": "secret"},
+                    ],
+                },
+            ],
+        }
+        result = setup_k8s(tmp_path, state)
+        assert result["ok"] is True
+        files = result["files_created"]
+        # 2 deployments + 1 service (api has port) + 1 configmap (api) + 1 secret (worker)
+        assert len(files) >= 5
+
+    def test_setup_delete_k8s_status_shows_nothing(self, tmp_path: Path):
+        """Setup → delete → no k8s/ dir means k8s_status finds nothing.
+
+        After delete, the k8s/ directory is gone so no manifests can be
+        scanned.
+        """
+        state = {
+            "namespace": "default",
+            "_services": [
+                {"name": "api", "image": "api:v1", "port": 8080, "replicas": 1},
+            ],
+        }
+        setup_k8s(tmp_path, state)
+        assert (tmp_path / "k8s").is_dir()
+
+        delete_generated_configs(tmp_path, "k8s")
+        assert not (tmp_path / "k8s").exists()
+        # No yaml files remain in k8s/
+        yamls = list((tmp_path).rglob("k8s/*.yaml"))
+        assert len(yamls) == 0

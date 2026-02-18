@@ -1,0 +1,41 @@
+{
+    "aws": {
+        "cluster_resource": "aws_eks_cluster",
+        "node_resource": "aws_eks_node_group",
+        "registry_resource": "aws_ecr_repository",
+        "default_node_size": "t3.medium",
+        "default_k8s_version": "1.29",
+        "kubeconfig_command": "aws eks update-kubeconfig --name ${var.project}-cluster --region ${var.region}",
+        "cluster_hcl": "resource \"aws_eks_cluster\" \"main\" {\n  name     = \"${var.project}-cluster\"\n  role_arn = aws_iam_role.eks_cluster.arn\n  version  = var.k8s_version\n\n  vpc_config {\n    subnet_ids = var.subnet_ids\n  }\n\n  depends_on = [aws_iam_role_policy_attachment.eks_cluster]\n}\n\nresource \"aws_iam_role\" \"eks_cluster\" {\n  name = \"${var.project}-eks-cluster-role\"\n\n  assume_role_policy = jsonencode({\n    Version = \"2012-10-17\"\n    Statement = [{\n      Action = \"sts:AssumeRole\"\n      Effect = \"Allow\"\n      Principal = {\n        Service = \"eks.amazonaws.com\"\n      }\n    }]\n  })\n}\n\nresource \"aws_iam_role_policy_attachment\" \"eks_cluster\" {\n  policy_arn = \"arn:aws:iam::aws:policy/AmazonEKSClusterPolicy\"\n  role       = aws_iam_role.eks_cluster.name\n}\n\nresource \"aws_eks_node_group\" \"main\" {\n  cluster_name    = aws_eks_cluster.main.name\n  node_group_name = \"${var.project}-nodes\"\n  node_role_arn   = aws_iam_role.eks_nodes.arn\n  subnet_ids      = var.subnet_ids\n\n  scaling_config {\n    desired_size = var.node_count\n    max_size     = var.node_count + 2\n    min_size     = 1\n  }\n\n  instance_types = [var.node_size]\n\n  depends_on = [\n    aws_iam_role_policy_attachment.eks_worker,\n    aws_iam_role_policy_attachment.eks_cni,\n    aws_iam_role_policy_attachment.eks_ecr\n  ]\n}\n\nresource \"aws_iam_role\" \"eks_nodes\" {\n  name = \"${var.project}-eks-node-role\"\n\n  assume_role_policy = jsonencode({\n    Version = \"2012-10-17\"\n    Statement = [{\n      Action = \"sts:AssumeRole\"\n      Effect = \"Allow\"\n      Principal = {\n        Service = \"ec2.amazonaws.com\"\n      }\n    }]\n  })\n}\n\nresource \"aws_iam_role_policy_attachment\" \"eks_worker\" {\n  policy_arn = \"arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy\"\n  role       = aws_iam_role.eks_nodes.name\n}\n\nresource \"aws_iam_role_policy_attachment\" \"eks_cni\" {\n  policy_arn = \"arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy\"\n  role       = aws_iam_role.eks_nodes.name\n}\n\nresource \"aws_iam_role_policy_attachment\" \"eks_ecr\" {\n  policy_arn = \"arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly\"\n  role       = aws_iam_role.eks_nodes.name\n}",
+        "registry_hcl": "resource \"aws_ecr_repository\" \"main\" {\n  name                 = var.project\n  image_tag_mutability = \"MUTABLE\"\n\n  image_scanning_configuration {\n    scan_on_push = true\n  }\n\n  lifecycle {\n    prevent_destroy = true\n  }\n}",
+        "output_endpoint": "aws_eks_cluster.main.endpoint",
+        "output_ca": "aws_eks_cluster.main.certificate_authority[0].data",
+        "output_registry": "aws_ecr_repository.main.repository_url"
+    },
+    "google": {
+        "cluster_resource": "google_container_cluster",
+        "node_resource": "google_container_node_pool",
+        "registry_resource": "google_artifact_registry_repository",
+        "default_node_size": "e2-medium",
+        "default_k8s_version": "1.29",
+        "kubeconfig_command": "gcloud container clusters get-credentials ${var.project}-cluster --region ${var.region} --project ${var.project}",
+        "cluster_hcl": "resource \"google_container_cluster\" \"main\" {\n  name     = \"${var.project}-cluster\"\n  location = var.region\n\n  # We can't create a cluster with no node pool,\n  # but we want to use a separately managed node pool.\n  # So we create the smallest possible default pool and remove it.\n  remove_default_node_pool = true\n  initial_node_count       = 1\n\n  min_master_version = var.k8s_version\n}\n\nresource \"google_container_node_pool\" \"main\" {\n  name       = \"${var.project}-node-pool\"\n  location   = var.region\n  cluster    = google_container_cluster.main.name\n  node_count = var.node_count\n\n  node_config {\n    machine_type = var.node_size\n    oauth_scopes = [\n      \"https://www.googleapis.com/auth/cloud-platform\"\n    ]\n  }\n}",
+        "registry_hcl": "resource \"google_artifact_registry_repository\" \"main\" {\n  location      = var.region\n  repository_id = var.project\n  format        = \"DOCKER\"\n  description   = \"Docker repository for ${var.project}\"\n}",
+        "output_endpoint": "google_container_cluster.main.endpoint",
+        "output_ca": "google_container_cluster.main.master_auth[0].cluster_ca_certificate",
+        "output_registry": "\"${var.region}-docker.pkg.dev/${var.project}/${google_artifact_registry_repository.main.repository_id}\""
+    },
+    "azurerm": {
+        "cluster_resource": "azurerm_kubernetes_cluster",
+        "node_resource": "(inline in azurerm_kubernetes_cluster)",
+        "registry_resource": "azurerm_container_registry",
+        "default_node_size": "Standard_D2_v2",
+        "default_k8s_version": "1.29",
+        "kubeconfig_command": "az aks get-credentials --resource-group ${var.project}-rg --name ${var.project}-cluster",
+        "cluster_hcl": "resource \"azurerm_resource_group\" \"main\" {\n  name     = \"${var.project}-rg\"\n  location = var.region\n}\n\nresource \"azurerm_kubernetes_cluster\" \"main\" {\n  name                = \"${var.project}-cluster\"\n  location            = azurerm_resource_group.main.location\n  resource_group_name = azurerm_resource_group.main.name\n  dns_prefix          = var.project\n  kubernetes_version   = var.k8s_version\n\n  default_node_pool {\n    name       = \"default\"\n    node_count = var.node_count\n    vm_size    = var.node_size\n  }\n\n  identity {\n    type = \"SystemAssigned\"\n  }\n}",
+        "registry_hcl": "resource \"azurerm_container_registry\" \"main\" {\n  name                = replace(var.project, \"-\", \"\")\n  resource_group_name = azurerm_resource_group.main.name\n  location            = azurerm_resource_group.main.location\n  sku                 = \"Basic\"\n  admin_enabled       = true\n}",
+        "output_endpoint": "azurerm_kubernetes_cluster.main.kube_config[0].host",
+        "output_ca": "azurerm_kubernetes_cluster.main.kube_config[0].cluster_ca_certificate",
+        "output_registry": "azurerm_container_registry.main.login_server"
+    }
+}

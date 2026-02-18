@@ -139,6 +139,13 @@ class DataRegistry:
         logger.debug("Loaded %d Terraform backend templates", len(data))
         return data
 
+    @cached_property
+    def terraform_k8s(self) -> dict[str, dict]:
+        """Per-provider Terraform HCL templates for K8s cluster provisioning."""
+        data = _load_json("catalogs/terraform_k8s.json")
+        logger.debug("Loaded %d Terraform K8s provider templates", len(data))
+        return data
+
     # ── Security catalogs ────────────────────────────────────────
 
     @cached_property

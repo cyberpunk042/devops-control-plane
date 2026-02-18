@@ -305,8 +305,11 @@ def terraform_validate(project_root: Path) -> dict:
         return {"ok": False, "error": "terraform validate timed out"}
 
 
-def terraform_plan(project_root: Path) -> dict:
+def terraform_plan(project_root: Path, *, var_file: str | None = None) -> dict:
     """Run terraform plan (dry-run).
+
+    Args:
+        var_file: Optional path to a .tfvars file (relative to tf root).
 
     Returns:
         {
@@ -327,7 +330,10 @@ def terraform_plan(project_root: Path) -> dict:
         return {"ok": False, "error": "Terraform not initialized. Run: terraform init"}
 
     try:
-        result = _run_terraform("plan", "-no-color", cwd=tf_root, timeout=120)
+        args = ["plan", "-no-color"]
+        if var_file:
+            args.extend(["-var-file", var_file])
+        result = _run_terraform(*args, cwd=tf_root, timeout=120)
 
         output = result.stdout + result.stderr
         changes = _parse_plan_output(output)

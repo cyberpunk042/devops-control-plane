@@ -318,20 +318,26 @@ class TestSkaffoldGeneration:
 
 
 class TestSkaffoldWizardIntegration:
-    """setup_k8s with skaffold checkbox → generates skaffold.yaml."""
+    """setup_k8s with skaffold checkbox → generates skaffold.yaml.
+
+    0.3.9: Round-trip — wizard state → disk → skaffold_status detection.
+    """
 
     def _minimal_wizard_data(self, **overrides) -> dict:
-        """Minimal valid wizard data for K8s setup."""
+        """Minimal valid wizard data for K8s setup.
+
+        Uses the correct _services list shape that wizard_state_to_resources expects.
+        """
         data = {
-            "services": {
-                "api": {
+            "_services": [
+                {
                     "name": "api",
                     "image": "myapp:latest",
-                    "ports": [{"container": 8080, "service": 80}],
+                    "port": 8080,
                     "kind": "Deployment",
                     "replicas": 1,
                 },
-            },
+            ],
             "output_dir": "k8s",
             "skaffold": True,
             "overwrite": True,
@@ -359,7 +365,7 @@ class TestSkaffoldWizardIntegration:
         setup_k8s(tmp_path, self._minimal_wizard_data())
         parsed = yaml.safe_load((tmp_path / "skaffold.yaml").read_text())
         assert isinstance(parsed, dict)
-        assert parsed["apiVersion"].startswith("skaffold/")
+        assert parsed["apiVersion"] == "skaffold/v4beta11"
 
     def test_skaffold_references_manifests(self, tmp_path: Path):
         """skaffold.yaml references the generated K8s manifests."""
@@ -388,6 +394,70 @@ class TestSkaffoldWizardIntegration:
         from src.core.services.wizard_setup import setup_k8s
         setup_k8s(tmp_path, self._minimal_wizard_data())
         parsed = yaml.safe_load((tmp_path / "skaffold.yaml").read_text())
-        if "build" in parsed:
-            images = [a["image"] for a in parsed["build"]["artifacts"]]
-            assert "myapp:latest" in images or "myapp" in images
+        assert "build" in parsed
+        images = [a["image"] for a in parsed["build"]["artifacts"]]
+        assert "myapp:latest" in images
+
+    # ── 0.3.9 NEW: Round-trip detection of generated sections ───
+
+    def test_profiles_detected_after_setup(self, tmp_path: Path):
+        """Profiles in generated config → detected by skaffold_status.
+
+        0.3.9: Round-trip — environments → profiles → detection.
+        """
+        from src.core.services.wizard_setup import setup_k8s
+        data = self._minimal_wizard_data(
+            environments=["dev-from-local", "dev"],
+        )
+        setup_k8s(tmp_path, data)
+        r = skaffold_status(tmp_path)
+        cfg = r["configs"][0]
+        assert isinstance(cfg["profiles"], list)
+        assert "dev-from-local" in cfg["profiles"]
+        assert "dev" in cfg["profiles"]
+
+    def test_port_forward_detected_after_setup(self, tmp_path: Path):
+        """Port-forward in generated config → detected by skaffold_status.
+
+        0.3.9: portForward is inside profiles (dev-from-local), not top-level.
+        Detection should find it if present at top level. For profile-level
+        portForward, we verify the generated YAML structure is correct.
+        """
+        from src.core.services.wizard_setup import setup_k8s
+        data = self._minimal_wizard_data(
+            environments=["dev-from-local"],
+        )
+        setup_k8s(tmp_path, data)
+
+        # Verify portForward exists in the dev-from-local profile
+        parsed = yaml.safe_load((tmp_path / "skaffold.yaml").read_text())
+        dev_local = next(
+            (p for p in parsed.get("profiles", []) if p["name"] == "dev-from-local"),
+            None,
+        )
+        assert dev_local is not None, "dev-from-local profile should exist"
+        assert "portForward" in dev_local, "dev-from-local should have portForward"
+        assert len(dev_local["portForward"]) > 0
+
+    def test_deploy_strategy_detected_after_setup(self, tmp_path: Path):
+        """Deploy strategy in generated config → detected by skaffold_status.
+
+        0.3.9: Default wizard generates kubectl deployer.
+        """
+        from src.core.services.wizard_setup import setup_k8s
+        setup_k8s(tmp_path, self._minimal_wizard_data())
+        r = skaffold_status(tmp_path)
+        cfg = r["configs"][0]
+        assert cfg["deploy_strategy"] == "kubectl"
+
+    def test_tag_policy_detected_after_setup(self, tmp_path: Path):
+        """Tag policy in generated config → detected by skaffold_status.
+
+        0.3.9: Default wizard uses gitCommit tag policy.
+        """
+        from src.core.services.wizard_setup import setup_k8s
+        setup_k8s(tmp_path, self._minimal_wizard_data())
+        r = skaffold_status(tmp_path)
+        cfg = r["configs"][0]
+        assert cfg["tag_policy"] == "gitCommit"
+

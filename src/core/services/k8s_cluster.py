@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from pathlib import Path
 
 from src.core.services.k8s_common import _run_kubectl, _kubectl_available
@@ -16,6 +17,49 @@ from src.core.services.audit_helpers import make_auditor
 
 _audit = make_auditor("k8s")
 
+def _detect_cluster_type(context: str, nodes: list[dict]) -> dict:
+    """Identify cluster kind from context name and node metadata.
+
+    Returns:
+        {"type": str, "detected_via": str}
+
+    Supported types:
+        minikube, kind, docker_desktop, k3s, k3d, eks, aks, gke, unknown
+    """
+    ctx = context.lower()
+
+    # ── Exact / prefix matches (most reliable) ──────────────
+    if ctx == "minikube":
+        return {"type": "minikube", "detected_via": "context_name"}
+
+    if ctx.startswith("kind-"):
+        return {"type": "kind", "detected_via": "context_name"}
+
+    if ctx == "docker-desktop":
+        return {"type": "docker_desktop", "detected_via": "context_name"}
+
+    if ctx.startswith("k3d-"):
+        return {"type": "k3d", "detected_via": "context_name"}
+
+    if ctx.startswith("gke_"):
+        return {"type": "gke", "detected_via": "context_name"}
+
+    # ── Pattern matches ─────────────────────────────────────
+    if "arn:aws:eks:" in ctx or ctx.startswith("eks-") or ctx.startswith("eks_"):
+        return {"type": "eks", "detected_via": "context_name"}
+
+    if re.search(r"\baks\b", ctx):
+        return {"type": "aks", "detected_via": "context_name"}
+
+    # ── Node-level detection (fallback) ─────────────────────
+    for node in nodes:
+        version = node.get("version", "")
+        if "+k3s" in version:
+            return {"type": "k3s", "detected_via": "node_version"}
+
+    return {"type": "unknown", "detected_via": "none"}
+
+
 def cluster_status() -> dict:
     """Get cluster connection info and node status.
 
@@ -25,6 +69,7 @@ def cluster_status() -> dict:
             "context": str,
             "nodes": [{name, status, roles, version}, ...],
             "namespaces": [str, ...],
+            "cluster_type": {type, detected_via},
         }
     """
     kubectl = _kubectl_available()
@@ -67,11 +112,15 @@ def cluster_status() -> dict:
     except Exception:
         pass
 
+    # Cluster type detection
+    cluster_type = _detect_cluster_type(context, nodes)
+
     return {
         "connected": len(nodes) > 0,
         "context": context,
         "nodes": nodes,
         "namespaces": namespaces,
+        "cluster_type": cluster_type,
     }
 
 

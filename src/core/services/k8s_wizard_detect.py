@@ -33,20 +33,81 @@ def skaffold_status(project_root: Path) -> dict:
         if p.is_file():
             try:
                 data = yaml.safe_load(p.read_text(encoding="utf-8"))
-                profiles = []
-                if isinstance(data, dict) and "profiles" in data:
-                    profiles = [
-                        pr.get("name", "")
-                        for pr in data["profiles"]
-                        if isinstance(pr, dict) and pr.get("name")
-                    ]
+                profiles: list[str] = []
+                api_version = ""
+                has_port_forward = False
+                build_strategy = ""
+                deploy_strategy = ""
+                required_configs: list[str] = []
+                tag_policy = ""
+
+                if isinstance(data, dict):
+                    api_version = data.get("apiVersion", "")
+
+                    # Profiles
+                    if "profiles" in data:
+                        profiles = [
+                            pr.get("name", "")
+                            for pr in data["profiles"]
+                            if isinstance(pr, dict) and pr.get("name")
+                        ]
+
+                    # 0.3.1 NEW: portForward detection
+                    has_port_forward = "portForward" in data
+
+                    # 0.3.1 NEW: build strategy (local / cluster / googleCloudBuild)
+                    build = data.get("build", {})
+                    if isinstance(build, dict):
+                        for strategy in ("local", "cluster", "googleCloudBuild"):
+                            if strategy in build:
+                                build_strategy = strategy
+                                break
+
+                        # 0.3.1 NEW: tag policy
+                        tp = build.get("tagPolicy", {})
+                        if isinstance(tp, dict):
+                            for policy in (
+                                "gitCommit", "sha256", "dateTime",
+                                "envTemplate", "inputDigest", "customTemplate",
+                            ):
+                                if policy in tp:
+                                    tag_policy = policy
+                                    break
+
+                    # 0.3.1 NEW: deploy strategy (kubectl / helm / kustomize)
+                    deploy = data.get("deploy", {})
+                    if isinstance(deploy, dict):
+                        for strategy in ("kubectl", "helm", "kustomize"):
+                            if strategy in deploy:
+                                deploy_strategy = strategy
+                                break
+
+                    # 0.3.1 NEW: requires (multi-config)
+                    requires = data.get("requires", [])
+                    if isinstance(requires, list):
+                        required_configs = [
+                            r.get("path", "")
+                            for r in requires
+                            if isinstance(r, dict) and r.get("path")
+                        ]
+
                 configs.append({
                     "path": f,
                     "profiles": profiles,
-                    "api_version": data.get("apiVersion", "") if isinstance(data, dict) else "",
+                    "api_version": api_version,
+                    "has_port_forward": has_port_forward,
+                    "build_strategy": build_strategy,
+                    "deploy_strategy": deploy_strategy,
+                    "required_configs": required_configs,
+                    "tag_policy": tag_policy,
                 })
             except Exception:
-                configs.append({"path": f, "profiles": [], "api_version": ""})
+                configs.append({
+                    "path": f, "profiles": [], "api_version": "",
+                    "has_port_forward": False, "build_strategy": "",
+                    "deploy_strategy": "", "required_configs": [],
+                    "tag_policy": "",
+                })
 
     return {
         "available": cli_available,

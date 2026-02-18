@@ -36,7 +36,10 @@ class TestCiStatus:
         (wf_dir / "ci.yml").write_text("name: CI\n")
         result = ci_status(tmp_path)
         assert result["has_ci"] is True
-        assert any(p["id"] == "github_actions" for p in result["providers"])
+        assert result["total_workflows"] == 1
+        gh = next(p for p in result["providers"] if p["id"] == "github_actions")
+        assert gh["name"] == "GitHub Actions"
+        assert gh["workflows"] == 1
 
     def test_counts_github_workflows(self, tmp_path: Path):
         wf_dir = tmp_path / ".github" / "workflows"
@@ -50,50 +53,110 @@ class TestCiStatus:
 
     def test_detects_gitlab_ci(self, tmp_path: Path):
         (tmp_path / ".gitlab-ci.yml").write_text("stages: [build]\n")
-        assert any(p["id"] == "gitlab_ci" for p in ci_status(tmp_path)["providers"])
+        result = ci_status(tmp_path)
+        assert result["has_ci"] is True
+        gl = next(p for p in result["providers"] if p["id"] == "gitlab_ci")
+        assert gl["name"] == "GitLab CI"
+        assert gl["workflows"] == 1
+        assert result["total_workflows"] == 1
 
     def test_detects_gitlab_ci_yaml(self, tmp_path: Path):
         (tmp_path / ".gitlab-ci.yaml").write_text("stages: [build]\n")
-        assert any(p["id"] == "gitlab_ci" for p in ci_status(tmp_path)["providers"])
+        result = ci_status(tmp_path)
+        assert result["has_ci"] is True
+        gl = next(p for p in result["providers"] if p["id"] == "gitlab_ci")
+        assert gl["name"] == "GitLab CI"
+        assert gl["workflows"] == 1
 
     def test_detects_jenkinsfile(self, tmp_path: Path):
         (tmp_path / "Jenkinsfile").write_text("pipeline { }\n")
-        assert any(p["id"] == "jenkins" for p in ci_status(tmp_path)["providers"])
+        result = ci_status(tmp_path)
+        assert result["has_ci"] is True
+        jk = next(p for p in result["providers"] if p["id"] == "jenkins")
+        assert jk["name"] == "Jenkins"
+        assert jk["workflows"] == 1
 
     def test_detects_circleci(self, tmp_path: Path):
         d = tmp_path / ".circleci"
         d.mkdir()
         (d / "config.yml").write_text("version: 2.1\n")
-        assert any(p["id"] == "circleci" for p in ci_status(tmp_path)["providers"])
+        result = ci_status(tmp_path)
+        assert result["has_ci"] is True
+        cc = next(p for p in result["providers"] if p["id"] == "circleci")
+        assert cc["name"] == "CircleCI"
+        assert cc["workflows"] == 1
 
     def test_detects_travis(self, tmp_path: Path):
         (tmp_path / ".travis.yml").write_text("language: python\n")
-        assert any(p["id"] == "travis" for p in ci_status(tmp_path)["providers"])
+        result = ci_status(tmp_path)
+        assert result["has_ci"] is True
+        tv = next(p for p in result["providers"] if p["id"] == "travis")
+        assert tv["name"] == "Travis CI"
+        assert tv["workflows"] == 1
 
     def test_detects_azure_pipelines(self, tmp_path: Path):
         (tmp_path / "azure-pipelines.yml").write_text("trigger: [main]\n")
-        assert any(p["id"] == "azure_pipelines" for p in ci_status(tmp_path)["providers"])
+        result = ci_status(tmp_path)
+        assert result["has_ci"] is True
+        az = next(p for p in result["providers"] if p["id"] == "azure_pipelines")
+        assert az["name"] == "Azure Pipelines"
+        assert az["workflows"] == 1
 
     def test_detects_bitbucket_pipelines(self, tmp_path: Path):
         (tmp_path / "bitbucket-pipelines.yml").write_text("pipelines:\n")
-        assert any(p["id"] == "bitbucket_pipelines" for p in ci_status(tmp_path)["providers"])
+        result = ci_status(tmp_path)
+        assert result["has_ci"] is True
+        bb = next(p for p in result["providers"] if p["id"] == "bitbucket_pipelines")
+        assert bb["name"] == "Bitbucket Pipelines"
+        assert bb["workflows"] == 1
 
     def test_multi_provider(self, tmp_path: Path):
         wf_dir = tmp_path / ".github" / "workflows"
         wf_dir.mkdir(parents=True)
         (wf_dir / "ci.yml").write_text("name: CI\n")
         (tmp_path / ".gitlab-ci.yml").write_text("stages: [test]\n")
-        ids = {p["id"] for p in ci_status(tmp_path)["providers"]}
+        result = ci_status(tmp_path)
+        assert result["has_ci"] is True
+        ids = {p["id"] for p in result["providers"]}
         assert "github_actions" in ids
         assert "gitlab_ci" in ids
+        assert result["total_workflows"] == 2
 
     def test_ignores_non_yaml(self, tmp_path: Path):
         wf_dir = tmp_path / ".github" / "workflows"
         wf_dir.mkdir(parents=True)
         (wf_dir / "ci.yml").write_text("name: CI\n")
         (wf_dir / "README.md").write_text("docs\n")
-        gh = next(p for p in ci_status(tmp_path)["providers"] if p["id"] == "github_actions")
+        (wf_dir / "script.sh").write_text("echo hi\n")
+        result = ci_status(tmp_path)
+        gh = next(p for p in result["providers"] if p["id"] == "github_actions")
         assert gh["workflows"] == 1
+        assert result["total_workflows"] == 1
+
+    def test_return_shape(self, tmp_path: Path):
+        """ci_status() always returns the full shape, even for empty projects."""
+        result = ci_status(tmp_path)
+        assert "providers" in result
+        assert "total_workflows" in result
+        assert "has_ci" in result
+        assert isinstance(result["providers"], list)
+        assert isinstance(result["total_workflows"], int)
+        assert isinstance(result["has_ci"], bool)
+
+    def test_provider_shape(self, tmp_path: Path):
+        """Each provider dict has exactly id, name, workflows."""
+        wf_dir = tmp_path / ".github" / "workflows"
+        wf_dir.mkdir(parents=True)
+        (wf_dir / "ci.yml").write_text("name: CI\n")
+        result = ci_status(tmp_path)
+        for p in result["providers"]:
+            assert "id" in p, f"Missing 'id' in provider {p}"
+            assert "name" in p, f"Missing 'name' in provider {p}"
+            assert "workflows" in p, f"Missing 'workflows' in provider {p}"
+            assert isinstance(p["id"], str)
+            assert isinstance(p["name"], str)
+            assert isinstance(p["workflows"], int)
+            assert p["workflows"] >= 0
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -103,7 +166,10 @@ class TestCiStatus:
 
 class TestCiWorkflows:
     def test_empty_project(self, tmp_path: Path):
-        assert ci_workflows(tmp_path)["workflows"] == []
+        result = ci_workflows(tmp_path)
+        assert "workflows" in result
+        assert result["workflows"] == []
+        assert isinstance(result["workflows"], list)
 
     def test_github_workflow_parsed(self, tmp_path: Path):
         wf_dir = tmp_path / ".github" / "workflows"
@@ -120,8 +186,17 @@ class TestCiWorkflows:
         """))
         wfs = ci_workflows(tmp_path)["workflows"]
         assert len(wfs) == 1
-        assert wfs[0]["provider"] == "github_actions"
-        assert wfs[0]["name"] == "CI"
+        wf = wfs[0]
+        assert wf["provider"] == "github_actions"
+        assert wf["name"] == "CI"
+        assert isinstance(wf["triggers"], list)
+        assert "push" in wf["triggers"]
+        assert isinstance(wf["jobs"], list)
+        assert len(wf["jobs"]) == 1
+        assert wf["jobs"][0]["id"] == "test"
+        assert wf["jobs"][0]["steps_count"] == 2
+        assert wf["jobs"][0]["runs_on"] == "ubuntu-latest"
+        assert isinstance(wf["issues"], list)
 
     def test_gitlab_parsed(self, tmp_path: Path):
         (tmp_path / ".gitlab-ci.yml").write_text(textwrap.dedent("""\
@@ -142,16 +217,23 @@ class TestCiWorkflows:
         (tmp_path / "Jenkinsfile").write_text("pipeline { }\n")
         wfs = ci_workflows(tmp_path)["workflows"]
         assert len(wfs) == 1
-        assert wfs[0]["provider"] == "jenkins"
+        wf = wfs[0]
+        assert wf["provider"] == "jenkins"
+        assert wf["name"] == "Jenkinsfile"
+        assert isinstance(wf["triggers"], list)
+        assert isinstance(wf["jobs"], list)
+        assert isinstance(wf["issues"], list)
 
     def test_multi_provider_combined(self, tmp_path: Path):
         wf_dir = tmp_path / ".github" / "workflows"
         wf_dir.mkdir(parents=True)
         (wf_dir / "ci.yml").write_text("name: CI\non: [push]\njobs:\n  t:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo\n")
         (tmp_path / ".gitlab-ci.yml").write_text("job:\n  script: echo\n")
-        providers = {w["provider"] for w in ci_workflows(tmp_path)["workflows"]}
+        wfs = ci_workflows(tmp_path)["workflows"]
+        providers = {w["provider"] for w in wfs}
         assert "github_actions" in providers
         assert "gitlab_ci" in providers
+        assert len(wfs) == 2
 
     def test_sorted_order(self, tmp_path: Path):
         wf_dir = tmp_path / ".github" / "workflows"
@@ -160,6 +242,24 @@ class TestCiWorkflows:
         (wf_dir / "a.yml").write_text("name: A\non: [push]\njobs:\n  t:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo\n")
         gha = [w for w in ci_workflows(tmp_path)["workflows"] if w["provider"] == "github_actions"]
         assert gha[0]["name"] == "A"
+
+    def test_workflow_shape(self, tmp_path: Path):
+        """Every parsed workflow has the required keys."""
+        wf_dir = tmp_path / ".github" / "workflows"
+        wf_dir.mkdir(parents=True)
+        (wf_dir / "ci.yml").write_text("name: CI\non: [push]\njobs:\n  t:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo\n")
+        for wf in ci_workflows(tmp_path)["workflows"]:
+            assert "file" in wf, f"Missing 'file' in workflow {wf}"
+            assert "provider" in wf, f"Missing 'provider' in workflow {wf}"
+            assert "name" in wf, f"Missing 'name' in workflow {wf}"
+            assert "triggers" in wf, f"Missing 'triggers' in workflow {wf}"
+            assert "jobs" in wf, f"Missing 'jobs' in workflow {wf}"
+            assert "issues" in wf, f"Missing 'issues' in workflow {wf}"
+            assert isinstance(wf["file"], str)
+            assert isinstance(wf["provider"], str)
+            assert isinstance(wf["triggers"], list)
+            assert isinstance(wf["jobs"], list)
+            assert isinstance(wf["issues"], list)
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -183,10 +283,34 @@ class TestParseGitlabCi:
         assert result["jobs"][0]["id"] == "real"
 
     def test_skips_meta_keys(self, tmp_path: Path):
+        """All 10 standard GitLab CI meta keys should be skipped."""
         gl = tmp_path / ".gitlab-ci.yml"
-        gl.write_text("stages: [a]\nvariables:\n  X: 1\ninclude: r.yml\ndefault:\n  image: py\nimage: node\njob:\n  script: echo\n")
+        gl.write_text(textwrap.dedent("""\
+            stages: [a]
+            variables:
+              X: 1
+            include: r.yml
+            default:
+              image: py
+            image: node
+            before_script:
+              - echo setup
+            after_script:
+              - echo teardown
+            workflow:
+              rules:
+                - if: $CI_PIPELINE_SOURCE == "push"
+            cache:
+              paths:
+                - .cache/
+            services:
+              - postgres:latest
+            real_job:
+              script: echo
+        """))
         result = _parse_gitlab_ci(gl, tmp_path)
         assert len(result["jobs"]) == 1
+        assert result["jobs"][0]["id"] == "real_job"
 
     def test_invalid_yaml(self, tmp_path: Path):
         gl = tmp_path / ".gitlab-ci.yml"

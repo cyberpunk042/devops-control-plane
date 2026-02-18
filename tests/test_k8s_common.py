@@ -242,17 +242,18 @@ class TestKubectlAvailable:
 
     @patch("src.core.services.k8s_common._run_kubectl")
     def test_available_with_version(self, mock_run):
+        """kubectl available → version extracted from JSON output."""
         mock_run.return_value = subprocess.CompletedProcess(
-            args=["kubectl", "version", "--client", "--short"],
+            args=["kubectl", "version", "--client", "-o", "json"],
             returncode=0,
-            stdout="Client Version: v1.28.3\n",
+            stdout='{"clientVersion":{"gitVersion":"v1.35.1"}}\n',
             stderr="",
         )
         result = _kubectl_available()
 
         assert result["available"] is True
-        assert result["version"] == "Client Version: v1.28.3"
-        mock_run.assert_called_once_with("version", "--client", "--short")
+        assert result["version"] == "v1.35.1"
+        mock_run.assert_called_once_with("version", "--client", "-o", "json")
 
     @patch("src.core.services.k8s_common._run_kubectl")
     def test_not_available_file_not_found(self, mock_run):
@@ -273,7 +274,7 @@ class TestKubectlAvailable:
     @patch("src.core.services.k8s_common._run_kubectl")
     def test_not_available_nonzero_returncode(self, mock_run):
         mock_run.return_value = subprocess.CompletedProcess(
-            args=["kubectl", "version", "--client", "--short"],
+            args=["kubectl", "version", "--client", "-o", "json"],
             returncode=1,
             stdout="",
             stderr="error",

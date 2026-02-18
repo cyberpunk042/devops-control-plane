@@ -9,3 +9,7 @@ trigger: always_on
 When something require more infrastructure we are not afraid to pause and evaluate the need to do it live before proceeding with the current scoped task. 
 
 Even if the change require refactor or even possibly breaking changes we need to be honest and evaluate and just communicate and agree on the current destination.
+
+Lets not forget about domain, scope and good principle and design pattern.
+In our case CLI (root & console) <---> TUI(console & terminal UI) <---> WEB (admin panel & extreme observability & operability and experience.)
+Sometimes data need to be transformed, remapped at certain layer. that is okay we just stay logical

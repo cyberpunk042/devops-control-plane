@@ -734,3 +734,144 @@ class TestCiCleanup:
         assert (tmp_path / ".github" / "workflows" / "ci.yml").is_file()
         delete_generated_configs(tmp_path, "ci")
         assert not (tmp_path / ".github" / "workflows" / "ci.yml").is_file()
+
+    def test_delete_lint_yml(self, tmp_path: Path):
+        """delete_generated_configs('ci') also removes lint.yml."""
+        wf_dir = tmp_path / ".github" / "workflows"
+        wf_dir.mkdir(parents=True)
+        (wf_dir / "lint.yml").write_text("name: Lint\n")
+        assert (wf_dir / "lint.yml").is_file()
+        result = delete_generated_configs(tmp_path, "ci")
+        assert not (wf_dir / "lint.yml").is_file()
+        assert ".github/workflows/lint.yml" in result["deleted"]
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  11. STACK DELEGATION & EDGE CASES
+# ═══════════════════════════════════════════════════════════════════
+
+
+class TestCiStackDelegation:
+    """setup_ci() delegates test job generation when stacks are provided."""
+
+    def test_python_stack_creates_python_job(self, tmp_path: Path):
+        """stacks=['python'] → uses generator's python job template."""
+        result = setup_ci(tmp_path, {
+            "branches": "main",
+            "stacks": ["python"],
+        })
+        assert result["ok"]
+        content = (tmp_path / ".github" / "workflows" / "ci.yml").read_text()
+        lo = content.lower()
+        assert "python" in lo
+        assert "pytest" in lo
+
+    def test_multi_stack_dedup(self, tmp_path: Path):
+        """Duplicate stacks are deduplicated."""
+        result = setup_ci(tmp_path, {
+            "branches": "main",
+            "stacks": ["python", "python"],
+        })
+        assert result["ok"]
+        # Only one python job, not two
+        parsed = _ci_parsed(tmp_path)
+        # Count jobs with 'python' in the name
+        python_jobs = [
+            k for k in parsed.get("jobs", {})
+            if "python" in k.lower()
+        ]
+        assert len(python_jobs) == 1
+
+    def test_unknown_stack_ignored(self, tmp_path: Path):
+        """Unknown stacks are silently skipped."""
+        result = setup_ci(tmp_path, {
+            "branches": "main",
+            "stacks": ["fantasy_lang"],
+        })
+        assert result["ok"]
+        # Falls through to no test job since no valid stacks resolved
+        # and no explicit test_cmd, no docker/k8s — so default fallback
+        parsed = _ci_parsed(tmp_path)
+        assert "jobs" in parsed
+
+
+class TestCiSkaffoldPinned:
+    """Skaffold install uses a pinned version, not 'latest'."""
+
+    def test_skaffold_version_pinned(self, tmp_path: Path):
+        result = setup_ci(tmp_path, {
+            "branches": "main",
+            "test_cmd": "pytest",
+            "k8s": True,
+            "k8s_deploy_method": "skaffold",
+        })
+        assert result["ok"]
+        content = (tmp_path / ".github" / "workflows" / "ci.yml").read_text()
+        assert "/releases/latest/" not in content, (
+            "Skaffold should not use /releases/latest/"
+        )
+        assert "v2.13.2" in content
+
+
+class TestCiNoStacksMode:
+    """When only Docker/K8s is enabled (no stacks, no test_cmd),
+    test job is omitted."""
+
+    def test_docker_only_no_test_job(self, tmp_path: Path):
+        """docker=True with no stacks/test_cmd → no test job."""
+        result = setup_ci(tmp_path, {
+            "branches": "main",
+            "docker": True,
+            "docker_registry": "ghcr.io/org",
+            "docker_image": "app",
+        })
+        assert result["ok"]
+        parsed = _ci_parsed(tmp_path)
+        assert "test" not in parsed.get("jobs", {}), (
+            "Expected no 'test' job when only Docker is enabled"
+        )
+        assert "docker" in parsed.get("jobs", {}), (
+            "Docker job should still be present"
+        )
+
+    def test_docker_job_no_needs_without_test(self, tmp_path: Path):
+        """Docker job without test → needs is empty list."""
+        setup_ci(tmp_path, {
+            "branches": "main",
+            "docker": True,
+        })
+        parsed = _ci_parsed(tmp_path)
+        docker_job = parsed["jobs"]["docker"]
+        assert docker_job.get("needs", []) == []
+
+
+class TestCiInvalidCombo:
+    """Invalid deploy method combinations are rejected."""
+
+    def test_invalid_deploy_method(self, tmp_path: Path):
+        """Invalid k8s_deploy_method → error."""
+        result = setup_ci(tmp_path, {
+            "branches": "main",
+            "test_cmd": "pytest",
+            "k8s": True,
+            "k8s_deploy_method": "terraform",
+        })
+        assert not result["ok"]
+        assert "error" in result
+        assert "terraform" in result["error"]
+
+    def test_valid_methods_accepted(self, tmp_path: Path):
+        """All three valid methods work without error."""
+        for method in ("kubectl", "skaffold", "helm"):
+            # Clean up between runs
+            ci = tmp_path / ".github" / "workflows" / "ci.yml"
+            if ci.exists():
+                ci.unlink()
+            result = setup_ci(tmp_path, {
+                "branches": "main",
+                "test_cmd": "pytest",
+                "k8s": True,
+                "k8s_deploy_method": method,
+            })
+            assert result["ok"], f"Method {method!r} should be accepted"
+
