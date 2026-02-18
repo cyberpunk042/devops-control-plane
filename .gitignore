@@ -48,3 +48,6 @@ Thumbs.db
 
 # Pages build workspace
 .pages/
+
+# SCP Ledger worktree (Phase 1A)
+.scp-ledger/

@@ -1,0 +1,288 @@
+// _content_chat.html — Chat panel: thread list, messages, compose
+
+function _chatCleanup() {
+var popup = document.getElementById('chat-ref-popup');
+if (popup) popup.style.display = 'none';
+}
+
+async function renderChatPanel() {
+var browser = document.getElementById('content-browser');
+var h = '';
+h += '<div class="chat-panel">';
+
+    // ── LEFT: Thread sidebar card ──
+    h += '<div class="chat-sidebar-card">';
+        h += '<div class="chat-sidebar-header">';
+            h += '<span class="chat-sidebar-title">Threads</span>';
+            h += '<div class="chat-sidebar-actions">';
+                h += '<button class="btn btn-primary btn-sm" onclick="chatShowNewThread()" title="New thread">+
+                    New</button>';
+                h += '<button class="btn btn-secondary btn-sm" onclick="chatSync(\'both\')"
+                    title="Sync with remote">&#x1F504;</button>';
+                h += '</div>';
+            h += '</div>';
+        h += '<div class="chat-search-wrap">';
+            h += '<input type="text" id="chat-thread-search" class="chat-search-input"
+                placeholder="&#x1F50D; Search threads..." oninput="chatFilterThreads(this.value)">';
+            h += '</div>';
+        h += '<div id="chat-thread-list" class="chat-thread-list">';
+            h += '<div class="chat-empty"><span class="spinner"></span>
+                <p>Loading threads...</p>
+            </div>';
+            h += '</div>';
+        h += '</div>';
+
+    // ── RIGHT: Conversation area ──
+    h += '<div class="chat-conversation">';
+
+        // Thread header
+        h += '<div id="chat-thread-header" class="chat-conv-header">';
+            h += '<div class="chat-conv-placeholder">';
+                h += '<span class="chat-conv-placeholder-icon">&#x1F4AC;</span>';
+                h += '<span>Select a thread to start chatting</span>';
+                h += '</div>';
+            h += '</div>';
+
+        // Source filter bar
+        h += '<div class="chat-filter-bar">';
+            h += '<div class="chat-filters">';
+                h += '<button class="chat-source-filter active" data-source="all"
+                    onclick="chatFilterBySource(\'all\')">All</button>';
+                h += '<button class="chat-source-filter" data-source="manual"
+                    onclick="chatFilterBySource(\'manual\')">&#x1F464; Manual</button>';
+                h += '<button class="chat-source-filter" data-source="trace"
+                    onclick="chatFilterBySource(\'trace\')">&#x1F4CB; Trace</button>';
+                h += '<button class="chat-source-filter" data-source="system"
+                    onclick="chatFilterBySource(\'system\')">&#x2699;&#xFE0F; System</button>';
+                h += '</div>';
+            h += '<span style="flex:1"></span>';
+            h += '<button class="btn btn-secondary btn-sm chat-sort-btn" onclick="chatToggleSort()"
+                title="Toggle sort order">';
+                h += '<span id="chat-sort-icon">&#x2B07;</span> Newest first</button>';
+            h += '</div>';
+
+        // Messages area
+        h += '<div id="chat-messages" class="chat-messages">';
+            h += '<div class="chat-empty">';
+                h += '<span class="chat-empty-icon">&#x1F4AC;</span>';
+                h += '<p>Select a thread to view messages</p>';
+                h += '</div>';
+            h += '</div>';
+
+        // Compose area
+        h += '<div class="chat-compose">';
+            h += '<div class="chat-compose-wrap">';
+                h += '<textarea id="chat-compose-input" class="chat-textarea" rows="2"
+                    placeholder="Type a message... Use @ for references" oninput="chatOnInput(this)"
+                    onkeydown="chatOnKeydown(event)"></textarea>';
+                h += '<div id="chat-ref-popup" class="chat-ref-popup"></div>';
+                h += '</div>';
+            h += '<div class="chat-compose-footer">';
+                h += '<label class="chat-encrypt-label"><input type="checkbox" id="chat-encrypt-cb"> &#x1F512;
+                    Encrypt</label>';
+                h += '<span style="flex:1"></span>';
+                h += '<span id="chat-compose-status" class="chat-compose-status"></span>';
+                h += '<button class="btn btn-primary btn-sm chat-send-btn" onclick="chatSendMessage()"
+                    id="chat-send-btn">Send &#x2192;</button>';
+                h += '</div>';
+            h += '</div>';
+
+        h += '</div>';
+    h += '</div>';
+
+// ── New thread modal ──
+h += '<div id="chat-new-thread-modal" class="chat-modal-overlay">';
+    h += '<div class="chat-modal">';
+        h += '<h3>&#x1F4AC; New Thread</h3>';
+        h += '<div class="form-group"><label>Title</label>';
+            h += '<input type="text" id="chat-new-thread-title" placeholder="Thread title"></div>';
+        h += '<div class="form-group"><label>Tags (comma-separated)</label>';
+            h += '<input type="text" id="chat-new-thread-tags" placeholder="deploy, staging"></div>';
+        h += '<div class="chat-modal-actions">';
+            h += '<button class="btn btn-secondary btn-sm" onclick="chatCloseNewThread()">Cancel</button>';
+            h += '<button class="btn btn-primary btn-sm" onclick="chatCreateThread()">Create Thread</button>';
+            h += '</div>';
+        h += '</div>';
+    h += '</div>';
+
+browser.innerHTML = h;
+await chatLoadThreads();
+}
+
+
+// ── Thread list ──────────────────────────────────────────────────
+
+async function chatLoadThreads() {
+var list = document.getElementById('chat-thread-list');
+if (!list) return;
+try {
+var data = await api('/chat/threads');
+_chatThreads = data.threads || [];
+_chatLoaded = true;
+chatRenderThreadList(_chatThreads);
+if (_chatSelectedThread) {
+chatSelectThread(_chatSelectedThread);
+} else if (_chatThreads.length > 0) {
+var gen = null;
+for (var i = 0; i < _chatThreads.length; i++) { if (_chatThreads[i].title==='General' ) { gen=_chatThreads[i]; break; }
+    } chatSelectThread(gen ? gen.thread_id : _chatThreads[0].thread_id); } } catch (e) {
+    list.innerHTML='<div class="chat-empty">' + '<span class="chat-empty-icon">&#x1F4AD;</span>'
+    + '<p>No chat threads yet</p>' + '<p class="chat-empty-sub">' + esc(e.message || 'Could not load threads' ) + '</p>'
+    + '<button class="btn btn-primary btn-sm" onclick="chatShowNewThread()" style="margin-top:0.75rem">+ Create First Thread</button>'
+    + '</div>' ; } } function chatRenderThreadList(threads) { var list=document.getElementById('chat-thread-list'); if
+    (!list) return; if (threads.length===0) { list.innerHTML='<div class="chat-empty">'
+    + '<span class="chat-empty-icon">&#x1F4AD;</span>' + '<p>No threads yet</p>'
+    + '<button class="btn btn-primary btn-sm" onclick="chatShowNewThread()" style="margin-top:0.75rem">+ Create First Thread</button></div>'
+    ; return; } var html='' ; for (var i=0; i < threads.length; i++) { var t=threads[i]; var
+    isActive=t.thread_id===_chatSelectedThread; var isGeneral=t.title==='General' ; var icon=isGeneral ? '&#x1F4CC;' :
+    (t.anchor_run ? '&#x1F517;' : '&#x1F4AC;' ); var relTime=_chatRelativeTime(t.created_at); var
+    msgCount=t.message_count || 0; var tagBadges='' ; var tags=(t.tags || []).slice(0, 3); for (var j=0; j <
+    tags.length; j++) { tagBadges +='<span class="chat-thread-tag">' + esc(tags[j]) + '</span>' ; } var
+    cls='chat-thread-item' + (isActive ? ' active' : '' ); html +='<div class="' + cls + '" data-thread-id="' +
+    esc(t.thread_id) + '" onclick="chatSelectThread(this.dataset.threadId)">' ; html +='<div class="chat-thread-row1">'
+    ; html +='<span class="chat-thread-icon">' + icon + '</span>' ; html +='<span class="chat-thread-title">' +
+    esc(t.title) + '</span>' ; html +='<span class="chat-thread-time">' + relTime + '</span>' ; html +='</div>' ; if
+    (tags.length> 0 || msgCount > 0) {
+    html += '<div class="chat-thread-row2">';
+        html += tagBadges;
+        if (msgCount > 0) {
+        html += '<span class="chat-thread-count">' + msgCount + ' msg' + (msgCount !== 1 ? 's' : '') + '</span>';
+        }
+        html += '</div>';
+    }
+    html += '</div>';
+    }
+    list.innerHTML = html;
+    }
+
+    function chatFilterThreads(query) {
+    if (!_chatThreads) return;
+    var q = query.toLowerCase().trim();
+    if (!q) { chatRenderThreadList(_chatThreads); return; }
+    var filtered = _chatThreads.filter(function(t) {
+    if (t.title.toLowerCase().indexOf(q) >= 0) return true;
+    var tags = t.tags || [];
+    for (var i = 0; i < tags.length; i++) { if (tags[i].toLowerCase().indexOf(q)>= 0) return true;
+        }
+        return false;
+        });
+        chatRenderThreadList(filtered);
+        }
+
+
+        // ── Thread selection + messages ──────────────────────────────────
+
+        async function chatSelectThread(threadId) {
+        _chatSelectedThread = threadId;
+        contentUpdateHash();
+        // Re-render thread list to update active states
+        chatRenderThreadList(_chatThreads);
+        // Update conversation header
+        var header = document.getElementById('chat-thread-header');
+        var thread = null;
+        for (var i = 0; i < _chatThreads.length; i++) { if (_chatThreads[i].thread_id===threadId) {
+            thread=_chatThreads[i]; break; } } if (header && thread) { var tagsHtml='' ; var threadTags=thread.tags ||
+            []; for (var j=0; j < threadTags.length; j++) { tagsHtml +='<span class="chat-header-tag">' +
+            esc(threadTags[j]) + '</span>' ; } var anchorHtml=thread.anchor_run
+            ? '<span class="chat-header-anchor">&#x1F517; ' + esc(thread.anchor_run) + '</span>' : '' ;
+            header.innerHTML='<div class="chat-conv-header-row">' + '<h3 class="chat-conv-title">' + esc(thread.title)
+            + '</h3>' + tagsHtml + anchorHtml + '<span class="chat-header-meta">by ' + esc(thread.created_by)
+            + ' &middot; ' + _chatRelativeTime(thread.created_at) + '</span>' + '</div>' ; } await
+            chatLoadMessages(threadId); } async function chatLoadMessages(threadId) { var
+            container=document.getElementById('chat-messages'); if (!container) return;
+            container.innerHTML='<div class="chat-empty"><span class="spinner"></span><p>Loading messages...</p></div>'
+            ; try { var data=await api('/chat/messages?thread_id=' + encodeURIComponent(threadId) + ' &n=100');
+            _chatMessages=data.messages || []; chatRenderMessages(); } catch (e) {
+            container.innerHTML='<div class="chat-empty"><p style="color:var(--error)">&#x26A0; ' + esc(e.message)
+            + '</p></div>' ; } } // ── Message rendering ──────────────────────────────────────────── function
+            chatRenderMessages() { var container=document.getElementById('chat-messages'); if (!container) return; var
+            messages=_chatMessages; if (_chatSourceFilter !=='all' ) { messages=messages.filter(function(m) { return
+            m.source===_chatSourceFilter; }); } messages=messages.slice().sort(function(a, b) { var cmp=(a.ts || ''
+            ).localeCompare(b.ts || '' ); return _chatSortNewest ? -cmp : cmp; }); if (messages.length===0) { var
+            filterActive=_chatSourceFilter !=='all' ; container.innerHTML='<div class="chat-empty">'
+            + '<span class="chat-empty-icon">' + (filterActive ? '&#x1F50D;' : '&#x270D;&#xFE0F;' ) + '</span>' + '<p>'
+            + (filterActive ? 'No <strong>' + _chatSourceFilter + '</strong> messages in this thread'
+            : 'No messages yet &mdash; send the first one!' ) + '</p></div>' ; return; } var html='' ; for (var i=0; i <
+            messages.length; i++) { html +=_chatRenderBubble(messages[i]); } container.innerHTML=html; if
+            (!_chatSortNewest) container.scrollTop=container.scrollHeight; } function _chatRenderBubble(msg) { var
+            src=msg.source || 'manual' ; var isEnc=msg.encrypted || false; var relTime=_chatRelativeTime(msg.ts); var
+            displayText=esc(msg.text); var srcLabels={ manual: '&#x1F464; Manual' , trace: '&#x1F4CB; Trace' ,
+            system: '&#x2699;&#xFE0F; System' }; var sourceLabel=srcLabels[src] || src; var
+            badges='<span class="chat-msg-badge ' + src + '">' + sourceLabel + '</span>' ; if (msg.trace_id) badges
+            +='<span class="chat-msg-badge trace">trace</span>' ; if (isEnc) badges
+            +='<span class="chat-msg-badge encrypted">&#x1F510; encrypted</span>' ; /* embed refs as rich chips +
+            collect media embeds */ var embedded={ html: displayText, mediaEmbeds: '' }; if (typeof
+            _chatEmbedRefs==='function' ) { embedded=_chatEmbedRefs(displayText); } return '<div class="chat-message ' +
+            src + '">' + '<div class="chat-msg-header">' + '<span class="chat-msg-avatar">' + (esc(msg.user || 'U'
+            ))[0].toUpperCase() + '</span>' + '<span class="chat-msg-user">' + esc(msg.user || 'Unknown' ) + '</span>' +
+            badges + '<span class="chat-msg-time">' + relTime + '</span>' + '</div>' + '<div class="chat-msg-body">' +
+            embedded.html + '</div>' + embedded.mediaEmbeds + '</div>' ; } // ── Compose + send
+            ─────────────────────────────────────────────── function chatOnInput(textarea) {
+            textarea.style.height='auto' ; textarea.style.height=Math.min(textarea.scrollHeight, 200) + 'px' ; if
+            (typeof chatCheckRefTrigger==='function' ) { chatCheckRefTrigger(textarea.value, textarea.selectionStart); }
+            } function chatOnKeydown(event) { if ((event.ctrlKey || event.metaKey) && event.key==='Enter' ) {
+            event.preventDefault(); chatSendMessage(); return; } if (typeof chatRefKeydown==='function' ) {
+            chatRefKeydown(event); } } async function chatSendMessage() { var
+            input=document.getElementById('chat-compose-input'); var
+            status=document.getElementById('chat-compose-status'); var sendBtn=document.getElementById('chat-send-btn');
+            if (!input) return; var text=input.value.trim(); if (!text) return; if (!_chatSelectedThread) { if (status)
+            { status.textContent='Select a thread first' ; status.className='chat-compose-status warning' ; } return; }
+            sendBtn.disabled=true; if (status) { status.textContent='Sending...' ;
+            status.className='chat-compose-status' ; } var encCb=document.getElementById('chat-encrypt-cb'); var
+            encrypt=encCb ? encCb.checked : false; try { var msg=await api('/chat/send', { method: 'POST' , headers:
+            { 'Content-Type' : 'application/json' }, body: JSON.stringify({ text: text, thread_id: _chatSelectedThread,
+            encrypt: encrypt, source: 'manual' }) }); _chatMessages.unshift(msg); chatRenderMessages(); input.value='' ;
+            input.style.height='auto' ; if (status) { status.textContent='&#x2714; Sent' ;
+            status.className='chat-compose-status success' ; } setTimeout(function() { if (status) {
+            status.textContent='' ; status.className='chat-compose-status' ; } }, 2000); var
+            popup=document.getElementById('chat-ref-popup'); if (popup) popup.style.display='none' ; } catch (e) { if
+            (status) { status.textContent='&#x26A0; ' + e.message; status.className='chat-compose-status error' ; } }
+            finally { sendBtn.disabled=false; } } // ── Filters + sort ───────────────────────────────────────────────
+            function chatFilterBySource(source) { _chatSourceFilter=source;
+            document.querySelectorAll('.chat-source-filter').forEach(function(btn) { if (btn.dataset.source===source)
+            btn.classList.add('active'); else btn.classList.remove('active'); }); chatRenderMessages(); } function
+            chatToggleSort() { _chatSortNewest=!_chatSortNewest; var sortBtn=document.getElementById('chat-sort-icon');
+            if (sortBtn && sortBtn.parentElement) { sortBtn.parentElement.innerHTML='<span id="chat-sort-icon">' +
+            (_chatSortNewest ? '&#x2B07;' : '&#x2B06;' ) + '</span> ' + (_chatSortNewest ? 'Newest first'
+            : 'Oldest first' ); } chatRenderMessages(); } // ── Thread creation
+            ────────────────────────────────────────────── function chatShowNewThread() { var
+            modal=document.getElementById('chat-new-thread-modal'); if (modal) { modal.classList.add('visible'); var
+            ti=document.getElementById('chat-new-thread-title'); if (ti) { ti.value='' ; ti.focus(); } var
+            tg=document.getElementById('chat-new-thread-tags'); if (tg) tg.value='' ; } } function chatCloseNewThread()
+            { var modal=document.getElementById('chat-new-thread-modal'); if (modal) modal.classList.remove('visible');
+            } async function chatCreateThread() { var ti=document.getElementById('chat-new-thread-title'); var
+            tg=document.getElementById('chat-new-thread-tags'); var title=ti ? ti.value.trim() : '' ; if (!title) {
+            toast('Thread title is required', 'warning' ); return; } var tags=(tg ? tg.value : ''
+            ).split(',').map(function(s) { return s.trim(); }).filter(Boolean); try { var thread=await
+            api('/chat/threads/create', { method: 'POST' , headers: { 'Content-Type' : 'application/json' }, body:
+            JSON.stringify({ title: title, tags: tags }) }); chatCloseNewThread(); _chatThreads.unshift(thread);
+            chatRenderThreadList(_chatThreads); chatSelectThread(thread.thread_id); toast('Thread created', 'success' );
+            } catch (e) { toast('Failed: ' + e.message, ' error'); } } // ── Sync
+            ───────────────────────────────────────────────────────── async function chatSync(action) { try {
+            toast('Syncing chat...', 'info' ); var result=await api('/chat/sync', { method: 'POST' , headers:
+            { 'Content-Type' : 'application/json' }, body: JSON.stringify({ action: action }) }); var parts=[]; if
+            (result.pushed) parts.push('pushed'); if (result.pulled) parts.push('pulled'); if (parts.length> 0)
+            toast('Chat ' + parts.join(' & '), 'success');
+            else toast('Nothing to sync', 'info');
+            await chatLoadThreads();
+            } catch (e) {
+            toast('Sync failed: ' + e.message, 'error');
+            }
+            }
+
+
+            // ── Utilities ────────────────────────────────────────────────────
+
+            function _chatRelativeTime(isoString) {
+            if (!isoString) return '';
+            try {
+            var d = new Date(isoString);
+            var now = new Date();
+            var diffMs = now - d;
+            var diffSec = Math.floor(diffMs / 1000);
+            var diffMin = Math.floor(diffSec / 60);
+            var diffHr = Math.floor(diffMin / 60);
+            var diffDay = Math.floor(diffHr / 24);
+            if (diffSec < 60) return 'just now' ; if (diffMin < 60) return diffMin + 'm ago' ; if (diffHr < 24) return
+                diffHr + 'h ago' ; if (diffDay < 30) return diffDay + 'd ago' ; return d.toLocaleDateString(); } catch
+                (ex) { return isoString; } }

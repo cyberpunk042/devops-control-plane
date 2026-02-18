@@ -133,17 +133,14 @@ def _create_orphan_branch(project_root: Path, branch: str) -> None:
     """
     logger.info("Creating orphan branch '%s'", branch)
 
-    # Create an empty tree
-    r = _run_main_git("mktree", project_root=project_root)
-    if r.returncode != 0:
-        # mktree reads from stdin; pass empty input
-        r = subprocess.run(
-            ["git", "-C", str(project_root), "mktree"],
-            input="",
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
+    # Create an empty tree (mktree reads from stdin; empty input = empty tree)
+    r = subprocess.run(
+        ["git", "-C", str(project_root), "mktree"],
+        input="",
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
     empty_tree = r.stdout.strip()
     if not empty_tree:
         logger.error("Failed to create empty tree for orphan branch")

@@ -1,52 +1,59 @@
-    // ─────────────────────────────────────────────────────────────────
-    //  _content_init.html
-    //  Content Vault — global state, constants, and category definitions
-    //  Included by: _content.html (Jinja2 include)
-    // ─────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────
+// _content_init.html
+// Content Vault — global state, constants, and category definitions
+// Included by: _content.html (Jinja2 include)
+// ─────────────────────────────────────────────────────────────────
 
-    // ── Content Vault tab logic ─────────────────────────────────────────
+// ── Content Vault tab logic ─────────────────────────────────────────
 
-    let contentCurrentMode = 'docs';
-    let contentFolders = [];
-    let contentCurrentPath = '';
-    let contentLoaded = false;
-    let encKeyConfigured = false;
-    let _contentCategoryFilters = {};  // mode → { category: bool }
-    let _contentLastRenderData = null; // cached for filter re-render
-    let _contentMediaShowAll = false;  // recursive media listing
+let contentCurrentMode = 'docs';
+let contentFolders = [];
+let contentCurrentPath = '';
+let contentLoaded = false;
+let encKeyConfigured = false;
+let _contentCategoryFilters = {}; // mode → { category: bool }
+let _contentLastRenderData = null; // cached for filter re-render
+let _contentMediaShowAll = false; // recursive media listing
 
-    // Category → mode mapping (encrypted files show in all modes)
-    const CATEGORY_MODES = {
-        docs: ['document', 'code', 'script', 'config', 'data', 'other', 'encrypted'],
-        media: ['image', 'video', 'audio', 'encrypted'],
-        archive: ['document', 'code', 'script', 'config', 'data', 'other', 'encrypted', 'image', 'video', 'audio', 'archive'],
-    };
+// ── Chat mode state ──────────────────────────────────────────────
+let _chatThreads = []; // loaded threads
+let _chatSelectedThread = null; // current thread_id
+let _chatMessages = []; // messages in current thread
+let _chatLoaded = false; // thread list loaded?
+let _chatSourceFilter = 'all'; // all | manual | trace | system
+let _chatSortNewest = true; // true = newest-first
 
-    const CATEGORY_ICONS = {
-        image: '🖼️',
-        video: '🎬',
-        audio: '🎵',
-        document: '📄',
-        code: '💻',
-        script: '⚡',
-        config: '⚙️',
-        data: '📊',
-        archive: '📦',
-        encrypted: '🔐',
-        other: '📎',
-    };
+// Category → mode mapping (encrypted files show in all modes)
+const CATEGORY_MODES = {
+docs: ['document', 'code', 'script', 'config', 'data', 'other', 'encrypted'],
+media: ['image', 'video', 'audio', 'encrypted'],
+archive: ['document', 'code', 'script', 'config', 'data', 'other', 'encrypted', 'image', 'video', 'audio', 'archive'],
+};
 
-    const CATEGORY_COLORS = {
-        image: '#4ade80',
-        video: '#818cf8',
-        audio: '#f472b6',
-        document: '#60a5fa',
-        code: '#c084fc',
-        script: '#fb923c',
-        config: '#2dd4bf',
-        data: '#fbbf24',
-        archive: '#a78bfa',
-        encrypted: '#f87171',
-        other: '#94a3b8',
-    };
+const CATEGORY_ICONS = {
+image: '🖼️',
+video: '🎬',
+audio: '🎵',
+document: '📄',
+code: '💻',
+script: '⚡',
+config: '⚙️',
+data: '📊',
+archive: '📦',
+encrypted: '🔐',
+other: '📎',
+};
 
+const CATEGORY_COLORS = {
+image: '#4ade80',
+video: '#818cf8',
+audio: '#f472b6',
+document: '#60a5fa',
+code: '#c084fc',
+script: '#fb923c',
+config: '#2dd4bf',
+data: '#fbbf24',
+archive: '#a78bfa',
+encrypted: '#f87171',
+other: '#94a3b8',
+};

@@ -158,8 +158,8 @@ toast(`Failed to load folders: ${e.message}`, 'error');
 async function contentLoadFolder(folderPath) {
 // Guard unsaved editor changes
 if (typeof monacoIsDirty === 'function' && monacoIsDirty()) {
-    monacoGuardUnsaved(() => contentLoadFolder(folderPath));
-    return;
+monacoGuardUnsaved(() => contentLoadFolder(folderPath));
+return;
 }
 contentCurrentPath = folderPath;
 // Clear file preview state so hash reverts to folder format
@@ -207,13 +207,16 @@ browser.innerHTML = `<p class="empty-state" style="color:var(--error)">❌ ${esc
 function contentSwitchMode(mode) {
 // Guard unsaved editor changes
 if (typeof monacoIsDirty === 'function' && monacoIsDirty()) {
-    monacoGuardUnsaved(() => contentSwitchMode(mode));
-    return;
+monacoGuardUnsaved(() => contentSwitchMode(mode));
+return;
 }
 // Clean up archive modals & polls before switching away
 const previousMode = contentCurrentMode;
 if (previousMode === 'archive' && mode !== 'archive') {
 _archiveCleanup();
+}
+if (previousMode === 'chat' && mode !== 'chat') {
+_chatCleanup();
 }
 
 contentCurrentMode = mode;
@@ -232,6 +235,11 @@ if (mode === 'archive') {
 document.getElementById('content-folder-bar').style.display = 'none';
 document.getElementById('content-breadcrumb').style.display = 'none';
 renderArchivePanel();
+} else if (mode === 'chat') {
+// Chat mode: own panel
+document.getElementById('content-folder-bar').style.display = 'none';
+document.getElementById('content-breadcrumb').style.display = 'none';
+renderChatPanel();
 } else {
 // Show folder bar again
 if (contentFolders.length > 0) {
@@ -247,7 +255,7 @@ browser.innerHTML = '<p style="text-align:center;padding:2rem"><span class="spin
 // Only carry over archive folder when coming FROM archive mode
 let targetFolder = contentCurrentPath;
 if (previousMode === 'archive' && _archiveSelectedFolder && _archiveSelectedFolder !== '.') {
-    targetFolder = _archiveSelectedFolder;
+targetFolder = _archiveSelectedFolder;
 }
 
 // Check if target is outside configured folders
@@ -256,19 +264,19 @@ const targetRoot = (targetFolder || '').split('/')[0];
 const isInScope = configuredPaths.some(p => targetFolder && targetFolder.startsWith(p));
 
 if (targetFolder && !isInScope && targetRoot) {
-    // Auto-enable "explore all" so the folder is accessible
-    const exploreAllCb = document.getElementById('content-explore-all');
-    if (exploreAllCb && !exploreAllCb.checked) {
-        exploreAllCb.checked = true;
-    }
-    // Load all folders into the dropdown, then navigate
-    contentToggleExploreAll(true).then(() => {
-        contentLoadFolder(targetFolder);
-    });
+// Auto-enable "explore all" so the folder is accessible
+const exploreAllCb = document.getElementById('content-explore-all');
+if (exploreAllCb && !exploreAllCb.checked) {
+exploreAllCb.checked = true;
+}
+// Load all folders into the dropdown, then navigate
+contentToggleExploreAll(true).then(() => {
+contentLoadFolder(targetFolder);
+});
 } else if (targetFolder) {
-    contentLoadFolder(targetFolder);
+contentLoadFolder(targetFolder);
 } else if (contentFolders.length > 0) {
-    contentLoadFolder(contentFolders[0].path);
+contentLoadFolder(contentFolders[0].path);
 }
 }
 }
@@ -305,6 +313,12 @@ if (_archiveSelectedFolder) parts.push(_archiveSelectedFolder);
 history.replaceState(null, '', `#${parts.join('/')}`);
 return;
 }
+if (contentCurrentMode === 'chat') {
+const parts = ['content', 'chat'];
+if (_chatSelectedThread) parts.push(_chatSelectedThread);
+history.replaceState(null, '', `#${parts.join('/')}`);
+return;
+}
 // If previewing a file, encode file path + view mode
 if (previewCurrentPath) {
 let viewMode = 'preview';
@@ -323,7 +337,7 @@ function contentApplySubNav(subParts) {
 // subParts = [mode, ...rest]
 if (subParts.length >= 1) {
 const mode = subParts[0];
-if (['docs', 'media', 'archive'].includes(mode)) {
+if (['docs', 'media', 'archive', 'chat'].includes(mode)) {
 contentCurrentMode = mode;
 document.querySelectorAll('.content-modes .content-mode').forEach(b => b.classList.remove('active'));
 const btn = document.querySelector(`.content-modes .content-mode[data-mode="${mode}"]`);
@@ -342,6 +356,16 @@ _archiveSelectedFolder = subParts.slice(1).join('/');
 renderArchivePanel();
 return;
 }
+// Chat mode: own panel — read thread from hash
+if (contentCurrentMode === 'chat') {
+document.getElementById('content-folder-bar').style.display = 'none';
+document.getElementById('content-breadcrumb').style.display = 'none';
+if (subParts.length >= 2) {
+_chatSelectedThread = subParts.slice(1).join('/');
+}
+renderChatPanel();
+return;
+}
 if (subParts.length >= 2) {
 const rawPath = subParts.slice(1).join('/');
 // Check for @viewmode suffix indicating a file preview
@@ -353,8 +377,8 @@ let viewMode = rawPath.substring(atIdx + 1);
 let focusLine = 0;
 const colonIdx = viewMode.indexOf(':');
 if (colonIdx > 0) {
-    focusLine = parseInt(viewMode.substring(colonIdx + 1), 10) || 0;
-    viewMode = viewMode.substring(0, colonIdx);
+focusLine = parseInt(viewMode.substring(colonIdx + 1), 10) || 0;
+viewMode = viewMode.substring(0, colonIdx);
 }
 window._contentFocusLine = focusLine;
 // Set the folder context from the file path (first segment)
