@@ -11,518 +11,653 @@ let _chatRefDismissed = false;
 let _chatRefDismissedAt = -1;
 
 const _chatRefCategories = [
-{ type: 'commit', icon: '&#x1F4DD;', label: 'Commit' },
-{ type: 'branch', icon: '&#x1F500;', label: 'Branch' },
-{ type: 'audit', icon: '&#x1F4CA;', label: 'Audit' },
-{ type: 'thread', icon: '&#x1F4AC;', label: 'Thread' },
-{ type: 'trace', icon: '&#x1F4CB;', label: 'Trace' },
-{ type: 'user', icon: '&#x1F464;', label: 'User' },
-{ type: 'code', icon: '&#x1F4BB;', label: 'Code' },
-{ type: 'doc', icon: '&#x1F4C4;', label: 'Doc' },
-{ type: 'media', icon: '&#x1F5BC;', label: 'Media' },
-{ type: 'release', icon: '&#x1F4E6;', label: 'Release' },
-{ type: 'file', icon: '&#x1F4C1;', label: 'File' },
-{ type: 'run', icon: '&#x1F680;', label: 'Run' }
+  { type: 'commit',  icon: '&#x1F4DD;', label: 'Commit'  },
+  { type: 'branch',  icon: '&#x1F500;', label: 'Branch'  },
+  { type: 'audit',   icon: '&#x1F4CA;', label: 'Audit'   },
+  { type: 'thread',  icon: '&#x1F4AC;', label: 'Thread'  },
+  { type: 'trace',   icon: '&#x1F4CB;', label: 'Trace'   },
+  { type: 'user',    icon: '&#x1F464;', label: 'User'    },
+  { type: 'code',    icon: '&#x1F4BB;', label: 'Code'    },
+  { type: 'doc',     icon: '&#x1F4C4;', label: 'Doc'     },
+  { type: 'media',   icon: '&#x1F5BC;', label: 'Media'   },
+  { type: 'release', icon: '&#x1F4E6;', label: 'Release' },
+  { type: 'file',    icon: '&#x1F4C1;', label: 'File'    },
+  { type: 'run',     icon: '&#x1F680;', label: 'Run'     }
 ];
 
 /* ── Item renderers ── */
 
 function _chatRefRenderCommit(item) {
-const div = document.createElement('div');
-div.className = 'chat-ref-item';
-div.setAttribute('data-ref', item.ref);
-const line1 = document.createElement('div');
-line1.className = 'chat-ref-item-label';
-const hashEl = document.createElement('span');
-hashEl.className = 'chat-ref-hash';
-hashEl.textContent = item.hash || '';
-const msgEl = document.createElement('span');
-msgEl.textContent = ' ' + (item.label || '');
-line1.appendChild(document.createTextNode(item.icon + ' '));
-line1.appendChild(hashEl);
-line1.appendChild(msgEl);
-const line2 = document.createElement('div');
-line2.className = 'chat-ref-item-detail';
-line2.textContent = item.detail || '';
-div.appendChild(line1);
-div.appendChild(line2);
-return div;
+  const div = document.createElement('div');
+  div.className = 'chat-ref-item';
+  div.setAttribute('data-ref', item.ref);
+  const line1 = document.createElement('div');
+  line1.className = 'chat-ref-item-label';
+  const hashEl = document.createElement('span');
+  hashEl.className = 'chat-ref-hash';
+  hashEl.textContent = item.hash || '';
+  const msgEl = document.createElement('span');
+  msgEl.textContent = ' ' + (item.label || '');
+  line1.appendChild(document.createTextNode(item.icon + ' '));
+  line1.appendChild(hashEl);
+  line1.appendChild(msgEl);
+  const line2 = document.createElement('div');
+  line2.className = 'chat-ref-item-detail';
+  line2.textContent = item.detail || '';
+  div.appendChild(line1);
+  div.appendChild(line2);
+  return div;
 }
 
 function _chatRefRenderGeneric(item) {
-if (typeof item === 'string') {
-const div = document.createElement('div');
-div.className = 'chat-ref-item';
-div.setAttribute('data-ref', item);
-const span = document.createElement('code');
-span.textContent = item;
-div.appendChild(span);
-return div;
-}
-const div = document.createElement('div');
-div.className = 'chat-ref-item';
-div.setAttribute('data-ref', item.ref);
-const line1 = document.createElement('div');
-line1.className = 'chat-ref-item-label';
-line1.textContent = (item.icon || '') + ' ' + (item.label || item.ref);
-const line2 = document.createElement('div');
-line2.className = 'chat-ref-item-detail';
-line2.textContent = item.detail || '';
-div.appendChild(line1);
-if (item.detail) {
-div.appendChild(line2);
-}
-return div;
+  if (typeof item === 'string') {
+    const div = document.createElement('div');
+    div.className = 'chat-ref-item';
+    div.setAttribute('data-ref', item);
+    const span = document.createElement('code');
+    span.textContent = item;
+    div.appendChild(span);
+    return div;
+  }
+  const div = document.createElement('div');
+  div.className = 'chat-ref-item';
+  div.setAttribute('data-ref', item.ref);
+  const line1 = document.createElement('div');
+  line1.className = 'chat-ref-item-label';
+  line1.textContent = (item.icon || '') + ' ' + (item.label || item.ref);
+  const line2 = document.createElement('div');
+  line2.className = 'chat-ref-item-detail';
+  line2.textContent = item.detail || '';
+  div.appendChild(line1);
+  if (item.detail) {
+    div.appendChild(line2);
+  }
+  return div;
 }
 
 const _chatRefRenderers = { 'commit': _chatRefRenderCommit };
 
 function _chatRefRenderItem(item, type) {
-const renderer = _chatRefRenderers[type] || _chatRefRenderGeneric;
-return renderer(item);
+  const renderer = _chatRefRenderers[type] || _chatRefRenderGeneric;
+  return renderer(item);
 }
 
 /* ── Trigger detection ── */
 
 function chatCheckRefTrigger(text, cursorPos) {
-const beforeCursor = text.substring(0, cursorPos);
-const atIdx = beforeCursor.lastIndexOf('@');
-if (atIdx === -1) {
-_chatRefHidePopup();
-return;
-}
-if (atIdx > 0 && !/[\s\n]/.test(beforeCursor[atIdx - 1])) {
-_chatRefHidePopup();
-return;
-}
-if (_chatRefDismissed && _chatRefDismissedAt === atIdx) {
-return;
-}
-if (_chatRefDismissedAt !== atIdx) {
-_chatRefDismissed = false;
-}
-const prefix = beforeCursor.substring(atIdx, cursorPos);
-_chatRefStartPos = atIdx;
-_chatRefPrefix = prefix;
-if (prefix === '@') {
-_chatRefShowCategories('');
-return;
-}
-const colonIdx = prefix.indexOf(':');
-if (colonIdx === -1) {
-_chatRefShowCategories(prefix.substring(1));
-return;
-}
-const refType = prefix.substring(1, colonIdx);
-const partialId = prefix.substring(colonIdx + 1);
-_chatRefType = refType;
-if (_chatRefDebounceTimer) {
-clearTimeout(_chatRefDebounceTimer);
-}
-_chatRefDebounceTimer = setTimeout(function() {
-_chatRefFetchItems(refType, partialId);
-}, 200);
+  const beforeCursor = text.substring(0, cursorPos);
+  const atIdx = beforeCursor.lastIndexOf('@');
+  if (atIdx === -1) {
+    _chatRefHidePopup();
+    return;
+  }
+  if (atIdx > 0 && !/[\s\n]/.test(beforeCursor[atIdx - 1])) {
+    _chatRefHidePopup();
+    return;
+  }
+  if (_chatRefDismissed && _chatRefDismissedAt === atIdx) {
+    return;
+  }
+  if (_chatRefDismissedAt !== atIdx) {
+    _chatRefDismissed = false;
+  }
+  const prefix = beforeCursor.substring(atIdx, cursorPos);
+  _chatRefStartPos = atIdx;
+  _chatRefPrefix = prefix;
+  if (prefix === '@') {
+    _chatRefShowCategories('');
+    return;
+  }
+  const colonIdx = prefix.indexOf(':');
+  if (colonIdx === -1) {
+    _chatRefShowCategories(prefix.substring(1));
+    return;
+  }
+  const refType = prefix.substring(1, colonIdx);
+  const partialId = prefix.substring(colonIdx + 1);
+  _chatRefType = refType;
+  if (_chatRefDebounceTimer) {
+    clearTimeout(_chatRefDebounceTimer);
+  }
+  _chatRefDebounceTimer = setTimeout(function() {
+    _chatRefFetchItems(refType, partialId);
+  }, 200);
 }
 
 /* ── Phase 1: category grid ── */
 
 function _chatRefShowCategories(filter) {
-const popup = document.getElementById('chat-ref-popup');
-if (!popup) return;
-_chatRefPhase = 1;
-_chatRefType = '';
-_chatRefSuggestions = [];
-_chatRefSelectedIdx = -1;
-const filtered = [];
-const filterLower = filter ? filter.toLowerCase() : '';
-for (let i = 0; i < _chatRefCategories.length; i++) { const cat=_chatRefCategories[i]; if (!filterLower ||
-        cat.type.indexOf(filterLower)===0) { filtered.push(cat); } } if (filtered.length===0) { popup.innerHTML=`<div
-        class="chat-ref-empty">No matching types</div>`;
-        popup.style.display = 'block';
-        return;
-        }
-        let html = `<div class="chat-ref-categories">`;
-                for (let j = 0; j < filtered.length; j++) { const c=filtered[j]; _chatRefSuggestions.push(c); html
-                        +=`<div class="chat-ref-category" data-idx="${j}" data-type="${c.type}">`;
-                        html += `<span class="chat-ref-category-icon">${c.icon}</span>`;
-                        html += `<span class="chat-ref-category-label">${c.label}</span>`;
-                        html += `</div>`;
-        }
-        html += `</div>`;
-        popup.innerHTML = html;
-        popup.style.display = 'block';
-        if (filtered.length === 1) {
-        _chatRefSelectedIdx = 0;
+  const popup = document.getElementById('chat-ref-popup');
+  if (!popup) return;
+  _chatRefPhase = 1;
+  _chatRefType = '';
+  _chatRefSuggestions = [];
+  _chatRefSelectedIdx = -1;
+  const filtered = [];
+  const filterLower = filter ? filter.toLowerCase() : '';
+  for (let i = 0; i < _chatRefCategories.length; i++) {
+    const cat = _chatRefCategories[i];
+    if (!filterLower || cat.type.indexOf(filterLower) === 0) {
+      filtered.push(cat);
+    }
+  }
+  if (filtered.length === 0) {
+    popup.innerHTML = '<div class="chat-ref-empty">No matching types</div>';
+    popup.style.display = 'block';
+    return;
+  }
+  let html = '<div class="chat-ref-categories">';
+  for (let j = 0; j < filtered.length; j++) {
+    const c = filtered[j];
+    _chatRefSuggestions.push(c);
+    html += '<div class="chat-ref-category" data-idx="' + j + '" data-type="' + c.type + '">';
+    html += '<span class="chat-ref-category-icon">' + c.icon + '</span>';
+    html += '<span class="chat-ref-category-label">' + c.label + '</span>';
+    html += '</div>';
+  }
+  html += '</div>';
+  popup.innerHTML = html;
+  popup.style.display = 'block';
+  if (filtered.length === 1) {
+    _chatRefSelectedIdx = 0;
+    _chatRefUpdateHighlight();
+  }
+  const tiles = popup.querySelectorAll('.chat-ref-category');
+  for (let k = 0; k < tiles.length; k++) {
+    (function(el) {
+      el.addEventListener('click', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        _chatRefSelectCategory(el.dataset.type);
+      });
+    })(tiles[k]);
+  }
+}
+
+/* ── Category selection ── */
+
+function _chatRefSelectCategory(type) {
+  const input = document.getElementById('chat-compose-input');
+  if (!input) return;
+  const before = input.value.substring(0, _chatRefStartPos);
+  const after = input.value.substring(input.selectionStart);
+  input.value = before + '@' + type + ':' + after;
+  const newPos = _chatRefStartPos + type.length + 2;
+  input.selectionStart = newPos;
+  input.selectionEnd = newPos;
+  input.focus();
+  _chatRefPrefix = '@' + type + ':';
+  _chatRefType = type;
+  _chatRefFetchItems(type, '');
+}
+
+/* ── Phase 2: fetch + render items ── */
+
+function _chatRefFetchItems(type, partialId) {
+  const popup = document.getElementById('chat-ref-popup');
+  if (!popup) return;
+  _chatRefPhase = 2;
+  _chatRefSuggestions = [];
+  _chatRefSelectedIdx = -1;
+  let typeInfo = null;
+  for (let i = 0; i < _chatRefCategories.length; i++) {
+    if (_chatRefCategories[i].type === type) {
+      typeInfo = _chatRefCategories[i];
+      break;
+    }
+  }
+  const typeLabel = typeInfo ? (typeInfo.icon + ' ' + typeInfo.label) : type;
+  popup.innerHTML = '<div class="chat-ref-phase2-header">'
+    + '<span class="chat-ref-phase2-title">' + typeLabel + '</span>'
+    + '<span class="chat-ref-phase2-back" title="Back to categories">&times;</span>'
+    + '</div>'
+    + '<div class="chat-ref-loading">Loading...</div>';
+  popup.style.display = 'block';
+  const backBtn = popup.querySelector('.chat-ref-phase2-back');
+  if (backBtn) {
+    backBtn.addEventListener('click', function(e) {
+      e.preventDefault();
+      e.stopPropagation();
+      _chatRefGoBack();
+    });
+  }
+  const prefix = '@' + type + ':' + (partialId || '');
+  api('/chat/refs/autocomplete?prefix=' + encodeURIComponent(prefix)).then(function(data) {
+    const suggestions = data.suggestions || [];
+    if (suggestions.length === 0) {
+      const loadEl = popup.querySelector('.chat-ref-loading');
+      if (loadEl) {
+        loadEl.className = 'chat-ref-empty';
+        loadEl.textContent = 'No matches' + (partialId ? ' for "' + partialId + '"' : '');
+      }
+      return;
+    }
+    _chatRefSuggestions = suggestions;
+    _chatRefSelectedIdx = -1;
+    _chatRefRenderItems(popup, suggestions, type, typeLabel);
+  }).catch(function() {
+    const loadEl = popup.querySelector('.chat-ref-loading');
+    if (loadEl) {
+      loadEl.className = 'chat-ref-empty';
+      loadEl.textContent = 'Error loading suggestions';
+    }
+  });
+}
+
+function _chatRefRenderItems(popup, suggestions, type, typeLabel) {
+  popup.innerHTML = '<div class="chat-ref-phase2-header">'
+    + '<span class="chat-ref-phase2-title">' + typeLabel + '</span>'
+    + '<span class="chat-ref-phase2-back" title="Back to categories">&times;</span>'
+    + '</div>'
+    + '<div class="chat-ref-items"></div>';
+  const backBtn = popup.querySelector('.chat-ref-phase2-back');
+  if (backBtn) {
+    backBtn.addEventListener('click', function(e) {
+      e.preventDefault();
+      e.stopPropagation();
+      _chatRefGoBack();
+    });
+  }
+  const container = popup.querySelector('.chat-ref-items');
+  for (let i = 0; i < suggestions.length; i++) {
+    const item = suggestions[i];
+    const el = _chatRefRenderItem(item, type);
+    el.setAttribute('data-idx', String(i));
+    const refVal = (typeof item === 'string') ? item : item.ref;
+    el.setAttribute('data-ref', refVal);
+    (function(refValue, idx) {
+      el.addEventListener('click', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        chatInsertRef(refValue);
+      });
+      el.addEventListener('mouseenter', function() {
+        _chatRefSelectedIdx = idx;
         _chatRefUpdateHighlight();
-        }
-        const tiles = popup.querySelectorAll('.chat-ref-category');
-        for (let k = 0; k < tiles.length; k++) { (function(el) { el.addEventListener('click', function(e) {
-                e.preventDefault(); e.stopPropagation(); _chatRefSelectCategory(el.dataset.type); }); })(tiles[k]); } }
-                /* ── Category selection ── */ function _chatRefSelectCategory(type) { const
-                input=document.getElementById('chat-compose-input'); if (!input) return; const
-                before=input.value.substring(0, _chatRefStartPos); const
-                after=input.value.substring(input.selectionStart); input.value=before + '@' + type + ':' + after; const
-                newPos=_chatRefStartPos + type.length + 2; input.selectionStart=newPos; input.selectionEnd=newPos;
-                input.focus(); _chatRefPrefix='@' + type + ':' ; _chatRefType=type; _chatRefFetchItems(type, '' ); } /*
-                ── Phase 2: fetch + render items ── */ function _chatRefFetchItems(type, partialId) { const
-                popup=document.getElementById('chat-ref-popup'); if (!popup) return; _chatRefPhase=2;
-                _chatRefSuggestions=[]; _chatRefSelectedIdx=-1; let typeInfo=null; for (let i=0; i <
-                _chatRefCategories.length; i++) { if (_chatRefCategories[i].type===type) {
-                typeInfo=_chatRefCategories[i]; break; } } const typeLabel=typeInfo ? (typeInfo.icon + ' ' +
-                typeInfo.label) : type; popup.innerHTML=`<div class="chat-ref-phase2-header"><span
-                        class="chat-ref-phase2-title">${typeLabel}</span><span class="chat-ref-phase2-back"
-                        title="Back to categories">&times;</span></div>
-                <div class="chat-ref-loading">Loading...</div>`;
-                popup.style.display = 'block';
-                const backBtn = popup.querySelector('.chat-ref-phase2-back');
-                if (backBtn) {
-                backBtn.addEventListener('click', function(e) {
-                e.preventDefault();
-                e.stopPropagation();
-                _chatRefGoBack();
-                });
-                }
-                const prefix = '@' + type + ':' + (partialId || '');
-                api('/chat/refs/autocomplete?prefix=' + encodeURIComponent(prefix)).then(function(data) {
-                const suggestions = data.suggestions || [];
-                if (suggestions.length === 0) {
-                const loadEl = popup.querySelector('.chat-ref-loading');
-                if (loadEl) {
-                loadEl.className = 'chat-ref-empty';
-                loadEl.textContent = 'No matches' + (partialId ? ' for "' + partialId + '"' : '');
-                }
-                return;
-                }
-                _chatRefSuggestions = suggestions;
-                _chatRefSelectedIdx = -1;
-                _chatRefRenderItems(popup, suggestions, type, typeLabel);
-                }).catch(function() {
-                const loadEl = popup.querySelector('.chat-ref-loading');
-                if (loadEl) {
-                loadEl.className = 'chat-ref-empty';
-                loadEl.textContent = 'Error loading suggestions';
-                }
-                });
-                }
+      });
+    })(refVal, i);
+    container.appendChild(el);
+  }
+}
 
-                function _chatRefRenderItems(popup, suggestions, type, typeLabel) {
-                popup.innerHTML = `<div class="chat-ref-phase2-header"><span
-                                class="chat-ref-phase2-title">${typeLabel}</span><span class="chat-ref-phase2-back"
-                                title="Back to categories">&times;</span></div>
-                <div class="chat-ref-items"></div>`;
-                const backBtn = popup.querySelector('.chat-ref-phase2-back');
-                if (backBtn) {
-                backBtn.addEventListener('click', function(e) {
-                e.preventDefault();
-                e.stopPropagation();
-                _chatRefGoBack();
-                });
-                }
-                const container = popup.querySelector('.chat-ref-items');
-                for (let i = 0; i < suggestions.length; i++) { const item=suggestions[i]; const
-                        el=_chatRefRenderItem(item, type); el.setAttribute('data-idx', String(i)); const refVal=(typeof
-                        item==='string' ) ? item : item.ref; el.setAttribute('data-ref', refVal); (function(refValue,
-                        idx) { el.addEventListener('click', function(e) { e.preventDefault(); e.stopPropagation();
-                        chatInsertRef(refValue); }); el.addEventListener('mouseenter', function() {
-                        _chatRefSelectedIdx=idx; _chatRefUpdateHighlight(); }); })(refVal, i);
-                        container.appendChild(el); } } /* ── Go back to phase 1 ── */ function _chatRefGoBack() { const
-                        input=document.getElementById('chat-compose-input'); if (input && _chatRefStartPos>= 0) {
-                        const before = input.value.substring(0, _chatRefStartPos);
-                        const after = input.value.substring(input.selectionStart);
-                        input.value = before + '@' + after;
-                        const newPos = _chatRefStartPos + 1;
-                        input.selectionStart = newPos;
-                        input.selectionEnd = newPos;
-                        input.focus();
-                        _chatRefPrefix = '@';
-                        }
-                        _chatRefShowCategories('');
-                        }
+/* ── Go back to phase 1 ── */
 
-                        /* ── Keyboard navigation ── */
+function _chatRefGoBack() {
+  const input = document.getElementById('chat-compose-input');
+  if (input && _chatRefStartPos >= 0) {
+    const before = input.value.substring(0, _chatRefStartPos);
+    const after = input.value.substring(input.selectionStart);
+    input.value = before + '@' + after;
+    const newPos = _chatRefStartPos + 1;
+    input.selectionStart = newPos;
+    input.selectionEnd = newPos;
+    input.focus();
+    _chatRefPrefix = '@';
+  }
+  _chatRefShowCategories('');
+}
 
-                        function chatRefKeydown(event) {
-                        const popup = document.getElementById('chat-ref-popup');
-                        if (!popup || popup.style.display === 'none') return;
-                        if (event.key === 'ArrowDown') {
-                        event.preventDefault();
-                        if (_chatRefSuggestions.length > 0) {
-                        _chatRefSelectedIdx = Math.min(_chatRefSelectedIdx + 1, _chatRefSuggestions.length - 1);
-                        _chatRefUpdateHighlight();
-                        }
-                        return;
-                        }
-                        if (event.key === 'ArrowUp') {
-                        event.preventDefault();
-                        if (_chatRefSuggestions.length > 0) {
-                        _chatRefSelectedIdx = Math.max(_chatRefSelectedIdx - 1, 0);
-                        _chatRefUpdateHighlight();
-                        }
-                        return;
-                        }
-                        if (event.key === 'Tab') {
-                        if (_chatRefSuggestions.length > 0) {
-                        event.preventDefault();
-                        if (_chatRefSelectedIdx < 0) { _chatRefSelectedIdx=0; } _chatRefPickSelected(); } return; } if
-                                (event.key==='Enter' && _chatRefSelectedIdx>= 0) {
-                                event.preventDefault();
-                                _chatRefPickSelected();
-                                return;
-                                }
-                                if (event.key === 'Escape') {
-                                event.preventDefault();
-                                if (_chatRefPhase === 2) {
-                                _chatRefGoBack();
-                                } else {
-                                _chatRefDismissed = true;
-                                _chatRefDismissedAt = _chatRefStartPos;
-                                _chatRefHidePopup();
-                                }
-                                return;
-                                }
-                                }
+/* ── Keyboard navigation ── */
 
-                                function _chatRefPickSelected() {
-                                const selected = _chatRefSuggestions[_chatRefSelectedIdx];
-                                if (!selected) return;
-                                if (_chatRefPhase === 1) {
-                                if (selected.type) {
-                                _chatRefSelectCategory(selected.type);
-                                }
-                                } else {
-                                const refVal = (typeof selected === 'string') ? selected : selected.ref;
-                                if (refVal && refVal.endsWith('/')) {
-                                const input = document.getElementById('chat-compose-input');
-                                if (input) {
-                                const before = input.value.substring(0, _chatRefStartPos);
-                                const after = input.value.substring(input.selectionStart);
-                                input.value = before + refVal + after;
-                                const newPos = _chatRefStartPos + refVal.length;
-                                input.selectionStart = newPos;
-                                input.selectionEnd = newPos;
-                                input.focus();
-                                _chatRefPrefix = refVal;
-                                const colonIdx = refVal.indexOf(':');
-                                const refType = refVal.substring(1, colonIdx);
-                                const partialId = refVal.substring(colonIdx + 1);
-                                _chatRefType = refType;
-                                _chatRefFetchItems(refType, partialId);
-                                }
-                                } else {
-                                chatInsertRef(refVal);
-                                }
-                                }
-                                }
+function chatRefKeydown(event) {
+  const popup = document.getElementById('chat-ref-popup');
+  if (!popup || popup.style.display === 'none') return;
+  if (event.key === 'ArrowDown') {
+    event.preventDefault();
+    if (_chatRefSuggestions.length > 0) {
+      _chatRefSelectedIdx = Math.min(_chatRefSelectedIdx + 1, _chatRefSuggestions.length - 1);
+      _chatRefUpdateHighlight();
+    }
+    return;
+  }
+  if (event.key === 'ArrowUp') {
+    event.preventDefault();
+    if (_chatRefSuggestions.length > 0) {
+      _chatRefSelectedIdx = Math.max(_chatRefSelectedIdx - 1, 0);
+      _chatRefUpdateHighlight();
+    }
+    return;
+  }
+  if (event.key === 'Tab') {
+    if (_chatRefSuggestions.length > 0) {
+      event.preventDefault();
+      if (_chatRefSelectedIdx < 0) {
+        _chatRefSelectedIdx = 0;
+      }
+      _chatRefPickSelected();
+    }
+    return;
+  }
+  if (event.key === 'Enter' && _chatRefSelectedIdx >= 0) {
+    event.preventDefault();
+    _chatRefPickSelected();
+    return;
+  }
+  if (event.key === 'Escape') {
+    event.preventDefault();
+    if (_chatRefPhase === 2) {
+      _chatRefGoBack();
+    } else {
+      _chatRefDismissed = true;
+      _chatRefDismissedAt = _chatRefStartPos;
+      _chatRefHidePopup();
+    }
+    return;
+  }
+}
 
-                                /* ── Highlight management ── */
+function _chatRefPickSelected() {
+  const selected = _chatRefSuggestions[_chatRefSelectedIdx];
+  if (!selected) return;
+  if (_chatRefPhase === 1) {
+    if (selected.type) {
+      _chatRefSelectCategory(selected.type);
+    }
+  } else {
+    const refVal = (typeof selected === 'string') ? selected : selected.ref;
+    if (refVal && refVal.endsWith('/')) {
+      const input = document.getElementById('chat-compose-input');
+      if (input) {
+        const before = input.value.substring(0, _chatRefStartPos);
+        const after = input.value.substring(input.selectionStart);
+        input.value = before + refVal + after;
+        const newPos = _chatRefStartPos + refVal.length;
+        input.selectionStart = newPos;
+        input.selectionEnd = newPos;
+        input.focus();
+        _chatRefPrefix = refVal;
+        const colonIdx = refVal.indexOf(':');
+        const refType = refVal.substring(1, colonIdx);
+        const partialId = refVal.substring(colonIdx + 1);
+        _chatRefType = refType;
+        _chatRefFetchItems(refType, partialId);
+      }
+    } else {
+      chatInsertRef(refVal);
+    }
+  }
+}
 
-                                function _chatRefUpdateHighlight() {
-                                const popup = document.getElementById('chat-ref-popup');
-                                if (!popup) return;
-                                let items;
-                                if (_chatRefPhase === 1) {
-                                items = popup.querySelectorAll('.chat-ref-category');
-                                } else {
-                                items = popup.querySelectorAll('.chat-ref-item');
-                                }
-                                for (let i = 0; i < items.length; i++) { if (i===_chatRefSelectedIdx) {
-                                        items[i].classList.add('chat-ref-active'); } else {
-                                        items[i].classList.remove('chat-ref-active'); } } if (_chatRefSelectedIdx>= 0 &&
-                                        items[_chatRefSelectedIdx]) {
-                                        items[_chatRefSelectedIdx].scrollIntoView({ block: 'nearest' });
-                                        }
-                                        }
+/* ── Highlight management ── */
 
-                                        /* ── Insert ref + hide popup ── */
+function _chatRefUpdateHighlight() {
+  const popup = document.getElementById('chat-ref-popup');
+  if (!popup) return;
+  let items;
+  if (_chatRefPhase === 1) {
+    items = popup.querySelectorAll('.chat-ref-category');
+  } else {
+    items = popup.querySelectorAll('.chat-ref-item');
+  }
+  for (let i = 0; i < items.length; i++) {
+    if (i === _chatRefSelectedIdx) {
+      items[i].classList.add('chat-ref-active');
+    } else {
+      items[i].classList.remove('chat-ref-active');
+    }
+  }
+  if (_chatRefSelectedIdx >= 0 && items[_chatRefSelectedIdx]) {
+    items[_chatRefSelectedIdx].scrollIntoView({ block: 'nearest' });
+  }
+}
 
-                                        function chatInsertRef(ref) {
-                                        const input = document.getElementById('chat-compose-input');
-                                        if (!input || _chatRefStartPos < 0) return; if (ref && ref.endsWith('/')) {
-                                                const before=input.value.substring(0, _chatRefStartPos); const
-                                                after=input.value.substring(input.selectionStart); input.value=before +
-                                                ref + after; const np=_chatRefStartPos + ref.length;
-                                                input.selectionStart=np; input.selectionEnd=np; input.focus();
-                                                _chatRefPrefix=ref; const ci=ref.indexOf(':'); const rt=ref.substring(1,
-                                                ci); const pi=ref.substring(ci + 1); _chatRefType=rt;
-                                                _chatRefFetchItems(rt, pi); return; } const
-                                                before=input.value.substring(0, _chatRefStartPos); const
-                                                after=input.value.substring(input.selectionStart); input.value=before +
-                                                ref + ' ' + after; const newPos=_chatRefStartPos + ref.length + 1;
-                                                input.selectionStart=newPos; input.selectionEnd=newPos; input.focus();
-                                                _chatRefHidePopup(); } function _chatRefHidePopup() { const
-                                                popup=document.getElementById('chat-ref-popup'); if (popup)
-                                                popup.style.display='none' ; _chatRefPhase=0; _chatRefType='' ;
-                                                _chatRefSuggestions=[]; _chatRefSelectedIdx=-1; _chatRefPrefix='' ;
-                                                _chatRefStartPos=-1; if (_chatRefDebounceTimer) {
-                                                clearTimeout(_chatRefDebounceTimer); _chatRefDebounceTimer=null; } } /*
-                                                ── Ref Embedding ── */ const _REF_CHIP_ICONS={ 'commit' : '&#x1F4DD;'
-                                                , 'branch' : '&#x1F500;' , 'run' : '&#x1F680;' , 'thread' : '&#x1F4AC;'
-                                                , 'trace' : '&#x1F4CB;' , 'audit' : '&#x1F4CA;' , 'user' : '&#x1F464;'
-                                                , 'code' : '&#x1F4BB;' , 'doc' : '&#x1F4C4;' , 'media' : '&#x1F5BC;'
-                                                , 'release' : '&#x1F4E6;' , 'file' : '&#x1F4C1;' }; function
-                                                _chatEmbedRefs(escapedText) { const
-                                                refPat=/@(run|thread|trace|user|commit|branch|audit|code|doc|media|release|file):([A-Za-z0-9_\-\/.]+)/g;
-                                                let mediaEmbeds='' ; const html=escapedText.replace(refPat,
-                                                function(match, refType, refId) { const icon=_REF_CHIP_ICONS[refType]
-                                                || '&#x1F517;' ; const shortLabel=_chatRefShortLabel(refType, refId);
-                                                const safeRef=esc('@' + refType + ':' + refId); const
-                                                chipClass='chat-ref-chip chat-ref-chip-' + refType; if
-                                                (refType==='media' ) { const ext=refId.split('.').pop().toLowerCase();
-                                                const
-                                                isImg=['jpg','jpeg','png','gif','webp','svg','bmp','ico'].indexOf(ext)>=
-                                                0;
-                                                const isVid = ['mp4','webm','mov'].indexOf(ext) >= 0;
-                                                const isAud = ['mp3','wav','ogg','flac','aac','m4a'].indexOf(ext) >= 0;
-                                                const dlUrl = '/api/content/download?path=' + encodeURIComponent(refId);
-                                                if (isImg) {
-                                                mediaEmbeds += `<div class="chat-ref-media-embed"><img src="${dlUrl}"
-                                                                alt="${esc(refId)}" class="chat-ref-media-img"
-                                                                onclick="chatRefClickMedia('${esc(refId)}')"
-                                                                title="Click to preview"></div>`;
-                                                } else if (isVid) {
-                                                mediaEmbeds += `<div class="chat-ref-media-embed"><video controls
-                                                                class="chat-ref-media-video" preload="metadata">
-                                                                <source src="${dlUrl}">
-                                                        </video></div>`;
-                                                } else if (isAud) {
-                                                mediaEmbeds += `<div class="chat-ref-media-embed"><audio controls
-                                                                class="chat-ref-media-audio" preload="metadata">
-                                                                <source src="${dlUrl}">
-                                                        </audio></div>`;
-                                                }
-                                                }
-                                                return `<span class="${chipClass}"
-                                                        onclick="chatRefClick('${refType}', '${esc(refId)}')"
-                                                        title="${safeRef}"><span
-                                                                class="chat-ref-chip-icon">${icon}</span><span
-                                                                class="chat-ref-chip-label">${esc(shortLabel)}</span></span>`;
-                                                });
-                                                return { html: html, mediaEmbeds: mediaEmbeds };
-                                                }
+/* ── Insert ref + hide popup ── */
 
-                                                function _chatRefShortLabel(refType, refId) {
-                                                if (refType === 'commit') {
-                                                return refId.length > 8 ? refId.substring(0, 8) : refId;
-                                                }
-                                                if (refType === 'code' || refType === 'doc' || refType === 'file' ||
-                                                refType === 'media') {
-                                                const parts = refId.split('/');
-                                                return parts[parts.length - 1];
-                                                }
-                                                if (refType === 'release' && refId.indexOf('/') >= 0) {
-                                                const rp = refId.split('/');
-                                                return rp[0] + '/' + rp.slice(1).join('/');
-                                                }
-                                                if (refType === 'user') {
-                                                return '@' + refId;
-                                                }
-                                                if (refType === 'thread' && refId.length > 16) {
-                                                return refId.substring(0, 16) + '&hellip;';
-                                                }
-                                                return refId;
-                                                }
+function chatInsertRef(ref) {
+  const input = document.getElementById('chat-compose-input');
+  if (!input || _chatRefStartPos < 0) return;
+  if (ref && ref.endsWith('/')) {
+    const before = input.value.substring(0, _chatRefStartPos);
+    const after = input.value.substring(input.selectionStart);
+    input.value = before + ref + after;
+    const np = _chatRefStartPos + ref.length;
+    input.selectionStart = np;
+    input.selectionEnd = np;
+    input.focus();
+    _chatRefPrefix = ref;
+    const ci = ref.indexOf(':');
+    const rt = ref.substring(1, ci);
+    const pi = ref.substring(ci + 1);
+    _chatRefType = rt;
+    _chatRefFetchItems(rt, pi);
+    return;
+  }
+  const before = input.value.substring(0, _chatRefStartPos);
+  const after = input.value.substring(input.selectionStart);
+  input.value = before + ref + ' ' + after;
+  const newPos = _chatRefStartPos + ref.length + 1;
+  input.selectionStart = newPos;
+  input.selectionEnd = newPos;
+  input.focus();
+  _chatRefHidePopup();
+}
 
-                                                /* ── Per-type click handlers ── */
+function _chatRefHidePopup() {
+  const popup = document.getElementById('chat-ref-popup');
+  if (popup) popup.style.display = 'none';
+  _chatRefPhase = 0;
+  _chatRefType = '';
+  _chatRefSuggestions = [];
+  _chatRefSelectedIdx = -1;
+  _chatRefPrefix = '';
+  _chatRefStartPos = -1;
+  if (_chatRefDebounceTimer) {
+    clearTimeout(_chatRefDebounceTimer);
+    _chatRefDebounceTimer = null;
+  }
+}
 
-                                                function chatRefClick(refType, refId) {
-                                                const ref = '@' + refType + ':' + refId;
-                                                if (refType === 'thread') {
-                                                if (typeof chatSelectThread === 'function') {
-                                                chatSelectThread(refId);
-                                                }
-                                                return;
-                                                }
-                                                if (refType === 'code' || refType === 'doc' || refType === 'file') {
-                                                if (typeof openFileInModal === 'function') {
-                                                openFileInModal(refId);
-                                                }
-                                                return;
-                                                }
-                                                if (refType === 'media') {
-                                                chatRefClickMedia(refId);
-                                                return;
-                                                }
-                                                api('/chat/refs/resolve?ref=' +
-                                                encodeURIComponent(ref)).then(function(data) {
-                                                if (data.error || !data.exists) {
-                                                const ep = data.error
-                                                ? '<p class="chat-ref-modal-error">'
-                                                        + esc(data.error) + '</p>'
-                                                : '';
-                                                modalOpen({
-                                                title: (_REF_CHIP_ICONS[refType] || '') + ' Reference Not Found',
-                                                body: '<div class="chat-ref-modal-empty">'
-                                                        + '<p>Could not resolve <code>'
-                                                    + esc(ref) + '</code></p>'
-                                                        + ep + '</div>'
-                                                });
-                                                return;
-                                                }
-                                                _chatRefOpenModal(refType, refId, data);
-                                                }).catch(function(e) {
-                                                modalOpen({
-                                                title: '&#x274C; Error',
-                                                body: `<p>Failed to resolve <code>${esc(ref)}</code>: ${esc(e.message)}
-                                                </p>`
-                                                });
-                                                });
-                                                }
+/* ── Ref Embedding ── */
 
-                                                function chatRefClickMedia(refId) {
-                                                if (typeof openFileInModal === 'function') {
-                                                openFileInModal(refId);
-                                                }
-                                                }
+const _REF_CHIP_ICONS = {
+  'commit':  '&#x1F4DD;',
+  'branch':  '&#x1F500;',
+  'run':     '&#x1F680;',
+  'thread':  '&#x1F4AC;',
+  'trace':   '&#x1F4CB;',
+  'audit':   '&#x1F4CA;',
+  'user':    '&#x1F464;',
+  'code':    '&#x1F4BB;',
+  'doc':     '&#x1F4C4;',
+  'media':   '&#x1F5BC;',
+  'release': '&#x1F4E6;',
+  'file':    '&#x1F4C1;'
+};
 
-                                                /* ── Ref modal ── */
+function _chatEmbedRefs(escapedText) {
+  const refPat = /@(run|thread|trace|user|commit|branch|audit|code|doc|media|release|file):([A-Za-z0-9_\-\/.]+)/g;
+  let mediaEmbeds = '';
+  const html = escapedText.replace(refPat, function(match, refType, refId) {
+    const icon = _REF_CHIP_ICONS[refType] || '&#x1F517;';
+    const shortLabel = _chatRefShortLabel(refType, refId);
+    const safeRef = esc('@' + refType + ':' + refId);
+    const chipClass = 'chat-ref-chip chat-ref-chip-' + refType;
+    if (refType === 'media') {
+      const ext = refId.split('.').pop().toLowerCase();
+      const isImg = ['jpg','jpeg','png','gif','webp','svg','bmp','ico'].indexOf(ext) >= 0;
+      const isVid = ['mp4','webm','mov'].indexOf(ext) >= 0;
+      const isAud = ['mp3','wav','ogg','flac','aac','m4a'].indexOf(ext) >= 0;
+      const dlUrl = '/api/content/download?path=' + encodeURIComponent(refId);
+      if (isImg) {
+        mediaEmbeds += '<div class="chat-ref-media-embed">'
+          + '<img src="' + dlUrl + '" alt="' + esc(refId) + '" class="chat-ref-media-img"'
+          + ' onclick="chatRefClickMedia(\'' + esc(refId) + '\')" title="Click to preview">'
+          + '</div>';
+      } else if (isVid) {
+        mediaEmbeds += '<div class="chat-ref-media-embed">'
+          + '<video controls class="chat-ref-media-video" preload="metadata">'
+          + '<source src="' + dlUrl + '">'
+          + '</video></div>';
+      } else if (isAud) {
+        mediaEmbeds += '<div class="chat-ref-media-embed">'
+          + '<audio controls class="chat-ref-media-audio" preload="metadata">'
+          + '<source src="' + dlUrl + '">'
+          + '</audio></div>';
+      }
+    }
+    return '<span class="' + chipClass + '"'
+      + ' onclick="chatRefClick(\'' + refType + '\', \'' + esc(refId) + '\')"'
+      + ' title="' + safeRef + '">'
+      + '<span class="chat-ref-chip-icon">' + icon + '</span>'
+      + '<span class="chat-ref-chip-label">' + esc(shortLabel) + '</span>'
+      + '</span>';
+  });
+  return { html: html, mediaEmbeds: mediaEmbeds };
+}
 
-                                                function _row(k, v, tag) {
-                                                tag = tag || 'span';
-                                                return '<div class="chat-ref-modal-row">'
-                                                        + '<span class="chat-ref-modal-key">'
-                                                                + esc(k) + '</span>'
-                                                        + '<' + tag + ' class="chat-ref-modal-val">' + esc(v) + '</' +
-                                                                tag + '>' + '</div>' ; } function _chatRefOpenModal(rt,
-                                                                ri, d) { let t=(_REF_CHIP_ICONS[rt] || '' ) + ' ' ; let
-                                                                b='' ; if (rt==='commit' ) { t +='Commit ' +
-                                                                (d.short_hash || ri);
-                                                                b='<div class="chat-ref-modal-detail">' + _row('Hash',
-                                                                d.hash || ri, 'code' ) + _row('Message', d.message || ''
-                                                                ) + _row('Author', d.author || '' ) + _row('Date',
-                                                                d.date || '' ) + '</div>' ; } else if (rt==='branch' ) {
-                                                                t +='Branch: ' + ri;
-                                                                b='<div class="chat-ref-modal-detail">' + _row('Branch',
-                                                                ri) + _row('HEAD SHA', d.sha || '' , 'code' ) + '</div>'
-                                                                ; } else if (rt==='trace' ) { t +='Trace: ' + (d.name ||
-                                                                ri); b='<div class="chat-ref-modal-detail">' +
-                                                                _row('Name', d.name || '' ) + _row('Classification',
-                                                                d.classification || '' ) + _row('Started', d.started_at
-                                                                || '' ); if (d.auto_summary) { b +=_row('Summary',
-                                                                d.auto_summary); } b +='</div>' ; } else if (rt==='run'
-                                                                ) { t +='Run: ' + (d.run_type || ri);
-                                                                b='<div class="chat-ref-modal-detail">' + _row('Type',
-                                                                d.run_type || '' ) + _row('Summary', d.summary || '' ) +
-                                                                _row('Status', d.status || '' ) + _row('Started',
-                                                                d.started_at || '' ) + '</div>' ; } else if
-                                                                (rt==='audit' ) { t +='Audit: ' + (d.operation_type ||
-                                                                ri); b='<div class="chat-ref-modal-detail">' +
-                                                                _row('Operation', d.operation_type || '' ) +
-                                                                _row('Status', d.status || '' ) + _row('Automation',
-                                                                d.automation || '' ) + _row('Timestamp', d.timestamp
-                                                                || '' ) + '</div>' ; } else if (rt==='user' ) { t +='@'
-                                                                + ri; b='<div class="chat-ref-modal-detail">' +
-                                                                _row('User', d.name || ri) + '</div>' ; } else if
-                                                                (rt==='release' ) { t +='Release: ' + ri;
-                                                                b='<div class="chat-ref-modal-detail">' ; const
-                                                                ks=Object.keys(d); for (let i=0; i < ks.length; i++) {
-                                                                if (ks[i]==='type' ) continue; if (ks[i]==='ref' )
-                                                                continue; const v=d[ks[i]]; const dv=(typeof
-                                                                v==='object' ) ? JSON.stringify(v) : String(v); b
-                                                                +=_row(ks[i], dv); } b +='</div>' ; } else { t +=rt
-                                                                + ': ' + ri; b='<div class="chat-ref-modal-detail">' ;
-                                                                const k2=Object.keys(d); for (let j=0; j < k2.length;
-                                                                j++) { if (k2[j]==='type' ) continue; if (k2[j]==='ref'
-                                                                ) continue; const v=d[k2[j]]; const dv=(typeof
-                                                                v==='object' ) ? JSON.stringify(v) : String(v); b
-                                                                +=_row(k2[j], dv); } b +='</div>' ; } modalOpen({ title:
-                                                                t, body: b }); }
+function _chatRefShortLabel(refType, refId) {
+  if (refType === 'commit') {
+    return refId.length > 8 ? refId.substring(0, 8) : refId;
+  }
+  if (refType === 'code' || refType === 'doc' || refType === 'file' || refType === 'media') {
+    const parts = refId.split('/');
+    return parts[parts.length - 1];
+  }
+  if (refType === 'release' && refId.indexOf('/') >= 0) {
+    const rp = refId.split('/');
+    return rp[0] + '/' + rp.slice(1).join('/');
+  }
+  if (refType === 'user') {
+    return '@' + refId;
+  }
+  if (refType === 'thread' && refId.length > 16) {
+    return refId.substring(0, 16) + '&hellip;';
+  }
+  return refId;
+}
+
+/* ── Per-type click handlers ── */
+
+function chatRefClick(refType, refId) {
+  const ref = '@' + refType + ':' + refId;
+  if (refType === 'thread') {
+    if (typeof chatSelectThread === 'function') {
+      chatSelectThread(refId);
+    }
+    return;
+  }
+  if (refType === 'code' || refType === 'doc' || refType === 'file') {
+    if (typeof openFileInModal === 'function') {
+      openFileInModal(refId);
+    }
+    return;
+  }
+  if (refType === 'media') {
+    chatRefClickMedia(refId);
+    return;
+  }
+  api('/chat/refs/resolve?ref=' + encodeURIComponent(ref)).then(function(data) {
+    if (data.error || !data.exists) {
+      var ep = data.error
+        ? '<p class="chat-ref-modal-error">' + esc(data.error) + '</p>'
+        : '';
+      modalOpen({
+        title: (_REF_CHIP_ICONS[refType] || '') + ' Reference Not Found',
+        body: '<div class="chat-ref-modal-empty">'
+          + '<p>Could not resolve <code>' + esc(ref) + '</code></p>'
+          + ep + '</div>'
+      });
+      return;
+    }
+    _chatRefOpenModal(refType, refId, data);
+  }).catch(function(e) {
+    modalOpen({
+      title: '&#x274C; Error',
+      body: '<p>Failed to resolve <code>' + esc(ref) + '</code>: ' + esc(e.message) + '</p>'
+    });
+  });
+}
+
+function chatRefClickMedia(refId) {
+  if (typeof openFileInModal === 'function') {
+    openFileInModal(refId);
+  }
+}
+
+/* ── Ref modal ── */
+
+function _row(k, v, tag) {
+  tag = tag || 'span';
+  return '<div class="chat-ref-modal-row">'
+    + '<span class="chat-ref-modal-key">' + esc(k) + '</span>'
+    + '<' + tag + ' class="chat-ref-modal-val">' + esc(v) + '</' + tag + '>'
+    + '</div>';
+}
+
+function _chatRefOpenModal(rt, ri, d) {
+  let t = (_REF_CHIP_ICONS[rt] || '') + ' ';
+  let b = '';
+
+  if (rt === 'commit') {
+    t += 'Commit ' + (d.short_hash || ri);
+    b = '<div class="chat-ref-modal-detail">'
+      + _row('Hash', d.hash || ri, 'code')
+      + _row('Message', d.message || '')
+      + _row('Author', d.author || '')
+      + _row('Date', d.date || '')
+      + '</div>';
+  } else if (rt === 'branch') {
+    t += 'Branch: ' + ri;
+    b = '<div class="chat-ref-modal-detail">'
+      + _row('Branch', ri)
+      + _row('HEAD SHA', d.sha || '', 'code')
+      + '</div>';
+  } else if (rt === 'trace') {
+    t += 'Trace: ' + (d.name || ri);
+    b = '<div class="chat-ref-modal-detail">'
+      + _row('Name', d.name || '')
+      + _row('Classification', d.classification || '')
+      + _row('Started', d.started_at || '');
+    if (d.auto_summary) {
+      b += _row('Summary', d.auto_summary);
+    }
+    b += '</div>';
+  } else if (rt === 'run') {
+    t += 'Run: ' + (d.run_type || ri);
+    b = '<div class="chat-ref-modal-detail">'
+      + _row('Type', d.run_type || '')
+      + _row('Summary', d.summary || '')
+      + _row('Status', d.status || '')
+      + _row('Started', d.started_at || '')
+      + '</div>';
+  } else if (rt === 'audit') {
+    t += 'Audit: ' + (d.operation_type || ri);
+    b = '<div class="chat-ref-modal-detail">'
+      + _row('Operation', d.operation_type || '')
+      + _row('Status', d.status || '')
+      + _row('Automation', d.automation || '')
+      + _row('Timestamp', d.timestamp || '')
+      + '</div>';
+  } else if (rt === 'user') {
+    t += '@' + ri;
+    b = '<div class="chat-ref-modal-detail">'
+      + _row('User', d.name || ri)
+      + '</div>';
+  } else if (rt === 'release') {
+    t += 'Release: ' + ri;
+    b = '<div class="chat-ref-modal-detail">';
+    const ks = Object.keys(d);
+    for (let i = 0; i < ks.length; i++) {
+      if (ks[i] === 'type') continue;
+      if (ks[i] === 'ref') continue;
+      const v = d[ks[i]];
+      const dv = (typeof v === 'object') ? JSON.stringify(v) : String(v);
+      b += _row(ks[i], dv);
+    }
+    b += '</div>';
+  } else {
+    t += rt + ': ' + ri;
+    b = '<div class="chat-ref-modal-detail">';
+    const k2 = Object.keys(d);
+    for (let j = 0; j < k2.length; j++) {
+      if (k2[j] === 'type') continue;
+      if (k2[j] === 'ref') continue;
+      const v = d[k2[j]];
+      const dv = (typeof v === 'object') ? JSON.stringify(v) : String(v);
+      b += _row(k2[j], dv);
+    }
+    b += '</div>';
+  }
+
+  modalOpen({ title: t, body: b });
+}

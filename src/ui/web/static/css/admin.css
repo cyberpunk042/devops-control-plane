@@ -3445,10 +3445,14 @@ select option {
 
 .chat-panel {
     display: flex;
-    gap: var(--space-lg);
+    gap: 0;
     height: calc(100vh - 260px);
     min-height: 420px;
     margin: calc(-1 * var(--space-lg));
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+    border: 1px solid var(--border-subtle);
+    background: var(--bg-primary);
 }
 
 /* ── Sidebar card ────────────────────────────────────────────────── */
@@ -3461,7 +3465,6 @@ select option {
     flex-direction: column;
     background: var(--bg-secondary);
     border-right: 1px solid var(--border);
-    border-radius: var(--radius-lg) 0 0 var(--radius-lg);
     overflow: hidden;
 }
 
@@ -3624,7 +3627,7 @@ select option {
     display: flex;
     flex-direction: column;
     min-width: 0;
-    padding: var(--space-md) var(--space-lg) var(--space-md) var(--space-sm);
+    padding: var(--space-md) var(--space-lg) var(--space-md) var(--space-lg);
 }
 
 .chat-conv-header {
@@ -3699,43 +3702,58 @@ select option {
 }
 
 .chat-filters {
-    display: inline-flex;
-    gap: 0;
+    display: flex;
+    align-items: center;
+    gap: 3px;
     background: var(--bg-inset);
     border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-sm);
-    padding: 2px;
-    overflow: hidden;
+    border-radius: var(--radius-md);
+    padding: 3px;
+    flex-wrap: nowrap;
 }
 
 .chat-source-filter {
-    padding: 4px 10px;
-    font-size: 0.72rem;
-    border-radius: 4px;
+    padding: 5px 12px;
+    font-size: 0.74rem;
+    border-radius: var(--radius-sm);
     border: none;
     background: transparent;
     color: var(--text-muted);
     cursor: pointer;
-    transition: all 0.15s ease;
+    transition: all 0.18s ease;
     font-family: var(--font-sans);
     font-weight: 500;
     white-space: nowrap;
+    letter-spacing: 0.01em;
 }
 
 .chat-source-filter:hover {
     color: var(--text-primary);
-    background: var(--bg-card-hover);
+    background: hsla(220, 20%, 50%, 0.1);
 }
 
 .chat-source-filter.active {
     background: var(--accent);
     color: #fff;
-    box-shadow: 0 1px 4px var(--accent-glow);
+    box-shadow: 0 1px 6px var(--accent-glow);
+    font-weight: 600;
 }
 
 .chat-sort-btn {
-    font-size: 0.72rem !important;
-    padding: 4px 8px !important;
+    font-size: 0.73rem !important;
+    padding: 5px 10px !important;
+    margin-left: auto;
+    border-radius: var(--radius-sm) !important;
+    border-color: var(--border-subtle) !important;
+    background: var(--bg-inset) !important;
+    color: var(--text-muted) !important;
+    transition: all 0.15s ease;
+}
+
+.chat-sort-btn:hover {
+    color: var(--text-primary) !important;
+    border-color: var(--border) !important;
+    background: var(--bg-card-hover) !important;
 }
 
 /* ── Messages ────────────────────────────────────────────────────── */
@@ -3750,21 +3768,22 @@ select option {
 }
 
 .chat-message {
-    padding: 12px 14px;
+    padding: 14px 16px;
     border-radius: var(--radius-md);
     background: var(--bg-card);
     border: 1px solid var(--border-subtle);
     border-left: 3px solid var(--border);
-    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    transition: border-color 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
 }
 
 .chat-message:hover {
     border-color: var(--border);
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.18);
+    background: var(--bg-card-hover);
 }
 
 .chat-message.manual {
-    border-left-color: var(--text-muted);
+    border-left-color: hsla(220, 12%, 60%, 0.6);
 }
 
 .chat-message.trace {
@@ -4099,8 +4118,9 @@ select option {
 
 .chat-compose {
     border-top: 1px solid var(--border-subtle);
-    padding-top: var(--space-md);
+    padding: var(--space-md) 0 var(--space-xs) 0;
     margin-top: auto;
+    background: var(--bg-primary);
 }
 
 .chat-compose-wrap {
@@ -4112,7 +4132,7 @@ select option {
     font-size: 0.85rem;
     padding: 10px 14px;
     resize: vertical;
-    background: var(--bg-input);
+    background: var(--bg-inset);
     border: 1px solid var(--border);
     border-radius: var(--radius-md);
     color: var(--text-primary);
@@ -4120,7 +4140,7 @@ select option {
     min-height: 52px;
     max-height: 200px;
     line-height: 1.5;
-    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    transition: border-color 0.18s ease, box-shadow 0.18s ease;
 }
 
 .chat-textarea:focus {
