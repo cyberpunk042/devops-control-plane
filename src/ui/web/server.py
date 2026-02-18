@@ -74,6 +74,7 @@ def create_app(
     from src.ui.web.routes_vault import vault_bp
     from src.ui.web.routes_devops import devops_bp
     from src.ui.web.routes_audit import audit_bp
+    from src.ui.web.routes_chat import chat_bp
     from src.ui.web.routes_project import project_bp
     from src.ui.web.routes_events import events_bp
 
@@ -101,6 +102,7 @@ def create_app(
     app.register_blueprint(devops_bp, url_prefix="/api")
     app.register_blueprint(project_bp, url_prefix="/api")
     app.register_blueprint(events_bp, url_prefix="/api")
+    app.register_blueprint(chat_bp, url_prefix="/api")
     app.register_blueprint(audit_bp)
 
     # Initialize vault with project root (for auto-lock)

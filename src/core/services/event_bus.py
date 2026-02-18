@@ -96,6 +96,36 @@ class EventBus:
         with self._lock:
             return len(self._subscribers)
 
+    # ── Listener management (internal consumers) ────────────────
+
+    def add_listener(self, q: queue.Queue) -> None:
+        """Register a queue to receive all published events.
+
+        This is for internal consumers (e.g. trace recorder) that need
+        to capture events without using the SSE ``subscribe()`` generator.
+        The queue receives the same event dicts as SSE clients.
+
+        Args:
+            q: A ``queue.Queue`` that will receive event dicts.
+        """
+        with self._lock:
+            if q not in self._subscribers:
+                self._subscribers.append(q)
+                logger.debug("Listener added (subscribers=%d)", len(self._subscribers))
+
+    def remove_listener(self, q: queue.Queue) -> None:
+        """Unregister a previously registered listener queue.
+
+        Safe to call even if the queue was already removed (idempotent).
+
+        Args:
+            q: The queue to remove.
+        """
+        with self._lock:
+            if q in self._subscribers:
+                self._subscribers.remove(q)
+                logger.debug("Listener removed (subscribers=%d)", len(self._subscribers))
+
     # ── Publishing ──────────────────────────────────────────────
 
     def publish(
