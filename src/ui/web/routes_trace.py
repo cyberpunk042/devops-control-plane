@@ -220,8 +220,8 @@ def trace_share():
             return jsonify({"error": f"Trace not found: {trace_id}"}), 404
 
         # Push in background so other machines see it
-        from src.core.services.ledger.worktree import push_ledger
-        threading.Thread(target=push_ledger, args=(root,), daemon=True).start()
+        from src.core.services.ledger.worktree import push_ledger_branch
+        threading.Thread(target=push_ledger_branch, args=(root,), daemon=True).start()
 
         return jsonify({"trace_id": trace_id, "shared": True})
     except Exception as e:
@@ -250,8 +250,8 @@ def trace_unshare():
             return jsonify({"error": f"Trace not found: {trace_id}"}), 404
 
         # Push in background so other machines see the flag change
-        from src.core.services.ledger.worktree import push_ledger
-        threading.Thread(target=push_ledger, args=(root,), daemon=True).start()
+        from src.core.services.ledger.worktree import push_ledger_branch
+        threading.Thread(target=push_ledger_branch, args=(root,), daemon=True).start()
 
         return jsonify({"trace_id": trace_id, "shared": False})
     except Exception as e:
