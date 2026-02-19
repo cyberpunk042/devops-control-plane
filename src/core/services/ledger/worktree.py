@@ -139,6 +139,18 @@ def ensure_worktree(project_root: Path) -> Path:
                 timeout=30,
             )
             if r.returncode == 0:
+                # Stash any uncommitted changes (e.g. local-only traces)
+                # before rebase so they don't block it.
+                stash_r = _run_ledger_git(
+                    "stash", "--include-untracked",
+                    project_root=project_root,
+                    timeout=10,
+                )
+                did_stash = (
+                    stash_r.returncode == 0
+                    and "No local changes" not in stash_r.stdout
+                )
+
                 r2 = _run_ledger_git(
                     "rebase", f"origin/{LEDGER_BRANCH}",
                     project_root=project_root,
@@ -150,6 +162,14 @@ def ensure_worktree(project_root: Path) -> Path:
                         logger.warning("Ledger rebase in ensure_worktree: %s", stderr)
                         # Abort the failed rebase to keep the worktree clean
                         _run_ledger_git("rebase", "--abort", project_root=project_root)
+
+                # Restore stashed changes
+                if did_stash:
+                    _run_ledger_git(
+                        "stash", "pop",
+                        project_root=project_root,
+                        timeout=10,
+                    )
             else:
                 stderr = r.stderr.strip()
                 if not any(s in stderr.lower() for s in (
