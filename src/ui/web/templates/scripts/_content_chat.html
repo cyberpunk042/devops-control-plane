@@ -421,7 +421,7 @@ async function chatLoadMessages(threadId) {
     container.innerHTML = '<div class="chat-empty">'
       + '<p style="color:var(--error)">&amp;#x26A0; ' + esc(e.message) + '</p>'
       + '</div>';
-    _chatStopPoll();
+    // Don't kill the poll — transient errors should self-heal on next cycle
   }
 }
 
