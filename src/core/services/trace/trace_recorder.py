@@ -557,6 +557,7 @@ def list_traces(project_root: Path, n: int = 20) -> list[SessionTrace]:
         List of SessionTrace (without events loaded — use get_trace_events for those).
     """
     seen: dict[str, SessionTrace] = {}
+    hidden = _get_hidden_traces(project_root)
 
     # Scan both directories: ledger first (authoritative), then local
     for traces_root in (_ledger_traces_dir(project_root), _local_traces_dir(project_root)):
@@ -570,8 +571,8 @@ def list_traces(project_root: Path, n: int = 20) -> list[SessionTrace]:
                 if not trace_file.is_file():
                     continue
                 tid = td.name
-                if tid in seen:
-                    continue  # ledger copy already loaded
+                if tid in seen or tid in hidden:
+                    continue  # already loaded or deleted
                 try:
                     data = json.loads(trace_file.read_text(encoding="utf-8"))
                     seen[tid] = SessionTrace.model_validate(data)
@@ -640,24 +641,40 @@ def active_recordings() -> list[str]:
 
 
 def delete_trace(project_root: Path, trace_id: str) -> bool:
-    """Delete a trace from local storage (.state/traces/).
+    """Delete a trace locally — removes from both .state/traces/ and .ledger/traces/.
 
-    Does NOT remove from the ledger — use unshare_trace() for that.
-    If the trace only exists in the ledger (not local), this is a no-op.
+    Does NOT remove the chat message or git history.
+    Adds the trace_id to a local hidden list so it won't reappear
+    when the ledger branch is pulled from another machine.
 
     Args:
         project_root: Repository root.
         trace_id: The trace to delete.
 
     Returns:
-        True if deleted, False if not found locally.
+        True if deleted, False if not found anywhere.
     """
+    found = False
+
+    # Remove local copy
     local_dir = _local_traces_dir(project_root) / trace_id
-    if not local_dir.is_dir():
+    if local_dir.is_dir():
+        shutil.rmtree(local_dir)
+        found = True
+
+    # Remove ledger copy (file only — git history stays)
+    ledger_dir = _ledger_traces_dir(project_root) / trace_id
+    if ledger_dir.is_dir():
+        shutil.rmtree(ledger_dir)
+        found = True
+
+    if not found:
         return False
 
-    shutil.rmtree(local_dir)
-    logger.info("Deleted local trace: %s", trace_id)
+    # Add to hidden list so it won't reappear on next pull
+    _add_hidden_trace(project_root, trace_id)
+
+    logger.info("Deleted trace: %s", trace_id)
     return True
 
 
@@ -676,3 +693,28 @@ def _local_traces_dir(project_root: Path) -> Path:
     d = project_root / ".state" / "traces"
     d.mkdir(parents=True, exist_ok=True)
     return d
+
+
+def _hidden_traces_file(project_root: Path) -> Path:
+    """Path to the hidden traces list (.state/traces_hidden.json)."""
+    return project_root / ".state" / "traces_hidden.json"
+
+
+def _get_hidden_traces(project_root: Path) -> set[str]:
+    """Load the set of trace_ids that have been deleted locally."""
+    f = _hidden_traces_file(project_root)
+    if not f.is_file():
+        return set()
+    try:
+        return set(json.loads(f.read_text(encoding="utf-8")))
+    except Exception:
+        return set()
+
+
+def _add_hidden_trace(project_root: Path, trace_id: str) -> None:
+    """Add a trace_id to the hidden list."""
+    hidden = _get_hidden_traces(project_root)
+    hidden.add(trace_id)
+    f = _hidden_traces_file(project_root)
+    f.parent.mkdir(parents=True, exist_ok=True)
+    f.write_text(json.dumps(sorted(hidden), indent=2), encoding="utf-8")
