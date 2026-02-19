@@ -133,7 +133,8 @@ def ensure_worktree(project_root: Path) -> Path:
         from src.core.services.git_auth import is_auth_ok
         if is_auth_ok():
             r = _run_ledger_git(
-                "fetch", "origin", LEDGER_BRANCH,
+                "fetch", "origin",
+                f"+refs/heads/{LEDGER_BRANCH}:refs/remotes/origin/{LEDGER_BRANCH}",
                 project_root=project_root,
                 timeout=30,
             )
@@ -546,7 +547,8 @@ def pull_ledger_branch(project_root: Path) -> bool:
       2. ``git -C .scp-ledger rebase FETCH_HEAD``
     """
     r = _run_ledger_git(
-        "fetch", "origin", LEDGER_BRANCH,
+        "fetch", "origin",
+        f"+refs/heads/{LEDGER_BRANCH}:refs/remotes/origin/{LEDGER_BRANCH}",
         project_root=project_root,
         timeout=30,
     )

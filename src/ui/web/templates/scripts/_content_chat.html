@@ -84,9 +84,13 @@ function _chatStartPoll() {
       }
 
       // Refresh thread list every 3rd poll cycle (~15s at base)
+      var didThreadRefresh = false;
       if (_chatPollCycles % 3 === 0) {
-        try { await chatLoadThreads(); } catch(e) {}
+        try { await chatLoadThreads(); didThreadRefresh = true; } catch(e) {}
       }
+
+      // Skip message fetch if we just refreshed threads (avoids double fetch)
+      if (didThreadRefresh) return;
 
       const data = await api('/chat/messages?thread_id=' + encodeURIComponent(_chatSelectedThread) + '&n=100');
       const newMsgs = data.messages || [];
