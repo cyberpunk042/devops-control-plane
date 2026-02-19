@@ -473,7 +473,7 @@ def notes_append(
 
     Args:
         project_root: Repository root.
-        ref: Notes ref (e.g. ``refs/notes/scp-chat``).
+        ref: Notes ref (e.g. ``refs/notes/chat``).
         target: Object to attach the note to (tag SHA, commit SHA).
         content: Content to append.
 

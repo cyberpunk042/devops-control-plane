@@ -2,7 +2,7 @@
 Chat operations — send, list, thread CRUD, push/pull.
 
 Uses two storage backends:
-  - Git notes (``refs/notes/scp-chat``) for run-attached messages
+  - Git notes (``refs/notes/chat``) for run-attached messages
   - Ledger branch files (``.ledger/chat/threads/``) for thread messages
 
 Uses ``chat_crypto.py`` for encryption/decryption.
@@ -36,7 +36,7 @@ except Exception:  # pragma: no cover
 
 logger = logging.getLogger(__name__)
 
-NOTES_REF = "refs/notes/scp-chat"
+NOTES_REF = "refs/notes/chat"
 GENERAL_THREAD_ID = "general"
 
 
@@ -672,7 +672,7 @@ def push_chat(project_root: Path) -> bool:
     """Push chat data to origin.
 
     Pushes:
-      1. ``refs/notes/scp-chat`` (run-attached messages)
+      1. ``refs/notes/chat`` (run-attached messages)
       2. Ledger branch (which contains thread files)
 
     The ledger branch push is handled by the ledger push mechanism.
@@ -705,7 +705,7 @@ def pull_chat(project_root: Path) -> bool:
     """Pull chat data from origin.
 
     Pulls:
-      1. ``refs/notes/scp-chat`` (run-attached messages)
+      1. ``refs/notes/chat`` (run-attached messages)
       2. Ledger branch (which contains thread files)
     """
     from src.core.services.ledger.ledger_ops import pull_ledger
