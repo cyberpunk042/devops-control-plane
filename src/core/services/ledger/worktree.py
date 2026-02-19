@@ -123,49 +123,39 @@ def ensure_worktree(project_root: Path) -> Path:
     if not _worktree_is_valid(project_root):
         _attach_worktree(project_root)
 
-    # 3.5. Ensure proper tracking config for scp-ledger branch.
-    #      VS Code can inject vscode-merge-base pointing to origin/main which
-    #      causes "Cannot rebase onto multiple branches" during pull --rebase.
-    if wt.is_dir():
-        _run_ledger_git(
-            "config", "--local", "branch.scp-ledger.remote", "origin",
-            project_root=project_root,
-        )
-        _run_ledger_git(
-            "config", "--local", "branch.scp-ledger.merge", f"refs/heads/{LEDGER_BRANCH}",
-            project_root=project_root,
-        )
-        # Remove stale VS Code merge-base entries that cause conflicts
-        _run_ledger_git(
-            "config", "--local", "--unset", "branch.scp-ledger.vscode-merge-base",
-            project_root=project_root,
-        )
-        _run_ledger_git(
-            "config", "--local", "--unset", "branch.main.vscode-merge-base",
-            project_root=project_root,
-        )
-
-    # 4. Pull latest from origin into worktree (safe for checked-out branch)
-    #    NOTE: `git fetch origin X:X` fails when X is checked out in a worktree.
-    #    Using `git -C .scp-ledger pull --rebase` works correctly.
+    # 4. Fetch + rebase latest from origin into worktree.
+    #    We avoid `pull --rebase` because VS Code injects vscode-merge-base
+    #    config entries that cause "Cannot rebase onto multiple branches."
+    #    Using fetch + rebase bypasses branch tracking config entirely.
     #    Only attempt if auth has been verified — otherwise this hangs for 30s
     #    waiting for SSH passphrase on machines that haven't unlocked yet.
     if wt.is_dir():
         from src.core.services.git_auth import is_auth_ok
         if is_auth_ok():
             r = _run_ledger_git(
-                "pull", "--rebase", "origin", LEDGER_BRANCH,
+                "fetch", "origin", LEDGER_BRANCH,
                 project_root=project_root,
                 timeout=30,
             )
-            if r.returncode != 0:
+            if r.returncode == 0:
+                r2 = _run_ledger_git(
+                    "rebase", "FETCH_HEAD",
+                    project_root=project_root,
+                    timeout=15,
+                )
+                if r2.returncode != 0:
+                    stderr = r2.stderr.strip()
+                    if stderr:
+                        logger.warning("Ledger rebase in ensure_worktree: %s", stderr)
+                        # Abort the failed rebase to keep the worktree clean
+                        _run_ledger_git("rebase", "--abort", project_root=project_root)
+            else:
                 stderr = r.stderr.strip()
-                # These are fine — remote doesn't have the branch yet
                 if not any(s in stderr.lower() for s in (
                     "no tracking", "couldn't find remote", "no such remote",
                     "invalid upstream",
                 )):
-                    logger.warning("Ledger pull in ensure_worktree: %s", stderr)
+                    logger.warning("Ledger fetch in ensure_worktree: %s", stderr)
 
     # 5. Ensure .gitignore contains the entry
     _ensure_gitignore(project_root)
@@ -545,20 +535,38 @@ def push_run_tags(project_root: Path) -> bool:
 
 
 def pull_ledger_branch(project_root: Path) -> bool:
-    """Pull scp-ledger branch from origin (rebase).
+    """Pull scp-ledger branch from origin (fetch + rebase).
+
+    Uses fetch + rebase instead of pull --rebase to avoid VS Code
+    vscode-merge-base config entries that cause "Cannot rebase onto
+    multiple branches."
 
     Steps:
-      1. ``git -C .scp-ledger pull --rebase origin scp-ledger``
+      1. ``git -C .scp-ledger fetch origin scp-ledger``
+      2. ``git -C .scp-ledger rebase FETCH_HEAD``
     """
     r = _run_ledger_git(
-        "pull", "--rebase", "origin", LEDGER_BRANCH,
+        "fetch", "origin", LEDGER_BRANCH,
         project_root=project_root,
         timeout=30,
     )
     if r.returncode != 0:
         stderr = r.stderr.strip()
         if "no tracking" not in stderr.lower() and "couldn't find remote" not in stderr.lower():
-            logger.warning("Ledger pull issue: %s", stderr)
+            logger.warning("Ledger fetch issue: %s", stderr)
+            return False
+
+    r2 = _run_ledger_git(
+        "rebase", "FETCH_HEAD",
+        project_root=project_root,
+        timeout=15,
+    )
+    if r2.returncode != 0:
+        stderr = r2.stderr.strip()
+        if stderr:
+            logger.warning("Ledger rebase issue: %s", stderr)
+            # Abort the failed rebase to keep the worktree clean
+            _run_ledger_git("rebase", "--abort", project_root=project_root)
             return False
     return True
 
