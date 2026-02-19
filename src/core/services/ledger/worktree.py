@@ -123,6 +123,28 @@ def ensure_worktree(project_root: Path) -> Path:
     if not _worktree_is_valid(project_root):
         _attach_worktree(project_root)
 
+    # 3.5. Ensure proper tracking config for scp-ledger branch.
+    #      VS Code can inject vscode-merge-base pointing to origin/main which
+    #      causes "Cannot rebase onto multiple branches" during pull --rebase.
+    if wt.is_dir():
+        _run_ledger_git(
+            "config", "--local", "branch.scp-ledger.remote", "origin",
+            project_root=project_root,
+        )
+        _run_ledger_git(
+            "config", "--local", "branch.scp-ledger.merge", f"refs/heads/{LEDGER_BRANCH}",
+            project_root=project_root,
+        )
+        # Remove stale VS Code merge-base entries that cause conflicts
+        _run_ledger_git(
+            "config", "--local", "--unset", "branch.scp-ledger.vscode-merge-base",
+            project_root=project_root,
+        )
+        _run_ledger_git(
+            "config", "--local", "--unset", "branch.main.vscode-merge-base",
+            project_root=project_root,
+        )
+
     # 4. Pull latest from origin into worktree (safe for checked-out branch)
     #    NOTE: `git fetch origin X:X` fails when X is checked out in a worktree.
     #    Using `git -C .scp-ledger pull --rebase` works correctly.
