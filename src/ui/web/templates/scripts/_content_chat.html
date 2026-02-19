@@ -273,11 +273,12 @@ function chatRenderThreadList(threads) {
     const cls = 'chat-thread-item' + (isActive ? ' active' : '');
 
     html += '<div class="' + cls + '" data-thread-id="' + esc(t.thread_id) + '"'
-      + ' onclick="chatSelectThread(this.dataset.threadId)">'
+      + ' onclick="chatSelectThread(this.dataset.threadId)">' 
       + '<div class="chat-thread-row1">'
       + '<span class="chat-thread-icon">' + icon + '</span>'
       + '<span class="chat-thread-title">' + esc(t.title) + '</span>'
       + '<span class="chat-thread-time">' + relTime + '</span>'
+      + (!isGeneral ? '<button class="chat-thread-delete-btn" onclick="event.stopPropagation(); chatConfirmDeleteThread(\'' + esc(t.thread_id) + '\', \'' + esc(t.title) + '\')" title="Delete thread">&#x1F5D1;</button>' : '')
       + '</div>';
 
     if (tags.length > 0 || msgCount > 0) {
@@ -479,6 +480,84 @@ async function chatDoDelete(msgId) {
   }
 }
 
+
+// ═══════════════════════════════════════════════════════════════
+// Feature 4c — Delete Thread
+// ═══════════════════════════════════════════════════════════════
+
+function chatConfirmDeleteThread(threadId, threadTitle) {
+  var delBody = '<p style="color:var(--text-secondary);margin-bottom:1rem">'
+    + 'You are about to permanently delete the thread <strong>"' + esc(threadTitle) + '"</strong> '
+    + 'and all its messages. This cannot be undone.</p>'
+    + '<label style="display:block;margin-bottom:0.5rem;color:var(--text-muted);font-size:0.85rem">'
+    + 'Type <strong>CONFIRM</strong> to proceed:</label>'
+    + '<input type="text" id="chat-delete-thread-confirm" '
+    + 'style="width:100%;padding:0.5rem;border:1px solid var(--border);border-radius:6px;'
+    + 'background:var(--bg-secondary);color:var(--text-primary);font-size:0.9rem" '
+    + 'autocomplete="off" spellcheck="false" '
+    + 'oninput="_chatDeleteThreadValidate()" '
+    + 'placeholder="Type CONFIRM here">';
+
+  modalOpen({
+    title: '\u26A0\uFE0F Delete Thread',
+    body: delBody,
+    footerButtons: [
+      { label: 'Cancel', cls: 'btn-ghost', onclick: 'modalClose()' },
+      { label: 'Delete Thread', cls: 'btn-primary', style: 'background:var(--error);opacity:0.5;pointer-events:none',
+        id: 'chat-delete-thread-btn',
+        onclick: "chatDoDeleteThread('" + esc(threadId) + "')" },
+    ],
+  });
+
+  // Focus the input after modal renders
+  setTimeout(function() {
+    var inp = document.getElementById('chat-delete-thread-confirm');
+    if (inp) inp.focus();
+  }, 100);
+}
+
+function _chatDeleteThreadValidate() {
+  var inp = document.getElementById('chat-delete-thread-confirm');
+  var btn = document.getElementById('chat-delete-thread-btn');
+  if (!inp || !btn) return;
+  if (inp.value.trim() === 'CONFIRM') {
+    btn.style.opacity = '1';
+    btn.style.pointerEvents = 'auto';
+  } else {
+    btn.style.opacity = '0.5';
+    btn.style.pointerEvents = 'none';
+  }
+}
+
+async function chatDoDeleteThread(threadId) {
+  try {
+    const resp = await apiPost('/chat/delete-thread', {
+      thread_id: threadId,
+    });
+    modalClose();
+    if (resp.deleted) {
+      toast('Thread deleted', 'success');
+      _chatSelectedThread = null;
+      _chatMessages = [];
+      _chatStopPoll();
+
+      // Clear the right-side panes immediately
+      var msgPane = document.getElementById('chat-messages');
+      if (msgPane) msgPane.innerHTML = '<div class="chat-empty"><p>Select a thread to view messages</p></div>';
+      var header = document.getElementById('chat-thread-header');
+      if (header) header.innerHTML = '';
+      var compose = document.getElementById('chat-compose');
+      if (compose) compose.style.display = 'none';
+
+      await chatLoadThreads();
+    } else {
+      toast('Thread not found', 'warning');
+    }
+  } catch (e) {
+    modalClose();
+    toast('Delete failed: ' + e.message, 'error');
+  }
+}
 
 // ═══════════════════════════════════════════════════════════════
 // Feature 5 — Compose + Send

@@ -10,6 +10,7 @@ Endpoints:
     /api/chat/messages           — list messages by thread/run
     /api/chat/send               — send a message
     /api/chat/delete-message     — delete a message
+    /api/chat/delete-thread      — delete a thread and all its messages
     /api/chat/refs/resolve       — resolve an @-reference
     /api/chat/refs/autocomplete  — autocomplete @-reference prefix
     /api/chat/sync               — push/pull chat data
@@ -27,6 +28,7 @@ from src.core.services.chat import (
     autocomplete,
     create_thread,
     delete_message,
+    delete_thread,
     list_messages,
     list_threads,
     pull_chat,
@@ -226,6 +228,38 @@ def chat_delete_message():
         logger.exception("Failed to delete message")
         return jsonify({"error": str(e)}), 500
 
+
+# ── Delete thread ─────────────────────────────────────────────────────────────────────
+
+@chat_bp.route("/chat/delete-thread", methods=["POST"])
+def chat_delete_thread():
+    """Delete an entire thread and all its messages.
+
+    Body (JSON):
+        thread_id — thread to delete (required)
+    """
+    try:
+        root = _project_root()
+        body = request.get_json(silent=True) or {}
+
+        thread_id = body.get("thread_id", "").strip()
+        if not thread_id:
+            return jsonify({"error": "thread_id is required"}), 400
+
+        deleted = delete_thread(
+            root,
+            thread_id=thread_id,
+        )
+
+        if not deleted:
+            return jsonify({"error": "Thread not found"}), 404
+
+        return jsonify({"deleted": True, "thread_id": thread_id})
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        logger.exception("Failed to delete thread")
+        return jsonify({"error": str(e)}), 500
 
 # ── Update message flags ──────────────────────────────────────────────
 

@@ -3568,6 +3568,38 @@ select option {
     gap: 8px;
 }
 
+.chat-thread-delete-btn {
+    display: none;
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 0.75rem;
+    padding: 2px 4px;
+    border-radius: 4px;
+    color: var(--text-muted);
+    margin-left: auto;
+    flex-shrink: 0;
+    transition: all 0.15s ease;
+}
+
+.chat-thread-item:hover .chat-thread-delete-btn {
+    display: inline-block;
+}
+
+.chat-thread-delete-btn:hover {
+    color: var(--error);
+    background: rgba(255, 59, 48, 0.1);
+}
+
+.chat-thread-item.active .chat-thread-delete-btn {
+    color: rgba(255, 255, 255, 0.6);
+}
+
+.chat-thread-item.active .chat-thread-delete-btn:hover {
+    color: #fff;
+    background: rgba(255, 255, 255, 0.15);
+}
+
 .chat-thread-icon {
     font-size: 0.85rem;
     flex-shrink: 0;

@@ -408,6 +408,72 @@ def delete_message(
     return True
 
 
+def delete_thread(
+    project_root: Path,
+    *,
+    thread_id: str,
+) -> bool:
+    """Delete an entire thread and all its messages.
+
+    Removes the thread directory from the ledger worktree and commits
+    the change.
+
+    Args:
+        project_root: Repository root.
+        thread_id: Thread to delete.
+
+    Returns:
+        True if the thread was found and deleted, False if not found.
+
+    Raises:
+        ValueError: If attempting to delete the general thread.
+    """
+    if thread_id == GENERAL_THREAD_ID:
+        raise ValueError("Cannot delete the general thread")
+
+    ensure_worktree(project_root)
+
+    td = _thread_dir(project_root, thread_id)
+    if not td.is_dir():
+        return False
+
+    # Remove the directory from git tracking first
+    import shutil
+    rel_path = f"chat/threads/{thread_id}"
+    from src.core.services.ledger.worktree import _run_ledger_git
+    _run_ledger_git("rm", "-rf", rel_path, project_root=project_root)
+
+    # Also remove from filesystem (in case git rm didn't catch untracked files)
+    if td.is_dir():
+        shutil.rmtree(td)
+
+    # Commit
+    ledger_add_and_commit(
+        project_root,
+        paths=[],  # git rm already staged
+        message=f"chat: deleted thread {thread_id}",
+    )
+
+    # Emit event
+    if _bus:
+        _bus.publish("chat:thread_deleted", data={
+            "thread_id": thread_id,
+        })
+
+    # Push to remote so other systems see the deletion
+    import threading
+    def _bg_push():
+        try:
+            push_chat(project_root)
+        except Exception as exc:
+            logger.warning("Background push after thread delete failed: %s", exc)
+    t = threading.Thread(target=_bg_push, daemon=True)
+    t.start()
+
+    logger.info("Deleted thread %s", thread_id)
+    return True
+
+
 def update_message_flags(
     project_root: Path,
     *,
