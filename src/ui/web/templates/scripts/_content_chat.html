@@ -7,6 +7,37 @@
 function _chatCleanup() {
   const popup = document.getElementById('chat-ref-popup');
   if (popup) popup.style.display = 'none';
+  // Stop auto-poll when leaving chat view
+  _chatStopPoll();
+}
+
+let _chatPollTimer = null;
+
+function _chatStartPoll() {
+  _chatStopPoll();
+  _chatPollTimer = setInterval(async () => {
+    if (!_chatSelectedThread) return;
+    try {
+      const data = await api('/chat/messages?thread_id=' + encodeURIComponent(_chatSelectedThread) + '&n=100');
+      const newMsgs = data.messages || [];
+      // Only re-render if message count or last message changed
+      if (newMsgs.length !== _chatMessages.length ||
+          (newMsgs.length > 0 && _chatMessages.length > 0 &&
+           newMsgs[newMsgs.length - 1].id !== _chatMessages[_chatMessages.length - 1].id)) {
+        _chatMessages = newMsgs;
+        chatRenderMessages();
+      }
+    } catch (e) {
+      // Silently ignore poll errors
+    }
+  }, 10000);
+}
+
+function _chatStopPoll() {
+  if (_chatPollTimer) {
+    clearInterval(_chatPollTimer);
+    _chatPollTimer = null;
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -26,7 +57,7 @@ async function renderChatPanel() {
             <div class="chat-sidebar-actions">
                 <button class="btn btn-primary btn-sm" onclick="chatShowNewThread()" title="New thread">+ New</button>
                 <button class="btn btn-secondary btn-sm" onclick="chatSync('both')"
-                    title="Sync with remote">&#x1F504;</button>
+                    title="Reconnect &amp; restart sync">&#x1F504;</button>
             </div>
         </div>
         <input type="text" id="chat-thread-search" class="chat-search-input"
@@ -260,10 +291,13 @@ async function chatLoadMessages(threadId) {
     const data = await api('/chat/messages?thread_id=' + encodeURIComponent(threadId) + '&n=100');
     _chatMessages = data.messages || [];
     chatRenderMessages();
+    // Start auto-polling every 10s while viewing this thread
+    _chatStartPoll();
   } catch (e) {
     container.innerHTML = '<div class="chat-empty">'
-      + '<p style="color:var(--error)">&#x26A0; ' + esc(e.message) + '</p>'
+      + '<p style="color:var(--error)">&amp;#x26A0; ' + esc(e.message) + '</p>'
       + '</div>';
+    _chatStopPoll();
   }
 }
 
@@ -324,7 +358,9 @@ function _chatRenderBubble(msg) {
   return '<div class="chat-message ' + src + '" data-msg-id="' + esc(msg.id) + '">'
     + '<div class="chat-msg-header">'
     + '<span class="chat-msg-avatar">' + (esc(msg.user || 'U'))[0].toUpperCase() + '</span>'
-    + '<span class="chat-msg-user">' + esc(msg.user || 'Unknown') + '</span>'
+    + '<span class="chat-msg-user">' + esc(msg.user || 'Unknown')
+    + (msg.hostname ? ' <span style="font-size:0.65rem;color:var(--text-muted);font-weight:400">@' + esc(msg.hostname) + '</span>' : '')
+    + '</span>'
     + badges
     + '<span class="chat-msg-time">' + relTime + '</span>'
     + '<span class="chat-msg-actions">'
@@ -559,8 +595,11 @@ async function chatSync(action) {
     if (parts.length > 0) toast('Chat ' + parts.join(' & '), 'success');
     else toast('Nothing to sync', 'info');
     await chatLoadThreads();
+    // Restart auto-poll after manual sync/reconnect
+    if (_chatSelectedThread) _chatStartPoll();
   } catch (e) {
     toast('Sync failed: ' + e.message, 'error');
+    _chatStopPoll();
   }
 }
 

@@ -7,6 +7,7 @@ Pure Pydantic models with no I/O.
 from __future__ import annotations
 
 import secrets
+import socket
 import string
 from datetime import UTC, datetime
 from typing import Literal
@@ -16,6 +17,10 @@ from pydantic import BaseModel, Field
 
 def _now_iso() -> str:
     return datetime.now(UTC).isoformat()
+
+
+def _hostname() -> str:
+    return socket.gethostname()
 
 
 def _make_msg_id() -> str:
@@ -50,6 +55,7 @@ class ChatMessage(BaseModel):
     id: str = ""
     ts: str = Field(default_factory=_now_iso)
     user: str = ""
+    hostname: str = Field(default_factory=_hostname)
     text: str = ""
     thread_id: str | None = None
     run_id: str | None = None
