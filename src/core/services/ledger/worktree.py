@@ -492,23 +492,36 @@ def notes_show(
 
 
 def push_ledger_branch(project_root: Path) -> bool:
-    """Push scp-ledger branch to origin (with rebase first).
+    """Push scp-ledger branch to origin (with fetch+rebase first).
 
     Steps:
-      1. ``git -C .scp-ledger pull --rebase origin scp-ledger``
-      2. ``git -C .scp-ledger push origin scp-ledger``
+      1. ``git -C .scp-ledger fetch origin +refs/heads/scp-ledger:refs/remotes/origin/scp-ledger``
+      2. ``git -C .scp-ledger rebase origin/scp-ledger``
+      3. ``git -C .scp-ledger push origin scp-ledger``
     """
-    # Rebase first
+    # Fetch first
     r = _run_ledger_git(
-        "pull", "--rebase", "origin", LEDGER_BRANCH,
+        "fetch", "origin",
+        f"+refs/heads/{LEDGER_BRANCH}:refs/remotes/origin/{LEDGER_BRANCH}",
         project_root=project_root,
         timeout=30,
     )
     if r.returncode != 0:
         stderr = r.stderr.strip()
-        # "no tracking" or "couldn't find remote" are OK on first push
         if "no tracking" not in stderr.lower() and "couldn't find remote" not in stderr.lower():
-            logger.warning("Ledger pull --rebase issue: %s", stderr)
+            logger.warning("Ledger fetch (pre-push) issue: %s", stderr)
+
+    # Rebase
+    r = _run_ledger_git(
+        "rebase", f"origin/{LEDGER_BRANCH}",
+        project_root=project_root,
+        timeout=15,
+    )
+    if r.returncode != 0:
+        stderr = r.stderr.strip()
+        if stderr:
+            logger.warning("Ledger rebase (pre-push) issue: %s", stderr)
+            _run_ledger_git("rebase", "--abort", project_root=project_root)
 
     # Push
     r = _run_ledger_git(

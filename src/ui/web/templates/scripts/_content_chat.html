@@ -75,26 +75,21 @@ function _chatStartPoll() {
     if (!_chatSelectedThread) return;
     _chatPollCycles++;
     try {
-      // Pull remote changes first, then read local messages
-      try {
-        await apiPost('/chat/sync', { action: 'pull' });
-      } catch (pullErr) {
-        // pull failure is non-fatal — continue reading local
-        console.debug('[chat-poll] pull failed:', pullErr.message);
+      // Single combined request: sync + threads + messages
+      const poll = await apiPost('/chat/poll', {
+        thread_id: _chatSelectedThread,
+        n: 100,
+      });
+
+      // Update thread list
+      if (poll.threads) {
+        _chatThreads = poll.threads;
+        _chatLoaded = true;
+        chatRenderThreadList(_chatThreads);
       }
 
-      // Refresh thread list every 3rd poll cycle (~15s at base)
-      var didThreadRefresh = false;
-      if (_chatPollCycles % 3 === 0) {
-        try { await chatLoadThreads(); didThreadRefresh = true; } catch(e) {}
-      }
-
-      // Skip message fetch if we just refreshed threads (avoids double fetch)
-      if (didThreadRefresh) return;
-
-      const data = await api('/chat/messages?thread_id=' + encodeURIComponent(_chatSelectedThread) + '&n=100');
-      const newMsgs = data.messages || [];
-      // Only re-render if message count or last message changed
+      // Update messages (only re-render if changed)
+      const newMsgs = poll.messages || [];
       if (newMsgs.length !== _chatMessages.length ||
           (newMsgs.length > 0 && _chatMessages.length > 0 &&
            newMsgs[newMsgs.length - 1].id !== _chatMessages[_chatMessages.length - 1].id)) {

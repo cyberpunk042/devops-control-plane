@@ -14,6 +14,7 @@ Endpoints:
     /api/chat/refs/resolve       — resolve an @-reference
     /api/chat/refs/autocomplete  — autocomplete @-reference prefix
     /api/chat/sync               — push/pull chat data
+    /api/chat/poll               — single poll: sync + threads + messages
 """
 
 from __future__ import annotations
@@ -385,6 +386,65 @@ def chat_autocomplete():
     except Exception as e:
         logger.exception("Failed to autocomplete ref")
         return jsonify({"error": str(e), "suggestions": []}), 500
+
+
+# ── Poll (single combined request) ────────────────────────────────
+
+@chat_bp.route("/chat/poll", methods=["POST"])
+def chat_poll():
+    """Single poll endpoint: pull remote, return threads + messages.
+
+    Body (JSON):
+        thread_id — thread to read messages from (required)
+        n         — max messages (default 100)
+    """
+    try:
+        root = _project_root()
+        body = request.get_json(silent=True) or {}
+        thread_id = body.get("thread_id", "")
+        n = body.get("n", 100)
+
+        # 1. Pull from remote (non-fatal)
+        from src.core.services.git_auth import is_auth_ok as _auth_ok
+        pulled = False
+        if _auth_ok():
+            try:
+                pulled = pull_chat(root)
+            except Exception:
+                pass
+
+        # 2. Read threads with message_count
+        threads = list_threads(root)
+        thread_data = []
+        for t in threads:
+            td = t.model_dump(mode="json")
+            try:
+                from src.core.services.chat.chat_ops import _thread_dir
+                msg_file = _thread_dir(root, t.thread_id) / "messages.jsonl"
+                if msg_file.is_file():
+                    td["message_count"] = sum(
+                        1 for _ in msg_file.open("r", encoding="utf-8")
+                    )
+                else:
+                    td["message_count"] = 0
+            except Exception:
+                td["message_count"] = 0
+            thread_data.append(td)
+
+        # 3. Read messages for the requested thread
+        messages = []
+        if thread_id:
+            msgs = list_messages(root, thread_id=thread_id, n=n)
+            messages = [m.model_dump(mode="json") for m in msgs]
+
+        return jsonify({
+            "pulled": pulled,
+            "threads": thread_data,
+            "messages": messages,
+        })
+    except Exception as e:
+        logger.exception("Failed to poll chat")
+        return jsonify({"error": str(e)}), 500
 
 
 # ── Sync (push/pull) ──────────────────────────────────────────────
