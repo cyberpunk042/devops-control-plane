@@ -45,6 +45,11 @@
 
         activeTab = tabId;
 
+        // Stop chat poll when leaving the content tab
+        if (typeof _chatCleanup === 'function' && tabId !== 'content') {
+          _chatCleanup();
+        }
+
         // Load data for the tab
         if (tabId === 'dashboard') {
             if (!_dashLoaded) {
