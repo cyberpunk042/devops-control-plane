@@ -7,14 +7,67 @@
 function _chatCleanup() {
   const popup = document.getElementById('chat-ref-popup');
   if (popup) popup.style.display = 'none';
-  // Stop auto-poll when leaving chat view
+  // Stop auto-poll and idle tracking when leaving chat view
   _chatStopPoll();
+  _chatStopIdleTracker();
 }
 
 let _chatPollTimer = null;
+const _CHAT_POLL_BASE = 5000;     // 5s when active
+const _CHAT_POLL_MAX  = 60000;    // 60s max when idle
+let _chatPollInterval = _CHAT_POLL_BASE;
+let _chatLastActivity = Date.now();
+let _chatIdleTimer = null;
+
+function _chatOnActivity() {
+  _chatLastActivity = Date.now();
+  // If interval was degraded, reset to base and restart
+  if (_chatPollInterval > _CHAT_POLL_BASE) {
+    _chatPollInterval = _CHAT_POLL_BASE;
+    if (_chatPollTimer) {
+      _chatStopPoll();
+      _chatStartPoll();
+    }
+  }
+}
+
+function _chatStartIdleTracker() {
+  _chatStopIdleTracker();
+  // Listen for user activity on the document
+  document.addEventListener('mousemove', _chatOnActivity);
+  document.addEventListener('keydown', _chatOnActivity);
+  document.addEventListener('click', _chatOnActivity);
+  document.addEventListener('scroll', _chatOnActivity);
+  // Check idle every 30s — double the interval if no activity
+  _chatIdleTimer = setInterval(() => {
+    const idleMs = Date.now() - _chatLastActivity;
+    if (idleMs > 30000 && _chatPollInterval < _CHAT_POLL_MAX) {
+      _chatPollInterval = Math.min(_chatPollInterval * 2, _CHAT_POLL_MAX);
+      console.debug('[chat-poll] idle ' + Math.round(idleMs/1000) + 's — interval now ' + (_chatPollInterval/1000) + 's');
+      // Restart with new interval
+      if (_chatPollTimer) {
+        _chatStopPoll();
+        _chatStartPoll();
+      }
+    }
+  }, 30000);
+}
+
+function _chatStopIdleTracker() {
+  document.removeEventListener('mousemove', _chatOnActivity);
+  document.removeEventListener('keydown', _chatOnActivity);
+  document.removeEventListener('click', _chatOnActivity);
+  document.removeEventListener('scroll', _chatOnActivity);
+  if (_chatIdleTimer) {
+    clearInterval(_chatIdleTimer);
+    _chatIdleTimer = null;
+  }
+}
 
 function _chatStartPoll() {
   _chatStopPoll();
+  _chatLastActivity = Date.now();
+  _chatStartIdleTracker();
   _chatPollTimer = setInterval(async () => {
     if (!_chatSelectedThread) return;
     try {
@@ -38,7 +91,7 @@ function _chatStartPoll() {
     } catch (e) {
       console.debug('[chat-poll] error:', e.message);
     }
-  }, 10000);
+  }, _chatPollInterval);
 }
 
 function _chatStopPoll() {
@@ -490,7 +543,7 @@ async function chatSendMessage() {
     input.value = '';
     input.style.height = 'auto';
     if (status) {
-      status.textContent = '&#x2714; Sent';
+      status.textContent = '\u2714 Sent';
       status.className = 'chat-compose-status success';
     }
     setTimeout(function() {
