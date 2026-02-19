@@ -38,7 +38,7 @@ class Run(BaseModel):
 
     Represents a single significant operation that was executed.
     Stored as:
-      - ``run.json`` on the ``scp-ledger`` branch
+      - ``run.json`` on the ``ledger`` branch
       - Compact JSON in an annotated tag message at ``scp/run/<run_id>``
     """
 

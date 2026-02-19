@@ -6,7 +6,7 @@ Public API::
     from src.core.services.ledger import save_audit_snapshot, list_saved_audits
 
 Storage:
-    - Audit snapshots are stored on the ``scp-ledger`` orphan branch via a
+    - Audit snapshots are stored on the ``ledger`` orphan branch via a
       dedicated ``.ledger/`` worktree (gitignored, never touches main).
     - Audit metadata is also stored as annotated tags at
       ``refs/tags/scp/audit/<snapshot_id>``.

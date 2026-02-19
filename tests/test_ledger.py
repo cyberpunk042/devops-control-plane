@@ -167,7 +167,7 @@ class TestWorktree:
 
         # Branch should exist
         r = subprocess.run(
-            ["git", "-C", str(repo), "rev-parse", "--verify", "refs/heads/scp-ledger"],
+            ["git", "-C", str(repo), "rev-parse", "--verify", "refs/heads/ledger"],
             capture_output=True, text=True,
         )
         assert r.returncode == 0
@@ -461,12 +461,12 @@ class TestPushPull:
         ok = push_ledger(repo)
         assert ok is True
 
-        # Verify remote has the scp-ledger branch
+        # Verify remote has the ledger branch
         r = subprocess.run(
             ["git", "-C", str(bare), "branch", "--list"],
             capture_output=True, text=True,
         )
-        assert "scp-ledger" in r.stdout
+        assert "ledger" in r.stdout
 
         # Verify remote has the tag
         r = subprocess.run(

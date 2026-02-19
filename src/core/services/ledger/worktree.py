@@ -2,7 +2,7 @@
 Git worktree management for the SCP ledger.
 
 Provides a dedicated ``.ledger/`` worktree at the project root for
-writes to the ``scp-ledger`` orphan branch. Also provides helpers for
+writes to the ``ledger`` orphan branch. Also provides helpers for
 annotated tags and git notes — operations that run against the main repo.
 
 Design:
@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 # ─── Constants ──────────────────────────────────────────────────────────
 
-LEDGER_BRANCH = "scp-ledger"
+LEDGER_BRANCH = "ledger"
 WORKTREE_DIR = ".ledger"
 GITIGNORE_ENTRY = ".ledger/"
 TAG_PREFIX = "scp/run/"
@@ -80,7 +80,7 @@ def _run_main_git(
 
 
 def _safe_rebase(project_root: Path, *, label: str = "rebase") -> bool:
-    """Stash → rebase origin/scp-ledger → pop.  Returns True on success.
+    """Stash → rebase origin/ledger → pop.  Returns True on success.
 
     Wraps the common stash/rebase/pop pattern so uncommitted changes
     (e.g. updated trace metadata) don't block the rebase.
@@ -131,8 +131,8 @@ def ensure_worktree(project_root: Path) -> Path:
     """Ensure the ``.ledger`` worktree exists and is healthy.
 
     Steps:
-      1. Try to fetch ``scp-ledger`` from origin (ignore if no remote)
-      2. If ``scp-ledger`` branch doesn't exist locally, create it as orphan
+      1. Try to fetch ``ledger`` from origin (ignore if no remote)
+      2. If ``ledger`` branch doesn't exist locally, create it as orphan
       3. If ``.ledger/`` dir doesn't exist, ``git worktree add``
       4. Ensure ``.ledger/`` is in ``.gitignore``
       5. Ensure VS Code ignores the worktree repo
@@ -260,7 +260,7 @@ def _worktree_is_valid(project_root: Path) -> bool:
 
 
 def _attach_worktree(project_root: Path) -> None:
-    """Attach the .ledger worktree to the scp-ledger branch."""
+    """Attach the .ledger worktree to the ledger branch."""
     wt = worktree_path(project_root)
     logger.info("Attaching worktree at %s", wt)
 
@@ -520,12 +520,12 @@ def notes_show(
 
 
 def push_ledger_branch(project_root: Path) -> bool:
-    """Push scp-ledger branch to origin (with fetch+rebase first).
+    """Push ledger branch to origin (with fetch+rebase first).
 
     Steps:
-      1. ``git -C .ledger fetch origin +refs/heads/scp-ledger:refs/remotes/origin/scp-ledger``
-      2. ``git -C .ledger rebase origin/scp-ledger``
-      3. ``git -C .ledger push origin scp-ledger``
+      1. ``git -C .ledger fetch origin +refs/heads/ledger:refs/remotes/origin/ledger``
+      2. ``git -C .ledger rebase origin/ledger``
+      3. ``git -C .ledger push origin ledger``
     """
     # Fetch first
     r = _run_ledger_git(
@@ -568,14 +568,14 @@ def push_run_tags(project_root: Path) -> bool:
 
 
 def pull_ledger_branch(project_root: Path) -> bool:
-    """Pull scp-ledger branch from origin (fetch + rebase).
+    """Pull ledger branch from origin (fetch + rebase).
 
     Uses fetch + rebase instead of pull --rebase to avoid VS Code
     vscode-merge-base config entries that cause "Cannot rebase onto
     multiple branches."
 
     Steps:
-      1. ``git -C .ledger fetch origin scp-ledger``
+      1. ``git -C .ledger fetch origin ledger``
       2. ``git -C .ledger rebase FETCH_HEAD``
     """
     r = _run_ledger_git(

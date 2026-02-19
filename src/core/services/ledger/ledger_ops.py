@@ -2,7 +2,7 @@
 Ledger operations — business logic for saving and querying audit snapshots.
 
 Uses ``worktree.py`` for git operations and ``models.py`` for data shapes.
-The ledger branch (``scp-ledger``) stores audit snapshots only.
+The ledger branch (``ledger``) stores audit snapshots only.
 Runs are ephemeral and stored locally in ``.state/runs.jsonl``.
 
 All functions are safe to call from any context (CLI, web, engine) — they
@@ -247,12 +247,12 @@ def list_saved_audits(
 
 
 def push_ledger(project_root: Path) -> bool:
-    """Push scp-ledger branch to origin."""
+    """Push ledger branch to origin."""
     ensure_ledger(project_root)
     return push_ledger_branch(project_root)
 
 
 def pull_ledger(project_root: Path) -> bool:
-    """Pull scp-ledger branch from origin."""
+    """Pull ledger branch from origin."""
     ensure_ledger(project_root)
     return pull_ledger_branch(project_root)
