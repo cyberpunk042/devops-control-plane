@@ -42,6 +42,7 @@
             badge.className = 'status-badge degraded';
             badge.innerHTML = '<span class="status-dot"></span>N/A';
             detail.innerHTML = `<div style="font-size:0.82rem;color:var(--text-secondary);line-height:1.5">
+                <div id="devops-k8s-missing-tools"></div>
                 <p class="empty-state-sm">No Kubernetes manifests or kubectl detected</p>
                 <div style="font-size:0.68rem;color:var(--text-muted);margin-top:var(--space-xs)">
                     Create k8s/ directory with YAML manifests, or install kubectl and configure a cluster context.
@@ -50,6 +51,7 @@
                     <button class="btn btn-sm btn-ghost" onclick="k8sGenerate()" title="Generate Deployment + Service + ConfigMap manifests for a new app">📄 Generate Manifest</button>
                 </div>
             </div>`;
+            renderMissingTools(data.missing_tools, 'devops-k8s-missing-tools');
             return;
         }
 
@@ -111,7 +113,11 @@
         // Cross-tab link
         html += cardCrossLink('integrations', 'Full K8s integration card');
 
+        // ── Missing tools banner ──
+        html += '<div id="devops-k8s-missing-tools"></div>';
+
         detail.innerHTML = html;
+        renderMissingTools(data.missing_tools, 'devops-k8s-missing-tools');
     }
 
     async function k8sValidate() {

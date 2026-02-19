@@ -25,6 +25,7 @@ from flask import Blueprint, current_app, jsonify, request
 
 from src.core.services import git_ops
 from src.core.services.devops_cache import get_cached
+from src.core.services.run_tracker import run_tracked
 
 integrations_bp = Blueprint("integrations", __name__)
 
@@ -62,6 +63,7 @@ def git_log():  # type: ignore[no-untyped-def]
 
 
 @integrations_bp.route("/git/commit", methods=["POST"])
+@run_tracked("git", "git:commit")
 def git_commit():  # type: ignore[no-untyped-def]
     """Stage and commit changes.
 
@@ -86,6 +88,7 @@ def git_commit():  # type: ignore[no-untyped-def]
 
 
 @integrations_bp.route("/git/pull", methods=["POST"])
+@run_tracked("git", "git:pull")
 def git_pull():  # type: ignore[no-untyped-def]
     """Pull from remote."""
     data = request.get_json(silent=True) or {}
@@ -101,6 +104,7 @@ def git_pull():  # type: ignore[no-untyped-def]
 
 
 @integrations_bp.route("/git/push", methods=["POST"])
+@run_tracked("git", "git:push")
 def git_push():  # type: ignore[no-untyped-def]
     """Push to remote."""
     data = request.get_json(silent=True) or {}
@@ -113,6 +117,16 @@ def git_push():  # type: ignore[no-untyped-def]
 
 
 # ── GitHub: Status ──────────────────────────────────────────────────
+
+
+# ── Terminal Emulator Status ────────────────────────────────────────
+
+
+@integrations_bp.route("/ops/terminal/status")
+def ops_terminal_status():  # type: ignore[no-untyped-def]
+    """Terminal emulator availability — working, broken, installable."""
+    from src.core.services.terminal_ops import terminal_status
+    return jsonify(terminal_status())
 
 
 @integrations_bp.route("/integrations/gh/status")
@@ -159,6 +173,7 @@ def gh_actions_runs():  # type: ignore[no-untyped-def]
 
 
 @integrations_bp.route("/gh/actions/dispatch", methods=["POST"])
+@run_tracked("ci", "ci:gh_dispatch")
 def gh_actions_dispatch():  # type: ignore[no-untyped-def]
     """Trigger a workflow via repository dispatch."""
     data = request.get_json(silent=True) or {}
@@ -211,6 +226,7 @@ def gh_repo_info():  # type: ignore[no-untyped-def]
 
 
 @integrations_bp.route("/gh/auth/logout", methods=["POST"])
+@run_tracked("setup", "setup:gh_logout")
 def gh_auth_logout():  # type: ignore[no-untyped-def]
     """Logout from GitHub CLI."""
     result = git_ops.gh_auth_logout(_project_root())
@@ -219,10 +235,167 @@ def gh_auth_logout():  # type: ignore[no-untyped-def]
     return jsonify(result)
 
 
+# ── GitHub: Auth Login ──────────────────────────────────────────────
+
+
+@integrations_bp.route("/gh/auth/login", methods=["POST"])
+@run_tracked("setup", "setup:gh_login")
+def gh_auth_login():  # type: ignore[no-untyped-def]
+    """Authenticate with GitHub CLI.
+
+    Body (JSON):
+        {"token": "ghp_…"}          → token mode (non-interactive)
+        {"mode": "interactive"}     → spawn terminal for OAuth
+        {} (empty)                  → spawn terminal for OAuth
+    """
+    data = request.get_json(silent=True) or {}
+    token = data.get("token", "").strip()
+    auto_drive = bool(data.get("auto_drive", False))
+
+    result = git_ops.gh_auth_login(
+        _project_root(),
+        token=token,
+        auto_drive=auto_drive,
+    )
+
+    # Cache-bust on successful token auth so status is fresh
+    if result.get("ok") and result.get("authenticated"):
+        try:
+            from src.core.services import devops_cache
+            root = _project_root()
+            devops_cache.invalidate(root, "github")
+            devops_cache.invalidate(root, "wiz:detect")
+        except Exception:
+            pass
+
+    # Determine HTTP status:
+    #  - 200 for success, terminal spawned, no_terminal (actionable), or fallback
+    #  - 400 for actual errors (bad token, gh not installed, etc.)
+    if result.get("ok") or result.get("no_terminal") or result.get("fallback"):
+        status = 200
+    else:
+        status = 400
+    return jsonify(result), status
+
+
+# ── GitHub: Auth Token (auto-detect) ────────────────────────────────
+
+
+@integrations_bp.route("/gh/auth/token")
+def gh_auth_token_route():  # type: ignore[no-untyped-def]
+    """Extract current auth token from gh CLI (for auto-detection)."""
+    result = git_ops.gh_auth_token(_project_root())
+    status = 200 if result.get("ok") else 400
+    return jsonify(result), status
+
+
+# ── GitHub: Device Flow Auth (browser-based) ────────────────────────
+
+
+@integrations_bp.route("/gh/auth/device", methods=["POST"])
+@run_tracked("setup", "setup:gh_device_flow")
+def gh_auth_device_start_route():  # type: ignore[no-untyped-def]
+    """Start a GitHub device flow — returns one-time code + URL."""
+    result = git_ops.gh_auth_device_start(_project_root())
+    status = 200 if result.get("ok") else 400
+    return jsonify(result), status
+
+
+@integrations_bp.route("/gh/auth/device/poll")
+def gh_auth_device_poll_route():  # type: ignore[no-untyped-def]
+    """Poll a device flow session for completion."""
+    session_id = request.args.get("session", "").strip()
+    if not session_id:
+        return jsonify({"error": "session parameter required"}), 400
+
+    root = _project_root()
+    result = git_ops.gh_auth_device_poll(session_id, root)
+
+    # Cache-bust on successful auth — only the github card
+    if result.get("complete") and result.get("authenticated"):
+        try:
+            from src.core.services import devops_cache
+            devops_cache.invalidate(root, "github")
+            devops_cache.invalidate(root, "wiz:detect")
+        except Exception:
+            pass
+
+    return jsonify(result)
+
+
+@integrations_bp.route("/gh/auth/terminal/poll")
+def gh_auth_terminal_poll_route():  # type: ignore[no-untyped-def]
+    """Poll signal file for terminal auth progress.
+
+    Reads ``.state/.gh-auth-result`` written by the auto-drive bash
+    script.  Returns the JSON from the file, which contains:
+
+    - ``{"status": "running"}``  — script started
+    - ``{"status": "code_ready", "code": "XXXX-XXXX", "url": "..."}``
+    - ``{"status": "success"}``  — auth completed
+    - ``{"status": "failed"}``   — auth failed
+    """
+    import json as _json
+
+    import tempfile
+
+    signal_file = Path(tempfile.gettempdir()) / ".gh-auth-result"
+
+    if not signal_file.exists():
+        return jsonify({"status": "unknown"})
+
+    try:
+        data = _json.loads(signal_file.read_text())
+
+        # If success, bust cache
+        if data.get("status") == "success":
+            try:
+                from src.core.services import devops_cache
+                devops_cache.invalidate(root, "github")
+                devops_cache.invalidate(root, "wiz:detect")
+            except Exception:
+                pass
+            return jsonify(data)
+
+        # If stuck at code_ready, check live gh auth status
+        if data.get("status") == "code_ready":
+            import subprocess
+            gh_rc = -999
+            gh_err = ""
+            try:
+                result = subprocess.run(
+                    ["gh", "auth", "status"],
+                    capture_output=True, text=True, timeout=5,
+                )
+                gh_rc = result.returncode
+                gh_err = result.stderr[:200] if result.stderr else ""
+                if gh_rc == 0:
+                    # Auth succeeded! Update signal file + bust cache
+                    data = {"status": "success", "ts": data.get("ts", "")}
+                    signal_file.write_text(_json.dumps(data))
+                    try:
+                        from src.core.services import devops_cache
+                        devops_cache.invalidate(root, "github")
+                        devops_cache.invalidate(root, "wiz:detect")
+                    except Exception:
+                        pass
+                    return jsonify(data)
+            except Exception as exc:
+                gh_err = str(exc)
+            # Include debug info so we can see in network tab
+            data["_debug_gh_rc"] = gh_rc
+            data["_debug_gh_err"] = gh_err
+
+        return jsonify(data)
+    except Exception:
+        return jsonify({"status": "unknown"})
+
+
 # ── GitHub: Create Repository ───────────────────────────────────────
 
 
 @integrations_bp.route("/gh/repo/create", methods=["POST"])
+@run_tracked("setup", "setup:gh_repo")
 def gh_repo_create():  # type: ignore[no-untyped-def]
     """Create a new GitHub repository."""
     data = request.get_json(silent=True) or {}
@@ -246,6 +419,7 @@ def gh_repo_create():  # type: ignore[no-untyped-def]
 
 
 @integrations_bp.route("/gh/repo/visibility", methods=["POST"])
+@run_tracked("setup", "setup:gh_visibility")
 def gh_repo_set_visibility():  # type: ignore[no-untyped-def]
     """Change repository visibility (public/private)."""
     data = request.get_json(silent=True) or {}
@@ -269,6 +443,7 @@ def git_remotes():  # type: ignore[no-untyped-def]
 
 
 @integrations_bp.route("/git/remote/add", methods=["POST"])
+@run_tracked("setup", "setup:git_remote")
 def git_remote_add():  # type: ignore[no-untyped-def]
     """Add a new git remote."""
     data = request.get_json(silent=True) or {}
@@ -283,6 +458,7 @@ def git_remote_add():  # type: ignore[no-untyped-def]
 
 
 @integrations_bp.route("/git/remote/remove", methods=["POST"])
+@run_tracked("destroy", "destroy:git_remote")
 def git_remote_remove():  # type: ignore[no-untyped-def]
     """Remove a git remote by name (defaults to origin)."""
     data = request.get_json(silent=True) or {}
@@ -294,6 +470,7 @@ def git_remote_remove():  # type: ignore[no-untyped-def]
 
 
 @integrations_bp.route("/git/remote/rename", methods=["POST"])
+@run_tracked("setup", "setup:git_remote_rename")
 def git_remote_rename():  # type: ignore[no-untyped-def]
     """Rename a git remote."""
     data = request.get_json(silent=True) or {}
@@ -308,6 +485,7 @@ def git_remote_rename():  # type: ignore[no-untyped-def]
 
 
 @integrations_bp.route("/git/remote/set-url", methods=["POST"])
+@run_tracked("setup", "setup:git_remote_url")
 def git_remote_set_url():  # type: ignore[no-untyped-def]
     """Change the URL of a git remote."""
     data = request.get_json(silent=True) or {}
@@ -325,6 +503,7 @@ def git_remote_set_url():  # type: ignore[no-untyped-def]
 
 
 @integrations_bp.route("/gh/repo/default-branch", methods=["POST"])
+@run_tracked("setup", "setup:gh_default_branch")
 def gh_repo_set_default_branch():  # type: ignore[no-untyped-def]
     """Change the default branch on GitHub."""
     data = request.get_json(silent=True) or {}

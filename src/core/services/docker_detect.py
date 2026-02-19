@@ -103,11 +103,13 @@ def docker_status(project_root: Path) -> dict:
     # ── CLI detection ─────────────────────────────────────────────
     docker_path = shutil.which("docker")
     if not docker_path:
+        from src.core.services.tool_requirements import check_required_tools
         return {
             "available": False,
             "error": "Docker CLI not installed",
             "daemon_running": False,
             "compose_available": False,
+            "missing_tools": check_required_tools(["docker", "docker-compose"]),
             **file_info,
         }
 
@@ -124,12 +126,14 @@ def docker_status(project_root: Path) -> dict:
     compose_available = r_compose.returncode == 0
     compose_version = r_compose.stdout.strip() if compose_available else None
 
+    from src.core.services.tool_requirements import check_required_tools
     return {
         "available": True,
         "version": version,
         "daemon_running": daemon_running,
         "compose_available": compose_available,
         "compose_version": compose_version,
+        "missing_tools": check_required_tools(["docker", "docker-compose"]),
         **file_info,
     }
 

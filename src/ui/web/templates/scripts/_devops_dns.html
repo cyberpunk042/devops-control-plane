@@ -42,8 +42,10 @@
             detail.innerHTML = `<div style="font-size:0.82rem;color:var(--text-secondary);line-height:1.5">
                 <p class="empty-state-sm">No DNS/CDN configuration detected</p>
                 <div style="font-size:0.68rem;color:var(--text-muted);margin-top:var(--space-xs)">Add DNS zone files, CDN config, or domain references to your project.</div>
+                <div id="dns-missing-tools"></div>
                 <div style="margin-top:var(--space-md)"><button class="btn btn-sm btn-ghost" onclick="dnsGenerateModal()" title="Generate DNS zone records for a domain">🌐 Generate Records</button></div>
             </div>`;
+            renderMissingTools(data.missing_tools, 'dns-missing-tools');
             return;
         }
 
@@ -92,8 +94,14 @@
             <button class="btn btn-sm btn-secondary" onclick="dnsSslCheck()" title="Check SSL certificate validity, issuer, and expiration for a domain">🔒 SSL Check</button>
             <button class="btn btn-sm btn-ghost" onclick="dnsGenerateModal()" title="Generate DNS zone records (A, MX, SPF, DKIM) for a domain">🌐 Generate</button>
         </div>`;
+        // Missing tools
+        html += '<div id="dns-missing-tools-ok"></div>';
+
         html += `</div>`;
         detail.innerHTML = html;
+
+        // Render missing tools (after innerHTML so container exists)
+        renderMissingTools(data.missing_tools, 'dns-missing-tools-ok');
     }
 
     function dnsLookupModal() {

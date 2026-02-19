@@ -134,6 +134,8 @@ def terraform_status(project_root: Path) -> dict:
     cli = _terraform_available()
     tf_root = _find_tf_root(project_root)
 
+    from src.core.services.tool_requirements import check_required_tools
+
     if tf_root is None:
         return {
             "has_terraform": False,
@@ -145,6 +147,7 @@ def terraform_status(project_root: Path) -> dict:
             "resources": [],
             "backend": None,
             "initialized": False,
+            "missing_tools": check_required_tools(["terraform"]),
         }
 
     # Scan .tf files
@@ -225,6 +228,7 @@ def terraform_status(project_root: Path) -> dict:
         "resource_count": len(resources),
         "backend": backend,
         "initialized": initialized,
+        "missing_tools": check_required_tools(["terraform"]),
     }
 
 

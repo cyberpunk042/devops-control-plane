@@ -17,11 +17,14 @@
             if (!data.available) {
                 badge.className = 'status-badge failed';
                 badge.innerHTML = '<span class="status-dot"></span>No gh CLI';
-                detail.innerHTML = cardSetupBanner('🐙', 'GitHub CLI not installed',
+                let emptyHtml = '<div id="gh-missing-tools"></div>';
+                emptyHtml += cardSetupBanner('🐙', 'GitHub CLI not installed',
                     'Install the gh CLI to manage repositories, pull requests, and CI/CD from here.',
                     'github', 'Set up GitHub →') +
                     cardEmpty('🐙', 'The gh CLI is not installed.',
-                    { label: 'Set up GitHub →', onclick: 'openGitHubSetupWizard()' });
+                    { label: '📦 Install gh', onclick: "_showSudoInstallModal('gh','gh',this,true)" });
+                detail.innerHTML = emptyHtml;
+                renderMissingTools(data.missing_tools, 'gh-missing-tools');
                 return;
             }
 
@@ -35,13 +38,16 @@
                     { label: 'Auth', value: 'Not authenticated', cls: 'warn' },
                 ]);
                 html += `<div style="margin-top:var(--space-sm);font-size:0.82rem;color:var(--warning)">` +
-                    `⚠ Run <code style="font-family:var(--font-mono);background:var(--bg-inset);padding:1px 6px;border-radius:4px">gh auth login</code> in your terminal.</div>`;
+                    `⚠ GitHub CLI is installed but not authenticated.</div>`;
                 html += `<div style="font-size:0.78rem;color:var(--text-muted);margin-top:var(--space-xs)">` +
                     `Once authenticated: Pull requests, Actions, Environments, Secrets management.</div>`;
+                html += '<div id="gh-missing-tools"></div>';
                 html += cardActionToolbar([
-                    { label: 'Set up GitHub →', icon: '⚙️', onclick: 'openGitHubSetupWizard()', cls: 'btn-primary' },
+                    { label: '🔑 Authenticate', onclick: '_showGhAuthModal()', cls: 'btn-primary' },
+                    { label: 'Set up GitHub →', icon: '⚙️', onclick: 'openGitHubSetupWizard()' },
                 ]);
                 detail.innerHTML = html;
+                renderMissingTools(data.missing_tools, 'gh-missing-tools');
                 return;
             }
 
@@ -83,7 +89,11 @@
                 { label: 'Push Secrets', icon: '⬆', onclick: '_ghPushSecrets(this)' },
             ]);
 
+            // ── Missing tools banner ──
+            html += '<div id="gh-missing-tools"></div>';
+
             detail.innerHTML = html;
+            renderMissingTools(data.missing_tools, 'gh-missing-tools');
 
             // Auto-load PRs tab
             setTimeout(() => {

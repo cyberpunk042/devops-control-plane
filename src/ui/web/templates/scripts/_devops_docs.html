@@ -100,8 +100,11 @@
             <button class="btn btn-sm btn-ghost" onclick="docsGenChangelog()" title="Auto-generate CHANGELOG.md from git commit history using conventional commit formatting">📝 Gen Changelog</button>
             <button class="btn btn-sm btn-ghost" onclick="docsGenReadme()" title="Auto-generate README.md template from project metadata (project.yml)">📄 Gen README</button>
         </div>`;
+        // ── Missing tools banner ──
+        html += '<div id="devops-docs-missing-tools"></div>';
         html += `</div>`;
         detail.innerHTML = html;
+        renderMissingTools(data.missing_tools, 'devops-docs-missing-tools');
     }
 
     async function docsCoverage() {

@@ -23,6 +23,7 @@ from pathlib import Path
 from flask import Blueprint, current_app, jsonify, request
 
 from src.core.services import quality_ops
+from src.core.services.run_tracker import run_tracked
 
 quality_bp = Blueprint("quality", __name__)
 
@@ -74,6 +75,7 @@ def quality_status():  # type: ignore[no-untyped-def]
 
 
 @quality_bp.route("/quality/check", methods=["POST"])
+@run_tracked("validate", "validate:quality")
 def quality_check():  # type: ignore[no-untyped-def]
     """Run quality checks."""
     data = request.get_json(silent=True) or {}
@@ -90,6 +92,7 @@ def quality_check():  # type: ignore[no-untyped-def]
 
 
 @quality_bp.route("/quality/lint", methods=["POST"])
+@run_tracked("validate", "validate:lint")
 def quality_lint():  # type: ignore[no-untyped-def]
     """Run linters."""
     data = request.get_json(silent=True) or {}
@@ -97,18 +100,21 @@ def quality_lint():  # type: ignore[no-untyped-def]
 
 
 @quality_bp.route("/quality/typecheck", methods=["POST"])
+@run_tracked("validate", "validate:typecheck")
 def quality_typecheck():  # type: ignore[no-untyped-def]
     """Run type-checkers."""
     return jsonify(quality_ops.quality_typecheck(_project_root()))
 
 
 @quality_bp.route("/quality/test", methods=["POST"])
+@run_tracked("test", "test:quality")
 def quality_test():  # type: ignore[no-untyped-def]
     """Run tests."""
     return jsonify(quality_ops.quality_test(_project_root()))
 
 
 @quality_bp.route("/quality/format", methods=["POST"])
+@run_tracked("format", "format:quality")
 def quality_format():  # type: ignore[no-untyped-def]
     """Check or apply formatting."""
     data = request.get_json(silent=True) or {}
@@ -119,6 +125,7 @@ def quality_format():  # type: ignore[no-untyped-def]
 
 
 @quality_bp.route("/quality/generate/config", methods=["POST"])
+@run_tracked("generate", "generate:quality_config")
 def quality_generate_config():  # type: ignore[no-untyped-def]
     """Generate quality configs for a stack."""
     data = request.get_json(silent=True) or {}

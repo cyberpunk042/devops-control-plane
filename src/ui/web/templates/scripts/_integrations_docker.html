@@ -21,8 +21,10 @@
                 let html = cardSetupBanner('🐳', 'Docker not installed',
                     'Install Docker to enable container builds, or generate config files to prepare.',
                     'docker', 'Docker Setup →');
+                // Missing tools banner
+                html += '<div id="docker-missing-tools"></div>';
                 html += cardEmpty('🐳', 'Docker CLI not found.',
-                    { label: 'Install Docker →', onclick: "window.open('https://docs.docker.com/get-docker/','_blank')" });
+                    { label: '📦 Install Docker', onclick: "_showSudoInstallModal('docker','docker',this,true)" });
                 // Show detected files even without Docker
                 const hasFiles = (data.dockerfiles && data.dockerfiles.length) || data.has_compose;
                 if (hasFiles) {
@@ -37,6 +39,7 @@
                     { label: 'Compose', icon: '📋', onclick: "_intDockerGenerate('compose')" },
                 ]);
                 detail.innerHTML = html;
+                renderMissingTools(data.missing_tools, 'docker-missing-tools');
                 return;
             }
 

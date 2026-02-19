@@ -23,6 +23,7 @@ from pathlib import Path
 from flask import Blueprint, current_app, jsonify, request
 
 from src.core.services import k8s_ops
+from src.core.services.run_tracker import run_tracked
 
 k8s_bp = Blueprint("k8s", __name__)
 
@@ -66,6 +67,7 @@ def k8s_resources():  # type: ignore[no-untyped-def]
 
 
 @k8s_bp.route("/k8s/generate/manifests", methods=["POST"])
+@run_tracked("generate", "generate:k8s_manifests")
 def k8s_generate_manifests():  # type: ignore[no-untyped-def]
     """Generate K8s manifests."""
     data = request.get_json(silent=True) or {}
@@ -107,6 +109,7 @@ def k8s_pod_logs():  # type: ignore[no-untyped-def]
 
 
 @k8s_bp.route("/k8s/apply", methods=["POST"])
+@run_tracked("deploy", "deploy:k8s")
 def k8s_apply():  # type: ignore[no-untyped-def]
     """Apply Kubernetes manifests."""
     data = request.get_json(silent=True) or {}
@@ -119,6 +122,7 @@ def k8s_apply():  # type: ignore[no-untyped-def]
 
 
 @k8s_bp.route("/k8s/delete", methods=["POST"])
+@run_tracked("destroy", "destroy:k8s")
 def k8s_delete():  # type: ignore[no-untyped-def]
     """Delete a Kubernetes resource."""
     data = request.get_json(silent=True) or {}
@@ -134,6 +138,7 @@ def k8s_delete():  # type: ignore[no-untyped-def]
 
 
 @k8s_bp.route("/k8s/scale", methods=["POST"])
+@run_tracked("deploy", "deploy:k8s_scale")
 def k8s_scale():  # type: ignore[no-untyped-def]
     """Scale a deployment/statefulset."""
     data = request.get_json(silent=True) or {}
@@ -216,6 +221,7 @@ def helm_values():  # type: ignore[no-untyped-def]
 
 
 @k8s_bp.route("/k8s/helm/install", methods=["POST"])
+@run_tracked("install", "install:helm")
 def helm_install():  # type: ignore[no-untyped-def]
     """Install a Helm chart."""
     data = request.get_json(silent=True) or {}
@@ -238,6 +244,7 @@ def helm_install():  # type: ignore[no-untyped-def]
 
 
 @k8s_bp.route("/k8s/helm/upgrade", methods=["POST"])
+@run_tracked("deploy", "deploy:helm_upgrade")
 def helm_upgrade():  # type: ignore[no-untyped-def]
     """Upgrade a Helm release."""
     data = request.get_json(silent=True) or {}
@@ -260,6 +267,7 @@ def helm_upgrade():  # type: ignore[no-untyped-def]
 
 
 @k8s_bp.route("/k8s/helm/template", methods=["POST"])
+@run_tracked("plan", "plan:helm_template")
 def helm_template():  # type: ignore[no-untyped-def]
     """Render Helm templates locally."""
     data = request.get_json(silent=True) or {}
@@ -303,6 +311,7 @@ def k8s_env_namespaces():  # type: ignore[no-untyped-def]
 
 
 @k8s_bp.route("/k8s/generate/wizard", methods=["POST"])
+@run_tracked("generate", "generate:k8s_wizard")
 def k8s_generate_wizard():  # type: ignore[no-untyped-def]
     """Generate K8s manifests from wizard resource definitions."""
     data = request.get_json(silent=True) or {}

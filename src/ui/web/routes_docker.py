@@ -27,6 +27,7 @@ from pathlib import Path
 from flask import Blueprint, current_app, jsonify, request
 
 from src.core.services import docker_ops
+from src.core.services.run_tracker import run_tracked
 
 docker_bp = Blueprint("docker", __name__)
 
@@ -99,6 +100,7 @@ def docker_stats():  # type: ignore[no-untyped-def]
 
 
 @docker_bp.route("/docker/build", methods=["POST"])
+@run_tracked("build", "build:docker")
 def docker_build():  # type: ignore[no-untyped-def]
     """Build images via compose."""
     data = request.get_json(silent=True) or {}
@@ -115,6 +117,7 @@ def docker_build():  # type: ignore[no-untyped-def]
 
 
 @docker_bp.route("/docker/up", methods=["POST"])
+@run_tracked("deploy", "deploy:docker_up")
 def docker_up():  # type: ignore[no-untyped-def]
     """Start compose services."""
     data = request.get_json(silent=True) or {}
@@ -130,6 +133,7 @@ def docker_up():  # type: ignore[no-untyped-def]
 
 
 @docker_bp.route("/docker/down", methods=["POST"])
+@run_tracked("destroy", "destroy:docker_down")
 def docker_down():  # type: ignore[no-untyped-def]
     """Stop compose services."""
     data = request.get_json(silent=True) or {}
@@ -145,6 +149,7 @@ def docker_down():  # type: ignore[no-untyped-def]
 
 
 @docker_bp.route("/docker/restart", methods=["POST"])
+@run_tracked("deploy", "deploy:docker_restart")
 def docker_restart():  # type: ignore[no-untyped-def]
     """Restart compose services."""
     data = request.get_json(silent=True) or {}
@@ -160,6 +165,7 @@ def docker_restart():  # type: ignore[no-untyped-def]
 
 
 @docker_bp.route("/docker/prune", methods=["POST"])
+@run_tracked("destroy", "destroy:docker_prune")
 def docker_prune():  # type: ignore[no-untyped-def]
     """Remove unused Docker resources."""
     root = _project_root()
@@ -175,6 +181,7 @@ def docker_prune():  # type: ignore[no-untyped-def]
 
 
 @docker_bp.route("/docker/generate/dockerfile", methods=["POST"])
+@run_tracked("generate", "generate:dockerfile")
 def generate_dockerfile():  # type: ignore[no-untyped-def]
     """Generate a Dockerfile for a given stack."""
     data = request.get_json(silent=True) or {}
@@ -193,6 +200,7 @@ def generate_dockerfile():  # type: ignore[no-untyped-def]
 
 
 @docker_bp.route("/docker/generate/dockerignore", methods=["POST"])
+@run_tracked("generate", "generate:dockerignore")
 def generate_dockerignore():  # type: ignore[no-untyped-def]
     """Generate a .dockerignore for given stacks."""
     data = request.get_json(silent=True) or {}
@@ -207,6 +215,7 @@ def generate_dockerignore():  # type: ignore[no-untyped-def]
 
 
 @docker_bp.route("/docker/generate/compose", methods=["POST"])
+@run_tracked("generate", "generate:compose")
 def generate_compose():  # type: ignore[no-untyped-def]
     """Generate a docker-compose.yml from detected modules."""
     root = _project_root()
@@ -219,6 +228,7 @@ def generate_compose():  # type: ignore[no-untyped-def]
 
 
 @docker_bp.route("/docker/generate/compose-wizard", methods=["POST"])
+@run_tracked("generate", "generate:compose_wizard")
 def generate_compose_wizard():  # type: ignore[no-untyped-def]
     """Generate docker-compose.yml from custom service definitions.
 
@@ -257,6 +267,7 @@ def generate_compose_wizard():  # type: ignore[no-untyped-def]
 
 
 @docker_bp.route("/docker/generate/write", methods=["POST"])
+@run_tracked("generate", "generate:docker_write")
 def write_generated():  # type: ignore[no-untyped-def]
     """Write a generated file to disk."""
     data = request.get_json(silent=True) or {}
@@ -304,6 +315,7 @@ def docker_inspect():  # type: ignore[no-untyped-def]
 
 
 @docker_bp.route("/docker/pull", methods=["POST"])
+@run_tracked("install", "install:docker_pull")
 def docker_pull():  # type: ignore[no-untyped-def]
     """Pull a Docker image."""
     data = request.get_json(silent=True) or {}
@@ -319,6 +331,7 @@ def docker_pull():  # type: ignore[no-untyped-def]
 
 
 @docker_bp.route("/docker/exec", methods=["POST"])
+@run_tracked("test", "test:docker_exec")
 def docker_exec():  # type: ignore[no-untyped-def]
     """Execute a command in a running container."""
     data = request.get_json(silent=True) or {}
@@ -337,6 +350,7 @@ def docker_exec():  # type: ignore[no-untyped-def]
 
 
 @docker_bp.route("/docker/rm", methods=["POST"])
+@run_tracked("destroy", "destroy:docker_rm")
 def docker_rm():  # type: ignore[no-untyped-def]
     """Remove a Docker container."""
     data = request.get_json(silent=True) or {}
@@ -353,6 +367,7 @@ def docker_rm():  # type: ignore[no-untyped-def]
 
 
 @docker_bp.route("/docker/rmi", methods=["POST"])
+@run_tracked("destroy", "destroy:docker_rmi")
 def docker_rmi():  # type: ignore[no-untyped-def]
     """Remove a Docker image."""
     data = request.get_json(silent=True) or {}

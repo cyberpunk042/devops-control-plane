@@ -24,7 +24,11 @@ Models:
     AuditMeta, wrap_result            → result envelope pattern
 """
 
-from src.core.services.audit.l0_detection import l0_system_profile
+from src.core.services.audit.l0_detection import (
+    TOOL_REGISTRY,
+    detect_tools,
+    l0_system_profile,
+)
 from src.core.services.audit.l1_classification import (
     l1_clients,
     l1_dependencies,
@@ -39,8 +43,10 @@ from src.core.services.audit.scoring import audit_scores, audit_scores_enriched
 
 __all__ = [
     "AuditMeta",
+    "TOOL_REGISTRY",
     "audit_scores",
     "audit_scores_enriched",
+    "detect_tools",
     "l0_system_profile",
     "l1_clients",
     "l1_dependencies",

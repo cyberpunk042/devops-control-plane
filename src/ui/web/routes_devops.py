@@ -163,14 +163,14 @@ def _ensure_registry() -> None:
         }
 
     reg = devops_cache.register_compute
-    reg("packages", lambda root: package_ops.package_status(root))
+    reg("packages", lambda root: package_ops.package_status_enriched(root))
     reg("quality", lambda root: quality_ops.quality_status(root))
     reg("git", lambda root: git_ops.git_status(root))
     reg("ci", lambda root: ci_ops.ci_status(root))
     reg("security", lambda root: _compute_security(root))
     reg("docker", lambda root: docker_ops.docker_status(root))
     reg("k8s", lambda root: k8s_ops.k8s_status(root))
-    reg("env", lambda root: env_ops.env_status(root))
+    reg("env", lambda root: env_ops.env_card_status(root))
     reg("docs", lambda root: docs_ops.docs_status(root))
     reg("terraform", lambda root: terraform_ops.terraform_status(root))
     reg("dns", lambda root: dns_cdn_ops.dns_cdn_status(root))

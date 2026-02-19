@@ -154,6 +154,8 @@ def dns_cdn_status(project_root: Path) -> dict:
                     "type": cert_type,
                 })
 
+    from src.core.services.tool_requirements import check_required_tools
+
     return {
         "cdn_providers": cdn_providers,
         "domains": sorted(domains),
@@ -161,6 +163,7 @@ def dns_cdn_status(project_root: Path) -> dict:
         "ssl_certs": ssl_certs,
         "has_cdn": len(cdn_providers) > 0,
         "has_dns": len(dns_files) > 0 or len(domains) > 0,
+        "missing_tools": check_required_tools(["dig", "openssl", "curl"]),
     }
 
 

@@ -19,15 +19,18 @@
             if (!data.kubectl || !data.kubectl.available) {
                 badge.className = 'status-badge failed';
                 badge.innerHTML = '<span class="status-dot"></span>No kubectl';
-                detail.innerHTML = cardSetupBanner('☸️', 'kubectl not found',
+                let html = cardSetupBanner('☸️', 'kubectl not found',
                     'Install kubectl to manage Kubernetes clusters, or generate manifests now.',
-                    'k8s', 'K8s Setup →') +
-                    cardEmpty('☸️', '<code>kubectl</code> not found.',
-                    { label: 'Install kubectl →', onclick: "window.open('https://kubernetes.io/docs/tasks/tools/','_blank')" });
-                detail.innerHTML += cardGenerateToolbar([
+                    'k8s', 'K8s Setup →');
+                html += '<div id="k8s-missing-tools"></div>';
+                html += cardEmpty('☸️', '<code>kubectl</code> not found.',
+                    { label: '📦 Install kubectl', onclick: "_showSudoInstallModal('kubectl','kubectl',this,true)" });
+                html += cardGenerateToolbar([
                     { label: 'K8s Manifests', icon: '☸', onclick: "_k8sGenerateModal()" },
                     { label: 'K8s Wizard', icon: '🧙', onclick: "_k8sWizardModal()" },
                 ]);
+                detail.innerHTML = html;
+                renderMissingTools(data.missing_tools, 'k8s-missing-tools');
                 return;
             }
 
@@ -183,7 +186,7 @@
 
             } else if (what === 'helm') {
                 const data = await api('/k8s/helm/list');
-                if (!data.available) { panel.innerHTML = '<span style="color:var(--warning)">⚠ Helm CLI not found. <a href="https://helm.sh/docs/intro/install/" target="_blank" rel="noopener" style="color:var(--accent)">Install Helm →</a></span>'; return; }
+                if (!data.available) { panel.innerHTML = '<span style="color:var(--warning)">⚠ Helm CLI not found. <button class="btn btn-sm btn-secondary" style="font-size:0.72rem" onclick="_showSudoInstallModal(\'helm\',\'helm\',this,true)">📦 Install Helm</button></span>'; return; }
                 const releases = data.releases || [];
                 if (releases.length === 0) { panel.innerHTML = '<span style="color:var(--text-muted)">No Helm releases found.' + (data.error ? ` (${esc(data.error)})` : '') + '</span>'; return; }
                 panel.innerHTML = cardDataTable(

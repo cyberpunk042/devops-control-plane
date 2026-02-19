@@ -127,8 +127,11 @@
             </div>
             <div id="devops-sec-live-panel" style="display:none;margin-top:0.3rem;background:var(--bg-inset);border:1px solid var(--border-subtle);border-radius:6px;padding:0.4rem 0.5rem;font-size:0.72rem;max-height:260px;overflow:auto;font-family:var(--font-mono,monospace)"></div>
         </div>`;
+        // ── Missing tools banner ──
+        html += '<div id="devops-sec-missing-tools"></div>';
         html += `</div>`;
         detail.innerHTML = html;
+        renderMissingTools((posture || {}).missing_tools, 'devops-sec-missing-tools');
     }
 
     async function secSensitiveFiles() {

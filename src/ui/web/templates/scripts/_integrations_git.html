@@ -16,9 +16,12 @@
             if (!data.available) {
                 badge.className = 'status-badge failed';
                 badge.innerHTML = '<span class="status-dot"></span>No repo';
-                detail.innerHTML = cardSetupBanner('🔀', 'No Git repository',
+                let emptyHtml = '<div id="git-missing-tools"></div>';
+                emptyHtml += cardSetupBanner('🔀', 'No Git repository',
                     'Initialize a Git repo to start tracking changes and enable other integrations.',
                     'git', 'Initialize Git →');
+                detail.innerHTML = emptyHtml;
+                renderMissingTools(data.missing_tools, 'git-missing-tools');
                 return;
             }
 
@@ -82,7 +85,11 @@
                 { label: '.gitignore', icon: '📝', onclick: 'gitIgnoreWizard()' },
             ]);
 
+            // ── Missing tools banner ──
+            html += '<div id="git-missing-tools"></div>';
+
             detail.innerHTML = html;
+            renderMissingTools(data.missing_tools, 'git-missing-tools');
 
         } catch (e) {
             badge.className = 'status-badge failed';

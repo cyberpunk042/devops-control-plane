@@ -82,6 +82,8 @@
             'state:snapshot',
             'cache:miss', 'cache:done', 'cache:error', 'cache:bust',
             'state:stale',
+            'audit:pending', 'audit:saved',
+            'run:started', 'run:completed',
         ],
 
         /** Open the SSE connection. Safe to call multiple times. */
@@ -127,13 +129,17 @@
             }
 
             switch (type) {
-                case 'sys:ready':      this._onReady(payload);      break;
-                case 'state:snapshot': this._onSnapshot(payload);   break;
-                case 'cache:done':     this._onCacheDone(payload);  break;
-                case 'cache:miss':     this._onCacheMiss(payload);  break;
-                case 'cache:error':    this._onCacheError(payload); break;
-                case 'cache:bust':     this._onCacheBust(payload);  break;
-                case 'state:stale':    this._onStateStale(payload); break;
+                case 'sys:ready':      this._onReady(payload);        break;
+                case 'state:snapshot': this._onSnapshot(payload);     break;
+                case 'cache:done':     this._onCacheDone(payload);    break;
+                case 'cache:miss':     this._onCacheMiss(payload);    break;
+                case 'cache:error':    this._onCacheError(payload);   break;
+                case 'cache:bust':     this._onCacheBust(payload);    break;
+                case 'state:stale':    this._onStateStale(payload);   break;
+                case 'audit:pending':  this._onAuditPending(payload); break;
+                case 'audit:saved':    this._onAuditSaved(payload);   break;
+                case 'run:started':    this._onRunStarted(payload);   break;
+                case 'run:completed':  this._onRunCompleted(payload); break;
                 // sys:warming, sys:warm, sys:heartbeat — silently ignored for now
             }
         },
@@ -254,6 +260,220 @@
             console.debug('[SSE] state:stale %s (stale by %.1fs)',
                 key, payload.data?.stale_by_s || 0);
         },
+
+        /** A new pending audit snapshot was staged. */
+        _onAuditPending(payload) {
+            const key = payload.key;        // card_key e.g. "security"
+            const sid = payload.snapshot_id; // e.g. "security_20260218_150300"
+            if (!key || !sid) return;
+
+            // Track pending counts
+            window._pendingAudits = window._pendingAudits || {};
+            (window._pendingAudits[key] ??= []).push(sid);
+
+            // Show per-card badge(s)
+            document.querySelectorAll('.audit-pending-badge[data-audit-key="' + key + '"]')
+                .forEach(b => { b.style.display = 'inline-flex'; });
+
+            // Update global pending badge (in tab header)
+            _sse._updatePendingBadge();
+
+            console.debug('[SSE] audit:pending %s (%s)', key, sid);
+        },
+
+        /** An audit snapshot was saved to git. */
+        _onAuditSaved(payload) {
+            const sid = payload.key;  // snapshot_id
+            if (!sid) return;
+
+            // Remove from pending tracking
+            if (window._pendingAudits) {
+                for (const key of Object.keys(window._pendingAudits)) {
+                    window._pendingAudits[key] = window._pendingAudits[key].filter(id => id !== sid);
+                    if (window._pendingAudits[key].length === 0) {
+                        delete window._pendingAudits[key];
+                        // Hide per-card badge(s)
+                        document.querySelectorAll('.audit-pending-badge[data-audit-key="' + key + '"]')
+                            .forEach(b => { b.style.display = 'none'; });
+                    }
+                }
+            }
+
+            _sse._updatePendingBadge();
+            console.debug('[SSE] audit:saved %s', sid);
+        },
+
+        /** Update the global pending audit badges in tab headers. */
+        _updatePendingBadge() {
+            const pa = window._pendingAudits || {};
+            let devopsTotal = 0;
+            let projectTotal = 0;
+
+            for (const [key, arr] of Object.entries(pa)) {
+                if (key.startsWith('audit:')) {
+                    projectTotal += arr.length;
+                } else {
+                    devopsTotal += arr.length;
+                }
+            }
+
+            const total = devopsTotal + projectTotal;
+
+            // DevOps tab global badge
+            const badge = document.getElementById('pending-audits-badge');
+            if (badge) {
+                if (devopsTotal > 0) {
+                    badge.textContent = devopsTotal;
+                    badge.style.display = '';
+                    badge.title = `${devopsTotal} unsaved devops audit(s) — click to manage`;
+                } else {
+                    badge.style.display = 'none';
+                }
+            }
+
+            // Audit tab global badge
+            const pBadge = document.getElementById('pending-project-audits-badge');
+            if (pBadge) {
+                if (projectTotal > 0) {
+                    pBadge.textContent = projectTotal;
+                    pBadge.style.display = '';
+                    pBadge.title = `${projectTotal} unsaved project audit(s) — click to manage`;
+                } else {
+                    pBadge.style.display = 'none';
+                }
+            }
+        },
+
+        /** A run operation has started. */
+        _onRunStarted(payload) {
+            const data = payload.data || {};
+            const subtype = data.subtype || data.type || '';
+            console.debug('[SSE] run:started %s (%s)', payload.key, subtype);
+
+            const cardIds = this._runSubtypeToCardIds(subtype);
+            for (const cardId of cardIds) {
+                const badge = this._ensureRunBadge(cardId);
+                if (badge) {
+                    badge.style.display = 'inline-flex';
+                    badge.querySelector('.run-status-dot').className = 'run-status-dot running';
+                    badge.querySelector('.run-badge-label').textContent = 'running…';
+                    badge.title = subtype + ' in progress';
+                }
+            }
+        },
+
+        /** A run operation has completed. */
+        _onRunCompleted(payload) {
+            const data = payload.data || {};
+            const subtype = data.subtype || data.type || 'run';
+            const status = data.status || 'ok';
+            const summary = data.summary || '';
+            const dur = data.duration_ms ? ` (${(data.duration_ms / 1000).toFixed(1)}s)` : '';
+            const icon = status === 'ok' ? '✅' : '❌';
+            const level = status === 'ok' ? 'success' : (status === 'failed' ? 'error' : 'info');
+
+            if (typeof toast === 'function') {
+                toast(`${icon} ${subtype}${dur}: ${summary || status}`, level);
+            }
+            console.debug('[SSE] run:completed %s → %s%s', payload.key, status, dur);
+
+            const cardIds = this._runSubtypeToCardIds(subtype);
+            for (const cardId of cardIds) {
+                const badge = this._ensureRunBadge(cardId);
+                if (badge) {
+                    badge.style.display = 'inline-flex';
+                    const dot = badge.querySelector('.run-status-dot');
+                    dot.className = 'run-status-dot ' + (status === 'ok' ? 'success' : 'failed');
+                    badge.querySelector('.run-badge-label').textContent = status;
+                    const runId = data.run_id || '';
+                    badge.title = `${subtype}${dur} — ${summary || status}`
+                        + (runId ? `\n@run:${runId}` : '');
+                }
+            }
+        },
+
+        /**
+         * Map run subtype → candidate card element IDs.
+         * Cards live on two tabs with different prefixes:
+         *   DevOps:       devops-{key}-card
+         *   Integrations: int-{key}-card
+         */
+        _runSubtypeToCardIds(subtype) {
+            if (!subtype) return [];
+            const map = {
+                /* K8s + Helm */
+                'deploy:k8s': 'k8s', 'deploy:k8s_scale': 'k8s', 'destroy:k8s': 'k8s',
+                'generate:k8s_manifests': 'k8s', 'generate:k8s_wizard': 'k8s',
+                'install:helm': 'k8s', 'deploy:helm_upgrade': 'k8s', 'plan:helm_template': 'k8s',
+                /* Terraform */
+                'deploy:terraform': 'terraform', 'plan:terraform': 'terraform',
+                'validate:terraform': 'terraform', 'destroy:terraform': 'terraform',
+                'setup:terraform': 'terraform', 'format:terraform': 'terraform',
+                'generate:terraform': 'terraform', 'setup:terraform_ws': 'terraform',
+                /* Docker */
+                'build:docker': 'docker', 'deploy:docker_up': 'docker',
+                'destroy:docker_down': 'docker', 'deploy:docker_restart': 'docker',
+                'destroy:docker_prune': 'docker', 'install:docker_pull': 'docker',
+                'test:docker_exec': 'docker', 'destroy:docker_rm': 'docker',
+                'destroy:docker_rmi': 'docker',
+                'generate:dockerfile': 'docker', 'generate:dockerignore': 'docker',
+                'generate:compose': 'docker', 'generate:compose_wizard': 'docker',
+                'generate:docker_write': 'docker',
+                /* Testing */
+                'test:run': 'testing', 'test:coverage': 'testing',
+                /* Quality */
+                'validate:quality': 'quality', 'validate:lint': 'quality',
+                'validate:typecheck': 'quality', 'test:quality': 'quality',
+                'format:quality': 'quality', 'generate:quality_config': 'quality',
+                /* Packages */
+                'install:packages': 'packages', 'install:packages_update': 'packages',
+                /* Docs */
+                'generate:changelog': 'docs', 'generate:readme': 'docs',
+                /* Env / Infra */
+                'generate:env_example': 'env', 'generate:env': 'env',
+                /* Git */
+                'git:commit': 'git', 'git:pull': 'git', 'git:push': 'git',
+                /* CI / GH */
+                'ci:gh_dispatch': 'ci',
+                'setup:gh_repo': 'gh', 'setup:gh_visibility': 'gh',
+                'setup:gh_logout': 'gh', 'setup:gh_default_branch': 'gh',
+                /* Pages */
+                'build:pages_segment': 'pages', 'build:pages_all': 'pages',
+                'build:pages_merge': 'pages', 'deploy:pages': 'pages',
+                'setup:pages': 'pages', 'generate:pages_ci': 'pages',
+            };
+            const key = map[subtype];
+            if (!key) return [];
+
+            /* DevOps tab uses devops-{key}-card, Integrations uses int-{key}-card.
+               Also handle int-tf-card (short alias for terraform). */
+            const intKey = key === 'terraform' ? 'tf' : key;
+            const ids = ['devops-' + key + '-card', 'int-' + intKey + '-card'];
+            return ids;
+        },
+
+        /** Get-or-create a run badge element inside a card header. */
+        _ensureRunBadge(cardId) {
+            const badgeId = cardId + '-run-badge';
+            let badge = document.getElementById(badgeId);
+            if (badge) return badge;
+
+            const card = document.getElementById(cardId);
+            if (!card) return null;
+
+            const header = card.querySelector('.card-header');
+            if (!header) return null;
+
+            badge = document.createElement('span');
+            badge.id = badgeId;
+            badge.className = 'run-activity-badge';
+            badge.style.display = 'none';
+            badge.innerHTML = '<span class="run-status-dot"></span>'
+                + '<span class="run-badge-label"></span>';
+            header.appendChild(badge);
+            return badge;
+        },
+
 
         // ── Helpers ────────────────────────────────────────────────
 

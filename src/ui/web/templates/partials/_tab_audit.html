@@ -3,6 +3,10 @@
     <header class="tab-header">
         <h1>🔬 Audit</h1>
         <div style="display:flex;align-items:center;gap:var(--space-md)">
+            <button class="btn btn-sm btn-ghost" onclick="openSavedAuditBrowser('project')" title="Browse saved Project audits">
+                📁 Saved
+            </button>
+            <span class="pending-audits-badge" id="pending-project-audits-badge" style="display:none" onclick="openAuditManager(null,'project')" title="Unsaved project audit snapshots — click to manage"></span>
             <button class="btn btn-sm btn-secondary" onclick="loadAuditTab(true)" title="Force-refresh all audit cards">
                 🔄 Refresh All
             </button>
@@ -19,6 +23,7 @@
                     🔬 Enrich
                 </button>
                 <span class="status-badge" id="audit-scores-badge">—</span>
+                <span class="audit-pending-badge" data-audit-key="audit:scores" onclick="openAuditManager(this.dataset.auditKey)" title="Unsaved audit — click to manage" style="display:none">📋</span>
             </div>
         </div>
         <div id="audit-scores-detail" style="margin-top:var(--space-md)">
@@ -36,6 +41,7 @@
                     <span class="card-age" data-cache-key="audit:system" style="font-size:0.64rem;color:var(--text-muted)"></span>
                     <button class="btn-icon" onclick="cardRefresh('audit:system','audit-system-badge','audit-system-detail',loadAuditSystemCard)" title="Re-detect system profile" style="font-size:0.7rem;cursor:pointer;background:none;border:none;color:var(--text-muted);padding:0">🔄</button>
                     <span class="status-badge" id="audit-system-badge">—</span>
+                    <span class="audit-pending-badge" data-audit-key="audit:system" onclick="openAuditManager(this.dataset.auditKey)" title="Unsaved audit — click to manage" style="display:none">📋</span>
                 </div>
             </div>
             <div class="card-subtitle">OS, Python, Node, available tools, virtual environment, project modules</div>
@@ -52,6 +58,7 @@
                     <span class="card-age" data-cache-key="audit:deps" style="font-size:0.64rem;color:var(--text-muted)"></span>
                     <button class="btn-icon" onclick="cardRefresh('audit:deps','audit-deps-badge','audit-deps-detail',loadAuditDepsCard)" title="Re-parse manifests" style="font-size:0.7rem;cursor:pointer;background:none;border:none;color:var(--text-muted);padding:0">🔄</button>
                     <span class="status-badge" id="audit-deps-badge">—</span>
+                    <span class="audit-pending-badge" data-audit-key="audit:deps" onclick="openAuditManager(this.dataset.auditKey)" title="Unsaved audit — click to manage" style="display:none">📋</span>
                 </div>
             </div>
             <div class="card-subtitle">Library inventory, framework/ORM/client identification, cross-ecosystem crossovers</div>
@@ -68,6 +75,7 @@
                     <span class="card-age" data-cache-key="audit:structure" style="font-size:0.64rem;color:var(--text-muted)"></span>
                     <button class="btn-icon" onclick="cardRefresh('audit:structure','audit-structure-badge','audit-structure-detail',loadAuditStructureCard)" title="Re-detect structure" style="font-size:0.7rem;cursor:pointer;background:none;border:none;color:var(--text-muted);padding:0">🔄</button>
                     <span class="status-badge" id="audit-structure-badge">—</span>
+                    <span class="audit-pending-badge" data-audit-key="audit:structure" onclick="openAuditManager(this.dataset.auditKey)" title="Unsaved audit — click to manage" style="display:none">📋</span>
                 </div>
             </div>
             <div class="card-subtitle">Solution classification, components, entrypoints, infrastructure flags</div>
@@ -84,6 +92,7 @@
                     <span class="card-age" data-cache-key="audit:clients" style="font-size:0.64rem;color:var(--text-muted)"></span>
                     <button class="btn-icon" onclick="cardRefresh('audit:clients','audit-clients-badge','audit-clients-detail',loadAuditClientsCard)" title="Re-detect clients" style="font-size:0.7rem;cursor:pointer;background:none;border:none;color:var(--text-muted);padding:0">🔄</button>
                     <span class="status-badge" id="audit-clients-badge">—</span>
+                    <span class="audit-pending-badge" data-audit-key="audit:clients" onclick="openAuditManager(this.dataset.auditKey)" title="Unsaved audit — click to manage" style="display:none">📋</span>
                 </div>
             </div>
             <div class="card-subtitle">External service clients (databases, caches, message brokers, cloud SDKs)</div>
@@ -115,6 +124,7 @@
                         <span class="card-age" data-cache-key="audit:l2:quality" style="font-size:0.64rem;color:var(--text-muted)"></span>
                         <button class="btn btn-ghost btn-sm" onclick="cardRefresh('audit:l2:quality','audit-health-badge','audit-health-detail',loadAuditHealthCard)" title="Refresh code health" style="padding:2px 6px;font-size:0.72rem">🔄</button>
                         <span class="status-badge" id="audit-health-badge">—</span>
+                        <span class="audit-pending-badge" data-audit-key="audit:l2:quality" onclick="openAuditManager(this.dataset.auditKey)" title="Unsaved audit — click to manage" style="display:none">📋</span>
                     </div>
                 </div>
                 <div class="card-subtitle">AST-based quality metrics — docstring coverage, function length, nesting depth, naming consistency</div>
@@ -136,6 +146,7 @@
                         <span class="card-age" data-cache-key="audit:l2:repo" style="font-size:0.64rem;color:var(--text-muted)"></span>
                         <button class="btn btn-ghost btn-sm" onclick="cardRefresh('audit:l2:repo','audit-repo-badge','audit-repo-detail',loadAuditRepoCard)" title="Refresh repo health" style="padding:2px 6px;font-size:0.72rem">🔄</button>
                         <span class="status-badge" id="audit-repo-badge">—</span>
+                        <span class="audit-pending-badge" data-audit-key="audit:l2:repo" onclick="openAuditManager(this.dataset.auditKey)" title="Unsaved audit — click to manage" style="display:none">📋</span>
                     </div>
                 </div>
                 <div class="card-subtitle">Git history depth, object database size, large files, binary tracking, branch and tag hygiene</div>
@@ -157,6 +168,7 @@
                         <span class="card-age" data-cache-key="audit:l2:risks" style="font-size:0.64rem;color:var(--text-muted)"></span>
                         <button class="btn btn-ghost btn-sm" onclick="cardRefresh('audit:l2:risks','audit-risks-badge','audit-risks-detail',loadAuditRisksCard)" title="Refresh risks scan" style="padding:2px 6px;font-size:0.72rem">🔄</button>
                         <span class="status-badge" id="audit-risks-badge">—</span>
+                        <span class="audit-pending-badge" data-audit-key="audit:l2:risks" onclick="openAuditManager(this.dataset.auditKey)" title="Unsaved audit — click to manage" style="display:none">📋</span>
                     </div>
                 </div>
                 <div class="card-subtitle">Cross-service risk aggregation — security findings, dependency vulnerabilities, documentation gaps, test coverage</div>
@@ -178,6 +190,7 @@
                         <span class="card-age" data-cache-key="audit:l2:structure" style="font-size:0.64rem;color:var(--text-muted)"></span>
                         <button class="btn btn-ghost btn-sm" onclick="cardRefresh('audit:l2:structure','audit-l2structure-badge','audit-l2structure-detail',loadAuditL2StructureCard)" title="Refresh structure analysis" style="padding:2px 6px;font-size:0.72rem">🔄</button>
                         <span class="status-badge" id="audit-l2structure-badge">—</span>
+                        <span class="audit-pending-badge" data-audit-key="audit:l2:structure" onclick="openAuditManager(this.dataset.auditKey)" title="Unsaved audit — click to manage" style="display:none">📋</span>
                     </div>
                 </div>
                 <div class="card-subtitle">Import graph, module boundaries, exposure ratios, cross-module dependency mapping with strength classification</div>

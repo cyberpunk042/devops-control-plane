@@ -46,6 +46,7 @@ from src.core.services.content_crypto import (
     CONFIG_EXTS,
     DATA_EXTS,
 )
+from src.core.services.run_tracker import run_tracked
 
 logger = logging.getLogger(__name__)
 
@@ -180,6 +181,7 @@ def content_list():  # type: ignore[no-untyped-def]
 
 
 @content_bp.route("/content/encrypt", methods=["POST"])
+@run_tracked("setup", "setup:encrypt")
 def content_encrypt():  # type: ignore[no-untyped-def]
     """Encrypt a file using COVAULT format."""
     data = request.get_json(silent=True) or {}
@@ -206,6 +208,7 @@ def content_encrypt():  # type: ignore[no-untyped-def]
 
 
 @content_bp.route("/content/decrypt", methods=["POST"])
+@run_tracked("setup", "setup:decrypt")
 def content_decrypt():  # type: ignore[no-untyped-def]
     """Decrypt a .enc file."""
     data = request.get_json(silent=True) or {}

@@ -42,8 +42,10 @@
             detail.innerHTML = `<div style="font-size:0.82rem;color:var(--text-secondary);line-height:1.5">
                 <p class="empty-state-sm">No quality tools detected</p>
                 <div style="font-size:0.68rem;color:var(--text-muted);margin-top:var(--space-xs)">Install a linter, formatter, or type checker to enable quality checks.</div>
+                <div id="quality-missing-tools"></div>
                 <div style="margin-top:var(--space-md)"><button class="btn btn-sm btn-ghost" onclick="qualityGenConfig()" title="Generate linter/formatter configuration files for your stack">⚙️ Generate Config</button></div>
             </div>`;
+            renderMissingTools(data.missing_tools, 'quality-missing-tools');
             return;
         }
 
@@ -85,8 +87,14 @@
             <button class="btn btn-sm btn-secondary" onclick="qualityRunCategory('test')" title="Run test-category quality checks">🧪 Test</button>
             <button class="btn btn-sm btn-ghost" onclick="qualityGenConfig()" title="Generate linter/formatter config files">⚙️ Gen Config</button>
         </div>`;
+        // Missing tools
+        html += '<div id="quality-missing-tools-ok"></div>';
+
         html += `</div>`;
         detail.innerHTML = html;
+
+        // Render missing tools (after innerHTML so container exists)
+        renderMissingTools(data.missing_tools, 'quality-missing-tools-ok');
     }
 
     async function qualityRunCategory(category) {

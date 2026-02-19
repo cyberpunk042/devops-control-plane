@@ -19,32 +19,50 @@ logger = logging.getLogger(__name__)
 # ── System tools to probe ───────────────────────────────────────
 
 _TOOLS: list[dict[str, str]] = [
-    {"id": "python", "cli": "python3", "label": "Python"},
-    {"id": "pip", "cli": "pip", "label": "pip"},
-    {"id": "node", "cli": "node", "label": "Node.js"},
-    {"id": "npm", "cli": "npm", "label": "npm"},
-    {"id": "npx", "cli": "npx", "label": "npx"},
-    {"id": "go", "cli": "go", "label": "Go"},
-    {"id": "cargo", "cli": "cargo", "label": "Cargo (Rust)"},
-    {"id": "rustc", "cli": "rustc", "label": "Rust compiler"},
-    {"id": "docker", "cli": "docker", "label": "Docker"},
-    {"id": "docker-compose", "cli": "docker-compose", "label": "Docker Compose"},
-    {"id": "kubectl", "cli": "kubectl", "label": "kubectl"},
-    {"id": "terraform", "cli": "terraform", "label": "Terraform"},
-    {"id": "helm", "cli": "helm", "label": "Helm"},
-    {"id": "git", "cli": "git", "label": "Git"},
-    {"id": "gh", "cli": "gh", "label": "GitHub CLI"},
-    {"id": "ruff", "cli": "ruff", "label": "Ruff"},
-    {"id": "mypy", "cli": "mypy", "label": "mypy"},
-    {"id": "pytest", "cli": "pytest", "label": "pytest"},
-    {"id": "black", "cli": "black", "label": "Black"},
-    {"id": "eslint", "cli": "eslint", "label": "ESLint"},
-    {"id": "prettier", "cli": "prettier", "label": "Prettier"},
-    {"id": "ffmpeg", "cli": "ffmpeg", "label": "FFmpeg"},
-    {"id": "gzip", "cli": "gzip", "label": "gzip"},
-    {"id": "curl", "cli": "curl", "label": "curl"},
-    {"id": "jq", "cli": "jq", "label": "jq"},
-    {"id": "make", "cli": "make", "label": "Make"},
+    # ── Core runtimes ───────────────────────────────────────────
+    {"id": "python",         "cli": "python3",         "label": "Python",          "category": "runtime",   "install_type": "sudo"},
+    {"id": "pip",            "cli": "pip",              "label": "pip",             "category": "runtime",   "install_type": "sudo"},
+    {"id": "node",           "cli": "node",             "label": "Node.js",         "category": "runtime",   "install_type": "sudo"},
+    {"id": "npm",            "cli": "npm",              "label": "npm",             "category": "runtime",   "install_type": "sudo"},
+    {"id": "npx",            "cli": "npx",              "label": "npx",             "category": "runtime",   "install_type": "sudo"},
+    {"id": "go",             "cli": "go",               "label": "Go",              "category": "runtime",   "install_type": "sudo"},
+    {"id": "cargo",          "cli": "cargo",            "label": "Cargo (Rust)",    "category": "runtime",   "install_type": "sudo"},
+    {"id": "rustc",          "cli": "rustc",            "label": "Rust compiler",   "category": "runtime",   "install_type": "sudo"},
+    # ── Version control ────────────────────────────────────────
+    {"id": "git",            "cli": "git",              "label": "Git",             "category": "vcs",       "install_type": "sudo"},
+    {"id": "gh",             "cli": "gh",               "label": "GitHub CLI",      "category": "vcs",       "install_type": "sudo"},
+    # ── Containers & orchestration ─────────────────────────────
+    {"id": "docker",         "cli": "docker",           "label": "Docker",          "category": "container", "install_type": "sudo"},
+    {"id": "docker-compose", "cli": "docker-compose",   "label": "Docker Compose",  "category": "container", "install_type": "sudo"},
+    {"id": "kubectl",        "cli": "kubectl",          "label": "kubectl",         "category": "container", "install_type": "sudo"},
+    {"id": "helm",           "cli": "helm",             "label": "Helm",            "category": "container", "install_type": "sudo"},
+    {"id": "skaffold",       "cli": "skaffold",         "label": "Skaffold",        "category": "container", "install_type": "sudo"},
+    # ── Infrastructure ─────────────────────────────────────────
+    {"id": "terraform",      "cli": "terraform",        "label": "Terraform",       "category": "infra",     "install_type": "sudo"},
+    {"id": "trivy",          "cli": "trivy",            "label": "Trivy",           "category": "security",  "install_type": "sudo"},
+    # ── Quality & testing ──────────────────────────────────────
+    {"id": "ruff",           "cli": "ruff",             "label": "Ruff",            "category": "quality",   "install_type": "pip"},
+    {"id": "mypy",           "cli": "mypy",             "label": "mypy",            "category": "quality",   "install_type": "pip"},
+    {"id": "pytest",         "cli": "pytest",           "label": "pytest",          "category": "quality",   "install_type": "pip"},
+    {"id": "black",          "cli": "black",            "label": "Black",           "category": "quality",   "install_type": "pip"},
+    {"id": "eslint",         "cli": "eslint",           "label": "ESLint",          "category": "quality",   "install_type": "npm"},
+    {"id": "prettier",       "cli": "prettier",         "label": "Prettier",        "category": "quality",   "install_type": "npm"},
+    # ── Security auditing ──────────────────────────────────────
+    {"id": "pip-audit",      "cli": "pip-audit",        "label": "pip-audit",       "category": "security",  "install_type": "pip"},
+    {"id": "bandit",         "cli": "bandit",           "label": "Bandit",          "category": "security",  "install_type": "pip"},
+    {"id": "safety",         "cli": "safety",           "label": "Safety",          "category": "security",  "install_type": "pip"},
+    {"id": "cargo-outdated", "cli": "cargo-outdated",   "label": "cargo-outdated",  "category": "security",  "install_type": "none"},
+    {"id": "cargo-audit",    "cli": "cargo-audit",      "label": "cargo-audit",     "category": "security",  "install_type": "none"},
+    # ── Network & DNS ──────────────────────────────────────────
+    {"id": "dig",            "cli": "dig",              "label": "dig",             "category": "network",   "install_type": "sudo"},
+    {"id": "openssl",        "cli": "openssl",          "label": "OpenSSL",         "category": "network",   "install_type": "sudo"},
+    {"id": "curl",           "cli": "curl",             "label": "curl",            "category": "network",   "install_type": "sudo"},
+    # ── System utilities ───────────────────────────────────────
+    {"id": "ffmpeg",         "cli": "ffmpeg",           "label": "FFmpeg",          "category": "system",    "install_type": "sudo"},
+    {"id": "gzip",           "cli": "gzip",             "label": "gzip",            "category": "system",    "install_type": "sudo"},
+    {"id": "jq",             "cli": "jq",               "label": "jq",              "category": "system",    "install_type": "sudo"},
+    {"id": "make",           "cli": "make",             "label": "Make",            "category": "system",    "install_type": "sudo"},
+    {"id": "rsync",          "cli": "rsync",            "label": "rsync",           "category": "system",    "install_type": "sudo"},
 ]
 
 
@@ -117,14 +135,52 @@ def _detect_venv(project_root: Path) -> dict:
 
 
 def _detect_tools() -> list[dict]:
-    """Check availability of system tools."""
+    """Check availability of system tools.
+
+    Returns each tool with:
+        id, cli, label, category, install_type, available, path
+
+    Handles the common case where the web server runs inside a venv
+    but `.venv/bin` is NOT on PATH — falls back to checking the venv
+    bin directory directly.
+    """
+    # Pre-compute venv bin path for fallback lookups
+    venv_bin: str | None = None
+    if sys.prefix != sys.base_prefix:
+        venv_bin = os.path.join(sys.prefix, "bin")
+
     results = []
     for tool in _TOOLS:
-        path = shutil.which(tool["cli"])
+        cli_name = tool["cli"]
+
+        # 1. Standard PATH lookup
+        path = shutil.which(cli_name)
+
+        # 2. Venv bin fallback (covers pip-installed tools not on PATH)
+        if path is None and venv_bin:
+            candidate = os.path.join(venv_bin, cli_name)
+            if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+                path = candidate
+
+        # 3. Special case: pip via python -m pip
+        if path is None and tool["id"] == "pip":
+            import subprocess
+            try:
+                r = subprocess.run(
+                    [sys.executable, "-m", "pip", "--version"],
+                    capture_output=True, timeout=5,
+                )
+                if r.returncode == 0:
+                    path = f"{sys.executable} -m pip"
+            except Exception:
+                pass
+
         results.append({
             "id": tool["id"],
-            "cli": tool["cli"],
+            "cli": cli_name,
             "label": tool["label"],
+            "category": tool.get("category", "other"),
+            "install_type": tool.get("install_type", "none"),
             "available": path is not None,
             "path": path,
         })
@@ -212,6 +268,10 @@ def _detect_manifests(project_root: Path) -> list[dict]:
 
 
 # ── Public API ──────────────────────────────────────────────────
+
+# Public aliases for the canonical tool registry
+TOOL_REGISTRY = _TOOLS
+detect_tools = _detect_tools
 
 
 def l0_system_profile(project_root: Path) -> dict:

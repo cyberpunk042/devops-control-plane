@@ -236,6 +236,11 @@ def k8s_status(project_root: Path) -> dict:
 
     infra_services = _detect_infra_services(all_parsed_resources, helm_charts)
 
+    # ── Missing tools (installable) ───────────────────────────────
+
+    from src.core.services.tool_requirements import check_required_tools
+    missing_tools = check_required_tools(["kubectl", "helm", "skaffold"])
+
     return {
         "has_k8s": has_k8s,
         "kubectl": kubectl,
@@ -252,6 +257,7 @@ def k8s_status(project_root: Path) -> dict:
         "secret_safety": secret_safety,
         "deployment_readiness": deployment_readiness,
         "infra_services": infra_services,
+        "missing_tools": missing_tools,
     }
 
 

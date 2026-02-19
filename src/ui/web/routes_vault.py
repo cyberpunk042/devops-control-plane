@@ -15,6 +15,7 @@ from pathlib import Path
 from flask import Blueprint, current_app, jsonify, request
 
 from src.core.services import vault, vault_env_ops
+from src.core.services.run_tracker import run_tracked
 
 vault_bp = Blueprint("vault", __name__)
 
@@ -71,6 +72,7 @@ def vault_activate_env():
 
 
 @vault_bp.route("/vault/lock", methods=["POST"])
+@run_tracked("setup", "setup:vault_lock")
 def vault_lock():
     """Lock (encrypt) the .env file."""
     data = request.get_json(silent=True) or {}
@@ -91,6 +93,7 @@ def vault_lock():
 
 
 @vault_bp.route("/vault/unlock", methods=["POST"])
+@run_tracked("setup", "setup:vault_unlock")
 def vault_unlock():
     """Unlock (decrypt) the .env.vault file."""
     data = request.get_json(silent=True) or {}
@@ -111,6 +114,7 @@ def vault_unlock():
 
 
 @vault_bp.route("/vault/register", methods=["POST"])
+@run_tracked("setup", "setup:vault_register")
 def vault_register():
     """Register passphrase for auto-lock without modifying files."""
     data = request.get_json(silent=True) or {}
@@ -182,6 +186,7 @@ def vault_templates():
 
 
 @vault_bp.route("/vault/create", methods=["POST"])
+@run_tracked("setup", "setup:vault")
 def vault_create():
     """Create a new .env file from template sections and/or key-value pairs."""
     data = request.get_json(silent=True) or {}
@@ -365,6 +370,7 @@ def vault_set_meta():
 
 
 @vault_bp.route("/vault/export", methods=["POST"])
+@run_tracked("backup", "backup:vault")
 def vault_export():
     """Create an encrypted export of a secret file."""
     data = request.get_json(silent=True) or {}
@@ -388,6 +394,7 @@ def vault_export():
 
 
 @vault_bp.route("/vault/import", methods=["POST"])
+@run_tracked("restore", "restore:vault")
 def vault_import():
     """Import and decrypt an exported vault file."""
     data = request.get_json(silent=True) or {}

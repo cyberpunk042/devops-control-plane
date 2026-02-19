@@ -259,25 +259,148 @@ function _chatRefRenderItems(popup, suggestions, type, typeLabel) {
     });
   }
   const container = popup.querySelector('.chat-ref-items');
+
+  // Audit type: separate by section (saved / log / unsaved)
+  if (type === 'audit') {
+  const savedItems = [];
+  const unsavedItems = [];
+  const logItems = [];
   for (let i = 0; i < suggestions.length; i++) {
     const item = suggestions[i];
-    const el = _chatRefRenderItem(item, type);
-    el.setAttribute('data-idx', String(i));
-    const refVal = (typeof item === 'string') ? item : item.ref;
-    el.setAttribute('data-ref', refVal);
-    (function(refValue, idx) {
-      el.addEventListener('click', function(e) {
-        e.preventDefault();
-        e.stopPropagation();
-        chatInsertRef(refValue);
-      });
-      el.addEventListener('mouseenter', function() {
-        _chatRefSelectedIdx = idx;
-        _chatRefUpdateHighlight();
-      });
-    })(refVal, i);
-    container.appendChild(el);
+    item._origIdx = i;
+    if (item.section === 'saved') savedItems.push(item);
+    else if (item.section === 'log') logItems.push(item);
+    else if (item.section === 'unsaved') unsavedItems.push(item);
   }
+
+  // Helper: render a list of items into the container
+  function _renderAuditItems(items, sectionLabel) {
+    if (sectionLabel) {
+      const hdr = document.createElement('div');
+      hdr.className = 'chat-ref-section-header';
+      hdr.textContent = sectionLabel;
+      container.appendChild(hdr);
+    }
+    for (let j = 0; j < items.length; j++) {
+      const item = items[j];
+      const idx = item._origIdx;
+      const el = _chatRefRenderItem(item, type);
+      el.setAttribute('data-idx', String(idx));
+      const refVal = (typeof item === 'string') ? item : item.ref;
+      el.setAttribute('data-ref', refVal);
+      (function(refValue, idxVal, itemObj) {
+        el.addEventListener('click', function(e) {
+          e.preventDefault();
+          e.stopPropagation();
+          var text = refValue;
+          var shouldEmbed = typeof itemObj === 'object'
+            && itemObj.section && itemObj.section !== 'saved';
+          if (shouldEmbed && itemObj.label) {
+            var parts = [];
+            if (itemObj.label) parts.push(itemObj.label);
+            if (itemObj.detail) parts.push(itemObj.detail);
+            if (itemObj.status) parts.push(itemObj.status);
+            if (parts.length > 0) text = refValue + '{' + parts.join(' · ') + '}';
+          }
+          chatInsertRef(text);
+        });
+        el.addEventListener('mouseenter', function() {
+          _chatRefSelectedIdx = idxVal;
+          _chatRefUpdateHighlight();
+        });
+      })(refVal, idx, item);
+      container.appendChild(el);
+    }
+  }
+
+  // Render: Saved → Audit Log entry → Unsaved
+  if (savedItems.length > 0) {
+    _renderAuditItems(savedItems, '📋 Saved Audits');
+  }
+
+  // Clickable "Browse Audit Log" entry (between saved and unsaved)
+  if (logItems.length > 0) {
+    // Insert a placeholder into suggestions for keyboard navigation
+    const logBrowseIdx = savedItems.length;  // right after saved items
+    _chatRefSuggestions.splice(logBrowseIdx, 0, { _logBrowseAction: true, label: 'Browse Audit Log' });
+    // Re-index all items after the splice
+    for (let si = logBrowseIdx + 1; si < _chatRefSuggestions.length; si++) {
+      if (_chatRefSuggestions[si]._origIdx !== undefined) {
+        _chatRefSuggestions[si]._origIdx = si;
+      }
+    }
+
+    const logEntry = document.createElement('div');
+    logEntry.className = 'chat-ref-item';
+    logEntry.setAttribute('data-log-browse', '1');
+    logEntry.setAttribute('data-idx', String(logBrowseIdx));
+    logEntry.style.cssText = 'cursor:pointer;display:flex;align-items:center;gap:0.5rem;padding:8px 12px;border-top:1px solid var(--border);border-bottom:1px solid var(--border);margin:4px 0;';
+    logEntry.innerHTML = '<span style="font-size:1rem">📊</span>'
+      + '<span style="font-size:0.82rem;color:var(--text-primary);font-weight:500">Browse Audit Log</span>'
+      + '<span style="font-size:0.68rem;color:var(--text-muted);margin-left:auto">' + logItems.length + ' entries →</span>';
+    logEntry.addEventListener('click', function(e) {
+      e.preventDefault();
+      e.stopPropagation();
+      // Replace dropdown content with log items
+      container.innerHTML = '';
+      // Update suggestions to only log items for keyboard nav
+      _chatRefSuggestions = logItems;
+      _chatRefSelectedIdx = -1;
+      var backLink = document.createElement('div');
+      backLink.className = 'chat-ref-section-header';
+      backLink.style.cssText = 'cursor:pointer;color:var(--accent);';
+      backLink.textContent = '← Back to all audits';
+      backLink.addEventListener('click', function(ev) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        container.innerHTML = '';
+        _chatRefRenderItems(popup, suggestions, type, typeLabel);
+      });
+      container.appendChild(backLink);
+      _renderAuditItems(logItems, '📊 Audit Log');
+    });
+    logEntry.addEventListener('mouseenter', function() {
+      _chatRefSelectedIdx = logBrowseIdx;
+      _chatRefUpdateHighlight();
+    });
+    container.appendChild(logEntry);
+  }
+
+  if (unsavedItems.length > 0) {
+    _renderAuditItems(unsavedItems, '⏳ Unsaved (Pending)');
+  }
+
+  // end audit block
+  } else {
+  // Non-audit types: flat rendering with pre-embedding
+    for (let i = 0; i < suggestions.length; i++) {
+      const item = suggestions[i];
+      const el = _chatRefRenderItem(item, type);
+      el.setAttribute('data-idx', String(i));
+      const refVal = (typeof item === 'string') ? item : item.ref;
+      el.setAttribute('data-ref', refVal);
+      (function(refValue, idx, itemObj) {
+        el.addEventListener('click', function(e) {
+          e.preventDefault();
+          e.stopPropagation();
+          var text = refValue;
+          if (typeof itemObj === 'object' && itemObj.label) {
+            var parts = [];
+            if (itemObj.label) parts.push(itemObj.label);
+            if (itemObj.detail) parts.push(itemObj.detail);
+            if (itemObj.status) parts.push(itemObj.status);
+            if (parts.length > 0) text = refValue + '{' + parts.join(' · ') + '}';
+          }
+          chatInsertRef(text);
+        });
+        el.addEventListener('mouseenter', function() {
+          _chatRefSelectedIdx = idx;
+          _chatRefUpdateHighlight();
+        });
+      })(refVal, i, item);
+      container.appendChild(el);
+    }
+  } // end if/else audit vs flat
 }
 
 /* ── Go back to phase 1 ── */
@@ -354,6 +477,15 @@ function _chatRefPickSelected() {
       _chatRefSelectCategory(selected.type);
     }
   } else {
+    /* Special: Browse Audit Log entry */
+    if (selected._logBrowseAction) {
+      const popup = document.getElementById('chat-ref-popup');
+      if (popup) {
+        const logBtn = popup.querySelector('[data-log-browse]');
+        if (logBtn) logBtn.click();
+      }
+      return;
+    }
     const refVal = (typeof selected === 'string') ? selected : selected.ref;
     if (refVal && refVal.endsWith('/')) {
       const input = document.getElementById('chat-compose-input');
@@ -373,7 +505,20 @@ function _chatRefPickSelected() {
         _chatRefFetchItems(refType, partialId);
       }
     } else {
-      chatInsertRef(refVal);
+      /* Pre-embed: all items with label, except saved audits (resolvable from git) */
+      var embedText = refVal;
+      var shouldEmbed = typeof selected === 'object'
+        && selected.label && !(selected.section === 'saved');
+      if (shouldEmbed && selected.label) {
+        var parts = [];
+        if (selected.label) parts.push(selected.label);
+        if (selected.detail) parts.push(selected.detail);
+        if (selected.status) parts.push(selected.status);
+        if (parts.length > 0) {
+          embedText = refVal + '{' + parts.join(' · ') + '}';
+        }
+      }
+      chatInsertRef(embedText);
     }
   }
 }
@@ -465,13 +610,17 @@ const _REF_CHIP_ICONS = {
 };
 
 function _chatEmbedRefs(escapedText) {
-  const refPat = /@(run|thread|trace|user|commit|branch|audit|code|doc|media|release|file):([A-Za-z0-9_\-\/.]+)/g;
+  /* Match @type:id  OR  @type:id{embedded data} */
+  const refPat = /@(run|thread|trace|user|commit|branch|audit|code|doc|media|release|file):([A-Za-z0-9_:\-\/.]+?)(?:\{([^}]*)\})?(?=[\s,;!?)\]"']|&amp;|&lt;|$)/g;
   let mediaEmbeds = '';
-  const html = escapedText.replace(refPat, function(match, refType, refId) {
+  const html = escapedText.replace(refPat, function(match, refType, refId, embedded) {
     const icon = _REF_CHIP_ICONS[refType] || '&#x1F517;';
-    const shortLabel = _chatRefShortLabel(refType, refId);
-    const safeRef = esc('@' + refType + ':' + refId);
     const chipClass = 'chat-ref-chip chat-ref-chip-' + refType;
+    /* Use embedded data for label if present, otherwise short label */
+    var label = embedded ? embedded : _chatRefShortLabel(refType, refId);
+    var tooltip = embedded
+      ? esc('@' + refType + ':' + refId) + '\n' + embedded
+      : esc('@' + refType + ':' + refId);
     if (refType === 'media') {
       const ext = refId.split('.').pop().toLowerCase();
       const isImg = ['jpg','jpeg','png','gif','webp','svg','bmp','ico'].indexOf(ext) >= 0;
@@ -497,9 +646,9 @@ function _chatEmbedRefs(escapedText) {
     }
     return '<span class="' + chipClass + '"'
       + ' onclick="chatRefClick(\'' + refType + '\', \'' + esc(refId) + '\')"'
-      + ' title="' + safeRef + '">'
+      + ' title="' + tooltip + '">'
       + '<span class="chat-ref-chip-icon">' + icon + '</span>'
-      + '<span class="chat-ref-chip-label">' + esc(shortLabel) + '</span>'
+      + '<span class="chat-ref-chip-label">' + esc(label) + '</span>'
       + '</span>';
   });
   return { html: html, mediaEmbeds: mediaEmbeds };
@@ -542,8 +691,76 @@ function chatRefClick(refType, refId) {
     }
     return;
   }
+  if (refType === 'release') {
+    api('/chat/refs/resolve?ref=' + encodeURIComponent(ref)).then(function(data) {
+      if (!data.exists) {
+        modalOpen({
+          title: '📦 Release Asset Not Found',
+          body: '<div class="chat-ref-modal-detail">'
+            + '<p>Could not resolve <code>' + esc(ref) + '</code></p>'
+            + (data.error ? '<p class="chat-ref-modal-error">' + esc(data.error) + '</p>' : '')
+            + '</div>'
+        });
+        return;
+      }
+      var b = '<div class="chat-ref-modal-detail">';
+      if (data.tag) b += _row('Release', data.tag);
+      if (data.asset_name) b += _row('Asset', data.asset_name);
+      if (data.size_str) b += _row('Size', data.size_str);
+      if (data.content_type) b += _row('Type', data.content_type);
+      if (data.download_url) b += '<div class="chat-ref-modal-row"><span class="chat-ref-modal-key">Download</span><span class="chat-ref-modal-val"><a href="' + esc(data.download_url) + '" target="_blank" rel="noopener">GitHub →</a></span></div>';
+      if (data.local_path) b += '<div class="chat-ref-modal-row"><span class="chat-ref-modal-key">Local</span><span class="chat-ref-modal-val"><a href="#" onclick="openFileInModal(\'' + esc(data.local_path) + '\');return false;">' + esc(data.local_path) + '</a></span></div>';
+      b += '</div>';
+      modalOpen({ title: '📦 Release: ' + esc(data.asset_name || data.tag || refId), body: b });
+    }).catch(function(e) {
+      modalOpen({
+        title: '&#x274C; Error',
+        body: '<p>Failed to resolve <code>' + esc(ref) + '</code>: ' + esc(e.message) + '</p>'
+      });
+    });
+    return;
+  }
   if (refType === 'media') {
     chatRefClickMedia(refId);
+    return;
+  }
+  if (refType === 'audit') {
+    // Try resolve first (saved snapshots / pending)
+    api('/chat/refs/resolve?ref=' + encodeURIComponent(ref)).then(function(data) {
+      if (data.error || !data.exists) {
+        // Not in ledger/pending — show embedded info from the chip tooltip
+        var chip = document.querySelector('.chat-ref-chip[title*="' + refId.replace(/'/g, '') + '"]');
+        var tooltip = chip ? chip.getAttribute('title') : '';
+        var embedded = '';
+        if (tooltip && tooltip.indexOf('\n') >= 0) {
+          embedded = tooltip.substring(tooltip.indexOf('\n') + 1);
+        }
+        if (embedded) {
+          var parts = embedded.split(' · ');
+          var b = '<div class="chat-ref-modal-detail">';
+          for (var pi = 0; pi < parts.length; pi++) {
+            b += _row(pi === 0 ? 'Info' : '', parts[pi]);
+          }
+          b += '</div>';
+          modalOpen({ title: '📊 Audit Log: ' + esc(refId), body: b });
+        } else {
+          modalOpen({
+            title: '📊 Audit Log Entry',
+            body: '<div class="chat-ref-modal-detail">'
+              + _row('Reference', ref)
+              + '<p style="color:var(--text-muted);font-size:0.82rem;margin-top:0.5rem">This is an activity log entry. Data is embedded in the message text.</p>'
+              + '</div>'
+          });
+        }
+        return;
+      }
+      _chatRefOpenModal(refType, refId, data);
+    }).catch(function(e) {
+      modalOpen({
+        title: '&#x274C; Error',
+        body: '<p>Failed to resolve <code>' + esc(ref) + '</code>: ' + esc(e.message) + '</p>'
+      });
+    });
     return;
   }
   api('/chat/refs/resolve?ref=' + encodeURIComponent(ref)).then(function(data) {
@@ -584,6 +801,62 @@ function _row(k, v, tag) {
     + '</div>';
 }
 
+/* ── Recursive audit data renderer ── */
+function _renderAuditData(obj, depth) {
+  depth = depth || 0;
+  if (!obj || typeof obj !== 'object') return '';
+  var html = '';
+  var keys = Object.keys(obj);
+  for (var i = 0; i < keys.length; i++) {
+    var k = keys[i];
+    if (k === '_cache') continue;  // skip internal cache
+    var v = obj[k];
+    if (v === null || v === undefined) continue;
+    if (Array.isArray(v)) {
+      html += '<div style="margin-top:0.75rem;padding-left:' + (depth * 12) + 'px">'
+        + '<div style="font-weight:600;font-size:0.82rem;color:var(--text-primary);margin-bottom:0.25rem">'
+        + esc(k) + ' <span style="color:var(--text-muted);font-weight:400">(' + v.length + ')</span></div>';
+      if (v.length === 0) {
+        html += '<span style="color:var(--text-muted);font-size:0.78rem">—</span>';
+      } else if (typeof v[0] === 'object' && v[0] !== null) {
+        // Array of objects — render each as a mini block
+        for (var ai = 0; ai < Math.min(v.length, 50); ai++) {
+          html += '<div style="border-left:2px solid var(--border);padding-left:8px;margin:4px 0;font-size:0.78rem">';
+          html += _renderAuditData(v[ai], depth + 1);
+          html += '</div>';
+        }
+        if (v.length > 50) {
+          html += '<div style="color:var(--text-muted);font-size:0.72rem">... and ' + (v.length - 50) + ' more</div>';
+        }
+      } else {
+        // Array of primitives — comma-separated
+        var items = [];
+        for (var pi = 0; pi < Math.min(v.length, 100); pi++) {
+          items.push(esc(String(v[pi])));
+        }
+        html += '<div style="font-size:0.78rem;color:var(--text-secondary);word-break:break-word">'
+          + items.join(', ')
+          + (v.length > 100 ? ' ... +' + (v.length - 100) + ' more' : '')
+          + '</div>';
+      }
+      html += '</div>';
+    } else if (typeof v === 'object') {
+      html += '<div style="margin-top:0.75rem;padding-left:' + (depth * 12) + 'px">'
+        + '<div style="font-weight:600;font-size:0.82rem;color:var(--text-primary);margin-bottom:0.25rem;border-bottom:1px solid var(--border);padding-bottom:2px">'
+        + esc(k) + '</div>'
+        + _renderAuditData(v, depth + 1)
+        + '</div>';
+    } else {
+      // Primitive value
+      html += '<div style="display:flex;gap:0.5rem;padding:2px ' + (depth * 12) + 'px;font-size:0.78rem">'
+        + '<span style="color:var(--text-muted);min-width:120px;flex-shrink:0">' + esc(k) + '</span>'
+        + '<span style="color:var(--text-primary);word-break:break-word">' + esc(String(v)) + '</span>'
+        + '</div>';
+    }
+  }
+  return html;
+}
+
 function _chatRefOpenModal(rt, ri, d) {
   let t = (_REF_CHIP_ICONS[rt] || '') + ' ';
   let b = '';
@@ -613,21 +886,41 @@ function _chatRefOpenModal(rt, ri, d) {
     }
     b += '</div>';
   } else if (rt === 'run') {
-    t += 'Run: ' + (d.run_type || ri);
+    var runLabel = d.subtype || d.run_type || ri;
+    var durStr = d.duration_ms ? (d.duration_ms / 1000).toFixed(1) + 's' : '';
+    t += 'Run: ' + runLabel;
     b = '<div class="chat-ref-modal-detail">'
       + _row('Type', d.run_type || '')
-      + _row('Summary', d.summary || '')
+      + _row('Subtype', d.subtype || '')
       + _row('Status', d.status || '')
+      + _row('Summary', d.summary || '')
       + _row('Started', d.started_at || '')
+      + _row('Duration', durStr)
+      + (d.code_ref ? _row('Commit', d.code_ref, 'code') : '')
       + '</div>';
   } else if (rt === 'audit') {
-    t += 'Audit: ' + (d.operation_type || ri);
-    b = '<div class="chat-ref-modal-detail">'
-      + _row('Operation', d.operation_type || '')
-      + _row('Status', d.status || '')
-      + _row('Automation', d.automation || '')
-      + _row('Timestamp', d.timestamp || '')
-      + '</div>';
+    if (d.source === 'ledger' || d.source === 'pending') {
+      t += (d.source === 'pending' ? 'Pending Audit: ' : 'Audit Snapshot: ') + (d.card_key || ri);
+      b = '<div class="chat-ref-modal-detail">'
+        + _row('Card', d.card_key || '')
+        + _row('Summary', d.summary || '')
+        + _row('Status', d.status || '')
+        + _row('Timestamp', d.timestamp || '')
+        + _row('Duration', d.duration_s ? d.duration_s + 's' : '')
+        + '</div>';
+      // Render full data payload
+      if (d.data && typeof d.data === 'object') {
+        b += _renderAuditData(d.data);
+      }
+    } else {
+      t += 'Audit: ' + (d.operation_type || ri);
+      b = '<div class="chat-ref-modal-detail">'
+        + _row('Operation', d.operation_type || '')
+        + _row('Status', d.status || '')
+        + _row('Automation', d.automation || '')
+        + _row('Timestamp', d.timestamp || '')
+        + '</div>';
+    }
   } else if (rt === 'user') {
     t += '@' + ri;
     b = '<div class="chat-ref-modal-detail">'

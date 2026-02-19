@@ -261,10 +261,18 @@ def quality_status(project_root: Path, *, stack_names: list[str] | None = None) 
         if cli_available and relevant:
             categories[spec["category"]] = categories.get(spec["category"], 0) + 1
 
+    # ── Missing tools (for installable quality tools) ───────────────
+    from src.core.services.tool_requirements import check_required_tools
+
+    # Determine which tool IDs from our registry are relevant
+    quality_tool_ids = ["ruff", "mypy", "pytest", "black", "eslint", "prettier"]
+    missing_tools = check_required_tools(quality_tool_ids)
+
     return {
         "tools": tools,
         "categories": categories,
         "has_quality": any(t["cli_available"] and t["relevant"] for t in tools),
+        "missing_tools": missing_tools,
     }
 
 

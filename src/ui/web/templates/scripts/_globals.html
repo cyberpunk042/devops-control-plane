@@ -592,4 +592,1078 @@
         div.textContent = msg;
         body.appendChild(div);
     }
+
+
+    // ── Missing Tools Banner ───────────────────────────────────────
+    //
+    // Shared function to render missing tool banners with install buttons.
+    // Any tab can call: renderMissingTools(data.missing_tools, 'container-id')
+
+    /**
+     * Render a missing-tools banner into a container element.
+     * @param {Array} missingTools - Array of {id, label, install_type, has_recipe, needs_sudo}
+     * @param {string} containerId - DOM id to render into
+     * @param {Function} [onInstalled] - Optional callback after successful install
+     */
+    function renderMissingTools(missingTools, containerId, onInstalled) {
+        const el = document.getElementById(containerId);
+        if (!el) return;
+        if (!missingTools || missingTools.length === 0) {
+            el.innerHTML = '';
+            el.style.display = 'none';
+            return;
+        }
+        el.style.display = 'block';
+
+        let html = '<div class="missing-tools-banner">'
+            + '<div class="missing-tools-header">'
+            + '<span style="font-size:1rem">⚠️</span>'
+            + '<span><strong>' + missingTools.length + ' tool'
+            + (missingTools.length > 1 ? 's' : '') + ' missing</strong></span>'
+            + '</div>'
+            + '<div class="missing-tools-list">';
+
+        for (const tool of missingTools) {
+            html += '<div class="missing-tool-item">'
+                + '<span class="missing-tool-label">' + esc(tool.label) + '</span>';
+
+            if (tool.has_recipe) {
+                const dataAttr = ' data-tool-id="' + esc(tool.id) + '"'
+                    + ' data-tool-label="' + esc(tool.label) + '"'
+                    + ' data-needs-sudo="' + (tool.needs_sudo ? '1' : '0') + '"';
+                html += '<button class="btn btn-sm btn-install-tool"'
+                    + dataAttr
+                    + ' onclick="installToolFromBanner(this'
+                    + (onInstalled ? ',true' : '') + ')">'
+                    + '📦 Install</button>';
+            } else {
+                html += '<span class="missing-tool-manual">Manual install required</span>';
+            }
+
+            html += '</div>';
+        }
+
+        html += '</div></div>';
+        el.innerHTML = html;
+    }
+
+    /**
+     * Return missing-tools HTML string for inline use (e.g. inside modals).
+     * Does NOT need a container id.
+     */
+    function renderMissingToolsInline(missingTools) {
+        if (!missingTools || missingTools.length === 0) return '';
+
+        let html = '<div class="missing-tools-banner" style="margin:0.75rem 0">'
+            + '<div class="missing-tools-header">'
+            + '<span style="font-size:0.9rem">⚠️</span>'
+            + '<span style="font-size:0.82rem"><strong>' + missingTools.length + ' tool'
+            + (missingTools.length > 1 ? 's' : '') + ' not installed</strong></span>'
+            + '</div>'
+            + '<div class="missing-tools-list">';
+
+        for (const tool of missingTools) {
+            html += '<div class="missing-tool-item">'
+                + '<span class="missing-tool-label">' + esc(tool.label) + '</span>';
+
+            if (tool.has_recipe) {
+                html += '<button class="btn btn-sm btn-install-tool"'
+                    + ' data-tool-id="' + esc(tool.id) + '"'
+                    + ' data-tool-label="' + esc(tool.label) + '"'
+                    + ' data-needs-sudo="' + (tool.needs_sudo ? '1' : '0') + '"'
+                    + ' onclick="installToolFromBanner(this)">'
+                    + '📦 Install</button>';
+            } else {
+                html += '<span class="missing-tool-manual">Manual install</span>';
+            }
+            html += '</div>';
+        }
+
+        html += '</div></div>';
+        return html;
+    }
+
+    /**
+     * Install a tool via the banner install button.
+     * Handles sudo password prompt if needed.
+     */
+    async function installToolFromBanner(btn, triggerRefresh) {
+        const toolId = btn.dataset.toolId;
+        const toolLabel = btn.dataset.toolLabel;
+        const needsSudo = btn.dataset.needsSudo === '1';
+
+        if (needsSudo) {
+            _showOpsModal({
+                type: 'install', toolId, toolLabel: toolLabel || toolId,
+                onSuccess: triggerRefresh ? () => _refreshAfterInstall() : null,
+            });
+            return;
+        }
+
+        btn.disabled = true;
+        btn.textContent = '⏳ Installing...';
+
+        try {
+            const res = await apiPost('/audit/install-tool', {
+                tool: toolId,
+                cli: toolId,
+            });
+
+            if (res.ok || res.already_installed) {
+                btn.textContent = '✅ Installed';
+                btn.classList.add('btn-success');
+                toast(toolLabel + ' installed successfully!', 'success');
+                if (triggerRefresh) setTimeout(() => _refreshAfterInstall(), 1200);
+            } else if (res.needs_sudo) {
+                _showOpsModal({
+                    type: 'install', toolId, toolLabel: toolLabel || toolId,
+                    onSuccess: triggerRefresh ? () => _refreshAfterInstall() : null,
+                });
+            } else {
+                btn.disabled = false;
+                btn.textContent = '❌ Failed';
+                toast(res.error || 'Install failed', 'error');
+                setTimeout(() => { btn.textContent = '📦 Retry'; }, 3000);
+            }
+        } catch (err) {
+            btn.disabled = false;
+            btn.textContent = '❌ Error';
+            toast('Install error: ' + err.message, 'error');
+            setTimeout(() => { btn.textContent = '📦 Retry'; }, 3000);
+        }
+    }
+
+    // ── Backwards-compatible wrapper ──
+    function _showSudoInstallModal(toolId, toolLabel, originBtn, triggerRefresh) {
+        _showOpsModal({
+            type: 'install', toolId, toolLabel: toolLabel || toolId,
+            onSuccess: triggerRefresh ? () => _refreshAfterInstall() : null,
+        });
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Unified Ops Modal — handles Install + Auth + Interactive flows
+    // ═══════════════════════════════════════════════════════════════
+
+    /**
+     * Unified modal for system operations (install, auth, interactive).
+     *
+     * @param {Object} config
+     * @param {string} config.type           'install' | 'auth'
+     *
+     * Install mode:
+     * @param {string} config.toolId         Tool identifier (e.g. 'gh')
+     * @param {string} config.toolLabel      Display name (e.g. 'GitHub CLI')
+     * @param {Function} [config.onSuccess]  Callback after successful install
+     *
+     * Auth mode:
+     * @param {string} config.title          Modal title
+     * @param {string} config.description    Explanation text
+     * @param {string} config.loginEndpoint  API endpoint for auth (e.g. '/gh/auth/login')
+     * @param {string} config.pollEndpoint   API endpoint to poll for completion
+     * @param {Function} config.pollCheck    (data) => boolean — returns true when auth is done
+     * @param {number} [config.pollInterval] Polling interval in ms (default 3000)
+     * @param {number} [config.pollTimeout]  Polling timeout in ms (default 300000)
+     * @param {string} [config.tokenHint]    Hint text for token input
+     * @param {string} [config.tokenUrl]     URL to create tokens
+     * @param {Function} [config.onSuccess]  Callback after successful auth
+     */
+    function _showOpsModal(config) {
+        if (config.type === 'install') return _showInstallModal(config);
+        if (config.type === 'auth')    return _showAuthModal(config);
+        console.warn('_showOpsModal: unknown type', config.type);
+    }
+
+    // ── Install Modal (sudo password) ──────────────────────────────
+
+    function _showInstallModal(config) {
+        const { toolId, toolLabel } = config;
+        document.getElementById('ops-modal')?.remove();
+
+        const modal = document.createElement('div');
+        modal.id = 'ops-modal';
+        modal.className = 'vault-modal-overlay';
+        modal.innerHTML = `<div class="vault-modal" style="max-width:420px">
+            <div class="vault-modal-header">
+                <span class="vault-modal-title">🔒 Install ${esc(toolLabel)}</span>
+                <button class="vault-modal-close" onclick="document.getElementById('ops-modal')?.remove()">✕</button>
+            </div>
+            <div class="vault-modal-body">
+                <div style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:var(--space-md)">
+                    <strong>${esc(toolLabel)}</strong> requires sudo privileges to install.
+                </div>
+                <label style="font-size:0.75rem;font-weight:600;display:block;margin-bottom:4px">🔑 Sudo password:</label>
+                <input id="ops-modal-pw" type="password" placeholder="Enter your password"
+                       style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg-primary);color:var(--text-primary);font-size:0.85rem;box-sizing:border-box"
+                       onkeydown="if(event.key==='Enter'){document.getElementById('ops-modal-action').click()}" />
+                <div id="ops-modal-log" style="display:none;margin-top:var(--space-sm);font-size:0.72rem;padding:8px;border-radius:var(--radius-sm);background:var(--bg-inset);max-height:100px;overflow:auto;font-family:var(--font-mono,monospace)"></div>
+                <div style="display:flex;gap:var(--space-sm);justify-content:flex-end;margin-top:var(--space-md)">
+                    <button class="btn btn-sm btn-secondary" onclick="document.getElementById('ops-modal')?.remove()">Cancel</button>
+                    <button class="btn btn-sm btn-primary" id="ops-modal-action" style="min-width:100px">📦 Install</button>
+                </div>
+            </div>
+        </div>`;
+        document.body.appendChild(modal);
+        modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
+        setTimeout(() => document.getElementById('ops-modal-pw')?.focus(), 100);
+
+        // Wire install button
+        document.getElementById('ops-modal-action').addEventListener('click', () => {
+            _doInstallAction(toolId, toolLabel, config.onSuccess);
+        });
+    }
+
+    async function _doInstallAction(toolId, toolLabel, onSuccess) {
+        const pw = document.getElementById('ops-modal-pw')?.value;
+        const btn = document.getElementById('ops-modal-action');
+        const log = document.getElementById('ops-modal-log');
+        if (!pw) {
+            const input = document.getElementById('ops-modal-pw');
+            if (input) { input.style.borderColor = 'var(--error)'; input.placeholder = '⚠️ Password required'; input.focus(); }
+            return;
+        }
+        if (btn) { btn.disabled = true; btn.textContent = '⏳ Installing…'; }
+        if (log) { log.style.display = 'block'; log.textContent = 'Installing ' + toolLabel + '…'; log.style.color = ''; }
+
+        try {
+            const res = await apiPost('/audit/install-tool', {
+                tool: toolId, cli: toolId, sudo_password: pw,
+            });
+
+            if (res.ok || res.already_installed) {
+                if (log) { log.textContent = '✅ ' + (res.message || toolLabel + ' installed!'); log.style.color = 'var(--success)'; }
+                if (btn) { btn.textContent = '✅ Installed'; btn.classList.add('btn-success'); }
+                toast(toolLabel + ' installed successfully!', 'success');
+                setTimeout(() => {
+                    document.getElementById('ops-modal')?.remove();
+                    if (onSuccess) onSuccess();
+                }, 1200);
+            } else if (res.needs_sudo) {
+                if (log) { log.textContent = '🔑 ' + (res.error || 'Wrong password — try again'); log.style.color = 'var(--warning)'; }
+                const input = document.getElementById('ops-modal-pw');
+                if (input) { input.value = ''; input.focus(); input.style.borderColor = 'var(--warning)'; }
+                if (btn) { btn.disabled = false; btn.textContent = '📦 Install'; }
+            } else {
+                if (log) { log.textContent = '❌ ' + (res.error || 'Install failed'); log.style.color = 'var(--error)'; }
+                if (btn) { btn.disabled = false; btn.textContent = '📦 Retry'; }
+            }
+        } catch (err) {
+            if (log) { log.textContent = '❌ ' + err.message; log.style.color = 'var(--error)'; }
+            if (btn) { btn.disabled = false; btn.textContent = '📦 Retry'; }
+        }
+    }
+
+    // ── Auth Modal (multi-path: browser + terminal + token) ──────────
+
+    let _opsPollingTimer = null;
+    let _opsDeviceSession = null;
+
+    function _showAuthModal(config) {
+        const {
+            title = '🔑 Authenticate',
+            description = '',
+            loginEndpoint = '/gh/auth/login',
+            pollEndpoint = '/integrations/gh/status',
+            pollCheck = (d) => d.authenticated === true,
+            pollInterval = 3000,
+            pollTimeout = 300000,
+            tokenHint = 'Paste a Personal Access Token',
+            tokenUrl = 'https://github.com/settings/tokens',
+            onSuccess = null,
+        } = config;
+
+        document.getElementById('ops-modal')?.remove();
+        if (_opsPollingTimer) { clearInterval(_opsPollingTimer); _opsPollingTimer = null; }
+        _opsDeviceSession = null;
+
+        const modal = document.createElement('div');
+        modal.id = 'ops-modal';
+        modal.className = 'vault-modal-overlay';
+        modal.innerHTML = `<div class="vault-modal" style="max-width:520px">
+            <div class="vault-modal-header">
+                <span class="vault-modal-title">${esc(title)}</span>
+                <button class="vault-modal-close" onclick="_opsModalClose()">✕</button>
+            </div>
+            <div class="vault-modal-body" id="ops-auth-body">
+                ${description ? `<div style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:var(--space-md)">${description}</div>` : ''}
+
+                <!-- 3-path selector -->
+                <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:var(--space-sm);margin-bottom:var(--space-md)">
+                    <button class="btn btn-sm" id="ops-path-browser"
+                            style="padding:10px;display:flex;flex-direction:column;align-items:center;gap:3px;border:2px solid var(--accent);background:color-mix(in srgb, var(--accent) 8%, var(--bg-primary))"
+                            onclick="_opsAuthSelectPath('browser')">
+                        <span style="font-size:1.2rem">🌐</span>
+                        <strong style="font-size:0.74rem">Browser Auth</strong>
+                        <span style="font-size:0.62rem;color:var(--text-muted)">Recommended</span>
+                    </button>
+                    <button class="btn btn-sm" id="ops-path-terminal"
+                            style="padding:10px;display:flex;flex-direction:column;align-items:center;gap:3px;border:2px solid var(--border);background:var(--bg-primary)"
+                            onclick="_opsAuthSelectPath('terminal')">
+                        <span style="font-size:1.2rem">🖥️</span>
+                        <strong style="font-size:0.74rem">Open Terminal</strong>
+                        <span style="font-size:0.62rem;color:var(--text-muted)">Interactive</span>
+                    </button>
+                    <button class="btn btn-sm" id="ops-path-token"
+                            style="padding:10px;display:flex;flex-direction:column;align-items:center;gap:3px;border:2px solid var(--border);background:var(--bg-primary)"
+                            onclick="_opsAuthSelectPath('token')">
+                        <span style="font-size:1.2rem">🔑</span>
+                        <strong style="font-size:0.74rem">Paste Token</strong>
+                        <span style="font-size:0.62rem;color:var(--text-muted)">Manual PAT</span>
+                    </button>
+                </div>
+
+                <!-- Browser auth panel (default) -->
+                <div id="ops-panel-browser">
+                    <div style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:var(--space-sm)">
+                        Click below to start authentication. A GitHub page will open where you
+                        enter a one-time code. No terminal needed.
+                    </div>
+                    <button class="btn btn-sm btn-primary" id="ops-auth-device-start" style="width:100%;padding:10px"
+                            onclick="_opsAuthDeviceStart()">🌐 Start Browser Authentication</button>
+                </div>
+
+                <!-- Terminal path panel (hidden) -->
+                <div id="ops-panel-terminal" style="display:none">
+                    <div style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:var(--space-sm)">
+                        Opens a terminal window for interactive <code>gh auth login</code>.
+                    </div>
+                    <label style="display:flex;align-items:center;gap:0.5rem;margin-bottom:var(--space-sm);cursor:pointer;font-size:0.78rem"
+                           title="When checked: auto-selects GitHub.com, HTTPS, and web browser options for you. Detects the auth URL and opens it in your browser. Terminal stays open on errors so you can see what happened.">
+                        <input type="checkbox" id="ops-term-auto" checked
+                               style="accent-color:var(--accent);margin:0" />
+                        <span>🤖 <strong>Auto-drive</strong> — select options &amp; open URL automatically</span>
+                    </label>
+                    <button class="btn btn-sm btn-primary" id="ops-auth-spawn" style="width:100%;padding:10px"
+                            onclick="_opsAuthSpawnTerminal()">🖥️ Launch Terminal Authentication</button>
+                </div>
+
+                <!-- Token path panel (hidden) -->
+                <div id="ops-panel-token" style="display:none">
+                    <div style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:var(--space-sm)">
+                        ${esc(tokenHint)}.
+                        <a href="${esc(tokenUrl)}" target="_blank" rel="noopener" style="color:var(--accent)">Create one here →</a>
+                    </div>
+                    <input id="ops-auth-token" type="password" placeholder="ghp_xxxxxxxxxx…"
+                           style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg-primary);color:var(--text-primary);font-size:0.85rem;box-sizing:border-box;font-family:var(--font-mono,monospace)"
+                           onkeydown="if(event.key==='Enter'){document.getElementById('ops-auth-token-go').click()}" />
+                    <button class="btn btn-sm btn-primary" id="ops-auth-token-go" style="width:100%;margin-top:var(--space-sm);padding:10px"
+                            onclick="_opsAuthWithToken()">🔑 Authenticate</button>
+                </div>
+
+                <!-- Status / log area -->
+                <div id="ops-auth-status" style="display:none;margin-top:var(--space-md);padding:12px;border-radius:var(--radius-sm);background:var(--bg-inset);font-size:0.78rem;text-align:center">
+                </div>
+            </div>
+        </div>`;
+
+        // Store config in a global so panel functions can access it
+        window._opsAuthConfig = config;
+
+        document.body.appendChild(modal);
+        modal.addEventListener('click', e => { if (e.target === modal) _opsModalClose(); });
+    }
+
+    function _opsModalClose() {
+        if (_opsPollingTimer) { clearInterval(_opsPollingTimer); _opsPollingTimer = null; }
+        _opsDeviceSession = null;
+        document.getElementById('ops-modal')?.remove();
+        window._opsAuthConfig = null;
+    }
+
+    function _opsAuthSelectPath(path) {
+        const paths = ['browser', 'terminal', 'token'];
+        for (const p of paths) {
+            const btn = document.getElementById('ops-path-' + p);
+            const panel = document.getElementById('ops-panel-' + p);
+            if (!btn || !panel) continue;
+
+            if (p === path) {
+                btn.style.borderColor = 'var(--accent)';
+                btn.style.background = 'color-mix(in srgb, var(--accent) 8%, var(--bg-primary))';
+                panel.style.display = '';
+            } else {
+                btn.style.borderColor = 'var(--border)';
+                btn.style.background = 'var(--bg-primary)';
+                panel.style.display = 'none';
+            }
+        }
+        if (path === 'token') {
+            setTimeout(() => document.getElementById('ops-auth-token')?.focus(), 100);
+        }
+    }
+
+    // ── Browser Auth (device flow) ─────────────────────────────────
+
+    async function _opsAuthDeviceStart() {
+        const cfg = window._opsAuthConfig;
+        if (!cfg) return;
+        const btn = document.getElementById('ops-auth-device-start');
+        const statusEl = document.getElementById('ops-auth-status');
+        if (btn) { btn.disabled = true; btn.textContent = '⏳ Starting…'; }
+
+        try {
+            const res = await apiPost('/gh/auth/device');
+
+            if (res.ok && res.user_code) {
+                _opsDeviceSession = res.session_id;
+
+                // Replace the browser panel with the code display + polling
+                const panel = document.getElementById('ops-panel-browser');
+                if (panel) {
+                    panel.innerHTML = `
+                        <div style="text-align:center;padding:var(--space-sm) 0">
+                            <div style="font-size:0.78rem;color:var(--text-secondary);margin-bottom:var(--space-sm)">
+                                Enter this one-time code on GitHub:
+                            </div>
+                            <div id="ops-device-code"
+                                 style="font-size:2rem;font-weight:800;letter-spacing:0.15em;font-family:var(--font-mono,monospace);
+                                        color:var(--accent);background:var(--bg-inset);padding:16px 24px;border-radius:var(--radius-md);
+                                        display:inline-block;cursor:pointer;border:2px solid var(--accent);user-select:all;
+                                        transition:transform 0.15s"
+                                 title="Click to copy"
+                                 onclick="navigator.clipboard.writeText('${esc(res.user_code)}').then(()=>{this.style.transform='scale(1.05)';setTimeout(()=>this.style.transform='',200);document.getElementById('ops-code-hint').textContent='✓ Copied!'})">
+                                ${esc(res.user_code)}
+                            </div>
+                            <div id="ops-code-hint" style="font-size:0.68rem;color:var(--text-muted);margin-top:6px">
+                                Click the code to copy it
+                            </div>
+                        </div>
+
+                        <div style="margin-top:var(--space-md);text-align:center">
+                            <div style="font-size:0.78rem;color:var(--text-secondary);margin-bottom:var(--space-sm)">
+                                A GitHub page should have opened in your browser.
+                                <a href="${esc(res.verification_url)}" target="_blank" rel="noopener"
+                                   style="color:var(--accent)">Open it again →</a>
+                            </div>
+                        </div>
+
+                        <div id="ops-device-poll-status" style="margin-top:var(--space-md);padding:12px;border-radius:var(--radius-sm);background:var(--bg-inset);text-align:center">
+                            <div style="display:flex;align-items:center;justify-content:center;gap:0.5rem">
+                                <span id="ops-device-spinner">🔄</span>
+                                <span style="font-size:0.82rem">Waiting for you to authorize on GitHub…</span>
+                            </div>
+                            <div style="font-size:0.68rem;color:var(--text-muted);margin-top:6px" id="ops-device-elapsed">0s elapsed</div>
+                        </div>
+                    `;
+                }
+
+                // ── CRITICAL ORDER: start polling FIRST, then open URL ──
+                // DO NOT await clipboard — window.open() steals focus,
+                // and clipboard API hangs when document isn't focused.
+
+                // 1) Start polling immediately
+                _opsDeviceStartPolling(cfg);
+
+                // 2) Copy code to clipboard (fire-and-forget, no await)
+                navigator.clipboard.writeText(res.user_code).then(() => {
+                    const hint = document.getElementById('ops-code-hint');
+                    if (hint) {
+                        hint.style.color = 'var(--success)';
+                        hint.style.fontWeight = '600';
+                        hint.style.fontSize = '0.78rem';
+                        hint.innerHTML = '✅ Code copied to clipboard! Just <strong>Ctrl+V paste</strong> it on GitHub';
+                    }
+                }).catch(() => {
+                    const hint = document.getElementById('ops-code-hint');
+                    if (hint) hint.textContent = '⚠ Click the code above to copy it, then paste on GitHub';
+                });
+
+                // 3) Open GitHub URL LAST (steals focus)
+                try {
+                    window.open(res.verification_url, '_blank', 'noopener');
+                } catch { /* popup blocked — user can click the link */ }
+            } else {
+                if (btn) { btn.disabled = false; btn.textContent = '🌐 Start Browser Authentication'; }
+                const errMsg = res.error || 'Failed to start device flow';
+                if (statusEl) {
+                    statusEl.style.display = 'block';
+                    statusEl.style.color = 'var(--error)';
+                    statusEl.textContent = '❌ ' + errMsg;
+                }
+                if (res.raw_output) {
+                    console.warn('Device flow raw output:', res.raw_output);
+                }
+                toast(errMsg, 'error');
+            }
+        } catch (err) {
+            if (btn) { btn.disabled = false; btn.textContent = '🌐 Start Browser Authentication'; }
+            toast('Error: ' + err.message, 'error');
+        }
+    }
+
+    function _opsDeviceStartPolling(cfg) {
+        if (_opsPollingTimer) clearInterval(_opsPollingTimer);
+
+        const startTime = Date.now();
+        const emojis = ['🔄', '⏳', '🔍', '📡'];
+        let emojiIdx = 0;
+
+        _opsPollingTimer = setInterval(async () => {
+            const elapsed = Math.floor((Date.now() - startTime) / 1000);
+            const mins = Math.floor(elapsed / 60);
+            const secs = elapsed % 60;
+
+            // Update UI
+            const elapsedEl = document.getElementById('ops-device-elapsed');
+            if (elapsedEl) elapsedEl.textContent = mins > 0 ? `${mins}m ${secs}s elapsed` : `${secs}s elapsed`;
+            const spinnerEl = document.getElementById('ops-device-spinner');
+            if (spinnerEl) { emojiIdx = (emojiIdx + 1) % emojis.length; spinnerEl.textContent = emojis[emojiIdx]; }
+
+            if (!_opsDeviceSession) return;
+
+            try {
+                const data = await api('/gh/auth/device/poll?session=' + _opsDeviceSession);
+
+                if (data.complete && data.authenticated) {
+                    clearInterval(_opsPollingTimer);
+                    _opsPollingTimer = null;
+                    _opsAuthSuccess(cfg);
+                } else if (data.complete && !data.authenticated) {
+                    clearInterval(_opsPollingTimer);
+                    _opsPollingTimer = null;
+                    const pollEl = document.getElementById('ops-device-poll-status');
+                    if (pollEl) {
+                        pollEl.innerHTML = `<span style="color:var(--error)">❌ ${esc(data.error || 'Authentication failed')}</span>
+                            <br><button class="btn btn-xs btn-primary" style="margin-top:var(--space-sm)"
+                                onclick="_opsAuthDeviceStart()">🔄 Try Again</button>`;
+                    }
+                }
+                // else: still waiting, do nothing
+            } catch { /* ignore poll errors */ }
+        }, 3000);
+    }
+
+    // ── Terminal Spawn ─────────────────────────────────────────────
+
+    async function _opsAuthSpawnTerminal() {
+        const cfg = window._opsAuthConfig;
+        if (!cfg) return;
+        const btn = document.getElementById('ops-auth-spawn');
+        const statusEl = document.getElementById('ops-auth-status');
+        if (btn) { btn.disabled = true; btn.textContent = '⏳ Launching…'; }
+
+        // Check auto-drive checkbox
+        const autoDrive = document.getElementById('ops-term-auto')?.checked ?? false;
+
+        try {
+            const res = await apiPost(cfg.loginEndpoint, { mode: 'interactive', auto_drive: autoDrive });
+
+            if (res.ok && res.terminal) {
+                // Terminal spawned
+                if (btn) { btn.textContent = '✅ Terminal opened'; }
+
+                if (autoDrive) {
+                    // Auto-drive: poll signal file for code + URL
+                    _opsTerminalSignalPoll(cfg, statusEl);
+                } else {
+                    // Manual: just poll gh auth status
+                    _opsAuthStartPolling(cfg, statusEl);
+                }
+
+            } else if (res.no_terminal) {
+                // No working terminal — show install options
+                _opsShowTerminalInstall(res, cfg);
+
+            } else if (res.fallback && res.command) {
+                // Legacy fallback — show command to copy
+                _opsShowCopyFallback(res, statusEl, btn);
+            } else {
+                if (btn) { btn.disabled = false; btn.textContent = '🖥️ Launch Terminal Authentication'; }
+                toast(res.error || 'Failed to spawn terminal', 'error');
+            }
+        } catch (err) {
+            if (btn) { btn.disabled = false; btn.textContent = '🖥️ Launch Terminal Authentication'; }
+            toast('Error: ' + err.message, 'error');
+        }
+    }
+
+    /** Show terminal emulator install options when no working terminal found. */
+    function _opsShowTerminalInstall(res, cfg) {
+        const body = document.getElementById('ops-auth-body');
+        if (!body) return;
+
+        const broken = res.broken || [];
+        const installable = res.installable || [];
+        const command = res.command || 'gh auth login';
+
+        // Build broken info
+        let brokenHtml = '';
+        if (broken.length > 0) {
+            const names = broken.map(b => {
+                const extra = b.real_binary ? ` → ${esc(b.real_binary)}` : '';
+                return `<code>${esc(b.name)}</code>${extra} (${esc(b.reason)})`;
+            }).join(', ');
+            brokenHtml = `<div style="font-size:0.72rem;color:var(--warning);margin-bottom:var(--space-sm)">
+                ⚠ Found but broken: ${names}
+            </div>`;
+        }
+
+        // Build installable options
+        let installHtml = '';
+        if (installable.length > 0) {
+            const recommended = installable.find(t => t.name === 'xterm') || installable[0];
+            const options = installable.map(t => {
+                const isRec = t.name === recommended.name;
+                const checked = isRec ? 'checked' : '';
+                const badge = isRec ? ' <span style="font-size:0.65rem;background:var(--accent);color:#fff;padding:1px 6px;border-radius:8px;margin-left:4px">recommended</span>' : '';
+                return `<label style="display:flex;align-items:center;gap:0.5rem;padding:8px 10px;border-radius:var(--radius-sm);cursor:pointer;font-size:0.82rem;border:1px solid var(--border);background:var(--bg-primary);transition:all 0.15s"
+                    onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'">
+                    <input type="radio" name="ops-term-choice" value="${esc(t.name)}" ${checked}
+                           style="accent-color:var(--accent);margin:0" />
+                    <div style="flex:1">
+                        <strong>${esc(t.label)}</strong>${badge}
+                        <div style="font-size:0.7rem;color:var(--text-muted)">${esc(t.description)} — <code>${esc(t.apt_package)}</code></div>
+                    </div>
+                </label>`;
+            }).join('');
+
+            installHtml = `
+                <div style="font-size:0.82rem;font-weight:600;margin-bottom:var(--space-sm)">Install a terminal emulator:</div>
+                <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:var(--space-md)">${options}</div>
+                <button class="btn btn-sm btn-primary" id="ops-term-install-btn" style="width:100%;padding:10px"
+                    onclick="_opsInstallTerminal()">📦 Install Selected Terminal</button>
+            `;
+        }
+
+        // Fallback: copy command
+        const fallbackHtml = `
+            <div style="margin-top:var(--space-md);padding-top:var(--space-md);border-top:1px solid var(--border)">
+                <div style="font-size:0.78rem;color:var(--text-secondary);margin-bottom:var(--space-sm)">
+                    Or run the command manually:
+                </div>
+                <div style="display:flex;align-items:center;gap:0.5rem">
+                    <code style="flex:1;background:var(--bg-tertiary);padding:6px 10px;border-radius:4px;font-size:0.78rem">${esc(command)}</code>
+                    <button class="btn btn-xs btn-secondary" style="font-size:0.68rem;padding:3px 8px;white-space:nowrap"
+                        onclick="navigator.clipboard.writeText('${command.replace(/'/g, "\\'")}').then(()=>this.textContent='✓ Copied').catch(()=>{});setTimeout(()=>this.textContent='📋 Copy',2000)">📋 Copy</button>
+                </div>
+                <button class="btn btn-xs btn-primary" style="margin-top:var(--space-sm);width:100%;padding:8px"
+                    onclick="_opsAuthPollOnce()">🔄 Check Status</button>
+            </div>
+        `;
+
+        // Replace the terminal panel content
+        body.innerHTML = `
+            <div style="font-size:0.85rem;color:var(--warning);margin-bottom:var(--space-md)">
+                <strong>⚠ No working terminal emulator found.</strong>
+            </div>
+            <div style="font-size:0.78rem;color:var(--text-secondary);margin-bottom:var(--space-md)">
+                A terminal emulator is needed for the interactive authentication flow.
+                Install one below, or paste a token instead.
+            </div>
+            ${brokenHtml}
+            ${installHtml}
+            ${installable.length === 0 ? '<div style="font-size:0.82rem;color:var(--error);margin-bottom:var(--space-sm)">No terminal emulators available to install.</div>' : ''}
+            ${fallbackHtml}
+            <div style="margin-top:var(--space-md);text-align:center">
+                <button class="btn btn-xs btn-secondary" style="font-size:0.72rem"
+                    onclick="_opsShowTokenFromInstall()">🔑 Switch to Token Paste</button>
+            </div>
+
+            <!-- Status / log area (reused by polling) -->
+            <div id="ops-auth-status" style="display:none;margin-top:var(--space-md);padding:12px;border-radius:var(--radius-sm);background:var(--bg-inset);font-size:0.78rem;text-align:center"></div>
+        `;
+    }
+
+    /** Install a selected terminal emulator, then retry terminal spawn. */
+    async function _opsInstallTerminal() {
+        const selected = document.querySelector('input[name="ops-term-choice"]:checked');
+        if (!selected) { toast('Select a terminal emulator first', 'warning'); return; }
+
+        const termName = selected.value;
+        const btn = document.getElementById('ops-term-install-btn');
+
+        // Use the existing install modal flow — but with a callback to retry spawn
+        const cfg = window._opsAuthConfig;
+        _opsModalClose(); // Close auth modal temporarily
+
+        _showOpsModal({
+            type: 'install',
+            toolId: termName,
+            toolLabel: termName,
+            onSuccess: () => {
+                // Terminal installed — re-open the auth modal and auto-retry
+                toast(termName + ' installed! Retrying terminal spawn…', 'success');
+                setTimeout(() => {
+                    if (cfg) {
+                        _showAuthModal(cfg);
+                        // Auto-click the spawn button after modal renders
+                        setTimeout(() => _opsAuthSpawnTerminal(), 300);
+                    }
+                }, 800);
+            },
+        });
+    }
+
+    /** Show copy-command fallback (legacy path). */
+    function _opsShowCopyFallback(res, statusEl, btn) {
+        if (statusEl) {
+            statusEl.style.display = 'block';
+            statusEl.style.textAlign = 'left';
+            statusEl.innerHTML = `
+                <div style="font-size:0.82rem;color:var(--warning);margin-bottom:var(--space-sm)">
+                    <strong>⚠ No terminal emulator found.</strong> Run this in your terminal:
+                </div>
+                <div style="display:flex;align-items:center;gap:0.5rem">
+                    <code style="flex:1;background:var(--bg-tertiary);padding:6px 10px;border-radius:4px;font-size:0.78rem">${esc(res.command)}</code>
+                    <button class="btn btn-xs btn-secondary" style="font-size:0.68rem;padding:3px 8px;white-space:nowrap"
+                        onclick="navigator.clipboard.writeText('${res.command.replace(/'/g, "\\'")}').then(()=>this.textContent='✓ Copied').catch(()=>{});setTimeout(()=>this.textContent='📋 Copy',2000)">📋 Copy</button>
+                </div>
+                <div style="font-size:0.72rem;color:var(--text-muted);margin-top:var(--space-sm)">
+                    After completing auth, click <strong>Check Status</strong> below.
+                </div>
+                <button class="btn btn-xs btn-primary" style="margin-top:var(--space-sm);width:100%;padding:8px"
+                    onclick="_opsAuthPollOnce()">🔄 Check Status</button>
+            `;
+        }
+        if (btn) { btn.disabled = false; btn.textContent = '🖥️ Launch Terminal Authentication'; }
+    }
+
+    /** Re-open auth modal on token tab (from terminal install flow where DOM was replaced). */
+    function _opsShowTokenFromInstall() {
+        const cfg = window._opsAuthConfig;
+        if (!cfg) return;
+        _opsModalClose();
+        _showAuthModal(cfg);
+        // Auto-switch to token tab after render
+        setTimeout(() => _opsAuthSelectPath('token'), 100);
+    }
+    /**
+     * Poll terminal signal file for device code, URL, and completion.
+     * When code_ready: show code in modal + open GitHub URL.
+     * When success: trigger auth success.
+     */
+    function _opsTerminalSignalPoll(cfg, statusEl) {
+        if (_opsPollingTimer) clearInterval(_opsPollingTimer);
+
+        let codeShown = false;
+        const startTime = Date.now();
+        const emojis = ['🔄', '⏳', '🔍', '📡'];
+        let emojiIdx = 0;
+
+        if (statusEl) {
+            statusEl.style.display = 'block';
+            statusEl.innerHTML = `
+                <div style="display:flex;align-items:center;justify-content:center;gap:0.5rem;margin-bottom:0.5rem">
+                    <span id="ops-poll-spinner">${emojis[0]}</span>
+                    <span>Waiting for device code from terminal…</span>
+                </div>
+                <div style="font-family:monospace;font-size:0.72rem;color:var(--text-muted)" id="ops-poll-elapsed">0s elapsed</div>
+                <div style="font-size:0.68rem;color:var(--text-muted);margin-top:0.4rem">Complete the Y/n prompt in the terminal window.</div>
+            `;
+        }
+
+        _opsPollingTimer = setInterval(async () => {
+            const elapsed = Math.floor((Date.now() - startTime) / 1000);
+            const mins = Math.floor(elapsed / 60);
+            const secs = elapsed % 60;
+
+            const elapsedEl = document.getElementById('ops-poll-elapsed');
+            if (elapsedEl) elapsedEl.textContent = mins > 0 ? `${mins}m ${secs}s elapsed` : `${secs}s elapsed`;
+            const spinnerEl = document.getElementById('ops-poll-spinner');
+            if (spinnerEl) { emojiIdx = (emojiIdx + 1) % emojis.length; spinnerEl.textContent = emojis[emojiIdx]; }
+
+            // Timeout after 5 minutes
+            if (Date.now() - startTime > 300000) {
+                clearInterval(_opsPollingTimer);
+                _opsPollingTimer = null;
+                if (statusEl) {
+                    statusEl.innerHTML = `<span style="color:var(--warning)">⏱️ Timed out. <button class="btn btn-xs btn-primary" onclick="_opsAuthPollOnce()">🔄 Check Now</button></span>`;
+                }
+                return;
+            }
+
+            try {
+                const data = await api('/gh/auth/terminal/poll');
+
+                if (data.status === 'code_ready' && !codeShown) {
+                    codeShown = true;
+                    // Show device code + open-link in the modal panel
+                    const panel = document.getElementById('ops-panel-terminal');
+                    if (panel) {
+                        const codeHtml = `
+                            <div style="text-align:center;margin-top:var(--space-md)">
+                                <div style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:var(--space-xs)">Your one-time code:</div>
+                                <div style="font-size:2rem;font-weight:800;letter-spacing:0.15em;font-family:monospace;
+                                    background:var(--bg-tertiary);padding:12px 24px;border-radius:var(--radius-md);display:inline-block;
+                                    cursor:pointer;user-select:all;border:2px solid var(--accent)"
+                                    title="Click to copy"
+                                    onclick="navigator.clipboard.writeText('${data.code}').then(()=>toast('Copied!','success'))">
+                                    ${data.code}
+                                </div>
+                                <div id="ops-code-hint" style="font-size:0.72rem;color:var(--text-muted);margin-top:var(--space-xs)">
+                                    Click code to copy • Paste it on GitHub
+                                </div>
+                                <a href="${data.url}" target="_blank" rel="noopener"
+                                    style="display:inline-block;margin-top:var(--space-sm);padding:8px 20px;
+                                    background:var(--accent);color:#fff;border-radius:var(--radius-md);
+                                    font-weight:700;font-size:0.88rem;text-decoration:none;
+                                    transition:opacity 0.2s"
+                                    onmouseover="this.style.opacity='0.85'"
+                                    onmouseout="this.style.opacity='1'"
+                                    >🔗 Open GitHub to paste code</a>
+                            </div>
+                        `;
+                        // Insert before the status element
+                        if (statusEl) {
+                            statusEl.insertAdjacentHTML('beforebegin', codeHtml);
+                            statusEl.innerHTML = `
+                                <div style="display:flex;align-items:center;justify-content:center;gap:0.5rem;margin-bottom:0.5rem">
+                                    <span id="ops-poll-spinner">📡</span>
+                                    <span>Waiting for you to authorize on GitHub…</span>
+                                </div>
+                                <div style="font-family:monospace;font-size:0.72rem;color:var(--text-muted)" id="ops-poll-elapsed">${secs}s elapsed</div>
+                            `;
+                        }
+                    }
+
+                    // Try to copy code to clipboard
+                    navigator.clipboard.writeText(data.code).then(() => {
+                        const hint = document.getElementById('ops-code-hint');
+                        if (hint) {
+                            hint.style.color = 'var(--success)';
+                            hint.style.fontWeight = '600';
+                            hint.innerHTML = '✅ Code copied! Just <strong>Ctrl+V paste</strong> it on GitHub';
+                        }
+                    }).catch(() => {});
+                }
+
+                if (data.status === 'success') {
+                    clearInterval(_opsPollingTimer);
+                    _opsPollingTimer = null;
+                    _opsAuthSuccess(cfg);
+                    return;
+                }
+
+                if (data.status === 'failed') {
+                    clearInterval(_opsPollingTimer);
+                    _opsPollingTimer = null;
+                    if (statusEl) {
+                        statusEl.innerHTML = `<span style="color:var(--error)">❌ Authentication failed in terminal. Check the terminal window for details.</span>`;
+                    }
+                    return;
+                }
+            } catch { /* ignore poll errors */ }
+        }, 2000);
+    }
+
+    function _opsAuthStartPolling(cfg, statusEl) {
+        if (_opsPollingTimer) clearInterval(_opsPollingTimer);
+
+        const startTime = Date.now();
+        const timeout = cfg.pollTimeout || 300000;
+        const interval = cfg.pollInterval || 3000;
+        const pollCheck = cfg.pollCheck || (() => false);
+        const pollEndpoint = cfg.pollEndpoint || '/integrations/gh/status';
+        const emojis = ['🔄', '⏳', '🔍', '📡'];
+        let emojiIdx = 0;
+
+        if (statusEl) {
+            statusEl.style.display = 'block';
+            statusEl.innerHTML = `
+                <div style="display:flex;align-items:center;justify-content:center;gap:0.5rem;margin-bottom:0.5rem">
+                    <span id="ops-poll-spinner">${emojis[0]}</span>
+                    <span>Waiting for authentication to complete…</span>
+                </div>
+                <div style="font-family:monospace;font-size:0.72rem;color:var(--text-muted)" id="ops-poll-elapsed">0s elapsed</div>
+                <div style="font-size:0.68rem;color:var(--text-muted);margin-top:0.4rem">Complete the login in the terminal window that opened.</div>
+            `;
+        }
+
+        _opsPollingTimer = setInterval(async () => {
+            const elapsed = Math.floor((Date.now() - startTime) / 1000);
+            const mins = Math.floor(elapsed / 60);
+            const secs = elapsed % 60;
+
+            // Update UI
+            const elapsedEl = document.getElementById('ops-poll-elapsed');
+            if (elapsedEl) elapsedEl.textContent = mins > 0 ? `${mins}m ${secs}s elapsed` : `${secs}s elapsed`;
+            const spinnerEl = document.getElementById('ops-poll-spinner');
+            if (spinnerEl) { emojiIdx = (emojiIdx + 1) % emojis.length; spinnerEl.textContent = emojis[emojiIdx]; }
+
+            // Timeout check
+            if (Date.now() - startTime > timeout) {
+                clearInterval(_opsPollingTimer);
+                _opsPollingTimer = null;
+                if (statusEl) {
+                    statusEl.innerHTML = `<span style="color:var(--warning)">⏱️ Polling timed out. <button class="btn btn-xs btn-primary" onclick="_opsAuthPollOnce()">🔄 Check Now</button></span>`;
+                }
+                return;
+            }
+
+            // Poll
+            try {
+                const data = await api(pollEndpoint);
+                if (pollCheck(data)) {
+                    clearInterval(_opsPollingTimer);
+                    _opsPollingTimer = null;
+                    _opsAuthSuccess(cfg);
+                }
+            } catch { /* ignore poll errors */ }
+        }, interval);
+    }
+
+    async function _opsAuthPollOnce() {
+        const cfg = window._opsAuthConfig;
+        if (!cfg) return;
+        const statusEl = document.getElementById('ops-auth-status');
+        try {
+            const data = await api(cfg.pollEndpoint || '/integrations/gh/status');
+            const check = cfg.pollCheck || (() => false);
+            if (check(data)) {
+                _opsAuthSuccess(cfg);
+            } else {
+                if (statusEl) {
+                    statusEl.innerHTML = `<span style="color:var(--warning)">⚠ Not authenticated yet. Complete the login flow and try again.</span>
+                    <button class="btn btn-xs btn-primary" style="margin-top:var(--space-sm);width:100%;padding:8px"
+                        onclick="_opsAuthPollOnce()">🔄 Check Again</button>`;
+                }
+            }
+        } catch (err) {
+            if (statusEl) {
+                statusEl.innerHTML = `<span style="color:var(--error)">❌ ${esc(err.message)}</span>`;
+            }
+        }
+    }
+
+    async function _opsAuthWithToken() {
+        const cfg = window._opsAuthConfig;
+        if (!cfg) return;
+        const tokenInput = document.getElementById('ops-auth-token');
+        const btn = document.getElementById('ops-auth-token-go');
+        const statusEl = document.getElementById('ops-auth-status');
+        const token = tokenInput?.value?.trim();
+
+        if (!token) {
+            if (tokenInput) { tokenInput.style.borderColor = 'var(--error)'; tokenInput.placeholder = '⚠️ Token required'; tokenInput.focus(); }
+            return;
+        }
+
+        if (btn) { btn.disabled = true; btn.textContent = '⏳ Authenticating…'; }
+        if (statusEl) { statusEl.style.display = 'block'; statusEl.textContent = '🔄 Authenticating…'; statusEl.style.color = ''; }
+
+        try {
+            const res = await apiPost(cfg.loginEndpoint, { token });
+
+            if (res.ok && res.authenticated) {
+                _opsAuthSuccess(cfg);
+            } else {
+                if (statusEl) { statusEl.textContent = '❌ ' + (res.error || 'Authentication failed'); statusEl.style.color = 'var(--error)'; }
+                if (btn) { btn.disabled = false; btn.textContent = '🔑 Authenticate'; }
+                if (tokenInput) { tokenInput.value = ''; tokenInput.focus(); tokenInput.style.borderColor = 'var(--warning)'; }
+            }
+        } catch (err) {
+            if (statusEl) { statusEl.textContent = '❌ ' + err.message; statusEl.style.color = 'var(--error)'; }
+            if (btn) { btn.disabled = false; btn.textContent = '🔑 Authenticate'; }
+        }
+    }
+
+    function _opsAuthSuccess(cfg) {
+        // Replace the entire modal body with a success state
+        const body = document.getElementById('ops-auth-body');
+        if (body) {
+            body.innerHTML = `
+                <div style="text-align:center;padding:var(--space-lg) 0">
+                    <div style="font-size:2.5rem;margin-bottom:var(--space-sm)">✅</div>
+                    <div style="font-size:1.1rem;font-weight:700;color:var(--success);margin-bottom:var(--space-sm)">
+                        Authenticated successfully!
+                    </div>
+                    <div style="font-size:0.78rem;color:var(--text-muted)">
+                        Closing in a moment…
+                    </div>
+                </div>
+            `;
+        }
+        toast('Authentication successful!', 'success');
+
+        // Silent background cache bust — ONLY the github card changed
+        (async () => {
+            try {
+                await apiPost('/devops/cache/bust', { card: 'github' }).catch(() => {});
+            } catch { /* ignore */ }
+
+            // Clear ONLY github-related client-side caches
+            if (typeof _store !== 'undefined') {
+                for (const k of Object.keys(_store)) {
+                    if (k.startsWith('gh:') || k === 'github' || k === 'capabilities') {
+                        delete _store[k];
+                    }
+                }
+            }
+            if (typeof wizInvalidate === 'function') {
+                try { wizInvalidate('detect'); wizInvalidate('gh:detect'); } catch {}
+            }
+
+            // Reload ONLY the GitHub card — not all integrations
+            cardInvalidate('github');  // clear sessionStorage
+            if (typeof loadGitHubCard === 'function') {
+                // Show spinner on GH card while re-fetching
+                const ghDetail = document.getElementById('int-gh-detail');
+                const ghBadge = document.getElementById('int-gh-badge');
+                if (ghDetail) ghDetail.innerHTML = '<span class="spinner"></span>';
+                if (ghBadge) { ghBadge.className = 'status-badge'; ghBadge.textContent = '—'; }
+                await loadGitHubCard();
+            }
+        })();
+
+        setTimeout(() => {
+            _opsModalClose();
+            if (cfg.onSuccess) cfg.onSuccess();
+        }, 2000);
+    }
+
+    // ── Convenience helpers for GitHub auth ─────────────────────────
+
+    function _showGhAuthModal(onSuccess) {
+        _showOpsModal({
+            type: 'auth',
+            title: '🔑 Authenticate GitHub',
+            description: 'Connect your GitHub account via the <code>gh</code> CLI.',
+            loginEndpoint: '/gh/auth/login',
+            pollEndpoint: '/integrations/gh/status',
+            pollCheck: (d) => d.authenticated === true,
+            tokenHint: 'Use a GitHub Personal Access Token (classic or fine-grained)',
+            tokenUrl: 'https://github.com/settings/tokens',
+            onSuccess: onSuccess || null,  // _opsAuthSuccess already handles cache bust
+        });
+    }
+
+    // ── After-install refresh ──────────────────────────────────────
+
+    /** After a tool install/auth, bust caches and re-load the active tab instead of full page reload. */
+    async function _refreshAfterInstall() {
+        try {
+            // Bust server-side cache so next fetch re-runs detection
+            await apiPost('/devops/cache/bust', { card: 'integrations' }).catch(() => {});
+            await apiPost('/devops/cache/bust', { card: 'devops' }).catch(() => {});
+        } catch { /* ignore */ }
+
+        // Clear ONLY integration/devops client-side caches (not everything!)
+        if (typeof _store !== 'undefined') {
+            for (const k of Object.keys(_store)) {
+                if (k.startsWith('int:') || k.startsWith('gh:') || k.startsWith('devops:') || k === 'integrations' || k === 'capabilities') {
+                    delete _store[k];
+                }
+            }
+        }
+
+        // Invalidate wizard caches too (if wizard is open)
+        if (typeof wizInvalidate === 'function') {
+            try { wizInvalidate('detect'); wizInvalidate('gh:detect'); } catch {}
+        }
+
+        // Re-load whichever tab is active
+        if (typeof _intLoaded !== 'undefined') { _intLoaded = false; _intPrefs = null; }
+        const activeTab = document.querySelector('.tab-btn.active')?.dataset?.tab;
+        if (activeTab === 'integrations' && typeof loadIntegrationsTab === 'function') {
+            await loadIntegrationsTab(true);
+        } else if (activeTab === 'devops' && typeof loadDevOpsTab === 'function') {
+            await loadDevOpsTab(true);
+        } else if (activeTab === 'audit' && typeof loadAuditTab === 'function') {
+            await loadAuditTab(true);
+        } else {
+            // Fallback: reload current tab by clicking it
+            document.querySelector('.tab-btn.active')?.click();
+        }
+    }
+
 </script>

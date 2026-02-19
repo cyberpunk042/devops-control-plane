@@ -403,6 +403,18 @@ def get_cached(
         # ── Record activity ─────────────────────────────────────
         _record_activity(project_root, card_key, status, elapsed, data, error_msg, bust=force)
 
+        # ── Stage pending audit snapshot ────────────────────────
+        if status == "ok":
+            try:
+                from src.core.services.audit_staging import stage_audit
+                sid = stage_audit(
+                    project_root, card_key, status, elapsed,
+                    data, _extract_summary(card_key, data),
+                )
+                _publish_event("audit:pending", key=card_key, snapshot_id=sid)
+            except Exception:
+                pass  # staging must never break the cache
+
         logger.debug("cache MISS for %s (computed in %.2fs, status=%s)", card_key, elapsed, status)
         if caught_exc is not None:
             raise caught_exc

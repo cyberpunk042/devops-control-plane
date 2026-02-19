@@ -120,6 +120,9 @@ def docs_status(project_root: Path) -> dict:
                 break
         result[name] = {"exists": found is not None, "path": found}
 
+    from src.core.services.tool_requirements import check_required_tools
+    result["missing_tools"] = check_required_tools(["git"])
+
     return result
 
 

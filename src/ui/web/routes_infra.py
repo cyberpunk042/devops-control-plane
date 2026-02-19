@@ -26,6 +26,7 @@ from pathlib import Path
 from flask import Blueprint, current_app, jsonify, request
 
 from src.core.services import env_ops
+from src.core.services.run_tracker import run_tracked
 
 infra_bp = Blueprint("infra", __name__)
 
@@ -88,6 +89,7 @@ def env_validate():  # type: ignore[no-untyped-def]
 
 
 @infra_bp.route("/infra/env/generate-example", methods=["POST"])
+@run_tracked("generate", "generate:env_example")
 def env_generate_example():  # type: ignore[no-untyped-def]
     """Generate .env.example from .env."""
     result = env_ops.generate_env_example(_project_root())
@@ -98,6 +100,7 @@ def env_generate_example():  # type: ignore[no-untyped-def]
 
 
 @infra_bp.route("/infra/env/generate-env", methods=["POST"])
+@run_tracked("generate", "generate:env")
 def env_generate_env():  # type: ignore[no-untyped-def]
     """Generate .env from .env.example."""
     result = env_ops.generate_env_from_example(_project_root())

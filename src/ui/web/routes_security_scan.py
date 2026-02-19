@@ -25,6 +25,7 @@ from pathlib import Path
 from flask import Blueprint, current_app, jsonify, request
 
 from src.core.services import security_ops
+from src.core.services.run_tracker import run_tracked
 
 security_bp2 = Blueprint("security2", __name__)
 
@@ -152,6 +153,7 @@ def security_posture():  # type: ignore[no-untyped-def]
 
 
 @security_bp2.route("/security/generate/gitignore", methods=["POST"])
+@run_tracked("generate", "generate:gitignore")
 def security_generate_gitignore():  # type: ignore[no-untyped-def]
     """Generate .gitignore from detected stacks."""
     data = request.get_json(silent=True) or {}

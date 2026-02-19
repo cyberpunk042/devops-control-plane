@@ -19,6 +19,7 @@ from pathlib import Path
 from flask import Blueprint, current_app, jsonify, request
 
 from src.core.services import docs_ops
+from src.core.services.run_tracker import run_tracked
 
 docs_bp = Blueprint("docs", __name__)
 
@@ -55,6 +56,7 @@ def docs_links():  # type: ignore[no-untyped-def]
 
 
 @docs_bp.route("/docs/generate/changelog", methods=["POST"])
+@run_tracked("generate", "generate:changelog")
 def docs_generate_changelog():  # type: ignore[no-untyped-def]
     """Generate CHANGELOG.md from git history."""
     data = request.get_json(silent=True) or {}
@@ -69,6 +71,7 @@ def docs_generate_changelog():  # type: ignore[no-untyped-def]
 
 
 @docs_bp.route("/docs/generate/readme", methods=["POST"])
+@run_tracked("generate", "generate:readme")
 def docs_generate_readme():  # type: ignore[no-untyped-def]
     """Generate README.md template."""
     return jsonify(docs_ops.generate_readme(_project_root()))

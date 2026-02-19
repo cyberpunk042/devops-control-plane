@@ -61,6 +61,17 @@ _SUDO_RECIPES: dict[str, list[str]] = {
     "cargo":          ["bash", "-c", "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y"],
     "rustc":          ["bash", "-c", "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y"],
     "skaffold":       ["bash", "-c", "curl -Lo /usr/local/bin/skaffold https://storage.googleapis.com/skaffold/releases/latest/skaffold-linux-amd64 && chmod +x /usr/local/bin/skaffold"],
+    "dig":            ["apt-get", "install", "-y", "dnsutils"],
+    "openssl":        ["apt-get", "install", "-y", "openssl"],
+    "rsync":          ["apt-get", "install", "-y", "rsync"],
+    # ── Terminal emulators (for interactive spawn) ──
+    "xterm":          ["apt-get", "install", "-y", "xterm"],
+    "gnome-terminal": ["apt-get", "install", "-y", "gnome-terminal"],
+    "xfce4-terminal": ["apt-get", "install", "-y", "xfce4-terminal"],
+    "konsole":        ["apt-get", "install", "-y", "konsole"],
+    "kitty":          ["apt-get", "install", "-y", "kitty"],
+    # ── Utilities ──
+    "expect":         ["apt-get", "install", "-y", "expect"],
 }
 
 

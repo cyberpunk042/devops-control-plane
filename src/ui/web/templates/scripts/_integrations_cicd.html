@@ -65,6 +65,11 @@
             html += cardDepHint('docker', 'Docker', 'Set up Docker for container-based CI builds.', 'docker');
             html += cardDepHint('github', 'GitHub', 'Connect GitHub for workflow runs and Actions.', 'github');
 
+            // Missing tools banner
+            if (ciStatus && ciStatus.missing_tools && ciStatus.missing_tools.length > 0) {
+                html += '<div id="ci-missing-tools"></div>';
+            }
+
             // ── Detection list ──
             if (ciStatus && ciStatus.has_ci) {
                 const providers = ciStatus.providers || [];
@@ -112,6 +117,11 @@
             html += cardCrossLink('devops', 'Testing & Quality in DevOps');
 
             detail.innerHTML = html;
+
+            // Render missing tools banner (if container was injected)
+            if (ciStatus && ciStatus.missing_tools) {
+                renderMissingTools(ciStatus.missing_tools, 'ci-missing-tools');
+            }
 
             // Auto-load runs tab
             setTimeout(() => {

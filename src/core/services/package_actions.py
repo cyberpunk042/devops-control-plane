@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import logging
 import shutil
+import sys
 from pathlib import Path
 
 from src.core.services.package_ops import (
@@ -24,6 +25,15 @@ from src.core.services.package_ops import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _pip_cmd(*args: str) -> list[str]:
+    """Build a pip command using the current interpreter.
+
+    Uses ``sys.executable -m pip`` so pip always runs in the same
+    environment as the application — regardless of PATH.
+    """
+    return [sys.executable, "-m", "pip", *args]
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -75,7 +85,7 @@ def package_outdated(project_root: Path, *, manager: str | None = None) -> dict:
 def _pip_outdated(project_root: Path) -> dict:
     """Check outdated pip packages."""
     r = _run(
-        ["pip", "list", "--outdated", "--format", "json"],
+        _pip_cmd("list", "--outdated", "--format", "json"),
         cwd=project_root,
         timeout=30,
     )
@@ -351,7 +361,7 @@ def package_list(project_root: Path, *, manager: str | None = None) -> dict:
 
 def _pip_list(project_root: Path) -> dict:
     """List installed pip packages."""
-    r = _run(["pip", "list", "--format", "json"], cwd=project_root, timeout=15)
+    r = _run(_pip_cmd("list", "--format", "json"), cwd=project_root, timeout=15)
     if r.returncode != 0:
         return {"error": r.stderr.strip() or "pip list failed"}
 
@@ -419,7 +429,7 @@ def package_install(project_root: Path, *, manager: str | None = None) -> dict:
         return {"error": f"{manager} not available"}
 
     cmd_map = {
-        "pip": ["pip", "install", "-e", "."],
+        "pip": _pip_cmd("install", "-e", "."),
         "npm": ["npm", "ci"],
         "go": ["go", "mod", "download"],
         "cargo": ["cargo", "fetch"],
@@ -466,9 +476,9 @@ def package_update(
 
     if manager == "pip":
         if package:
-            cmd = ["pip", "install", "--upgrade", package]
+            cmd = _pip_cmd("install", "--upgrade", package)
         else:
-            cmd = ["pip", "install", "--upgrade", "-e", "."]
+            cmd = _pip_cmd("install", "--upgrade", "-e", ".")
     elif manager == "npm":
         if package:
             cmd = ["npm", "update", package]

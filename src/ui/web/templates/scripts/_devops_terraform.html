@@ -43,10 +43,12 @@
             badge.className = 'status-badge degraded';
             badge.innerHTML = '<span class="status-dot"></span>N/A';
             detail.innerHTML = `<div style="font-size:0.82rem;color:var(--text-secondary);line-height:1.5">
+                <div id="devops-tf-missing-tools"></div>
                 <p class="empty-state-sm">No Terraform configuration detected</p>
                 <div style="font-size:0.68rem;color:var(--text-muted);margin-top:var(--space-xs)">Create a <code>terraform/</code> directory with <code>.tf</code> files, or install Terraform CLI.</div>
                 <div style="margin-top:var(--space-md)"><button class="btn btn-sm btn-ghost" onclick="tfGenerate()" title="Generate main.tf, variables.tf, outputs.tf scaffold for a cloud provider">🏗️ Generate Scaffold</button></div>
             </div>`;
+            renderMissingTools(data.missing_tools, 'devops-tf-missing-tools');
             return;
         }
 
@@ -100,7 +102,11 @@
         // Cross-tab link
         html += cardCrossLink('integrations', 'Full Terraform integration card');
 
+        // ── Missing tools banner ──
+        html += '<div id="devops-tf-missing-tools"></div>';
+
         detail.innerHTML = html;
+        renderMissingTools(data.missing_tools, 'devops-tf-missing-tools');
     }
 
     async function tfValidate() {

@@ -38,9 +38,11 @@
             badge.className = 'status-badge degraded';
             badge.innerHTML = '<span class="status-dot"></span>None';
             detail.innerHTML = `<div style="font-size:0.82rem;color:var(--text-secondary);line-height:1.5">
+                <div id="devops-pkg-missing-tools"></div>
                 <p class="empty-state-sm">No package managers detected</p>
                 <div style="font-size:0.68rem;color:var(--text-muted);margin-top:var(--space-xs)">No requirements.txt, package.json, Cargo.toml, or go.mod found.</div>
             </div>`;
+            renderMissingTools(data.missing_tools, 'devops-pkg-missing-tools');
             return;
         }
 
@@ -72,8 +74,11 @@
             <button class="btn btn-sm btn-ghost" onclick="pkgInstall()" title="Run install command (pip install, npm install, etc.)">⬇️ Install</button>
             <button class="btn btn-sm btn-ghost" onclick="pkgUpdate()" title="Update all packages to latest compatible versions">⬆️ Update</button>
         </div>`;
+        // ── Missing tools banner ──
+        html += '<div id="devops-pkg-missing-tools"></div>';
         html += `</div>`;
         detail.innerHTML = html;
+        renderMissingTools(data.missing_tools, 'devops-pkg-missing-tools');
     }
 
     async function pkgOutdated() {

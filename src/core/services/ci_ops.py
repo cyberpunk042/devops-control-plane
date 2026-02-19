@@ -136,10 +136,13 @@ def ci_status(project_root: Path) -> dict:
             })
             total += workflow_count
 
+    from src.core.services.tool_requirements import check_required_tools
+
     return {
         "providers": providers,
         "total_workflows": total,
         "has_ci": len(providers) > 0,
+        "missing_tools": check_required_tools(["git", "gh"]),
     }
 
 

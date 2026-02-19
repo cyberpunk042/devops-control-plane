@@ -73,6 +73,7 @@ from src.core.services.pages_engine import (
     build_segment_stream,
 )
 from src.core.services.pages_builders import SegmentConfig
+from src.core.services.run_tracker import run_tracked
 
 logger = logging.getLogger(__name__)
 
@@ -219,6 +220,7 @@ def install_builder_route(name: str):  # type: ignore[no-untyped-def]
 
 
 @pages_api_bp.route("/pages/build/<name>", methods=["POST"])
+@run_tracked("build", "build:pages_segment")
 def build_segment_route(name: str):  # type: ignore[no-untyped-def]
     """Build a single segment."""
     result = build_segment(_project_root(), name)
@@ -243,6 +245,7 @@ def build_status_route(name: str):  # type: ignore[no-untyped-def]
 
 
 @pages_api_bp.route("/pages/build-all", methods=["POST"])
+@run_tracked("build", "build:pages_all")
 def build_all_route():  # type: ignore[no-untyped-def]
     """Build all segments."""
     root = _project_root()
@@ -266,12 +269,14 @@ def build_all_route():  # type: ignore[no-untyped-def]
 
 
 @pages_api_bp.route("/pages/merge", methods=["POST"])
+@run_tracked("build", "build:pages_merge")
 def merge_route():  # type: ignore[no-untyped-def]
     """Merge all built segments into a single output."""
     return jsonify(merge_segments(_project_root()))
 
 
 @pages_api_bp.route("/pages/deploy", methods=["POST"])
+@run_tracked("deploy", "deploy:pages")
 def deploy_route():  # type: ignore[no-untyped-def]
     """Deploy merged output to gh-pages."""
     return jsonify(deploy_to_ghpages(_project_root()))
@@ -281,6 +286,7 @@ def deploy_route():  # type: ignore[no-untyped-def]
 
 
 @pages_api_bp.route("/pages/init", methods=["POST"])
+@run_tracked("setup", "setup:pages")
 def init_pages():  # type: ignore[no-untyped-def]
     """Initialize pages config from project.yml content_folders."""
     return jsonify(init_pages_from_project(_project_root()))
@@ -311,6 +317,7 @@ def list_previews_route():  # type: ignore[no-untyped-def]
 
 
 @pages_api_bp.route("/pages/ci", methods=["POST"])
+@run_tracked("generate", "generate:pages_ci")
 def generate_ci_route():  # type: ignore[no-untyped-def]
     """Generate GitHub Actions workflow for Pages deployment."""
     return jsonify(generate_ci_workflow(_project_root()))

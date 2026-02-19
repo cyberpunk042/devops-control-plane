@@ -158,7 +158,7 @@ def list_release_assets(project_root: Path) -> dict:
             [
                 "gh", "release", "view", CONTENT_RELEASE_TAG,
                 "--json", "assets",
-                "--jq", '.assets[] | {name: .name, size: .size}',
+                "--jq", '.assets[] | {name: .name, size: .size, url: .url}',
             ],
             cwd=str(project_root),
             capture_output=True,

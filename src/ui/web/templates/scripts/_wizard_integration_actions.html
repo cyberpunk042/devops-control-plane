@@ -303,10 +303,8 @@ async function _wizInstallTool(tool, btnEl) {
     btnEl.disabled = true;
     btnEl.textContent = '⏳…';
     try {
-        const data = await api('/audit/install-tool', {
-            method: 'POST',
-            body: JSON.stringify({ tool }),
-        });
+        // First attempt — no sudo
+        let data = await apiPost('/audit/install-tool', { tool });
         if (data.ok || data.already_installed) {
             const row = document.getElementById('wiz-int-tool-' + tool);
             if (row) {
@@ -318,18 +316,21 @@ async function _wizInstallTool(tool, btnEl) {
             if (_wizIntDetection) _wizIntDetection.tools[tool] = true;
             toast(tool + ' installed!', 'success');
         } else if (data.needs_sudo) {
-            btnEl.textContent = '🔒 Sudo';
+            // Sudo required — show proper modal instead of prompt()
+            btnEl.textContent = '📦 Install';
             btnEl.disabled = false;
-            toast(tool + ' requires sudo — run: sudo apt install ' + tool, 'warning');
+            _showSudoInstallModal(tool, tool, btnEl, true);
         } else {
             btnEl.textContent = '❌';
             toast('Install failed: ' + (data.error || 'unknown'), 'error');
             btnEl.disabled = false;
+            setTimeout(() => { btnEl.textContent = '📦 Retry'; }, 3000);
         }
     } catch (e) {
         btnEl.textContent = '❌';
         toast('Install failed: ' + e.message, 'error');
         btnEl.disabled = false;
+        setTimeout(() => { btnEl.textContent = '📦 Retry'; }, 3000);
     }
 }
 

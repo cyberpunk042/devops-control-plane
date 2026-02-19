@@ -159,11 +159,29 @@ def testing_status(project_root: Path) -> dict:
     # Count test files and functions
     stats = _count_tests(project_root, frameworks)
 
+    # Build tool ID list from detected frameworks
+    _fw_tool_map = {
+        "pytest": "pytest",
+        "unittest": "pytest",   # pytest runs unittest too
+        "jest": "jest",
+        "vitest": "vitest",
+        "go_test": "go",
+        "cargo_test": "cargo",
+    }
+    tool_ids = list(dict.fromkeys(
+        _fw_tool_map[fw["name"]]
+        for fw in frameworks
+        if fw["name"] in _fw_tool_map
+    ))
+    from src.core.services.tool_requirements import check_required_tools
+    missing = check_required_tools(tool_ids) if tool_ids else []
+
     return {
         "has_tests": len(frameworks) > 0 and stats["test_files"] > 0,
         "frameworks": frameworks,
         "coverage_tools": coverage_tools,
         "stats": stats,
+        "missing_tools": missing,
     }
 
 
@@ -241,6 +259,7 @@ def _count_tests(project_root: Path, frameworks: list[dict]) -> dict:
     test_functions = 0
     test_classes = 0
     source_files = 0
+    test_file_paths: list[str] = []
 
     # Count source files (for ratio)
     for ext in (".py", ".js", ".ts", ".go", ".rs"):
@@ -266,6 +285,8 @@ def _count_tests(project_root: Path, frameworks: list[dict]) -> dict:
 
             if is_test:
                 test_files += 1
+                if len(test_file_paths) < 500:
+                    test_file_paths.append(rel)
 
                 # Count test functions/methods
                 try:
@@ -293,6 +314,7 @@ def _count_tests(project_root: Path, frameworks: list[dict]) -> dict:
         "test_classes": test_classes,
         "source_files": source_files,
         "test_ratio": round(test_ratio, 2),
+        "test_file_paths": test_file_paths,
     }
 
 

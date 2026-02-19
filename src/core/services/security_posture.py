@@ -289,6 +289,8 @@ def security_posture(project_root: Path) -> dict:
     else:
         grade = "F"
 
+    from src.core.services.tool_requirements import check_required_tools
+
     return {
         "score": final_score,
         "grade": grade,
@@ -298,4 +300,5 @@ def security_posture(project_root: Path) -> dict:
             for check in checks
             for rec in check.get("recommendations", [])
         ][:10],
+        "missing_tools": check_required_tools(["git"]),
     }

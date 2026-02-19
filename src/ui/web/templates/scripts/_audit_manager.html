@@ -1,0 +1,478 @@
+/* ═══════════════════════════════════════════════════════════════════
+ *  Audit Manager — pending audit snapshot modal
+ *
+ *  Uses modalOpen() from _globals.html to display a list of pending
+ *  audit snapshots with save/discard actions (single + batch).
+ *
+ *  SSE events (audit:pending, audit:saved) update the badge count
+ *  in _event_stream.html.  This module handles the modal UI.
+ *
+ *  Depends on: modalOpen, modalClose, api, esc, toast
+ * ═══════════════════════════════════════════════════════════════════ */
+
+    // ── Hydrate pending state on tab load ──────────────────────────
+
+    async function _hydratePendingAudits() {
+        try {
+            const res = await api('/audits/pending');
+            const pending = res.pending || [];
+            window._pendingAudits = {};
+            for (const item of pending) {
+                const key = item.card_key || 'unknown';
+                (window._pendingAudits[key] ??= []).push(item.snapshot_id);
+            }
+
+            // Show per-card badges for each card_key with pending audits
+            document.querySelectorAll('.audit-pending-badge').forEach(b => {
+                const key = b.getAttribute('data-audit-key');
+                if (key && window._pendingAudits[key] && window._pendingAudits[key].length > 0) {
+                    b.style.display = 'inline-flex';
+                } else {
+                    b.style.display = 'none';
+                }
+            });
+
+            // Update global badge
+            if (typeof _sse !== 'undefined' && _sse._updatePendingBadge) {
+                _sse._updatePendingBadge();
+            }
+        } catch (e) {
+            console.debug('[AuditMgr] hydrate failed:', e);
+        }
+    }
+
+    // Hydrate once when the page loads
+    _hydratePendingAudits();
+
+    // ── Open the Audit Manager modal ──────────────────────────────
+
+    async function openAuditManager(filterKey, filterType) {
+        // Fetch current pending list
+        let pending = [];
+        try {
+            const res = await api('/audits/pending');
+            pending = res.pending || [];
+        } catch (e) {
+            toast('Failed to load pending audits: ' + e.message, 'error');
+            return;
+        }
+
+        // Filter by card key if specified (per-card badge click)
+        if (filterKey) {
+            pending = pending.filter(p => p.card_key === filterKey);
+        }
+        // Filter by audit type if specified (tab click)
+        if (filterType) {
+            pending = pending.filter(p => (p.audit_type || 'devops') === filterType);
+        }
+
+        if (pending.length === 0) {
+            toast(filterKey ? 'No pending audits for ' + filterKey
+                : filterType ? 'No pending ' + filterType + ' audits'
+                : 'No pending audit snapshots', 'info');
+            return;
+        }
+
+        // Count by type (for filter tabs, only when no filter applied)
+        const allPending = !filterKey && !filterType ? pending : pending;
+        const devopsCount = pending.filter(p => (p.audit_type || 'devops') === 'devops').length;
+        const projectCount = pending.filter(p => (p.audit_type || 'devops') === 'project').length;
+
+        // Type badge helpers
+        const typeIcon = (t) => t === 'project' ? '📊' : '🛠️';
+        const typeCls = (t) => t === 'project'
+            ? 'background:hsla(260,60%,60%,0.15);color:#a78bfa;border:1px solid hsla(260,60%,60%,0.25)'
+            : 'background:hsla(200,60%,50%,0.15);color:#60a5fa;border:1px solid hsla(200,60%,50%,0.25)';
+
+        // Build rows
+        const rows = pending.map(item => {
+            const age = _auditTimeAgo(item.computed_at);
+            const statusCls = item.status === 'ok' ? 'text-ok' : 'text-err';
+            const at = item.audit_type || 'devops';
+            return `<div class="audit-mgr-row" data-sid="${esc(item.snapshot_id)}" data-audit-type="${at}">
+                <div class="audit-mgr-check">
+                    <input type="checkbox" class="audit-mgr-cb" value="${esc(item.snapshot_id)}" checked>
+                </div>
+                <div class="audit-mgr-info">
+                    <span style="display:inline-block;font-size:0.62rem;padding:1px 5px;border-radius:100px;${typeCls(at)};margin-right:0.3rem">${typeIcon(at)} ${at}</span>
+                    <span class="audit-mgr-key">${esc(item.card_key)}</span>
+                    <span class="audit-mgr-summary">${esc(item.summary || '—')}</span>
+                </div>
+                <div class="audit-mgr-meta">
+                    <span class="${statusCls}" style="font-size:0.72rem;text-transform:uppercase">${esc(item.status)}</span>
+                    <span style="font-size:0.7rem;color:var(--text-muted)">${age}</span>
+                    <span style="font-size:0.68rem;color:var(--text-muted)">${item.duration_s}s</span>
+                </div>
+                <div class="audit-mgr-actions">
+                    <button class="btn btn-xs btn-ghost" onclick="_auditPreviewOne('${esc(item.snapshot_id)}')" title="Preview audit data">👁️</button>
+                    <button class="btn btn-xs btn-primary" onclick="_auditSaveOne('${esc(item.snapshot_id)}')" title="Save to git">💾</button>
+                    <button class="btn btn-xs btn-ghost" onclick="_auditDiscardOne('${esc(item.snapshot_id)}')" title="Discard">🗑️</button>
+                </div>
+            </div>`;
+        }).join('');
+
+        // Filter tabs (only shown when no pre-filter)
+        const filterTabs = (!filterKey) ? `<div style="display:flex;gap:0.3rem;margin-bottom:0.5rem">
+            <button class="btn btn-xs ${!filterType ? 'btn-primary' : 'btn-ghost'}" onclick="openAuditManager()">All (${pending.length})</button>
+            <button class="btn btn-xs ${filterType === 'devops' ? 'btn-primary' : 'btn-ghost'}" onclick="openAuditManager(null,'devops')">🛠️ DevOps (${devopsCount})</button>
+            <button class="btn btn-xs ${filterType === 'project' ? 'btn-primary' : 'btn-ghost'}" onclick="openAuditManager(null,'project')">📊 Project (${projectCount})</button>
+        </div>` : '';
+
+        const selectAll = `<div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.5rem">
+            <label style="font-size:0.78rem;color:var(--text-muted);cursor:pointer;display:flex;align-items:center;gap:0.25rem">
+                <input type="checkbox" id="audit-mgr-select-all" checked onchange="_auditToggleAll(this.checked)"> Select all
+            </label>
+            <span style="flex:1"></span>
+            <span id="audit-mgr-count" style="font-size:0.72rem;color:var(--text-muted)">${pending.length} snapshot(s)</span>
+        </div>`;
+
+        const body = filterTabs + selectAll +
+            `<div class="audit-mgr-list">${rows}</div>`;
+
+        const title = filterKey
+            ? '📋 Audit Manager — ' + filterKey
+            : filterType
+            ? '📋 Audit Manager — ' + filterType.charAt(0).toUpperCase() + filterType.slice(1)
+            : '📋 Audit Manager — Pending Snapshots';
+
+        modalOpen({
+            title,
+            body,
+            size: 'wide',
+            footerStatus: '',
+            footerButtons: [
+                { label: 'Discard Selected', cls: 'btn-ghost', onclick: '_auditDiscardSelected()', style: 'color:var(--error)' },
+                { label: 'Cancel', cls: 'btn-secondary', onclick: 'modalClose()' },
+                { label: '💾 Save Selected to Git', cls: 'btn-primary', onclick: '_auditSaveSelected()' },
+            ],
+        });
+    }
+
+    // ── Single actions ────────────────────────────────────────────
+
+    async function _auditSaveOne(snapshotId) {
+        const row = document.querySelector(`[data-sid="${snapshotId}"]`);
+        try {
+            await api('/audits/save', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ snapshot_ids: [snapshotId] }),
+            });
+            if (row) row.remove();
+            _auditUpdateCount();
+            toast('Saved to git: ' + snapshotId, 'success');
+            _hydratePendingAudits();
+        } catch (e) {
+            toast('Save failed: ' + e.message, 'error');
+        }
+    }
+
+    async function _auditDiscardOne(snapshotId) {
+        const row = document.querySelector(`[data-sid="${snapshotId}"]`);
+        try {
+            await api('/audits/discard', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ snapshot_ids: [snapshotId] }),
+            });
+            if (row) row.remove();
+            _auditUpdateCount();
+            toast('Discarded: ' + snapshotId, 'info');
+            _hydratePendingAudits();
+        } catch (e) {
+            toast('Discard failed: ' + e.message, 'error');
+        }
+    }
+
+    // ── Batch actions ─────────────────────────────────────────────
+
+    function _auditGetSelected() {
+        return Array.from(document.querySelectorAll('.audit-mgr-cb:checked'))
+            .map(cb => cb.value);
+    }
+
+    async function _auditSaveSelected() {
+        const ids = _auditGetSelected();
+        if (ids.length === 0) {
+            toast('No snapshots selected', 'info');
+            return;
+        }
+        const statusEl = document.getElementById('modal-footer-status');
+        if (statusEl) statusEl.textContent = `Saving ${ids.length}…`;
+
+        try {
+            const res = await api('/audits/save', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ snapshot_ids: ids }),
+            });
+            toast(`Saved ${res.count} snapshot(s) to git`, 'success');
+            modalClose();
+            _hydratePendingAudits();
+        } catch (e) {
+            toast('Save failed: ' + e.message, 'error');
+            if (statusEl) statusEl.textContent = 'Error';
+        }
+    }
+
+    async function _auditDiscardSelected() {
+        const ids = _auditGetSelected();
+        if (ids.length === 0) {
+            toast('No snapshots selected', 'info');
+            return;
+        }
+        try {
+            const res = await api('/audits/discard', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ snapshot_ids: ids }),
+            });
+            toast(`Discarded ${res.discarded} snapshot(s)`, 'info');
+            modalClose();
+            _hydratePendingAudits();
+        } catch (e) {
+            toast('Discard failed: ' + e.message, 'error');
+        }
+    }
+
+    // ── Helpers ────────────────────────────────────────────────────
+
+    function _auditToggleAll(checked) {
+        document.querySelectorAll('.audit-mgr-cb').forEach(cb => { cb.checked = checked; });
+    }
+
+    function _auditUpdateCount() {
+        const remaining = document.querySelectorAll('.audit-mgr-row').length;
+        const countEl = document.getElementById('audit-mgr-count');
+        if (countEl) countEl.textContent = `${remaining} snapshot(s)`;
+        if (remaining === 0) {
+            const list = document.querySelector('.audit-mgr-list');
+            if (list) list.innerHTML = '<p style="text-align:center;color:var(--text-muted);padding:1rem 0;font-size:0.82rem">All snapshots processed</p>';
+        }
+    }
+
+    function _auditTimeAgo(ts) {
+        const diff = (Date.now() / 1000) - ts;
+        if (diff < 60) return 'just now';
+        if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
+        if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
+        return Math.floor(diff / 86400) + 'd ago';
+    }
+
+    // ── Preview ──────────────────────────────────────────────────
+
+    async function _auditPreviewOne(snapshotId) {
+        let detail;
+        try {
+            detail = await api('/audits/pending/' + encodeURIComponent(snapshotId));
+        } catch (e) {
+            toast('Failed to load audit: ' + e.message, 'error');
+            return;
+        }
+        if (!detail || detail.error) {
+            toast(detail?.error || 'Not found', 'error');
+            return;
+        }
+
+        const cardKey = detail.card_key || '?';
+        const status = detail.status || '?';
+        const summary = detail.summary || '';
+        const iso = detail.iso || '';
+        const durS = detail.duration_s ? detail.duration_s.toFixed(1) + 's' : '';
+        const data = detail.data || {};
+
+        // Build header
+        const header = `<div style="margin-bottom:0.75rem">`
+            + `<div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.3rem">`
+            + `<span style="font-weight:600;font-size:1rem">${esc(cardKey)}</span>`
+            + `<span class="${status === 'ok' ? 'text-ok' : 'text-err'}" style="text-transform:uppercase;font-size:0.72rem">${esc(status)}</span>`
+            + (durS ? `<span style="font-size:0.7rem;color:var(--text-muted)">${durS}</span>` : '')
+            + `</div>`
+            + (summary ? `<div style="font-size:0.82rem;color:var(--text-muted)">${esc(summary)}</div>` : '')
+            + (iso ? `<div style="font-size:0.7rem;color:var(--text-muted)">${esc(iso)}</div>` : '')
+            + `<div style="font-size:0.68rem;color:var(--text-muted);margin-top:0.2rem">${esc(snapshotId)}</div>`
+            + `</div>`;
+
+        const jsonStr = JSON.stringify(data, null, 2);
+
+        // Remove existing preview overlay if any
+        const existing = document.getElementById('audit-preview-overlay');
+        if (existing) existing.remove();
+
+        // Create stacked overlay (on top of audit manager modal)
+        const overlay = document.createElement('div');
+        overlay.id = 'audit-preview-overlay';
+        overlay.style.cssText = 'position:fixed;inset:0;z-index:10100;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.5);';
+        overlay.innerHTML = `<div style="background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-lg);max-width:800px;width:90%;max-height:85vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,0.4)">
+            <div style="display:flex;justify-content:space-between;align-items:center;padding:0.75rem 1rem;border-bottom:1px solid var(--border)">
+                <span style="font-weight:600">👁️ Audit Preview — ${esc(cardKey)}</span>
+                <button onclick="document.getElementById('audit-preview-overlay').remove()" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:1.1rem" title="Close preview">✕</button>
+            </div>
+            <div style="overflow:auto;padding:1rem;flex:1">
+                ${header}
+                <pre style="max-height:400px;overflow:auto;font-size:0.72rem;background:var(--bg-inset);padding:0.75rem;border-radius:var(--radius-sm);white-space:pre-wrap;word-break:break-word">${esc(jsonStr)}</pre>
+            </div>
+        </div>`;
+
+        // Click backdrop to close
+        overlay.addEventListener('click', function(e) {
+            if (e.target === overlay) overlay.remove();
+        });
+
+        // Escape to close
+        const escHandler = function(e) {
+            if (e.key === 'Escape') {
+                overlay.remove();
+                document.removeEventListener('keydown', escHandler);
+            }
+        };
+        document.addEventListener('keydown', escHandler);
+
+        document.body.appendChild(overlay);
+    }
+
+    // ── Saved Audit Browser ─────────────────────────────────────
+
+    async function openSavedAuditBrowser(filterType) {
+        let saved = [];
+        try {
+            const res = await api('/audits/saved');
+            saved = res.saved || [];
+        } catch (e) {
+            toast('Failed to load saved audits: ' + e.message, 'error');
+            return;
+        }
+
+        saved = saved.map(s => ({
+            ...s,
+            audit_type: s.audit_type || (s.card_key && s.card_key.startsWith('audit:') ? 'project' : 'devops'),
+        }));
+
+        if (filterType) {
+            saved = saved.filter(s => s.audit_type === filterType);
+        }
+
+        const devopsCount = saved.filter(s => s.audit_type === 'devops').length;
+        const projectCount = saved.filter(s => s.audit_type === 'project').length;
+
+        const typeIcon = (t) => t === 'project' ? '📊' : '🛠️';
+        const typeCls = (t) => t === 'project'
+            ? 'background:hsla(260,60%,60%,0.15);color:#a78bfa;border:1px solid hsla(260,60%,60%,0.25)'
+            : 'background:hsla(200,60%,50%,0.15);color:#60a5fa;border:1px solid hsla(200,60%,50%,0.25)';
+
+        const rows = saved.length === 0
+            ? '<div style="text-align:center;padding:1.5rem;color:var(--text-muted);font-size:0.82rem">No saved audits</div>'
+            : saved.map(item => {
+                const age = _auditTimeAgo(item.computed_at || 0);
+                const statusCls = item.status === 'ok' ? 'text-ok' : 'text-err';
+                const at = item.audit_type || 'devops';
+                return `<div class="audit-mgr-row" data-sid="${esc(item.snapshot_id)}">
+                    <div class="audit-mgr-info">
+                        <span style="display:inline-block;font-size:0.62rem;padding:1px 5px;border-radius:100px;${typeCls(at)};margin-right:0.3rem">${typeIcon(at)} ${at}</span>
+                        <span class="audit-mgr-key">${esc(item.card_key || '?')}</span>
+                        <span class="audit-mgr-summary">${esc(item.summary || '—')}</span>
+                    </div>
+                    <div class="audit-mgr-meta">
+                        <span class="${statusCls}" style="font-size:0.72rem;text-transform:uppercase">${esc(item.status || '?')}</span>
+                        <span style="font-size:0.7rem;color:var(--text-muted)">${age}</span>
+                    </div>
+                    <div class="audit-mgr-actions">
+                        <button class="btn btn-xs btn-ghost" onclick="_savedAuditPreview('${esc(item.snapshot_id)}')" title="View details">👁️</button>
+                        <button class="btn btn-xs btn-ghost" onclick="_savedAuditDelete('${esc(item.snapshot_id)}')" title="Delete from git" style="color:var(--error)">🗑️</button>
+                    </div>
+                </div>`;
+            }).join('');
+
+        const typeFilter = `<div style="display:flex;gap:0.3rem;margin-bottom:0.5rem">
+            <button class="btn btn-xs ${!filterType ? 'btn-primary' : 'btn-ghost'}" onclick="openSavedAuditBrowser()">All (${saved.length})</button>
+            <button class="btn btn-xs ${filterType === 'devops' ? 'btn-primary' : 'btn-ghost'}" onclick="openSavedAuditBrowser('devops')">🛠️ DevOps (${devopsCount})</button>
+            <button class="btn btn-xs ${filterType === 'project' ? 'btn-primary' : 'btn-ghost'}" onclick="openSavedAuditBrowser('project')">📊 Project (${projectCount})</button>
+        </div>`;
+
+        const body = typeFilter
+            + `<div style="font-size:0.72rem;color:var(--text-muted);margin-bottom:0.5rem">${saved.length} saved audit(s)</div>`
+            + `<div class="audit-mgr-list">${rows}</div>`;
+
+        const title = filterType
+            ? '📁 Saved Audits — ' + filterType.charAt(0).toUpperCase() + filterType.slice(1)
+            : '📁 Saved Audits';
+
+        modalOpen({
+            title,
+            body,
+            size: 'wide',
+            footerButtons: [
+                { label: 'Close', cls: 'btn-secondary', onclick: 'modalClose()' },
+            ],
+        });
+    }
+
+    async function _savedAuditPreview(snapshotId) {
+        let detail;
+        try {
+            detail = await api('/audits/saved/' + encodeURIComponent(snapshotId));
+        } catch (e) {
+            toast('Failed to load audit: ' + e.message, 'error');
+            return;
+        }
+        if (!detail || detail.error) {
+            toast(detail?.error || 'Not found', 'error');
+            return;
+        }
+
+        const cardKey = detail.card_key || '?';
+        const status = detail.status || '?';
+        const summary = detail.summary || '';
+        const iso = detail.iso || '';
+        const durS = detail.duration_s ? detail.duration_s.toFixed(1) + 's' : '';
+        const data = detail.data || {};
+
+        const header = `<div style="margin-bottom:0.75rem">`
+            + `<div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.3rem">`
+            + `<span style="font-weight:600;font-size:1rem">${esc(cardKey)}</span>`
+            + `<span class="${status === 'ok' ? 'text-ok' : 'text-err'}" style="text-transform:uppercase;font-size:0.72rem">${esc(status)}</span>`
+            + (durS ? `<span style="font-size:0.7rem;color:var(--text-muted)">${durS}</span>` : '')
+            + `</div>`
+            + (summary ? `<div style="font-size:0.82rem;color:var(--text-muted)">${esc(summary)}</div>` : '')
+            + (iso ? `<div style="font-size:0.7rem;color:var(--text-muted)">${esc(iso)}</div>` : '')
+            + `<div style="font-size:0.68rem;color:var(--text-muted);margin-top:0.2rem">${esc(snapshotId)}</div>`
+            + `</div>`;
+
+        const jsonStr = JSON.stringify(data, null, 2);
+
+        const existing = document.getElementById('audit-preview-overlay');
+        if (existing) existing.remove();
+
+        const overlay = document.createElement('div');
+        overlay.id = 'audit-preview-overlay';
+        overlay.style.cssText = 'position:fixed;inset:0;z-index:10100;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.5);';
+        overlay.innerHTML = `<div style="background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-lg);max-width:800px;width:90%;max-height:85vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,0.4)">
+            <div style="display:flex;justify-content:space-between;align-items:center;padding:0.75rem 1rem;border-bottom:1px solid var(--border)">
+                <span style="font-weight:600">👁️ Saved Audit — ${esc(cardKey)}</span>
+                <button onclick="document.getElementById('audit-preview-overlay').remove()" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:1.1rem" title="Close preview">✕</button>
+            </div>
+            <div style="overflow:auto;padding:1rem;flex:1">
+                ${header}
+                <pre style="max-height:400px;overflow:auto;font-size:0.72rem;background:var(--bg-inset);padding:0.75rem;border-radius:var(--radius-sm);white-space:pre-wrap;word-break:break-word">${esc(jsonStr)}</pre>
+            </div>
+        </div>`;
+
+        overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
+        const escHandler = function(e) { if (e.key === 'Escape') { overlay.remove(); document.removeEventListener('keydown', escHandler); } };
+        document.addEventListener('keydown', escHandler);
+        document.body.appendChild(overlay);
+    }
+
+    async function _savedAuditDelete(snapshotId) {
+        if (!confirm('Delete saved audit "' + snapshotId + '" from git? This cannot be undone.')) return;
+
+        try {
+            await api('/audits/saved/' + encodeURIComponent(snapshotId), { method: 'DELETE' });
+            toast('Deleted: ' + snapshotId, 'info');
+            // Remove row from DOM
+            const row = document.querySelector('.audit-mgr-row[data-sid="' + snapshotId + '"]');
+            if (row) row.remove();
+        } catch (e) {
+            toast('Delete failed: ' + e.message, 'error');
+        }
+    }

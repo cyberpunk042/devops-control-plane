@@ -134,6 +134,7 @@ def resolve_ref(ref: str, project_root: Path) -> dict | None:
         "commit": _resolve_commit,
         "branch": _resolve_branch,
         "audit": _resolve_audit,
+        "release": _resolve_release,
         "code": _resolve_code,
     }
 
@@ -210,9 +211,13 @@ def _resolve_run(run_id: str, project_root: Path) -> dict | None:
             "id": run_id,
             "exists": True,
             "run_type": run.type,
+            "subtype": run.subtype,
             "summary": run.summary,
             "status": run.status,
             "started_at": run.started_at,
+            "ended_at": run.ended_at,
+            "duration_ms": run.duration_ms,
+            "code_ref": run.code_ref[:12] if run.code_ref else "",
         }
     except Exception as e:
         logger.debug("Failed to resolve run %s: %s", run_id, e)
@@ -313,7 +318,45 @@ def _resolve_branch(branch_name: str, project_root: Path) -> dict | None:
 
 
 def _resolve_audit(operation_id: str, project_root: Path) -> dict | None:
-    """Resolve an audit log entry by operation_id."""
+    """Resolve an audit reference by ID.
+
+    Resolution order:
+      1. Saved scan snapshots on the ledger branch (``.scp-ledger/audits/``)
+      2. Execution log (``.state/audit.ndjson``)
+
+    This ensures saved audits (Phase 1) are preferred while maintaining
+    backward compatibility with pre-existing execution-log references.
+    """
+    # ── 1. Try ledger branch (saved scan snapshots) ─────────────
+    try:
+        from src.core.services.ledger.ledger_ops import get_saved_audit
+        snapshot = get_saved_audit(project_root, operation_id)
+        if snapshot is not None:
+            # Return the full snapshot — every field, no stripping
+            snapshot["type"] = "audit"
+            snapshot["id"] = operation_id
+            snapshot["exists"] = True
+            snapshot["source"] = "ledger"
+            snapshot["timestamp"] = snapshot.get("iso")
+            return snapshot
+    except Exception as e:
+        logger.debug("Ledger audit lookup failed for %s: %s", operation_id, e)
+
+    # ── 2. Try pending (unsaved) snapshots ──────────────────────
+    try:
+        from src.core.services.audit_staging import get_pending
+        snap = get_pending(project_root, operation_id)
+        if snap is not None:
+            snap["type"] = "audit"
+            snap["id"] = operation_id
+            snap["exists"] = True
+            snap["source"] = "pending"
+            snap["timestamp"] = snap.get("iso")
+            return snap
+    except Exception as e:
+        logger.debug("Pending audit lookup failed for %s: %s", operation_id, e)
+
+    # ── 3. Fall back to execution log (existing behavior) ───────
     try:
         from src.core.persistence.audit import AuditWriter
         writer = AuditWriter(project_root=project_root)
@@ -325,6 +368,7 @@ def _resolve_audit(operation_id: str, project_root: Path) -> dict | None:
             "type": "audit",
             "id": operation_id,
             "exists": True,
+            "source": "ndjson",
             "operation_type": found.operation_type,
             "status": found.status,
             "timestamp": found.timestamp,
@@ -333,6 +377,71 @@ def _resolve_audit(operation_id: str, project_root: Path) -> dict | None:
     except Exception as e:
         logger.debug("Failed to resolve audit %s: %s", operation_id, e)
         return {"type": "audit", "id": operation_id, "exists": False}
+
+
+def _resolve_release(ref_id: str, project_root: Path) -> dict | None:
+    """Resolve a release reference.
+
+    ref_id format: "tag_name/asset_name" (e.g. "content-vault/ADAPTERS.md")
+    or just "tag_name" for the release itself.
+    """
+    if "/" in ref_id:
+        tag_name, asset_name = ref_id.split("/", 1)
+    else:
+        tag_name = ref_id
+        asset_name = None
+
+    try:
+        from src.core.services.content_release_sync import list_release_assets
+        data = list_release_assets(project_root)
+    except Exception as e:
+        logger.debug("Failed to resolve release %s: %s", ref_id, e)
+        return {"type": "release", "id": ref_id, "exists": False,
+                "error": str(e)}
+
+    if not data.get("available"):
+        return {"type": "release", "id": ref_id, "exists": False,
+                "error": data.get("error", "Release unavailable")}
+
+    # If no specific asset, return release-level info
+    if not asset_name:
+        return {
+            "type": "release", "id": ref_id, "exists": True,
+            "tag": tag_name,
+            "asset_count": len(data.get("assets", [])),
+        }
+
+    # Find the specific asset
+    for asset in data.get("assets", []):
+        if asset.get("name") == asset_name:
+            # Search for local copy via .release.json sidecars
+            local_path = ""
+            import json as _json_
+            for sidecar in project_root.rglob(f"{asset_name}.release.json"):
+                try:
+                    meta = _json_.loads(sidecar.read_text())
+                    if meta.get("asset_name") == asset_name:
+                        # The local file is the sidecar path minus .release.json
+                        local_file = sidecar.parent / asset_name
+                        if local_file.exists():
+                            local_path = str(local_file.relative_to(project_root))
+                            break
+                except Exception:
+                    pass
+
+            return {
+                "type": "release", "id": ref_id, "exists": True,
+                "tag": tag_name,
+                "asset_name": asset_name,
+                "size": asset.get("size", 0),
+                "size_str": _format_size(asset.get("size", 0)),
+                "download_url": asset.get("url", ""),
+                "content_type": asset.get("contentType", ""),
+                "local_path": local_path,
+            }
+
+    return {"type": "release", "id": ref_id, "exists": False,
+            "error": f"Asset '{asset_name}' not found in release '{tag_name}'"}
 
 
 def _resolve_code(file_path: str, project_root: Path) -> dict | None:
@@ -629,59 +738,162 @@ def _autocomplete_branches(partial_id: str, project_root: Path) -> list[dict]:
 
 
 def _autocomplete_audits(partial_id: str, project_root: Path) -> list[dict]:
-    """Autocomplete audit log references with rich metadata.
+    """Autocomplete audit references with rich metadata.
 
-    Returns dicts with: ref, label (operation_type + automation),
-    detail (status + action count + time), icon, status.
-    Supports keyword match on operation_type and automation.
+    Sources (in order):
+      1. Saved scan snapshots from the ledger branch → section='saved'
+      2. Unsaved (pending) audit snapshots → section='unsaved'
+      3. Activity log entries (audit logs) → section='log'
+
+    Audits and audit logs are separate data types with separate caps.
     """
-    try:
-        from src.core.persistence.audit import AuditWriter
-        writer = AuditWriter(project_root=project_root)
-        entries = writer.read_recent(n=50)
-    except Exception as e:
-        logger.debug("Failed to autocomplete audits: %s", e)
-        return []
-
+    _MAX_AUDIT = 30   # saved + unsaved budget
+    _MAX_LOG = 20     # audit log budget
     results: list[dict] = []
+    audit_count = 0
+    log_count = 0
+    seen_ids: set[str] = set()
     partial_lower = partial_id.lower() if partial_id else ""
 
-    for e in entries:
-        if not e.operation_id:
+    # ── 1. Saved scan snapshots from ledger ─────────────────────
+    try:
+        from src.core.services.ledger.ledger_ops import list_saved_audits
+        for snap in list_saved_audits(project_root, n=30):
+            sid = snap.get("snapshot_id", "")
+            if not sid:
+                continue
+            if partial_id:
+                hit = (
+                    partial_lower in sid.lower()
+                    or partial_lower in (snap.get("card_key", "")).lower()
+                    or partial_lower in (snap.get("summary", "")).lower()
+                )
+                if not hit:
+                    continue
+
+            card_key = snap.get("card_key", "?")
+            summary = snap.get("summary", "")
+            status = snap.get("status", "")
+            iso = snap.get("iso", "")
+
+            status_icon = "\u2705" if status == "ok" else "\u274c"
+            detail_parts = [f"{status_icon} {status}"]
+            if iso:
+                detail_parts.append(_relative_time(iso))
+            detail = " \u00b7 ".join(detail_parts)
+
+            results.append({
+                "ref": f"@audit:{sid}",
+                "label": f"{card_key} \u2014 {summary}" if summary else card_key,
+                "detail": detail,
+                "icon": "\U0001f4cb",  # 📋 clipboard for saved snapshots
+                "status": status,
+                "section": "saved",
+            })
+            seen_ids.add(sid)
+            audit_count += 1
+            if audit_count >= _MAX_AUDIT:
+                break
+    except Exception as e:
+        logger.debug("Ledger audit autocomplete failed: %s", e)
+
+    # ── 2. Unsaved (pending) audit snapshots ─────────────────────
+    try:
+        from src.core.services.audit_staging import list_pending
+        for snap in list_pending(project_root):
+            sid = snap.get("snapshot_id", "")
+            if not sid or sid in seen_ids:
+                continue
+            if partial_id:
+                hit = (
+                    partial_lower in sid.lower()
+                    or partial_lower in (snap.get("card_key", "")).lower()
+                    or partial_lower in (snap.get("summary", "")).lower()
+                )
+                if not hit:
+                    continue
+
+            card_key = snap.get("card_key", "?")
+            summary = snap.get("summary", "")
+            status = snap.get("status", "")
+            audit_type = snap.get("audit_type", "devops")
+
+            status_icon = "\u2705" if status == "ok" else "\u274c"
+            type_label = "\U0001f4ca" if audit_type == "project" else "\U0001f6e0\ufe0f"
+            detail_parts = [f"{status_icon} {status}", f"{type_label} {audit_type}", "unsaved"]
+            detail = " \u00b7 ".join(detail_parts)
+
+            results.append({
+                "ref": f"@audit:{sid}",
+                "label": f"{card_key} \u2014 {summary}" if summary else card_key,
+                "detail": detail,
+                "icon": "\u23f3",  # ⏳ hourglass for unsaved
+                "status": status,
+                "section": "unsaved",
+            })
+            seen_ids.add(sid)
+            audit_count += 1
+            if audit_count >= _MAX_AUDIT:
+                break
+    except Exception as e:
+        logger.debug("Pending audit autocomplete failed: %s", e)
+
+    # ── 3. Activity log entries (scan history) ─────────────────────
+    try:
+        from src.core.services.devops_activity import load_activity
+        activities = load_activity(project_root, n=100)
+        # Reverse so newest-first
+        activities = list(reversed(activities))
+    except Exception as e:
+        logger.debug("Failed to load activity log for autocomplete: %s", e)
+        return results
+
+    for act in activities:
+        card = act.get("card", "")
+        ts = act.get("ts", 0)
+        if not card or not ts:
+            continue
+        # Build a unique ID for this activity entry
+        act_id = f"{card}_{int(ts)}"
+        if act_id in seen_ids:
             continue
         if partial_id:
             hit = (
-                e.operation_id.startswith(partial_id)
-                or partial_lower in e.operation_type.lower()
-                or partial_lower in e.automation.lower()
+                partial_lower in card.lower()
+                or partial_lower in act.get("label", "").lower()
+                or partial_lower in act.get("summary", "").lower()
+                or partial_lower in "log"
             )
             if not hit:
                 continue
 
-        label = e.operation_type or "audit"
-        if e.automation:
-            label += " \u2014 " + e.automation
+        label = act.get("label", card)
+        summary = act.get("summary", "")
+        status = act.get("status", "")
+        iso = act.get("iso", "")
+        dur = act.get("duration_s", 0)
 
-        status_icons = {"ok": "\u2705", "failed": "\u274c", "partial": "\u26a0\ufe0f"}
-        status_icon = status_icons.get(e.status, "")
-
-        detail_parts = []
-        if status_icon:
-            detail_parts.append(f"{status_icon} {e.status}")
-        if e.actions_total:
-            detail_parts.append(f"{e.actions_total} actions")
-        if e.timestamp:
-            detail_parts.append(_relative_time(e.timestamp))
+        status_icon = "\u2705" if status == "ok" else "\u274c"
+        detail_parts = [f"{status_icon} {status}"]
+        if dur:
+            detail_parts.append(f"{dur:.1f}s")
+        if iso:
+            detail_parts.append(_relative_time(iso))
         detail = " \u00b7 ".join(detail_parts)
 
+        full_label = f"{label} \u2014 {summary}" if summary else label
+
         results.append({
-            "ref": f"@audit:{e.operation_id}",
-            "label": label,
+            "ref": f"@audit:{act_id}",
+            "label": full_label,
             "detail": detail,
-            "icon": "\U0001f4ca",
-            "status": e.status,
+            "icon": "\U0001f4ca",  # 📊 chart for activity log
+            "status": status,
+            "section": "log",
         })
-        if len(results) >= _MAX_SUGGESTIONS:
+        seen_ids.add(act_id)
+        log_count += 1
+        if log_count >= _MAX_LOG:
             break
 
     return results
@@ -980,6 +1192,10 @@ def _autocomplete_releases(partial_id: str, project_root: Path) -> list[dict]:
         if len(parts) < 4:
             continue
         tag_name, subject, date_rel, obj_type = parts[0], parts[1], parts[2], parts[3]
+
+        # Skip internal tags (run-tracking, ledger, etc.)
+        if tag_name.startswith("scp/"):
+            continue
 
         if partial_lower and partial_lower not in tag_name.lower():
             continue

@@ -49,6 +49,7 @@
             badge.className = 'status-badge degraded';
             badge.innerHTML = '<span class="status-dot"></span>No framework';
             detail.innerHTML = `<div style="font-size:0.82rem;color:var(--text-secondary);line-height:1.5">
+                <div id="devops-testing-missing-tools"></div>
                 <p class="empty-state-sm">No test framework detected</p>
                 <div style="font-size:0.68rem;color:var(--text-muted);margin-top:var(--space-xs)">
                     Supported: pytest, jest, vitest, mocha, cargo test. Add a config file or test directory to get started.
@@ -57,6 +58,7 @@
                     <button class="btn btn-sm btn-ghost" onclick="testGenTemplate()" title="Generate a test template file for a specific module">⚙️ Generate Template</button>
                 </div>
             </div>`;
+            renderMissingTools(data.missing_tools, 'devops-testing-missing-tools');
             return;
         }
 
@@ -118,8 +120,11 @@
             <button class="btn btn-sm btn-secondary" onclick="testInventory()" title="List all test files with function/class counts per file">📋 Inventory</button>
             <button class="btn btn-sm btn-ghost" onclick="testGenTemplate()" title="Generate a test file template for a specific module (Python/Node/Rust)">⚙️ Gen Template</button>
         </div>`;
+        // ── Missing tools banner ──
+        html += '<div id="devops-testing-missing-tools"></div>';
         html += `</div>`;
         detail.innerHTML = html;
+        renderMissingTools(data.missing_tools, 'devops-testing-missing-tools');
     }
 
     async function runTests() {

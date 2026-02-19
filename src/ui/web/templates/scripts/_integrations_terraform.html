@@ -18,14 +18,17 @@
             if (!data.cli || !data.cli.available) {
                 badge.className = 'status-badge failed';
                 badge.innerHTML = '<span class="status-dot"></span>Not installed';
-                detail.innerHTML = cardSetupBanner('🏗️', 'Terraform not installed',
+                let html = cardSetupBanner('🏗️', 'Terraform not installed',
                     'Install Terraform to manage infrastructure as code, or generate config files now.',
-                    'terraform', 'TF Setup →') +
-                    cardEmpty('🏗️', 'Terraform CLI not found.',
-                    { label: 'Install Terraform →', onclick: "window.open('https://developer.hashicorp.com/terraform/install','_blank')" });
-                detail.innerHTML += cardGenerateToolbar([
+                    'terraform', 'TF Setup →');
+                html += '<div id="tf-missing-tools"></div>';
+                html += cardEmpty('🏗️', 'Terraform CLI not found.',
+                    { label: '📦 Install Terraform', onclick: "_showSudoInstallModal('terraform','terraform',this,true)" });
+                html += cardGenerateToolbar([
                     { label: 'TF Config', icon: '🏗', onclick: '_tfGenerateModal()' },
                 ]);
+                detail.innerHTML = html;
+                renderMissingTools(data.missing_tools, 'tf-missing-tools');
                 return;
             }
 

@@ -14,6 +14,7 @@ import json
 import logging
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -125,7 +126,19 @@ def _detect_pm_for_dir(directory: Path) -> list[dict]:
             continue
 
         lock_files = [f for f in spec["lock_files"] if (directory / f).is_file()]
-        cli_available = shutil.which(spec["cli"]) is not None
+        # pip is special: use sys.executable -m pip since bare 'pip'
+        # may not be in PATH inside a venv
+        if pm_id == "pip":
+            try:
+                r = subprocess.run(
+                    [sys.executable, "-m", "pip", "--version"],
+                    capture_output=True, timeout=5,
+                )
+                cli_available = r.returncode == 0
+            except Exception:
+                cli_available = False
+        else:
+            cli_available = shutil.which(spec["cli"]) is not None
 
         found.append({
             "id": pm_id,
@@ -152,11 +165,63 @@ def package_status(project_root: Path) -> dict:
     """
     managers = _detect_pm_for_dir(project_root)
 
+    # Collect CLI tool IDs from detected managers
+    tool_ids = list(dict.fromkeys(
+        m["cli"] for m in managers if m.get("cli") and not m.get("cli_available")
+    ))
+    from src.core.services.tool_requirements import check_required_tools
+    missing = check_required_tools(tool_ids) if tool_ids else []
+
     return {
         "managers": managers,
         "total_managers": len(managers),
         "has_packages": len(managers) > 0,
+        "missing_tools": missing,
     }
+
+
+def package_status_enriched(project_root: Path) -> dict:
+    """Package status with installed package lists.
+
+    Extends ``package_status`` by calling ``package_list`` for each
+    detected manager that has its CLI available.  The installed
+    packages are appended under ``installed_packages``.
+
+    Returns::
+
+        {
+            "managers": [...],
+            "total_managers": int,
+            "has_packages": bool,
+            "installed_packages": {
+                "pip": [{"name": "...", "version": "..."}, ...],
+                ...
+            },
+            "total_installed": int,
+        }
+    """
+    from src.core.services.package_actions import package_list as _pkg_list
+
+    base = package_status(project_root)
+    installed: dict[str, list[dict]] = {}
+    total_installed = 0
+
+    for mgr in base.get("managers", []):
+        mgr_id = mgr.get("id", "")
+        if not mgr.get("cli_available") or not mgr_id:
+            continue
+        try:
+            result = _pkg_list(project_root, manager=mgr_id)
+            if result.get("ok"):
+                pkgs = result.get("packages", [])
+                installed[mgr_id] = pkgs
+                total_installed += len(pkgs)
+        except Exception:
+            logger.debug("package_list failed for %s", mgr_id, exc_info=True)
+
+    base["installed_packages"] = installed
+    base["total_installed"] = total_installed
+    return base
 
 
 def package_status_per_module(

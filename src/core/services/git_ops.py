@@ -52,14 +52,22 @@ def run_gh(
     stdin: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
     """Run a gh CLI command and return the result."""
-    return subprocess.run(
-        ["gh", *args],
-        cwd=str(cwd),
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-        input=stdin,
-    )
+    try:
+        return subprocess.run(
+            ["gh", *args],
+            cwd=str(cwd),
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            input=stdin,
+        )
+    except FileNotFoundError:
+        return subprocess.CompletedProcess(
+            args=["gh", *args],
+            returncode=127,
+            stdout="",
+            stderr="gh CLI not found — install it first",
+        )
 
 
 def repo_slug(project_root: Path) -> str | None:
@@ -93,7 +101,12 @@ def git_status(project_root: Path) -> dict:
     branch = r_branch.stdout.strip() if r_branch.returncode == 0 else None
 
     if branch is None:
-        return {"error": "Not a git repository", "available": False}
+        from src.core.services.tool_requirements import check_required_tools
+        return {
+            "error": "Not a git repository",
+            "available": False,
+            "missing_tools": check_required_tools(["git"]),
+        }
 
     # Commit hash
     r_hash = run_git("rev-parse", "--short", "HEAD", cwd=root)
@@ -155,6 +168,8 @@ def git_status(project_root: Path) -> dict:
     r_remote = run_git("remote", "get-url", "origin", cwd=root)
     remote_url = r_remote.stdout.strip() if r_remote.returncode == 0 else None
 
+    from src.core.services.tool_requirements import check_required_tools
+
     return {
         "available": True,
         "branch": branch,
@@ -171,6 +186,7 @@ def git_status(project_root: Path) -> dict:
         "behind": behind,
         "last_commit": last_commit,
         "remote_url": remote_url,
+        "missing_tools": check_required_tools(["git"]),
     }
 
 
@@ -297,6 +313,10 @@ from src.core.services.git_gh_ops import (  # noqa: F401, E402
     gh_user,
     gh_repo_info,
     gh_auth_logout,
+    gh_auth_login,
+    gh_auth_token,
+    gh_auth_device_start,
+    gh_auth_device_poll,
     gh_repo_create,
     gh_repo_set_visibility,
     git_remote_remove,

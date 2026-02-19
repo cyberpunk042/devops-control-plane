@@ -272,10 +272,7 @@
         btnEl.disabled = true;
         btnEl.textContent = '⏳ Installing…';
         try {
-            const data = await api('/audit/install-tool', {
-                method: 'POST',
-                body: JSON.stringify({ tool }),
-            });
+            let data = await apiPost('/audit/install-tool', { tool });
             if (data.ok || data.already_installed) {
                 const row = document.getElementById('wiz-tool-row-' + tool);
                 if (row) {
@@ -287,16 +284,21 @@
                 // Update detection data
                 if (_wizardData) _wizardData.tools[tool] = true;
             } else if (data.needs_sudo) {
-                btnEl.textContent = '🔒 Needs sudo';
+                // Sudo required — show proper modal
+                btnEl.textContent = '📦 Install';
                 btnEl.disabled = false;
-                toast(`${tool} requires sudo — install manually`, 'warning');
+                _showSudoInstallModal(tool, tool, btnEl, true);
             } else {
                 btnEl.textContent = '❌ Failed';
                 toast(`Install failed: ${data.error || 'unknown'}`, 'error');
+                btnEl.disabled = false;
+                setTimeout(() => { btnEl.textContent = '📦 Retry'; }, 3000);
             }
         } catch (e) {
             btnEl.textContent = '❌ Failed';
             toast(`Install failed: ${e.message}`, 'error');
+            btnEl.disabled = false;
+            setTimeout(() => { btnEl.textContent = '📦 Retry'; }, 3000);
         }
     }
 

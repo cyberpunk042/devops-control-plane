@@ -6,6 +6,10 @@
             <button class="btn btn-sm btn-ghost" onclick="openDevopsPrefsModal()" title="Configure which cards auto-load, load manually, or are hidden">
                 ⚙️ Card Preferences
             </button>
+            <button class="btn btn-sm btn-ghost" onclick="openSavedAuditBrowser('devops')" title="Browse saved DevOps audits">
+                📁 Saved
+            </button>
+            <span class="pending-audits-badge" id="pending-audits-badge" style="display:none" onclick="openAuditManager()" title="Unsaved audit snapshots — click to manage"></span>
             <button class="btn btn-sm btn-secondary" onclick="loadDevopsTab(true)" title="Force-refresh all cards (busts client + server cache)">
                 🔄 Refresh All
             </button>
@@ -22,6 +26,7 @@
                     <span class="card-age" data-cache-key="security" style="font-size:0.64rem;color:var(--text-muted)"></span>
                     <button class="btn-icon" onclick="cardRefresh('security','devops-security-badge','devops-security-detail',loadSecurityCard)" title="Re-scan source code for hardcoded secrets, check .gitignore coverage, and recalculate security posture score" style="font-size:0.7rem;cursor:pointer;background:none;border:none;color:var(--text-muted);padding:0">🔄</button>
                     <span class="status-badge" id="devops-security-badge">—</span>
+                    <span class="audit-pending-badge" data-audit-key="security" onclick="openAuditManager(this.dataset.auditKey)" title="Unsaved audit — click to manage" style="display:none">📋</span>
                 </div>
             </div>
             <div class="card-subtitle">Hardcoded secret scanning, sensitive file detection, .gitignore completeness, and overall security posture score</div>
@@ -38,6 +43,7 @@
                     <span class="card-age" data-cache-key="testing" style="font-size:0.64rem;color:var(--text-muted)"></span>
                     <button class="btn-icon" onclick="cardRefresh('testing','devops-testing-badge','devops-testing-detail',loadTestingCard)" title="Re-detect test frameworks, recount test files/functions, and check coverage tools" style="font-size:0.7rem;cursor:pointer;background:none;border:none;color:var(--text-muted);padding:0">🔄</button>
                     <span class="status-badge" id="devops-testing-badge">—</span>
+                    <span class="audit-pending-badge" data-audit-key="testing" onclick="openAuditManager(this.dataset.auditKey)" title="Unsaved audit — click to manage" style="display:none">📋</span>
                 </div>
             </div>
             <div class="card-subtitle">Detected test frameworks, test file/function counts, test-to-source ratio, coverage tooling, and test execution</div>
@@ -54,6 +60,7 @@
                     <span class="card-age" data-cache-key="quality" style="font-size:0.64rem;color:var(--text-muted)"></span>
                     <button class="btn-icon" onclick="cardRefresh('quality','devops-quality-badge','devops-quality-detail',loadQualityCard)" title="Re-detect linters, type checkers, formatters, and their configuration files" style="font-size:0.7rem;cursor:pointer;background:none;border:none;color:var(--text-muted);padding:0">🔄</button>
                     <span class="status-badge" id="devops-quality-badge">—</span>
+                    <span class="audit-pending-badge" data-audit-key="quality" onclick="openAuditManager(this.dataset.auditKey)" title="Unsaved audit — click to manage" style="display:none">📋</span>
                 </div>
             </div>
             <div class="card-subtitle">Linter, type-checker, formatter, and test runner detection — which tools are installed, configured, and relevant to your stacks</div>
@@ -70,6 +77,7 @@
                     <span class="card-age" data-cache-key="packages" style="font-size:0.64rem;color:var(--text-muted)"></span>
                     <button class="btn-icon" onclick="cardRefresh('packages','devops-packages-badge','devops-packages-detail',loadPackagesCard)" title="Re-detect package managers, dependency files, and lock file freshness" style="font-size:0.7rem;cursor:pointer;background:none;border:none;color:var(--text-muted);padding:0">🔄</button>
                     <span class="status-badge" id="devops-packages-badge">—</span>
+                    <span class="audit-pending-badge" data-audit-key="packages" onclick="openAuditManager(this.dataset.auditKey)" title="Unsaved audit — click to manage" style="display:none">📋</span>
                 </div>
             </div>
             <div class="card-subtitle">Package manager detection (pip, npm, cargo, go mod), dependency files, lock files, outdated check, and vulnerability audit</div>
@@ -86,6 +94,7 @@
                     <span class="card-age" data-cache-key="env" style="font-size:0.64rem;color:var(--text-muted)"></span>
                     <button class="btn-icon" onclick="cardRefresh('env','devops-env-badge','devops-env-detail',loadEnvCard)" title="Re-check deployment environments, active env, .env files, and local↔GitHub secrets drift" style="font-size:0.7rem;cursor:pointer;background:none;border:none;color:var(--text-muted);padding:0">🔄</button>
                     <span class="status-badge" id="devops-env-badge">—</span>
+                    <span class="audit-pending-badge" data-audit-key="env" onclick="openAuditManager(this.dataset.auditKey)" title="Unsaved audit — click to manage" style="display:none">📋</span>
                 </div>
             </div>
             <div class="card-subtitle">Deployment contexts (dev/staging/prod), active environment, .env file status, variable inventory, validation, and local↔GitHub secrets drift</div>
@@ -102,6 +111,7 @@
                     <span class="card-age" data-cache-key="docs" style="font-size:0.64rem;color:var(--text-muted)"></span>
                     <button class="btn-icon" onclick="cardRefresh('docs','devops-docs-badge','devops-docs-detail',loadDocsCard)" title="Re-scan for README, CHANGELOG, LICENSE, API specs, doc directories, and per-module documentation coverage" style="font-size:0.7rem;cursor:pointer;background:none;border:none;color:var(--text-muted);padding:0">🔄</button>
                     <span class="status-badge" id="devops-docs-badge">—</span>
+                    <span class="audit-pending-badge" data-audit-key="docs" onclick="openAuditManager(this.dataset.auditKey)" title="Unsaved audit — click to manage" style="display:none">📋</span>
                 </div>
             </div>
             <div class="card-subtitle">Key project docs (README, CHANGELOG, LICENSE, CONTRIBUTING), doc directory inventory, API spec detection, and per-module coverage</div>
@@ -118,6 +128,7 @@
                     <span class="card-age" data-cache-key="k8s" style="font-size:0.64rem;color:var(--text-muted)"></span>
                     <button class="btn-icon" onclick="cardRefresh('k8s','devops-k8s-badge','devops-k8s-detail',loadK8sCard)" title="Re-detect K8s manifests, Helm charts, Kustomize configs, and kubectl availability" style="font-size:0.7rem;cursor:pointer;background:none;border:none;color:var(--text-muted);padding:0">🔄</button>
                     <span class="status-badge" id="devops-k8s-badge">—</span>
+                    <span class="audit-pending-badge" data-audit-key="k8s" onclick="openAuditManager(this.dataset.auditKey)" title="Unsaved audit — click to manage" style="display:none">📋</span>
                 </div>
             </div>
             <div class="card-subtitle">Manifest detection, resource summary per kind, Helm chart and Kustomize detection, kubectl status, validation, and cluster connectivity</div>
@@ -134,6 +145,7 @@
                     <span class="card-age" data-cache-key="terraform" style="font-size:0.64rem;color:var(--text-muted)"></span>
                     <button class="btn-icon" onclick="cardRefresh('terraform','devops-terraform-badge','devops-terraform-detail',loadTerraformCard)" title="Re-detect Terraform configs, providers, modules, resources, backend, and initialization state" style="font-size:0.7rem;cursor:pointer;background:none;border:none;color:var(--text-muted);padding:0">🔄</button>
                     <span class="status-badge" id="devops-terraform-badge">—</span>
+                    <span class="audit-pending-badge" data-audit-key="terraform" onclick="openAuditManager(this.dataset.auditKey)" title="Unsaved audit — click to manage" style="display:none">📋</span>
                 </div>
             </div>
             <div class="card-subtitle">IaC configuration detection, provider/module/resource inventory, backend configuration, state inspection, workspace management, and plan/validate</div>
@@ -150,6 +162,7 @@
                     <span class="card-age" data-cache-key="dns" style="font-size:0.64rem;color:var(--text-muted)"></span>
                     <button class="btn-icon" onclick="cardRefresh('dns','devops-dns-badge','devops-dns-detail',loadDnsCard)" title="Re-detect CDN provider configs, domain references, SSL certificates, and DNS file presence" style="font-size:0.7rem;cursor:pointer;background:none;border:none;color:var(--text-muted);padding:0">🔄</button>
                     <span class="status-badge" id="devops-dns-badge">—</span>
+                    <span class="audit-pending-badge" data-audit-key="dns" onclick="openAuditManager(this.dataset.auditKey)" title="Unsaved audit — click to manage" style="display:none">📋</span>
                 </div>
             </div>
             <div class="card-subtitle">CDN provider detection (Cloudflare, Netlify, Vercel, GitHub Pages), domain extraction, SSL cert files, DNS lookup, and record generation</div>

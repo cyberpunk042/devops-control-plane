@@ -24,6 +24,7 @@ from src.core.services.audit import (
     l2_risks,
     l2_structure,
 )
+from src.core.services.run_tracker import run_tracked
 
 audit_bp = Blueprint("audit", __name__, url_prefix="/api")
 
@@ -201,6 +202,7 @@ def audit_risks():
 
 
 @audit_bp.route("/audit/install-tool", methods=["POST"])
+@run_tracked("install", "install:tool")
 def audit_install_tool():
     """Install a missing devops tool."""
     from src.core.services.tool_install import install_tool
@@ -212,6 +214,147 @@ def audit_install_tool():
         sudo_password=body.get("sudo_password", ""),
     )
 
+    # On successful install, bust server-side caches so status re-detects
+    if result.get("ok") or result.get("already_installed"):
+        try:
+            root = Path(current_app.config["PROJECT_ROOT"])
+            devops_cache.invalidate_scope(root, "integrations")
+            devops_cache.invalidate_scope(root, "devops")
+            devops_cache.invalidate(root, "wiz:detect")
+            current_app.logger.info("Cache busted after installing %s", body.get("tool"))
+        except Exception as exc:
+            current_app.logger.warning("Failed to bust cache after install: %s", exc)
+
     status = 200 if result.get("ok") or result.get("needs_sudo") else 400
     return jsonify(result), status
 
+
+@audit_bp.route("/tools/status")
+def tools_status():
+    """Centralized tool availability status.
+
+    Returns all registered tools with availability, category,
+    install type, and whether an install recipe exists.
+    """
+    from src.core.services.audit.l0_detection import detect_tools
+    from src.core.services.tool_install import (
+        _NO_SUDO_RECIPES,
+        _SUDO_RECIPES,
+    )
+
+    tools = detect_tools()
+    # Enrich with recipe availability
+    for t in tools:
+        tid = t["id"]
+        t["has_recipe"] = tid in _NO_SUDO_RECIPES or tid in _SUDO_RECIPES
+        t["needs_sudo"] = tid in _SUDO_RECIPES
+
+    available = sum(1 for t in tools if t["available"])
+    missing = [t for t in tools if not t["available"]]
+
+    return jsonify({
+        "tools": tools,
+        "total": len(tools),
+        "available": available,
+        "missing_count": len(missing),
+        "missing": missing,
+    })
+
+
+# ── Audit Staging (pending snapshots) ───────────────────────────
+
+
+@audit_bp.route("/audits/pending")
+def audits_pending():
+    """List all unsaved audit snapshots (metadata only, no data blobs)."""
+    from src.core.services.audit_staging import list_pending
+
+    return jsonify({"pending": list_pending(_project_root())})
+
+
+@audit_bp.route("/audits/pending/<snapshot_id>")
+def audits_pending_detail(snapshot_id):
+    """Full detail for a single pending audit (includes data blob)."""
+    from src.core.services.audit_staging import get_pending
+
+    result = get_pending(_project_root(), snapshot_id)
+    if result is None:
+        return jsonify({"error": "Not found"}), 404
+    return jsonify(result)
+
+
+@audit_bp.route("/audits/save", methods=["POST"])
+def audits_save():
+    """Save pending snapshots to the git ledger.
+
+    Body: ``{"snapshot_ids": ["id1", "id2"]}`` or ``{"snapshot_ids": "all"}``
+    """
+    from src.core.services.audit_staging import save_audit, save_all_pending
+
+    body = request.get_json(silent=True) or {}
+    ids = body.get("snapshot_ids", "all")
+
+    if ids == "all":
+        saved = save_all_pending(_project_root())
+    else:
+        saved = []
+        for sid in ids:
+            try:
+                save_audit(_project_root(), sid)
+                saved.append(sid)
+            except (ValueError, Exception):
+                pass  # skip missing/failed — log is handled in audit_staging
+
+    return jsonify({"saved": saved, "count": len(saved)})
+
+
+@audit_bp.route("/audits/discard", methods=["POST"])
+def audits_discard():
+    """Discard pending snapshots (cache unaffected).
+
+    Body: ``{"snapshot_ids": ["id1", "id2"]}`` or ``{"snapshot_ids": "all"}``
+    """
+    from src.core.services.audit_staging import discard_audit, discard_all_pending
+
+    body = request.get_json(silent=True) or {}
+    ids = body.get("snapshot_ids", "all")
+
+    if ids == "all":
+        count = discard_all_pending(_project_root())
+    else:
+        count = sum(1 for sid in ids if discard_audit(_project_root(), sid))
+
+    return jsonify({"discarded": count})
+
+
+@audit_bp.route("/audits/saved")
+def audits_saved():
+    """List saved audit snapshots from the git ledger (metadata only)."""
+    from src.core.services.ledger.ledger_ops import list_saved_audits
+
+    return jsonify({"saved": list_saved_audits(_project_root())})
+
+
+@audit_bp.route("/audits/saved/<snapshot_id>")
+def audits_saved_detail(snapshot_id):
+    """Return the full saved audit snapshot (including data blob)."""
+    from src.core.services.ledger.ledger_ops import get_saved_audit
+
+    snap = get_saved_audit(_project_root(), snapshot_id)
+    if snap is None:
+        return jsonify({"error": f"Saved audit not found: {snapshot_id}"}), 404
+    return jsonify(snap)
+
+
+@audit_bp.route("/audits/saved/<snapshot_id>", methods=["DELETE"])
+def audits_saved_delete(snapshot_id):
+    """Delete a saved audit snapshot from the ledger branch."""
+    from src.core.services.ledger.ledger_ops import delete_saved_audit
+
+    try:
+        deleted = delete_saved_audit(_project_root(), snapshot_id)
+        if not deleted:
+            return jsonify({"error": f"Saved audit not found: {snapshot_id}"}), 404
+        return jsonify({"deleted": snapshot_id})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500

@@ -23,6 +23,7 @@
                     <span class="card-age" data-cache-key="git" style="font-size:0.64rem;color:var(--text-muted)"></span>
                     <button class="btn-icon" onclick="cardRefresh('git','int-git-badge','int-git-detail',loadGitCard)" title="Refresh" style="font-size:0.7rem;cursor:pointer;background:none;border:none;color:var(--text-muted);padding:0">🔄</button>
                     <span class="status-badge" id="int-git-badge">—</span>
+                    <span class="audit-pending-badge" data-audit-key="git" onclick="openAuditManager(this.dataset.auditKey)" title="Unsaved audit — click to manage" style="display:none">📋</span>
                 </div>
             </div>
             <div class="card-subtitle">Repository & version control</div>
@@ -39,6 +40,7 @@
                     <span class="card-age" data-cache-key="github" style="font-size:0.64rem;color:var(--text-muted)"></span>
                     <button class="btn-icon" onclick="cardRefresh('github','int-gh-badge','int-gh-detail',loadGitHubCard)" title="Refresh" style="font-size:0.7rem;cursor:pointer;background:none;border:none;color:var(--text-muted);padding:0">🔄</button>
                     <span class="status-badge" id="int-gh-badge">—</span>
+                    <span class="audit-pending-badge" data-audit-key="github" onclick="openAuditManager(this.dataset.auditKey)" title="Unsaved audit — click to manage" style="display:none">📋</span>
                 </div>
             </div>
             <div class="card-subtitle">Remote repository & API</div>
@@ -55,6 +57,7 @@
                     <span class="card-age" data-cache-key="ci" style="font-size:0.64rem;color:var(--text-muted)"></span>
                     <button class="btn-icon" onclick="cardRefresh('ci','int-ci-badge','int-ci-detail',loadCICard)" title="Refresh" style="font-size:0.7rem;cursor:pointer;background:none;border:none;color:var(--text-muted);padding:0">🔄</button>
                     <span class="status-badge" id="int-ci-badge">—</span>
+                    <span class="audit-pending-badge" data-audit-key="ci" onclick="openAuditManager(this.dataset.auditKey)" title="Unsaved audit — click to manage" style="display:none">📋</span>
                 </div>
             </div>
             <div class="card-subtitle">Workflow runs & deployment</div>
@@ -71,6 +74,7 @@
                     <span class="card-age" data-cache-key="docker" style="font-size:0.64rem;color:var(--text-muted)"></span>
                     <button class="btn-icon" onclick="cardRefresh('docker','int-docker-badge','int-docker-detail',loadDockerCard)" title="Refresh" style="font-size:0.7rem;cursor:pointer;background:none;border:none;color:var(--text-muted);padding:0">🔄</button>
                     <span class="status-badge" id="int-docker-badge">—</span>
+                    <span class="audit-pending-badge" data-audit-key="docker" onclick="openAuditManager(this.dataset.auditKey)" title="Unsaved audit — click to manage" style="display:none">📋</span>
                 </div>
             </div>
             <div class="card-subtitle">Container runtime</div>
@@ -87,6 +91,7 @@
                     <span class="card-age" data-cache-key="k8s" style="font-size:0.64rem;color:var(--text-muted)"></span>
                     <button class="btn-icon" onclick="cardRefresh('k8s','int-k8s-badge','int-k8s-detail',_intLoadK8sCard)" title="Refresh" style="font-size:0.7rem;cursor:pointer;background:none;border:none;color:var(--text-muted);padding:0">🔄</button>
                     <span class="status-badge" id="int-k8s-badge">—</span>
+                    <span class="audit-pending-badge" data-audit-key="k8s" onclick="openAuditManager(this.dataset.auditKey)" title="Unsaved audit — click to manage" style="display:none">📋</span>
                 </div>
             </div>
             <div class="card-subtitle">Cluster & manifests</div>
@@ -103,6 +108,7 @@
                     <span class="card-age" data-cache-key="terraform" style="font-size:0.64rem;color:var(--text-muted)"></span>
                     <button class="btn-icon" onclick="cardRefresh('terraform','int-tf-badge','int-tf-detail',_intLoadTerraformCard)" title="Refresh" style="font-size:0.7rem;cursor:pointer;background:none;border:none;color:var(--text-muted);padding:0">🔄</button>
                     <span class="status-badge" id="int-tf-badge">—</span>
+                    <span class="audit-pending-badge" data-audit-key="terraform" onclick="openAuditManager(this.dataset.auditKey)" title="Unsaved audit — click to manage" style="display:none">📋</span>
                 </div>
             </div>
             <div class="card-subtitle">Infrastructure as Code</div>
@@ -121,6 +127,7 @@
                 <span class="card-age" data-cache-key="pages" style="font-size:0.64rem;color:var(--text-muted)"></span>
                 <button class="btn-icon" onclick="cardRefresh('pages','int-pages-badge','int-pages-detail',loadPagesCard)" title="Refresh" style="font-size:0.7rem;cursor:pointer;background:none;border:none;color:var(--text-muted);padding:0">🔄</button>
                 <span class="status-badge" id="int-pages-badge">—</span>
+                <span class="audit-pending-badge" data-audit-key="pages" onclick="openAuditManager(this.dataset.auditKey)" title="Unsaved audit — click to manage" style="display:none">📋</span>
             </div>
         </div>
         <div class="card-subtitle">Multi-segment static site builder</div>

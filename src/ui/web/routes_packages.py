@@ -22,6 +22,7 @@ from pathlib import Path
 from flask import Blueprint, current_app, jsonify, request
 
 from src.core.services import package_ops
+from src.core.services.run_tracker import run_tracked
 
 packages_bp = Blueprint("packages", __name__)
 
@@ -42,7 +43,7 @@ def package_status():  # type: ignore[no-untyped-def]
     force = request.args.get("bust", "") == "1"
     return jsonify(get_cached(
         root, "packages",
-        lambda: package_ops.package_status(root),
+        lambda: package_ops.package_status_enriched(root),
         force=force,
     ))
 
@@ -87,6 +88,7 @@ def package_list():  # type: ignore[no-untyped-def]
 
 
 @packages_bp.route("/packages/install", methods=["POST"])
+@run_tracked("install", "install:packages")
 def package_install():  # type: ignore[no-untyped-def]
     """Install dependencies."""
     data = request.get_json(silent=True) or {}
@@ -100,6 +102,7 @@ def package_install():  # type: ignore[no-untyped-def]
 
 
 @packages_bp.route("/packages/update", methods=["POST"])
+@run_tracked("install", "install:packages_update")
 def package_update():  # type: ignore[no-untyped-def]
     """Update packages."""
     data = request.get_json(silent=True) or {}

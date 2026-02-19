@@ -517,13 +517,15 @@ const _wizSubForms = {
         } else {
             html += `<div style="font-size:0.75rem;color:var(--text-secondary);line-height:1.5;margin-bottom:0.5rem">
                 <strong>Setup steps:</strong><br>
-                1. Install: <code>sudo apt install gh</code> or <code>brew install gh</code><br>
-                2. Authenticate: <code>gh auth login</code><br>
-                3. Click <strong>Re-detect</strong> below.
+                1. Install the <code>gh</code> CLI (if not installed)<br>
+                2. Authenticate your GitHub account<br>
+                3. Click <strong>Re-detect</strong> to refresh.
             </div>
-            <div style="display:flex;gap:0.3rem">
+            <div style="display:flex;gap:0.3rem;flex-wrap:wrap">
                 <button class="btn btn-sm btn-secondary" style="font-size:0.72rem"
                     onclick="_wizInstallTool('gh', this)">📦 Install gh</button>
+                <button class="btn btn-sm btn-primary" style="font-size:0.72rem"
+                    onclick="_showGhAuthModal(() => _wizRedetect())">🔑 Authenticate</button>
                 <button class="btn btn-sm btn-secondary" style="font-size:0.72rem"
                     onclick="_wizRedetect()">🔄 Re-detect</button>
             </div>`;
