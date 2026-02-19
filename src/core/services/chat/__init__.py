@@ -22,6 +22,7 @@ from src.core.services.chat.chat_ops import (
     pull_chat,
     push_chat,
     send_message,
+    update_message_flags,
 )
 from src.core.services.chat.chat_refs import (
     autocomplete,
@@ -51,5 +52,6 @@ __all__ = [
     "push_chat",
     "resolve_ref",
     "send_message",
+    "update_message_flags",
 ]
 

@@ -32,6 +32,7 @@ from src.core.services.chat import (
     push_chat,
     resolve_ref,
     send_message,
+    update_message_flags,
 )
 
 logger = logging.getLogger(__name__)
@@ -143,6 +144,7 @@ def chat_send():
             thread_id=body.get("thread_id") or None,
             run_id=body.get("run_id") or None,
             encrypt=body.get("encrypt", False),
+            publish=body.get("publish", False),
             source=body.get("source", "manual"),
         )
         # Return decrypted text to the client for immediate rendering.
@@ -197,6 +199,60 @@ def chat_delete_message():
         return jsonify({"deleted": True, "message_id": message_id})
     except Exception as e:
         logger.exception("Failed to delete message")
+        return jsonify({"error": str(e)}), 500
+
+
+# ── Update message flags ──────────────────────────────────────────────
+
+@chat_bp.route("/chat/update-message", methods=["POST"])
+def chat_update_message():
+    """Update flags on an existing chat message.
+
+    Body (JSON):
+        thread_id  — thread containing the message (required)
+        message_id — message ID to update (required)
+        publish    — new publish flag (optional, bool)
+        encrypt    — new encrypt flag (optional, bool)
+    """
+    try:
+        root = _project_root()
+        body = request.get_json(silent=True) or {}
+
+        thread_id = body.get("thread_id", "").strip()
+        message_id = body.get("message_id", "").strip()
+
+        if not thread_id:
+            return jsonify({"error": "thread_id is required"}), 400
+        if not message_id:
+            return jsonify({"error": "message_id is required"}), 400
+
+        publish = body.get("publish")  # None if absent
+        encrypt = body.get("encrypt")  # None if absent
+
+        msg = update_message_flags(
+            root,
+            thread_id=thread_id,
+            message_id=message_id,
+            publish=publish,
+            encrypt=encrypt,
+        )
+
+        if not msg:
+            return jsonify({"error": "Message not found"}), 404
+
+        # Return decrypted text for display
+        result = msg.model_dump(mode="json")
+        if msg.flags.encrypted and msg.text.startswith("ENC:"):
+            try:
+                from src.core.services.chat.chat_crypto import decrypt_text
+                result["text"] = decrypt_text(msg.text, root)
+            except Exception:
+                pass
+        return jsonify(result)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        logger.exception("Failed to update message")
         return jsonify({"error": str(e)}), 500
 
 

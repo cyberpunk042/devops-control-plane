@@ -405,6 +405,112 @@ def delete_message(
     logger.info("Deleted message %s from thread %s", message_id, thread_id)
     return True
 
+
+def update_message_flags(
+    project_root: Path,
+    *,
+    thread_id: str,
+    message_id: str,
+    publish: bool | None = None,
+    encrypt: bool | None = None,
+) -> ChatMessage | None:
+    """Update flags on an existing message.
+
+    Supports toggling ``publish`` and ``encrypt`` flags.
+    When toggling encrypt:
+      - encrypt=True  → encrypts the text field (if not already encrypted).
+      - encrypt=False → decrypts the text field (if currently encrypted).
+
+    Args:
+        project_root: Repository root.
+        thread_id: Thread containing the message.
+        message_id: The message ``id`` field to update.
+        publish: New publish flag (None = no change).
+        encrypt: New encrypt flag (None = no change).
+
+    Returns:
+        The updated ChatMessage, or None if not found.
+
+    Raises:
+        ValueError: If encrypt=True and no key configured, or decrypt fails.
+    """
+    ensure_worktree(project_root)
+
+    td = _thread_dir(project_root, thread_id)
+    messages_file = td / "messages.jsonl"
+
+    if not messages_file.is_file():
+        return None
+
+    lines = messages_file.read_text(encoding="utf-8").splitlines()
+    updated_lines: list[str] = []
+    updated_msg: ChatMessage | None = None
+
+    for line in lines:
+        line_stripped = line.strip()
+        if not line_stripped:
+            continue
+        try:
+            msg = ChatMessage.from_jsonl(line_stripped)
+        except Exception:
+            updated_lines.append(line_stripped)
+            continue
+
+        if msg.id == message_id:
+            # Toggle publish
+            if publish is not None:
+                msg.flags.publish = publish
+
+            # Toggle encrypt
+            if encrypt is not None:
+                if encrypt and not msg.flags.encrypted:
+                    # Encrypt the text
+                    msg.text = encrypt_text(msg.text, project_root)
+                    msg.flags.encrypted = True
+                elif not encrypt and msg.flags.encrypted:
+                    # Decrypt the text
+                    if is_encrypted(msg.text):
+                        msg.text = decrypt_text(msg.text, project_root)
+                    msg.flags.encrypted = False
+
+            updated_msg = msg
+            updated_lines.append(msg.to_jsonl())
+        else:
+            updated_lines.append(line_stripped)
+
+    if not updated_msg:
+        return None
+
+    # Rewrite the file
+    messages_file.write_text(
+        "\n".join(updated_lines) + ("\n" if updated_lines else ""),
+        encoding="utf-8",
+    )
+
+    # Commit to ledger branch
+    rel_path = f"chat/threads/{thread_id}/messages.jsonl"
+    action_parts = []
+    if publish is not None:
+        action_parts.append(f"publish={'on' if publish else 'off'}")
+    if encrypt is not None:
+        action_parts.append(f"encrypt={'on' if encrypt else 'off'}")
+    ledger_add_and_commit(
+        project_root,
+        paths=[rel_path],
+        message=f"chat: updated {message_id} ({', '.join(action_parts)})",
+    )
+
+    # Emit event
+    if _bus:
+        _bus.publish("chat:message_updated", data={
+            "thread_id": thread_id,
+            "message_id": message_id,
+            "flags": {"publish": updated_msg.flags.publish, "encrypted": updated_msg.flags.encrypted},
+        })
+
+    logger.info("Updated message %s flags: %s", message_id, ", ".join(action_parts))
+    return updated_msg
+
 def create_thread(
     project_root: Path,
     title: str,

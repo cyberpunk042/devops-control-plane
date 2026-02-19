@@ -83,6 +83,10 @@ async function renderChatPanel() {
                 <label class="chat-encrypt-label">
                     <input type="checkbox" id="chat-encrypt-cb" onchange="chatToggleEncryptHint(this.checked)"> &#x1F512; Encrypt
                 </label>
+                <label class="chat-encrypt-label" style="margin-left:0.75rem"
+                    title="Published messages can be rendered on GitHub Pages and other public-facing features">
+                    <input type="checkbox" id="chat-publish-cb"> &#x1F310; Publish
+                </label>
                 <span style="flex:1"></span>
                 <span id="chat-compose-status" class="chat-compose-status"></span>
                 <button class="btn btn-primary btn-sm chat-send-btn"
@@ -300,6 +304,7 @@ function chatRenderMessages() {
 function _chatRenderBubble(msg) {
   const src = msg.source || 'manual';
   const isEnc = (msg.flags && msg.flags.encrypted) || false;
+  const isPub = (msg.flags && msg.flags.publish) || false;
   const relTime = _chatRelativeTime(msg.ts);
   const escaped = esc(msg.text);
   const refs = _chatEmbedRefs(escaped);
@@ -314,6 +319,7 @@ function _chatRenderBubble(msg) {
   let badges = '<span class="chat-msg-badge ' + src + '">' + sourceLabel + '</span>';
   if (msg.trace_id) badges += '<span class="chat-msg-badge trace">trace</span>';
   if (isEnc) badges += '<span class="chat-msg-badge encrypted">&#x1F510; encrypted</span>';
+  if (isPub) badges += '<span class="chat-msg-badge published">&#x1F310; published</span>';
 
   return '<div class="chat-message ' + src + '" data-msg-id="' + esc(msg.id) + '">'
     + '<div class="chat-msg-header">'
@@ -322,6 +328,10 @@ function _chatRenderBubble(msg) {
     + badges
     + '<span class="chat-msg-time">' + relTime + '</span>'
     + '<span class="chat-msg-actions">'
+    + '<button class="chat-msg-action-btn" onclick="chatTogglePublish(\'' + esc(msg.id) + '\', ' + (isPub ? 'false' : 'true') + ')" title="' + (isPub ? 'Unpublish' : 'Publish') + '">'
+    + (isPub ? '&#x1F310;' : '&#x1F311;') + '</button>'
+    + '<button class="chat-msg-action-btn" onclick="chatToggleEncrypt(\'' + esc(msg.id) + '\', ' + (isEnc ? 'false' : 'true') + ')" title="' + (isEnc ? 'Decrypt' : 'Encrypt') + '">'
+    + (isEnc ? '&#x1F513;' : '&#x1F512;') + '</button>'
     + '<button class="chat-msg-delete-btn" onclick="chatConfirmDelete(\'' + esc(msg.id) + '\')" title="Delete message">&#x1F5D1;&#xFE0F;</button>'
     + '</span>'
     + '</div>'
@@ -418,6 +428,8 @@ async function chatSendMessage() {
   const encCb = document.getElementById('chat-encrypt-cb');
   const encrypt = encCb ? encCb.checked : false;
   try {
+    const pubCb = document.getElementById('chat-publish-cb');
+    const publish = pubCb ? pubCb.checked : false;
     const msg = await api('/chat/send', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -425,6 +437,7 @@ async function chatSendMessage() {
         text: text,
         thread_id: _chatSelectedThread,
         encrypt: encrypt,
+        publish: publish,
         source: 'manual'
       })
     });
@@ -587,5 +600,55 @@ function chatToggleEncryptHint(on) {
     textarea.style.borderColor = '';
     textarea.style.boxShadow = '';
     textarea.placeholder = 'Type a message... Use @ for references';
+  }
+}
+
+async function chatTogglePublish(msgId, newValue) {
+  try {
+    const updated = await api('/chat/update-message', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        thread_id: _chatSelectedThread,
+        message_id: msgId,
+        publish: newValue,
+      })
+    });
+    // Update in-memory
+    for (var i = 0; i < _chatMessages.length; i++) {
+      if (_chatMessages[i].id === msgId) {
+        _chatMessages[i] = updated;
+        break;
+      }
+    }
+    chatRenderMessages();
+    toast(newValue ? '\uD83C\uDF10 Published' : 'Unpublished', 'success');
+  } catch (e) {
+    toast('Failed: ' + e.message, 'error');
+  }
+}
+
+async function chatToggleEncrypt(msgId, newValue) {
+  try {
+    const updated = await api('/chat/update-message', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        thread_id: _chatSelectedThread,
+        message_id: msgId,
+        encrypt: newValue,
+      })
+    });
+    // Update in-memory
+    for (var i = 0; i < _chatMessages.length; i++) {
+      if (_chatMessages[i].id === msgId) {
+        _chatMessages[i] = updated;
+        break;
+      }
+    }
+    chatRenderMessages();
+    toast(newValue ? '\uD83D\uDD10 Encrypted' : '\uD83D\uDD13 Decrypted', 'success');
+  } catch (e) {
+    toast('Failed: ' + e.message, 'error');
   }
 }
