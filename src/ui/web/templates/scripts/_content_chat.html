@@ -64,6 +64,13 @@ function _chatStopIdleTracker() {
   }
 }
 
+function _chatTraceStatusChanged(newMsgs, oldMsgs) {
+  for (var i = 0; i < newMsgs.length && i < oldMsgs.length; i++) {
+    if (newMsgs[i].trace_id && newMsgs[i].trace_shared !== oldMsgs[i].trace_shared) return true;
+  }
+  return false;
+}
+
 let _chatPollCycles = 0;
 
 function _chatStartPoll() {
@@ -92,7 +99,8 @@ function _chatStartPoll() {
       const newMsgs = poll.messages || [];
       if (newMsgs.length !== _chatMessages.length ||
           (newMsgs.length > 0 && _chatMessages.length > 0 &&
-           newMsgs[newMsgs.length - 1].id !== _chatMessages[_chatMessages.length - 1].id)) {
+           newMsgs[newMsgs.length - 1].id !== _chatMessages[_chatMessages.length - 1].id) ||
+          _chatTraceStatusChanged(newMsgs, _chatMessages)) {
         _chatMessages = newMsgs;
         chatRenderMessages();
       }
