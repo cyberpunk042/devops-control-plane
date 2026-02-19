@@ -99,7 +99,8 @@ def key_has_passphrase(key_path: Path) -> bool:
 def check_auth(project_root: Path) -> dict:
     """Check if git network operations are working.
 
-    Runs ``git ls-remote`` with a short timeout.
+    For SSH remotes: instant local check (ssh-agent key status).
+    For HTTPS remotes: quick ``git ls-remote`` with short timeout.
 
     Returns dict::
 
@@ -118,20 +119,13 @@ def check_auth(project_root: Path) -> dict:
     remote_url = get_remote_url(project_root)
     ssh_key = None
 
+    # ── SSH: instant local detection (no network call) ──────────
     if remote_type == "ssh":
         kp = find_ssh_key()
         ssh_key = kp.name if kp else None
 
-    env = git_env()
-
-    try:
-        r = subprocess.run(
-            ["git", "-C", str(project_root),
-             "ls-remote", "--exit-code", "origin", "HEAD"],
-            capture_output=True, text=True, timeout=8,
-            env=env,
-        )
-        if r.returncode == 0:
+        # 1. Check if ssh-agent already has keys loaded
+        if _agent_has_keys():
             _auth_tested = True
             _auth_ok = True
             return {
@@ -143,16 +137,32 @@ def check_auth(project_root: Path) -> dict:
                 "error": None,
             }
 
-        return _classify_error(
-            r.stderr, remote_type, remote_url, ssh_key,
-        )
+        # 2. If we've already added the key this session, it's OK
+        if _ssh_agent_env and _auth_ok:
+            return {
+                "ok": True,
+                "remote_type": remote_type,
+                "remote_url": remote_url,
+                "ssh_key": ssh_key,
+                "needs": None,
+                "error": None,
+            }
 
-    except subprocess.TimeoutExpired:
-        # Timeout almost certainly means a credential prompt is hanging
-        needs = {
-            "ssh": "ssh_passphrase",
-            "https": "https_credentials",
-        }.get(remote_type)
+        # 3. No agent keys — check if the key needs a passphrase
+        if kp and not key_has_passphrase(kp):
+            # Key has no passphrase — should work without agent
+            _auth_tested = True
+            _auth_ok = True
+            return {
+                "ok": True,
+                "remote_type": remote_type,
+                "remote_url": remote_url,
+                "ssh_key": ssh_key,
+                "needs": None,
+                "error": None,
+            }
+
+        # 4. Key needs passphrase and no agent → prompt immediately
         _auth_tested = True
         _auth_ok = False
         return {
@@ -160,9 +170,88 @@ def check_auth(project_root: Path) -> dict:
             "remote_type": remote_type,
             "remote_url": remote_url,
             "ssh_key": ssh_key,
-            "needs": needs,
-            "error": "Connection timed out (credential prompt likely hanging)",
+            "needs": "ssh_passphrase",
+            "error": "SSH key requires passphrase (no loaded agent key found)",
         }
+
+    # ── HTTPS: quick network check ──────────────────────────────
+    if remote_type == "https":
+        env = git_env()
+        try:
+            r = subprocess.run(
+                ["git", "-C", str(project_root),
+                 "ls-remote", "--exit-code", "origin", "HEAD"],
+                capture_output=True, text=True, timeout=8,
+                env=env,
+            )
+            if r.returncode == 0:
+                _auth_tested = True
+                _auth_ok = True
+                return {
+                    "ok": True,
+                    "remote_type": remote_type,
+                    "remote_url": remote_url,
+                    "ssh_key": None,
+                    "needs": None,
+                    "error": None,
+                }
+            return _classify_error(r.stderr, remote_type, remote_url, None)
+
+        except subprocess.TimeoutExpired:
+            _auth_tested = True
+            _auth_ok = False
+            return {
+                "ok": False,
+                "remote_type": remote_type,
+                "remote_url": remote_url,
+                "ssh_key": None,
+                "needs": "https_credentials",
+                "error": "Connection timed out (credential prompt likely hanging)",
+            }
+
+    # ── Unknown remote type ─────────────────────────────────────
+    _auth_tested = True
+    return {
+        "ok": False,
+        "remote_type": remote_type,
+        "remote_url": remote_url,
+        "ssh_key": None,
+        "needs": None,
+        "error": "Unknown remote type",
+    }
+
+
+def _agent_has_keys() -> bool:
+    """Quick check: does the current ssh-agent have any keys loaded?
+
+    Checks both the inherited env and our managed agent.
+    """
+    # Check our managed agent first
+    if _ssh_agent_env:
+        try:
+            env = {**os.environ, **_ssh_agent_env}
+            r = subprocess.run(
+                ["ssh-add", "-l"],
+                capture_output=True, text=True, timeout=3,
+                env=env,
+            )
+            if r.returncode == 0 and r.stdout.strip():
+                return True
+        except Exception:
+            pass
+
+    # Check inherited agent from environment
+    sock = os.environ.get("SSH_AUTH_SOCK")
+    if not sock:
+        return False
+    try:
+        r = subprocess.run(
+            ["ssh-add", "-l"],
+            capture_output=True, text=True, timeout=3,
+        )
+        return r.returncode == 0 and bool(r.stdout.strip())
+    except Exception:
+        return False
 
 
 def _classify_error(

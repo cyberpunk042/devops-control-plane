@@ -106,12 +106,15 @@ def chat_messages():
 
         # Auto-pull latest from origin in background (non-blocking).
         # Messages load instantly from local; pull results appear on next load.
-        def _bg_pull(r):
-            try:
-                pull_chat(r)
-            except Exception:
-                pass
-        threading.Thread(target=_bg_pull, args=(root,), daemon=True).start()
+        # Only attempt if auth is verified — avoids hanging on SSH passphrase.
+        from src.core.services.git_auth import is_auth_ok as _auth_ok
+        if _auth_ok():
+            def _bg_pull(r):
+                try:
+                    pull_chat(r)
+                except Exception:
+                    pass
+            threading.Thread(target=_bg_pull, args=(root,), daemon=True).start()
 
         messages = list_messages(
             root,
@@ -168,12 +171,15 @@ def chat_send():
                 pass  # fall back to encrypted text if key unavailable
 
         # Auto-push to origin in background (don't block the response)
-        def _bg_push(r):
-            try:
-                push_chat(r)
-            except Exception:
-                pass
-        threading.Thread(target=_bg_push, args=(root,), daemon=True).start()
+        # Only attempt if auth is verified.
+        from src.core.services.git_auth import is_auth_ok as _auth_ok2
+        if _auth_ok2():
+            def _bg_push(r):
+                try:
+                    push_chat(r)
+                except Exception:
+                    pass
+            threading.Thread(target=_bg_push, args=(root,), daemon=True).start()
 
         return jsonify(result)
     except ValueError as e:

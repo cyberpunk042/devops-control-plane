@@ -126,20 +126,24 @@ def ensure_worktree(project_root: Path) -> Path:
     # 4. Pull latest from origin into worktree (safe for checked-out branch)
     #    NOTE: `git fetch origin X:X` fails when X is checked out in a worktree.
     #    Using `git -C .scp-ledger pull --rebase` works correctly.
+    #    Only attempt if auth has been verified — otherwise this hangs for 30s
+    #    waiting for SSH passphrase on machines that haven't unlocked yet.
     if wt.is_dir():
-        r = _run_ledger_git(
-            "pull", "--rebase", "origin", LEDGER_BRANCH,
-            project_root=project_root,
-            timeout=30,
-        )
-        if r.returncode != 0:
-            stderr = r.stderr.strip()
-            # These are fine — remote doesn't have the branch yet
-            if not any(s in stderr.lower() for s in (
-                "no tracking", "couldn't find remote", "no such remote",
-                "invalid upstream",
-            )):
-                logger.warning("Ledger pull in ensure_worktree: %s", stderr)
+        from src.core.services.git_auth import is_auth_ok
+        if is_auth_ok():
+            r = _run_ledger_git(
+                "pull", "--rebase", "origin", LEDGER_BRANCH,
+                project_root=project_root,
+                timeout=30,
+            )
+            if r.returncode != 0:
+                stderr = r.stderr.strip()
+                # These are fine — remote doesn't have the branch yet
+                if not any(s in stderr.lower() for s in (
+                    "no tracking", "couldn't find remote", "no such remote",
+                    "invalid upstream",
+                )):
+                    logger.warning("Ledger pull in ensure_worktree: %s", stderr)
 
     # 5. Ensure .gitignore contains the entry
     _ensure_gitignore(project_root)
