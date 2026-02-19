@@ -234,9 +234,8 @@ async function chatLoadThreads() {
     _chatThreads = data.threads || [];
     _chatLoaded = true;
     chatRenderThreadList(_chatThreads);
-    if (_chatSelectedThread) {
-      chatSelectThread(_chatSelectedThread);
-    } else if (_chatThreads.length > 0) {
+    // Only auto-select on initial load (no thread selected yet)
+    if (!_chatSelectedThread && _chatThreads.length > 0) {
       let gen = null;
       for (let i = 0; i < _chatThreads.length; i++) {
         if (_chatThreads[i].title === 'General') { gen = _chatThreads[i]; break; }
@@ -244,13 +243,17 @@ async function chatLoadThreads() {
       chatSelectThread(gen ? gen.thread_id : _chatThreads[0].thread_id);
     }
   } catch (e) {
-    list.innerHTML = `<div class="chat-empty">
-      <span class="chat-empty-icon">&#x1F4AD;</span>
-      <p>No chat threads yet</p>
-      <p class="chat-empty-sub">${esc(e.message || 'Could not load threads')}</p>
-      <button class="btn btn-primary btn-sm" onclick="chatShowNewThread()"
-          style="margin-top:0.75rem">+ Create First Thread</button>
-    </div>`;
+    // Only show error state on initial load, not during poll refreshes
+    if (!_chatLoaded) {
+      list.innerHTML = `<div class="chat-empty">
+        <span class="chat-empty-icon">&#x1F4AD;</span>
+        <p>No chat threads yet</p>
+        <p class="chat-empty-sub">${esc(e.message || 'Could not load threads')}</p>
+        <button class="btn btn-primary btn-sm" onclick="chatShowNewThread()"
+            style="margin-top:0.75rem">+ Create First Thread</button>
+      </div>`;
+    }
+    // Otherwise keep the existing thread list visible
   }
 }
 

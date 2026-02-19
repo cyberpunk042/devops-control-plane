@@ -139,7 +139,7 @@ def ensure_worktree(project_root: Path) -> Path:
             )
             if r.returncode == 0:
                 r2 = _run_ledger_git(
-                    "rebase", "FETCH_HEAD",
+                    "rebase", f"origin/{LEDGER_BRANCH}",
                     project_root=project_root,
                     timeout=15,
                 )
@@ -557,7 +557,7 @@ def pull_ledger_branch(project_root: Path) -> bool:
             return False
 
     r2 = _run_ledger_git(
-        "rebase", "FETCH_HEAD",
+        "rebase", f"origin/{LEDGER_BRANCH}",
         project_root=project_root,
         timeout=15,
     )
