@@ -64,12 +64,16 @@ function _chatStopIdleTracker() {
   }
 }
 
+let _chatPollCycles = 0;
+
 function _chatStartPoll() {
   _chatStopPoll();
   _chatLastActivity = Date.now();
+  _chatPollCycles = 0;
   _chatStartIdleTracker();
   _chatPollTimer = setInterval(async () => {
     if (!_chatSelectedThread) return;
+    _chatPollCycles++;
     try {
       // Pull remote changes first, then read local messages
       try {
@@ -77,6 +81,11 @@ function _chatStartPoll() {
       } catch (pullErr) {
         // pull failure is non-fatal — continue reading local
         console.debug('[chat-poll] pull failed:', pullErr.message);
+      }
+
+      // Refresh thread list every 3rd poll cycle (~15s at base)
+      if (_chatPollCycles % 3 === 0) {
+        try { await chatLoadThreads(); } catch(e) {}
       }
 
       const data = await api('/chat/messages?thread_id=' + encodeURIComponent(_chatSelectedThread) + '&n=100');

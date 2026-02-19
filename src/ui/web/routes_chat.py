@@ -83,6 +83,17 @@ def chat_thread_create():
             anchor_run=body.get("anchor_run") or None,
             tags=body.get("tags") or [],
         )
+
+        # Auto-push to origin in background so other systems see the thread
+        from src.core.services.git_auth import is_auth_ok as _auth_ok_create
+        if _auth_ok_create():
+            def _bg_push(r):
+                try:
+                    push_chat(r)
+                except Exception:
+                    pass
+            threading.Thread(target=_bg_push, args=(root,), daemon=True).start()
+
         return jsonify(thread.model_dump(mode="json"))
     except Exception as e:
         logger.exception("Failed to create thread")
