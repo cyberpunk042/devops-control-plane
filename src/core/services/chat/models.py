@@ -55,7 +55,7 @@ class ChatMessage(BaseModel):
     id: str = ""
     ts: str = Field(default_factory=_now_iso)
     user: str = ""
-    hostname: str = Field(default_factory=_hostname)
+    hostname: str = ""
     text: str = ""
     thread_id: str | None = None
     run_id: str | None = None

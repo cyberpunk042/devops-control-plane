@@ -197,8 +197,10 @@ def send_message(
     refs = parse_refs(text)
 
     # Build message
+    import socket
     msg = ChatMessage(
         user=user,
+        hostname=socket.gethostname(),
         text=actual_text,
         thread_id=thread_id,
         run_id=run_id,
