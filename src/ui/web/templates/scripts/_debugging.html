@@ -876,6 +876,7 @@
                 <span style="font-size:0.66rem;color:var(--text-muted)">📊 ${events} events</span>
                 ${shareBtn}
                 <button class="btn btn-sm btn-ghost" style="font-size:0.62rem" onclick="event.stopPropagation();_traceRename('${esc(trace.trace_id)}')" title="Rename trace">✏️</button>
+                <button class="btn btn-sm btn-ghost" style="font-size:0.62rem;color:var(--error)" onclick="event.stopPropagation();_traceDelete('${esc(trace.trace_id)}')" title="Delete local copy (ledger copy stays)">🗑️</button>
                 <span style="font-size:0.64rem;color:var(--text-muted);margin-left:auto">${started}</span>
             </div>
             ${trace.auto_summary ? `<div style="font-size:0.72rem;color:var(--text-secondary);padding-left:26px">${esc(trace.auto_summary)}</div>` : ''}
@@ -915,6 +916,17 @@
             loadDebugTraces();
         } catch(e) {
             toast('Failed to rename trace: ' + e.message, 'error');
+        }
+    }
+
+    async function _traceDelete(traceId) {
+        if (!confirm('Delete this trace locally? (Ledger copy stays if shared)')) return;
+        try {
+            await apiPost('/trace/delete', { trace_id: traceId });
+            toast('Trace deleted locally', 'success');
+            loadDebugTraces();
+        } catch(e) {
+            toast('Failed to delete trace: ' + e.message, 'error');
         }
     }
 

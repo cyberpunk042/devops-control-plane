@@ -10,6 +10,7 @@ Public API:
 from src.core.services.trace.models import SessionTrace, TraceEvent
 from src.core.services.trace.trace_recorder import (
     active_recordings,
+    delete_trace,
     generate_summary,
     get_trace,
     get_trace_events,
@@ -27,6 +28,7 @@ __all__ = [
     "SessionTrace",
     "TraceEvent",
     "active_recordings",
+    "delete_trace",
     "generate_summary",
     "get_trace",
     "get_trace_events",

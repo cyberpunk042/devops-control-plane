@@ -12,6 +12,7 @@ Endpoints:
     /api/trace/get              — get a single trace by ID
     /api/trace/events           — get events for a trace
     /api/trace/share            — share a trace (commit to git)
+    /api/trace/delete           — delete a trace locally (ledger copy stays)
 """
 
 from __future__ import annotations
@@ -24,6 +25,7 @@ from flask import Blueprint, current_app, jsonify, request
 
 from src.core.services.trace import (
     active_recordings,
+    delete_trace,
     get_trace,
     get_trace_events,
     list_traces,
@@ -295,4 +297,33 @@ def trace_update():
         return jsonify({"trace_id": trace_id, "updated": True})
     except Exception as e:
         logger.exception("Failed to update trace")
+        return jsonify({"error": str(e)}), 500
+
+
+# ── Delete trace ────────────────────────────────────────────────────────
+
+@trace_bp.route("/trace/delete", methods=["POST"])
+def trace_delete():
+    """Delete a trace from local storage.
+
+    Removes the trace from .state/traces/ only.
+    The ledger copy (if shared) stays — use unshare to remove from ledger.
+
+    Body (JSON):
+        trace_id — the trace to delete (required)
+    """
+    try:
+        root = _project_root()
+        body = request.get_json(silent=True) or {}
+        trace_id = body.get("trace_id", "")
+        if not trace_id:
+            return jsonify({"error": "trace_id is required"}), 400
+
+        ok = delete_trace(root, trace_id)
+        if not ok:
+            return jsonify({"error": f"Trace not found locally: {trace_id}"}), 404
+
+        return jsonify({"trace_id": trace_id, "deleted": True})
+    except Exception as e:
+        logger.exception("Failed to delete trace")
         return jsonify({"error": str(e)}), 500

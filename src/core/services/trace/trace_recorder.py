@@ -639,6 +639,28 @@ def active_recordings() -> list[str]:
     return list(_active.keys())
 
 
+def delete_trace(project_root: Path, trace_id: str) -> bool:
+    """Delete a trace from local storage (.state/traces/).
+
+    Does NOT remove from the ledger — use unshare_trace() for that.
+    If the trace only exists in the ledger (not local), this is a no-op.
+
+    Args:
+        project_root: Repository root.
+        trace_id: The trace to delete.
+
+    Returns:
+        True if deleted, False if not found locally.
+    """
+    local_dir = _local_traces_dir(project_root) / trace_id
+    if not local_dir.is_dir():
+        return False
+
+    shutil.rmtree(local_dir)
+    logger.info("Deleted local trace: %s", trace_id)
+    return True
+
+
 # ═══════════════════════════════════════════════════════════════════════
 #  Internal helpers
 # ═══════════════════════════════════════════════════════════════════════
