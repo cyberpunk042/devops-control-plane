@@ -81,7 +81,7 @@ async function renderChatPanel() {
             </div>
             <div class="chat-compose-footer">
                 <label class="chat-encrypt-label">
-                    <input type="checkbox" id="chat-encrypt-cb"> &#x1F512; Encrypt
+                    <input type="checkbox" id="chat-encrypt-cb" onchange="chatToggleEncryptHint(this.checked)"> &#x1F512; Encrypt
                 </label>
                 <span style="flex:1"></span>
                 <span id="chat-compose-status" class="chat-compose-status"></span>
@@ -299,7 +299,7 @@ function chatRenderMessages() {
 
 function _chatRenderBubble(msg) {
   const src = msg.source || 'manual';
-  const isEnc = msg.encrypted || false;
+  const isEnc = (msg.flags && msg.flags.encrypted) || false;
   const relTime = _chatRelativeTime(msg.ts);
   const escaped = esc(msg.text);
   const refs = _chatEmbedRefs(escaped);
@@ -573,5 +573,19 @@ function _chatRelativeTime(isoString) {
     return d.toLocaleDateString();
   } catch (ex) {
     return isoString;
+  }
+}
+
+function chatToggleEncryptHint(on) {
+  const textarea = document.getElementById('chat-compose-input');
+  if (!textarea) return;
+  if (on) {
+    textarea.style.borderColor = 'var(--warning, #f59e0b)';
+    textarea.style.boxShadow = '0 0 0 1px var(--warning, #f59e0b)';
+    textarea.placeholder = '\uD83D\uDD10 Encrypted message... Use @ for references';
+  } else {
+    textarea.style.borderColor = '';
+    textarea.style.boxShadow = '';
+    textarea.placeholder = 'Type a message... Use @ for references';
   }
 }

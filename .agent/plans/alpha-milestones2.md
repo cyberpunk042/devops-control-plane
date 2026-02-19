@@ -42,9 +42,9 @@ minimally viable.
 
 ### What This Is
 
-A structured data layer on top of git that stores run artifacts, event logs,
-and operational history — separate from the clean code history but living
-in the same repository.
+A structured data layer on top of git that stores **audit snapshots**,
+thread messages, and session traces — separate from the clean code history
+but living in the same repository.
 
 This is the **storage backbone** for everything else in Phase 1.
 
@@ -53,50 +53,49 @@ This is the **storage backbone** for everything else in Phase 1.
 | Primitive | Ref | Purpose | Content |
 |-----------|-----|---------|---------|
 | **Code** | `refs/heads/main` | Clean commit history | Source code (unchanged) |
-| **Ledger branch** | `refs/heads/scp-ledger` | Operational data (big) | `ledger/runs/`, `ledger/traces/` |
-| **Run anchors** | `refs/tags/scp/run/<run_id>` | Stable handles to runs | Annotated tags pointing to code commits |
+| **Ledger branch** | `refs/heads/scp-ledger` | Persistent operational data | `ledger/audits/`, `ledger/traces/`, `chat/threads/` |
+| **Chat notes** | `refs/notes/scp-chat` | Lightweight message attachment | JSONL notes attached to commits |
 
 ### Ledger Branch Design
 
 The `scp-ledger` branch is an **orphan branch** — no shared history with
-`main`. It stores operational artifacts that are too large or too frequent
-for the main history.
+`main`. It stores operational artifacts that deserve git persistence.
 
 ```
 scp-ledger (orphan)
 └── ledger/
-    ├── runs/
-    │   ├── <run_id>/
-    │   │   ├── run.json          # Run metadata (type, status, timing, user)
-    │   │   ├── events.jsonl      # Fine-grained event stream
-    │   │   └── artifacts/        # Any associated files (reports, diffs, etc.)
+    ├── audits/
+    │   ├── <snapshot_id>/
+    │   │   ├── snapshot.json     # Audit snapshot metadata
+    │   │   └── findings/         # Associated findings, reports
     │   └── ...
-    └── traces/
-        ├── <trace_id>/
-        │   ├── trace.json        # Session trace (see 1C)
-        │   └── summary.md        # Auto-generated human summary
-        └── ...
+    ├── traces/
+    │   ├── <trace_id>/
+    │   │   ├── trace.json        # Session trace (see 1C)
+    │   │   └── summary.md        # Auto-generated human summary
+    │   └── ...
+    └── chat/
+        └── threads/
+            ├── <thread_id>/
+            │   └── messages.jsonl  # Thread messages
+            └── ...
 ```
 
-### Run Anchors
+### Runs (Local Ephemeral)
 
-Each "run" is a significant operation: a wizard completion, a deployment,
-a vault export, a detection scan, etc.
+Runs are **NOT** stored in the git ledger. Runs are ephemeral operational
+records stored locally in `.state/runs.jsonl`. They track significant
+operations (deployments, installs, scans, etc.) with timing and status.
 
 ```
-Annotated tag: refs/tags/scp/run/<run_id>
-  ├── Points to: the commit on main that was HEAD at run time
-  ├── Tag message: JSON metadata
-  │   {
-  │     "run_id": "run_2026-02-17_204500",
-  │     "type": "k8s:apply",
-  │     "user": "jfortin",
-  │     "status": "ok",
-  │     "code_ref": "abc123",
-  │     "ledger_ref": "ledger/runs/run_2026-02-17_204500/"
-  │   }
-  └── Queryable: `git tag -l 'scp/run/*'`
+.state/runs.jsonl (local, append-only, max 200 entries)
+  Each line: { run_id, type, subtype, status, user, code_ref,
+               started_at, ended_at, duration_ms, summary, metadata }
 ```
+
+**Rationale:** Runs are high-frequency, machine-generated, and ephemeral.
+They don't belong in git history. The local activity log is sufficient
+for autocomplete (`@run:`), display, and short-term reference.
 
 ### What Exists Today
 
@@ -120,16 +119,22 @@ Annotated tag: refs/tags/scp/run/<run_id>
 ### Relationship to Existing Audit Log
 
 ```
-.state/audit.ndjson (LOCAL, machine-generated, exhaustive, ephemeral)
+.state/audit_activity.json (LOCAL, machine-generated, exhaustive, ephemeral)
         │
         │  can be promoted to ──→
         │
 scp-ledger branch (GIT-HOSTED, structured, selective, permanent)
 ```
 
-The local audit log continues to exist as-is. The ledger is a
+```
+.state/runs.jsonl (LOCAL, machine-generated, ephemeral, max 200)
+        │
+        └── NOT promoted — stays local. Queryable via @run: refs.
+```
+
+The local audit log and runs log continue to exist as-is. The ledger is a
 **higher-tier persistence** — what gets promoted to git is a conscious
-choice (automatic for runs, manual for other things).
+choice (audit snapshots and chat threads, never runs).
 
 ---
 
@@ -148,14 +153,18 @@ SCP Chat says _why it happened_ and _what it means_.
 
 ```
 refs/notes/scp-chat
-  └── Notes attached to tag objects (run anchors)
+  └── Notes attached to commit objects
       └── Each note: JSONL file (one message per line)
+
+scp-ledger branch
+  └── chat/threads/<thread_id>/messages.jsonl
+      └── Thread-organized messages (persistent, pushable)
 ```
 
 Why git notes?
 - **Append-only** — each `git notes append` adds content without conflicts
 - **Conflict-light** — notes are per-object, so concurrent writes to
-  different runs don't conflict
+  different commits don't conflict
 - **Distributed** — push/pull with `git push origin refs/notes/scp-chat`
 - **Invisible** — notes don't pollute the main history or the working tree
 

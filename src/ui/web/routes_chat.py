@@ -145,7 +145,16 @@ def chat_send():
             encrypt=body.get("encrypt", False),
             source=body.get("source", "manual"),
         )
-        return jsonify(msg.model_dump(mode="json"))
+        # Return decrypted text to the client for immediate rendering.
+        # The stored version stays encrypted on disk.
+        result = msg.model_dump(mode="json")
+        if msg.flags.encrypted and msg.text.startswith("ENC:"):
+            try:
+                from src.core.services.chat.chat_crypto import decrypt_text
+                result["text"] = decrypt_text(msg.text, root)
+            except Exception:
+                pass  # fall back to encrypted text if key unavailable
+        return jsonify(result)
     except ValueError as e:
         # ValueError raised when encrypt=True but no key configured
         return jsonify({"error": str(e)}), 400
