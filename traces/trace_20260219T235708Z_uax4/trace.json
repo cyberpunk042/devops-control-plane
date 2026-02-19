@@ -1,0 +1,14 @@
+{
+  "trace_id": "trace_20260219T235708Z_uax4",
+  "name": "test111111",
+  "classification": "",
+  "started_at": "2026-02-19T23:57:08.633902+00:00",
+  "ended_at": "2026-02-19T23:57:34.115973+00:00",
+  "user": "Cyberpunk 042",
+  "code_ref": "406d05f81d1da6f3d1a28c613fe68a9a72507b42",
+  "auto_summary": "10 cache refreshes, 5 audit events, 2 run events, 1 trace event \u2014 29.8s total",
+  "audit_refs": [],
+  "event_count": 18,
+  "duration_s": 25.48,
+  "shared": true
+}
