@@ -7,7 +7,7 @@ Public API::
 
 Storage:
     - Audit snapshots are stored on the ``scp-ledger`` orphan branch via a
-      dedicated ``.scp-ledger/`` worktree (gitignored, never touches main).
+      dedicated ``.ledger/`` worktree (gitignored, never touches main).
     - Audit metadata is also stored as annotated tags at
       ``refs/tags/scp/audit/<snapshot_id>``.
 

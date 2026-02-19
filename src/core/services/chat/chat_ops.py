@@ -3,7 +3,7 @@ Chat operations — send, list, thread CRUD, push/pull.
 
 Uses two storage backends:
   - Git notes (``refs/notes/scp-chat``) for run-attached messages
-  - Ledger branch files (``.scp-ledger/chat/threads/``) for thread messages
+  - Ledger branch files (``.ledger/chat/threads/``) for thread messages
 
 Uses ``chat_crypto.py`` for encryption/decryption.
 """
@@ -634,7 +634,7 @@ def create_thread(
 
 
 def list_threads(project_root: Path) -> list[Thread]:
-    """List all threads from .scp-ledger/chat/threads/*/thread.json.
+    """List all threads from .ledger/chat/threads/*/thread.json.
 
     Returns newest-first by created_at.
     """

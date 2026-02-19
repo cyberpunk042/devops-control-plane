@@ -156,7 +156,7 @@ class TestWorktree:
     def test_worktree_path(self, tmp_path: Path):
         from src.core.services.ledger.worktree import worktree_path
         wt = worktree_path(tmp_path)
-        assert wt == tmp_path / ".scp-ledger"
+        assert wt == tmp_path / ".ledger"
 
     def test_ensure_worktree_creates_branch_and_dir(self, tmp_path: Path):
         from src.core.services.ledger.worktree import ensure_worktree
@@ -187,7 +187,7 @@ class TestWorktree:
         gitignore = repo / ".gitignore"
         assert gitignore.is_file()
         content = gitignore.read_text()
-        assert ".scp-ledger/" in content
+        assert ".ledger/" in content
 
     def test_ensure_worktree_preserves_existing_gitignore(self, tmp_path: Path):
         from src.core.services.ledger.worktree import ensure_worktree
@@ -198,7 +198,7 @@ class TestWorktree:
         content = gitignore.read_text()
         assert "node_modules/" in content
         assert ".env" in content
-        assert ".scp-ledger/" in content
+        assert ".ledger/" in content
 
     def test_create_run_tag(self, tmp_path: Path):
         from src.core.services.ledger.worktree import (

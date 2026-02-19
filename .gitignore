@@ -49,4 +49,4 @@ Thumbs.db
 .pages/
 
 # SCP Ledger worktree (Phase 1A)
-.scp-ledger/
+.ledger/

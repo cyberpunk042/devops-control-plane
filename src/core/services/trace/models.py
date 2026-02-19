@@ -46,7 +46,7 @@ class SessionTrace(BaseModel):
 
     Storage:
       - Local (unshared):  .state/traces/<trace_id>/ (trace.json + events.jsonl)
-      - Shared (git):      .scp-ledger/ledger/traces/<trace_id>/ (committed)
+      - Shared (git):      .ledger/traces/<trace_id>/ (committed)
     """
 
     trace_id: str = ""

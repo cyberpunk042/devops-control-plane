@@ -49,7 +49,7 @@ class ChatMessage(BaseModel):
 
     Stored as:
       - JSONL line in git notes (run-attached messages)
-      - JSONL line in .scp-ledger/chat/threads/<id>/messages.jsonl (thread messages)
+      - JSONL line in .ledger/chat/threads/<id>/messages.jsonl (thread messages)
     """
 
     id: str = ""
@@ -83,7 +83,7 @@ class ChatMessage(BaseModel):
 class Thread(BaseModel):
     """A conversation thread.
 
-    Stored as thread.json in .scp-ledger/chat/threads/<thread_id>/.
+    Stored as thread.json in .ledger/chat/threads/<thread_id>/.
     """
 
     thread_id: str = ""

@@ -4,7 +4,7 @@ Audit staging — pending audit snapshots awaiting save-to-git or discard.
 Each time ``devops_cache.get_cached()`` computes a fresh result for a card,
 an audit snapshot (the **full** data blob) is staged here.  The user can then:
 
-  - **Save** → promotes to ``.scp-ledger/audits/<snapshot_id>.json`` + git tag
+  - **Save** → promotes to ``.ledger/audits/<snapshot_id>.json`` + git tag
   - **Discard** → removes from pending list (cache is NOT affected)
 
 Persistence
@@ -192,7 +192,7 @@ def save_audit(project_root: Path, snapshot_id: str) -> dict[str, Any]:
 
     Steps:
       1. Find the snapshot in the pending list.
-      2. Write to ``.scp-ledger/audits/<snapshot_id>.json`` + commit + tag.
+      2. Write to ``.ledger/audits/<snapshot_id>.json`` + commit + tag.
       3. Remove from pending list.
       4. Persist.
 

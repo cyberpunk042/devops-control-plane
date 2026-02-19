@@ -321,7 +321,7 @@ def _resolve_audit(operation_id: str, project_root: Path) -> dict | None:
     """Resolve an audit reference by ID.
 
     Resolution order:
-      1. Saved scan snapshots on the ledger branch (``.scp-ledger/audits/``)
+      1. Saved scan snapshots on the ledger branch (``.ledger/audits/``)
       2. Execution log (``.state/audit.ndjson``)
 
     This ensures saved audits (Phase 1) are preferred while maintaining

@@ -1,12 +1,12 @@
 """
 Git worktree management for the SCP ledger.
 
-Provides a dedicated ``.scp-ledger/`` worktree at the project root for
+Provides a dedicated ``.ledger/`` worktree at the project root for
 writes to the ``scp-ledger`` orphan branch. Also provides helpers for
 annotated tags and git notes — operations that run against the main repo.
 
 Design:
-    - ``_run_ledger_git()`` operates in ``.scp-ledger/`` (git -C)
+    - ``_run_ledger_git()`` operates in ``.ledger/`` (git -C)
     - ``_run_main_git()`` operates in the main project root
     - ``ensure_worktree()`` is idempotent — safe to call on every operation
     - All functions return errors gracefully; callers never see exceptions
@@ -23,8 +23,8 @@ logger = logging.getLogger(__name__)
 # ─── Constants ──────────────────────────────────────────────────────────
 
 LEDGER_BRANCH = "scp-ledger"
-WORKTREE_DIR = ".scp-ledger"
-GITIGNORE_ENTRY = ".scp-ledger/"
+WORKTREE_DIR = ".ledger"
+GITIGNORE_ENTRY = ".ledger/"
 TAG_PREFIX = "scp/run/"
 
 
@@ -38,9 +38,9 @@ def _run_ledger_git(
     project_root: Path,
     timeout: int = 15,
 ) -> subprocess.CompletedProcess[str]:
-    """Run a git command in the .scp-ledger worktree.
+    """Run a git command in the .ledger worktree.
 
-    Equivalent to: ``git -C <project_root>/.scp-ledger <args>``
+    Equivalent to: ``git -C <project_root>/.ledger <args>``
     Injects git auth env (ssh-agent, etc.) automatically.
     """
     from src.core.services.git_auth import git_env
@@ -123,18 +123,18 @@ def _safe_rebase(project_root: Path, *, label: str = "rebase") -> bool:
 
 
 def worktree_path(project_root: Path) -> Path:
-    """Return the worktree directory path: ``<project_root>/.scp-ledger``."""
+    """Return the worktree directory path: ``<project_root>/.ledger``."""
     return project_root / WORKTREE_DIR
 
 
 def ensure_worktree(project_root: Path) -> Path:
-    """Ensure the ``.scp-ledger`` worktree exists and is healthy.
+    """Ensure the ``.ledger`` worktree exists and is healthy.
 
     Steps:
       1. Try to fetch ``scp-ledger`` from origin (ignore if no remote)
       2. If ``scp-ledger`` branch doesn't exist locally, create it as orphan
-      3. If ``.scp-ledger/`` dir doesn't exist, ``git worktree add``
-      4. Ensure ``.scp-ledger/`` is in ``.gitignore``
+      3. If ``.ledger/`` dir doesn't exist, ``git worktree add``
+      4. Ensure ``.ledger/`` is in ``.gitignore``
       5. Ensure VS Code ignores the worktree repo
 
     Idempotent — safe to call on every operation.
@@ -250,7 +250,7 @@ def _create_orphan_branch(project_root: Path, branch: str) -> None:
 
 
 def _worktree_is_valid(project_root: Path) -> bool:
-    """Check if the .scp-ledger worktree directory exists and is a valid git worktree."""
+    """Check if the .ledger worktree directory exists and is a valid git worktree."""
     wt = worktree_path(project_root)
     if not wt.is_dir():
         return False
@@ -260,7 +260,7 @@ def _worktree_is_valid(project_root: Path) -> bool:
 
 
 def _attach_worktree(project_root: Path) -> None:
-    """Attach the .scp-ledger worktree to the scp-ledger branch."""
+    """Attach the .ledger worktree to the scp-ledger branch."""
     wt = worktree_path(project_root)
     logger.info("Attaching worktree at %s", wt)
 
@@ -281,7 +281,7 @@ def _attach_worktree(project_root: Path) -> None:
 
 
 def _ensure_gitignore(project_root: Path) -> None:
-    """Ensure ``.scp-ledger/`` is in ``.gitignore``."""
+    """Ensure ``.ledger/`` is in ``.gitignore``."""
     gitignore = project_root / ".gitignore"
 
     if gitignore.is_file():
@@ -300,9 +300,9 @@ def _ensure_gitignore(project_root: Path) -> None:
 
 
 def _ensure_vscode_git_ignored(project_root: Path) -> None:
-    """Ensure VS Code ignores the ``.scp-ledger`` worktree in its Git panel.
+    """Ensure VS Code ignores the ``.ledger`` worktree in its Git panel.
 
-    Adds ``".scp-ledger"`` to ``git.ignoredRepositories`` in
+    Adds ``".ledger"`` to ``git.ignoredRepositories`` in
     ``.vscode/settings.json``.  Idempotent.
     """
     import json
@@ -323,7 +323,7 @@ def _ensure_vscode_git_ignored(project_root: Path) -> None:
     if not isinstance(ignored, list):
         ignored = []
 
-    entry = ".scp-ledger"
+    entry = ".ledger"
     if entry in ignored:
         return  # Already configured
 
@@ -523,9 +523,9 @@ def push_ledger_branch(project_root: Path) -> bool:
     """Push scp-ledger branch to origin (with fetch+rebase first).
 
     Steps:
-      1. ``git -C .scp-ledger fetch origin +refs/heads/scp-ledger:refs/remotes/origin/scp-ledger``
-      2. ``git -C .scp-ledger rebase origin/scp-ledger``
-      3. ``git -C .scp-ledger push origin scp-ledger``
+      1. ``git -C .ledger fetch origin +refs/heads/scp-ledger:refs/remotes/origin/scp-ledger``
+      2. ``git -C .ledger rebase origin/scp-ledger``
+      3. ``git -C .ledger push origin scp-ledger``
     """
     # Fetch first
     r = _run_ledger_git(
@@ -575,8 +575,8 @@ def pull_ledger_branch(project_root: Path) -> bool:
     multiple branches."
 
     Steps:
-      1. ``git -C .scp-ledger fetch origin scp-ledger``
-      2. ``git -C .scp-ledger rebase FETCH_HEAD``
+      1. ``git -C .ledger fetch origin scp-ledger``
+      2. ``git -C .ledger rebase FETCH_HEAD``
     """
     r = _run_ledger_git(
         "fetch", "origin",

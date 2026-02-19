@@ -2,7 +2,8 @@
 Trace recorder — start/stop recording, save traces, generate summaries.
 
 Uses the event bus queue listener mechanism to capture events during
-recording, stores traces on the ledger branch.
+recording. Local traces go to .state/traces/, shared traces to the
+ledger worktree (.ledger/traces/).
 """
 
 from __future__ import annotations
@@ -393,11 +394,11 @@ def share_trace(project_root: Path, trace_id: str) -> bool:
     )
 
     # Copy events.jsonl to ledger
-    rel_paths = [f"ledger/traces/{trace_id}/trace.json"]
+    rel_paths = [f"traces/{trace_id}/trace.json"]
     local_events = local_dir / "events.jsonl"
     if local_events.is_file():
         shutil.copy2(local_events, ledger_dir / "events.jsonl")
-        rel_paths.append(f"ledger/traces/{trace_id}/events.jsonl")
+        rel_paths.append(f"traces/{trace_id}/events.jsonl")
 
     # Also update the local copy's shared flag
     local_trace_file = local_dir / "trace.json"
@@ -455,7 +456,7 @@ def unshare_trace(project_root: Path, trace_id: str) -> bool:
     # Commit the flag change so it syncs to other machines
     ledger_add_and_commit(
         project_root,
-        paths=[f"ledger/traces/{trace_id}/trace.json"],
+        paths=[f"traces/{trace_id}/trace.json"],
         message=f"trace(unshared): {trace_id}",
     )
 
@@ -656,7 +657,7 @@ def active_recordings() -> list[str]:
 
 def _ledger_traces_dir(project_root: Path) -> Path:
     """Return the traces directory in the ledger worktree (shared/synced)."""
-    return worktree_path(project_root) / "ledger" / "traces"
+    return worktree_path(project_root) / "traces"
 
 
 def _local_traces_dir(project_root: Path) -> Path:
