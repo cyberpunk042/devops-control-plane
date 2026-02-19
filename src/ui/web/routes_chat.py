@@ -18,6 +18,7 @@ Endpoints:
 from __future__ import annotations
 
 import logging
+import threading
 from pathlib import Path
 
 from flask import Blueprint, current_app, jsonify, request
@@ -103,6 +104,15 @@ def chat_messages():
         run_id = request.args.get("run_id") or None
         n = request.args.get("n", 50, type=int)
 
+        # Auto-pull latest from origin in background (non-blocking).
+        # Messages load instantly from local; pull results appear on next load.
+        def _bg_pull(r):
+            try:
+                pull_chat(r)
+            except Exception:
+                pass
+        threading.Thread(target=_bg_pull, args=(root,), daemon=True).start()
+
         messages = list_messages(
             root,
             thread_id=thread_id,
@@ -156,6 +166,15 @@ def chat_send():
                 result["text"] = decrypt_text(msg.text, root)
             except Exception:
                 pass  # fall back to encrypted text if key unavailable
+
+        # Auto-push to origin in background (don't block the response)
+        def _bg_push(r):
+            try:
+                push_chat(r)
+            except Exception:
+                pass
+        threading.Thread(target=_bg_push, args=(root,), daemon=True).start()
+
         return jsonify(result)
     except ValueError as e:
         # ValueError raised when encrypt=True but no key configured

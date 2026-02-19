@@ -41,7 +41,10 @@ def _run_ledger_git(
     """Run a git command in the .scp-ledger worktree.
 
     Equivalent to: ``git -C <project_root>/.scp-ledger <args>``
+    Injects git auth env (ssh-agent, etc.) automatically.
     """
+    from src.core.services.git_auth import git_env
+
     wt = project_root / WORKTREE_DIR
     cmd = ["git", "-C", str(wt), *args]
     logger.debug("ledger-git: %s", " ".join(cmd))
@@ -50,6 +53,7 @@ def _run_ledger_git(
         capture_output=True,
         text=True,
         timeout=timeout,
+        env=git_env(),
     )
 
 
@@ -58,7 +62,12 @@ def _run_main_git(
     project_root: Path,
     timeout: int = 15,
 ) -> subprocess.CompletedProcess[str]:
-    """Run a git command in the main repo (for tags, notes, fetch)."""
+    """Run a git command in the main repo (for tags, notes, fetch).
+
+    Injects git auth env (ssh-agent, etc.) automatically.
+    """
+    from src.core.services.git_auth import git_env
+
     cmd = ["git", "-C", str(project_root), *args]
     logger.debug("main-git: %s", " ".join(cmd))
     return subprocess.run(
@@ -66,6 +75,7 @@ def _run_main_git(
         capture_output=True,
         text=True,
         timeout=timeout,
+        env=git_env(),
     )
 
 
@@ -96,14 +106,16 @@ def ensure_worktree(project_root: Path) -> Path:
     """
     wt = worktree_path(project_root)
 
-    # 1. Try to fetch from origin (best-effort, ignore errors)
-    _run_main_git(
-        "fetch", "origin",
-        f"{LEDGER_BRANCH}:{LEDGER_BRANCH}",
-        project_root=project_root,
-    )
+    # 1. Ensure local branch exists (may need to fetch first if brand new)
+    if not _branch_exists(project_root, LEDGER_BRANCH):
+        # Try to fetch from origin before creating orphan
+        _run_main_git(
+            "fetch", "origin",
+            f"{LEDGER_BRANCH}:{LEDGER_BRANCH}",
+            project_root=project_root,
+        )
 
-    # 2. Ensure local branch exists
+    # 2. Ensure local branch exists (create orphan if fetch didn't bring it)
     if not _branch_exists(project_root, LEDGER_BRANCH):
         _create_orphan_branch(project_root, LEDGER_BRANCH)
 
@@ -111,10 +123,28 @@ def ensure_worktree(project_root: Path) -> Path:
     if not _worktree_is_valid(project_root):
         _attach_worktree(project_root)
 
-    # 4. Ensure .gitignore contains the entry
+    # 4. Pull latest from origin into worktree (safe for checked-out branch)
+    #    NOTE: `git fetch origin X:X` fails when X is checked out in a worktree.
+    #    Using `git -C .scp-ledger pull --rebase` works correctly.
+    if wt.is_dir():
+        r = _run_ledger_git(
+            "pull", "--rebase", "origin", LEDGER_BRANCH,
+            project_root=project_root,
+            timeout=30,
+        )
+        if r.returncode != 0:
+            stderr = r.stderr.strip()
+            # These are fine — remote doesn't have the branch yet
+            if not any(s in stderr.lower() for s in (
+                "no tracking", "couldn't find remote", "no such remote",
+                "invalid upstream",
+            )):
+                logger.warning("Ledger pull in ensure_worktree: %s", stderr)
+
+    # 5. Ensure .gitignore contains the entry
     _ensure_gitignore(project_root)
 
-    # 5. Ensure VS Code ignores the worktree repository
+    # 6. Ensure VS Code ignores the worktree repository
     _ensure_vscode_git_ignored(project_root)
 
     return wt

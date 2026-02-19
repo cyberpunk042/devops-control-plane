@@ -1,0 +1,159 @@
+<script>
+// ═══════════════════════════════════════════════════════════════
+// Git Auth — SSH/HTTPS credential management
+// ═══════════════════════════════════════════════════════════════
+
+let _gitAuthStatus = null;
+
+async function checkGitAuth() {
+  try {
+    _gitAuthStatus = await api('/git/auth-status');
+    if (_gitAuthStatus.ok) return;
+
+    if (_gitAuthStatus.needs === 'ssh_passphrase') {
+      showGitAuthModal('ssh');
+    } else if (_gitAuthStatus.needs === 'https_credentials') {
+      showGitAuthModal('https');
+    }
+  } catch (e) {
+    // Silently ignore — auth check is best-effort
+  }
+}
+
+function showGitAuthModal(type) {
+  const status = _gitAuthStatus || {};
+  const keyName = status.ssh_key || 'SSH key';
+  const remoteUrl = status.remote_url || 'origin';
+
+  if (type === 'ssh') {
+    modalOpen({
+      title: '\uD83D\uDD11 SSH Key Passphrase Required',
+      body: '<div style="font-size:0.85rem">'
+        + '<p style="color:var(--text-muted);margin-bottom:var(--space-md)">'
+        + 'Your git remote uses SSH and the key <strong>' + esc(keyName) + '</strong> '
+        + 'requires a passphrase to connect to:</p>'
+        + '<code style="display:block;padding:0.5rem;background:var(--surface-raised);'
+        + 'border-radius:var(--radius-sm);margin-bottom:var(--space-md);font-size:0.78rem;'
+        + 'word-break:break-all">' + esc(remoteUrl) + '</code>'
+        + '<label style="font-weight:500;font-size:0.78rem;display:block;margin-bottom:0.3rem">'
+        + 'SSH Key Passphrase</label>'
+        + '<input type="password" id="git-auth-passphrase" class="form-input" '
+        + 'placeholder="Enter passphrase for ' + esc(keyName) + '" '
+        + 'style="width:100%;margin-bottom:0.5rem" '
+        + 'onkeydown="if(event.key===\'Enter\')submitGitAuthSSH()">'
+        + '<p id="git-auth-error" style="color:#f87171;font-size:0.75rem;min-height:1rem"></p>'
+        + '</div>',
+      size: 'narrow',
+      footerButtons: [
+        { label: 'Skip', cls: 'btn-ghost', onclick: 'modalClose()' },
+        { label: 'Unlock \u2192', cls: 'btn-primary', onclick: 'submitGitAuthSSH()' },
+      ],
+    });
+    // Focus the input after modal opens
+    setTimeout(() => {
+      const inp = document.getElementById('git-auth-passphrase');
+      if (inp) inp.focus();
+    }, 100);
+  } else if (type === 'https') {
+    modalOpen({
+      title: '\uD83D\uDD10 Git Credentials Required',
+      body: '<div style="font-size:0.85rem">'
+        + '<p style="color:var(--text-muted);margin-bottom:var(--space-md)">'
+        + 'Your git remote uses HTTPS and requires authentication:</p>'
+        + '<code style="display:block;padding:0.5rem;background:var(--surface-raised);'
+        + 'border-radius:var(--radius-sm);margin-bottom:var(--space-md);font-size:0.78rem;'
+        + 'word-break:break-all">' + esc(remoteUrl) + '</code>'
+        + '<label style="font-weight:500;font-size:0.78rem;display:block;margin-bottom:0.3rem">'
+        + 'Personal Access Token (PAT)</label>'
+        + '<input type="password" id="git-auth-token" class="form-input" '
+        + 'placeholder="ghp_xxxxxxxxxxxx" '
+        + 'style="width:100%;margin-bottom:0.5rem" '
+        + 'onkeydown="if(event.key===\'Enter\')submitGitAuthHTTPS()">'
+        + '<p id="git-auth-error" style="color:#f87171;font-size:0.75rem;min-height:1rem"></p>'
+        + '</div>',
+      size: 'narrow',
+      footerButtons: [
+        { label: 'Skip', cls: 'btn-ghost', onclick: 'modalClose()' },
+        { label: 'Save \u2192', cls: 'btn-primary', onclick: 'submitGitAuthHTTPS()' },
+      ],
+    });
+    setTimeout(() => {
+      const inp = document.getElementById('git-auth-token');
+      if (inp) inp.focus();
+    }, 100);
+  }
+}
+
+async function submitGitAuthSSH() {
+  const inp = document.getElementById('git-auth-passphrase');
+  const errEl = document.getElementById('git-auth-error');
+  if (!inp) return;
+
+  const passphrase = inp.value;
+  if (!passphrase) {
+    if (errEl) errEl.textContent = 'Passphrase is required';
+    return;
+  }
+
+  // Disable button while processing
+  const btn = document.querySelector('.modal-footer .btn-primary');
+  if (btn) { btn.disabled = true; btn.textContent = 'Unlocking...'; }
+
+  try {
+    const result = await api('/git/auth-ssh', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ passphrase: passphrase }),
+    });
+
+    if (result.ok) {
+      modalClose();
+      toast('\uD83D\uDD13 SSH key unlocked — git sync is ready', 'success');
+      _gitAuthStatus = { ok: true };
+    } else {
+      if (errEl) errEl.textContent = result.error || 'Authentication failed';
+      inp.value = '';
+      inp.focus();
+    }
+  } catch (e) {
+    if (errEl) errEl.textContent = e.message || 'Failed to authenticate';
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Unlock \u2192'; }
+  }
+}
+
+async function submitGitAuthHTTPS() {
+  const inp = document.getElementById('git-auth-token');
+  const errEl = document.getElementById('git-auth-error');
+  if (!inp) return;
+
+  const token = inp.value.trim();
+  if (!token) {
+    if (errEl) errEl.textContent = 'Token is required';
+    return;
+  }
+
+  const btn = document.querySelector('.modal-footer .btn-primary');
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving...'; }
+
+  try {
+    const result = await api('/git/auth-https', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: token }),
+    });
+
+    if (result.ok) {
+      modalClose();
+      toast('\uD83D\uDD10 Git credentials saved — sync is ready', 'success');
+      _gitAuthStatus = { ok: true };
+    } else {
+      if (errEl) errEl.textContent = result.error || 'Authentication failed';
+    }
+  } catch (e) {
+    if (errEl) errEl.textContent = e.message || 'Failed to store credentials';
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Save \u2192'; }
+  }
+}
+</script>
