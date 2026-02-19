@@ -150,8 +150,16 @@ def chat_messages():
             run_id=run_id,
             n=n,
         )
+        msgs_out = []
+        for m in messages:
+            d = m.model_dump(mode="json")
+            if d.get("trace_id") and d.get("source") == "trace":
+                from src.core.services.trace import get_trace
+                t = get_trace(root, d["trace_id"])
+                d["trace_shared"] = t.shared if t else False
+            msgs_out.append(d)
         return jsonify({
-            "messages": [m.model_dump(mode="json") for m in messages],
+            "messages": msgs_out,
         })
     except Exception as e:
         logger.exception("Failed to list messages")
