@@ -55,9 +55,23 @@ def chat_threads():
     try:
         root = _project_root()
         threads = list_threads(root)
-        return jsonify({
-            "threads": [t.model_dump(mode="json") for t in threads],
-        })
+
+        # Enrich with message_count for UI (seen/unseen badges)
+        result = []
+        for t in threads:
+            td = t.model_dump(mode="json")
+            try:
+                from src.core.services.chat.chat_ops import _thread_dir
+                msg_file = _thread_dir(root, t.thread_id) / "messages.jsonl"
+                if msg_file.is_file():
+                    td["message_count"] = sum(1 for _ in msg_file.open("r", encoding="utf-8"))
+                else:
+                    td["message_count"] = 0
+            except Exception:
+                td["message_count"] = 0
+            result.append(td)
+
+        return jsonify({"threads": result})
     except Exception as e:
         logger.exception("Failed to list threads")
         return jsonify({"error": str(e)}), 500
