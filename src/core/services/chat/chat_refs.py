@@ -200,24 +200,24 @@ def autocomplete(prefix: str, project_root: Path) -> list[dict | str]:
 
 
 def _resolve_run(run_id: str, project_root: Path) -> dict | None:
-    """Resolve a run reference."""
+    """Resolve a run reference from local ephemeral storage."""
     try:
-        from src.core.services.ledger.ledger_ops import get_run
-        run = get_run(project_root, run_id)
+        from src.core.services.run_tracker import get_run_local
+        run = get_run_local(project_root, run_id)
         if run is None:
             return {"type": "run", "id": run_id, "exists": False}
         return {
             "type": "run",
             "id": run_id,
             "exists": True,
-            "run_type": run.type,
-            "subtype": run.subtype,
-            "summary": run.summary,
-            "status": run.status,
-            "started_at": run.started_at,
-            "ended_at": run.ended_at,
-            "duration_ms": run.duration_ms,
-            "code_ref": run.code_ref[:12] if run.code_ref else "",
+            "run_type": run.get("type", ""),
+            "subtype": run.get("subtype", ""),
+            "summary": run.get("summary", ""),
+            "status": run.get("status", ""),
+            "started_at": run.get("started_at", ""),
+            "ended_at": run.get("ended_at", ""),
+            "duration_ms": run.get("duration_ms", 0),
+            "code_ref": (run.get("code_ref") or "")[:12],
         }
     except Exception as e:
         logger.debug("Failed to resolve run %s: %s", run_id, e)
@@ -470,14 +470,10 @@ _MAX_SUGGESTIONS = 50
 
 
 def _autocomplete_runs(partial_id: str, project_root: Path) -> list[dict]:
-    """Autocomplete run references with rich metadata.
-
-    Returns dicts with: ref, label (type + summary), detail (status + user + time),
-    icon, status.  Supports keyword match on summary and type.
-    """
+    """Autocomplete run references from local ephemeral storage."""
     try:
-        from src.core.services.ledger.ledger_ops import list_runs
-        runs = list_runs(project_root, n=50)
+        from src.core.services.run_tracker import load_runs
+        runs = load_runs(project_root, n=50)
     except Exception as e:
         logger.debug("Failed to autocomplete runs: %s", e)
         return []
@@ -486,39 +482,42 @@ def _autocomplete_runs(partial_id: str, project_root: Path) -> list[dict]:
     partial_lower = partial_id.lower() if partial_id else ""
 
     for run in runs:
+        run_id = run.get("run_id", "")
         if partial_id:
             hit = (
-                run.run_id.startswith(partial_id)
-                or partial_lower in run.summary.lower()
-                or partial_lower in run.type.lower()
-                or partial_lower in run.subtype.lower()
+                run_id.startswith(partial_id)
+                or partial_lower in run.get("summary", "").lower()
+                or partial_lower in run.get("type", "").lower()
+                or partial_lower in run.get("subtype", "").lower()
             )
             if not hit:
                 continue
 
-        run_type = run.subtype or run.type or "run"
+        run_type = run.get("subtype") or run.get("type") or "run"
         label = run_type
-        if run.summary:
-            label += " \u2014 " + run.summary
+        summary = run.get("summary", "")
+        if summary:
+            label += " \u2014 " + summary
 
+        status = run.get("status", "")
         status_icons = {"ok": "\u2705", "failed": "\u274c", "partial": "\u26a0\ufe0f"}
-        status_icon = status_icons.get(run.status, "")
+        status_icon = status_icons.get(status, "")
 
         detail_parts = []
         if status_icon:
-            detail_parts.append(f"{status_icon} {run.status}")
-        if run.user:
-            detail_parts.append(run.user)
-        if run.started_at:
-            detail_parts.append(_relative_time(run.started_at))
+            detail_parts.append(f"{status_icon} {status}")
+        if run.get("user"):
+            detail_parts.append(run["user"])
+        if run.get("started_at"):
+            detail_parts.append(_relative_time(run["started_at"]))
         detail = " \u00b7 ".join(detail_parts)
 
         results.append({
-            "ref": f"@run:{run.run_id}",
+            "ref": f"@run:{run_id}",
             "label": label,
             "detail": detail,
             "icon": "\U0001f680",
-            "status": run.status,
+            "status": status,
         })
         if len(results) >= _MAX_SUGGESTIONS:
             break

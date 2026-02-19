@@ -694,7 +694,7 @@
 
         if (needsSudo) {
             _showOpsModal({
-                type: 'install', toolId, toolLabel: toolLabel || toolId,
+                type: 'install', toolId, toolLabel: toolLabel || toolId, needsSudo: true,
                 onSuccess: triggerRefresh ? () => _refreshAfterInstall() : null,
             });
             return;
@@ -716,7 +716,7 @@
                 if (triggerRefresh) setTimeout(() => _refreshAfterInstall(), 1200);
             } else if (res.needs_sudo) {
                 _showOpsModal({
-                    type: 'install', toolId, toolLabel: toolLabel || toolId,
+                    type: 'install', toolId, toolLabel: toolLabel || toolId, needsSudo: true,
                     onSuccess: triggerRefresh ? () => _refreshAfterInstall() : null,
                 });
             } else {
@@ -736,7 +736,7 @@
     // ── Backwards-compatible wrapper ──
     function _showSudoInstallModal(toolId, toolLabel, originBtn, triggerRefresh) {
         _showOpsModal({
-            type: 'install', toolId, toolLabel: toolLabel || toolId,
+            type: 'install', toolId, toolLabel: toolLabel || toolId, needsSudo: true,
             onSuccess: triggerRefresh ? () => _refreshAfterInstall() : null,
         });
     }
@@ -774,10 +774,18 @@
         console.warn('_showOpsModal: unknown type', config.type);
     }
 
-    // ── Install Modal (sudo password) ──────────────────────────────
+    // ── Install Modal (sudo password only when needed) ──────────────
 
     function _showInstallModal(config) {
-        const { toolId, toolLabel } = config;
+        const { toolId, toolLabel, needsSudo } = config;
+
+        if (!needsSudo) {
+            // No sudo needed — install directly, no modal
+            _doDirectInstall(toolId, toolLabel, config.onSuccess);
+            return;
+        }
+
+        // Sudo needed — show password modal
         document.getElementById('ops-modal')?.remove();
 
         const modal = document.createElement('div');
@@ -809,11 +817,29 @@
 
         // Wire install button
         document.getElementById('ops-modal-action').addEventListener('click', () => {
-            _doInstallAction(toolId, toolLabel, config.onSuccess);
+            _doSudoInstallAction(toolId, toolLabel, config.onSuccess);
         });
     }
 
-    async function _doInstallAction(toolId, toolLabel, onSuccess) {
+    async function _doDirectInstall(toolId, toolLabel, onSuccess) {
+        toast('⏳ Installing ' + toolLabel + '…', 'info');
+        try {
+            const res = await apiPost('/audit/install-tool', { tool: toolId, cli: toolId });
+            if (res.ok || res.already_installed) {
+                toast('✅ ' + (res.message || toolLabel + ' installed!'), 'success');
+                if (onSuccess) setTimeout(onSuccess, 500);
+            } else if (res.needs_sudo) {
+                // Backend says sudo IS needed after all — show the modal
+                _showInstallModal({ toolId, toolLabel, onSuccess, _forceSudo: true });
+            } else {
+                toast('❌ ' + (res.error || 'Install failed'), 'error');
+            }
+        } catch (err) {
+            toast('❌ Install error: ' + err.message, 'error');
+        }
+    }
+
+    async function _doSudoInstallAction(toolId, toolLabel, onSuccess) {
         const pw = document.getElementById('ops-modal-pw')?.value;
         const btn = document.getElementById('ops-modal-action');
         const log = document.getElementById('ops-modal-log');
@@ -1280,6 +1306,7 @@
             type: 'install',
             toolId: termName,
             toolLabel: termName,
+            needsSudo: true,
             onSuccess: () => {
                 // Terminal installed — re-open the auth modal and auto-retry
                 toast(termName + ' installed! Retrying terminal spawn…', 'success');

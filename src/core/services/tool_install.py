@@ -134,7 +134,7 @@ def install_tool(
                 "needs_sudo": True,
                 "error": "This tool requires sudo. Please enter your password.",
             }
-        cmd = ["sudo", "-S"] + _SUDO_RECIPES[tool]
+        cmd = ["sudo", "-S", "-k"] + _SUDO_RECIPES[tool]
     else:
         _audit(
             "🔧 Tool Install — No Recipe",

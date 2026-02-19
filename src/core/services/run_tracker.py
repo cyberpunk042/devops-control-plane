@@ -8,7 +8,7 @@ Provides two patterns:
 Both ensure:
   - A Run model is created with timestamps
   - SSE event emitted at start (run:started) and end (run:completed)
-  - Run is recorded to the ledger branch
+  - Run is recorded to local ephemeral storage (.state/runs.jsonl)
   - run_id is available for referencing
 
 Fail-safe: tracking failures never break the wrapped action.
@@ -62,6 +62,66 @@ def _now_iso() -> str:
     return datetime.now(UTC).isoformat()
 
 
+_RUNS_MAX = 200  # keep last N runs
+
+
+def _runs_path(project_root: Path) -> Path:
+    return project_root / ".state" / "runs.jsonl"
+
+
+def _append_run_local(project_root: Path, run_model) -> None:
+    """Append a completed run to .state/runs.jsonl."""
+    path = _runs_path(project_root)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    data = run_model.model_dump(mode="json")
+    with path.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(data, ensure_ascii=False) + "\n")
+
+    # Trim to max entries
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+        if len(lines) > _RUNS_MAX:
+            path.write_text(
+                "\n".join(lines[-_RUNS_MAX:]) + "\n",
+                encoding="utf-8",
+            )
+    except Exception:
+        pass
+
+
+def load_runs(project_root: Path, n: int = 50) -> list[dict]:
+    """Load the latest N runs from .state/runs.jsonl, newest-first."""
+    path = _runs_path(project_root)
+    if not path.is_file():
+        return []
+
+    entries: list[dict] = []
+    try:
+        for line in path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                entries.append(json.loads(line))
+            except json.JSONDecodeError:
+                pass
+    except OSError:
+        return []
+
+    # Newest-first
+    entries.reverse()
+    return entries[:n]
+
+
+def get_run_local(project_root: Path, run_id: str) -> dict | None:
+    """Get a single run by ID from .state/runs.jsonl."""
+    for entry in load_runs(project_root, n=_RUNS_MAX):
+        if entry.get("run_id") == run_id:
+            return entry
+    return None
+
+
 def _publish_event(event_type: str, run_data: dict) -> None:
     """Publish an SSE event for a run lifecycle change.
 
@@ -103,11 +163,24 @@ def tracked_run(
     recorded to the ledger and an SSE event fires.
     """
     from src.core.services.ledger.models import Run
+    from src.core.services.ledger.worktree import current_head_sha, current_user
+
+    # Fill user and code_ref
+    try:
+        user = current_user(project_root)
+    except Exception:
+        user = ""
+    try:
+        code_ref = current_head_sha(project_root) or ""
+    except Exception:
+        code_ref = ""
 
     run_model = Run(
         type=run_type,
         subtype=subtype,
         summary=summary,
+        user=user,
+        code_ref=code_ref,
         metadata=metadata if metadata else {},
     )
     run_model.ensure_id()
@@ -149,13 +222,11 @@ def tracked_run(
         run_model.duration_ms = duration_ms
         run_model.ended_at = run_bag["ended_at"]
 
-        # Record to ledger
+        # Record to local ephemeral storage
         try:
-            from src.core.services.ledger.ledger_ops import record_run
-
-            record_run(project_root, run_model)
+            _append_run_local(project_root, run_model)
         except Exception as e:
-            logger.warning("Failed to record run %s: %s", run_model.run_id, e)
+            logger.warning("Failed to record run %s locally: %s", run_model.run_id, e)
 
         # Emit completed event
         _publish_event("run:completed", {
@@ -275,6 +346,8 @@ def _extract_run_metadata(
     # Set summary
     if summary_key in data and data[summary_key]:
         run["summary"] = str(data[summary_key])
+    elif summary_key != "message" and "message" in data and data["message"]:
+        run["summary"] = str(data["message"])
     elif "error" in data:
         run["summary"] = str(data["error"])
 
