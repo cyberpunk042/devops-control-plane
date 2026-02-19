@@ -233,19 +233,28 @@ async function renderChatPanel() {
 async function chatLoadThreads() {
   const list = document.getElementById('chat-thread-list');
   if (!list) return;
+  var isInitialLoad = !_chatLoaded;
   try {
     const data = await api('/chat/threads');
     _chatThreads = data.threads || [];
     _chatLoaded = true;
     chatRenderThreadList(_chatThreads);
-    // Only auto-select on initial load (no thread selected yet)
-    if (!_chatSelectedThread && _chatThreads.length > 0) {
-      let gen = null;
-      for (let i = 0; i < _chatThreads.length; i++) {
-        if (_chatThreads[i].title === 'General') { gen = _chatThreads[i]; break; }
+
+    // On initial load, select a thread (and start polling)
+    if (isInitialLoad) {
+      if (_chatSelectedThread) {
+        // Thread pre-selected from URL hash — load it
+        chatSelectThread(_chatSelectedThread);
+      } else if (_chatThreads.length > 0) {
+        // Auto-select General or first thread
+        let gen = null;
+        for (let i = 0; i < _chatThreads.length; i++) {
+          if (_chatThreads[i].title === 'General') { gen = _chatThreads[i]; break; }
+        }
+        chatSelectThread(gen ? gen.thread_id : _chatThreads[0].thread_id);
       }
-      chatSelectThread(gen ? gen.thread_id : _chatThreads[0].thread_id);
     }
+    // On subsequent refreshes (auto-poll), just re-render the list — no re-selection
   } catch (e) {
     // Only show error state on initial load, not during poll refreshes
     if (!_chatLoaded) {
