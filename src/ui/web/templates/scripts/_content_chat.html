@@ -18,6 +18,13 @@ function _chatStartPoll() {
   _chatPollTimer = setInterval(async () => {
     if (!_chatSelectedThread) return;
     try {
+      // Pull remote changes first (sync), then read local messages
+      await api('/chat/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'pull' })
+      }).catch(() => {});  // pull failure is non-fatal
+
       const data = await api('/chat/messages?thread_id=' + encodeURIComponent(_chatSelectedThread) + '&n=100');
       const newMsgs = data.messages || [];
       // Only re-render if message count or last message changed
