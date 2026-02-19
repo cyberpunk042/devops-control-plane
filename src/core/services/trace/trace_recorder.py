@@ -417,6 +417,14 @@ def unshare_trace(project_root: Path, trace_id: str) -> bool:
 
     trace.shared = False
     _rewrite_trace_json(project_root, trace)
+
+    # Commit the flag change so it syncs to other machines
+    ledger_add_and_commit(
+        project_root,
+        paths=[f"ledger/traces/{trace_id}/trace.json"],
+        message=f"trace(unshared): {trace_id}",
+    )
+
     logger.info("Trace unshared: %s", trace_id)
     return True
 
