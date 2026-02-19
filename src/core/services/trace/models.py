@@ -44,9 +44,9 @@ class TraceEvent(BaseModel):
 class SessionTrace(BaseModel):
     """A recorded session.
 
-    Stored as:
-      - trace.json in .scp-ledger/ledger/traces/<trace_id>/
-      - events.jsonl alongside it
+    Storage:
+      - Local (unshared):  .state/traces/<trace_id>/ (trace.json + events.jsonl)
+      - Shared (git):      .scp-ledger/ledger/traces/<trace_id>/ (committed)
     """
 
     trace_id: str = ""

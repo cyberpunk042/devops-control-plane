@@ -82,12 +82,13 @@ def _run_main_git(
 def _safe_rebase(project_root: Path, *, label: str = "rebase") -> bool:
     """Stash → rebase origin/scp-ledger → pop.  Returns True on success.
 
-    Wraps the common stash/rebase/pop pattern so local-only files
-    (e.g. uncommitted trace data) don't block the rebase.
+    Wraps the common stash/rebase/pop pattern so uncommitted changes
+    (e.g. updated trace metadata) don't block the rebase.
     """
-    # Stash uncommitted changes (e.g. local-only trace files)
+    # Stash uncommitted changes (modified tracked files only —
+    # local traces now live outside the worktree in .state/traces/)
     stash_r = _run_ledger_git(
-        "stash", "--include-untracked",
+        "stash",
         project_root=project_root, timeout=10,
     )
     did_stash = (

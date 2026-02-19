@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import shutil
 import queue
 import time
 from collections import Counter
@@ -322,17 +323,16 @@ def post_trace_to_chat(
 
 
 def save_trace(project_root: Path, trace: SessionTrace) -> None:
-    """Save trace to ledger worktree (local files only, no git commit).
+    """Save trace to local storage (.state/traces/).
 
-    Traces are local-first. Call share_trace() to commit and push to git.
+    Traces are local-first — never touch the git worktree.
+    Call share_trace() to copy into the ledger and commit.
 
     Args:
         project_root: Repository root.
         trace: The SessionTrace to save.
     """
-    ensure_worktree(project_root)
-
-    trace_dir = _traces_dir(project_root) / trace.trace_id
+    trace_dir = _local_traces_dir(project_root) / trace.trace_id
     trace_dir.mkdir(parents=True, exist_ok=True)
 
     # Write trace.json (metadata without events to keep it small)
@@ -354,7 +354,10 @@ def save_trace(project_root: Path, trace: SessionTrace) -> None:
 
 
 def share_trace(project_root: Path, trace_id: str) -> bool:
-    """Share a trace — commit to git and mark as shared.
+    """Share a trace — copy to ledger worktree, commit to git.
+
+    Copies trace files from .state/traces/ into the ledger worktree,
+    sets shared=True, commits, and leaves the local copy in place.
 
     Args:
         project_root: Repository root.
@@ -372,22 +375,39 @@ def share_trace(project_root: Path, trace_id: str) -> bool:
         logger.debug("Trace %s already shared", trace_id)
         return True
 
-    # Update shared flag and re-write trace.json
+    ensure_worktree(project_root)
+
+    # Copy trace files from local → ledger worktree
+    local_dir = _local_traces_dir(project_root) / trace_id
+    ledger_dir = _ledger_traces_dir(project_root) / trace_id
+    ledger_dir.mkdir(parents=True, exist_ok=True)
+
+    # Update shared flag
     trace.shared = True
-    trace_dir = _traces_dir(project_root) / trace_id
-    trace_file = trace_dir / "trace.json"
     meta = trace.model_dump(mode="json", exclude={"events"})
-    trace_file.write_text(
+
+    # Write trace.json to ledger
+    (ledger_dir / "trace.json").write_text(
         json.dumps(meta, indent=2) + "\n",
         encoding="utf-8",
     )
 
-    # Commit to ledger branch
+    # Copy events.jsonl to ledger
     rel_paths = [f"ledger/traces/{trace_id}/trace.json"]
-    events_file = trace_dir / "events.jsonl"
-    if events_file.is_file():
+    local_events = local_dir / "events.jsonl"
+    if local_events.is_file():
+        shutil.copy2(local_events, ledger_dir / "events.jsonl")
         rel_paths.append(f"ledger/traces/{trace_id}/events.jsonl")
 
+    # Also update the local copy's shared flag
+    local_trace_file = local_dir / "trace.json"
+    if local_trace_file.is_file():
+        local_trace_file.write_text(
+            json.dumps(meta, indent=2) + "\n",
+            encoding="utf-8",
+        )
+
+    # Commit to ledger branch
     ledger_add_and_commit(
         project_root,
         paths=rel_paths,
@@ -400,6 +420,9 @@ def share_trace(project_root: Path, trace_id: str) -> bool:
 
 def unshare_trace(project_root: Path, trace_id: str) -> bool:
     """Mark a trace as unshared (local-only).
+
+    Updates the shared flag in BOTH ledger and local copies, then
+    commits the ledger change so other machines see it.
 
     Note: this does NOT remove existing git history — it only flips the
     shared flag so future syncs won't include it.
@@ -416,7 +439,18 @@ def unshare_trace(project_root: Path, trace_id: str) -> bool:
         return False
 
     trace.shared = False
-    _rewrite_trace_json(project_root, trace)
+    meta = trace.model_dump(mode="json", exclude={"events"})
+    meta_json = json.dumps(meta, indent=2) + "\n"
+
+    # Update ledger copy (must exist since it was shared)
+    ledger_file = _ledger_traces_dir(project_root) / trace_id / "trace.json"
+    if ledger_file.is_file():
+        ledger_file.write_text(meta_json, encoding="utf-8")
+
+    # Update local copy too
+    local_file = _local_traces_dir(project_root) / trace_id / "trace.json"
+    if local_file.is_file():
+        local_file.write_text(meta_json, encoding="utf-8")
 
     # Commit the flag change so it syncs to other machines
     ledger_add_and_commit(
@@ -462,14 +496,15 @@ def update_trace(
 
 
 def _rewrite_trace_json(project_root: Path, trace: SessionTrace) -> None:
-    """Re-write trace.json for an existing trace."""
-    trace_dir = _traces_dir(project_root) / trace.trace_id
-    trace_file = trace_dir / "trace.json"
+    """Re-write trace.json wherever the trace currently lives."""
     meta = trace.model_dump(mode="json", exclude={"events"})
-    trace_file.write_text(
-        json.dumps(meta, indent=2) + "\n",
-        encoding="utf-8",
-    )
+    meta_json = json.dumps(meta, indent=2) + "\n"
+
+    # Write to whichever location(s) have the trace
+    for traces_root in (_ledger_traces_dir(project_root), _local_traces_dir(project_root)):
+        trace_file = traces_root / trace.trace_id / "trace.json"
+        if trace_file.is_file():
+            trace_file.write_text(meta_json, encoding="utf-8")
 
 def generate_summary(events: list[TraceEvent]) -> str:
     """Generate a one-line summary from trace events (deterministic).
@@ -518,7 +553,11 @@ def generate_summary(events: list[TraceEvent]) -> str:
 
 
 def list_traces(project_root: Path, n: int = 20) -> list[SessionTrace]:
-    """List saved traces from ledger branch, newest-first.
+    """List saved traces from both local and ledger, newest-first.
+
+    Merges traces from .state/traces/ (local) and the ledger worktree
+    (shared/synced). Deduplicates by trace_id, with ledger taking
+    precedence (its shared flag is the source of truth).
 
     Args:
         project_root: Repository root.
@@ -527,57 +566,67 @@ def list_traces(project_root: Path, n: int = 20) -> list[SessionTrace]:
     Returns:
         List of SessionTrace (without events loaded — use get_trace_events for those).
     """
-    traces_root = _traces_dir(project_root)
-    if not traces_root.is_dir():
-        return []
+    seen: dict[str, SessionTrace] = {}
 
-    traces: list[SessionTrace] = []
-    try:
-        for td in sorted(traces_root.iterdir(), reverse=True):
-            if not td.is_dir():
-                continue
-            trace_file = td / "trace.json"
-            if not trace_file.is_file():
-                continue
-            try:
-                data = json.loads(trace_file.read_text(encoding="utf-8"))
-                traces.append(SessionTrace.model_validate(data))
-            except Exception as e:
-                logger.warning("Skipping corrupt trace %s: %s", td.name, e)
+    # Scan both directories: ledger first (authoritative), then local
+    for traces_root in (_ledger_traces_dir(project_root), _local_traces_dir(project_root)):
+        if not traces_root.is_dir():
+            continue
+        try:
+            for td in traces_root.iterdir():
+                if not td.is_dir():
+                    continue
+                trace_file = td / "trace.json"
+                if not trace_file.is_file():
+                    continue
+                tid = td.name
+                if tid in seen:
+                    continue  # ledger copy already loaded
+                try:
+                    data = json.loads(trace_file.read_text(encoding="utf-8"))
+                    seen[tid] = SessionTrace.model_validate(data)
+                except Exception as e:
+                    logger.warning("Skipping corrupt trace %s: %s", td.name, e)
+        except OSError as e:
+            logger.error("Failed to list traces from %s: %s", traces_root, e)
 
-            if len(traces) >= n:
-                break
-    except OSError as e:
-        logger.error("Failed to list traces: %s", e)
-
-    # Sort by started_at descending (directory sort may not match timestamp order)
-    traces.sort(key=lambda t: t.started_at, reverse=True)
+    # Sort by started_at descending
+    traces = sorted(seen.values(), key=lambda t: t.started_at, reverse=True)
     return traces[:n]
 
 
 def get_trace(project_root: Path, trace_id: str) -> SessionTrace | None:
     """Load a single trace by ID.
 
-    Returns None if not found.
+    Checks ledger first (shared/synced), then local.
+    Returns None if not found in either.
     """
-    trace_file = _traces_dir(project_root) / trace_id / "trace.json"
-    if not trace_file.is_file():
-        return None
-    try:
-        data = json.loads(trace_file.read_text(encoding="utf-8"))
-        return SessionTrace.model_validate(data)
-    except Exception as e:
-        logger.error("Failed to load trace %s: %s", trace_id, e)
-        return None
+    for traces_root in (_ledger_traces_dir(project_root), _local_traces_dir(project_root)):
+        trace_file = traces_root / trace_id / "trace.json"
+        if not trace_file.is_file():
+            continue
+        try:
+            data = json.loads(trace_file.read_text(encoding="utf-8"))
+            return SessionTrace.model_validate(data)
+        except Exception as e:
+            logger.error("Failed to load trace %s: %s", trace_id, e)
+    return None
 
 
 def get_trace_events(project_root: Path, trace_id: str) -> list[dict]:
     """Load trace events from events.jsonl.
 
+    Checks ledger first, then local.
     Returns a list of raw dicts (not TraceEvent models — keeps it flexible).
     """
-    events_file = _traces_dir(project_root) / trace_id / "events.jsonl"
-    if not events_file.is_file():
+    events_file = None
+    for traces_root in (_ledger_traces_dir(project_root), _local_traces_dir(project_root)):
+        candidate = traces_root / trace_id / "events.jsonl"
+        if candidate.is_file():
+            events_file = candidate
+            break
+
+    if events_file is None:
         return []
 
     events: list[dict] = []
@@ -605,6 +654,13 @@ def active_recordings() -> list[str]:
 # ═══════════════════════════════════════════════════════════════════════
 
 
-def _traces_dir(project_root: Path) -> Path:
-    """Return the traces directory on the ledger branch."""
+def _ledger_traces_dir(project_root: Path) -> Path:
+    """Return the traces directory in the ledger worktree (shared/synced)."""
     return worktree_path(project_root) / "ledger" / "traces"
+
+
+def _local_traces_dir(project_root: Path) -> Path:
+    """Return the local-only traces directory (.state/traces/)."""
+    d = project_root / ".state" / "traces"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
