@@ -79,20 +79,18 @@ def trace_stop():
 
     Body (JSON):
         trace_id  — the active recording to stop (required)
-        auto_post — post summary to chat (default true)
         save      — save to ledger (default true)
     """
     try:
         root = _project_root()
         body = request.get_json(silent=True) or {}
         trace_id = body.get("trace_id", "")
-        auto_post = body.get("auto_post", True)
         do_save = body.get("save", True)
 
         if not trace_id:
             return jsonify({"error": "trace_id is required"}), 400
 
-        trace = stop_recording(trace_id, auto_post=auto_post)
+        trace = stop_recording(trace_id)
         if trace is None:
             return jsonify({"error": f"No active recording: {trace_id}"}), 404
 
@@ -218,6 +216,15 @@ def trace_share():
         ok = share_trace(root, trace_id)
         if not ok:
             return jsonify({"error": f"Trace not found: {trace_id}"}), 404
+
+        # Post trace to chat so it appears in the Content → Chat view
+        from src.core.services.trace.trace_recorder import get_trace, post_trace_to_chat
+        trace = get_trace(root, trace_id)
+        if trace:
+            try:
+                post_trace_to_chat(root, trace)
+            except Exception as e:
+                logger.warning("Failed to post trace to chat: %s", e)
 
         # Push in background so other machines see it
         from src.core.services.ledger.worktree import push_ledger_branch

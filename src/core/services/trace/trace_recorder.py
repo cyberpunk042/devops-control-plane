@@ -191,14 +191,11 @@ def start_recording(
 
 def stop_recording(
     trace_id: str,
-    *,
-    auto_post: bool = True,
 ) -> SessionTrace | None:
     """Stop recording. Drains the queue, generates auto-summary.
 
     Args:
         trace_id: The trace_id from start_recording.
-        auto_post: If True (default), auto-post summary to chat.
 
     Returns:
         The complete SessionTrace (not yet saved), or None if not found.
@@ -264,14 +261,6 @@ def stop_recording(
             )
         except Exception:
             pass
-
-    # Auto-post trace summary to chat
-    if auto_post:
-        try:
-            post_trace_to_chat(rec.project_root, trace)
-        except Exception as e:
-            # Chat failure must never break trace recording
-            logger.warning("Failed to auto-post trace to chat: %s", e)
 
     logger.info(
         "Recording stopped: %s (%d events, %.1fs)",
