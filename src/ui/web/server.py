@@ -78,6 +78,7 @@ def create_app(
     from src.ui.web.routes_project import project_bp
     from src.ui.web.routes_events import events_bp
     from src.ui.web.routes_git_auth import git_auth_bp
+    from src.ui.web.routes_trace import trace_bp
 
     app.register_blueprint(pages_bp)
     app.register_blueprint(api_bp, url_prefix="/api")
@@ -105,6 +106,7 @@ def create_app(
     app.register_blueprint(events_bp, url_prefix="/api")
     app.register_blueprint(chat_bp, url_prefix="/api")
     app.register_blueprint(git_auth_bp, url_prefix="/api")
+    app.register_blueprint(trace_bp, url_prefix="/api")
     app.register_blueprint(audit_bp)
 
     # Initialize vault with project root (for auto-lock)

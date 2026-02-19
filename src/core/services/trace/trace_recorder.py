@@ -322,7 +322,9 @@ def post_trace_to_chat(
 
 
 def save_trace(project_root: Path, trace: SessionTrace) -> None:
-    """Save trace to ledger branch (trace.json + events.jsonl).
+    """Save trace to ledger worktree (local files only, no git commit).
+
+    Traces are local-first. Call share_trace() to commit and push to git.
 
     Args:
         project_root: Repository root.
@@ -348,19 +350,118 @@ def save_trace(project_root: Path, trace: SessionTrace) -> None:
             for event in trace.events:
                 f.write(event.model_dump_json() + "\n")
 
+    logger.info("Trace saved (local): %s", trace.trace_id)
+
+
+def share_trace(project_root: Path, trace_id: str) -> bool:
+    """Share a trace — commit to git and mark as shared.
+
+    Args:
+        project_root: Repository root.
+        trace_id: The trace to share.
+
+    Returns:
+        True if shared successfully, False if trace not found.
+    """
+    trace = get_trace(project_root, trace_id)
+    if trace is None:
+        logger.warning("Cannot share trace %s: not found", trace_id)
+        return False
+
+    if trace.shared:
+        logger.debug("Trace %s already shared", trace_id)
+        return True
+
+    # Update shared flag and re-write trace.json
+    trace.shared = True
+    trace_dir = _traces_dir(project_root) / trace_id
+    trace_file = trace_dir / "trace.json"
+    meta = trace.model_dump(mode="json", exclude={"events"})
+    trace_file.write_text(
+        json.dumps(meta, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
     # Commit to ledger branch
-    rel_paths = [f"ledger/traces/{trace.trace_id}/trace.json"]
-    if trace.events:
-        rel_paths.append(f"ledger/traces/{trace.trace_id}/events.jsonl")
+    rel_paths = [f"ledger/traces/{trace_id}/trace.json"]
+    events_file = trace_dir / "events.jsonl"
+    if events_file.is_file():
+        rel_paths.append(f"ledger/traces/{trace_id}/events.jsonl")
 
     ledger_add_and_commit(
         project_root,
         paths=rel_paths,
-        message=f"trace: {trace.trace_id} ({trace.event_count} events)",
+        message=f"trace(shared): {trace_id} ({trace.event_count} events)",
     )
 
-    logger.info("Trace saved: %s", trace.trace_id)
+    logger.info("Trace shared: %s", trace_id)
+    return True
 
+
+def unshare_trace(project_root: Path, trace_id: str) -> bool:
+    """Mark a trace as unshared (local-only).
+
+    Note: this does NOT remove existing git history — it only flips the
+    shared flag so future syncs won't include it.
+
+    Args:
+        project_root: Repository root.
+        trace_id: The trace to unshare.
+
+    Returns:
+        True if updated, False if not found.
+    """
+    trace = get_trace(project_root, trace_id)
+    if trace is None:
+        return False
+
+    trace.shared = False
+    _rewrite_trace_json(project_root, trace)
+    logger.info("Trace unshared: %s", trace_id)
+    return True
+
+
+def update_trace(
+    project_root: Path,
+    trace_id: str,
+    *,
+    name: str | None = None,
+    classification: str | None = None,
+) -> bool:
+    """Update trace metadata (name, classification).
+
+    Args:
+        project_root: Repository root.
+        trace_id: The trace to update.
+        name: New name (None = keep current).
+        classification: New classification (None = keep current).
+
+    Returns:
+        True if updated, False if not found.
+    """
+    trace = get_trace(project_root, trace_id)
+    if trace is None:
+        return False
+
+    if name is not None:
+        trace.name = name
+    if classification is not None:
+        trace.classification = classification
+
+    _rewrite_trace_json(project_root, trace)
+    logger.info("Trace updated: %s (name=%s)", trace_id, trace.name)
+    return True
+
+
+def _rewrite_trace_json(project_root: Path, trace: SessionTrace) -> None:
+    """Re-write trace.json for an existing trace."""
+    trace_dir = _traces_dir(project_root) / trace.trace_id
+    trace_file = trace_dir / "trace.json"
+    meta = trace.model_dump(mode="json", exclude={"events"})
+    trace_file.write_text(
+        json.dumps(meta, indent=2) + "\n",
+        encoding="utf-8",
+    )
 
 def generate_summary(events: list[TraceEvent]) -> str:
     """Generate a one-line summary from trace events (deterministic).

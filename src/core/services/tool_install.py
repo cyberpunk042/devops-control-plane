@@ -24,15 +24,21 @@ _audit = make_auditor("audit")
 
 # ── Install Recipes ─────────────────────────────────────────────
 
+import sys
+
+# Resolve pip via the current interpreter — avoids "pip not found" when
+# running inside a venv where bare `pip` isn't on the system PATH.
+_PIP = [sys.executable, "-m", "pip"]
+
 # Commands that DON'T need sudo
 _NO_SUDO_RECIPES: dict[str, list[str]] = {
-    "ruff":       ["pip", "install", "ruff"],
-    "mypy":       ["pip", "install", "mypy"],
-    "pytest":     ["pip", "install", "pytest"],
-    "black":      ["pip", "install", "black"],
-    "pip-audit":  ["pip", "install", "pip-audit"],
-    "safety":     ["pip", "install", "safety"],
-    "bandit":     ["pip", "install", "bandit"],
+    "ruff":       _PIP + ["install", "ruff"],
+    "mypy":       _PIP + ["install", "mypy"],
+    "pytest":     _PIP + ["install", "pytest"],
+    "black":      _PIP + ["install", "black"],
+    "pip-audit":  _PIP + ["install", "pip-audit"],
+    "safety":     _PIP + ["install", "safety"],
+    "bandit":     _PIP + ["install", "bandit"],
     "eslint":     ["npm", "install", "-g", "eslint"],
     "prettier":   ["npm", "install", "-g", "prettier"],
 }

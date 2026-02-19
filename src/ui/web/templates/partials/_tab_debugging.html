@@ -10,6 +10,7 @@
         <button class="content-mode" onclick="debugSwitchMode('state')">📦 State</button>
         <button class="content-mode" onclick="debugSwitchMode('health')">❤️ Health</button>
         <button class="content-mode" onclick="debugSwitchMode('config')">⚙️ Config</button>
+        <button class="content-mode" onclick="debugSwitchMode('traces')">📝 Traces</button>
     </div>
 
     <div class="grid">
@@ -88,6 +89,34 @@
             </div>
             <div id="debug-config-preview"></div>
             <div id="debug-config-editor" style="display:none;height:500px;border-radius:var(--radius-md);overflow:hidden;border:1px solid var(--border)"></div>
+        </div>
+
+        <!-- Session Traces -->
+        <div class="card full-width" id="debug-traces" style="display:none">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-sm);flex-wrap:wrap;gap:8px">
+                <div style="display:flex;align-items:center;gap:8px">
+                    <h2 class="card-title" style="margin:0">Session Traces</h2>
+                    <span id="debug-trace-count" style="font-size:0.64rem;padding:2px 7px;border-radius:10px;background:var(--accent);color:#fff;font-weight:600;min-width:18px;text-align:center" title="Saved traces"></span>
+                    <span id="debug-trace-recording-indicator" style="display:none;font-size:0.64rem;padding:2px 8px;border-radius:10px;background:var(--error);color:#fff;font-weight:600;animation:pulse 1.5s infinite">⏺ Recording</span>
+                </div>
+                <div style="display:flex;gap:0.4rem;align-items:center">
+                    <select id="debug-trace-classification" style="padding:4px 8px;border-radius:var(--radius-sm);border:1px solid var(--border-subtle);background:var(--bg-primary);color:var(--text-primary);font-size:0.72rem;outline:none">
+                        <option value="">General</option>
+                        <option value="deployment">🚀 Deployment</option>
+                        <option value="debugging">🐛 Debugging</option>
+                        <option value="config">⚙️ Configuration</option>
+                        <option value="exploration">🔍 Exploration</option>
+                        <option value="setup">🧙 Setup</option>
+                    </select>
+                    <input id="debug-trace-name" type="text" placeholder="Recording name (optional)" style="padding:4px 8px;border-radius:var(--radius-sm);border:1px solid var(--border-subtle);background:var(--bg-primary);color:var(--text-primary);font-size:0.72rem;outline:none;width:180px">
+                    <button id="debug-trace-start-btn" class="btn btn-sm btn-primary" onclick="debugTraceToggle()" style="font-size:0.72rem">⏺ Start Recording</button>
+                </div>
+            </div>
+            <div id="debug-trace-list" class="activity-list" style="max-height:600px;overflow-y:auto">
+                <div class="activity-item" style="color:var(--text-muted)">
+                    <span class="spinner"></span>&nbsp; Loading traces...
+                </div>
+            </div>
         </div>
     </div>
 </div>

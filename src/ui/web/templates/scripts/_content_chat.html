@@ -490,9 +490,147 @@ function _chatRenderBubble(msg) {
     + '<button class="chat-msg-delete-btn" onclick="chatConfirmDelete(\'' + esc(msg.id) + '\')" title="Delete message">&#x1F5D1;&#xFE0F;</button>'
     + '</span>'
     + '</div>'
-    + '<div class="chat-msg-body">' + displayText + '</div>'
+    + '<div class="chat-msg-body">' + _chatRenderBody(msg, displayText) + '</div>'
     + mediaHtml
     + '</div>';
+}
+
+function _chatRenderBody(msg, displayText) {
+  if (msg.source !== 'trace' || !msg.trace_id) return displayText;
+
+  // Rich trace card for trace-source messages
+  var tid = esc(msg.trace_id);
+  var card = '<div class="chat-trace-card" style="margin:4px 0;padding:10px 14px;border-radius:var(--radius-md);background:var(--bg-secondary);border:1px solid var(--border-subtle);border-left:3px solid var(--accent)">'
+    + '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">'
+    + '<span style="font-size:1rem">&#x1F4DD;</span>'
+    + '<strong style="font-size:0.8rem">Session Trace</strong>'
+    + '<span style="font-size:0.62rem;padding:1px 6px;border-radius:3px;background:rgba(99,102,241,0.1);color:var(--accent);font-family:var(--font-mono)">' + tid + '</span>'
+    + '<span style="font-size:0.56rem;padding:1px 5px;border-radius:3px;background:rgba(245,158,11,0.12);color:var(--warning)" title="Local-only trace — not shared to git">&#x1F512; Local</span>'
+    + '</div>'
+    + '<div style="font-size:0.74rem;color:var(--text-secondary);margin-top:6px">' + displayText + '</div>'
+    + '<div style="display:flex;gap:8px;margin-top:8px">'
+    + '<button class="btn btn-sm btn-ghost" style="font-size:0.68rem" onclick="_chatLoadTraceEvents(this, \'' + tid + '\')" title="Expand event timeline">&#x25B8; View events</button>'
+    + '<button class="btn btn-sm btn-ghost" style="font-size:0.68rem" onclick="switchTab(\'debugging\');debugSwitchMode(\'traces\')" title="Open in Debugging tab">&#x1F41B; Open in Debugging</button>'
+    + '<button class="btn btn-sm btn-ghost chat-trace-share-btn" style="font-size:0.68rem" onclick="_chatToggleTraceShare(this, \'' + tid + '\')" title="Share/unshare this trace">&#x1F4E4; Share</button>'
+    + '</div>'
+    + '<div class="chat-trace-events" data-trace-id="' + tid + '" style="display:none;margin-top:8px"></div>'
+    + '</div>';
+  return card;
+}
+
+async function _chatToggleTraceShare(btn, traceId) {
+  var card = btn.closest('.chat-trace-card');
+  var badge = card.querySelector('span[title*="Local"], span[title*="Shared"]');
+  var isShared = badge && badge.title.indexOf('Shared') !== -1;
+
+  try {
+    if (isShared) {
+      // Unshare
+      await apiPost('/trace/unshare', { trace_id: traceId });
+      toast('Trace marked as local-only', 'success');
+      if (badge) {
+        badge.innerHTML = '&#x1F512; Local';
+        badge.title = 'Local-only trace — not shared to git';
+        badge.style.background = 'rgba(245,158,11,0.12)';
+        badge.style.color = 'var(--warning)';
+      }
+      btn.innerHTML = '&#x1F4E4; Share';
+    } else {
+      // Share
+      await apiPost('/trace/share', { trace_id: traceId });
+      toast('Trace shared to git', 'success');
+      if (badge) {
+        badge.innerHTML = '&#x1F310; Shared';
+        badge.title = 'Shared — committed to git';
+        badge.style.background = 'rgba(52,211,153,0.12)';
+        badge.style.color = 'var(--success)';
+      }
+      btn.innerHTML = '&#x1F513; Unshare';
+    }
+  } catch(e) {
+    toast('Failed: ' + e.message, 'error');
+  }
+}
+
+async function _chatLoadTraceEvents(btn, traceId) {
+  var container = btn.closest('.chat-trace-card').querySelector('.chat-trace-events');
+  if (!container) return;
+
+  // Toggle
+  if (container.style.display !== 'none' && container.dataset.loaded === 'true') {
+    container.style.display = 'none';
+    btn.innerHTML = '&#x25B8; View events';
+    return;
+  }
+
+  container.style.display = '';
+  btn.innerHTML = '&#x25BE; Hide events';
+
+  if (container.dataset.loaded === 'true') return;
+
+  container.innerHTML = '<span class="spinner"></span> Loading events...';
+  try {
+    var data = await api('/trace/events?trace_id=' + encodeURIComponent(traceId));
+    var events = data.events || [];
+    container.dataset.loaded = 'true';
+
+    if (!events.length) {
+      container.innerHTML = '<div style="font-size:0.72rem;color:var(--text-muted)">No events captured.</div>';
+      return;
+    }
+
+    // Group by domain
+    var groups = [];
+    var cur = null;
+    for (var i = 0; i < events.length; i++) {
+      var domain = (events[i].type || '').split(':')[0] || 'other';
+      if (!cur || cur.domain !== domain) {
+        cur = { domain: domain, events: [] };
+        groups.push(cur);
+      }
+      cur.events.push(events[i]);
+    }
+
+    var html = '<div style="font-size:0.68rem;font-weight:600;margin-bottom:4px">' + events.length + ' events</div>';
+    for (var g = 0; g < groups.length; g++) {
+      var gr = groups[g];
+      var gDur = 0;
+      for (var j = 0; j < gr.events.length; j++) gDur += (gr.events[j].duration_ms || 0);
+      html += '<div style="margin-bottom:4px">'
+        + '<div style="display:flex;align-items:center;gap:4px;padding:3px 6px;border-radius:3px;background:rgba(99,102,241,0.06);font-size:0.66rem;cursor:pointer" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display===\'none\'?\'\':\'none\'">'
+        + '<strong style="text-transform:capitalize">' + esc(gr.domain) + '</strong>'
+        + '<span style="color:var(--text-muted)">' + gr.events.length + ' events</span>'
+        + (gDur ? '<span style="color:var(--text-muted)">&#x23F1; ' + gDur + 'ms</span>' : '')
+        + '</div>'
+        + '<div style="display:none;padding-left:14px;border-left:2px solid rgba(99,102,241,0.15);margin-left:6px;margin-top:2px">';
+      for (var k = 0; k < gr.events.length; k++) {
+        var ev = gr.events[k];
+        var ri = ev.result === 'ok' ? '&#x2705;' : ev.result === 'failed' ? '&#x274C;' : '&#x2699;&#xFE0F;';
+        var evMsg = (ev.detail && ev.detail.summary) || (ev.detail && ev.detail.error) || '';
+        var evFail = ev.result === 'failed';
+        var hasDet = ev.detail && Object.keys(ev.detail).length > 0;
+        var detId = 'cevt_' + Math.random().toString(36).slice(2, 8);
+        var detJson = hasDet ? JSON.stringify(ev.detail, null, 2) : '';
+        html += '<div style="padding:2px 0;border-bottom:1px solid var(--border-subtle)">'
+          + '<div style="display:flex;align-items:center;gap:4px;font-size:0.64rem;cursor:' + (hasDet ? 'pointer' : 'default') + '"'
+          + (hasDet ? ' onclick="var d=document.getElementById(\'' + detId + '\');d.style.display=d.style.display===\'none\'?\'\':\'none\'"' : '') + '>'
+          + '<span style="font-family:var(--font-mono);color:var(--text-muted);min-width:16px">#' + ev.seq + '</span>'
+          + '<span>' + ri + '</span>'
+          + '<span style="font-family:var(--font-mono);color:var(--accent)">' + esc(ev.type) + '</span>'
+          + (ev.target ? '<span style="color:var(--text-secondary)">' + esc(ev.target) + '</span>' : '')
+          + (ev.duration_ms ? '<span style="color:var(--text-muted)">&#x23F1; ' + ev.duration_ms + 'ms</span>' : '')
+          + (hasDet ? '<span style="color:var(--text-muted);font-size:0.54rem">&#x25B8; detail</span>' : '')
+          + '</div>'
+          + (evMsg ? '<div style="font-size:0.6rem;padding-left:20px;margin-top:1px;color:' + (evFail ? 'var(--error)' : 'var(--text-muted)') + ';font-family:var(--font-mono)">' + esc(evMsg) + '</div>' : '')
+          + (hasDet ? '<pre id="' + detId + '" style="display:none;margin:3px 0 1px 20px;padding:4px 8px;font-size:0.56rem;background:var(--bg-tertiary);border:1px solid var(--border-subtle);border-radius:var(--radius-sm);overflow-x:auto;max-height:250px;color:var(--text-secondary);font-family:var(--font-mono);white-space:pre-wrap;word-break:break-word">' + esc(detJson) + '</pre>' : '')
+          + '</div>';
+      }
+      html += '</div></div>';
+    }
+    container.innerHTML = html;
+  } catch(e) {
+    container.innerHTML = '<div style="color:var(--error);font-size:0.72rem">Failed to load events: ' + esc(e.message) + '</div>';
+  }
 }
 
 

@@ -36,13 +36,13 @@
         // Dispose any active Monaco editors when switching away
         for (const [key, ed] of Object.entries(_debugEditors)) {
             if (key !== mode && ed) {
-                try { ed.dispose(); } catch {}
+                try { ed.dispose(); } catch(e) {}
                 _debugEditors[key] = null;
             }
         }
 
         // Show/hide panels
-        ['audit', 'state', 'health', 'config'].forEach(m => {
+        ['audit', 'state', 'health', 'config', 'traces'].forEach(m => {
             const el = document.getElementById(`debug-${m}`);
             if (el) el.style.display = m === mode ? '' : 'none';
         });
@@ -50,6 +50,7 @@
         if (mode === 'state') loadDebugState();
         if (mode === 'health') loadDebugHealth();
         if (mode === 'config') loadDebugConfig();
+        if (mode === 'traces') loadDebugTraces();
     }
 
     function debugAuditToggle(mode) {
@@ -765,5 +766,262 @@
         document.querySelectorAll(`.debug-view-toggle[data-panel="${panel}"]`).forEach(btn => {
             btn.classList.toggle('active', btn.dataset.mode === mode);
         });
+    }
+
+    // ── Session Traces ────────────────────────────────────────────────
+
+    let _traceActiveId = null;   // currently recording trace_id (or null)
+
+    async function loadDebugTraces() {
+        const container = document.getElementById('debug-trace-list');
+        const countBadge = document.getElementById('debug-trace-count');
+        const indicator = document.getElementById('debug-trace-recording-indicator');
+        const startBtn = document.getElementById('debug-trace-start-btn');
+
+        // Check active recordings
+        try {
+            const activeData = await api('/trace/active');
+            const active = activeData.active || [];
+            if (active.length > 0) {
+                _traceActiveId = active[0];
+                indicator.style.display = '';
+                startBtn.textContent = '⏹ Stop Recording';
+                startBtn.style.background = 'var(--error)';
+            } else {
+                _traceActiveId = null;
+                indicator.style.display = 'none';
+                startBtn.textContent = '⏺ Start Recording';
+                startBtn.style.background = '';
+            }
+        } catch(e) {}
+
+        // Load saved traces
+        try {
+            const data = await api('/trace/list?n=30');
+            const traces = data.traces || [];
+            if (countBadge) countBadge.textContent = traces.length;
+
+            if (!traces.length) {
+                container.innerHTML = `<div class="activity-item" style="color:var(--text-muted)">
+                    No session traces yet. Start a recording to capture operations.
+                </div>`;
+                return;
+            }
+
+            container.innerHTML = traces.map((t, i) => _renderTraceEntry(t, i)).join('');
+        } catch(e) {
+            container.innerHTML = `<div class="activity-item" style="color:var(--error)">
+                Failed to load traces: ${esc(e.message)}
+            </div>`;
+        }
+    }
+
+    async function debugTraceToggle() {
+        if (_traceActiveId) {
+            // Stop recording
+            try {
+                const data = await apiPost('/trace/stop', {
+                    trace_id: _traceActiveId,
+                    auto_post: true,
+                    save: true,
+                });
+                _traceActiveId = null;
+                toast('Recording stopped — ' + (data.event_count || 0) + ' events captured', 'success');
+                loadDebugTraces();
+            } catch(e) {
+                toast('Failed to stop recording: ' + e.message, 'error');
+            }
+        } else {
+            // Start recording
+            const name = document.getElementById('debug-trace-name').value.trim();
+            const classification = document.getElementById('debug-trace-classification').value;
+            try {
+                const data = await apiPost('/trace/start', { name, classification });
+                _traceActiveId = data.trace_id;
+                toast('Recording started' + (name ? ': ' + name : ''), 'success');
+                loadDebugTraces();
+            } catch(e) {
+                toast('Failed to start recording: ' + e.message, 'error');
+            }
+        }
+    }
+
+    function _renderTraceEntry(trace, idx) {
+        const classIcons = {
+            deployment: '🚀', debugging: '🐛', config: '⚙️',
+            exploration: '🔍', setup: '🧙', '': '📝'
+        };
+        const icon = classIcons[trace.classification] || '📝';
+        const name = trace.name || '(unnamed recording)';
+        const started = trace.started_at ? new Date(trace.started_at).toLocaleString() : '—';
+        const duration = trace.duration_s ? _traceFormatDuration(trace.duration_s) : '—';
+        const events = trace.event_count || 0;
+        const classBadge = trace.classification
+            ? `<span style="font-size:0.62rem;padding:1px 5px;border-radius:3px;background:rgba(99,102,241,0.1);color:var(--accent)">${esc(trace.classification)}</span>`
+            : '';
+        const sharedBadge = trace.shared
+            ? `<span style="font-size:0.58rem;padding:1px 5px;border-radius:3px;background:rgba(52,211,153,0.12);color:var(--success)" title="Shared — committed to git">🌐 Shared</span>`
+            : `<span style="font-size:0.58rem;padding:1px 5px;border-radius:3px;background:rgba(245,158,11,0.12);color:var(--warning)" title="Local only — not in git">🔒 Local</span>`;
+        const shareBtn = trace.shared
+            ? `<button class="btn btn-sm btn-ghost" style="font-size:0.62rem;margin-left:4px" onclick="event.stopPropagation();_traceUnshare('${esc(trace.trace_id)}')" title="Mark as local-only">🔓 Unshare</button>`
+            : `<button class="btn btn-sm btn-ghost" style="font-size:0.62rem;margin-left:4px" onclick="event.stopPropagation();_traceShare('${esc(trace.trace_id)}')" title="Share this trace (commit to git)">📤 Share</button>`;
+
+        return `<div style="padding:10px 14px;margin-bottom:5px;border-radius:var(--radius-sm);background:var(--bg-secondary);border-left:3px solid var(--accent);display:flex;flex-direction:column;gap:3px">
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;cursor:pointer" onclick="_traceToggleDetail('${esc(trace.trace_id)}', ${idx})">
+                <span style="font-size:0.88rem">${icon}</span>
+                <strong style="font-size:0.8rem">${esc(name)}</strong>
+                ${classBadge}
+                ${sharedBadge}
+                <span style="font-size:0.66rem;color:var(--text-muted)">🕐 ${duration}</span>
+                <span style="font-size:0.66rem;color:var(--text-muted)">📊 ${events} events</span>
+                ${shareBtn}
+                <button class="btn btn-sm btn-ghost" style="font-size:0.62rem" onclick="event.stopPropagation();_traceRename('${esc(trace.trace_id)}')" title="Rename trace">✏️</button>
+                <span style="font-size:0.64rem;color:var(--text-muted);margin-left:auto">${started}</span>
+            </div>
+            ${trace.auto_summary ? `<div style="font-size:0.72rem;color:var(--text-secondary);padding-left:26px">${esc(trace.auto_summary)}</div>` : ''}
+            <div id="trace-detail-${idx}" style="display:none;margin-top:6px;padding:8px 12px;border-radius:var(--radius-sm);background:var(--bg-primary);border:1px solid var(--border-subtle)">
+                <span class="spinner"></span> Loading events…
+            </div>
+            <div style="font-size:0.6rem;color:var(--text-muted);padding-left:26px;font-family:var(--font-mono)">${esc(trace.trace_id)}</div>
+        </div>`;
+    }
+
+    async function _traceShare(traceId) {
+        try {
+            await apiPost('/trace/share', { trace_id: traceId });
+            toast('Trace shared to git', 'success');
+            loadDebugTraces();
+        } catch(e) {
+            toast('Failed to share trace: ' + e.message, 'error');
+        }
+    }
+
+    async function _traceUnshare(traceId) {
+        try {
+            await apiPost('/trace/unshare', { trace_id: traceId });
+            toast('Trace marked as local-only', 'success');
+            loadDebugTraces();
+        } catch(e) {
+            toast('Failed to unshare trace: ' + e.message, 'error');
+        }
+    }
+
+    async function _traceRename(traceId) {
+        const newName = prompt('Rename trace:', '');
+        if (newName === null) return; // cancelled
+        try {
+            await apiPost('/trace/update', { trace_id: traceId, name: newName });
+            toast('Trace renamed', 'success');
+            loadDebugTraces();
+        } catch(e) {
+            toast('Failed to rename trace: ' + e.message, 'error');
+        }
+    }
+
+    async function _traceToggleDetail(traceId, idx) {
+        const el = document.getElementById('trace-detail-' + idx);
+        if (!el) return;
+
+        // Toggle
+        if (el.style.display !== 'none' && el.dataset.loaded === 'true') {
+            el.style.display = 'none';
+            return;
+        }
+
+        el.style.display = '';
+
+        // Load events if not already loaded
+        if (el.dataset.loaded === 'true') return;
+
+        try {
+            const data = await api('/trace/events?trace_id=' + encodeURIComponent(traceId));
+            const events = data.events || [];
+            el.dataset.loaded = 'true';
+
+            if (!events.length) {
+                el.innerHTML = '<div style="font-size:0.72rem;color:var(--text-muted)">No events captured in this trace.</div>';
+                return;
+            }
+
+            // Group consecutive events by domain
+            const groups = _traceGroupByDomain(events);
+            let html = `<div style="font-size:0.72rem;font-weight:600;margin-bottom:6px">Events (${events.length})</div>`;
+
+            for (const group of groups) {
+                const domainIcons = {
+                    cache: '🔄', vault: '🔐', git: '📦', k8s: '☸',
+                    docker: '🐳', terraform: '🏗️', ci: '⚡', audit: '📋',
+                    devops: '🛠️', detect: '🔍', trace: '📝', chat: '💬',
+                    content: '📄', dns: '🌐', infra: '🖥️', health: '❤️',
+                };
+                const dIcon = domainIcons[group.domain] || '⚙️';
+                const groupDuration = group.events.reduce((s, e) => s + (e.duration_ms || 0), 0);
+
+                html += `<div style="margin-bottom:6px">
+                    <div style="display:flex;align-items:center;gap:6px;padding:4px 8px;border-radius:var(--radius-sm);background:rgba(99,102,241,0.06);border:1px solid rgba(99,102,241,0.1);cursor:pointer" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'':'none'">
+                        <span>${dIcon}</span>
+                        <strong style="font-size:0.72rem;text-transform:capitalize">${esc(group.domain)}</strong>
+                        <span style="font-size:0.62rem;color:var(--text-muted)">${group.events.length} events</span>
+                        ${groupDuration ? `<span style="font-size:0.62rem;color:var(--text-muted)">⏱ ${groupDuration}ms</span>` : ''}
+                        <span style="font-size:0.62rem;color:var(--text-muted);margin-left:auto">▸</span>
+                    </div>
+                    <div style="display:none;padding-left:20px;border-left:2px solid rgba(99,102,241,0.15);margin-left:10px;margin-top:2px">`;
+
+                for (const evt of group.events) {
+                    const resultIcon = evt.result === 'ok' ? '✅' : evt.result === 'failed' ? '❌' : evt.result === 'skipped' ? '⏭️' : '⚙️';
+                    const evtTime = evt.ts ? new Date(evt.ts).toLocaleTimeString() : '';
+                    const evtSummary = (evt.detail && evt.detail.summary) ? evt.detail.summary : '';
+                    const evtError = (evt.detail && evt.detail.error) ? evt.detail.error : '';
+                    const evtMsg = evtSummary || evtError || '';
+                    const isFailed = evt.result === 'failed';
+                    const hasDetail = evt.detail && Object.keys(evt.detail).length > 0;
+                    const detailJson = hasDetail ? JSON.stringify(evt.detail, null, 2) : '';
+                    const evtUid = 'tevt_' + Math.random().toString(36).slice(2, 8);
+                    html += `<div style="padding:3px 0;border-bottom:1px solid var(--border-subtle)">
+                        <div style="display:flex;align-items:center;gap:6px;font-size:0.68rem;cursor:${hasDetail ? 'pointer' : 'default'}" ${hasDetail ? `onclick="var d=document.getElementById('${evtUid}');d.style.display=d.style.display==='none'?'':'none'"` : ''}>
+                            <span style="color:var(--text-muted);font-family:var(--font-mono);min-width:20px">#${evt.seq}</span>
+                            <span>${resultIcon}</span>
+                            <span style="font-family:var(--font-mono);color:var(--accent)">${esc(evt.type)}</span>
+                            ${evt.target ? `<span style="color:var(--text-secondary)">${esc(evt.target)}</span>` : ''}
+                            ${evt.duration_ms ? `<span style="color:var(--text-muted)">⏱ ${evt.duration_ms}ms</span>` : ''}
+                            ${hasDetail ? `<span style="color:var(--text-muted);font-size:0.58rem">▸ detail</span>` : ''}
+                            <span style="color:var(--text-muted);margin-left:auto;font-size:0.62rem">${evtTime}</span>
+                        </div>
+                        ${evtMsg ? `<div style="font-size:0.64rem;padding-left:26px;margin-top:1px;color:${isFailed ? 'var(--error)' : 'var(--text-muted)'};font-family:var(--font-mono)">${esc(evtMsg)}</div>` : ''}
+                        ${hasDetail ? `<pre id="${evtUid}" style="display:none;margin:4px 0 2px 26px;padding:6px 10px;font-size:0.6rem;background:var(--bg-tertiary);border:1px solid var(--border-subtle);border-radius:var(--radius-sm);overflow-x:auto;max-height:300px;color:var(--text-secondary);font-family:var(--font-mono);white-space:pre-wrap;word-break:break-word">${esc(detailJson)}</pre>` : ''}
+                    </div>`;
+                }
+
+                html += `</div></div>`;
+            }
+
+            el.innerHTML = html;
+        } catch(e) {
+            el.innerHTML = `<div style="color:var(--error);font-size:0.72rem">Failed to load events: ${esc(e.message)}</div>`;
+        }
+    }
+
+    function _traceGroupByDomain(events) {
+        if (!events.length) return [];
+        const groups = [];
+        let current = null;
+        for (const evt of events) {
+            const domain = (evt.type || '').split(':')[0] || 'other';
+            if (!current || current.domain !== domain) {
+                current = { domain, events: [] };
+                groups.push(current);
+            }
+            current.events.push(evt);
+        }
+        return groups;
+    }
+
+    function _traceFormatDuration(seconds) {
+        if (seconds < 60) return seconds.toFixed(1) + 's';
+        const m = Math.floor(seconds / 60);
+        const s = Math.round(seconds % 60);
+        if (m < 60) return m + 'm ' + s + 's';
+        const h = Math.floor(m / 60);
+        return h + 'h ' + (m % 60) + 'm';
     }
 </script>

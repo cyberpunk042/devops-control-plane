@@ -61,6 +61,7 @@ class SessionTrace(BaseModel):
     audit_refs: list[str] = Field(default_factory=list)  # linked audit operation_ids
     event_count: int = 0
     duration_s: float = 0.0
+    shared: bool = False                             # True = committed to git
 
     def ensure_id(self) -> str:
         """Ensure trace_id is set, generating one if empty."""
