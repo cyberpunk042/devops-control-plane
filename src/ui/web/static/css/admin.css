@@ -3600,6 +3600,48 @@ select option {
     background: rgba(255, 255, 255, 0.15);
 }
 
+.chat-thread-unseen-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--accent);
+    flex-shrink: 0;
+    animation: chatUnseenPulse 2s ease-in-out infinite;
+}
+
+@keyframes chatUnseenPulse {
+
+    0%,
+    100% {
+        opacity: 1;
+        box-shadow: 0 0 0 0 var(--accent-glow);
+    }
+
+    50% {
+        opacity: 0.7;
+        box-shadow: 0 0 6px 2px var(--accent-glow);
+    }
+}
+
+.chat-thread-unseen-badge {
+    font-size: 0.65rem;
+    font-weight: 600;
+    color: var(--accent);
+    background: rgba(59, 130, 246, 0.12);
+    padding: 1px 6px;
+    border-radius: 10px;
+    white-space: nowrap;
+}
+
+.chat-thread-item.active .chat-thread-unseen-dot {
+    background: #fff;
+}
+
+.chat-thread-item.active .chat-thread-unseen-badge {
+    color: #fff;
+    background: rgba(255, 255, 255, 0.2);
+}
+
 .chat-thread-icon {
     font-size: 0.85rem;
     flex-shrink: 0;

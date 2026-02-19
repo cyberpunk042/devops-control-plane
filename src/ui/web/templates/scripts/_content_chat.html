@@ -266,6 +266,8 @@ function chatRenderThreadList(threads) {
     </div>`;
     return;
   }
+  // Load seen counts from localStorage
+  var seen = _chatGetSeenCounts();
   let html = '';
   for (let i = 0; i < threads.length; i++) {
     const t = threads[i];
@@ -280,18 +282,26 @@ function chatRenderThreadList(threads) {
       tagBadges += '<span class="chat-thread-tag">' + esc(tags[j]) + '</span>';
     }
     const cls = 'chat-thread-item' + (isActive ? ' active' : '');
+    // Unseen detection
+    const seenCount = seen[t.thread_id] || 0;
+    const unseenCount = msgCount > seenCount ? msgCount - seenCount : 0;
+    const hasUnseen = unseenCount > 0 && !isActive;
 
     html += '<div class="' + cls + '" data-thread-id="' + esc(t.thread_id) + '"'
       + ' onclick="chatSelectThread(this.dataset.threadId)">' 
       + '<div class="chat-thread-row1">'
+      + (hasUnseen ? '<span class="chat-thread-unseen-dot"></span>' : '')
       + '<span class="chat-thread-icon">' + icon + '</span>'
-      + '<span class="chat-thread-title">' + esc(t.title) + '</span>'
+      + '<span class="chat-thread-title"' + (hasUnseen ? ' style="font-weight:700"' : '') + '>' + esc(t.title) + '</span>'
       + '<span class="chat-thread-time">' + relTime + '</span>'
       + (!isGeneral ? '<button class="chat-thread-delete-btn" onclick="event.stopPropagation(); chatConfirmDeleteThread(\'' + esc(t.thread_id) + '\', \'' + esc(t.title) + '\')" title="Delete thread">&#x1F5D1;</button>' : '')
       + '</div>';
 
-    if (tags.length > 0 || msgCount > 0) {
+    if (tags.length > 0 || msgCount > 0 || hasUnseen) {
       html += '<div class="chat-thread-row2">' + tagBadges;
+      if (hasUnseen) {
+        html += '<span class="chat-thread-unseen-badge">' + unseenCount + ' new</span>';
+      }
       if (msgCount > 0) {
         html += '<span class="chat-thread-count">' + msgCount + ' msg' + (msgCount !== 1 ? 's' : '') + '</span>';
       }
@@ -325,6 +335,10 @@ function chatFilterThreads(query) {
 async function chatSelectThread(threadId) {
   _chatSelectedThread = threadId;
   contentUpdateHash();
+
+  // Mark this thread as seen
+  _chatMarkThreadSeen(threadId);
+
   chatRenderThreadList(_chatThreads);
 
   const header = document.getElementById('chat-thread-header');
@@ -349,6 +363,29 @@ async function chatSelectThread(threadId) {
       + '</div>';
   }
   await chatLoadMessages(threadId);
+}
+
+// ── Seen / Unseen helpers (localStorage) ───────────────────────────
+const _CHAT_SEEN_KEY = 'scp-chat-seen-counts';
+
+function _chatGetSeenCounts() {
+  try {
+    return JSON.parse(localStorage.getItem(_CHAT_SEEN_KEY) || '{}');
+  } catch(e) { return {}; }
+}
+
+function _chatMarkThreadSeen(threadId) {
+  // Find current message count for this thread
+  var count = 0;
+  for (var i = 0; i < _chatThreads.length; i++) {
+    if (_chatThreads[i].thread_id === threadId) {
+      count = _chatThreads[i].message_count || 0;
+      break;
+    }
+  }
+  var seen = _chatGetSeenCounts();
+  seen[threadId] = count;
+  try { localStorage.setItem(_CHAT_SEEN_KEY, JSON.stringify(seen)); } catch(e) {}
 }
 
 async function chatLoadMessages(threadId) {
