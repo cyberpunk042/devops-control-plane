@@ -79,6 +79,43 @@ def _run_main_git(
     )
 
 
+def _safe_rebase(project_root: Path, *, label: str = "rebase") -> bool:
+    """Stash → rebase origin/scp-ledger → pop.  Returns True on success.
+
+    Wraps the common stash/rebase/pop pattern so local-only files
+    (e.g. uncommitted trace data) don't block the rebase.
+    """
+    # Stash uncommitted changes (e.g. local-only trace files)
+    stash_r = _run_ledger_git(
+        "stash", "--include-untracked",
+        project_root=project_root, timeout=10,
+    )
+    did_stash = (
+        stash_r.returncode == 0
+        and "No local changes" not in stash_r.stdout
+    )
+
+    r = _run_ledger_git(
+        "rebase", f"origin/{LEDGER_BRANCH}",
+        project_root=project_root, timeout=15,
+    )
+    ok = r.returncode == 0
+    if not ok:
+        stderr = r.stderr.strip()
+        if stderr:
+            logger.warning("Ledger %s issue: %s", label, stderr)
+        _run_ledger_git("rebase", "--abort", project_root=project_root)
+
+    # Restore stashed changes
+    if did_stash:
+        _run_ledger_git(
+            "stash", "pop",
+            project_root=project_root, timeout=10,
+        )
+
+    return ok
+
+
 # ═══════════════════════════════════════════════════════════════════════
 #  Worktree lifecycle
 # ═══════════════════════════════════════════════════════════════════════
@@ -139,37 +176,7 @@ def ensure_worktree(project_root: Path) -> Path:
                 timeout=30,
             )
             if r.returncode == 0:
-                # Stash any uncommitted changes (e.g. local-only traces)
-                # before rebase so they don't block it.
-                stash_r = _run_ledger_git(
-                    "stash", "--include-untracked",
-                    project_root=project_root,
-                    timeout=10,
-                )
-                did_stash = (
-                    stash_r.returncode == 0
-                    and "No local changes" not in stash_r.stdout
-                )
-
-                r2 = _run_ledger_git(
-                    "rebase", f"origin/{LEDGER_BRANCH}",
-                    project_root=project_root,
-                    timeout=15,
-                )
-                if r2.returncode != 0:
-                    stderr = r2.stderr.strip()
-                    if stderr:
-                        logger.warning("Ledger rebase in ensure_worktree: %s", stderr)
-                        # Abort the failed rebase to keep the worktree clean
-                        _run_ledger_git("rebase", "--abort", project_root=project_root)
-
-                # Restore stashed changes
-                if did_stash:
-                    _run_ledger_git(
-                        "stash", "pop",
-                        project_root=project_root,
-                        timeout=10,
-                    )
+                _safe_rebase(project_root, label="ensure_worktree")
             else:
                 stderr = r.stderr.strip()
                 if not any(s in stderr.lower() for s in (
@@ -531,17 +538,8 @@ def push_ledger_branch(project_root: Path) -> bool:
         if "no tracking" not in stderr.lower() and "couldn't find remote" not in stderr.lower():
             logger.warning("Ledger fetch (pre-push) issue: %s", stderr)
 
-    # Rebase
-    r = _run_ledger_git(
-        "rebase", f"origin/{LEDGER_BRANCH}",
-        project_root=project_root,
-        timeout=15,
-    )
-    if r.returncode != 0:
-        stderr = r.stderr.strip()
-        if stderr:
-            logger.warning("Ledger rebase (pre-push) issue: %s", stderr)
-            _run_ledger_git("rebase", "--abort", project_root=project_root)
+    # Rebase (stash-safe to handle local-only files)
+    _safe_rebase(project_root, label="pre-push")
 
     # Push
     r = _run_ledger_git(
@@ -591,18 +589,8 @@ def pull_ledger_branch(project_root: Path) -> bool:
             logger.warning("Ledger fetch issue: %s", stderr)
             return False
 
-    r2 = _run_ledger_git(
-        "rebase", f"origin/{LEDGER_BRANCH}",
-        project_root=project_root,
-        timeout=15,
-    )
-    if r2.returncode != 0:
-        stderr = r2.stderr.strip()
-        if stderr:
-            logger.warning("Ledger rebase issue: %s", stderr)
-            # Abort the failed rebase to keep the worktree clean
-            _run_ledger_git("rebase", "--abort", project_root=project_root)
-            return False
+    if not _safe_rebase(project_root, label="fetch_and_rebase"):
+        return False
     return True
 
 

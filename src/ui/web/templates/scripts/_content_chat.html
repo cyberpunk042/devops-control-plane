@@ -500,22 +500,54 @@ function _chatRenderBody(msg, displayText) {
 
   // Rich trace card for trace-source messages
   var tid = esc(msg.trace_id);
+  var badgeId = 'tbadge_' + Math.random().toString(36).slice(2, 8);
+  var btnId = 'tbtn_' + Math.random().toString(36).slice(2, 8);
   var card = '<div class="chat-trace-card" style="margin:4px 0;padding:10px 14px;border-radius:var(--radius-md);background:var(--bg-secondary);border:1px solid var(--border-subtle);border-left:3px solid var(--accent)">'
     + '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">'
     + '<span style="font-size:1rem">&#x1F4DD;</span>'
     + '<strong style="font-size:0.8rem">Session Trace</strong>'
     + '<span style="font-size:0.62rem;padding:1px 6px;border-radius:3px;background:rgba(99,102,241,0.1);color:var(--accent);font-family:var(--font-mono)">' + tid + '</span>'
-    + '<span style="font-size:0.56rem;padding:1px 5px;border-radius:3px;background:rgba(245,158,11,0.12);color:var(--warning)" title="Local-only trace — not shared to git">&#x1F512; Local</span>'
+    + '<span id="' + badgeId + '" style="font-size:0.56rem;padding:1px 5px;border-radius:3px;background:rgba(100,100,100,0.1);color:var(--text-muted)">&#x23F3;</span>'
     + '</div>'
     + '<div style="font-size:0.74rem;color:var(--text-secondary);margin-top:6px">' + displayText + '</div>'
     + '<div style="display:flex;gap:8px;margin-top:8px">'
     + '<button class="btn btn-sm btn-ghost" style="font-size:0.68rem" onclick="_chatLoadTraceEvents(this, \'' + tid + '\')" title="Expand event timeline">&#x25B8; View events</button>'
     + '<button class="btn btn-sm btn-ghost" style="font-size:0.68rem" onclick="switchTab(\'debugging\');debugSwitchMode(\'traces\')" title="Open in Debugging tab">&#x1F41B; Open in Debugging</button>'
-    + '<button class="btn btn-sm btn-ghost chat-trace-share-btn" style="font-size:0.68rem" onclick="_chatToggleTraceShare(this, \'' + tid + '\')" title="Share/unshare this trace">&#x1F4E4; Share</button>'
+    + '<button id="' + btnId + '" class="btn btn-sm btn-ghost chat-trace-share-btn" style="font-size:0.68rem;display:none" onclick="_chatToggleTraceShare(this, \'' + tid + '\')" title="Share/unshare this trace">&#x1F4E4; Share</button>'
     + '</div>'
     + '<div class="chat-trace-events" data-trace-id="' + tid + '" style="display:none;margin-top:8px"></div>'
     + '</div>';
+
+  // Async: fetch actual shared status and update badge + button
+  setTimeout(function() { _chatUpdateTraceBadge(msg.trace_id, badgeId, btnId); }, 0);
+
   return card;
+}
+
+async function _chatUpdateTraceBadge(traceId, badgeId, btnId) {
+  try {
+    var res = await apiFetch('/trace/get?trace_id=' + encodeURIComponent(traceId));
+    var badge = document.getElementById(badgeId);
+    var btn = document.getElementById(btnId);
+    if (!badge) return;
+    if (res.trace && res.trace.shared) {
+      badge.innerHTML = '&#x1F310; Shared';
+      badge.title = 'Shared — committed to git';
+      badge.style.background = 'rgba(52,211,153,0.12)';
+      badge.style.color = 'var(--success)';
+      if (btn) { btn.innerHTML = '&#x1F513; Unshare'; btn.style.display = ''; }
+    } else {
+      badge.innerHTML = '&#x1F512; Local';
+      badge.title = 'Local-only trace — not shared to git';
+      badge.style.background = 'rgba(245,158,11,0.12)';
+      badge.style.color = 'var(--warning)';
+      if (btn) { btn.innerHTML = '&#x1F4E4; Share'; btn.style.display = ''; }
+    }
+  } catch(e) {
+    // Trace might not exist on this machine — just show unknown
+    var badge = document.getElementById(badgeId);
+    if (badge) { badge.innerHTML = '&#x2753;'; badge.title = 'Trace not found locally'; }
+  }
 }
 
 async function _chatToggleTraceShare(btn, traceId) {
