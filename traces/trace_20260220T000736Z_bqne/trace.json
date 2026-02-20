@@ -1,0 +1,14 @@
+{
+  "trace_id": "trace_20260220T000736Z_bqne",
+  "name": "dfsdfdsfsd",
+  "classification": "",
+  "started_at": "2026-02-20T00:07:36.390261+00:00",
+  "ended_at": "2026-02-20T00:07:50.199578+00:00",
+  "user": "Cyberpunk 042",
+  "code_ref": "db798ac2b9d1295bfa694b2f1f058fbfb407771e",
+  "auto_summary": "2 cache refreshes, 1 trace event, 1 audit event \u2014 1.3s total",
+  "audit_refs": [],
+  "event_count": 4,
+  "duration_s": 13.81,
+  "shared": true
+}
