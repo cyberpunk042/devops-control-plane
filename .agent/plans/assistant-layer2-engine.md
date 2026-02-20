@@ -128,30 +128,34 @@ Both `#wizard-body` and `#assistant-panel` scroll together inside the card.
 Inject the panel into `.modal-body` dynamically when a modal context is
 activated. The engine creates the panel div and appends it.
 
-### 3. JSON loading strategy
+### 3. Catalogue loading strategy
 
-**Decision:** Fetch + cache.
+**Decision:** Fetch the single catalogue file once, index by context ID.
 
 ```javascript
-const _cache = {};
+let _catalogue = null;  // Map<contextId, AssistantContext>
 
-async function _loadContext(contextId) {
-    if (_cache[contextId]) return _cache[contextId];
+async function _loadCatalogue() {
+    if (_catalogue) return _catalogue;
 
-    const file = CONTEXT_FILES[contextId];
-    if (!file) return null;
-
-    const resp = await fetch('/static/data/assistant/' + file);
+    const resp = await fetch('/static/data/assistant-catalogue.json');
     if (!resp.ok) return null;
 
     const data = await resp.json();
-    _cache[contextId] = data;
-    return data;
+    _catalogue = new Map();
+    for (const ctx of data) {
+        _catalogue.set(ctx.context, ctx);
+    }
+    return _catalogue;
+}
+
+function _getContext(contextId) {
+    return _catalogue?.get(contextId) || null;
 }
 ```
 
-First load fetches from server. Subsequent loads use in-memory cache.
-JSON files don't change during a session.
+Single fetch on first use. All contexts available after that.
+No per-context lazy loading — the catalogue is one file.
 
 ### 4. Context stack (modal over wizard)
 
@@ -398,25 +402,12 @@ window._assistant = {
 
 ---
 
-## Context-to-file mapping
+## Context lookup
 
-```javascript
-const CONTEXT_FILES = {
-    'wizard/welcome':        'wizard-welcome.json',
-    'wizard/modules':        'wizard-modules.json',
-    'wizard/secrets':        'wizard-secrets.json',
-    'wizard/content':        'wizard-content.json',
-    'wizard/integrations':   'wizard-integrations.json',
-    'wizard/review':         'wizard-review.json',
-    'k8s/detect':            'k8s-detect.json',
-    'k8s/configure':         'k8s-configure.json',
-    'k8s/review':            'k8s-review.json',
-    'docker/detect':         'docker-detect.json',
-    'docker/configure':      'docker-configure.json',
-    'docker/preview':        'docker-preview.json',
-    'terraform/setup':       'terraform-setup.json',
-};
-```
+The engine loads the single `assistant-catalogue.json` file on first use,
+then looks up contexts by ID from the in-memory `Map`.
+
+No file mapping needed — context IDs are the keys directly.
 
 ---
 
@@ -428,7 +419,7 @@ const CONTEXT_FILES = {
     'use strict';
 
     // ── State ───────────────────────────────────────────────
-    const _cache = {};              // contextId → parsed JSON
+    let _catalogue = null;          // Map<contextId, context>
     const _contextStack = [];       // [{contextId, containerEl}]
     let _panelEl = null;            // current panel DOM element
     let _currentTree = null;        // current rendered tree
@@ -437,8 +428,9 @@ const CONTEXT_FILES = {
     let _hoverTimer = null;         // debounce timer
     let _listeners = [];            // attached event listeners (for cleanup)
 
-    // ── JSON Loading ────────────────────────────────────────
-    async function _loadContext(contextId) { ... }
+    // ── Catalogue Loading ───────────────────────────────────
+    async function _loadCatalogue() { ... }
+    function _getContext(contextId) { ... }
 
     // ── Panel Resolution ────────────────────────────────────
     function _resolvePanelEl(containerEl) { ... }
@@ -468,7 +460,8 @@ const CONTEXT_FILES = {
 
     // ── Core ────────────────────────────────────────────────
     async function _loadAndRender(contextId, containerEl) {
-        const tree = await _loadContext(contextId);
+        await _loadCatalogue();
+        const tree = _getContext(contextId);
         if (!tree) return;
 
         _currentTree = tree;
@@ -555,8 +548,9 @@ The actual hook code is minimal — L4 (Integration) handles implementation.
 
 | Situation | Behavior |
 |-----------|----------|
-| JSON file not found (404) | Panel shows nothing. Console warning. |
+| Catalogue file not found (404) | Panel shows nothing. Console warning. |
 | JSON parse error | Panel shows nothing. Console error. |
+| Context ID not in catalogue | Panel shows nothing. Console debug. |
 | Selector matches nothing | Node renders in panel without hover highlight. Console debug. |
 | Resolver throws | Returns empty string. Console warning. |
 | Container element missing | No panel injected. Console warning. |
@@ -568,9 +562,10 @@ The actual hook code is minimal — L4 (Integration) handles implementation.
 
 | Concern | Approach |
 |---------|----------|
-| JSON file size | Individual files are small (~5-20KB). Only one loaded at a time. |
+| Catalogue file size | Single file, ~50-100KB. One fetch, cached. Negligible. |
 | DOM creation | `_renderTree()` creates ~20-50 nodes. Negligible. |
 | Flat tree creation | One-time cost per context switch. Cached in `_flatNodes`. |
+| Context lookup | `Map.get()` — O(1). |
 | Selector matching | `element.matches()` is fast. ~20-50 checks per hover event. |
 | Debounce | Hover: 150ms. Focus: immediate. Prevents rapid re-matching. |
 | Event listeners | Delegated on container. One `mouseover` + one `focusin`. |
@@ -583,10 +578,10 @@ The actual hook code is minimal — L4 (Integration) handles implementation.
 2. **Modify `_tab_wizard.html`** — add `.assistant-layout` flex wrapper
 3. **Add `{% include %}` in dashboard** — load engine script
 4. **Register resolvers** — create resolver definitions (can be inline in engine or separate)
-5. **Test with first JSON file** — load `wizard-welcome.json` and verify panel renders
+5. **Test with catalogue** — load `assistant-catalogue.json` and verify panel renders
 
-Tasks 1-3 are the core. Task 4 can happen incrementally as JSON files are written.
-Task 5 requires L1 to have at least one JSON file ready (wizard-welcome.json).
+Tasks 1-3 are the core. Task 4 can happen incrementally as contexts are authored.
+Task 5 requires L1 to have at least one context in the catalogue.
 
 ---
 
@@ -594,9 +589,9 @@ Task 5 requires L1 to have at least one JSON file ready (wizard-welcome.json).
 
 | Depends on | For |
 |------------|-----|
-| L1 (Data) | JSON files to load |
+| L1 (Data) | `assistant-catalogue.json` with contexts |
 | L3 (Presentation) | CSS for panel styling, node indentation |
 | L4 (Integration) | Hook calls from wizard/modal lifecycle |
 
 Can be built in parallel with L1 — test with a hardcoded tree object
-before JSON files are ready.
+before the catalogue is ready.

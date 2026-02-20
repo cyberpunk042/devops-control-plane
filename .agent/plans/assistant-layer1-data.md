@@ -130,18 +130,24 @@ When `dynamic: true`, the engine:
 
 This handles environments, modules, domain badges, compose services, etc.
 
-### 3. File splitting strategy
+### 3. Single catalogue file
 
-**Decision:** One file per context. Reasoning:
-- Each file stays focused and reviewable
-- Lazy loading — only load the JSON when the user enters that context
-- Cache after first load — JSON doesn't change during a session
-- Easy to add new contexts without touching existing files
+**Decision:** One single file — `assistant-catalogue.json` — containing ALL
+contexts. The file is structured as an array of context objects, each with
+a `context` key (e.g. `"wizard/welcome"`, `"wizard/integrations"`,
+`"k8s/detect"`) and its node tree.
 
-**File naming convention:** `{scope}-{context}.json`
-- `wizard-welcome.json`, `wizard-integrations.json`
-- `k8s-detect.json`, `k8s-configure.json`
-- `docker-detect.json`, `docker-configure.json`
+Reasoning:
+- Simpler — one fetch, one cache, one file to maintain
+- The engine loads it once on boot and indexes by context key
+- All contexts are available immediately — no lazy-loading complexity
+- The file is reviewable as a single source of truth
+- Content doesn't change during a session — it's static data
+
+**File location:** `src/ui/web/static/data/assistant-catalogue.json`
+
+The engine fetches it via `fetch('/static/data/assistant-catalogue.json')`
+and builds a `Map<contextId, AssistantContext>` from the array.
 
 ### 4. Template variable syntax
 
@@ -207,54 +213,44 @@ interface AssistantContext {
 
 ---
 
-## File list — V1
+## Context inventory — V1 (Wizard + Integrations focus)
+
+All contexts live inside the single `assistant-catalogue.json` file.
 
 ### Must-have (covers the 4 scenarios we wrote)
 
-| File | Context | Source scenario |
-|------|---------|----------------|
-| `wizard-welcome.json` | Wizard step 1 | Scenario 1 |
-| `wizard-integrations.json` | Wizard step 5 | Scenario 2 |
-| `k8s-detect.json` | K8s modal step 1 | Scenario 3 |
-| `k8s-configure.json` | K8s modal step 2 | Scenario 4 |
+| Context ID | Scope | Source scenario |
+|------------|-------|-----------------|
+| `wizard/welcome` | Wizard step 1 | Scenario 1 |
+| `wizard/integrations` | Wizard step 5 | Scenario 2 |
+| `k8s/detect` | K8s modal step 1 | Scenario 3 |
+| `k8s/configure` | K8s modal step 2 | Scenario 4 |
 
 ### Follow-up (remaining wizard steps + modals)
 
-| File | Context |
-|------|---------|
-| `wizard-modules.json` | Wizard step 2 |
-| `wizard-secrets.json` | Wizard step 3 |
-| `wizard-content.json` | Wizard step 4 |
-| `wizard-review.json` | Wizard step 6 |
-| `k8s-review.json` | K8s modal step 3 |
-| `docker-detect.json` | Docker modal step 1 |
-| `docker-configure.json` | Docker modal step 2 |
-| `docker-preview.json` | Docker modal step 3 |
-| `terraform-setup.json` | Terraform setup |
+| Context ID | Scope |
+|------------|-------|
+| `wizard/modules` | Wizard step 2 |
+| `wizard/secrets` | Wizard step 3 |
+| `wizard/content` | Wizard step 4 |
+| `wizard/review` | Wizard step 6 |
+| `k8s/review` | K8s modal step 3 |
+| `docker/detect` | Docker modal step 1 |
+| `docker/configure` | Docker modal step 2 |
+| `docker/preview` | Docker modal step 3 |
+| `integrations` | Integrations tab |
 
 ---
 
-## Directory structure
+## File location
 
 ```
-src/ui/web/static/data/assistant/
-├── wizard-welcome.json
-├── wizard-modules.json
-├── wizard-secrets.json
-├── wizard-content.json
-├── wizard-integrations.json
-├── wizard-review.json
-├── k8s-detect.json
-├── k8s-configure.json
-├── k8s-review.json
-├── docker-detect.json
-├── docker-configure.json
-├── docker-preview.json
-└── terraform-setup.json
+src/ui/web/static/data/
+└── assistant-catalogue.json      ← single file, all contexts
 ```
 
-The `/static/data/assistant/` path is served directly by the web server.
-The engine fetches JSON via `fetch('/static/data/assistant/{file}.json')`.
+Served at `/static/data/assistant-catalogue.json`.
+The engine loads once and indexes by `context` key.
 
 ---
 
@@ -296,15 +292,15 @@ They read the DOM and return a string.
 
 ### V1 resolvers
 
-| Variable | Returns | Used in |
-|----------|---------|---------|
-| `envCount` | Number of environment rows | wizard-welcome.json |
-| `domainCount` | Number of domain badges | wizard-welcome.json |
-| `toolCount` | "8 of 15" format | wizard-integrations.json |
-| `scanAge` | Scan timestamp text | wizard-integrations.json |
-| `serviceCount` | Number of compose services | k8s-detect.json |
-| `appCount` | Application service count | k8s-configure.json |
-| `infraCount` | Infrastructure service count | k8s-configure.json |
+| Variable | Returns | Used in context |
+|----------|---------|----------------|
+| `envCount` | Number of environment rows | `wizard/welcome` |
+| `domainCount` | Number of domain badges | `wizard/welcome` |
+| `toolCount` | "8 of 15" format | `wizard/integrations` |
+| `scanAge` | Scan timestamp text | `wizard/integrations` |
+| `serviceCount` | Number of compose services | `k8s/detect` |
+| `appCount` | Application service count | `k8s/configure` |
+| `infraCount` | Infrastructure service count | `k8s/configure` |
 
 Each resolver is ~1–3 lines of DOM reading. No business logic.
 
@@ -314,24 +310,26 @@ Each resolver is ~1–3 lines of DOM reading. No business logic.
 
 | Risk | Impact | Mitigation |
 |------|--------|------------|
-| JSON files get stale relative to UI changes | Assistant says wrong things | Include JSON path in template comments so devs know to update |
+| Catalogue gets stale relative to UI changes | Assistant says wrong things | Include catalogue path in template comments so devs know to update |
 | Selectors don't match after refactors | Nodes fail to highlight | Engine logs unmatched selectors in dev mode for debugging |
 | Dynamic element patterns are too broad | Wrong node highlights | Use specific pattern prefixes (e.g., `[id^='k8s-svc-vol-']`) not generic classes |
-| Content files get large | Hard to review | One file per context, keep each under ~200 lines |
+| Catalogue file gets large | Hard to review | Use clear section comments, context IDs as anchors. File is static data — size is manageable |
 | Template variables resolve to empty | Content shows `{{envCount}}` literally | Engine shows empty string for unresolved vars in production, logs warning in dev |
 
 ---
 
 ## Implementation tasks
 
-1. **Create directory** — `src/ui/web/static/data/assistant/`
-2. **Write wizard-welcome.json** — translate Scenario 1 from `assistant-scenarios.md`
-3. **Write wizard-integrations.json** — translate Scenario 2
-4. **Write k8s-detect.json** — translate Scenario 3
-5. **Write k8s-configure.json** — translate Scenario 4
-6. **Verify selectors** — test each selector against live DOM to confirm matches
-7. **Identify gaps** — elements without IDs that need `data-assist` attributes
-8. **Add minimal `data-assist` attributes** — only where no other selector works
+1. **Create file** — `src/ui/web/static/data/assistant-catalogue.json`
+2. **Author `wizard/welcome` context** — from actual HTML in `_wizard_steps.html` (lines 10-110)
+3. **Author `wizard/integrations` context** — from actual HTML in `_wizard_integrations.html`
+4. **Author `k8s/detect` context** — from actual HTML in `k8s_wizard/_raw_step1_detect.html`
+5. **Author `k8s/configure` context** — from actual HTML in `k8s_wizard/_raw_step2_*.html`
+6. **Author remaining wizard contexts** — modules, secrets, content, review
+7. **Author `integrations` tab context** — from `_tab_integrations.html`
+8. **Verify selectors** — test each selector against live DOM to confirm matches
+9. **Identify gaps** — elements without IDs that need `data-assist` attributes
+10. **Add minimal `data-assist` attributes** — only where no other selector works
 
-Tasks 2–5 can proceed in parallel with L2 (Engine) development.
-Task 6 must happen before L3 (Interaction) can work reliably.
+All contexts go into the single `assistant-catalogue.json` file.
+Task 8 must happen before L3 (Interaction) can work reliably.

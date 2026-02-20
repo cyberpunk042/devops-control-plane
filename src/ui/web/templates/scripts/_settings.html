@@ -13,6 +13,7 @@
         uiScale: 'default',      // compact | default | comfortable | large
         density: 'normal',       // dense | normal | spacious
         previewMode: 'modal',    // modal | forward
+        assistantGuide: true,    // assistant side panel
     };
 
     // ── Scale profiles ──────────────────────────────────────────────
@@ -150,6 +151,18 @@
             </div>
         </div>`;
 
+        // ── Assistant Guide ──────────────────────────────────────
+        html += `<div class="settings-group">
+            <div class="settings-label">Assistant Guide</div>
+            <div class="settings-hint">Context-aware help panel alongside the wizard</div>
+            <div class="settings-btn-group">
+                <button class="settings-btn ${prefs.assistantGuide ? 'active' : ''}"
+                    onclick="_prefSetAssistantGuide(true)">✨ On</button>
+                <button class="settings-btn ${!prefs.assistantGuide ? 'active' : ''}"
+                    onclick="_prefSetAssistantGuide(false)">Off</button>
+            </div>
+        </div>`;
+
         body.innerHTML = html;
     }
 
@@ -175,6 +188,14 @@
 
     function _prefSetPreviewMode(mode) {
         prefsSet('previewMode', mode);
+        _renderSettingsPanel();
+    }
+
+    function _prefSetAssistantGuide(enabled) {
+        prefsSet('assistantGuide', enabled);
+        if (window._assistant) {
+            enabled ? window._assistant.enable() : window._assistant.disable();
+        }
         _renderSettingsPanel();
     }
 

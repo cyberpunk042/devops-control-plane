@@ -179,7 +179,17 @@
         body.innerHTML = '<p style="text-align:center;padding:2rem"><span class="spinner"></span></p>';
 
         const renderFn = _wizardRenderers[wizardSteps[currentWizardStep].id];
-        if (renderFn) renderFn(body);
+        if (renderFn) {
+            const result = renderFn(body);
+            const _activateAssistant = () => {
+                if (window._assistant) window._assistant.activate('wizard/' + stepId, body);
+            };
+            if (result && typeof result.then === 'function') {
+                result.then(_activateAssistant);
+            } else {
+                _activateAssistant();
+            }
+        }
 
         // Update nav buttons
         document.getElementById('wizard-prev').style.display = currentWizardStep > 0 ? '' : 'none';

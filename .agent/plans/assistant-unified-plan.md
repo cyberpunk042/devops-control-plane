@@ -63,8 +63,8 @@ The old 9-layer pipeline is replaced by 4 distinct concerns:
 ┌──────────────────────────────────────────────────────────┐
 │                                                          │
 │   1. SUPERSTRUCTURE (Data)                               │
-│   External JSON files — the knowledge tree               │
-│   One file per context (wizard step, modal, etc.)        │
+│   Single JSON catalogue — the knowledge tree             │
+│   All contexts in one file (assistant-catalogue.json)     │
 │                                                          │
 │   Contains: titles, content, expanded content,           │
 │   selectors, hierarchy, template variables               │
@@ -120,25 +120,12 @@ tree renderer. The intelligence is in the superstructure content.
 ### File location
 
 ```
-src/ui/web/static/data/assistant/
-  wizard-welcome.json          # Wizard step 1
-  wizard-modules.json          # Wizard step 2
-  wizard-secrets.json          # Wizard step 3
-  wizard-content.json          # Wizard step 4
-  wizard-integrations.json     # Wizard step 5
-  wizard-review.json           # Wizard step 6
-  k8s-setup-detect.json        # K8s modal step 1
-  k8s-setup-configure.json     # K8s modal step 2
-  k8s-setup-review.json        # K8s modal step 3
-  docker-setup-detect.json     # Docker modal step 1
-  docker-setup-configure.json  # Docker modal step 2
-  docker-setup-preview.json    # Docker modal step 3
-  terraform-setup.json         # Terraform setup
-  ...
+src/ui/web/static/data/
+  assistant-catalogue.json       # Single file — all contexts
 ```
 
-One file per context. Lazy-loaded when the user enters that context.
-Cached in memory after first load.
+One file containing all contexts as an array. Loaded once on first use.
+The engine indexes by `context` key into an in-memory Map.
 
 ### Node schema
 
@@ -235,7 +222,7 @@ _assistant.resolvers = {
 These are lightweight DOM reads — no complex logic. The intelligence is
 in the content strings, not the resolvers.
 
-### Full example: wizard-welcome.json
+### Full example: wizard/welcome context
 
 ```json
 {
@@ -355,22 +342,16 @@ User navigates away (modal close, tab switch)
     → clear panel
 ```
 
-### Context-to-file mapping
+### Context lookup
+
+The engine loads `assistant-catalogue.json` once, builds a
+`Map<contextId, context>`, and looks up by ID:
 
 ```javascript
-const CONTEXT_FILES = {
-    'wizard/welcome':        'wizard-welcome.json',
-    'wizard/modules':        'wizard-modules.json',
-    'wizard/secrets':        'wizard-secrets.json',
-    'wizard/content':        'wizard-content.json',
-    'wizard/integrations':   'wizard-integrations.json',
-    'wizard/review':         'wizard-review.json',
-    'k8s-setup/detect':      'k8s-setup-detect.json',
-    'k8s-setup/configure':   'k8s-setup-configure.json',
-    'k8s-setup/review':      'k8s-setup-review.json',
-    // ...
-};
+const tree = _catalogue.get(contextId);
 ```
+
+No file mapping needed — context IDs are the keys directly.
 
 ### Node rendering
 
@@ -687,20 +668,8 @@ function deactivate() {
 src/ui/web/
 ├── static/
 │   ├── css/admin.css                         # Presentation (CSS additions)
-│   └── data/assistant/                       # Superstructure (JSON files)
-│       ├── wizard-welcome.json
-│       ├── wizard-modules.json
-│       ├── wizard-secrets.json
-│       ├── wizard-content.json
-│       ├── wizard-integrations.json
-│       ├── wizard-review.json
-│       ├── k8s-setup-detect.json
-│       ├── k8s-setup-configure.json
-│       ├── k8s-setup-review.json
-│       ├── docker-setup-detect.json
-│       ├── docker-setup-configure.json
-│       ├── docker-setup-preview.json
-│       └── terraform-setup.json
+│   └── data/
+│       └── assistant-catalogue.json          # Superstructure (single file)
 └── templates/
     ├── scripts/
     │   ├── _assistant_engine.html             # Engine (~300 lines)
@@ -709,7 +678,7 @@ src/ui/web/
     └── dashboard.html                         # Script inclusion
 ```
 
-**Total new files:** 1 engine file + N JSON data files
+**Total new files:** 1 engine file + 1 catalogue file
 **Modified files:** CSS, wizard template, settings template, dashboard
 **Deleted concept:** Catalogue files, provider protocol, 9-layer pipeline
 
@@ -719,8 +688,8 @@ src/ui/web/
 
 ### Phase 1: Engine + First Context
 
-1. Create `static/data/assistant/` directory
-2. Write `wizard-welcome.json` (from Scenario 1)
+1. Create `static/data/assistant-catalogue.json` with first context
+2. Author `wizard/welcome` context (from Scenario 1)
 3. Write the engine in `_assistant_engine.html`:
    - JSON loading + caching
    - Tree rendering (renderNode)

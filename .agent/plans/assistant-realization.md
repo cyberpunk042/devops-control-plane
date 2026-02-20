@@ -244,34 +244,15 @@ presence:
 
 ### Content organization
 
-The superstructure can be organized by context:
+The superstructure is a single catalogue file containing all contexts:
 
 ```
-static/data/assistant/
-  wizard-welcome.json
-  wizard-modules.json
-  wizard-secrets.json
-  wizard-content.json
-  wizard-integrations.json
-  wizard-review.json
-  k8s-setup-detect.json
-  k8s-setup-configure.json
-  k8s-setup-review.json
-  docker-setup-detect.json
-  docker-setup-configure.json
-  docker-setup-preview.json
-  ...
+static/data/assistant-catalogue.json
 ```
 
-Or as a single file with top-level context keys:
-
-```
-static/data/assistant-superstructure.json
-```
-
-The choice depends on file size and loading strategy. Multiple files allow
-lazy loading (only load the context the user is in). A single file is
-simpler but larger.
+Each context is an object in the top-level array, keyed by `context` ID
+(e.g. `"wizard/welcome"`, `"k8s/detect"`). The engine loads once and
+indexes by context key.
 
 ---
 

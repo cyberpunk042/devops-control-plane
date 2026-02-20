@@ -216,8 +216,8 @@ hook (point 1) handles this automatically — no additional boot hook needed.
 | `_raw_step2_configure.html` | Configure | `docker/configure` |
 | `_raw_step3_preview.html` | Preview | `docker/preview` |
 
-These `contextId` values match the keys in the engine's `CONTEXT_FILES`
-mapping and correspond to the JSON file names.
+These `contextId` values are used as keys in the `assistant-catalogue.json`
+file. The engine looks them up via `_catalogue.get(contextId)`.
 
 ---
 
