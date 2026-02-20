@@ -1,0 +1,553 @@
+<!-- Assistant Engine — event-driven side panel
+     Loads superstructure JSON, renders interaction path on hover/focus.
+     Exposes: window._assistant { activate, deactivate, refresh, enable, disable, resolvers }
+     Depends on: #assistant-panel in DOM, admin.css assistant classes -->
+
+<script>
+(function() {
+    'use strict';
+
+    // ── State ──────────────────────────────────────────────────────
+    let _catalogue = null;        // Map<contextId, contextObj>
+    let _currentCtx = null;       // current context object
+    let _panelEl = null;          // #assistant-panel element
+    let _containerEl = null;      // element we're listening on
+    let _flatNodes = [];          // [{ node, parents: [ancestor…] }]
+    let _focusPath = null;        // { target: node, chain: [parents] }
+    let _hoverPath = null;        // { target: node, chain: [parents] }
+    let _enabled = true;          // panel visibility toggle
+    let _hoverDebounce = null;    // debounce timer for hover
+    let _listeners = {};          // attached event listener refs
+
+    // ── Catalogue Loading ──────────────────────────────────────────
+
+    async function _loadCatalogue() {
+        if (_catalogue) return;
+        try {
+            const resp = await fetch('/static/data/assistant-catalogue.json');
+            if (!resp.ok) {
+                console.warn('[assistant] catalogue fetch failed:', resp.status);
+                return;
+            }
+            const data = await resp.json();
+            _catalogue = new Map();
+            for (const ctx of data) {
+                _catalogue.set(ctx.context, ctx);
+            }
+        } catch (e) {
+            console.warn('[assistant] catalogue load error:', e);
+        }
+    }
+
+    // ── Panel Resolution ───────────────────────────────────────────
+
+    function _resolvePanel() {
+        const el = document.getElementById('assistant-panel');
+        if (!el) {
+            console.warn('[assistant] #assistant-panel not found in DOM');
+        }
+        return el;
+    }
+
+    // ── Template Variable Resolution ───────────────────────────────
+
+    function _resolve(text) {
+        if (!text) return '';
+        return text.replace(/\{\{(\w+)\}\}/g, function(match, name) {
+            const resolver = window._assistant.resolvers[name];
+            if (typeof resolver === 'function') {
+                try { return resolver(); }
+                catch (e) { return ''; }
+            }
+            return '';
+        });
+    }
+
+    // ── Tree Flattening ────────────────────────────────────────────
+    // Builds a flat index of [{ node, parents }] for selector matching.
+    // Deepest nodes first so specific selectors win over general ones.
+
+    function _flattenTree(children, parentChain) {
+        const result = [];
+        for (const child of (children || [])) {
+            // Recurse children first → deepest nodes appear first
+            if (child.children && child.children.length) {
+                result.push(..._flattenTree(child.children, [...parentChain, child]));
+            }
+            result.push({ node: child, parents: [...parentChain] });
+
+            // Handle dynamic children — query DOM for real elements
+            if (child.dynamic && child.childTemplate && _containerEl) {
+                _resolveDynamic(child, parentChain, result);
+            }
+        }
+        return result;
+    }
+
+    function _resolveDynamic(parentNode, grandParentChain, result) {
+        const tpl = parentNode.childTemplate;
+        if (!tpl.selector) return;
+
+        const elements = _containerEl.querySelectorAll(tpl.selector);
+        elements.forEach(function(el, i) {
+            // Extract display name from the element's DOM
+            const nameEl = el.querySelector('[style*="font-weight:600"], [style*="font-weight: 600"], strong');
+            var extractedName;
+            if (nameEl) {
+                extractedName = nameEl.textContent.trim();
+            } else {
+                // Fallback: first text node only (avoid grabbing child element text)
+                var walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null, false);
+                var firstText = walker.nextNode();
+                extractedName = firstText ? firstText.textContent.trim() : '';
+            }
+
+            if (!extractedName) return;
+
+            // Apply {{name}} template interpolation to all template strings
+            var nodeTitle = (tpl.title || '').replace(/\{\{name\}\}/g, extractedName);
+            var nodeContent = (tpl.content || '').replace(/\{\{name\}\}/g, extractedName);
+            var nodeExpanded = tpl.expanded
+                ? tpl.expanded.replace(/\{\{name\}\}/g, extractedName)
+                : undefined;
+
+            const syntheticNode = {
+                id: parentNode.id + '-dyn-' + i,
+                title: nodeTitle,
+                content: nodeContent,
+                expanded: nodeExpanded,
+                selector: null,
+                _element: el,
+                _isDynamic: true,
+                children: []
+            };
+
+            // Dynamic children go deepest-first (before their parent)
+            result.unshift({ node: syntheticNode, parents: [...grandParentChain, parentNode] });
+        });
+    }
+
+    // ── Node Matching ──────────────────────────────────────────────
+    // Given a DOM element (from hover/focus), find the matching node.
+
+    function _matchNode(element) {
+        if (!element || !_flatNodes.length) return null;
+
+        for (let i = 0; i < _flatNodes.length; i++) {
+            const entry = _flatNodes[i];
+            const node = entry.node;
+
+            // Dynamic nodes: match by direct element reference
+            if (node._element) {
+                if (node._element === element || node._element.contains(element)) {
+                    return entry;
+                }
+                continue;
+            }
+
+            // Static nodes: match by CSS selector
+            if (!node.selector) continue;
+
+            try {
+                // 1. Direct match: the element itself IS the selector target
+                if (element.matches(node.selector)) {
+                    return entry;
+                }
+
+                // 2. Inside: the element is a descendant of the selector target
+                if (element.closest(node.selector)) {
+                    return entry;
+                }
+
+                // 3. Field-group proximity: the element shares a wrapper div
+                //    with the selector target. This handles hovering a <label>
+                //    that's a sibling of <input id="wiz-name">.
+                //    We use parentElement.closest('div') to skip the target
+                //    element itself when it IS a div (e.g. #wiz-domains).
+                const targetEl = _containerEl.querySelector(node.selector);
+                if (targetEl && targetEl.parentElement) {
+                    const wrapper = targetEl.parentElement.closest('div');
+                    if (wrapper && wrapper !== _containerEl &&
+                        (wrapper === element || wrapper.contains(element))) {
+                        return entry;
+                    }
+                }
+            } catch (e) {
+                // Invalid selector — skip silently
+            }
+        }
+
+        return null;
+    }
+
+    // ── Path Merging ───────────────────────────────────────────────
+    // Merge focus and hover paths. Deduplicate shared parents.
+    // Returns [{ node, depth, isTarget }] sorted shallowest-first.
+
+    function _mergeInteractionPaths(focusPath, hoverPath) {
+        const nodeMap = new Map();  // nodeId → { node, depth, isTarget }
+
+        function _addPath(path) {
+            if (!path) return;
+            // Add parents (in-chain)
+            for (let i = 0; i < path.chain.length; i++) {
+                const n = path.chain[i];
+                if (!nodeMap.has(n.id)) {
+                    nodeMap.set(n.id, { node: n, depth: i, isTarget: false });
+                }
+            }
+            // Add target
+            const depth = path.chain.length;
+            const existing = nodeMap.get(path.target.id);
+            if (existing) {
+                existing.isTarget = true;  // promote to target
+            } else {
+                nodeMap.set(path.target.id, {
+                    node: path.target,
+                    depth: depth,
+                    isTarget: true
+                });
+            }
+        }
+
+        _addPath(focusPath);
+        _addPath(hoverPath);
+
+        // Sort by depth (shallowest first)
+        const sorted = Array.from(nodeMap.values());
+        sorted.sort(function(a, b) { return a.depth - b.depth; });
+        return sorted;
+    }
+
+    // ── Rendering ──────────────────────────────────────────────────
+
+    function _renderContextHeader() {
+        if (!_panelEl || !_currentCtx) return;
+
+        _panelEl.innerHTML = '';
+
+        const inner = document.createElement('div');
+        inner.className = 'assistant-panel-inner';
+
+        const header = document.createElement('div');
+        header.className = 'assistant-context-header';
+        header.innerHTML =
+            '<div class="assistant-context-title">' +
+                (_currentCtx.icon ? _currentCtx.icon + ' ' : '') +
+                _currentCtx.title +
+            '</div>' +
+            '<div class="assistant-context-content">' +
+                _resolve(_currentCtx.content) +
+            '</div>';
+
+        inner.appendChild(header);
+        _panelEl.appendChild(inner);
+    }
+
+    function _renderInteractionPath() {
+        if (!_panelEl || !_currentCtx) return;
+
+        // If no interaction, show entry state
+        if (!_focusPath && !_hoverPath) {
+            _renderContextHeader();
+            _panelEl.classList.add('entry-state');
+            return;
+        }
+
+        _panelEl.classList.remove('entry-state');
+
+        // Re-render context header + path
+        _renderContextHeader();
+
+        const inner = _panelEl.querySelector('.assistant-panel-inner');
+        if (!inner) return;
+
+        // Merge paths
+        const pathNodes = _mergeInteractionPaths(_focusPath, _hoverPath);
+
+        // Render each node
+        for (let i = 0; i < pathNodes.length; i++) {
+            var entry = pathNodes[i];
+
+            // Separator
+            if (entry.node.separator) {
+                var sep = document.createElement('hr');
+                sep.className = 'assistant-separator';
+                inner.appendChild(sep);
+            }
+
+            var div = document.createElement('div');
+            div.className = 'assistant-node';
+            div.dataset.nodeId = entry.node.id;
+            div.dataset.depth = entry.depth;
+
+            // State class
+            if (entry.isTarget) {
+                div.classList.add('active-target');
+            } else {
+                div.classList.add('in-chain');
+            }
+
+            // Title
+            var titleEl = document.createElement('div');
+            titleEl.className = 'assistant-node-title';
+            titleEl.textContent = (entry.node.icon ? entry.node.icon + ' ' : '') + (entry.node.title || '');
+            div.appendChild(titleEl);
+
+            // Content
+            var contentEl = document.createElement('div');
+            contentEl.className = 'assistant-node-content';
+            contentEl.innerHTML = _resolve(entry.node.content);
+            div.appendChild(contentEl);
+
+            // Expanded content — only for active targets with expanded text
+            if (entry.isTarget && entry.node.expanded) {
+                var expandedEl = document.createElement('div');
+                expandedEl.className = 'assistant-node-expanded';
+                expandedEl.innerHTML = _resolve(entry.node.expanded);
+                div.appendChild(expandedEl);
+            }
+
+            inner.appendChild(div);
+        }
+
+        // Center the active target in the panel viewport
+        requestAnimationFrame(function() {
+            _centerActiveNode();
+        });
+    }
+
+    // ── Scroll Centering ───────────────────────────────────────────
+    // Uses direct scrollTop on the panel — never touches page scroll.
+
+    function _centerActiveNode() {
+        if (!_panelEl) return;
+
+        var target = _panelEl.querySelector('.assistant-node.active-target');
+        if (!target) return;
+
+        // Calculate where target sits relative to the panel's scroll container
+        var targetTop = target.offsetTop;
+        var targetHeight = target.offsetHeight;
+        var panelHeight = _panelEl.clientHeight;
+
+        // Scroll so target is vertically centered in the panel
+        var scrollTo = targetTop - (panelHeight / 2) + (targetHeight / 2);
+        _panelEl.scrollTo({ top: Math.max(0, scrollTo), behavior: 'smooth' });
+    }
+
+    // ── Event Handlers ─────────────────────────────────────────────
+
+    function _onHover(e) {
+        if (!_enabled) return;
+
+        // Debounce rapid hover changes (50ms)
+        clearTimeout(_hoverDebounce);
+        _hoverDebounce = setTimeout(function() {
+            var matched = _matchNode(e.target);
+            if (!matched) return;
+
+            // Same hover target as before? Don't re-render
+            if (_hoverPath && _hoverPath.target.id === matched.node.id) return;
+
+            _hoverPath = { target: matched.node, chain: matched.parents };
+            _renderInteractionPath();
+        }, 50);
+    }
+
+    function _onFocus(e) {
+        if (!_enabled) return;
+
+        var matched = _matchNode(e.target);
+        if (!matched) return;
+
+        // Same node? Don't re-render
+        if (_focusPath && _focusPath.target.id === matched.node.id) return;
+
+        _focusPath = { target: matched.node, chain: matched.parents };
+        _renderInteractionPath();
+    }
+
+    function _onBlur(e) {
+        if (!_enabled) return;
+
+        _focusPath = null;
+        _renderInteractionPath();
+    }
+
+    function _onMouseLeave(e) {
+        if (!_enabled) return;
+
+        // Don't clear hover if mouse moved to the assistant panel
+        if (_panelEl && (e.relatedTarget === _panelEl || _panelEl.contains(e.relatedTarget))) return;
+
+        clearTimeout(_hoverDebounce);
+        _hoverPath = null;
+        _renderInteractionPath();
+    }
+
+    function _onWheel(e) {
+        if (!_panelEl) return;
+
+        var scrollTop = _panelEl.scrollTop;
+        var scrollMax = _panelEl.scrollHeight - _panelEl.clientHeight;
+
+        // If panel has no overflow, let event pass through
+        if (scrollMax <= 0) return;
+
+        // Scrolling down and panel hasn't reached bottom
+        if (e.deltaY > 0 && scrollTop < scrollMax) {
+            e.preventDefault();
+            _panelEl.scrollTop = Math.min(scrollTop + e.deltaY, scrollMax);
+            return;
+        }
+
+        // Scrolling up and panel hasn't reached top
+        if (e.deltaY < 0 && scrollTop > 0) {
+            e.preventDefault();
+            _panelEl.scrollTop = Math.max(scrollTop + e.deltaY, 0);
+            return;
+        }
+
+        // Panel fully scrolled in this direction — let event pass to page
+    }
+
+    // ── Listener Management ────────────────────────────────────────
+
+    function _attachListeners(containerEl) {
+        _detachListeners();
+
+        _listeners = {
+            hover:      function(e) { _onHover(e); },
+            focus:      function(e) { _onFocus(e); },
+            blur:       function(e) { _onBlur(e); },
+            mouseleave: function(e) { _onMouseLeave(e); },
+            wheel:      function(e) { _onWheel(e); }
+        };
+
+        containerEl.addEventListener('mouseover', _listeners.hover);
+        containerEl.addEventListener('focusin', _listeners.focus);
+        containerEl.addEventListener('focusout', _listeners.blur);
+        containerEl.addEventListener('mouseleave', _listeners.mouseleave);
+
+        // Attach wheel to the layout container (parent of both body + panel)
+        var layout = containerEl.closest('.assistant-layout') || containerEl.parentElement;
+        if (layout) {
+            layout.addEventListener('wheel', _listeners.wheel, { passive: false });
+            _listeners._wheelTarget = layout;
+        }
+    }
+
+    function _detachListeners() {
+        if (!_containerEl || !_listeners.hover) return;
+
+        _containerEl.removeEventListener('mouseover', _listeners.hover);
+        _containerEl.removeEventListener('focusin', _listeners.focus);
+        _containerEl.removeEventListener('focusout', _listeners.blur);
+        _containerEl.removeEventListener('mouseleave', _listeners.mouseleave);
+
+        if (_listeners._wheelTarget) {
+            _listeners._wheelTarget.removeEventListener('wheel', _listeners.wheel);
+        }
+
+        _listeners = {};
+    }
+
+    // ── Public API ─────────────────────────────────────────────────
+
+    async function activate(contextId, containerEl) {
+        await _loadCatalogue();
+        if (!_catalogue) return;
+
+        var ctx = _catalogue.get(contextId);
+        if (!ctx) {
+            console.warn('[assistant] no context found for:', contextId);
+            return;
+        }
+
+        // Clean up previous context
+        _detachListeners();
+
+        _currentCtx = ctx;
+        _containerEl = containerEl;
+        _panelEl = _resolvePanel();
+        if (!_panelEl) return;
+
+        // Flatten the tree for selector matching
+        _flatNodes = _flattenTree(ctx.children, []);
+
+        // Reset interaction state
+        _focusPath = null;
+        _hoverPath = null;
+
+        // Render entry state
+        _renderContextHeader();
+        _panelEl.classList.add('entry-state');
+
+        // Show panel
+        if (_enabled) {
+            _panelEl.classList.remove('disabled');
+        }
+
+        // Listen for interactions on the container
+        _attachListeners(containerEl);
+    }
+
+    function deactivate() {
+        _detachListeners();
+        _currentCtx = null;
+        _containerEl = null;
+        _flatNodes = [];
+        _focusPath = null;
+        _hoverPath = null;
+        if (_panelEl) {
+            _panelEl.innerHTML = '';
+            _panelEl.classList.remove('entry-state');
+        }
+    }
+
+    function refresh() {
+        if (!_currentCtx || !_containerEl) return;
+
+        // Re-flatten tree (picks up new dynamic children)
+        _flatNodes = _flattenTree(_currentCtx.children, []);
+
+        // Re-render current state
+        _renderInteractionPath();
+    }
+
+    function enable() {
+        _enabled = true;
+        if (_panelEl) _panelEl.classList.remove('disabled');
+    }
+
+    function disable() {
+        _enabled = false;
+        if (_panelEl) _panelEl.classList.add('disabled');
+    }
+
+    // ── Expose ─────────────────────────────────────────────────────
+
+    window._assistant = {
+        activate:   activate,
+        deactivate: deactivate,
+        refresh:    refresh,
+        enable:     enable,
+        disable:    disable,
+        resolvers:  {}
+    };
+
+    // ── Default resolvers for wizard/welcome ───────────────────────
+
+    window._assistant.resolvers.envCount = function() {
+        var envs = document.querySelectorAll('#wiz-envs > div');
+        return envs ? envs.length : 0;
+    };
+
+    window._assistant.resolvers.domainCount = function() {
+        var domains = document.querySelectorAll('#wiz-domains > span');
+        return domains ? domains.length : 0;
+    };
+
+})();
+</script>

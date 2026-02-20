@@ -223,14 +223,16 @@ function _resolvePanelEl(containerEl) {
 
 ### 6. Tree rendering
 
-**Decision:** Recursive DOM creation. Each node becomes a div with
-depth-based left padding.
+**Decision:** Event-driven rendering. On context activation, only the
+step context header is rendered. On hover/focus, the engine walks up
+the tree from the matched node, collects the parent chain, and renders
+only those nodes.
 
 ```javascript
-function _renderTree(tree, panelEl) {
+function _renderContextHeader(tree, panelEl) {
     panelEl.innerHTML = '';
 
-    // Render context header
+    // Render context header (always visible on this context)
     const header = document.createElement('div');
     header.className = 'assistant-context-header';
     header.innerHTML = `
@@ -242,10 +244,19 @@ function _renderTree(tree, panelEl) {
         </div>
     `;
     panelEl.appendChild(header);
+}
 
-    // Render children
-    for (const child of tree.children) {
-        _renderNode(child, 0, panelEl);
+function _renderInteractionPath(panelEl) {
+    // Clear everything below context header
+    const header = panelEl.querySelector('.assistant-context-header');
+    while (header.nextSibling) header.nextSibling.remove();
+
+    // Collect nodes to render from focus and hover paths
+    const pathNodes = _mergeInteractionPaths(_focusPath, _hoverPath);
+
+    // Render each node in order (parent → child)
+    for (const { node, depth } of pathNodes) {
+        _renderNode(node, depth, panelEl);
     }
 }
 
@@ -269,14 +280,14 @@ function _renderNode(node, depth, panelEl) {
     titleEl.textContent = (node.icon ? node.icon + ' ' : '') + node.title;
     div.appendChild(titleEl);
 
-    // Content (always visible)
+    // Content
     const contentEl = document.createElement('div');
     contentEl.className = 'assistant-node-content';
     contentEl.innerHTML = _resolve(node.content);
     div.appendChild(contentEl);
 
-    // Expanded content (hidden until active)
-    if (node.expanded) {
+    // Expanded content (only for the actively targeted leaf node)
+    if (node.expanded && node._isActiveTarget) {
         const expandedEl = document.createElement('div');
         expandedEl.className = 'assistant-node-expanded';
         expandedEl.innerHTML = _resolve(node.expanded);
@@ -285,17 +296,13 @@ function _renderNode(node, depth, panelEl) {
 
     panelEl.appendChild(div);
 
-    // Dynamic children
-    if (node.dynamic && node.childTemplate) {
-        _renderDynamicChildren(node, depth + 1, panelEl);
-    }
-
-    // Static children
-    for (const child of (node.children || [])) {
-        _renderNode(child, depth + 1, panelEl);
-    }
+    // Does NOT recurse children — only interaction path nodes are rendered
 }
 ```
+
+The engine does NOT render the full tree. Only nodes on the interaction
+path(s) are rendered. Focus and hover paths are merged — shared parents
+appear once.
 
 ### 7. Dynamic children
 
@@ -436,7 +443,8 @@ No file mapping needed — context IDs are the keys directly.
     function _resolvePanelEl(containerEl) { ... }
 
     // ── Tree Rendering ──────────────────────────────────────
-    function _renderTree(tree, panelEl) { ... }
+    function _renderContextHeader(tree, panelEl) { ... }
+    function _renderInteractionPath(panelEl) { ... }
     function _renderNode(node, depth, panelEl) { ... }
     function _renderDynamicChildren(parentNode, depth, panelEl) { ... }
 
@@ -446,17 +454,15 @@ No file mapping needed — context IDs are the keys directly.
     // ── Node Matching ───────────────────────────────────────
     function _flattenTree(tree) { ... }
     function _matchNode(element) { ... }
-
-    // ── Expand / Collapse ───────────────────────────────────
-    function _expandNode(nodeId) { ... }
-    function _collapseAll() { ... }
+    function _collectPath(node) { ... }  // walks up parent chain
+    function _mergeInteractionPaths(focusPath, hoverPath) { ... }
 
     // ── Event Handling ──────────────────────────────────────
     function _attachListeners(containerEl) { ... }
     function _detachListeners() { ... }
-    function _onHover(e) { ... }
-    function _onFocus(e) { ... }
-    function _onBlur(e) { ... }
+    function _onHover(e) { ... }   // sets _hoverPath, re-renders
+    function _onFocus(e) { ... }   // sets _focusPath, re-renders
+    function _onBlur(e) { ... }    // clears _focusPath, re-renders
 
     // ── Core ────────────────────────────────────────────────
     async function _loadAndRender(contextId, containerEl) {
@@ -468,9 +474,10 @@ No file mapping needed — context IDs are the keys directly.
         _panelEl = _resolvePanelEl(containerEl);
         if (!_panelEl) return;
 
-        _renderTree(tree, _panelEl);
+        _renderContextHeader(tree, _panelEl);
         _flatNodes = _flattenTree(tree);
-        _activeNodeId = null;
+        _focusPath = null;
+        _hoverPath = null;
 
         _detachListeners();
         _attachListeners(containerEl);

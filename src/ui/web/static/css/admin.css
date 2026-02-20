@@ -1333,6 +1333,11 @@ body {
     margin: 0 auto;
 }
 
+/* When assistant panel is present, widen to accommodate both panes */
+.wizard-content:has(.assistant-layout) {
+    max-width: 1060px;
+}
+
 .wizard-nav {
     display: flex;
     justify-content: space-between;
@@ -4851,4 +4856,324 @@ select option {
     font-size: 0.72rem;
     font-style: italic;
     opacity: 0.7;
+}
+
+/* ── Assistant Panel ─────────────────────────────────────────────── */
+/* Event-driven side panel: step context on entry, interaction path  */
+/* on hover/focus. Parent chain cascades, focus + hover coexist.     */
+
+/* ── Layout: flex wrapper for wizard + panel ─────────────────────── */
+
+.assistant-layout {
+    position: relative;
+    min-height: 0;
+}
+
+.assistant-layout>#wizard-body {
+    flex: 1;
+    min-width: 0;
+    margin-right: calc(360px + var(--space-md));
+}
+
+/* ── Panel container ─────────────────────────────────────────────── */
+
+.assistant-panel {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 360px;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-lg);
+    overflow-y: auto;
+    overflow-x: hidden;
+    max-height: calc(100vh - 220px);
+    scroll-behavior: smooth;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-subtle) transparent;
+}
+
+.assistant-panel::-webkit-scrollbar {
+    width: 4px;
+}
+
+.assistant-panel::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.assistant-panel::-webkit-scrollbar-thumb {
+    background: var(--border-subtle);
+    border-radius: 4px;
+}
+
+/* ── Panel inner padding ─────────────────────────────────────────── */
+
+.assistant-panel-inner {
+    padding: var(--space-lg) var(--space-md);
+    display: flex;
+    flex-direction: column;
+    min-height: 100%;
+}
+
+/* ── Entry state: context header centered ────────────────────────── */
+
+.assistant-panel.entry-state .assistant-panel-inner {
+    justify-content: center;
+    align-items: center;
+    text-align: center;
+}
+
+/* ── Context header (always visible) ─────────────────────────────── */
+
+.assistant-context-header {
+    margin-bottom: var(--space-lg);
+}
+
+.assistant-context-title {
+    font-size: 1.05rem;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    color: var(--text-primary);
+    margin-bottom: var(--space-xs);
+    line-height: 1.4;
+}
+
+.assistant-context-content {
+    font-size: 0.82rem;
+    line-height: 1.65;
+    color: var(--text-muted);
+}
+
+/* Entry state: slightly larger, warmer context header */
+.assistant-panel.entry-state .assistant-context-title {
+    font-size: 1.15rem;
+    background: linear-gradient(135deg,
+            var(--text-primary) 0%,
+            var(--accent) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+.assistant-panel.entry-state .assistant-context-content {
+    color: var(--text-secondary);
+    max-width: 260px;
+}
+
+/* ── Separator ───────────────────────────────────────────────────── */
+
+.assistant-separator {
+    border: none;
+    border-top: 1px solid var(--border-subtle);
+    margin: var(--space-md) 0;
+    opacity: 0.6;
+}
+
+/* ── Node: the core building block ───────────────────────────────── */
+
+.assistant-node {
+    position: relative;
+    margin-bottom: var(--space-sm);
+    padding: var(--space-sm) var(--space-sm) var(--space-sm) var(--space-md);
+    border-left: 2px solid var(--border-subtle);
+    border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+    transition: all 0.2s ease;
+}
+
+/* ── Depth-based left border styling ─────────────────────────────── */
+/* Depth 0: full accent-subtle, Depth 1+: progressively lighter      */
+
+.assistant-node[data-depth="0"] {
+    border-left-width: 3px;
+    border-left-color: hsla(210, 60%, 50%, 0.25);
+    padding-left: var(--space-md);
+}
+
+.assistant-node[data-depth="1"] {
+    border-left-width: 2px;
+    border-left-color: hsla(210, 50%, 45%, 0.18);
+    margin-left: var(--space-md);
+    padding-left: var(--space-md);
+}
+
+.assistant-node[data-depth="2"] {
+    border-left-width: 2px;
+    border-left-color: hsla(210, 40%, 40%, 0.14);
+    margin-left: calc(var(--space-md) * 2);
+    padding-left: var(--space-md);
+}
+
+.assistant-node[data-depth="3"] {
+    border-left-width: 1px;
+    border-left-color: hsla(210, 30%, 35%, 0.12);
+    margin-left: calc(var(--space-md) * 3);
+    padding-left: var(--space-md);
+}
+
+.assistant-node[data-depth="4"] {
+    border-left-width: 1px;
+    border-left-color: hsla(210, 20%, 30%, 0.10);
+    margin-left: calc(var(--space-md) * 4);
+    padding-left: var(--space-md);
+}
+
+/* ── Node title ──────────────────────────────────────────────────── */
+
+.assistant-node-title {
+    font-weight: 600;
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    margin-bottom: 2px;
+    letter-spacing: -0.005em;
+    line-height: 1.3;
+}
+
+/* ── Node content ────────────────────────────────────────────────── */
+
+.assistant-node-content {
+    font-size: 0.78rem;
+    line-height: 1.6;
+    color: var(--text-muted);
+    white-space: pre-line;
+}
+
+/* ── Expanded content (only in DOM for active target) ────────────── */
+
+.assistant-node-expanded {
+    margin-top: var(--space-sm);
+    font-size: 0.78rem;
+    line-height: 1.6;
+    color: var(--text-secondary);
+    white-space: pre-line;
+    padding: var(--space-sm) 0;
+    border-top: 1px solid hsla(210, 30%, 30%, 0.15);
+}
+
+/* ── Active target: the hovered/focused leaf node ────────────────── */
+/* This is the visual focal point — it pops out from the parent chain */
+
+.assistant-node.active-target {
+    background: hsla(210, 80%, 50%, 0.04);
+    border-left-color: var(--accent) !important;
+    border-left-width: 3px !important;
+    box-shadow:
+        inset 0 0 20px hsla(210, 80%, 50%, 0.03),
+        0 0 1px hsla(210, 80%, 50%, 0.08);
+}
+
+.assistant-node.active-target .assistant-node-title {
+    color: var(--accent);
+    font-weight: 600;
+}
+
+.assistant-node.active-target .assistant-node-content {
+    color: var(--text-primary);
+}
+
+/* ── Parent chain: present but subdued ───────────────────────────── */
+
+.assistant-node.in-chain {
+    border-left-color: hsla(210, 60%, 50%, 0.15);
+}
+
+.assistant-node.in-chain .assistant-node-title {
+    color: var(--text-secondary);
+}
+
+.assistant-node.in-chain .assistant-node-content {
+    color: var(--text-muted);
+}
+
+/* ── Transitions ─────────────────────────────────────────────────── */
+
+.assistant-node {
+    animation: assistNodeIn 0.2s ease both;
+}
+
+@keyframes assistNodeIn {
+    from {
+        opacity: 0;
+        transform: translateY(4px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* Stagger children slightly for a smooth cascade feel */
+.assistant-node:nth-child(2) {
+    animation-delay: 0.03s;
+}
+
+.assistant-node:nth-child(3) {
+    animation-delay: 0.06s;
+}
+
+.assistant-node:nth-child(4) {
+    animation-delay: 0.09s;
+}
+
+.assistant-node:nth-child(5) {
+    animation-delay: 0.12s;
+}
+
+.assistant-node:nth-child(6) {
+    animation-delay: 0.15s;
+}
+
+/* ── Bullet styling inside expanded content ──────────────────────── */
+
+.assistant-node-expanded ul {
+    margin: var(--space-xs) 0;
+    padding-left: var(--space-md);
+    list-style: none;
+}
+
+.assistant-node-expanded ul li {
+    position: relative;
+    padding-left: var(--space-sm);
+    margin-bottom: 2px;
+}
+
+.assistant-node-expanded ul li::before {
+    content: '•';
+    position: absolute;
+    left: calc(-1 * var(--space-sm));
+    color: var(--accent);
+    opacity: 0.6;
+}
+
+/* ── Tip styling ─────────────────────────────────────────────────── */
+
+.assistant-tip {
+    display: block;
+    margin-top: var(--space-sm);
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    opacity: 0.8;
+}
+
+.assistant-tip::before {
+    content: '💡 ';
+}
+
+/* ── Disabled state ──────────────────────────────────────────────── */
+
+.assistant-panel.disabled {
+    display: none;
+}
+
+/* ── Responsive: hide on narrow screens ──────────────────────────── */
+
+@media (max-width: 1080px) {
+    .assistant-panel {
+        display: none;
+    }
+
+    .assistant-layout {
+        display: block;
+    }
 }

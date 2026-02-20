@@ -9,32 +9,40 @@
 
 ## What the assistant IS
 
-The assistant is a **full-height side panel** that mirrors the entire page
-structure. It is always present, always showing the full context of the
-current view — not a tooltip, not a single message, not a chat.
+The assistant is a **full-height side panel** that shows contextual help
+driven by user interaction — not a tooltip, not a single message, not a chat.
 
-Every visible element on the page has a corresponding entry in the panel.
-The entry explains what the element means, why it matters, what it connects
-to, and what the user should do about it. The panel is a colleague standing
-next to you, narrating the page.
+Every visible element on the page has a corresponding entry **in the
+superstructure**, but the panel only shows content relevant to the current
+interaction. On page entry, only the step context is shown. As the user
+hovers or focuses elements, the panel builds content along the interaction
+path — the element itself plus its full parent chain. The panel is a
+colleague standing next to you, narrating what you're looking at.
 
 ### Core behavior
 
-1. **The panel mirrors the page** — the hierarchical structure of the panel
-   matches the hierarchical structure of the page. Sections, sub-sections,
-   instances, fields — all reflected 1:1.
+1. **Content is event-driven** — the panel shows content based on hover
+   and focus events. On page entry, only the step context (header + content)
+   is visible. As the user interacts, the panel builds up content along the
+   interaction path.
 
-2. **Everything is always visible** — the panel doesn't show/hide content
-   based on focus. All nodes are present. Focus/hover controls **depth** —
-   the focused node gets expanded detail, other nodes stay concise.
+2. **Parent chain cascades** — hovering or focusing an element shows that
+   element's content AND the content of every parent up to the step context.
+   For example, hovering a specific environment shows the Environments
+   section content and the hovered environment's content.
 
-3. **Step context persists** — the top of the panel always shows where the
+3. **Focus and hover coexist** — if the user has focus on one element
+   (e.g., clicked into an input) and hovers another, both elements and
+   their parent chains are shown simultaneously.
+
+4. **Step context persists** — the top of the panel always shows where the
    user is: which wizard step, which modal, which tab. This never disappears
    when drilling into deeper elements.
 
-4. **The panel scrolls with the page** — as the user scrolls through content,
-   the panel scrolls in sync so the relevant assistant content is always
-   aligned with the element the user is looking at.
+5. **Scroll centering** — when the user hovers or focuses an element,
+   the panel scrolls so that element's content is **vertically centered**
+   in the panel viewport. Parent chain above, additional content below.
+   The active target is the visual anchor.
 
 ---
 
@@ -194,15 +202,18 @@ The superstructure is a tree of nodes. Each node has:
    in the superstructure (e.g., `wizard/welcome`, `wizard/integrations`,
    `k8s-setup/configure`).
 
-2. **Render the full tree** — the engine renders ALL children of that node
-   into the panel. Every section, sub-section, element gets its content
-   displayed. This is the "mirror" — the panel always reflects the full
-   page structure.
+2. **Render the step context** — the engine renders only the context
+   header (title + content). The panel starts clean — no children visible.
 
 3. **Focus/hover mapping** — when the user hovers or focuses a DOM element,
    the engine matches it to a superstructure node using the `selector`
-   field. The matched node gets expanded (its `expanded` content replaces
-   the short `content`). Other nodes stay concise.
+   field. The matched node's content is rendered, along with the content
+   of every parent node in the chain up to the context root. This builds
+   the panel content dynamically based on interaction.
+
+4. **Coexistence** — focus and hover are tracked independently. If the
+   user has focus on element A and hovers element B, both paths are
+   rendered. Shared parents appear once.
 
 4. **Scroll sync** — the panel scrolls to keep the focused/hovered node's
    assistant content aligned with the corresponding element on the page.
@@ -260,7 +271,7 @@ indexes by context key.
 
 | Scenario | Context | Key lesson |
 |----------|---------|------------|
-| 1. Wizard Step 1, hover development | Simple page, few sections | Panel mirrors full page. Step context persists. Every element has content. Hovered gets depth. |
+| 1. Wizard Step 1, hover development | Simple page, few sections | Panel shows step context + Environments section + hovered development child. Content builds along interaction path. |
 | 2. Wizard Step 5, hover Docker | Complex page, many sections | Cross-references between related elements. Don't overreact to informational statuses. |
 | 3. K8s Detect (modal) | Modal context, read-only scan | Modal pushes context stack. Detection data explained through lens of what's coming next (Configure). |
 | 4. K8s Configure (modal) | Deep nesting, sub-sub-sub elements | 4+ levels of nesting work fine. Each level adds real value. Infrastructure decisions explained with options. |
@@ -273,7 +284,7 @@ indexes by context key.
 - A documentation browser
 
 ### The assistant IS:
-- A persistent side panel that mirrors the page
+- A persistent side panel that shows contextual help along the interaction path
 - A colleague explaining every part of the page
 - A teacher that explains concepts and consequences
 - A guide that connects current context to the journey

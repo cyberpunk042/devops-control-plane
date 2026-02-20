@@ -1,0 +1,98 @@
+[
+    {
+        "context": "wizard/welcome",
+        "title": "Welcome to the Setup Wizard",
+        "icon": "🧙",
+        "content": "6 steps to shape your project. Everything starts here — your project's identity, where it lives, and how it's organized.\n\nTake your time. Nothing is saved until you hit Finish on the last step, so feel free to explore and come back.",
+        "children": [
+            {
+                "id": "project-name",
+                "title": "Project Name",
+                "icon": "✏️",
+                "selector": "#wiz-name",
+                "content": "This is your project's identity — the name that follows it everywhere.",
+                "expanded": "It shows up in Docker image tags, CI/CD pipeline names, Helm chart metadata, generated folder structures, and every config file the control plane produces.\n\nPick something lowercase, hyphen-separated — like my-api or data-pipeline. Spaces and special characters can cause issues in Docker tags and file paths downstream.\n\n💡 Changing this later is possible but ripples through generated configs. Best to get it right now.",
+                "children": []
+            },
+            {
+                "id": "description",
+                "title": "Description",
+                "icon": "📝",
+                "selector": "#wiz-desc",
+                "content": "A short summary of what this project does — one or two sentences is perfect.",
+                "expanded": "This text appears in your README header, package metadata (package.json, pyproject.toml), GitHub repository description, and Helm chart annotations.\n\nIt's not required, but it's the kind of thing you'll appreciate having when someone new looks at the project six months from now.\n\n💡 Write it for a colleague who's never seen this repo before.",
+                "children": []
+            },
+            {
+                "id": "repository",
+                "title": "Repository",
+                "icon": "🔗",
+                "selector": "#wiz-repo",
+                "content": "Your Git remote — this connects the project to its home on GitHub, GitLab, or wherever it lives.",
+                "expanded": "The control plane uses this for:\n• CI/CD webhooks — triggering pipelines on push\n• GitHub integration — PR management, secrets sync, Actions dispatch\n• Docker registry paths — deriving container image names\n• Generated configs — embedding the repo URL in Helm charts, Dockerfiles, and CI workflows\n\nFormat: github.com/owner/repo (without https://). If you're using GitHub, the control plane can often auto-detect this from your local git remote.",
+                "children": []
+            },
+            {
+                "id": "domains",
+                "title": "Domains",
+                "icon": "🏷️",
+                "selector": "#wiz-domains",
+                "separator": true,
+                "content": "Domains are logical groupings for your codebase — not internet domains, more like folders of purpose.",
+                "expanded": "When you add modules in Step 2, each one belongs to a domain. Think of it as organizing your project by responsibility:\n\n• library — shared utilities, core business logic\n• ops — DevOps tooling, scripts, CI/CD configs\n• docs — documentation, guides, Docusaurus sites\n• services — microservices, APIs, workers\n\nYou've got {{domainCount}} so far. You can always add more later — this just shapes how modules are categorized in the dashboard.",
+                "dynamic": true,
+                "childTemplate": {
+                    "title": "{{name}}",
+                    "content": "One of your project domains. Modules assigned to this domain will be grouped together in the dashboard and reports.",
+                    "selector": "#wiz-domains > span"
+                },
+                "children": [
+                    {
+                        "id": "add-domain",
+                        "title": "Add domain…",
+                        "icon": "➕",
+                        "selector": "#wiz-new-domain",
+                        "content": "Type a name and press Enter or click + Add.",
+                        "expanded": "Good domain names are short and describe a purpose, not a technology. Think library over python, or services over backend.\n\n💡 You don't need to plan this perfectly. Domains can be added, renamed, or reorganized anytime.",
+                        "children": []
+                    }
+                ]
+            },
+            {
+                "id": "environments",
+                "title": "Environments",
+                "icon": "📋",
+                "selector": "#wiz-envs",
+                "separator": true,
+                "content": "Environments scope your secrets and deployment variables. Your project configuration, integrations, and generated files are shared across all of them — what changes per environment are the credentials and endpoint values.",
+                "expanded": "So your DB_HOST might be localhost:5432 in development but prod-db.internal in production. Same Dockerfile, same CI pipeline, different .env file per environment.\n\nEach environment gets its own encrypted .env file managed by the Vault in Step 3. The control plane keeps them separate — secrets from one environment never leak into another.\n\nYou've got {{envCount}} set up. Most projects need at least development and production. Add staging or preview if your workflow needs intermediate deployment targets.",
+                "dynamic": true,
+                "childTemplate": {
+                    "title": "{{name}}",
+                    "content": "A deployment target. This environment gets its own secrets and variable values in Step 3.",
+                    "selector": "#wiz-envs > div"
+                },
+                "children": [
+                    {
+                        "id": "add-env-name",
+                        "title": "Environment name",
+                        "icon": "➕",
+                        "selector": "#wiz-new-env-name",
+                        "content": "The short name for this environment — like staging, qa, or preview.",
+                        "expanded": "Keep it lowercase, no spaces. This name becomes part of your .env file path (.env.staging), GitHub deployment environment name, and CI/CD workflow target.\n\n💡 Common patterns: development + production for simple projects. Add staging for a QA gate, or preview for PR-based ephemeral environments.",
+                        "children": []
+                    },
+                    {
+                        "id": "add-env-desc",
+                        "title": "Environment description",
+                        "icon": "📝",
+                        "selector": "#wiz-new-env-desc",
+                        "content": "A human-readable label — helps your team know what each environment is for at a glance.",
+                        "expanded": "Examples: \"Local development and testing\", \"Pre-production staging\", \"Live customer-facing\".\n\nThis shows up in the dashboard environment selector and in the Vault management view. It's optional but makes life easier when you have 3+ environments.",
+                        "children": []
+                    }
+                ]
+            }
+        ]
+    }
+]

@@ -165,10 +165,12 @@ Variables are simple DOM reads — never complex logic:
 
 **Decision:** Two content tiers per node:
 
-- `content` — always visible. 1–3 sentences. What this element is and why
+- `content` — shown when the node is on the interaction path (hovered/focused
+  element or one of its parents). 1–3 sentences. What this element is and why
   it matters.
-- `expanded` — visible only when this node is focused/hovered. Additional
-  detail, options, consequences, tips.
+- `expanded` — shown only when this node is the directly hovered/focused
+  target (not just a parent in the chain). Additional detail, options,
+  consequences, tips.
 
 Not every node needs `expanded`. Simple fields like "Port" may only need
 `content`. Complex sections like "Resource Limits" or "Service Mesh" need both.
@@ -189,7 +191,7 @@ interface AssistantNode {
   title: string;                 // Display label
   icon?: string;                 // Emoji prefix
   selector?: string;             // CSS selector for DOM mapping
-  content: string;               // Always-visible assistant text
+  content: string;               // Assistant text (shown when on interaction path)
   expanded?: string;             // Additional text when focused (appended)
   separator?: boolean;           // Horizontal line before this node
   dynamic?: boolean;             // Children are generated from DOM
