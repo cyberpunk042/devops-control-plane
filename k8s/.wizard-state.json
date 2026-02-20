@@ -141,6 +141,6 @@
   "output_dir": "k8s/",
   "ingress": false,
   "skaffold": true,
-  "_savedAt": "2026-02-15T15:34:56.516268+00:00",
+  "_savedAt": "2026-02-20T19:18:57.705920+00:00",
   "_version": 1
 }

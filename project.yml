@@ -13,7 +13,7 @@ domains:
 - docs
 environments:
 - default: true
-  description: Local development
+  description: New development
   name: development
 - default: false
   description: Production environment

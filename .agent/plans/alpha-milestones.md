@@ -1425,7 +1425,7 @@ _Source of truth: K8s PodSpec, Container spec (v1), `_build_pod_template`_
 ##### 0.3.4c Manifests — envsubst for variable resolution
 > When manifests contain `${VAR}` patterns (ConfigMap data, Secret stringData,
 > container env values), they need substitution before deploy. This is the
-> **core problem** for local development without CI/CD variable injection.
+> **core problem** for new development without CI/CD variable injection.
 
 - [x] **NEW** Wizard env vars with `type: "variable"` → manifest uses `${VAR_NAME}` placeholder
 - [x] **NEW** Pre-deploy hook generated: `envsubst < manifest.yaml > manifest.yaml` per file with variables

@@ -1239,7 +1239,7 @@ class TestSkaffoldBuildLocal:
     def test_local_push_false_by_default(self):
         """build.local.push is false by default (dev-first).
 
-        0.3.3b: During local development, images shouldn't be pushed
+        0.3.3b: During new development, images shouldn't be pushed
         to a remote registry. Push is enabled per-profile (staging/prod).
         """
         result = _generate_skaffold(

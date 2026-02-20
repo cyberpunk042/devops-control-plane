@@ -684,7 +684,7 @@ def _build_env_example(variable_keys: list[str]) -> str:
     `skaffold dev -p dev-from-local`.
     """
     lines = [
-        "# Required environment variables for local development",
+        "# Required environment variables for new development",
         "# Copy this file to .env and fill in the values:",
         "#   cp .env.example .env",
         "#   set -a; source .env; set +a",
