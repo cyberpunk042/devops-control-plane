@@ -17,6 +17,10 @@ if (contentLoaded) {
 if (subParts && subParts.length > 0) {
 contentApplySubNav(subParts);
 }
+// If chat mode is active, restart poll (it was stopped when leaving the tab)
+if (contentCurrentMode === 'chat' && typeof _chatStartPoll === 'function' && _chatSelectedThread) {
+  chatLoadMessages(_chatSelectedThread);
+}
 return;
 }
 const browser = document.getElementById('content-browser');
