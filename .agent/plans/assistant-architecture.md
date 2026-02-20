@@ -1,0 +1,535 @@
+# Assistant — Architecture (Living Document)
+
+> **What this is:** The single source of truth for how the assistant panel
+> works *as actually built*. Read this before making any change to the
+> engine, catalogue, layout, or content.
+>
+> **Companion docs:**
+> - `assistant-realization.md` — what the assistant IS (philosophy)
+> - `assistant-scenarios.md` — concrete examples of full panel output
+> - `assistant-unified-plan.md` — original design (mostly accurate, some pseudocode outdated)
+
+---
+
+## File Map
+
+```
+src/ui/web/
+├── static/
+│   ├── css/admin.css                         # Panel layout + node styling
+│   └── data/
+│       └── assistant-catalogue.json          # Superstructure — all contexts
+└── templates/
+    ├── scripts/
+    │   ├── _assistant_engine.html             # Engine IIFE (~550 lines)
+    │   ├── _wizard_init.html                  # Integration hook (activate on step change)
+    │   └── _settings.html                     # Integration hook (enable/disable toggle)
+    ├── partials/
+    │   └── _tab_wizard.html                   # DOM structure (assistant-layout, panel, wizard-body)
+    └── dashboard.html                         # Script inclusion order
+```
+
+---
+
+## 1. Layout (CSS)
+
+### DOM Structure
+
+```html
+<div class="wizard-content">
+  <div class="card full-width">
+    <div class="assistant-layout">          <!-- position: relative -->
+      <div id="wizard-body">...</div>       <!-- margin-right reserves panel space -->
+      <div id="assistant-panel" class="assistant-panel">...</div>  <!-- position: absolute -->
+    </div>
+    <div class="wizard-nav">...</div>
+  </div>
+</div>
+```
+
+### Key CSS Rules
+
+```css
+.assistant-layout {
+    position: relative;     /* Positioning context for the panel */
+    min-height: 0;
+}
+
+.assistant-layout > #wizard-body {
+    flex: 1;
+    min-width: 0;
+    margin-right: calc(360px + var(--space-md));  /* Reserve space for panel */
+}
+
+.assistant-panel {
+    position: absolute;     /* OUT of flow — does NOT affect parent height */
+    top: 0;
+    right: 0;
+    bottom: 0;              /* Stretches to fill layout height */
+    width: 360px;
+    max-height: calc(100vh - 220px);  /* Viewport cap */
+    overflow-y: auto;       /* Scrolls internally */
+}
+```
+
+### Why `position: absolute`
+
+In CSS flexbox with `flex-direction: row`, the container's cross-axis height
+equals the tallest flex item — regardless of `align-self`, `max-height`, or
+`overflow`. The ONLY way to prevent the panel from expanding the card is to
+take it out of flow entirely. `position: absolute` achieves this. The layout
+height = wizard-body height only. The panel stretches via `top:0; bottom:0`
+to fill that height.
+
+### Wizard Content Width
+
+```css
+.wizard-content:has(.assistant-layout) {
+    max-width: 1060px;     /* Wider to fit wizard-body + panel */
+}
+```
+
+---
+
+## 2. Engine Architecture
+
+### File: `_assistant_engine.html`
+
+Single IIFE exposing `window._assistant`. All state is private.
+
+### State Variables
+
+```javascript
+var _catalogue = null;      // Map<contextId, contextObject> — loaded once
+var _currentCtx = null;     // Active context object
+var _panelEl = null;        // #assistant-panel DOM element
+var _containerEl = null;    // #wizard-body — event listener target
+var _flatNodes = [];        // Flattened tree: [{node, parents[]}, ...]
+var _focusPath = null;      // {target: node, chain: [parents]}
+var _hoverPath = null;      // {target: node, chain: [parents]}
+var _listeners = {};        // Event listener cleanup refs
+var _hoverDebounce = null;  // Debounce timer for hover events
+var _enabled = true;        // Toggle state
+```
+
+### Public API
+
+```javascript
+window._assistant = {
+    activate(contextId, containerEl),  // Set active context, attach listeners
+    deactivate(),                      // Clear context, detach listeners
+    refresh(),                         // Re-flatten tree, re-render
+    enable(),                          // Show panel
+    disable(),                         // Hide panel
+    resolvers: {}                      // { varName: () => string }
+};
+```
+
+### Core Flow
+
+```
+activate("wizard/welcome", wizardBody)
+  → _loadCatalogue()                    // fetch JSON once, build Map
+  → _currentCtx = catalogue.get(id)
+  → _panelEl = getElementById("assistant-panel")
+  → _flatNodes = _flattenTree(ctx.children, [])
+  → _renderEntryState(ctx)             // Show context header centered
+  → _attachListeners(containerEl)      // mouseover, focusin, focusout, mouseleave, wheel
+```
+
+---
+
+## 3. Tree Flattening & Dynamic Nodes
+
+### `_flattenTree(children, parentChain)`
+
+Recursively flattens the superstructure tree into a flat array ordered
+**deepest-first** (children before parents). This ordering ensures specific
+selectors match before general ones.
+
+For each node:
+1. If `node.dynamic === true` and `node.childTemplate` exists → call `_resolveDynamic()`
+2. Recurse into `node.children`
+3. Push `{node, parents: [...parentChain]}` to result
+
+### `_resolveDynamic(parentNode, grandParentChain, result)`
+
+Creates synthetic nodes for dynamically generated DOM elements (environment
+rows, domain badges, etc.).
+
+**Pattern:**
+```javascript
+// 1. Query DOM for elements matching childTemplate.selector
+var elements = _containerEl.querySelectorAll(tpl.selector);
+
+// 2. Extract display name from each element
+//    - Try: el.querySelector('[style*="font-weight:600"]')
+//    - Fallback: TreeWalker for first text node
+var extractedName = ...;
+
+// 3. Apply {{name}} interpolation to template strings
+var nodeTitle = (tpl.title || '').replace(/\{\{name\}\}/g, extractedName);
+var nodeContent = (tpl.content || '').replace(/\{\{name\}\}/g, extractedName);
+var nodeExpanded = tpl.expanded
+    ? tpl.expanded.replace(/\{\{name\}\}/g, extractedName)
+    : undefined;
+
+// 4. Context-aware enrichment (e.g., detect "default" badge)
+//    Read DOM attributes/elements to append contextual information
+var defaultBadge = el.querySelector('[style*="accent-glow"]');
+if (defaultBadge && defaultBadge.textContent.trim().toLowerCase() === 'default') {
+    nodeTitle += ' · default';
+    nodeExpanded += '\n\nAs the default environment, it will be pre-selected...';
+}
+
+// 5. Create synthetic node with _element reference for matching
+var syntheticNode = {
+    id: parentNode.id + '-dyn-' + i,
+    title: nodeTitle,
+    content: nodeContent,
+    expanded: nodeExpanded,
+    selector: null,         // Dynamic nodes don't use CSS selectors
+    _element: el,           // Direct DOM reference for matching
+    _isDynamic: true,
+    children: []
+};
+```
+
+**Critical: variable naming.** The extracted text MUST be named `extractedName`
+(not `name`) to avoid shadowing `_resolve()`'s regex callback parameter.
+
+### Catalogue Schema for Dynamic Nodes
+
+```json
+{
+  "id": "environments",
+  "dynamic": true,
+  "childTemplate": {
+    "title": "{{name}}",
+    "content": "The {{name}} environment — one of your deployment targets...",
+    "expanded": "When you define secrets and variables in Step 3...",
+    "selector": "#wiz-envs > div"
+  },
+  "children": [
+    { "id": "add-env-name", ... }
+  ]
+}
+```
+
+The `childTemplate` is a template that gets instantiated for EACH DOM element
+matching `childTemplate.selector`. The `{{name}}` placeholder gets replaced
+with text extracted from each element.
+
+### Context-Aware Enrichment Pattern
+
+Dynamic nodes can be enriched beyond template interpolation by reading DOM
+state. This is how the engine adds application-specific knowledge:
+
+- **Default badge** → appends "pre-selected in Step 3" note
+- Future: environment type detection, status badges, tool availability
+
+This enrichment happens in `_resolveDynamic` during tree flattening, NOT
+during rendering. The synthetic node carries the enriched content.
+
+---
+
+## 4. Node Matching
+
+### `_matchNode(element)`
+
+Maps a DOM element (from hover/focus event) to a superstructure node.
+Iterates `_flatNodes` (deepest-first) and returns the first match.
+
+**Three matching strategies (in order per node):**
+
+1. **Dynamic element reference** — if `node._element === element` or
+   `node._element.contains(element)` → match. This handles dynamically
+   created nodes that have no CSS selector.
+
+2. **CSS selector** — `element.matches(node.selector)` or
+   `element.closest(node.selector)` → match. For static nodes with
+   selectors like `#wiz-name`, `#wiz-desc`.
+
+3. **Field-group proximity** — if the hovered element shares a wrapper
+   `div` with the selector target, match. This handles hovering a `<label>`
+   that is a sibling of `<input id="wiz-name">` inside the same field group.
+
+```javascript
+// Field-group proximity check:
+// Use parentElement.closest('div') to skip the target element itself
+// when it IS a div (e.g., #wiz-domains is a div)
+const targetEl = _containerEl.querySelector(node.selector);
+if (targetEl && targetEl.parentElement) {
+    const wrapper = targetEl.parentElement.closest('div');
+    if (wrapper && wrapper !== _containerEl &&
+        (wrapper === element || wrapper.contains(element))) {
+        return entry;
+    }
+}
+```
+
+**Why `parentElement.closest('div')`**: If `targetEl.closest('div')` is used
+and the target IS a div (like `#wiz-domains`), it returns itself. The wrapper
+would be the element, not its parent field group. Starting from `parentElement`
+ensures we find the actual container div.
+
+---
+
+## 5. Interaction Path Rendering
+
+### `_renderInteractionPath()`
+
+Merges focus and hover paths into a single render.
+
+1. If both paths are null → render entry state (context header centered)
+2. Collect all unique nodes from both paths (targets + parent chains)
+3. Sort by depth (shallowest first)
+4. Mark each node as `isTarget` (the leaf being focused/hovered) or
+   `inChain` (a parent of a target)
+5. Render nodes sequentially to the panel
+6. Targets get `expanded` content rendered; chain nodes get `content` only
+7. Call `_centerActiveNode()` to scroll the panel
+
+### `_mergeInteractionPaths(focusPath, hoverPath)`
+
+Deduplicates by `node.id`. If both paths share a parent, it appears once.
+Target nodes are always promoted to `isTarget = true`. The result is an
+array sorted by depth.
+
+### `_centerActiveNode()`
+
+Scrolls the panel so the active target is vertically centered.
+
+```javascript
+var targetTop = target.offsetTop;       // Relative to panel (position: absolute)
+var targetHeight = target.offsetHeight;
+var panelHeight = _panelEl.clientHeight;
+var scrollTo = targetTop - (panelHeight / 2) + (targetHeight / 2);
+_panelEl.scrollTo({ top: Math.max(0, scrollTo), behavior: 'smooth' });
+```
+
+Uses `offsetTop` (not `getBoundingClientRect`) because the panel is
+`position: absolute` — `offsetTop` is relative to the panel itself.
+
+---
+
+## 6. Event Handling
+
+### Listeners (attached to `containerEl` = `#wizard-body`)
+
+| Event | Handler | Behavior |
+|-------|---------|----------|
+| `mouseover` | `_onHover` | Debounced 50ms. Matches node, updates `_hoverPath`, re-renders. |
+| `focusin` | `_onFocus` | Immediate. Matches node, updates `_focusPath`, re-renders. |
+| `focusout` | `_onBlur` | Clears `_focusPath`, re-renders. |
+| `mouseleave` | `_onMouseLeave` | Clears `_hoverPath` — BUT preserves it if mouse moved to panel. |
+| `wheel` | `_onWheel` | Attached to `.assistant-layout`. Redirects scroll to panel first. |
+
+### Hover Deduplication
+
+```javascript
+// Same hover target as before? Don't re-render
+if (_hoverPath && _hoverPath.target.id === matched.node.id) return;
+```
+
+This is the ONLY deduplication check. Do NOT add a skip for "hover matches
+focus" — that causes stale hover nodes to persist in the render when the
+user moves between elements.
+
+### Mouse Leave + Panel Awareness
+
+```javascript
+function _onMouseLeave(e) {
+    // Don't clear hover if mouse moved to the assistant panel
+    if (_panelEl && (e.relatedTarget === _panelEl ||
+        _panelEl.contains(e.relatedTarget))) return;
+
+    _hoverPath = null;
+    _renderInteractionPath();
+}
+```
+
+Because the panel is `position: absolute` (not inside `#wizard-body`),
+moving the mouse from wizard-body to the panel triggers `mouseleave`.
+The `e.relatedTarget` check prevents clearing hover data when the user
+moves to read the panel.
+
+### Wheel Scroll Interception
+
+```javascript
+function _onWheel(e) {
+    var scrollTop = _panelEl.scrollTop;
+    var scrollMax = _panelEl.scrollHeight - _panelEl.clientHeight;
+
+    if (scrollMax <= 0) return;  // No overflow — pass through
+
+    // Scrolling down, panel not at bottom
+    if (e.deltaY > 0 && scrollTop < scrollMax) {
+        e.preventDefault();
+        _panelEl.scrollTop = Math.min(scrollTop + e.deltaY, scrollMax);
+        return;
+    }
+
+    // Scrolling up, panel not at top
+    if (e.deltaY < 0 && scrollTop > 0) {
+        e.preventDefault();
+        _panelEl.scrollTop = Math.max(scrollTop + e.deltaY, 0);
+        return;
+    }
+
+    // Panel fully scrolled — let event pass to page
+}
+```
+
+Attached to `.assistant-layout` (not wizard-body) with `{ passive: false }`
+to enable `preventDefault`.
+
+---
+
+## 7. Template Resolution
+
+### `_resolve(text)`
+
+Replaces `{{variableName}}` with values from `window._assistant.resolvers`.
+
+```javascript
+text.replace(/\{\{(\w+)\}\}/g, function(match, key) {
+    var resolver = window._assistant.resolvers[key];
+    return resolver ? resolver() : '';
+});
+```
+
+### Registered Resolvers
+
+Resolvers are registered in `_wizard_init.html` when activating:
+
+```javascript
+window._assistant.resolvers = {
+    envCount: function() {
+        return document.querySelectorAll('#wiz-envs > div').length;
+    },
+    domainCount: function() {
+        return document.querySelectorAll('#wiz-domains > span').length;
+    }
+};
+```
+
+Add new resolvers as needed for new contexts. They are simple DOM reads.
+
+---
+
+## 8. Content Authoring — Scaling to New Contexts
+
+### Adding a new wizard step
+
+1. **Author the catalogue entry** in `assistant-catalogue.json`:
+   - Add a new top-level object with `"context": "wizard/step-name"`
+   - Build the children tree to mirror the step's DOM structure
+   - Verify every `selector` against the actual rendered HTML IDs/classes
+
+2. **Register the activation** in `_wizard_init.html`:
+   - The existing hook maps step names to context IDs
+   - Add resolvers for any new `{{variables}}`
+
+3. **No engine changes needed** — the engine is generic
+
+### Adding a modal context
+
+1. Author the catalogue entry with `"context": "modal-name/step-name"`
+2. Call `window._assistant.activate('modal-name/step-name', modalBody)`
+   when the modal opens
+3. Call `window._assistant.deactivate()` when the modal closes
+4. The panel container must exist in the DOM (currently `#assistant-panel`
+   is inside the wizard tab)
+
+### Adding dynamic nodes to a new section
+
+1. Set `"dynamic": true` on the parent node in the catalogue
+2. Define `"childTemplate"` with `"selector"` pointing to the container's
+   direct children (e.g., `"#my-list > div"`)
+3. Use `"{{name}}"` in title/content/expanded for text interpolation
+4. Engine will query the DOM and create synthetic nodes automatically
+
+### Content Authoring Rules — App Context Aware
+
+The assistant is NOT a generic tooltip. It is deeply knowledgeable about the
+DevOps Control Plane application. Every piece of content should demonstrate
+understanding of:
+
+1. **What this field/section does in the pipeline** — Project Name isn't just
+   a label, it shows up in Docker image tags, CI pipeline names, Helm charts,
+   and folder structures. The assistant KNOWS this.
+
+2. **How steps connect** — Environments defined in Step 1 become scope
+   selectors in Step 3 (Vault). The assistant says "pre-selected when you
+   define secrets in Step 3" because it understands the wizard flow.
+
+3. **What consequences choices have** — Setting a K8s resource limit below
+   actual usage means OOM kills. Leaving health checks off means K8s can't
+   detect deadlocks. The assistant explains WHY, not just WHAT.
+
+4. **Cross-references between related elements** — kubectl missing →
+   Kubernetes shows "not installed" below. Terraform CLI installed → but no
+   .tf files yet. Docker compose services → become K8s Deployments.
+
+5. **Operational knowledge** — development = test credentials, debug settings,
+   relaxed security. production = real credentials, hardened settings,
+   monitoring. The assistant knows what each environment MEANS operationally.
+
+6. **Never restate the visible** — don't echo field values, badge text, or
+   status labels. Explain what they MEAN and what to DO.
+
+7. **Conversational tone** — "You've got 2 set up", "Take your time",
+   "That's fine — they'll appear after you configure those integrations."
+
+8. **Silence > noise** — if there's nothing useful to add, don't force content.
+
+---
+
+## 9. Known Patterns & Pitfalls
+
+### Variable Shadowing
+
+In `_resolveDynamic`, the extracted text variable MUST be named `extractedName`
+(not `name`). The `_resolve()` function's regex callback uses `name` as a
+parameter. If both use `name`, the closure can produce garbled output where
+the extracted text gets inserted between every character.
+
+### Field-Group Proximity False Positives
+
+The proximity check can match elements that share a wrapper div but belong
+to different logical groups. This is acceptable for the wizard's simple
+structure but may need refinement for complex layouts where unrelated
+elements share the same parent div.
+
+### Dynamic Node Staleness
+
+Dynamic nodes are created during `_flattenTree()` which runs on `activate()`
+and `refresh()`. If the user adds/removes environments or domains, call
+`window._assistant.refresh()` to re-flatten the tree and pick up changes.
+
+### Scroll Centering + Bottom Padding
+
+The panel adds dynamic bottom padding to its inner content wrapper so that
+the LAST node can still be scrolled to center. Without this padding, nodes
+near the bottom can never reach the center of the viewport.
+
+---
+
+## 10. Test Checklist
+
+| Test | Expected |
+|------|----------|
+| Open wizard step 1 | Panel shows context header centered (entry state) |
+| Hover "Project Name" input | Panel: context header + Project Name (active, with expanded) |
+| Hover label "Project Name" | Same as above (field-group proximity match) |
+| Move hover away | Panel returns to entry state |
+| Click into Description textarea | Panel: context header + Description (active) |
+| While focused on Description, hover Repository | Both shown, shared context header once |
+| Hover environment row "development" | Panel: context + Environments (chain) + development (active) |
+| Development row shows "· default" in title | Default badge detected, Step 3 note in expanded |
+| Hover "Add domain" input | Panel: context + Domains (chain) + Add domain (active) |
+| Mouse from wizard-body to panel | Hover data preserved (not cleared) |
+| Scroll wheel over wizard area | Panel scrolls first, then page |
+| Panel content overflows | Panel scrolls internally, card height unchanged |
+| Resize below 1000px | Panel hidden, wizard takes full width |
