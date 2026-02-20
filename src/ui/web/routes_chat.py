@@ -487,3 +487,71 @@ def chat_sync():
     except Exception as e:
         logger.exception("Failed to sync chat")
         return jsonify({"error": str(e)}), 500
+
+
+# ── Move / Copy message ──────────────────────────────────────────
+
+@chat_bp.route("/chat/move-message", methods=["POST"])
+def chat_move_message():
+    """Move or copy a message to a different thread.
+
+    Body (JSON):
+        source_thread_id — thread the message is in now (required)
+        message_id       — the message ID to move/copy (required)
+        target_thread_id — thread to post to (required)
+        delete_source    — if true, delete from source (move); else copy (default true)
+    """
+    try:
+        root = _project_root()
+        body = request.get_json(silent=True) or {}
+        src_thread = body.get("source_thread_id", "")
+        msg_id = body.get("message_id", "")
+        tgt_thread = body.get("target_thread_id", "")
+        delete_src = body.get("delete_source", True)
+
+        if not src_thread or not msg_id or not tgt_thread:
+            return jsonify({"error": "source_thread_id, message_id, and target_thread_id are required"}), 400
+
+        if src_thread == tgt_thread:
+            return jsonify({"error": "Source and target thread cannot be the same"}), 400
+
+        # Find the source message
+        msgs = list_messages(root, thread_id=src_thread, n=9999)
+        source_msg = None
+        for m in msgs:
+            if m.id == msg_id:
+                source_msg = m
+                break
+
+        if not source_msg:
+            return jsonify({"error": f"Message {msg_id} not found in thread {src_thread}"}), 404
+
+        # Post as a new message in the target thread (fresh timestamp)
+        new_msg = send_message(
+            root,
+            source_msg.text,
+            user=source_msg.user,
+            thread_id=tgt_thread,
+            trace_id=source_msg.trace_id,
+            source=source_msg.source,
+            publish=source_msg.flags.publish if source_msg.flags else False,
+            encrypt=False,  # Don't re-encrypt — text is already encrypted if it was
+        )
+
+        # Delete from source if requested (move)
+        deleted = False
+        if delete_src:
+            deleted = delete_message(root, thread_id=src_thread, message_id=msg_id)
+
+        # Push in background
+        from src.core.services.ledger.worktree import push_ledger_branch
+        threading.Thread(target=push_ledger_branch, args=(root,), daemon=True).start()
+
+        return jsonify({
+            "new_message_id": new_msg.id,
+            "deleted_source": deleted,
+            "target_thread_id": tgt_thread,
+        })
+    except Exception as e:
+        logger.exception("Failed to move/copy message")
+        return jsonify({"error": str(e)}), 500

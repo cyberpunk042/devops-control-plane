@@ -887,13 +887,85 @@
         </div>`;
     }
 
+    let _traceSharePendingId = null;
+
     async function _traceShare(traceId) {
+        _traceSharePendingId = traceId;
+        // Show the modal
+        const modal = document.getElementById('trace-share-modal');
+        if (!modal) return;
+        modal.style.display = 'flex';
+
+        // Load threads
+        const list = document.getElementById('trace-share-thread-list');
+        list.innerHTML = '<div style="text-align:center;padding:1rem"><span class="spinner"></span></div>';
+        document.getElementById('trace-share-new-name').value = '';
+        document.getElementById('trace-share-new-row').style.display = 'none';
+
         try {
-            await apiPost('/trace/share', { trace_id: traceId });
-            toast('Trace shared to git', 'success');
+            const data = await api('/chat/threads');
+            const threads = data.threads || [];
+            let html = '';
+            for (const t of threads) {
+                const isGen = t.title === 'General';
+                html += `<label style="display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:var(--radius-sm);cursor:pointer;background:${isGen ? 'rgba(99,102,241,0.08)' : 'transparent'}">`
+                    + `<input type="radio" name="trace-share-thread" value="${esc(t.thread_id)}" ${isGen ? 'checked' : ''}>`
+                    + `<span style="font-weight:${isGen ? '600' : '400'}">${esc(t.title)}</span>`
+                    + `<span style="font-size:0.65rem;color:var(--text-muted);margin-left:auto">${t.message_count || 0} msgs</span>`
+                    + `</label>`;
+            }
+            list.innerHTML = html || '<p style="color:var(--text-muted);padding:0.5rem">No threads yet</p>';
+        } catch(e) {
+            list.innerHTML = '<p style="color:var(--error);padding:0.5rem">Failed to load threads</p>';
+        }
+    }
+
+    function _traceShareClose() {
+        const modal = document.getElementById('trace-share-modal');
+        if (modal) modal.style.display = 'none';
+        _traceSharePendingId = null;
+    }
+
+    function _traceShareToggleNew() {
+        const row = document.getElementById('trace-share-new-row');
+        const radio = document.getElementById('trace-share-new-radio');
+        if (row.style.display === 'none') {
+            row.style.display = 'flex';
+            radio.checked = true;
+            document.getElementById('trace-share-new-name').focus();
+        } else {
+            row.style.display = 'none';
+        }
+    }
+
+    async function _traceShareConfirm() {
+        if (!_traceSharePendingId) return;
+        const newRadio = document.getElementById('trace-share-new-radio');
+        let threadId = null;
+
+        if (newRadio && newRadio.checked) {
+            // Create new thread first
+            const newName = document.getElementById('trace-share-new-name').value.trim();
+            if (!newName) { toast('Enter a thread name', 'warning'); return; }
+            try {
+                const result = await apiPost('/chat/threads/create', { title: newName });
+                threadId = result.thread_id;
+            } catch(e) {
+                toast('Failed to create thread: ' + e.message, 'error');
+                return;
+            }
+        } else {
+            // Use selected existing thread
+            const checked = document.querySelector('input[name="trace-share-thread"]:checked');
+            if (checked) threadId = checked.value;
+        }
+
+        try {
+            await apiPost('/trace/share', { trace_id: _traceSharePendingId, thread_id: threadId });
+            toast('Trace shared to ' + (threadId || 'General'), 'success');
             loadDebugTraces();
-            // Invalidate chat cache so new trace message appears when user opens chat
             if (typeof _chatLoaded !== 'undefined') _chatLoaded = false;
+            _traceShareClose();
         } catch(e) {
             toast('Failed to share trace: ' + e.message, 'error');
         }

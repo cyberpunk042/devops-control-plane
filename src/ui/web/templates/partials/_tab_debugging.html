@@ -119,4 +119,25 @@
             </div>
         </div>
     </div>
+
+    <!-- Share trace modal — thread picker -->
+    <div id="trace-share-modal" class="chat-modal-overlay" style="display:none">
+        <div class="chat-modal" style="max-width:400px">
+            <h3>📤 Share Trace to Chat</h3>
+            <p style="font-size:0.78rem;color:var(--text-secondary);margin:0 0 0.75rem">Choose a thread to post the trace to:</p>
+            <div id="trace-share-thread-list" style="max-height:240px;overflow-y:auto;display:flex;flex-direction:column;gap:2px;margin-bottom:0.75rem;border:1px solid var(--border-subtle);border-radius:var(--radius-sm);padding:6px">
+            </div>
+            <div style="margin-bottom:0.75rem">
+                <button class="btn btn-secondary btn-sm" onclick="_traceShareToggleNew()" style="font-size:0.72rem">+ New Thread</button>
+                <div id="trace-share-new-row" style="display:none;align-items:center;gap:8px;margin-top:6px;padding:6px 10px;border-radius:var(--radius-sm);background:rgba(99,102,241,0.06)">
+                    <input type="radio" name="trace-share-thread" value="__new__" id="trace-share-new-radio">
+                    <input type="text" id="trace-share-new-name" placeholder="Thread name..." style="flex:1;padding:4px 8px;border-radius:var(--radius-sm);border:1px solid var(--border-subtle);background:var(--bg-primary);color:var(--text-primary);font-size:0.75rem">
+                </div>
+            </div>
+            <div class="chat-modal-actions">
+                <button class="btn btn-secondary btn-sm" onclick="_traceShareClose()">Cancel</button>
+                <button class="btn btn-primary btn-sm" onclick="_traceShareConfirm()">Share</button>
+            </div>
+        </div>
+    </div>
 </div>

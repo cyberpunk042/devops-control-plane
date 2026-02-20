@@ -203,15 +203,17 @@ def trace_events():
 
 @trace_bp.route("/trace/share", methods=["POST"])
 def trace_share():
-    """Share a trace — commit to git so it’s visible to others.
+    """Share a trace — commit to git so it's visible to others.
 
     Body (JSON):
-        trace_id — the trace to share (required)
+        trace_id  — the trace to share (required)
+        thread_id — chat thread to post to (default: general)
     """
     try:
         root = _project_root()
         body = request.get_json(silent=True) or {}
         trace_id = body.get("trace_id", "")
+        thread_id = body.get("thread_id") or None
         if not trace_id:
             return jsonify({"error": "trace_id is required"}), 400
 
@@ -224,7 +226,7 @@ def trace_share():
         trace = get_trace(root, trace_id)
         if trace:
             try:
-                post_trace_to_chat(root, trace)
+                post_trace_to_chat(root, trace, thread_id=thread_id)
             except Exception as e:
                 logger.warning("Failed to post trace to chat: %s", e)
 

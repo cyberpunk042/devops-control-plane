@@ -81,12 +81,18 @@ function _chatStartPoll() {
   _chatPollTimer = setInterval(async () => {
     if (!_chatSelectedThread) return;
     _chatPollCycles++;
+    // Show sync indicator
+    var syncEl = document.getElementById('chat-sync-indicator');
+    if (syncEl) syncEl.style.display = 'inline-flex';
     try {
       // Single combined request: sync + threads + messages
       const poll = await apiPost('/chat/poll', {
         thread_id: _chatSelectedThread,
         n: 100,
       });
+
+      // Hide sync indicator
+      if (syncEl) syncEl.style.display = 'none';
 
       // Update thread list
       if (poll.threads) {
@@ -103,8 +109,24 @@ function _chatStartPoll() {
           _chatTraceStatusChanged(newMsgs, _chatMessages)) {
         _chatMessages = newMsgs;
         chatRenderMessages();
+        // Brief flash to indicate new data arrived
+        if (syncEl) {
+          syncEl.style.display = 'inline-flex';
+          syncEl.innerHTML = '&#x2705; Updated';
+          syncEl.style.background = 'rgba(52,211,153,0.12)';
+          syncEl.style.color = 'var(--success)';
+          syncEl.style.animation = 'none';
+          setTimeout(() => {
+            syncEl.style.display = 'none';
+            syncEl.innerHTML = '&#x1F504; Syncing';
+            syncEl.style.background = 'rgba(99,102,241,0.12)';
+            syncEl.style.color = 'var(--accent)';
+            syncEl.style.animation = 'pulse 1.5s infinite';
+          }, 2000);
+        }
       }
     } catch (e) {
+      if (syncEl) syncEl.style.display = 'none';
       console.debug('[chat-poll] error:', e.message);
     }
   }, _chatPollInterval);
@@ -132,6 +154,7 @@ async function renderChatPanel() {
         <div class="chat-sidebar-header">
             <span class="chat-sidebar-title">Threads</span>
             <div class="chat-sidebar-actions">
+                <span id="chat-sync-indicator" style="display:none;font-size:0.7rem;padding:3px 10px;border-radius:10px;background:rgba(99,102,241,0.15);color:var(--accent);font-weight:600;align-items:center;gap:4px;animation:pulse 1.5s infinite;line-height:1" title="Syncing...">&#x1F504; Syncing</span>
                 <button class="btn btn-primary btn-sm" onclick="chatShowNewThread()" title="New thread">+ New</button>
                 <button class="btn btn-secondary btn-sm" onclick="chatSync('both')"
                     title="Reconnect &amp; restart sync">&#x1F504;</button>
@@ -220,6 +243,27 @@ async function renderChatPanel() {
         <div class="chat-modal-actions">
             <button class="btn btn-secondary btn-sm" onclick="chatCloseNewThread()">Cancel</button>
             <button class="btn btn-primary btn-sm" onclick="chatCreateThread()">Create Thread</button>
+        </div>
+    </div>
+</div>
+
+<!-- Move/Copy to thread modal -->
+<div id="chat-move-modal" class="chat-modal-overlay" style="display:none">
+    <div class="chat-modal" style="max-width:400px">
+        <h3>&#x27A1;&#xFE0F; Move / Copy Message</h3>
+        <p style="font-size:0.78rem;color:var(--text-secondary);margin:0 0 0.75rem">Select target thread:</p>
+        <div id="chat-move-thread-list" style="max-height:240px;overflow-y:auto;display:flex;flex-direction:column;gap:2px;margin-bottom:0.75rem;border:1px solid var(--border-subtle);border-radius:var(--radius-sm);padding:6px">
+        </div>
+        <label style="display:flex;align-items:center;gap:8px;font-size:0.78rem;margin-bottom:0.75rem;cursor:pointer">
+            <input type="checkbox" id="chat-move-delete-src" checked>
+            <span>Delete from source thread (move)</span>
+        </label>
+        <p id="chat-move-hint" style="font-size:0.68rem;color:var(--text-muted);margin:0 0 0.75rem">
+            &#x2139;&#xFE0F; Uncheck to copy instead of move. The message will be added as a new entry in the target thread.
+        </p>
+        <div class="chat-modal-actions">
+            <button class="btn btn-secondary btn-sm" onclick="_chatMoveClose()">Cancel</button>
+            <button class="btn btn-primary btn-sm" onclick="_chatMoveConfirm()">Move</button>
         </div>
     </div>
 </div>
@@ -495,6 +539,7 @@ function _chatRenderBubble(msg) {
     + (isPub ? '&#x1F310;' : '&#x1F311;') + '</button>'
     + '<button class="chat-msg-action-btn" onclick="chatToggleEncrypt(\'' + esc(msg.id) + '\', ' + (isEnc ? 'false' : 'true') + ')" title="' + (isEnc ? 'Decrypt' : 'Encrypt') + '">'
     + (isEnc ? '&#x1F513;' : '&#x1F512;') + '</button>'
+    + '<button class="chat-msg-action-btn" onclick="chatMoveToThread(\'' + esc(msg.id) + '\')" title="Move/Copy to another thread">&#x27A1;&#xFE0F;</button>'
     + '<button class="chat-msg-delete-btn" onclick="chatConfirmDelete(\'' + esc(msg.id) + '\')" title="Delete message">&#x1F5D1;&#xFE0F;</button>'
     + '</span>'
     + '</div>'
@@ -648,7 +693,73 @@ async function _chatLoadTraceEvents(btn, traceId) {
 
 
 // ═══════════════════════════════════════════════════════════════
-// Feature 4b — Delete Message
+// Feature 4b — Move / Copy Message to Thread
+// ═══════════════════════════════════════════════════════════════
+
+let _chatMovePendingMsgId = null;
+
+async function chatMoveToThread(msgId) {
+  _chatMovePendingMsgId = msgId;
+  const modal = document.getElementById('chat-move-modal');
+  if (!modal) return;
+  modal.style.display = 'flex';
+
+  const list = document.getElementById('chat-move-thread-list');
+  list.innerHTML = '<div style="text-align:center;padding:1rem"><span class="spinner"></span></div>';
+  document.getElementById('chat-move-delete-src').checked = true;
+
+  try {
+    const data = await api('/chat/threads');
+    const threads = data.threads || [];
+    let html = '';
+    for (const t of threads) {
+      // Skip current thread — can't move to same thread
+      if (t.thread_id === _chatSelectedThread) continue;
+      html += '<label style="display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:var(--radius-sm);cursor:pointer">'
+          + '<input type="radio" name="chat-move-target" value="' + esc(t.thread_id) + '">'
+          + '<span>' + esc(t.title) + '</span>'
+          + '<span style="font-size:0.65rem;color:var(--text-muted);margin-left:auto">' + (t.message_count || 0) + ' msgs</span>'
+          + '</label>';
+    }
+    list.innerHTML = html || '<p style="color:var(--text-muted);padding:0.5rem">No other threads available</p>';
+  } catch(e) {
+    list.innerHTML = '<p style="color:var(--error);padding:0.5rem">Failed to load threads</p>';
+  }
+}
+
+function _chatMoveClose() {
+  const modal = document.getElementById('chat-move-modal');
+  if (modal) modal.style.display = 'none';
+  _chatMovePendingMsgId = null;
+}
+
+async function _chatMoveConfirm() {
+  if (!_chatMovePendingMsgId || !_chatSelectedThread) return;
+
+  const checked = document.querySelector('input[name="chat-move-target"]:checked');
+  if (!checked) { toast('Select a target thread', 'warning'); return; }
+  const targetThread = checked.value;
+  const deleteSrc = document.getElementById('chat-move-delete-src').checked;
+
+  try {
+    await apiPost('/chat/move-message', {
+      source_thread_id: _chatSelectedThread,
+      message_id: _chatMovePendingMsgId,
+      target_thread_id: targetThread,
+      delete_source: deleteSrc,
+    });
+    toast(deleteSrc ? 'Message moved' : 'Message copied', 'success');
+    _chatMoveClose();
+    // Reload messages
+    chatLoadMessages(_chatSelectedThread);
+  } catch(e) {
+    toast('Failed: ' + e.message, 'error');
+  }
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+// Feature 4c — Delete Message
 // ═══════════════════════════════════════════════════════════════
 
 function chatConfirmDelete(msgId) {
