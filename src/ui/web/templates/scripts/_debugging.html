@@ -892,6 +892,8 @@
             await apiPost('/trace/share', { trace_id: traceId });
             toast('Trace shared to git', 'success');
             loadDebugTraces();
+            // Invalidate chat cache so new trace message appears when user opens chat
+            if (typeof _chatLoaded !== 'undefined') _chatLoaded = false;
         } catch(e) {
             toast('Failed to share trace: ' + e.message, 'error');
         }

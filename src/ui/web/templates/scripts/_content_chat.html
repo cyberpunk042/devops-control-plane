@@ -243,21 +243,21 @@ async function chatLoadThreads() {
     _chatLoaded = true;
     chatRenderThreadList(_chatThreads);
 
-    // On initial load, select a thread (and start polling)
     if (isInitialLoad) {
+      // First load — pick a thread from URL hash or auto-select General
       if (_chatSelectedThread) {
-        // Thread pre-selected from URL hash — load it
         chatSelectThread(_chatSelectedThread);
       } else if (_chatThreads.length > 0) {
-        // Auto-select General or first thread
         let gen = null;
         for (let i = 0; i < _chatThreads.length; i++) {
           if (_chatThreads[i].title === 'General') { gen = _chatThreads[i]; break; }
         }
         chatSelectThread(gen ? gen.thread_id : _chatThreads[0].thread_id);
       }
+    } else if (_chatSelectedThread) {
+      // Returning to chat — reload messages and restart poll for the current thread
+      chatSelectThread(_chatSelectedThread);
     }
-    // On subsequent refreshes (auto-poll), just re-render the list — no re-selection
   } catch (e) {
     // Only show error state on initial load, not during poll refreshes
     if (!_chatLoaded) {
