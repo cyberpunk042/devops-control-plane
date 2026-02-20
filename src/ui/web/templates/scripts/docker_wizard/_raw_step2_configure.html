@@ -314,6 +314,114 @@
                             window._wizValidation.recheck('dk');
                         };
 
+                        // ── Port mapping helpers ──────────────────────────────
+                        const _dkPortRowHtml = (svcId, j, hostPort, containerPort, protocol) => {
+                            return `<div class="dk-port-row" style="display:grid;grid-template-columns:1fr auto 1fr auto auto;gap:0.25rem;align-items:center;margin-bottom:0.15rem">
+                                <input type="number" id="dk-port-host-${svcId}-${j}" class="modal-form-input" value="${hostPort}" placeholder="8080" min="1" max="65535"
+                                    style="font-size:0.82rem;padding:0.25rem 0.35rem;font-family:var(--font-mono,monospace);text-align:center">
+                                <span style="color:var(--text-muted);font-size:0.78rem;font-weight:600">→</span>
+                                <input type="number" id="dk-port-container-${svcId}-${j}" class="modal-form-input" value="${containerPort}" placeholder="8080" min="1" max="65535"
+                                    style="font-size:0.82rem;padding:0.25rem 0.35rem;font-family:var(--font-mono,monospace);text-align:center">
+                                <select id="dk-port-proto-${svcId}-${j}" class="modal-form-select" style="font-size:0.78rem;padding:0.2rem 0.3rem;min-width:50px">
+                                    <option value="tcp"${protocol === 'tcp' || !protocol ? ' selected' : ''}>tcp</option>
+                                    <option value="udp"${protocol === 'udp' ? ' selected' : ''}>udp</option>
+                                </select>
+                                <button type="button" onclick="this.closest('.dk-port-row').remove()"
+                                    style="background:none;border:none;cursor:pointer;font-size:0.82rem;color:var(--text-muted);padding:0 2px" title="Remove port">✕</button>
+                            </div>`;
+                        };
+                        window._dkAddPort = (svcId, defaultHost, defaultContainer) => {
+                            const list = document.getElementById('dk-port-list-' + svcId);
+                            if (!list) return;
+                            const j = list.querySelectorAll('.dk-port-row').length;
+                            const row = document.createElement('div');
+                            row.innerHTML = _dkPortRowHtml(svcId, j, defaultHost || '', defaultContainer || '', 'tcp');
+                            list.appendChild(row.firstChild);
+                        };
+                        window._dkCollectPorts = (svcId) => {
+                            const list = document.getElementById('dk-port-list-' + svcId);
+                            if (!list) return [];
+                            const ports = [];
+                            list.querySelectorAll('.dk-port-row').forEach((row, j) => {
+                                const host = (document.getElementById('dk-port-host-' + svcId + '-' + j) || row.querySelector('input[type=number]:nth-of-type(1)')).value.trim();
+                                const container = (document.getElementById('dk-port-container-' + svcId + '-' + j) || row.querySelector('input[type=number]:nth-of-type(2)')).value.trim();
+                                const proto = (document.getElementById('dk-port-proto-' + svcId + '-' + j) || row.querySelector('select')).value;
+                                if (!host && !container) return;
+                                const h = host || container;
+                                const c = container || host;
+                                ports.push(proto === 'udp' ? `${h}:${c}/udp` : `${h}:${c}`);
+                            });
+                            return ports;
+                        };
+
+                        // ── Volume mapping helpers ────────────────────────────
+                        const _dkVolRowHtml = (svcId, j, source, mount, mode) => {
+                            return `<div class="dk-vol-row" style="display:grid;grid-template-columns:2fr auto 2fr auto auto;gap:0.25rem;align-items:center;margin-bottom:0.15rem">
+                                <input type="text" id="dk-vol-src-${svcId}-${j}" class="modal-form-input" value="${esc(source)}" placeholder="./data or volume_name"
+                                    style="font-size:0.82rem;padding:0.25rem 0.35rem;font-family:var(--font-mono,monospace)">
+                                <span style="color:var(--text-muted);font-size:0.78rem;font-weight:600">:</span>
+                                <input type="text" id="dk-vol-mount-${svcId}-${j}" class="modal-form-input" value="${esc(mount)}" placeholder="/app/data"
+                                    style="font-size:0.82rem;padding:0.25rem 0.35rem;font-family:var(--font-mono,monospace)">
+                                <select id="dk-vol-mode-${svcId}-${j}" class="modal-form-select" style="font-size:0.78rem;padding:0.2rem 0.3rem;min-width:40px">
+                                    <option value="rw"${mode === 'rw' || !mode ? ' selected' : ''}>rw</option>
+                                    <option value="ro"${mode === 'ro' ? ' selected' : ''}>ro</option>
+                                </select>
+                                <button type="button" onclick="this.closest('.dk-vol-row').remove()"
+                                    style="background:none;border:none;cursor:pointer;font-size:0.82rem;color:var(--text-muted);padding:0 2px" title="Remove volume">✕</button>
+                            </div>`;
+                        };
+                        window._dkAddVolume = (svcId) => {
+                            const list = document.getElementById('dk-vol-list-' + svcId);
+                            if (!list) return;
+                            const j = list.querySelectorAll('.dk-vol-row').length;
+                            const row = document.createElement('div');
+                            row.innerHTML = _dkVolRowHtml(svcId, j, '', '', 'rw');
+                            list.appendChild(row.firstChild);
+                        };
+                        window._dkCollectVolumes = (svcId) => {
+                            const list = document.getElementById('dk-vol-list-' + svcId);
+                            if (!list) return [];
+                            const vols = [];
+                            list.querySelectorAll('.dk-vol-row').forEach((row, j) => {
+                                const src = (document.getElementById('dk-vol-src-' + svcId + '-' + j) || row.querySelector('input[type=text]:nth-of-type(1)')).value.trim();
+                                const mnt = (document.getElementById('dk-vol-mount-' + svcId + '-' + j) || row.querySelector('input[type=text]:nth-of-type(2)')).value.trim();
+                                const mode = (document.getElementById('dk-vol-mode-' + svcId + '-' + j) || row.querySelector('select')).value;
+                                if (!src && !mnt) return;
+                                let entry = `${src || '.'}:${mnt || '/data'}`;
+                                if (mode === 'ro') entry += ':ro';
+                                vols.push(entry);
+                            });
+                            return vols;
+                        };
+
+                        // Port section HTML for a service form
+                        const _dkPortSection = (svcId, defaultPort) => {
+                            let h = `<div style="margin-top:0.5rem">
+                                ${_lbl('Port Mappings', 'host \u2192 container')}
+                                <div id="dk-port-list-${svcId}" style="display:flex;flex-direction:column">`;
+                            // Add one default row
+                            h += _dkPortRowHtml(svcId, 0, defaultPort, defaultPort, 'tcp');
+                            h += `</div>
+                                <button type="button" onclick="window._dkAddPort('${svcId}')"
+                                    style="margin-top:0.25rem;font-size:0.78rem;padding:0.2rem 0.7rem;border:1px dashed var(--border-subtle);border-radius:4px;background:none;color:var(--accent);cursor:pointer">
+                                    + Add port
+                                </button>
+                            </div>`;
+                            return h;
+                        };
+
+                        // Volume section HTML for a service form
+                        const _dkVolSection = (svcId) => {
+                            return `<div style="margin-top:0.5rem">
+                                ${_lbl('Volume Mappings', 'source : mount')}
+                                <div id="dk-vol-list-${svcId}" style="display:flex;flex-direction:column"></div>
+                                <button type="button" onclick="window._dkAddVolume('${svcId}')"
+                                    style="margin-top:0.25rem;font-size:0.78rem;padding:0.2rem 0.7rem;border:1px dashed var(--border-subtle);border-radius:4px;background:none;color:var(--accent);cursor:pointer">
+                                    + Add volume
+                                </button>
+                            </div>`;
+                        };
+
                         let html = '';
 
                         // ── Global compose settings ─────────────────
@@ -359,10 +467,9 @@
                                         <span style="flex:1;color:var(--text-muted);font-size:0.72rem">${esc(m.path || '')}</span>
                                     </label>
                                     <div id="dk-mod-cfg-${i}" style="padding:0 0.6rem 0.5rem;display:block">
-                                        <!-- Primary: base image, port, path, restart -->
-                                        <div style="display:grid;grid-template-columns:2fr 1fr 1fr 1fr;gap:0.4rem;align-items:start">
+                                        <!-- Primary: base image, path, restart -->
+                                        <div style="display:grid;grid-template-columns:2fr 1fr 1fr;gap:0.4rem;align-items:start">
                                             <div>${_lbl('Base image')}${_imgSelect(`mf-dk-img-${i}`, m._family)}</div>
-                                            <div>${_lbl('Port')}${_num(`mf-dk-port-${i}`, nextPort)}</div>
                                             <div>${_lbl('Dockerfile path')}${_inp(`mf-dk-dkpath-${i}`, deployable.length > 1 ? m.path + '/Dockerfile' : 'Dockerfile', '')}</div>
                                             <div>${_lbl('Restart policy')}
                                                 <select id="mf-dk-restart-${i}" class="modal-form-select" style="font-size:0.76rem;padding:0.2rem 0.3rem">
@@ -411,14 +518,19 @@
                                                         </div>
                                                     </details>
                                                 </div>
-                                                <div>${_lbl('Volumes', 'host:container per line')}${_ta(`mf-dk-vol-${i}`, '', './data:/app/data', 2)}</div>
-                                                <div style="grid-column:1/-1">
+                                                <div style="grid-column:1/-1">${_dkPortSection(i, nextPort)}</div>
+                                                <div style="grid-column:1/-1">${_dkVolSection(i)}</div>
+                                                <div style="grid-column:1/-1;margin-top:0.3rem">
                                                     ${_lbl('Depends on')}
-                                                    <div style="display:flex;flex-wrap:wrap;gap:0.25rem">
-                                                        ${otherSvcs.map(sn => `<label style="display:inline-flex;align-items:center;gap:0.2rem;font-size:0.7rem;cursor:pointer">
-                                                            <input type="checkbox" class="dk-dep-${i}" value="${sn}" style="accent-color:var(--accent)" onchange="window._dkRefreshEnvSelects(${i})"> ${sn}
+                                                    <div style="display:flex;flex-wrap:wrap;gap:0.35rem;margin-top:0.1rem">
+                                                        ${otherSvcs.map(sn => `<label style="display:inline-flex;align-items:center;gap:0.3rem;font-size:0.78rem;cursor:pointer;padding:0.2rem 0.5rem;border-radius:5px;border:1px solid var(--border-subtle);background:var(--bg-primary);transition:border-color 0.15s,background 0.15s"
+                                                            onmouseover="this.style.borderColor='var(--accent)'"
+                                                            onmouseout="if(!this.querySelector('input').checked)this.style.borderColor='var(--border-subtle)'">
+                                                            <input type="checkbox" class="dk-dep-${i}" value="${sn}" style="accent-color:var(--accent);width:13px;height:13px"
+                                                                onchange="window._dkRefreshEnvSelects(${i});this.closest('label').style.borderColor=this.checked?'var(--accent)':'var(--border-subtle)';this.closest('label').style.background=this.checked?'color-mix(in srgb,var(--accent) 8%,transparent)':'var(--bg-primary)'">
+                                                            <span style="font-family:var(--font-mono,monospace)">${esc(sn)}</span>
                                                         </label>`).join('')}
-                                                        ${otherSvcs.length === 0 ? '<span style="font-size:0.7rem;color:var(--text-muted)">—</span>' : ''}
+                                                        ${otherSvcs.length === 0 ? '<span style="font-size:0.78rem;color:var(--text-muted);font-style:italic">No other services available</span>' : ''}
                                                     </div>
                                                 </div>
                                             </div>
@@ -432,20 +544,18 @@
                             const defFamily = 'python';
                             const d = _dockerStackDefaults[defFamily];
                             html += `<div style="border:1px solid var(--border-subtle);border-radius:8px;background:var(--bg-inset);padding:0.6rem">
-                                <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:0.4rem;align-items:start">
+                                <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:0.4rem;align-items:start">
                                     <div>${_lbl('Stack template')}
                                         <select id="mf-dk-manual-stack" class="modal-form-select" style="font-size:0.76rem;padding:0.2rem 0.3rem"
                                             onchange="var f=this.value;var sd=window._dkStackDefaults||{};var dd=sd[f]||{};
                                                 var imgEl=document.getElementById('mf-dk-manual-img');if(imgEl){imgEl.innerHTML=(dd.images||[]).map(function(im,j){return '<option value=\"'+im+'\"'+(j===0?' selected':'')+'>'+im+'</option>'}).join('')+'<option value=\"__custom\">Custom…</option>';}
                                                 var flds={'mf-dk-manual-workdir':'workdir','mf-dk-manual-install':'install','mf-dk-manual-build':'build','mf-dk-manual-cmd':'cmd','mf-dk-manual-entrypoint':'entrypoint'};
                                                 for(var k in flds){var el=document.getElementById(k);if(el)el.value=dd[flds[k]]||'';}
-                                                var pe=document.getElementById('mf-dk-manual-port');if(pe)pe.value=dd.expose||8080;
                                                 var ee=document.getElementById('mf-dk-manual-expose');if(ee)ee.value=dd.expose||8080;">
                                             ${stackOpts.map(s => `<option value="${s}">${s}</option>`).join('')}
                                         </select>
                                     </div>
                                     <div>${_lbl('Base image')}${_imgSelect('mf-dk-manual-img', defFamily)}</div>
-                                    <div>${_lbl('Port')}${_num('mf-dk-manual-port', d.expose)}</div>
                                     <div>${_lbl('Restart policy')}
                                         <select id="mf-dk-manual-restart" class="modal-form-select" style="font-size:0.76rem;padding:0.2rem 0.3rem">
                                             ${_restartPolicies.map(r => `<option value="${r}"${r === 'unless-stopped' ? ' selected' : ''}>${r}</option>`).join('')}
@@ -487,7 +597,8 @@
                                                 </div>
                                             </details>
                                         </div>
-                                        <div>${_lbl('Volumes', 'host:container per line')}${_ta('mf-dk-manual-vol', '', '', 2)}</div>
+                                        <div style="grid-column:1/-1">${_dkPortSection('manual', d.expose || 8080)}</div>
+                                        <div style="grid-column:1/-1">${_dkVolSection('manual')}</div>
                                     </div>
                                 </details>
                             </div>`;
@@ -740,7 +851,6 @@
                                         family: m._family,
                                         // Primary
                                         baseImage: _resolveImg(`mf-dk-img-${i}`),
-                                        port: parseInt(_val(`mf-dk-port-${i}`)) || m._port,
                                         dockerfilePath: _val(`mf-dk-dkpath-${i}`) || 'Dockerfile',
                                         restart: _sel(`mf-dk-restart-${i}`) || 'unless-stopped',
                                         // Dockerfile settings
@@ -755,8 +865,10 @@
                                         healthcheck: _val(`mf-dk-health-${i}`),
                                     };
                                     container.envVars = window._dkCollectEnvVars(i);
-                                    const vols = _parseLines(`mf-dk-vol-${i}`);
-                                    if (vols) container.volumes = vols;
+                                    const ports = window._dkCollectPorts(i);
+                                    if (ports.length > 0) container.ports = ports;
+                                    const vols = window._dkCollectVolumes(i);
+                                    if (vols.length > 0) container.volumes = vols;
                                     const deps = _parseDeps(`dk-dep-${i}`);
                                     if (deps) container.depends_on = deps;
                                     const buildArgs = _parseEnv(`mf-dk-buildargs-${i}`);
@@ -776,7 +888,6 @@
                                 stack: family,
                                 family: family,
                                 baseImage: _resolveImg('mf-dk-manual-img'),
-                                port: parseInt(_val('mf-dk-manual-port')) || d.expose || 8080,
                                 dockerfilePath: 'Dockerfile',
                                 restart: _sel('mf-dk-manual-restart') || 'unless-stopped',
                                 workdir: _val('mf-dk-manual-workdir') || d.workdir || '/app',
@@ -789,8 +900,10 @@
                                 healthcheck: _val('mf-dk-manual-health'),
                             };
                             container.envVars = window._dkCollectEnvVars('manual');
-                            const vols = _parseLines('mf-dk-manual-vol');
-                            if (vols) container.volumes = vols;
+                            const ports = window._dkCollectPorts('manual');
+                            if (ports.length > 0) container.ports = ports;
+                            const vols = window._dkCollectVolumes('manual');
+                            if (vols.length > 0) container.volumes = vols;
                             data._selectedContainers.push(container);
                         }
 

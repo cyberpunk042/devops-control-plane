@@ -323,6 +323,7 @@ def setup_k8s(root: Path, data: dict) -> dict:
         generate_k8s_wizard,
         _generate_skaffold,
     )
+    from src.core.services.k8s_helm_generate import generate_helm_chart
 
     files_created: list[str] = []
 
@@ -352,6 +353,11 @@ def setup_k8s(root: Path, data: dict) -> dict:
         fpath.parent.mkdir(parents=True, exist_ok=True)
         fpath.write_text(f["content"])
         files_created.append(f["path"])
+
+    # Generate Helm chart if toggle was checked (writes directly to disk)
+    helm_result = generate_helm_chart(data, root)
+    helm_files = helm_result.get("files", [])
+    files_created.extend(helm_files)
 
     resp: dict = {
         "ok": True,
@@ -410,6 +416,23 @@ def _build_test_jobs_from_stacks(
     return jobs
 
 
+def _append_coverage_step(steps: list[dict], tool: str = "codecov") -> None:
+    """Append a coverage upload step to a test job's step list."""
+    if tool == "coveralls":
+        steps.append({
+            "name": "Upload coverage to Coveralls",
+            "uses": "coverallsapp/github-action@v2",
+            "with": {"github-token": "${{ secrets.GITHUB_TOKEN }}"},
+        })
+    else:
+        # Default: Codecov
+        steps.append({
+            "name": "Upload coverage to Codecov",
+            "uses": "codecov/codecov-action@v4",
+            "with": {"token": "${{ secrets.CODECOV_TOKEN }}"},
+        })
+
+
 def setup_ci(root: Path, data: dict) -> dict:
     """Generate CI workflow YAML from wizard state.
 
@@ -418,17 +441,29 @@ def setup_ci(root: Path, data: dict) -> dict:
 
     Supported data keys:
         branches       – comma-separated trigger branches (default "main, master")
+        trigger_type   – "push-pr" | "push" | "pr" | "manual" | "schedule"
+        cron_schedule  – cron expression when trigger_type is "schedule"
         python_version – Python version for test job (default "3.12")
         install_cmd    – pip install command (default 'pip install -e ".[dev]"')
         test_cmd       – test command (default "python -m pytest tests/ -v --tb=short")
         lint           – bool, add lint step
         lint_cmd       – lint command (default "ruff check src/")
+        typecheck      – bool, add type-check step
+        typecheck_cmd  – type-check command (default "mypy src/ --ignore-missing-imports")
+        coverage       – bool, add coverage upload step
+        coverage_tool  – "codecov" | "coveralls" (default "codecov")
         overwrite      – bool, replace existing ci.yml
+
+        concurrency_group   – concurrency group name (default "ci-${{ github.ref }}")
+        cancel_in_progress  – bool, cancel in-progress runs (default True)
+
+        env_vars            – dict of global env vars for all jobs
 
         docker              – bool, add Docker build job
         docker_registry     – registry URL (e.g. "ghcr.io/myorg")
         docker_image        – image name (e.g. "myapp")
         docker_build_args   – dict of build-arg key→value
+        docker_push         – bool, push to registry
 
         k8s                 – bool, add K8s deploy job
         k8s_deploy_method   – "kubectl" | "skaffold" | "helm"
@@ -440,7 +475,9 @@ def setup_ci(root: Path, data: dict) -> dict:
 
         environments        – list of env dicts for multi-env deploys
             Each: {name, namespace, branch, kubeconfig_secret,
-                   skaffold_profile, values_file}
+                   skaffold_profile, values_file,
+                   env_vars: dict, secrets: list[str],
+                   require_approval: bool}
     """
     import yaml as _yaml
 
@@ -449,12 +486,23 @@ def setup_ci(root: Path, data: dict) -> dict:
     # ── Parse inputs ────────────────────────────────────────────────
     branches_str = data.get("branches", "main, master")
     branches = [b.strip() for b in branches_str.split(",") if b.strip()]
+    trigger_type = data.get("trigger_type", "push-pr")
+    cron_schedule = data.get("cron_schedule", "")
     py_ver = data.get("python_version", "3.12")
     install_cmd = data.get("install_cmd", 'pip install -e ".[dev]"')
     test_cmd = data.get("test_cmd", "")
     lint = data.get("lint", False)
     lint_cmd = data.get("lint_cmd", "ruff check src/")
+    typecheck = data.get("typecheck", False)
+    typecheck_cmd = data.get("typecheck_cmd", "mypy src/ --ignore-missing-imports")
+    coverage = data.get("coverage", False)
+    coverage_tool = data.get("coverage_tool", "codecov")
     overwrite = data.get("overwrite", False)
+
+    concurrency_group = data.get("concurrency_group", "ci-${{ github.ref }}")
+    cancel_in_progress = data.get("cancel_in_progress", True)
+
+    global_env_vars: dict = data.get("env_vars", {})
 
     stacks: list[str] = data.get("stacks", [])
 
@@ -462,6 +510,7 @@ def setup_ci(root: Path, data: dict) -> dict:
     docker_registry = data.get("docker_registry", "")
     docker_image = data.get("docker_image", "app")
     docker_build_args = data.get("docker_build_args", {})
+    docker_push = data.get("docker_push", bool(docker_registry))
 
     k8s_enabled = data.get("k8s", False)
     k8s_method = data.get("k8s_deploy_method", "kubectl")
@@ -492,16 +541,36 @@ def setup_ci(root: Path, data: dict) -> dict:
             "error": "CI workflow already exists. Check 'Overwrite' to replace.",
         }
 
+    # ── Build trigger (on:) from trigger_type ───────────────────────
+    trigger: dict = {}
+    if trigger_type == "push":
+        trigger["push"] = {"branches": branches}
+    elif trigger_type == "pr":
+        trigger["pull_request"] = {"branches": branches}
+    elif trigger_type == "manual":
+        trigger["workflow_dispatch"] = {}
+    elif trigger_type == "schedule":
+        trigger["schedule"] = [{"cron": cron_schedule or "0 6 * * 1"}]
+        trigger["workflow_dispatch"] = {}  # always allow manual trigger too
+    else:  # "push-pr" (default)
+        trigger["push"] = {"branches": branches}
+        trigger["pull_request"] = {"branches": branches}
+
     # ── Build workflow dict ─────────────────────────────────────────
     workflow: dict = {
         "name": "CI",
-        "on": {
-            "push": {"branches": branches},
-            "pull_request": {"branches": branches},
-        },
+        "on": trigger,
         "permissions": {"contents": "read"},
+        "concurrency": {
+            "group": concurrency_group,
+            "cancel-in-progress": cancel_in_progress,
+        },
         "jobs": {},
     }
+
+    # Global env vars
+    if global_env_vars:
+        workflow["env"] = global_env_vars
 
     # ── 1. Test job ─────────────────────────────────────────────────
     #  Priority: stacks → explicit test_cmd → default Python fallback.
@@ -521,12 +590,16 @@ def setup_ci(root: Path, data: dict) -> dict:
         # Explicit test command (legacy / wizard mode)
         test_steps: list[dict] = [
             {"uses": "actions/checkout@v4"},
-            {"uses": "actions/setup-python@v5", "with": {"python-version": py_ver}},
+            {"uses": "actions/setup-python@v5", "with": {"python-version": py_ver, "cache": "pip"}},
             {"name": "Install dependencies", "run": install_cmd},
-            {"name": "Run tests", "run": test_cmd},
         ]
         if lint:
             test_steps.append({"name": "Lint", "run": lint_cmd})
+        if typecheck:
+            test_steps.append({"name": "Type check", "run": typecheck_cmd})
+        test_steps.append({"name": "Run tests", "run": test_cmd})
+        if coverage:
+            _append_coverage_step(test_steps, coverage_tool)
 
         workflow["jobs"]["test"] = {
             "runs-on": "ubuntu-latest",
@@ -538,12 +611,16 @@ def setup_ci(root: Path, data: dict) -> dict:
         default_test_cmd = "python -m pytest tests/ -v --tb=short"
         test_steps = [
             {"uses": "actions/checkout@v4"},
-            {"uses": "actions/setup-python@v5", "with": {"python-version": py_ver}},
+            {"uses": "actions/setup-python@v5", "with": {"python-version": py_ver, "cache": "pip"}},
             {"name": "Install dependencies", "run": install_cmd},
-            {"name": "Run tests", "run": default_test_cmd},
         ]
         if lint:
             test_steps.append({"name": "Lint", "run": lint_cmd})
+        if typecheck:
+            test_steps.append({"name": "Type check", "run": typecheck_cmd})
+        test_steps.append({"name": "Run tests", "run": default_test_cmd})
+        if coverage:
+            _append_coverage_step(test_steps, coverage_tool)
 
         workflow["jobs"]["test"] = {
             "runs-on": "ubuntu-latest",
@@ -626,12 +703,15 @@ def setup_ci(root: Path, data: dict) -> dict:
             "with": build_push_with,
         })
 
-        workflow["jobs"]["docker"] = {
+        docker_job: dict = {
             "runs-on": "ubuntu-latest",
             "needs": ["test"] if has_test_job else [],
-            "if": "github.event_name == 'push'",
             "steps": docker_steps,
         }
+        # Only gate on push if push is a configured trigger
+        if trigger_type in ("push", "push-pr"):
+            docker_job["if"] = "github.event_name == 'push'"
+        workflow["jobs"]["docker"] = docker_job
 
     # ── 3. K8s deploy job(s) ────────────────────────────────────────
     if k8s_enabled:
@@ -677,13 +757,26 @@ def setup_ci(root: Path, data: dict) -> dict:
                     "steps": deploy_steps,
                 }
 
+                # GitHub Environment protection (enables approval gates)
+                if env.get("require_approval"):
+                    job_def["environment"] = env_name
+
+                # Per-environment env vars and secrets
+                job_env: dict = {}
+                for k, v in (env.get("env_vars") or {}).items():
+                    job_env[k] = v
+                for secret_name in (env.get("secrets") or []):
+                    job_env[secret_name] = f"${{{{ secrets.{secret_name} }}}}"
+                if job_env:
+                    job_def["env"] = job_env
+
                 # Branch constraint
                 if branch:
                     job_def["if"] = (
                         f"github.event_name == 'push' && "
                         f"github.ref == 'refs/heads/{branch}'"
                     )
-                else:
+                elif trigger_type in ("push", "push-pr"):
                     job_def["if"] = "github.event_name == 'push'"
 
                 workflow["jobs"][job_id] = job_def
@@ -701,12 +794,14 @@ def setup_ci(root: Path, data: dict) -> dict:
                 docker_image=docker_image,
                 docker_enabled=docker_enabled,
             )
-            workflow["jobs"]["deploy"] = {
+            deploy_job: dict = {
                 "runs-on": "ubuntu-latest",
                 "needs": [prev_job] if prev_job else [],
-                "if": "github.event_name == 'push'",
                 "steps": deploy_steps,
             }
+            if trigger_type in ("push", "push-pr"):
+                deploy_job["if"] = "github.event_name == 'push'"
+            workflow["jobs"]["deploy"] = deploy_job
 
     # ── Write YAML ──────────────────────────────────────────────────
     content = _yaml.dump(
@@ -890,6 +985,375 @@ def setup_terraform(root: Path, data: dict) -> dict:
     }
 
 
+def setup_dns(root: Path, data: dict) -> dict:
+    """Generate DNS & CDN configuration files from wizard state.
+
+    Delegates to ``dns_cdn_ops.generate_dns_records`` for DNS record and zone
+    file generation, then writes additional output files (records.json,
+    README.md, CNAME, CDN/proxy configs).
+
+    Supported data keys:
+        domain         – primary domain (required)
+        subdomains     – list[str] of extra subdomains
+        dns_provider   – "cloudflare" | "route53" | … | "manual"
+        cdn_provider   – "none" | "cloudflare" | "cloudfront" | …
+        ssl            – "managed" | "letsencrypt" | "certmanager" | "manual"
+        mail           – "none" | "google" | "protonmail" | …
+        spf            – bool, include SPF record
+        dmarc          – bool, include DMARC record
+        ingress        – "nginx" | "traefik" | "alb" (K8s)
+        certmanager    – bool, generate cert-manager manifests
+        k8s_routes     – list[{host, service, port}]
+        proxy          – "nginx" | "caddy" | "traefik" (Docker)
+        upstream       – upstream URL for proxy
+        pages_cname    – bool, generate GitHub Pages CNAME
+        tf_dns         – bool, generate Terraform dns.tf
+        tf_cdn         – bool, generate Terraform cdn.tf
+        tf_ssl         – bool, generate Terraform ssl.tf
+        overwrite      – bool, replace existing files
+    """
+    import json as _json
+    import textwrap as _textwrap
+
+    from src.core.services import devops_cache
+    from src.core.services.dns_cdn_ops import generate_dns_records
+
+    domain = data.get("domain", "").strip()
+    if not domain:
+        return {"ok": False, "error": "Domain is required."}
+
+    subdomains: list[str] = data.get("subdomains", [])
+    dns_provider = data.get("dns_provider", "manual")
+    cdn_provider = data.get("cdn_provider", "none")
+    ssl_strategy = data.get("ssl", "managed")
+    mail = data.get("mail", "none")
+    spf = data.get("spf", True)
+    dmarc = data.get("dmarc", True)
+    overwrite = data.get("overwrite", False)
+
+    # ── Guard: dns/ directory exists check ──────────────────────────
+    dns_dir = root / "dns"
+    zone_path = dns_dir / f"{domain}.zone"
+    if zone_path.exists() and not overwrite:
+        return {
+            "ok": False,
+            "error": "DNS config already exists. Check 'Overwrite' to replace.",
+        }
+
+    # ── 1. Generate DNS records via existing generator ──────────────
+    gen_result = generate_dns_records(
+        domain,
+        mail_provider=mail if mail != "none" else "",
+        include_spf=spf,
+        include_dmarc=dmarc,
+    )
+    if not gen_result.get("ok"):
+        return {"ok": False, "error": gen_result.get("error", "DNS generation failed")}
+
+    records = gen_result["records"]
+    zone_content = gen_result["zone_file"]
+
+    # Add subdomain A/CNAME records
+    for sub in subdomains:
+        sub_name = sub if "." in sub else sub
+        records.append({
+            "type": "CNAME",
+            "name": sub_name,
+            "value": f"{domain}.",
+            "ttl": 300,
+        })
+        # Append to zone file
+        fqdn = f"{sub_name}.{domain}." if not sub_name.endswith(".") else sub_name
+        zone_content += f"{fqdn:<30} {300:<8} IN  {'CNAME':<8} {domain}.\n"
+
+    # ── 2. Build file list ──────────────────────────────────────────
+    files: list[dict] = []
+
+    # Zone file
+    files.append({
+        "path": f"dns/{domain}.zone",
+        "content": zone_content,
+    })
+
+    # Machine-readable records
+    records_json = _json.dumps(
+        {"domain": domain, "subdomains": subdomains, "records": records},
+        indent=2,
+    )
+    files.append({
+        "path": "dns/records.json",
+        "content": records_json + "\n",
+    })
+
+    # README
+    sub_section = ""
+    if subdomains:
+        sub_list = "\n".join(f"- `{s}.{domain}`" if "." not in s else f"- `{s}`" for s in subdomains)
+        sub_section = f"\n## Subdomains\n\n{sub_list}\n"
+
+    readme = _textwrap.dedent(f"""\
+        # DNS & CDN Configuration — {domain}
+
+        Generated by DevOps Control Plane.
+
+        ## Domain
+
+        - **Primary**: `{domain}`
+        - **DNS Provider**: {dns_provider}
+        - **CDN**: {cdn_provider}
+        - **SSL**: {ssl_strategy}
+        {sub_section}
+        ## Files
+
+        | File | Description |
+        |------|-------------|
+        | `{domain}.zone` | BIND-format zone file |
+        | `records.json` | Machine-readable DNS records |
+        | `README.md` | This file |
+
+        ## Record Summary
+
+        | Type | Name | Value |
+        |------|------|-------|
+    """).lstrip()
+
+    for r in records:
+        readme += f"    | {r['type']} | {r['name']} | {r['value']} |\n"
+
+    readme += "\n"
+    files.append({"path": "dns/README.md", "content": readme})
+
+    # ── 3. CNAME for GitHub Pages ──────────────────────────────────
+    if data.get("pages_cname"):
+        files.append({
+            "path": "CNAME",
+            "content": domain + "\n",
+        })
+
+    # ── 4. CDN / Proxy config ──────────────────────────────────────
+    proxy = data.get("proxy", "")
+    upstream = data.get("upstream", "http://localhost:3000")
+
+    if proxy == "nginx" or cdn_provider == "nginx":
+        all_hosts = [domain] + [
+            f"{s}.{domain}" if "." not in s else s for s in subdomains
+        ]
+        server_names = " ".join(all_hosts)
+        nginx_conf = _textwrap.dedent(f"""\
+            # Nginx reverse proxy — generated by DevOps Control Plane
+            server {{
+                listen 80;
+                server_name {server_names};
+
+                location / {{
+                    proxy_pass {upstream};
+                    proxy_set_header Host $host;
+                    proxy_set_header X-Real-IP $remote_addr;
+                    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                    proxy_set_header X-Forwarded-Proto $scheme;
+                }}
+            }}
+        """)
+        files.append({"path": "cdn/nginx.conf", "content": nginx_conf})
+
+    elif proxy == "caddy" or cdn_provider == "caddy":
+        all_hosts = [domain] + [
+            f"{s}.{domain}" if "." not in s else s for s in subdomains
+        ]
+        caddy_conf = f"# Caddyfile — generated by DevOps Control Plane\n"
+        for host in all_hosts:
+            caddy_conf += f"\n{host} {{\n    reverse_proxy {upstream}\n}}\n"
+        files.append({"path": "cdn/Caddyfile", "content": caddy_conf})
+
+    elif proxy == "traefik":
+        import yaml as _yaml
+        traefik_cfg = {
+            "http": {
+                "routers": {
+                    "app": {
+                        "rule": f"Host(`{domain}`)",
+                        "service": "app",
+                        "entryPoints": ["websecure"],
+                        "tls": {"certResolver": "letsencrypt"},
+                    },
+                },
+                "services": {
+                    "app": {
+                        "loadBalancer": {
+                            "servers": [{"url": upstream}],
+                        },
+                    },
+                },
+            },
+        }
+        files.append({
+            "path": "cdn/traefik.yml",
+            "content": _yaml.dump(traefik_cfg, default_flow_style=False, sort_keys=False),
+        })
+
+    # ── 5. K8s Ingress (if routes provided) ────────────────────────
+    k8s_routes = data.get("k8s_routes") or []
+    if k8s_routes:
+        import yaml as _yaml
+
+        ingress_rules = []
+        tls_hosts = []
+        for route in k8s_routes:
+            host = route.get("host", domain)
+            svc = route.get("service", "web")
+            port = route.get("port", 80)
+            ingress_rules.append({
+                "host": host,
+                "http": {
+                    "paths": [{
+                        "path": "/",
+                        "pathType": "Prefix",
+                        "backend": {
+                            "service": {
+                                "name": svc,
+                                "port": {"number": int(port)},
+                            },
+                        },
+                    }],
+                },
+            })
+            tls_hosts.append(host)
+
+        tls_block: list[dict] = []
+        if ssl_strategy in ("letsencrypt", "certmanager", "managed"):
+            tls_block = [{
+                "hosts": tls_hosts,
+                "secretName": f"{domain.replace('.', '-')}-tls",
+            }]
+
+        ingress_manifest = {
+            "apiVersion": "networking.k8s.io/v1",
+            "kind": "Ingress",
+            "metadata": {
+                "name": f"{domain.replace('.', '-')}-ingress",
+                "annotations": {},
+            },
+            "spec": {
+                "rules": ingress_rules,
+            },
+        }
+
+        # Annotations
+        ingress_ctrl = data.get("ingress", "nginx")
+        if ingress_ctrl == "nginx":
+            ingress_manifest["metadata"]["annotations"][
+                "kubernetes.io/ingress.class"
+            ] = "nginx"
+        elif ingress_ctrl == "traefik":
+            ingress_manifest["metadata"]["annotations"][
+                "kubernetes.io/ingress.class"
+            ] = "traefik"
+        elif ingress_ctrl == "alb":
+            ingress_manifest["metadata"]["annotations"][
+                "kubernetes.io/ingress.class"
+            ] = "alb"
+
+        if data.get("certmanager"):
+            ingress_manifest["metadata"]["annotations"][
+                "cert-manager.io/cluster-issuer"
+            ] = "letsencrypt-prod"
+
+        if tls_block:
+            ingress_manifest["spec"]["tls"] = tls_block
+
+        ingress_yaml = _yaml.dump(
+            ingress_manifest,
+            default_flow_style=False,
+            sort_keys=False,
+            allow_unicode=True,
+        )
+        files.append({"path": "k8s/ingress.yaml", "content": ingress_yaml})
+
+        # cert-manager manifests
+        if data.get("certmanager"):
+            issuer = {
+                "apiVersion": "cert-manager.io/v1",
+                "kind": "ClusterIssuer",
+                "metadata": {"name": "letsencrypt-prod"},
+                "spec": {
+                    "acme": {
+                        "server": "https://acme-v02.api.letsencrypt.org/directory",
+                        "email": f"admin@{domain}",
+                        "privateKeySecretRef": {"name": "letsencrypt-prod"},
+                        "solvers": [{"http01": {"ingress": {"class": ingress_ctrl}}}],
+                    },
+                },
+            }
+            files.append({
+                "path": "k8s/cert-manager/cluster-issuer.yaml",
+                "content": _yaml.dump(issuer, default_flow_style=False, sort_keys=False),
+            })
+
+            cert = {
+                "apiVersion": "cert-manager.io/v1",
+                "kind": "Certificate",
+                "metadata": {"name": f"{domain.replace('.', '-')}-cert"},
+                "spec": {
+                    "secretName": f"{domain.replace('.', '-')}-tls",
+                    "issuerRef": {
+                        "name": "letsencrypt-prod",
+                        "kind": "ClusterIssuer",
+                    },
+                    "dnsNames": tls_hosts,
+                },
+            }
+            files.append({
+                "path": "k8s/cert-manager/certificate.yaml",
+                "content": _yaml.dump(cert, default_flow_style=False, sort_keys=False),
+            })
+
+    # ── 6. Write files to disk ─────────────────────────────────────
+    files_created: list[str] = []
+    skipped: list[str] = []
+
+    for f in files:
+        fpath = root / f["path"]
+        if fpath.exists() and not overwrite:
+            skipped.append(f["path"])
+            continue
+        fpath.parent.mkdir(parents=True, exist_ok=True)
+        fpath.write_text(f["content"], encoding="utf-8")
+        files_created.append(f["path"])
+
+    # ── 7. Activity event ──────────────────────────────────────────
+    devops_cache.record_event(
+        root,
+        label="🌐 DNS & CDN Setup",
+        summary=(
+            f"DNS/CDN configured for {domain} "
+            f"({len(files_created)} file{'s' if len(files_created) != 1 else ''}"
+            + (f", {len(skipped)} skipped" if skipped else "")
+            + ")"
+        ),
+        detail={
+            "files_created": files_created,
+            "files_skipped": skipped,
+            "domain": domain,
+            "dns_provider": dns_provider,
+            "cdn_provider": cdn_provider,
+        },
+        card="wizard",
+        action="configured",
+        target="dns",
+    )
+
+    resp: dict = {
+        "ok": True,
+        "message": f"DNS & CDN configuration generated ({len(files_created)} files)",
+        "files_created": files_created,
+    }
+    if skipped:
+        resp["files_skipped"] = skipped
+        resp["message"] += f", {len(skipped)} skipped (already exist)"
+
+    return resp
+
+
 # ── Dispatcher ──────────────────────────────────────────────────────
 
 _SETUP_ACTIONS = {
@@ -899,6 +1363,7 @@ _SETUP_ACTIONS = {
     "setup_k8s": setup_k8s,
     "setup_ci": setup_ci,
     "setup_terraform": setup_terraform,
+    "setup_dns": setup_dns,
 }
 
 
@@ -922,7 +1387,7 @@ def delete_generated_configs(root: Path, target: str) -> dict:
     """Delete wizard-generated config files.
 
     Args:
-        target: "docker" | "k8s" | "ci" | "terraform" | "all"
+        target: "docker" | "k8s" | "ci" | "skaffold" | "terraform" | "all"
     """
     import shutil as _shutil
 
@@ -932,7 +1397,7 @@ def delete_generated_configs(root: Path, target: str) -> dict:
     errors: list[str] = []
 
     targets = [target] if target != "all" else [
-        "docker", "k8s", "ci", "terraform",
+        "docker", "k8s", "ci", "skaffold", "terraform", "dns",
     ]
 
     for t in targets:
@@ -963,6 +1428,24 @@ def delete_generated_configs(root: Path, target: str) -> dict:
                 if tf_dir.is_dir():
                     _shutil.rmtree(tf_dir)
                     deleted.append("terraform/")
+            elif t == "skaffold":
+                sf = root / "skaffold.yaml"
+                if sf.is_file():
+                    sf.unlink()
+                    deleted.append("skaffold.yaml")
+            elif t == "dns":
+                dns_dir = root / "dns"
+                if dns_dir.is_dir():
+                    _shutil.rmtree(dns_dir)
+                    deleted.append("dns/")
+                cdn_dir = root / "cdn"
+                if cdn_dir.is_dir():
+                    _shutil.rmtree(cdn_dir)
+                    deleted.append("cdn/")
+                cname = root / "CNAME"
+                if cname.is_file():
+                    cname.unlink()
+                    deleted.append("CNAME")
             else:
                 errors.append(f"Unknown target: {t}")
         except Exception as e:

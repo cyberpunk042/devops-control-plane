@@ -187,30 +187,179 @@
                             // ConfigMap checkbox removed — ConfigMaps/Secrets auto-generated per service from envVars
                         ]);
 
-                        // ── Skaffold pipeline toggle ──────────────────────
+                        // ── Skaffold pipeline toggle + config ──────────────────────
+                        const _skfSaved = _savedState?.skaffold_config || {};
+                        const _skfChecked = (_savedState?.skaffold ?? true);
+                        const _helmEnabled = (_savedState?.helm_chart ?? false);
                         html += `
                         <div id="k8s-skaffold-panel" style="margin-top:0.6rem;padding:0.7rem 0.8rem;border:1px solid var(--border-subtle);border-radius:8px;background:var(--bg-inset)">
                             <div style="display:flex;align-items:flex-start;gap:0.5rem">
-                                <input type="checkbox" id="k8s-skaffold-toggle"${(_savedState?.skaffold ?? true) ? ' checked' : ''}
-                                       style="margin-top:3px;accent-color:var(--accent);cursor:pointer">
+                                <input type="checkbox" id="k8s-skaffold-toggle"${_skfChecked ? ' checked' : ''}
+                                       style="margin-top:3px;accent-color:var(--accent);cursor:pointer"
+                                       onchange="document.getElementById('k8s-skaffold-cfg').style.display=this.checked?'block':'none'">
                                 <div style="flex:1">
                                     <label for="k8s-skaffold-toggle" style="font-weight:600;font-size:0.82rem;cursor:pointer;display:block;margin-bottom:2px">
                                         🛤 Generate Skaffold pipeline (<code>skaffold.yaml</code>)
                                     </label>
                                     <div style="font-size:0.72rem;color:var(--text-muted);line-height:1.45">
                                         <a href="https://skaffold.dev" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:none">Skaffold</a>
-                                        is a command-line tool by Google that automates the <strong>build → push → deploy</strong> workflow
-                                        for Kubernetes applications. It watches your source code, rebuilds container images on change,
-                                        and redeploys to your cluster automatically — giving you a <strong>live-reload dev loop</strong>
-                                        similar to hot-module replacement but for containers.<br>
-                                        The generated <code>skaffold.yaml</code> ties your Dockerfiles and K8s manifests together
-                                        so you can run <code>skaffold dev</code> for development or <code>skaffold run</code> for one-shot deploys.
+                                        automates <strong>build → push → deploy</strong> for K8s.
+                                        Run <code>skaffold dev</code> for live-reload or <code>skaffold run</code> for one-shot deploys.
                                     </div>
                                 </div>
                             </div>
                             <div id="k8s-skaffold-status" style="margin-top:0.5rem;font-size:0.74rem">
                                 <span class="spinner" style="width:12px;height:12px;display:inline-block;vertical-align:middle"></span>
                                 <span style="color:var(--text-muted);margin-left:4px">Checking Skaffold CLI…</span>
+                            </div>
+                            <div id="k8s-skaffold-cfg" style="display:${_skfChecked ? 'block' : 'none'};margin-top:0.5rem;padding:0.5rem;background:var(--bg-primary);border-radius:6px;border:1px solid var(--border-subtle)">
+
+                                <!-- Row 1: Deploy Method + Tag Policy -->
+                                <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.4rem">
+                                    <div>
+                                        <label style="font-size:0.72rem;font-weight:600;color:var(--text-muted);display:block;margin-bottom:2px">Deploy Method</label>
+                                        <select id="k8s-skaffold-deploy" class="modal-form-select" style="font-size:0.74rem;padding:0.25rem 0.4rem;width:100%">
+                                            <option value="kustomize"${(_skfSaved.deploy_method||'kustomize')==='kustomize'?' selected':''}>kustomize (overlays)</option>
+                                            <option value="kubectl"${_skfSaved.deploy_method==='kubectl'?' selected':''}>kubectl (raw manifests)</option>
+                                            <option value="helm" id="k8s-skaffold-deploy-helm"${_skfSaved.deploy_method==='helm'?' selected':''}${!_helmEnabled?' disabled':''}>helm (chart)${!_helmEnabled?' — enable Helm below':''}</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label style="font-size:0.72rem;font-weight:600;color:var(--text-muted);display:block;margin-bottom:2px">Tag Policy</label>
+                                        <select id="k8s-skaffold-tag" class="modal-form-select" style="font-size:0.74rem;padding:0.25rem 0.4rem;width:100%">
+                                            <option value="gitCommit"${(_skfSaved.tag_policy||'gitCommit')==='gitCommit'?' selected':''}>gitCommit (SHA/tag)</option>
+                                            <option value="sha256"${_skfSaved.tag_policy==='sha256'?' selected':''}>sha256 (content hash)</option>
+                                            <option value="dateTime"${_skfSaved.tag_policy==='dateTime'?' selected':''}>dateTime (timestamp)</option>
+                                            <option value="inputDigest"${_skfSaved.tag_policy==='inputDigest'?' selected':''}>inputDigest (build inputs)</option>
+                                            <option value="envTemplate"${_skfSaved.tag_policy==='envTemplate'?' selected':''}>envTemplate (custom)</option>
+                                        </select>
+                                    </div>
+                                </div>
+
+                                <!-- Row 2: Profiles — per-profile config cards -->
+                                <div style="margin-top:0.5rem">
+                                    <label style="font-size:0.72rem;font-weight:600;color:var(--text-muted);display:block;margin-bottom:4px">Profiles</label>
+                                    <div id="k8s-skaffold-profiles" style="display:flex;flex-direction:column;gap:0.3rem">
+                                    </div>
+                                    <div style="display:flex;gap:0.3rem;margin-top:0.35rem">
+                                        <input id="k8s-skaffold-profile-input" class="modal-form-input" type="text"
+                                            style="font-size:0.72rem;padding:0.2rem 0.4rem;flex:1;max-width:180px"
+                                            placeholder="profile name" onkeydown="if(event.key==='Enter'){event.preventDefault();window._skfAddProfile();}">
+                                        <button type="button" onclick="window._skfAddProfile()"
+                                            style="font-size:0.66rem;padding:0.2rem 0.5rem;border:1px dashed var(--border-subtle);border-radius:4px;background:none;color:var(--accent);cursor:pointer">
+                                            + Add profile
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <!-- Row 3: Global toggles -->
+                                <div style="margin-top:0.4rem;display:flex;flex-wrap:wrap;gap:0.6rem 1rem">
+                                    <label style="display:inline-flex;align-items:center;gap:0.3rem;font-size:0.74rem;cursor:pointer">
+                                        <input type="checkbox" id="k8s-skaffold-portfwd"${(_skfSaved.port_forward ?? true) ? ' checked' : ''}
+                                            style="accent-color:var(--accent)"> Port forwarding
+                                    </label>
+                                    <label style="display:inline-flex;align-items:center;gap:0.3rem;font-size:0.74rem;cursor:pointer">
+                                        <input type="checkbox" id="k8s-skaffold-sync"${(_skfSaved.file_sync ?? false) ? ' checked' : ''}
+                                            style="accent-color:var(--accent)"> File sync (hot reload)
+                                    </label>
+                                    <label style="display:inline-flex;align-items:center;gap:0.3rem;font-size:0.74rem;cursor:pointer">
+                                        <input type="checkbox" id="k8s-skaffold-ssa"${(_skfSaved.server_side_apply ?? false) ? ' checked' : ''}
+                                            style="accent-color:var(--accent)"> Server-side apply
+                                    </label>
+                                    <label style="display:inline-flex;align-items:center;gap:0.3rem;font-size:0.74rem;cursor:pointer">
+                                        <input type="checkbox" id="k8s-skaffold-verify"${(_skfSaved.post_deploy_verify ?? true) ? ' checked' : ''}
+                                            style="accent-color:var(--accent)"> Post-deploy verify
+                                    </label>
+                                </div>
+
+                                <!-- Row 4: Lifecycle hooks (collapsible) -->
+                                <details style="margin-top:0.4rem">
+                                    <summary style="font-size:0.72rem;font-weight:600;color:var(--text-muted);cursor:pointer;user-select:none">
+                                        ▸ Lifecycle hooks
+                                    </summary>
+                                    <div style="margin-top:0.25rem;display:grid;grid-template-columns:1fr 1fr;gap:0.4rem">
+                                        <div>
+                                            <label style="font-size:0.68rem;color:var(--text-muted);display:block;margin-bottom:2px">Pre-deploy commands (one per line)</label>
+                                            <textarea id="k8s-skaffold-pre-deploy" class="modal-form-input" rows="2"
+                                                style="font-size:0.72rem;padding:0.2rem 0.3rem;font-family:var(--font-mono,monospace);resize:vertical;min-height:32px"
+                                                placeholder="e.g. make migrate">${esc((_skfSaved.pre_deploy || []).join('\\n'))}</textarea>
+                                        </div>
+                                        <div>
+                                            <label style="font-size:0.68rem;color:var(--text-muted);display:block;margin-bottom:2px">Post-deploy commands (one per line)</label>
+                                            <textarea id="k8s-skaffold-post-deploy" class="modal-form-input" rows="2"
+                                                style="font-size:0.72rem;padding:0.2rem 0.3rem;font-family:var(--font-mono,monospace);resize:vertical;min-height:32px"
+                                                placeholder="e.g. curl http://localhost/healthz">${esc((_skfSaved.post_deploy || []).join('\\n'))}</textarea>
+                                        </div>
+                                    </div>
+                                </details>
+
+                            </div>
+                        </div>
+
+                        <div id="k8s-helm-chart-panel" style="margin-top:0.5rem;padding:0.7rem 0.8rem;border:1px solid var(--border-subtle);border-radius:8px;background:var(--bg-inset)">
+                            <div style="display:flex;align-items:flex-start;gap:0.5rem">
+                                <input type="checkbox" id="k8s-helm-chart-toggle"${(_savedState?.helm_chart ?? false) ? ' checked' : ''}
+                                       style="margin-top:3px;accent-color:var(--accent);cursor:pointer"
+                                       onchange="document.getElementById('k8s-helm-cfg').style.display=this.checked?'block':'none';var ho=document.getElementById('k8s-skaffold-deploy-helm');if(ho){ho.disabled=!this.checked;ho.textContent=this.checked?'helm (chart)':'helm (chart) — enable Helm below';var ds=document.getElementById('k8s-skaffold-deploy');if(!this.checked&&ds&&ds.value==='helm')ds.value='kubectl';}">
+                                <div style="flex:1">
+                                    <label for="k8s-helm-chart-toggle" style="font-weight:600;font-size:0.82rem;cursor:pointer;display:block;margin-bottom:2px">
+                                        ⎈ Generate Helm chart (<code>charts/</code>)
+                                    </label>
+                                    <div style="font-size:0.72rem;color:var(--text-muted);line-height:1.45">
+                                        <a href="https://helm.sh" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:none">Helm</a>
+                                        packages your K8s manifests into a versioned, parameterised chart with
+                                        <code>values.yaml</code> for per-environment overrides.
+                                    </div>
+                                </div>
+                            </div>
+                            <div id="k8s-helm-status" style="margin-top:0.5rem;font-size:0.72rem;color:var(--text-muted)">
+                                💡 Helm CLI is only needed at deploy time — chart generation works without it.
+                            </div>
+                            <div id="k8s-helm-cfg" style="display:${(_savedState?.helm_chart ?? false) ? 'block' : 'none'};margin-top:0.5rem;padding:0.5rem;background:var(--bg-primary);border-radius:6px;border:1px solid var(--border-subtle)">
+                                <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.4rem">
+                                    <div>
+                                        <label style="font-size:0.72rem;font-weight:600;color:var(--text-muted);display:block;margin-bottom:2px">Chart Name</label>
+                                        <input id="k8s-helm-chart-name" class="modal-form-input" type="text"
+                                            style="font-size:0.74rem;padding:0.25rem 0.4rem;width:100%"
+                                            value="${esc(_savedState?.helm_config?.chart_name || '')}" placeholder="my-app">
+                                    </div>
+                                    <div>
+                                        <label style="font-size:0.72rem;font-weight:600;color:var(--text-muted);display:block;margin-bottom:2px">Chart Directory</label>
+                                        <input id="k8s-helm-chart-dir" class="modal-form-input" type="text"
+                                            style="font-size:0.74rem;padding:0.25rem 0.4rem;width:100%"
+                                            value="${esc(_savedState?.helm_config?.chart_dir || 'charts/')}" placeholder="charts/">
+                                    </div>
+                                </div>
+                                <div style="display:grid;grid-template-columns:1fr 1fr 2fr;gap:0.4rem;margin-top:0.4rem">
+                                    <div>
+                                        <label style="font-size:0.72rem;font-weight:600;color:var(--text-muted);display:block;margin-bottom:2px">Chart Version</label>
+                                        <input id="k8s-helm-chart-version" class="modal-form-input" type="text"
+                                            style="font-size:0.74rem;padding:0.25rem 0.4rem;width:100%"
+                                            value="${esc(_savedState?.helm_config?.chart_version || '0.1.0')}" placeholder="0.1.0">
+                                    </div>
+                                    <div>
+                                        <label style="font-size:0.72rem;font-weight:600;color:var(--text-muted);display:block;margin-bottom:2px">App Version</label>
+                                        <input id="k8s-helm-app-version" class="modal-form-input" type="text"
+                                            style="font-size:0.74rem;padding:0.25rem 0.4rem;width:100%"
+                                            value="${esc(_savedState?.helm_config?.app_version || '1.0.0')}" placeholder="1.0.0">
+                                    </div>
+                                    <div>
+                                        <label style="font-size:0.72rem;font-weight:600;color:var(--text-muted);display:block;margin-bottom:2px">Description</label>
+                                        <input id="k8s-helm-chart-desc" class="modal-form-input" type="text"
+                                            style="font-size:0.74rem;padding:0.25rem 0.4rem;width:100%"
+                                            value="${esc(_savedState?.helm_config?.description || '')}" placeholder="A Helm chart for my application">
+                                    </div>
+                                </div>
+                                <div style="margin-top:0.4rem;display:flex;gap:1rem">
+                                    <label style="display:inline-flex;align-items:center;gap:0.3rem;font-size:0.74rem;cursor:pointer">
+                                        <input type="checkbox" id="k8s-helm-env-values"${(_savedState?.helm_config?.env_values ?? true) ? ' checked' : ''}
+                                            style="accent-color:var(--accent)"> Per-env values files
+                                    </label>
+                                    <label style="display:inline-flex;align-items:center;gap:0.3rem;font-size:0.74rem;cursor:pointer">
+                                        <input type="checkbox" id="k8s-helm-helmignore"${(_savedState?.helm_config?.helmignore ?? true) ? ' checked' : ''}
+                                            style="accent-color:var(--accent)"> Generate .helmignore
+                                    </label>
+                                </div>
                             </div>
                         </div>`;
 

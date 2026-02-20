@@ -1,0 +1,604 @@
+<!-- Integrations — DNS & CDN Setup Wizard
+     5-step wizard: Detect → Domain & DNS → CDN & SSL → Traffic Routing → Review & Generate
+     Depends on: _integrations_setup_shared.html, _globals_wizard_modal.html
+-->
+<script>
+
+    // ── DNS & CDN Setup Wizard ──────────────────────────────────────────
+
+    function openDnsSetupWizard() {
+
+        // DNS provider display labels
+        const _dnsProviderLabels = {
+            cloudflare:  'Cloudflare',
+            route53:     'AWS Route 53',
+            clouddns:    'Google Cloud DNS',
+            azuredns:    'Azure DNS',
+            manual:      'Manual (zone file only)',
+        };
+
+        // CDN provider labels
+        const _cdnProviderLabels = {
+            none:       'None (direct to origin)',
+            cloudflare: 'Cloudflare (proxied DNS, built-in CDN)',
+            cloudfront: 'AWS CloudFront',
+            cloudcdn:   'Google Cloud CDN',
+            azurecdn:   'Azure CDN / Front Door',
+            nginx:      'Nginx (reverse proxy + cache)',
+            caddy:      'Caddy (auto HTTPS)',
+        };
+
+        // SSL strategy labels
+        const _sslLabels = {
+            managed:      'Managed (provider handles SSL)',
+            letsencrypt:  'Let\'s Encrypt (free, auto-renew)',
+            certmanager:  'cert-manager (Kubernetes)',
+            manual:       'Manual (bring your own certs)',
+        };
+
+        // Ingress controller labels
+        const _ingressLabels = {
+            nginx:   'nginx-ingress',
+            traefik: 'Traefik',
+            alb:     'AWS ALB Ingress',
+        };
+
+        // Mail provider presets
+        const _mailLabels = {
+            none:       'None',
+            google:     'Google Workspace',
+            protonmail: 'ProtonMail',
+            custom:     'Custom MX',
+        };
+
+        wizardModalOpen({
+            title: '🌐 DNS & CDN Setup',
+            size: 'wide',
+            steps: [
+                // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                // Step 1 — Detect (Environment Scan)
+                // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                {
+                    id: 'detect', title: 'Detect', cacheable: true,
+                    render: async (data, el) => {
+                        const _CK = 'dns:detect';
+                        const cached = wizCached(_CK);
+                        if (cached) {
+                            Object.assign(data, cached.d);
+                            el.innerHTML = _wizDetectBanner(_CK) + cached.h;
+                            return;
+                        }
+
+                        el.innerHTML = '<p style="text-align:center;padding:2rem"><span class="spinner"></span> Scanning DNS & CDN environment…</p>';
+
+                        try {
+                            const _bust = window._wizForceRescan ? '?bust=1' : ''; window._wizForceRescan = false;
+
+                            // DNS/CDN status
+                            const dns = await api('/dns/status' + _bust);
+                            data._dns = dns;
+
+                            // Cross-domain detection
+                            const [wizDetect, tfStatus] = await Promise.allSettled([
+                                api('/wizard/detect' + _bust),
+                                api('/terraform/status' + _bust),
+                            ]);
+
+                            const detect = wizDetect.status === 'fulfilled' ? wizDetect.value : {};
+                            const tf = tfStatus.status === 'fulfilled' ? tfStatus.value : {};
+                            data._wizDetect = detect;
+                            data._tf = tf;
+                            data._hasK8s = detect?.integrations?.['int:k8s']?.detected || false;
+                            data._hasTerraform = detect?.integrations?.terraform?.detected || tf?.has_terraform || false;
+                            data._hasDocker = detect?.integrations?.['int:docker']?.detected || false;
+                            data._hasPages = detect?.integrations?.['int:pages']?.detected || false;
+                            data._tfProvider = tf?.providers?.[0]?.name || tf?.providers?.[0] || '';
+
+                            // Pre-fill domain from detection
+                            const domains = dns.domains || [];
+                            data._detectedDomains = domains;
+                            data._domain = domains[0] || '';
+
+                            // Pre-fill CDN providers
+                            data._detectedCdnProviders = dns.cdn_providers || [];
+
+                            // Project environments from config_data
+                            const configData = detect?.config_data || {};
+                            const envs = configData.environments || [];
+                            data._projectEnvs = envs.map(e => typeof e === 'string' ? e : (e.name || ''));
+
+                            // Build display HTML
+                            let html = '';
+
+                            // DNS status
+                            html += wizSection('DNS & CDN Detection', 'Current domain, CDN, and SSL configuration.');
+                            html += '<div class="wiz-status-grid">';
+                            html += wizStatusRow('📁', 'DNS directory', dns.dns_files?.length > 0 ? `${dns.dns_files.length} file(s)` : 'Not found', dns.dns_files?.length > 0 ? 'ok' : 'muted');
+                            html += wizStatusRow('⚡', 'CDN providers', dns.cdn_providers?.length > 0 ? dns.cdn_providers.map(p => p.name || p).join(', ') : 'None detected', dns.cdn_providers?.length > 0 ? 'ok' : 'muted');
+                            html += wizStatusRow('🔗', 'Domains', domains.length > 0 ? domains.join(', ') : 'None found', domains.length > 0 ? 'ok' : 'muted');
+                            html += wizStatusRow('🔒', 'SSL certificates', dns.ssl_certs?.length > 0 ? `${dns.ssl_certs.length} found` : 'None', dns.ssl_certs?.length > 0 ? 'ok' : 'muted');
+                            html += wizStatusRow('📄', 'CNAME file', dns.dns_files?.includes('CNAME') ? 'Found' : 'Not found', dns.dns_files?.includes('CNAME') ? 'ok' : 'muted');
+                            html += '</div>';
+
+                            // Cross-domain context
+                            html += wizSection('Cross-Domain Context', 'Other integrations that affect DNS & CDN configuration.');
+                            html += '<div class="wiz-status-grid">';
+                            html += wizStatusRow('☸️', 'Kubernetes', data._hasK8s ? 'Detected — Ingress + cert-manager available' : 'Not detected', data._hasK8s ? 'ok' : 'muted');
+                            html += wizStatusRow('🏗️', 'Terraform', data._hasTerraform ? `Detected${data._tfProvider ? ' (' + data._tfProvider + ')' : ''} — DNS/CDN resources available` : 'Not detected', data._hasTerraform ? 'ok' : 'muted');
+                            html += wizStatusRow('🐳', 'Docker', data._hasDocker ? 'Detected — reverse proxy available' : 'Not detected', data._hasDocker ? 'ok' : 'muted');
+                            html += wizStatusRow('📄', 'Pages', data._hasPages ? 'Detected — custom domain available' : 'Not detected', data._hasPages ? 'ok' : 'muted');
+                            html += '</div>';
+
+                            el.innerHTML = html;
+                            const _serverTs = (dns._cache?.computed_at || 0) * 1000;
+                            wizStore(_CK, {
+                                h: html,
+                                d: {
+                                    _dns: data._dns, _wizDetect: data._wizDetect, _tf: data._tf,
+                                    _hasK8s: data._hasK8s, _hasTerraform: data._hasTerraform,
+                                    _hasDocker: data._hasDocker, _hasPages: data._hasPages,
+                                    _tfProvider: data._tfProvider,
+                                    _detectedDomains: data._detectedDomains, _domain: data._domain,
+                                    _detectedCdnProviders: data._detectedCdnProviders,
+                                    _projectEnvs: data._projectEnvs,
+                                },
+                            }, _serverTs);
+                            el.innerHTML = _wizDetectBanner(_CK) + html;
+
+                        } catch (err) {
+                            el.innerHTML = `<p style="color:var(--error);padding:1rem">Detection failed: ${esc(err.message)}</p>`;
+                        }
+                    },
+                },
+
+                // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                // Step 2 — Domain & DNS
+                // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                {
+                    id: 'domain', title: 'Domain & DNS',
+                    render: (data, el) => {
+                        const domain = data._domain || '';
+                        const subdomains = data._subdomains || [];
+
+                        let html = '';
+
+                        // Primary domain
+                        html += wizSection('Primary Domain', 'The main domain your project will be accessible at.') +
+                            wizFormGrid([
+                                { name: 'dns-wiz-domain', label: 'Domain', type: 'text', value: domain, placeholder: 'example.com', hint: 'Your registered domain name' },
+                            ]);
+
+                        // Subdomains
+                        html += wizSection('Subdomains', 'Additional subdomains for APIs, docs, CDN assets, etc.') +
+                            `<div id="dns-wiz-subdomains-list" style="margin-bottom:var(--space-sm)">
+                                ${subdomains.length === 0 ? '<div style="font-size:0.75rem;color:var(--text-muted);padding:0.5rem 0">No subdomains configured — add them below.</div>' :
+                                subdomains.map((s, i) => `
+                                    <div style="display:flex;gap:0.5rem;align-items:center;padding:0.25rem 0" data-sub-idx="${i}">
+                                        <code style="font-family:var(--font-mono);font-size:0.75rem;color:var(--accent);flex:1">${esc(s)}</code>
+                                        <button class="btn btn-xs btn-ghost" onclick="this.parentElement.remove()" style="color:var(--error)">✕</button>
+                                    </div>
+                                `).join('')}
+                            </div>
+                            <div style="display:flex;gap:0.5rem;align-items:center">
+                                <input type="text" id="dns-wiz-sub-input" placeholder="api" style="flex:1;font-size:0.78rem;padding:0.3rem 0.5rem" autocomplete="off"
+                                    onkeydown="if(event.key==='Enter'){_dnsWizAddSub();event.preventDefault()}">
+                                <button class="btn btn-xs btn-secondary" onclick="_dnsWizAddSub()">+ Add</button>
+                            </div>`;
+
+                        // DNS provider
+                        const dnsProvider = data._dnsProvider || 'manual';
+                        html += wizSection('DNS Provider', 'Where are your DNS records managed?') +
+                            wizFormGrid([
+                                { name: 'dns-wiz-provider', label: 'DNS Provider', type: 'select', value: dnsProvider,
+                                  options: Object.entries(_dnsProviderLabels).map(([k,v]) => ({ value: k, label: v })),
+                                  hint: 'Cloudflare and cloud providers can be managed via Terraform' },
+                            ]);
+
+                        // Mail & email security
+                        const mail = data._mail || 'none';
+                        html += wizSection('Email & Deliverability', 'MX records for email and TXT records for deliverability.') +
+                            wizFormGrid([
+                                { name: 'dns-wiz-mail', label: 'Mail Provider', type: 'select', value: mail,
+                                  options: Object.entries(_mailLabels).map(([k,v]) => ({ value: k, label: v })),
+                                  hint: 'Generates MX records for your email provider' },
+                            ]) +
+                            `<div style="display:flex;gap:1rem;margin-top:var(--space-sm)">
+                                <label style="display:flex;align-items:center;gap:0.3rem;font-size:0.78rem;cursor:pointer">
+                                    <input type="checkbox" id="dns-wiz-spf" ${data._spf !== false ? 'checked' : ''}> SPF record
+                                </label>
+                                <label style="display:flex;align-items:center;gap:0.3rem;font-size:0.78rem;cursor:pointer">
+                                    <input type="checkbox" id="dns-wiz-dmarc" ${data._dmarc !== false ? 'checked' : ''}> DMARC record
+                                </label>
+                            </div>`;
+
+                        el.innerHTML = html;
+                    },
+                    collect: (data) => {
+                        data._domain = mfVal('dns-wiz-domain') || '';
+                        data._dnsProvider = mfVal('dns-wiz-provider') || 'manual';
+                        data._mail = mfVal('dns-wiz-mail') || 'none';
+                        data._spf = document.getElementById('dns-wiz-spf')?.checked !== false;
+                        data._dmarc = document.getElementById('dns-wiz-dmarc')?.checked !== false;
+                        // Collect subdomains from DOM
+                        const subs = [];
+                        document.querySelectorAll('#dns-wiz-subdomains-list [data-sub-idx]').forEach(el => {
+                            const code = el.querySelector('code');
+                            if (code) subs.push(code.textContent.trim());
+                        });
+                        data._subdomains = subs;
+                    },
+                },
+
+                // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                // Step 3 — CDN & SSL
+                // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                {
+                    id: 'cdn', title: 'CDN & SSL',
+                    render: (data, el) => {
+                        const cdnProvider = data._cdnProvider || 'none';
+                        const ssl = data._ssl || 'managed';
+
+                        let html = '';
+
+                        // Detected CDN providers hint
+                        if (data._detectedCdnProviders?.length) {
+                            html += `<div style="background:var(--bg-inset);border:1px solid var(--border-subtle);border-radius:var(--radius-sm);padding:var(--space-sm);margin-bottom:var(--space-md);font-size:0.78rem">
+                                <strong>💡 Detected:</strong> ${data._detectedCdnProviders.map(p => `<span style="color:var(--accent)">${esc(p.name || p)}</span>`).join(', ')} — configuration files found in your project.
+                            </div>`;
+                        }
+
+                        // CDN provider
+                        html += wizSection('CDN Configuration', 'Content Delivery Network — caches content at the edge, DDoS protection, SSL termination.') +
+                            wizFormGrid([
+                                { name: 'dns-wiz-cdn', label: 'CDN Provider', type: 'select', value: cdnProvider,
+                                  options: Object.entries(_cdnProviderLabels).map(([k,v]) => ({ value: k, label: v })),
+                                  hint: data._hasTerraform ? 'Cloud CDNs can be provisioned via Terraform' : 'Choose how traffic is delivered to users' },
+                            ]);
+
+                        // SSL strategy
+                        // Filter options based on context
+                        const sslOptions = Object.entries(_sslLabels)
+                            .filter(([k]) => {
+                                if (k === 'certmanager' && !data._hasK8s) return false;
+                                return true;
+                            })
+                            .map(([k, v]) => ({ value: k, label: v }));
+
+                        html += wizSection('SSL / TLS Configuration', 'How SSL certificates are obtained and managed.') +
+                            wizFormGrid([
+                                { name: 'dns-wiz-ssl', label: 'SSL Strategy', type: 'select', value: ssl,
+                                  options: sslOptions,
+                                  hint: cdnProvider === 'cloudflare' ? 'Cloudflare provides free SSL automatically' : 'Determines how HTTPS certificates are provisioned' },
+                            ]);
+
+                        // Ingress controller (if K8s detected)
+                        if (data._hasK8s) {
+                            const ingress = data._ingress || 'nginx';
+                            html += wizSection('Kubernetes Ingress', 'Configure the ingress controller that routes external traffic to your services.') +
+                                wizFormGrid([
+                                    { name: 'dns-wiz-ingress', label: 'Ingress Controller', type: 'select', value: ingress,
+                                      options: Object.entries(_ingressLabels).map(([k,v]) => ({ value: k, label: v })),
+                                      hint: 'The controller that manages Ingress resources in your cluster' },
+                                ]) +
+                                `<label style="display:flex;align-items:center;gap:0.3rem;font-size:0.78rem;cursor:pointer;margin-top:var(--space-sm)">
+                                    <input type="checkbox" id="dns-wiz-certmanager" ${data._certmanager !== false ? 'checked' : ''}> Install cert-manager for automatic SSL
+                                </label>`;
+                        }
+
+                        el.innerHTML = html;
+                    },
+                    collect: (data) => {
+                        data._cdnProvider = mfVal('dns-wiz-cdn') || 'none';
+                        data._ssl = mfVal('dns-wiz-ssl') || 'managed';
+                        if (data._hasK8s) {
+                            data._ingress = mfVal('dns-wiz-ingress') || 'nginx';
+                            data._certmanager = document.getElementById('dns-wiz-certmanager')?.checked !== false;
+                        }
+                    },
+                },
+
+                // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                // Step 4 — Traffic Routing (context-adaptive)
+                // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                {
+                    id: 'routing', title: 'Routing',
+                    render: (data, el) => {
+                        let html = '';
+                        const domain = data._domain || 'example.com';
+                        const subs = data._subdomains || [];
+                        const allHosts = [domain, ...subs.map(s => s.includes('.') ? s : `${s}.${domain}`)];
+
+                        // Context-adaptive routing sections
+                        if (data._hasK8s) {
+                            // K8s Ingress host rules
+                            html += wizSection('Kubernetes Ingress Rules', 'Map hostnames to Kubernetes services.') +
+                                `<div id="dns-wiz-k8s-routes">
+                                    ${allHosts.map((host, i) => `
+                                        <div style="display:flex;gap:0.5rem;align-items:center;padding:0.4rem 0;border-bottom:1px solid var(--border-subtle)" data-route-idx="${i}">
+                                            <code style="font-family:var(--font-mono);font-size:0.72rem;color:var(--accent);width:200px;flex-shrink:0">${esc(host)}</code>
+                                            <span style="font-size:0.72rem;color:var(--text-muted)">→</span>
+                                            <input type="text" data-route-svc="${i}" value="${i === 0 ? 'web' : host.split('.')[0]}"
+                                                placeholder="service-name" style="flex:1;font-size:0.75rem;padding:0.25rem 0.4rem" autocomplete="off">
+                                            <input type="number" data-route-port="${i}" value="80"
+                                                placeholder="port" style="width:70px;font-size:0.75rem;padding:0.25rem 0.4rem" autocomplete="off">
+                                        </div>
+                                    `).join('')}
+                                </div>
+                                <div style="margin-top:var(--space-sm);font-size:0.72rem;color:var(--text-muted)">
+                                    📝 These map to <code>spec.rules[].http.paths</code> in the Ingress resource.
+                                    TLS will use ${data._ssl === 'certmanager' ? 'cert-manager annotations' : 'the configured SSL strategy'}.
+                                </div>`;
+                        }
+
+                        if (data._hasDocker && !data._hasK8s) {
+                            // Reverse proxy config
+                            const proxy = data._proxy || 'nginx';
+                            html += wizSection('Reverse Proxy', 'Docker detected — configure a reverse proxy for SSL termination and routing.') +
+                                wizFormGrid([
+                                    { name: 'dns-wiz-proxy', label: 'Proxy', type: 'select', value: proxy,
+                                      options: [
+                                        { value: 'nginx', label: 'Nginx' },
+                                        { value: 'caddy', label: 'Caddy (automatic HTTPS)' },
+                                        { value: 'traefik', label: 'Traefik' },
+                                      ],
+                                      hint: 'Generates config in cdn/ directory' },
+                                    { name: 'dns-wiz-upstream', label: 'Upstream', type: 'text',
+                                      value: data._upstream || 'http://localhost:3000',
+                                      placeholder: 'http://app:3000', hint: 'Where the proxy forwards traffic to' },
+                                ]);
+                        }
+
+                        if (data._hasPages) {
+                            // Pages custom domain
+                            html += wizSection('GitHub Pages Custom Domain', 'Set up a custom domain for your static site.') +
+                                `<label style="display:flex;align-items:center;gap:0.3rem;font-size:0.78rem;cursor:pointer">
+                                    <input type="checkbox" id="dns-wiz-pages-cname" ${data._pagesCname !== false ? 'checked' : ''}>
+                                    Generate CNAME file for <strong>${esc(domain)}</strong>
+                                </label>
+                                <div style="margin-top:var(--space-xs);font-size:0.72rem;color:var(--text-muted)">
+                                    DNS records for GitHub Pages: CNAME → <code>your-org.github.io</code>, plus A records for GitHub's IPs.
+                                </div>`;
+                        }
+
+                        if (data._hasTerraform) {
+                            // Terraform DNS/CDN resource generation
+                            const tfProvider = data._tfProvider || '';
+                            html += wizSection('Terraform Resources', `Generate DNS/CDN as Infrastructure as Code${tfProvider ? ' (' + tfProvider + ')' : ''}.`) +
+                                `<div style="display:flex;flex-direction:column;gap:0.3rem">
+                                    <label style="display:flex;align-items:center;gap:0.3rem;font-size:0.78rem;cursor:pointer">
+                                        <input type="checkbox" id="dns-wiz-tf-dns" ${data._tfDns !== false ? 'checked' : ''}>
+                                        DNS Zone + Records (<code>terraform/dns.tf</code>)
+                                    </label>
+                                    <label style="display:flex;align-items:center;gap:0.3rem;font-size:0.78rem;cursor:pointer">
+                                        <input type="checkbox" id="dns-wiz-tf-cdn" ${data._cdnProvider !== 'none' ? 'checked' : ''}>
+                                        CDN Distribution (<code>terraform/cdn.tf</code>)
+                                    </label>
+                                    <label style="display:flex;align-items:center;gap:0.3rem;font-size:0.78rem;cursor:pointer">
+                                        <input type="checkbox" id="dns-wiz-tf-ssl" ${data._ssl !== 'manual' ? 'checked' : ''}>
+                                        SSL Certificate (<code>terraform/ssl.tf</code>)
+                                    </label>
+                                </div>`;
+                        }
+
+                        // If nothing contextual, show the basic DNS-only config
+                        if (!data._hasK8s && !data._hasDocker && !data._hasPages && !data._hasTerraform) {
+                            html += wizSection('Output Configuration', 'DNS & CDN will be generated as standalone files.') +
+                                `<div style="display:flex;flex-direction:column;gap:0.3rem">
+                                    <label style="display:flex;align-items:center;gap:0.3rem;font-size:0.78rem;cursor:pointer">
+                                        <input type="checkbox" id="dns-wiz-gen-zone" checked disabled>
+                                        Zone file (<code>dns/${esc(domain)}.zone</code>)
+                                    </label>
+                                    <label style="display:flex;align-items:center;gap:0.3rem;font-size:0.78rem;cursor:pointer">
+                                        <input type="checkbox" id="dns-wiz-gen-records" checked disabled>
+                                        Machine-readable records (<code>dns/records.json</code>)
+                                    </label>
+                                    <label style="display:flex;align-items:center;gap:0.3rem;font-size:0.78rem;cursor:pointer">
+                                        <input type="checkbox" id="dns-wiz-gen-readme" checked disabled>
+                                        Documentation (<code>dns/README.md</code>)
+                                    </label>
+                                </div>`;
+                        }
+
+                        el.innerHTML = html;
+                    },
+                    collect: (data) => {
+                        // K8s routes
+                        if (data._hasK8s) {
+                            const routes = [];
+                            document.querySelectorAll('#dns-wiz-k8s-routes [data-route-idx]').forEach(el => {
+                                const idx = el.getAttribute('data-route-idx');
+                                const host = el.querySelector('code')?.textContent?.trim() || '';
+                                const svc = el.querySelector(`[data-route-svc="${idx}"]`)?.value?.trim() || 'web';
+                                const port = parseInt(el.querySelector(`[data-route-port="${idx}"]`)?.value || '80', 10);
+                                routes.push({ host, service: svc, port });
+                            });
+                            data._k8sRoutes = routes;
+                        }
+                        // Docker proxy
+                        if (data._hasDocker && !data._hasK8s) {
+                            data._proxy = mfVal('dns-wiz-proxy') || 'nginx';
+                            data._upstream = mfVal('dns-wiz-upstream') || 'http://localhost:3000';
+                        }
+                        // Pages
+                        if (data._hasPages) {
+                            data._pagesCname = document.getElementById('dns-wiz-pages-cname')?.checked !== false;
+                        }
+                        // Terraform
+                        if (data._hasTerraform) {
+                            data._tfDns = document.getElementById('dns-wiz-tf-dns')?.checked || false;
+                            data._tfCdn = document.getElementById('dns-wiz-tf-cdn')?.checked || false;
+                            data._tfSsl = document.getElementById('dns-wiz-tf-ssl')?.checked || false;
+                        }
+                    },
+                },
+
+                // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                // Step 5 — Review & Generate
+                // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                {
+                    id: 'review', title: 'Review',
+                    render: (data, el) => {
+                        const domain = data._domain || 'example.com';
+                        const subs = data._subdomains || [];
+                        let html = '';
+
+                        // Summary grid
+                        html += wizSection('Configuration Summary', 'Review your DNS & CDN settings before generating.') +
+                            `<div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-sm);font-size:0.78rem">
+                                <div><span style="color:var(--text-muted)">Domain:</span> <strong>${esc(domain)}</strong></div>
+                                <div><span style="color:var(--text-muted)">DNS Provider:</span> <strong>${esc(_dnsProviderLabels[data._dnsProvider] || data._dnsProvider || 'Manual')}</strong></div>
+                                <div><span style="color:var(--text-muted)">CDN:</span> <strong>${esc(_cdnProviderLabels[data._cdnProvider] || data._cdnProvider || 'None')}</strong></div>
+                                <div><span style="color:var(--text-muted)">SSL:</span> <strong>${esc(_sslLabels[data._ssl] || data._ssl || 'Managed')}</strong></div>
+                                ${subs.length ? `<div><span style="color:var(--text-muted)">Subdomains:</span> <strong>${subs.length}</strong></div>` : ''}
+                                ${data._mail && data._mail !== 'none' ? `<div><span style="color:var(--text-muted)">Mail:</span> <strong>${esc(_mailLabels[data._mail] || data._mail)}</strong></div>` : ''}
+                                ${data._hasK8s ? `<div><span style="color:var(--text-muted)">Ingress:</span> <strong>${esc(_ingressLabels[data._ingress] || data._ingress || 'nginx')}</strong></div>` : ''}
+                            </div>`;
+
+                        // Files to generate
+                        const files = [];
+                        // Always generate DNS files
+                        files.push({ path: `dns/${domain}.zone`, desc: 'BIND zone file — standard DNS records' });
+                        files.push({ path: 'dns/records.json', desc: 'Machine-readable DNS record list' });
+                        files.push({ path: 'dns/README.md', desc: 'DNS configuration documentation' });
+
+                        // CDN files
+                        if (data._cdnProvider && data._cdnProvider !== 'none') {
+                            const cdnFile = data._cdnProvider === 'nginx' ? 'cdn/nginx.conf'
+                                : data._cdnProvider === 'caddy' ? 'cdn/Caddyfile'
+                                : `cdn/${data._cdnProvider}.json`;
+                            files.push({ path: cdnFile, desc: `CDN configuration for ${_cdnProviderLabels[data._cdnProvider] || data._cdnProvider}` });
+                            files.push({ path: 'cdn/README.md', desc: 'CDN provider documentation' });
+                        }
+
+                        // Proxy files (Docker, no K8s)
+                        if (data._hasDocker && !data._hasK8s && data._proxy) {
+                            const proxyFile = data._proxy === 'nginx' ? 'cdn/nginx.conf'
+                                : data._proxy === 'caddy' ? 'cdn/Caddyfile'
+                                : 'cdn/traefik.yml';
+                            // Only add if not already in CDN files
+                            if (!files.some(f => f.path === proxyFile)) {
+                                files.push({ path: proxyFile, desc: `Reverse proxy configuration` });
+                            }
+                        }
+
+                        // K8s files
+                        if (data._hasK8s) {
+                            files.push({ path: 'k8s/ingress.yaml', desc: 'Ingress resource with TLS + host rules' });
+                            if (data._certmanager) {
+                                files.push({ path: 'k8s/cert-manager/cluster-issuer.yaml', desc: 'Let\'s Encrypt ClusterIssuer' });
+                                files.push({ path: 'k8s/cert-manager/certificate.yaml', desc: 'TLS Certificate CRD' });
+                            }
+                        }
+
+                        // Terraform files
+                        if (data._hasTerraform) {
+                            if (data._tfDns) files.push({ path: 'terraform/dns.tf', desc: 'DNS zone + record resources' });
+                            if (data._tfCdn) files.push({ path: 'terraform/cdn.tf', desc: 'CDN distribution resources' });
+                            if (data._tfSsl) files.push({ path: 'terraform/ssl.tf', desc: 'SSL certificate resources' });
+                        }
+
+                        // Pages
+                        if (data._hasPages && data._pagesCname) {
+                            files.push({ path: 'CNAME', desc: `GitHub Pages custom domain: ${domain}` });
+                        }
+
+                        html += wizSection('Files to Generate', `${files.length} file(s) will be created.`) +
+                            `<div style="font-size:0.78rem;line-height:1.8">
+                                ${files.map(f => `
+                                    <div style="display:flex;align-items:baseline;gap:0.5rem;padding:0.15rem 0;border-bottom:1px solid var(--border-subtle)">
+                                        <code style="font-family:var(--font-mono);font-size:0.72rem;color:var(--accent);flex-shrink:0;min-width:250px">${esc(f.path)}</code>
+                                        <span style="font-size:0.72rem;color:var(--text-muted)">${esc(f.desc)}</span>
+                                    </div>
+                                `).join('')}
+                            </div>`;
+
+                        // Overwrite toggle
+                        html += `<div style="margin-top:var(--space-md)">
+                            <label style="display:flex;align-items:center;gap:0.3rem;font-size:0.78rem;cursor:pointer">
+                                <input type="checkbox" id="dns-wiz-overwrite" ${data._overwrite ? 'checked' : ''}>
+                                Overwrite existing files
+                            </label>
+                            <div style="font-size:0.72rem;color:var(--text-muted);margin-top:2px;padding-left:1.3rem">
+                                If unchecked, existing files will be skipped.
+                            </div>
+                        </div>`;
+
+                        el.innerHTML = html;
+                    },
+                    collect: (data) => {
+                        data._overwrite = document.getElementById('dns-wiz-overwrite')?.checked || false;
+                    },
+                },
+            ],
+            onComplete: async (data) => {
+                try {
+                    await api('/wizard/setup', {
+                        method: 'POST',
+                        body: JSON.stringify({
+                            action: 'setup_dns',
+                            domain: data._domain,
+                            subdomains: data._subdomains || [],
+                            dns_provider: data._dnsProvider,
+                            cdn_provider: data._cdnProvider,
+                            ssl: data._ssl,
+                            mail: data._mail,
+                            spf: data._spf,
+                            dmarc: data._dmarc,
+                            // K8s
+                            ingress: data._ingress,
+                            certmanager: data._certmanager,
+                            k8s_routes: data._k8sRoutes,
+                            // Docker proxy
+                            proxy: data._proxy,
+                            upstream: data._upstream,
+                            // Pages
+                            pages_cname: data._pagesCname,
+                            // Terraform
+                            tf_dns: data._tfDns,
+                            tf_cdn: data._tfCdn,
+                            tf_ssl: data._tfSsl,
+                            // Options
+                            overwrite: data._overwrite,
+                        }),
+                    });
+                    toast('DNS & CDN configuration generated!', 'success');
+                    // Invalidate relevant caches
+                    cardInvalidate('dns');
+                    if (typeof _store !== 'undefined') delete _store.dns;
+                    _intLoadDnsCard();
+                    if (typeof loadDnsCard === 'function') loadDnsCard();
+                } catch (err) {
+                    toast('Setup failed: ' + err.message, 'error');
+                    throw err;
+                }
+            },
+        });
+    }
+
+    // ── DNS Wizard Helpers ──────────────────────────────────────────────
+
+    function _dnsWizAddSub() {
+        const input = document.getElementById('dns-wiz-sub-input');
+        const list = document.getElementById('dns-wiz-subdomains-list');
+        if (!input || !list) return;
+        const val = input.value.trim();
+        if (!val) return;
+
+        // Remove empty placeholder
+        const placeholder = list.querySelector('[style*="color:var(--text-muted)"]');
+        if (placeholder && !placeholder.hasAttribute('data-sub-idx')) placeholder.remove();
+
+        const idx = list.querySelectorAll('[data-sub-idx]').length;
+        const div = document.createElement('div');
+        div.style.cssText = 'display:flex;gap:0.5rem;align-items:center;padding:0.25rem 0';
+        div.setAttribute('data-sub-idx', idx);
+        div.innerHTML = `
+            <code style="font-family:var(--font-mono);font-size:0.75rem;color:var(--accent);flex:1">${esc(val)}</code>
+            <button class="btn btn-xs btn-ghost" onclick="this.parentElement.remove()" style="color:var(--error)">✕</button>
+        `;
+        list.appendChild(div);
+        input.value = '';
+        input.focus();
+    }
+
+</script>

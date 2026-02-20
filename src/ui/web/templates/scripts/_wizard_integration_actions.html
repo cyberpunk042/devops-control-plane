@@ -162,6 +162,7 @@ async function _wizDeleteConfig(target, btnEl) {
         docker: 'Docker config (Dockerfile, docker-compose.yml)',
         k8s: 'Kubernetes manifests (k8s/)',
         ci: 'CI workflow (.github/workflows/ci.yml)',
+        skaffold: 'Skaffold config (skaffold.yaml)',
         terraform: 'Terraform config (terraform/)',
         all: 'ALL generated configs',
     };
@@ -208,11 +209,205 @@ async function _wizRedetect() {
     } catch (e) { toast('Detection failed: ' + e.message, 'error'); }
 }
 
+
+/** Compose full CI/CD pipeline via /wizard/compose-ci */
+async function _wizComposeCi(btnEl) {
+    btnEl.disabled = true;
+    btnEl.textContent = '⏳ Generating…';
+
+    const $ = id => {
+        const el = document.getElementById(id);
+        return el ? el.value.trim() : '';
+    };
+
+    const strategy = $('wiz-ci-compose-strategy') || 'unified';
+    const deployMethod = $('wiz-ci-compose-deploy') || 'kubectl';
+    const registry = $('wiz-ci-compose-registry') || 'ghcr.io';
+    const projectName = (_wizardConfig?.name || 'app');
+    const d = _wizIntDetection;
+
+    // Build wizard state from detected integrations
+    const state = {
+        stack_names: [d._python_version ? 'python' : 'generic'],
+    };
+
+    // Docker services (if Docker detected)
+    if (d.integrations['int:docker']?.detected || d.files?.dockerfile) {
+        const safeName = projectName.replace(/[^a-z0-9-]/gi, '-').toLowerCase();
+        const registryType = registry.includes('ghcr') ? 'ghcr'
+            : registry.includes('docker.io') ? 'dockerhub'
+            : registry.includes('ecr') ? 'ecr' : 'ghcr';
+        state.docker_services = [{
+            name: safeName,
+            image: safeName + ':latest',
+            registry: registry + '/' + safeName,
+            registry_type: registryType,
+        }];
+    }
+
+    // Deploy config (if K8s detected)
+    if (d.devops_cards?.k8s?.detected || d.files?.k8s_manifests) {
+        state.deploy_config = {
+            method: deployMethod,
+            namespace: 'default',
+        };
+    }
+
+    // Terraform (if detected)
+    if (d.devops_cards?.terraform?.detected || d.files?.terraform) {
+        state.terraform_config = {
+            provider: 'aws',
+        };
+    }
+
+    // Environments
+    if (_wizardConfig?.environments?.length > 0) {
+        state.environments = _wizardConfig.environments.map(e =>
+            typeof e === 'string' ? { name: e } : e
+        );
+    }
+
+    // ── Pre-validate ──
+    try {
+        const vRes = await api('/wizard/validate', {
+            method: 'POST',
+            body: JSON.stringify({ state }),
+        });
+        if (!vRes.ok && vRes.errors?.length > 0) {
+            btnEl.textContent = '🚀 Generate Pipeline';
+            btnEl.disabled = false;
+            toast(vRes.errors[0], 'error', 6000);
+            return;
+        }
+        if (vRes.warnings?.length > 0) {
+            vRes.warnings.forEach(w => toast('⚠ ' + w, 'warning', 4000));
+        }
+    } catch (_) { /* validation unavailable — continue */ }
+
+    // ── Check tools ──
+    try {
+        const tRes = await api('/wizard/check-tools', {
+            method: 'POST',
+            body: JSON.stringify({ state }),
+        });
+        if (!tRes.ok && tRes.missing?.length > 0) {
+            toast('⚠ Missing tools: ' + tRes.missing.join(', '), 'warning', 5000);
+        }
+    } catch (_) { /* continue */ }
+
+    // ── Compose CI ──
+    try {
+        const data = await api('/wizard/compose-ci', {
+            method: 'POST',
+            body: JSON.stringify({ state, strategy, project_name: projectName }),
+        });
+        btnEl.textContent = '🚀 Generate Pipeline';
+        btnEl.disabled = false;
+
+        const output = document.getElementById('wiz-ci-compose-output');
+        if (!output) return;
+
+        if (!data.ok) {
+            output.style.display = 'block';
+            output.innerHTML = `<span style="color:var(--error)">❌ ${esc(data.error || 'Unknown error')}</span>`;
+            return;
+        }
+
+        if (data.files.length === 0) {
+            output.style.display = 'block';
+            output.innerHTML = `<span style="color:var(--text-muted)">No workflow files generated. Enable more integrations (Docker, K8s, etc.).</span>`;
+            return;
+        }
+
+        // Show preview
+        let previewHtml = `
+            <div style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;margin-bottom:0.3rem">
+                Generated ${data.files.length} file(s) — ${strategy} strategy
+            </div>`;
+
+        for (const f of data.files) {
+            const lines = f.content.split('\n').length;
+            previewHtml += `
+                <div style="margin-bottom:0.5rem">
+                    <div style="display:flex;align-items:center;gap:0.4rem;margin-bottom:0.2rem">
+                        <code style="font-size:0.75rem;color:var(--accent)">${esc(f.path)}</code>
+                        <span style="font-size:0.62rem;color:var(--text-muted)">(${lines} lines)</span>
+                        <button class="btn btn-sm btn-ghost" style="font-size:0.6rem;padding:0.05rem 0.3rem;margin-left:auto"
+                            onclick="navigator.clipboard.writeText(this.closest('[data-yaml]').dataset.yaml);toast('Copied!','success')">
+                            📋 Copy
+                        </button>
+                    </div>
+                    <pre data-yaml="${esc(f.content)}"
+                        style="background:var(--bg-inset);border:1px solid var(--border-subtle);border-radius:6px;
+                               padding:0.4rem 0.5rem;font-size:0.65rem;max-height:200px;overflow:auto;
+                               font-family:var(--font-mono,monospace);white-space:pre-wrap;color:var(--text-secondary);
+                               line-height:1.4">${esc(f.content)}</pre>
+                </div>`;
+        }
+
+        previewHtml += `
+            <div style="display:flex;gap:0.4rem;margin-top:0.4rem">
+                <button class="btn btn-sm btn-primary" style="font-size:0.75rem"
+                    onclick="_wizWriteCiFiles(this)">💾 Write Files to Project</button>
+            </div>`;
+
+        output.style.display = 'block';
+        output.innerHTML = previewHtml;
+
+        // Store files for writing
+        output._pendingFiles = data.files;
+
+    } catch (e) {
+        btnEl.textContent = '🚀 Generate Pipeline';
+        btnEl.disabled = false;
+        toast('Compose failed: ' + e.message, 'error');
+    }
+}
+
+
+/** Write composed CI files to disk via /wizard/setup */
+async function _wizWriteCiFiles(btnEl) {
+    const output = document.getElementById('wiz-ci-compose-output');
+    const files = output?._pendingFiles;
+    if (!files || files.length === 0) return;
+
+    btnEl.disabled = true;
+    btnEl.textContent = '⏳ Writing…';
+
+    try {
+        const data = await api('/wizard/setup', {
+            method: 'POST',
+            body: JSON.stringify({
+                action: 'setup_ci',
+                overwrite: true,
+                _raw_files: files,
+            }),
+        });
+        if (data.ok) {
+            btnEl.textContent = '✅ Written!';
+            btnEl.style.color = 'var(--success)';
+            toast('✅ CI/CD pipeline files written!', 'success');
+            for (const f of files) {
+                toast('📄 ' + f.path, 'info');
+            }
+            setTimeout(() => _wizRedetect(), 500);
+        } else {
+            btnEl.textContent = '💾 Write Files to Project';
+            btnEl.disabled = false;
+            toast(data.error || 'Write failed', 'error');
+        }
+    } catch (e) {
+        btnEl.textContent = '💾 Write Files to Project';
+        btnEl.disabled = false;
+        toast('Write failed: ' + e.message, 'error');
+    }
+}
+
 // ── Apply sub-wizard form → backend ────────────────────────────
 
 async function _wizApplySetup(key, btnEl) {
     btnEl.disabled = true;
-    btnEl.textContent = '⏳ Applying…';
+    btnEl.textContent = '⏳ Validating…';
 
     const $ = id => {
         const el = document.getElementById(id);
@@ -265,6 +460,53 @@ async function _wizApplySetup(key, btnEl) {
         toast('No setup action for this integration.', 'info');
         return;
     }
+
+    // ── Pre-apply validation ──────────────────────────────────
+    // Build a validation state from the payload fields
+    const validationState = {};
+    if (payload.namespace) {
+        validationState.deploy_config = { namespace: payload.namespace };
+    }
+    if (payload.provider) {
+        validationState.terraform_config = { provider: payload.provider };
+    }
+    if (key === 'int:docker' && payload.base_image) {
+        // Registry URL validation — extract from image if applicable
+        validationState._skip_secret_warnings = true;
+    }
+
+    // Only validate if we have relevant state
+    const hasValidation = validationState.deploy_config || validationState.terraform_config;
+    if (hasValidation) {
+        try {
+            const vRes = await api('/wizard/validate', {
+                method: 'POST',
+                body: JSON.stringify({ state: validationState }),
+            });
+            if (!vRes.ok && vRes.errors && vRes.errors.length > 0) {
+                btnEl.textContent = '❌ Validation Failed';
+                btnEl.disabled = false;
+                toast(vRes.errors[0], 'error', 6000);
+                // Show all errors
+                for (const err of vRes.errors) {
+                    console.warn('[Wizard Validation]', err);
+                }
+                return;
+            }
+            // Show warnings but don't block
+            if (vRes.warnings && vRes.warnings.length > 0) {
+                for (const w of vRes.warnings) {
+                    toast('⚠ ' + w, 'warning', 5000);
+                }
+            }
+        } catch (e) {
+            // Validation endpoint unreachable — continue anyway
+            console.warn('Validation check failed, proceeding:', e.message);
+        }
+    }
+
+    // ── Apply setup ───────────────────────────────────────────
+    btnEl.textContent = '⏳ Applying…';
 
     try {
         const data = await api('/wizard/setup', {

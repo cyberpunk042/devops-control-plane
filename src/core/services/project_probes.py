@@ -347,8 +347,18 @@ def probe_pages(root: Path) -> dict:
 
 
 def probe_dns(root: Path) -> dict:
-    """Check DNS/domain configuration."""
+    """Check DNS/domain configuration.
+
+    Detects:
+        - dns/ directory (zone files, records.json)
+        - cdn/ directory (CDN provider configs)
+        - CNAME file (GitHub Pages custom domain)
+        - Domain from project.yml
+        - CDN provider config files (wrangler.toml, netlify.toml, etc.)
+    """
     has_cname = (root / "CNAME").is_file()
+    has_dns_dir = (root / "dns").is_dir()
+    has_cdn_dir = (root / "cdn").is_dir()
 
     import yaml
     from src.core.config.loader import find_project_file
@@ -358,19 +368,61 @@ def probe_dns(root: Path) -> dict:
     if config_path and config_path.is_file():
         try:
             data = yaml.safe_load(config_path.read_text())
+            # Check both top-level domain and pages.domain
             domain = data.get("domain") or data.get("pages", {}).get("domain")
+            # Also check dns.domain if present
+            dns_cfg = data.get("dns", {})
+            if isinstance(dns_cfg, dict) and not domain:
+                domain = dns_cfg.get("domain")
         except Exception:
             pass
 
-    if domain or has_cname:
-        status = "ready"
-    else:
-        status = "missing"
+    # Read CNAME content as fallback domain
+    cname_domain = None
+    if has_cname:
+        try:
+            cname_domain = (root / "CNAME").read_text(encoding="utf-8").strip()
+        except OSError:
+            pass
+
+    # Lightweight CDN provider detection (without importing dns_cdn_ops)
+    cdn_providers: list[str] = []
+    _cdn_markers = {
+        "cloudflare": ["wrangler.toml", "wrangler.json", "cloudflare.json"],
+        "netlify": ["netlify.toml"],
+        "vercel": ["vercel.json", ".vercel/project.json"],
+        "fastly": ["fastly.toml"],
+    }
+    for prov, files in _cdn_markers.items():
+        for f in files:
+            if (root / f).is_file():
+                cdn_providers.append(prov)
+                break
+
+    # Count zone files in dns/ dir
+    zone_files: list[str] = []
+    if has_dns_dir:
+        for f in (root / "dns").iterdir():
+            if f.is_file() and f.suffix in (".zone", ".json"):
+                zone_files.append(f.name)
+
+    # Determine overall status
+    effective_domain = domain or cname_domain
+    has_config = (
+        has_dns_dir or has_cdn_dir or has_cname
+        or bool(effective_domain) or bool(cdn_providers)
+    )
+    status = "ready" if has_config else "missing"
 
     return {
         "status": status,
         "has_cname": has_cname,
-        "domain": domain,
+        "cname_domain": cname_domain,
+        "domain": effective_domain,
+        "has_dns_dir": has_dns_dir,
+        "has_cdn_dir": has_cdn_dir,
+        "zone_files": zone_files,
+        "cdn_providers": cdn_providers,
     }
 
 

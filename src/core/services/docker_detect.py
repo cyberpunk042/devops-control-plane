@@ -70,9 +70,24 @@ def docker_status(project_root: Path) -> dict:
     compose_path = find_compose_file(project_root)
     compose_services: list[str] = []
     compose_service_details: list[dict] = []
+    compose_warnings: list[str] = []
     if compose_path:
         compose_services = _parse_compose_services(compose_path)
         compose_service_details = _parse_compose_service_details(compose_path)
+        # Validate compose file
+        try:
+            import yaml
+            raw = yaml.safe_load(compose_path.read_text(encoding="utf-8"))
+            if raw is None:
+                compose_warnings.append("Compose file is empty")
+            elif not isinstance(raw, dict):
+                compose_warnings.append("Compose file is not a valid mapping")
+            elif "services" not in raw:
+                compose_warnings.append("No 'services' key found in compose file")
+            elif not raw["services"]:
+                compose_warnings.append("'services' section is empty")
+        except Exception as exc:
+            compose_warnings.append(f"Failed to parse compose file: {exc}")
 
     # .dockerignore
     dockerignore_path = project_root / ".dockerignore"
@@ -96,6 +111,7 @@ def docker_status(project_root: Path) -> dict:
         "compose_services": compose_services,
         "compose_service_details": compose_service_details,
         "services_count": len(compose_services),
+        "compose_warnings": compose_warnings,
         "has_dockerignore": dockerignore_path.is_file(),
         "dockerignore_patterns": dockerignore_patterns,
     }

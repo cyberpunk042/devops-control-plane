@@ -278,8 +278,15 @@ def _build_profile(env: str, data: dict, output_dir: str) -> dict:
 
     profile: dict = {"name": env}
 
-    if env == "dev-from-local":
-        # 0.3.5b: The critical profile for local development
+    # ── Pattern-based profile routing ──
+    # Detect profile flavor from name patterns, not just exact matches.
+    _is_local = "local" in env       # dev-from-local, local, env-local, …
+    _is_dev = env == "dev"
+    _is_staging = env in ("staging", "qa", "preprod", "pre-prod")
+    _is_prod = env in ("prod", "production")
+
+    if _is_local:
+        # Local development: no push, sha256 tags, envsubst, port-forward, file sync
         profile["activation"] = [{"command": "dev"}]
         build_cfg: dict = {
             "local": {"push": False},
@@ -291,10 +298,10 @@ def _build_profile(env: str, data: dict, output_dir: str) -> dict:
             build_cfg["artifacts"] = sync_artifacts
         profile["build"] = build_cfg
         profile["deploy"] = {
-            "kubectl": {"defaultNamespace": "default"},
+            "kubectl": {"defaultNamespace": namespace or "default"},
         }
 
-        # 0.3.5b: envsubst hooks for variable-bearing manifests
+        # envsubst hooks for variable-bearing manifests
         variable_vars = _collect_variable_env_keys(services)
         if variable_vars:
             manifest_paths = [f.get("path", "") for f in data.get("_generated_files", [])]
@@ -306,7 +313,7 @@ def _build_profile(env: str, data: dict, output_dir: str) -> dict:
         if pf:
             profile["portForward"] = pf
 
-    elif env == "dev":
+    elif _is_dev:
         # 0.3.5c: CI/CD dev — push, overlay, no port-forward
         profile["activation"] = [{"command": "run"}]
         profile["build"] = {
@@ -326,15 +333,15 @@ def _build_profile(env: str, data: dict, output_dir: str) -> dict:
                 "kubectl": {"defaultNamespace": dev_ns},
             }
 
-    elif env == "staging":
+    elif _is_staging:
         # 0.3.5d: Staging — push, namespace override
         profile["activation"] = [{"command": "run"}]
         profile["build"] = {
             "local": {"push": True},
         }
-        staging_ns = f"{namespace}-staging" if namespace else "staging"
+        staging_ns = f"{namespace}-{env}" if namespace else env
         if deploy_strategy == "kustomize":
-            overlay_path = f"{output_dir}/overlays/staging"
+            overlay_path = f"{output_dir}/overlays/{env}"
             profile["manifests"] = {
                 "kustomize": {"paths": [overlay_path]},
             }
@@ -346,7 +353,7 @@ def _build_profile(env: str, data: dict, output_dir: str) -> dict:
                 "kubectl": {"defaultNamespace": staging_ns},
             }
 
-    elif env == "prod":
+    elif _is_prod:
         # 0.3.5d: Production — gitCommit tag, server-side apply
         profile["activation"] = [{"command": "deploy"}]
         profile["build"] = {

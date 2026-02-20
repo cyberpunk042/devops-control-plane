@@ -20,9 +20,7 @@
                 toast('Pages setup is available via the Pages card — check the Integrations tab.', 'info');
                 switchTab('integrations');
             },
-            dns: () => {
-                toast('DNS configuration wizard coming soon.', 'info');
-            },
+            dns: openDnsSetupWizard,
         };
         const fn = wizards[key];
         if (fn) fn();

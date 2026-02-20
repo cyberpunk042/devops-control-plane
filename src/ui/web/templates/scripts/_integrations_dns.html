@@ -1,0 +1,219 @@
+/* Integrations Tab JS — DNS & CDN Card
+     _intLoadDnsCard() — detection display, action buttons, cross-domain hints.
+     Depends on: _integrations_init.html (card registry), _devops_dns.html (lookup/ssl/generate modals)
+*/
+    // ── DNS & CDN Integration Card ────────────────────────────────────
+
+    async function _intLoadDnsCard() {
+        const badge = document.getElementById('int-dns-badge');
+        const detail = document.getElementById('int-dns-detail');
+
+        try {
+            const cached = cardCached('dns');
+            const data = cached || await api('/dns/status');
+            if (!cached) cardStore('dns', data);
+
+            const providers = data.cdn_providers || [];
+            const domains = data.domains || [];
+            const dnsFiles = data.dns_files || [];
+            const certs = data.ssl_certs || [];
+            const hasSomething = providers.length > 0 || domains.length > 0 || dnsFiles.length > 0;
+
+            // ── Nothing detected ──
+            if (!hasSomething) {
+                badge.className = 'status-badge degraded';
+                badge.innerHTML = '<span class="status-dot"></span>Not configured';
+                detail.innerHTML = cardSetupBanner(
+                    '🌐',
+                    'DNS & CDN not configured',
+                    'Set up domains, DNS records, CDN distribution, and SSL certificates for your project.',
+                    'dns',
+                    'Configure DNS →'
+                );
+                return;
+            }
+
+            // ── Has config ──
+            badge.className = 'status-badge ok';
+            const parts = [];
+            if (providers.length) parts.push(`${providers.length} CDN`);
+            if (domains.length) parts.push(`${domains.length} domain${domains.length !== 1 ? 's' : ''}`);
+            if (dnsFiles.length) parts.push(`${dnsFiles.length} file${dnsFiles.length !== 1 ? 's' : ''}`);
+            badge.innerHTML = `<span class="status-dot"></span>${parts.join(' · ')}`;
+
+            // Status grid
+            const stats = [];
+            if (domains.length) stats.push({ label: 'Domains', value: String(domains.length), cls: 'ok' });
+            if (providers.length) stats.push({ label: 'CDN', value: providers.map(p => p.name || p).join(', '), cls: 'ok' });
+            if (dnsFiles.length) stats.push({ label: 'DNS Files', value: String(dnsFiles.length) });
+            if (certs.length) stats.push({ label: 'SSL Certs', value: String(certs.length) });
+
+            let html = '';
+            if (stats.length) html += cardStatusGrid(stats);
+
+            // Detection list
+            const detections = [];
+
+            // Domains
+            domains.forEach(d => {
+                detections.push({ icon: '🔗', label: 'Domain', value: d });
+            });
+
+            // CDN Providers
+            providers.forEach(p => {
+                const name = p.name || p;
+                const by = (p.detected_by || []).join(', ');
+                detections.push({
+                    icon: '⚡',
+                    label: name,
+                    value: by || 'detected'
+                });
+            });
+
+            // DNS files
+            dnsFiles.forEach(f => {
+                detections.push({ icon: '📄', label: 'Zone file', value: f });
+            });
+
+            // SSL certs
+            certs.forEach(c => {
+                detections.push({
+                    icon: '🔒',
+                    label: c.type === 'private_key' ? 'Private key' : 'Certificate',
+                    value: c.path || ''
+                });
+            });
+
+            if (detections.length) html += cardDetectionList(detections);
+
+            // Dependency hints (cross-domain)
+            html += cardDepHint('k8s', 'Kubernetes', 'K8s detected — Ingress + cert-manager resources available in DNS setup.', 'k8s');
+            html += cardDepHint('terraform', 'Terraform', 'Terraform detected — DNS/CDN/SSL resources can be generated as Terraform config.', 'terraform');
+
+            // Live tools panel
+            const liveTabs = [
+                { key: 'lookup',  label: '🔍 DNS Lookup' },
+                { key: 'ssl',     label: '🔒 SSL Check' },
+                { key: 'records', label: '📋 Records' },
+            ];
+            html += cardLivePanel('int-dns-live', liveTabs, '_intDnsLiveTab');
+
+            // Generate toolbar
+            html += cardGenerateToolbar([
+                { label: 'DNS & CDN Config', icon: '🌐', onclick: 'openSetupWizard("dns")' },
+            ]);
+
+            // Cross-tab link
+            html += cardCrossLink('devops', 'View DNS tools in DevOps');
+
+            detail.innerHTML = html;
+
+        } catch (e) {
+            badge.className = 'status-badge failed';
+            badge.innerHTML = '<span class="status-dot"></span>Error';
+            detail.innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(e.message)}</p>`;
+        }
+    }
+
+    // ── DNS: live tool panels ──────────────────────────────────────────
+
+    async function _intDnsLiveTab(what, panelId) {
+        const panel = document.getElementById(panelId || 'int-dns-live');
+        if (!panel) return;
+        panel.style.display = 'block';
+
+        if (what === 'lookup') {
+            panel.innerHTML = `<div style="display:flex;gap:0.5rem;align-items:center;margin-bottom:var(--space-sm)">
+                <input type="text" id="int-dns-lookup-input" placeholder="example.com"
+                    style="flex:1;font-size:0.78rem;padding:0.35rem 0.5rem" autocomplete="off"
+                    onkeydown="if(event.key==='Enter')_intDnsDoLookup()">
+                <button class="btn btn-sm btn-primary" onclick="_intDnsDoLookup()" id="int-dns-lookup-btn">Lookup</button>
+            </div>
+            <div id="int-dns-lookup-result"></div>`;
+            setTimeout(() => document.getElementById('int-dns-lookup-input')?.focus(), 50);
+
+        } else if (what === 'ssl') {
+            panel.innerHTML = `<div style="display:flex;gap:0.5rem;align-items:center;margin-bottom:var(--space-sm)">
+                <input type="text" id="int-dns-ssl-input" placeholder="example.com"
+                    style="flex:1;font-size:0.78rem;padding:0.35rem 0.5rem" autocomplete="off"
+                    onkeydown="if(event.key==='Enter')_intDnsDoSsl()">
+                <button class="btn btn-sm btn-primary" onclick="_intDnsDoSsl()" id="int-dns-ssl-btn">Check</button>
+            </div>
+            <div id="int-dns-ssl-result"></div>`;
+            setTimeout(() => document.getElementById('int-dns-ssl-input')?.focus(), 50);
+
+        } else if (what === 'records') {
+            panel.innerHTML = '<span class="spinner"></span>';
+            try {
+                const data = await api('/dns/status?bust=1');
+                const domains = data.domains || [];
+                const dnsFiles = data.dns_files || [];
+                if (!domains.length && !dnsFiles.length) {
+                    panel.innerHTML = '<span style="color:var(--text-muted);font-size:0.78rem">No DNS records or zone files detected.</span>';
+                } else {
+                    let h = '';
+                    if (domains.length) {
+                        h += `<div style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.3rem">Domains (${domains.length})</div>`;
+                        h += domains.map(d => `<div style="font-size:0.78rem;padding:0.15rem 0">🔗 <code style="font-family:var(--font-mono);color:var(--accent);font-size:0.72rem">${esc(d)}</code></div>`).join('');
+                    }
+                    if (dnsFiles.length) {
+                        h += `<div style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;margin:var(--space-sm) 0 0.3rem">Zone Files (${dnsFiles.length})</div>`;
+                        h += dnsFiles.map(f => `<div style="font-size:0.78rem;padding:0.15rem 0">📄 <code style="font-family:var(--font-mono);font-size:0.72rem">${esc(f)}</code></div>`).join('');
+                    }
+                    panel.innerHTML = h;
+                }
+            } catch (e) {
+                panel.innerHTML = `<span style="color:var(--error);font-size:0.78rem">${esc(e.message)}</span>`;
+            }
+        }
+    }
+
+    async function _intDnsDoLookup() {
+        const input = document.getElementById('int-dns-lookup-input');
+        const result = document.getElementById('int-dns-lookup-result');
+        const btn = document.getElementById('int-dns-lookup-btn');
+        const domain = input?.value?.trim();
+        if (!domain) return;
+        btn.disabled = true; btn.textContent = '…';
+        result.innerHTML = '<span class="spinner"></span>';
+        try {
+            const data = await api(`/dns/lookup/${encodeURIComponent(domain)}`);
+            const records = data.records || [];
+            if (!records.length) {
+                result.innerHTML = '<span style="color:var(--text-muted);font-size:0.78rem">No records found</span>';
+            } else {
+                result.innerHTML = cardDataTable(
+                    ['Type', 'Value'],
+                    records.map(r => [
+                        { text: r.type, cls: 'name' },
+                        { text: r.value, cls: 'muted' },
+                    ])
+                );
+            }
+        } catch (e) {
+            result.innerHTML = `<span style="color:var(--error);font-size:0.78rem">${esc(e.message)}</span>`;
+        }
+        btn.disabled = false; btn.textContent = 'Lookup';
+    }
+
+    async function _intDnsDoSsl() {
+        const input = document.getElementById('int-dns-ssl-input');
+        const result = document.getElementById('int-dns-ssl-result');
+        const btn = document.getElementById('int-dns-ssl-btn');
+        const domain = input?.value?.trim();
+        if (!domain) return;
+        btn.disabled = true; btn.textContent = '…';
+        result.innerHTML = '<span class="spinner"></span>';
+        try {
+            const data = await api(`/dns/ssl/${encodeURIComponent(domain)}`);
+            result.innerHTML = `<div style="font-size:0.82rem;line-height:1.8">
+                <div>${data.valid ? '✅' : '❌'} Certificate ${data.valid ? 'valid' : 'invalid'}</div>
+                ${data.issuer ? `<div>🏢 Issuer: ${esc(data.issuer)}</div>` : ''}
+                ${data.expiry ? `<div>📅 Expires: ${esc(data.expiry)}</div>` : ''}
+            </div>`;
+        } catch (e) {
+            result.innerHTML = `<span style="color:var(--error);font-size:0.78rem">${esc(e.message)}</span>`;
+        }
+        btn.disabled = false; btn.textContent = 'Check';
+    }
+

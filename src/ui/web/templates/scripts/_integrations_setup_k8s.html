@@ -40,6 +40,7 @@
                     output_dir: data.output_dir,
                     ingress: data.ingress,
                     skaffold: data.skaffold,
+                    helm_chart: data.helm_chart,
                 };
                 await apiPost('/wizard/setup', payload);
                 _projectStatusTS = 0;

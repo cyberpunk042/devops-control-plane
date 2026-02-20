@@ -68,6 +68,9 @@ def wizard_detect(root: Path) -> dict:
         "pyproject":      (root / "pyproject.toml").is_file(),
         "package_json":   (root / "package.json").is_file(),
         "pages_config":   (root / "project.yml").is_file(),
+        "dns_dir":        (root / "dns").is_dir(),
+        "cdn_dir":        (root / "cdn").is_dir(),
+        "cname_file":     (root / "CNAME").is_file(),
     }
 
     # ── Connectivity probes ─────────────────────────────────────
@@ -235,11 +238,21 @@ def wizard_detect(root: Path) -> dict:
             ),
         },
         "dns": {
-            "detected": False,
-            "status": "not_available",
-            "suggest": "hidden",
+            "detected": files["dns_dir"] or files["cdn_dir"] or files["cname_file"],
+            "status": ("ready" if files["dns_dir"] or files["cdn_dir"]
+                       else "partial" if files["cname_file"]
+                       else "missing"),
+            "suggest": ("auto" if files["dns_dir"] or files["cdn_dir"]
+                        else "manual" if files["cname_file"]
+                        else "hidden"),
             "label": "🌐 DNS & CDN",
-            "setup_actions": [],
+            "has_dns_dir": files["dns_dir"],
+            "has_cdn_dir": files["cdn_dir"],
+            "has_cname": files["cname_file"],
+            "setup_actions": (
+                [] if files["dns_dir"] and files["cdn_dir"]
+                else ["setup_dns"]
+            ),
         },
     }
 
@@ -283,6 +296,7 @@ def wizard_detect(root: Path) -> dict:
         "gitignore_analysis": _wizard_gitignore_analysis(root),
         "git_remotes": _wizard_git_remotes(root),
         "codeowners_content": _wizard_codeowners_content(root),
+        "env_status": _wizard_env_status(root),
     }
 
 
@@ -311,6 +325,15 @@ def _wizard_docker_status(root: Path) -> dict:
         return docker_status(root)
     except Exception:
         return {"available": False}
+
+
+def _wizard_env_status(root: Path) -> dict:
+    """Env var status (files, vars, validation) for wizard use."""
+    try:
+        from src.core.services.env_ops import env_status
+        return env_status(root)
+    except Exception:
+        return {"files": [], "has_env": False, "has_example": False, "total_vars": 0}
 
 
 def _wizard_gh_cli_status(root: Path) -> dict:
@@ -409,6 +432,7 @@ from src.core.services.wizard_setup import (  # noqa: F401, E402
     setup_k8s,
     setup_ci,
     setup_terraform,
+    setup_dns,
     wizard_setup,
     delete_generated_configs,
 )

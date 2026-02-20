@@ -65,6 +65,38 @@
             ];
             if (data.helm_charts && data.helm_charts.length > 0) stats.push({ label: 'Helm', value: `${data.helm_charts.length} chart${data.helm_charts.length > 1 ? 's' : ''}` });
             if (data.kustomize && data.kustomize.exists) stats.push({ label: 'Kustomize', value: '✓', cls: 'ok' });
+
+            // Deployment strategy & readiness
+            if (data.deployment_strategy && data.deployment_strategy !== 'none') {
+                const stratLabel = {
+                    raw_kubectl: 'Raw kubectl', helm: 'Helm', kustomize: 'Kustomize',
+                    skaffold: 'Skaffold', mixed: 'Mixed',
+                }[data.deployment_strategy] || data.deployment_strategy;
+                stats.push({ label: 'Strategy', value: stratLabel });
+            }
+            if (data.deployment_readiness) {
+                const rdyMap = {
+                    ready: { value: 'Ready', cls: 'ok' },
+                    needs_config: { value: 'Needs config', cls: 'warn' },
+                    needs_tools: { value: 'Needs tools', cls: 'warn' },
+                    not_configured: { value: 'Not configured', cls: 'muted' },
+                };
+                const rdy = rdyMap[data.deployment_readiness] || { value: data.deployment_readiness };
+                stats.push({ label: 'Readiness', ...rdy });
+            }
+
+            // Tool availability (helm, kustomize, skaffold, cloud CLIs)
+            if (data.tool_availability) {
+                const ta = data.tool_availability;
+                const toolNames = ['helm', 'kustomize', 'skaffold', 'minikube', 'kind', 'az', 'aws', 'gcloud'];
+                toolNames.forEach(name => {
+                    const t = ta[name];
+                    if (t && t.available) {
+                        stats.push({ label: name, value: t.version || '✓', cls: 'ok' });
+                    }
+                });
+            }
+
             // Dependency hint: Docker
             let html = '';
             html += cardDepHint('docker', 'Docker', 'Build a container image for your app to deploy to K8s.', 'docker');
@@ -75,7 +107,32 @@
             (data.manifest_dirs || []).forEach(d => detections.push({ icon: '📁', label: 'Manifests', value: d, click: `openFileInEditor('${esc(d)}','raw')` }));
             (data.helm_charts || []).forEach(h => detections.push({ icon: '⎈', label: 'Helm Chart', value: h.name, click: `openFileInEditor('${esc(h.path)}/Chart.yaml','raw')` }));
             if (data.kustomize && data.kustomize.exists) detections.push({ icon: '🔧', label: 'Kustomize', value: data.kustomize.path, click: `openFileInEditor('${esc(data.kustomize.path)}','raw')` });
+
+            // Infrastructure services detected
+            (data.infra_services || []).forEach(svc => {
+                detections.push({ icon: '🏗', label: 'Requires', value: `${svc.name} (${svc.detected_via.replace('_', ' ')})` });
+            });
             if (detections.length) html += cardDetectionList(detections);
+
+            // Secret safety warnings
+            if (data.secret_safety) {
+                const ss = data.secret_safety;
+                const warnings = [];
+                if (ss.has_raw_secrets && !ss.has_secret_generator) {
+                    warnings.push('⚠️ Raw Secret manifests detected — consider using secretGenerator or external-secrets');
+                }
+                if (ss.has_envsubst_vars) {
+                    const vars = (ss.envsubst_vars || []).join(', ');
+                    warnings.push(`⚠️ envsubst variables detected: ${vars} — ensure these are set before apply`);
+                }
+                if (warnings.length > 0) {
+                    html += `<div style="margin-top:var(--space-xs);display:flex;flex-direction:column;gap:0.15rem">`;
+                    warnings.forEach(w => {
+                        html += `<div style="font-size:0.72rem;color:var(--warning);padding:0.15rem 0">${esc(w)}</div>`;
+                    });
+                    html += `</div>`;
+                }
+            }
 
             // Resource summary chips
             if (data.resource_summary && Object.keys(data.resource_summary).length > 0) {
@@ -141,6 +198,18 @@
                 const data = await api('/k8s/cluster');
                 if (!data.connected) { panel.innerHTML = '<span style="color:var(--warning)">⚠ Not connected to a cluster</span>'; return; }
                 let html = `<div style="margin-bottom:0.3rem"><strong>Context:</strong> ${esc(data.context || '—')}</div>`;
+
+                // Cluster type (minikube, kind, EKS, AKS, GKE, etc.)
+                if (data.cluster_type && data.cluster_type.type && data.cluster_type.type !== 'unknown') {
+                    const typeLabels = {
+                        minikube: '🏠 Minikube (local)', kind: '📦 Kind (local)',
+                        docker_desktop: '🐳 Docker Desktop', k3s: '🪶 K3s', k3d: '🪶 K3d',
+                        eks: '☁️ AWS EKS', aks: '☁️ Azure AKS', gke: '☁️ Google GKE',
+                    };
+                    const label = typeLabels[data.cluster_type.type] || data.cluster_type.type;
+                    html += `<div style="margin-bottom:0.3rem"><strong>Cluster:</strong> ${esc(label)}</div>`;
+                }
+
                 if (data.nodes && data.nodes.length > 0) {
                     html += cardDataTable(
                         ['', 'Node', 'Status', 'Roles', 'Version'],

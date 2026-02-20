@@ -418,6 +418,9 @@
                         if (data.skaffold) {
                             items.push({ icon: '🛤', label: 'Skaffold pipeline', value: 'skaffold.yaml — build → push → deploy', badge: 'create', badgeCls: 'ready' });
                         }
+                        if (data.helm_chart) {
+                            items.push({ icon: '⎈', label: 'Helm chart', value: 'charts/ — Chart.yaml, values.yaml, templates/', badge: 'create', badgeCls: 'ready' });
+                        }
 
                         el.innerHTML = `
                             ${wizSection('Review', `${services.length + infraDecisions.length} resource${(services.length + infraDecisions.length) !== 1 ? 's' : ''} will be generated.`)}

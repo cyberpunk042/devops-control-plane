@@ -135,4 +135,20 @@
             <span class="spinner"></span>
         </div>
     </div>
+
+    <!-- ── DNS & CDN Card (full-width) ──────────────────────── -->
+    <div class="card" id="int-dns-card" style="margin-top:var(--space-lg)">
+        <div class="card-header">
+            <span class="card-title">🌐 DNS & CDN</span>
+            <div style="display:flex;align-items:center;gap:0.4rem">
+                <span class="card-age" data-cache-key="dns" style="font-size:0.64rem;color:var(--text-muted)"></span>
+                <button class="btn-icon" onclick="cardRefresh('dns','int-dns-badge','int-dns-detail',_intLoadDnsCard)" title="Refresh" style="font-size:0.7rem;cursor:pointer;background:none;border:none;color:var(--text-muted);padding:0">🔄</button>
+                <span class="status-badge" id="int-dns-badge">—</span>
+            </div>
+        </div>
+        <div class="card-subtitle">Domain, DNS records, CDN & SSL</div>
+        <div id="int-dns-detail" class="integration-detail" style="margin-top:var(--space-md)">
+            <span class="spinner"></span>
+        </div>
+    </div>
 </div>

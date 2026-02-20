@@ -583,9 +583,58 @@
                         data.namespace = mfVal('k8s-namespace') || 'default';
                         data.output_dir = mfVal('k8s-output-dir') || 'k8s/';
                         data.ingress = mfVal('k8s-ingress');
+
+                        // ── Skaffold config ──
                         const skaffoldChk = document.getElementById('k8s-skaffold-toggle');
                         data.skaffold = skaffoldChk ? skaffoldChk.checked : true;
-                        // data.configmap removed — ConfigMaps auto-generated per service from envVars
+                        if (data.skaffold) {
+                            const deployMethod = (document.getElementById('k8s-skaffold-deploy') || {}).value || 'kustomize';
+                            const profiles = (window._skfProfiles || ['dev-from-local', 'dev', 'staging', 'prod']).slice();
+                            const preDeploy = ((document.getElementById('k8s-skaffold-pre-deploy') || {}).value || '').split('\n').map(s => s.trim()).filter(Boolean);
+                            const postDeploy = ((document.getElementById('k8s-skaffold-post-deploy') || {}).value || '').split('\n').map(s => s.trim()).filter(Boolean);
+
+                            // Backend flat fields
+                            data.deployStrategy = deployMethod;
+                            data.tagPolicy = (document.getElementById('k8s-skaffold-tag') || {}).value || 'gitCommit';
+                            data.environments = profiles;
+                            data.serverSideApply = !!(document.getElementById('k8s-skaffold-ssa') || {}).checked;
+                            data.postDeployVerify = !!(document.getElementById('k8s-skaffold-verify') || {}).checked;
+                            if (preDeploy.length > 0) data.preDeploy = preDeploy;
+                            if (postDeploy.length > 0) data.postDeploy = postDeploy;
+
+                            // Save-friendly nested config for wizard state restore
+                            data.skaffold_config = {
+                                deploy_method: deployMethod,
+                                tag_policy: data.tagPolicy,
+                                profiles: profiles,
+                                port_forward: !!(document.getElementById('k8s-skaffold-portfwd') || {}).checked,
+                                file_sync: !!(document.getElementById('k8s-skaffold-sync') || {}).checked,
+                                server_side_apply: data.serverSideApply,
+                                post_deploy_verify: data.postDeployVerify,
+                                pre_deploy: preDeploy,
+                                post_deploy: postDeploy,
+                            };
+                        }
+
+                        // ── Helm chart config ──
+                        const helmChartChk = document.getElementById('k8s-helm-chart-toggle');
+                        data.helm_chart = helmChartChk ? helmChartChk.checked : false;
+                        if (data.helm_chart) {
+                            const chartDir = (document.getElementById('k8s-helm-chart-dir') || {}).value || 'charts/';
+                            // Backend flat fields
+                            data.helmChartPath = chartDir;
+
+                            // Save-friendly nested config for wizard state restore
+                            data.helm_config = {
+                                chart_name: (document.getElementById('k8s-helm-chart-name') || {}).value || '',
+                                chart_dir: chartDir,
+                                chart_version: (document.getElementById('k8s-helm-chart-version') || {}).value || '0.1.0',
+                                app_version: (document.getElementById('k8s-helm-app-version') || {}).value || '1.0.0',
+                                description: (document.getElementById('k8s-helm-chart-desc') || {}).value || '',
+                                env_values: !!(document.getElementById('k8s-helm-env-values') || {}).checked,
+                                helmignore: !!(document.getElementById('k8s-helm-helmignore') || {}).checked,
+                            };
+                        }
 
                         // ── Backward compat: flat fields from primary service ──
                         if (services.length > 0) {
@@ -605,6 +654,9 @@
                                 output_dir: data.output_dir,
                                 ingress: data.ingress,
                                 skaffold: data.skaffold,
+                                skaffold_config: data.skaffold_config || null,
+                                helm_chart: data.helm_chart,
+                                helm_config: data.helm_config || null,
                             };
                             api('/k8s/wizard-state', {
                                 method: 'POST',

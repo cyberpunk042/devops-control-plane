@@ -90,7 +90,7 @@
                                 for (const c of data._selectedContainers) {
                                     const svc = {
                                         name: c.name,
-                                        ports: [`${c.port}:${c.port}`],
+                                        ports: c.ports || [],
                                         restart: c.restart || 'unless-stopped',
                                     };
                                     if (c.dockerfilePath === 'Dockerfile') {

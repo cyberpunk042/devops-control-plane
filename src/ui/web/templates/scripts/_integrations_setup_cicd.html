@@ -10,10 +10,10 @@
             title: '⚡ CI/CD Pipeline Setup',
             size: 'wide',
             steps: [
+                // ── Step 1: Detect ─────────────────────────────────────
                 {
                     id: 'detect', title: 'Detect', cacheable: true,
                     render: async (data, el) => {
-                        // ── Serve from cache if available (instant, zero API calls) ──
                         const _CK = 'cicd:detect';
                         const cached = wizCached(_CK);
                         if (cached) {
@@ -22,7 +22,6 @@
                             return;
                         }
 
-                        // ── Fresh scan ──
                         el.innerHTML = '<p style="text-align:center;padding:2rem"><span class="spinner"></span> Detecting CI/CD configuration…</p>';
                         try {
                             const _bust = window._wizForceRescan ? '?bust=1' : ''; window._wizForceRescan = false;
@@ -31,17 +30,54 @@
                             const probes = wizDetect.status_probes || {};
                             const cicd = probes.cicd || {};
                             const docker = probes.docker || {};
+                            const k8s = probes.k8s || {};
+                            const stacks = wizDetect.detected_stacks || [];
+                            const configData = wizDetect.config_data || {};
+                            const envs = configData.environments || [];
+                            const dockerStatus = wizDetect.docker_status || {};
+                            const composeDetails = dockerStatus.compose_service_details || [];
+
                             data._cicd = cicd;
                             data._docker = docker;
+                            data._k8s = k8s;
+                            data._stacks = stacks;
                             data._ciStatus = wizDetect.ci_status || {};
+                            data._envs = envs;
+                            data._dockerStatus = dockerStatus;
+                            data._composeServices = composeDetails;
+
+                            // Fetch vault keys (same as K8s wizard)
+                            try {
+                                const vaultData = await api('/vault/keys');
+                                data._vaultKeys = (vaultData && vaultData.keys) || [];
+                            } catch(e) { data._vaultKeys = []; }
+
+                            const stackBadges = stacks.length > 0
+                                ? stacks.map(s => `<span style="display:inline-block;padding:1px 6px;border-radius:4px;border:1px solid var(--border-subtle);background:var(--bg-primary);font-size:0.72rem;font-family:var(--font-mono,monospace)">${esc(s)}</span>`).join(' ')
+                                : '<span style="color:var(--text-muted);font-size:0.72rem">None detected</span>';
+
+                            const envSt = wizDetect.env_status || {};
+                            data._envStatus = envSt;
+
+                            const envLabel = envSt.has_env || envSt.has_example
+                                ? (envSt.total_vars || 0) + ' vars in ' + (envSt.files || []).filter(f => f.exists).map(f => f.name).join(', ')
+                                : 'No .env files';
 
                             const html = `
-                                ${wizSection('CI/CD Configuration', 'Current continuous integration / deployment setup.')}
+                                ${wizSection('CI/CD Environment', 'Detected project configuration for CI pipeline generation.')}
                                 <div class="wiz-status-grid">
-                                    ${wizStatusRow('⚡', 'Provider', cicd.provider || 'Not configured', cicd.provider ? 'ok' : 'warn')}
+                                    ${wizStatusRow('⚡', 'CI Provider', cicd.provider || 'Not configured', cicd.provider ? 'ok' : 'warn')}
                                     ${wizStatusRow('📄', 'Workflow files', String(cicd.workflow_count || 0), cicd.workflow_count > 0 ? 'ok' : 'warn')}
-                                    ${wizStatusRow('🐳', 'Docker available', docker.has_dockerfile ? 'Yes' : 'No', docker.has_dockerfile ? 'ok' : 'muted')}
+                                    ${wizStatusRow('🐳', 'Docker', docker.has_dockerfile ? 'Dockerfile found' : 'Not detected', docker.has_dockerfile ? 'ok' : 'muted')}
+                                    ${wizStatusRow('☸️', 'Kubernetes', k8s.has_manifests || k8s.has_skaffold ? 'Manifests found' : 'Not detected', k8s.has_manifests || k8s.has_skaffold ? 'ok' : 'muted')}
+                                    ${wizStatusRow('⚙️', 'Environment', envLabel, envSt.has_env || envSt.has_example ? 'ok' : 'muted')}
                                 </div>
+
+                                <div style="margin-top:0.6rem">
+                                    <label style="font-size:0.72rem;font-weight:600;color:var(--text-muted);display:block;margin-bottom:4px">Detected Stacks</label>
+                                    <div style="display:flex;flex-wrap:wrap;gap:0.3rem">${stackBadges}</div>
+                                </div>
+
                                 ${!docker.has_dockerfile ? `
                                     <div class="wiz-action-row" style="margin-top:1rem">
                                         <span class="wiz-action-label">💡 Set up Docker first for container-based CI/CD workflows.</span>
@@ -50,52 +86,991 @@
                                 ` : ''}
                             `;
 
-                            // Store complete detect result in cache
-                            wizStore(_CK, { h: html, d: { _cicd: data._cicd, _docker: data._docker, _ciStatus: data._ciStatus } }, _serverTs);
+                            wizStore(_CK, { h: html, d: {
+                                _cicd: data._cicd, _docker: data._docker, _k8s: data._k8s,
+                                _stacks: data._stacks, _ciStatus: data._ciStatus,
+                                _envStatus: data._envStatus, _envs: data._envs,
+                                _dockerStatus: data._dockerStatus,
+                                _composeServices: data._composeServices,
+                                _vaultKeys: data._vaultKeys,
+                            } }, _serverTs);
                             el.innerHTML = _wizDetectBanner(_CK) + html;
                         } catch (e) {
                             el.innerHTML = `<div class="wiz-step-error-panel"><span>⚠️</span><span>${esc(e.message)}</span></div>`;
                         }
                     },
                 },
+
+                // ── Step 2: Pipeline Configuration ─────────────────────
                 {
-                    id: 'config', title: 'Configure',
+                    id: 'pipeline', title: 'Pipeline',
                     render: (data, el) => {
-                        const docker = data._docker || {};
-                        el.innerHTML = `
-                            ${wizSection('Workflow Configuration', 'What should the CI pipeline do?')}
-                            ${wizFormGrid([
+                        const stacks = data._stacks || [];
+                        const hasStacks = stacks.length > 0;
+                        const envs = data._envs || [];
+                        const isMultiEnv = envs.length > 1;
+                        const stackInfo = hasStacks
+                            ? '<div style="font-size:0.72rem;color:var(--text-muted);margin-bottom:0.4rem">Test jobs will be generated per detected stack: <b>' + esc(stacks.join(', ')) + '</b></div>'
+                            : '<div style="font-size:0.72rem;color:var(--text-muted);margin-bottom:0.4rem">No stacks detected — generic test job will be used.</div>';
+
+                        // ── Secret key detection (from DataRegistry, same as K8s wizard) ──
+                        var _SECRET_PATTERNS = (window._dcp && window._dcp.secretPatterns) || [
+                            'password', 'secret', 'token', 'api_key', 'apikey', 'private_key',
+                            'credential', 'auth', 'jwt', 'passphrase',
+                        ];
+                        var _ciIsSecretKey = function(key) {
+                            var lower = key.toLowerCase();
+                            return _SECRET_PATTERNS.some(function(p) { return lower.indexOf(p) !== -1; });
+                        };
+                        var _ENV_DEPENDENT_KEYS = ['node_env', 'app_env', 'environment', 'env', 'log_level', 'debug', 'stage', 'deploy_env'];
+                        var _ciDefaultInjType = function(key) {
+                            if (_ciIsSecretKey(key)) return 'secret';
+                            if (isMultiEnv && _ENV_DEPENDENT_KEYS.indexOf(key.toLowerCase()) !== -1) return 'variable';
+                            return 'hardcoded';
+                        };
+
+                        // ── Build available vars/secrets from vault (same as K8s wizard) ──
+                        var _vaultKeys = data._vaultKeys || [];
+                        var _allEnvKeys = {};
+                        var _availableVars = [];
+                        var _availableSecrets = [];
+                        _vaultKeys.forEach(function(vk) {
+                            var k = vk.key;
+                            if (_allEnvKeys[k]) return;
+                            _allEnvKeys[k] = true;
+                            if (vk.kind === 'secret') _availableSecrets.push(k);
+                            else _availableVars.push(k);
+                        });
+                        _availableVars.sort();
+                        _availableSecrets.sort();
+
+                        // ── Collect env vars from compose services ──
+                        var _composeEnvKeys = {};
+                        (data._composeServices || []).forEach(function(svc) {
+                            var svcEnv = svc.environment || {};
+                            Object.keys(svcEnv).forEach(function(k) { _composeEnvKeys[k] = svcEnv[k]; });
+                        });
+
+                        // ── Build initial env var list from detected sources ──
+                        if (!data._ciEnvVars) {
+                            data._ciEnvVars = [];
+                            var seen = {};
+                            // From compose environment
+                            Object.keys(_composeEnvKeys).forEach(function(k) {
+                                if (seen[k]) return;
+                                seen[k] = true;
+                                data._ciEnvVars.push({ key: k, value: _composeEnvKeys[k] || '', type: _ciDefaultInjType(k), source: 'compose' });
+                            });
+                            // Stack-specific CI defaults
+                            var stx = data._stacks || [];
+                            var _addDefault = function(k, v, hint) {
+                                if (seen[k]) return;
+                                seen[k] = true;
+                                data._ciEnvVars.push({ key: k, value: v, type: 'hardcoded', source: hint });
+                            };
+                            _addDefault('CI', 'true', 'ci');
+                            if (stx.indexOf('python') !== -1) {
+                                _addDefault('PYTHONDONTWRITEBYTECODE', '1', 'python');
+                                _addDefault('PYTHONUNBUFFERED', '1', 'python');
+                            }
+                            if (stx.indexOf('node') !== -1) {
+                                _addDefault('NODE_ENV', 'test', 'node');
+                            }
+                            if (stx.indexOf('go') !== -1) {
+                                _addDefault('CGO_ENABLED', '0', 'go');
+                            }
+                            if (stx.indexOf('rust') !== -1) {
+                                _addDefault('CARGO_TERM_COLOR', 'always', 'rust');
+                            }
+                            if (data._docker && data._docker.has_dockerfile) {
+                                _addDefault('DOCKER_BUILDKIT', '1', 'docker');
+                            }
+                        }
+
+                        // ── Var/secret select options ──
+                        window._ciVarSelectOpts = function(injType, currentKey, currentVarName) {
+                            var dlr = '$';
+                            var match = currentVarName || (dlr + '{' + currentKey + '}');
+                            var shown = {};
+                            var opts = '';
+                            // Self-reference
+                            if (currentKey) {
+                                var selfVal = dlr + '{' + currentKey + '}';
+                                opts += '<option value="' + esc(selfVal) + '"' + (match === selfVal ? ' selected' : '') + '>' + dlr + '{' + esc(currentKey) + '}</option>';
+                                shown[currentKey] = true;
+                            }
+                            // Compose-detected keys
+                            var compKeys = Object.keys(_composeEnvKeys).filter(function(k) { return !shown[k]; });
+                            if (compKeys.length > 0) {
+                                opts += '<optgroup label="From Compose">';
+                                compKeys.forEach(function(k) {
+                                    var val = dlr + '{' + k + '}';
+                                    opts += '<option value="' + esc(val) + '"' + (match === val ? ' selected' : '') + '>' + dlr + '{' + esc(k) + '}</option>';
+                                    shown[k] = true;
+                                });
+                                opts += '</optgroup>';
+                            }
+                            // Vault Secrets
+                            var secrets = _availableSecrets.filter(function(k) { return !shown[k]; });
+                            if (secrets.length > 0) {
+                                opts += '<optgroup label="Vault Secrets">';
+                                secrets.forEach(function(k) {
+                                    var val = dlr + '{' + k + '}';
+                                    opts += '<option value="' + esc(val) + '"' + (match === val ? ' selected' : '') + '>' + dlr + '{' + esc(k) + '}</option>';
+                                    shown[k] = true;
+                                });
+                                opts += '</optgroup>';
+                            }
+                            // Vault Variables
+                            var vars = _availableVars.filter(function(k) { return !shown[k]; });
+                            if (vars.length > 0) {
+                                opts += '<optgroup label="Vault Variables">';
+                                vars.forEach(function(k) {
+                                    var val = dlr + '{' + k + '}';
+                                    opts += '<option value="' + esc(val) + '"' + (match === val ? ' selected' : '') + '>' + dlr + '{' + esc(k) + '}</option>';
+                                    shown[k] = true;
+                                });
+                                opts += '</optgroup>';
+                            }
+                            // Custom
+                            opts += '<option value="__custom__">Custom...</option>';
+                            return opts;
+                        };
+
+                        // ── Per-row HTML (K8s wizard pattern) ──
+                        window._ciEnvRowHtml = function(j, key, value, injType, varName) {
+                            var isSubst = injType !== 'hardcoded';
+                            var isSec = injType === 'secret';
+                            var dlr = '$';
+                            var varN = varName || (isSubst ? dlr + '{' + key + '}' : '');
+                            return '<div class="ci-env-row" data-idx="' + j + '" style="margin-bottom:0.15rem">'
+                                + '<div style="display:grid;grid-template-columns:2fr 2fr 1.2fr auto;gap:0.25rem;align-items:center">'
+                                // Key input
+                                + '<input type="text" id="ci-env-key-' + j + '" class="modal-form-input"'
+                                + ' value="' + esc(key) + '" placeholder="KEY_NAME"'
+                                + ' oninput="window._ciCheckDupes()"'
+                                + ' style="font-size:0.78rem;padding:0.2rem 0.3rem;font-family:var(--font-mono,monospace)">'
+                                // Value input (visible when hardcoded)
+                                + '<input type="' + (isSec ? 'password' : 'text') + '" id="ci-env-val-' + j + '" class="modal-form-input"'
+                                + ' value="' + esc(value) + '" placeholder="' + (isSec ? '••••••' : 'value') + '"'
+                                + ' style="font-size:0.78rem;padding:0.2rem 0.3rem;font-family:var(--font-mono,monospace)"' + (isSubst ? ' hidden' : '') + '>'
+                                // Var select (visible when variable/secret)
+                                + '<div id="ci-env-varbox-' + j + '"' + (isSubst ? '' : ' hidden') + '>'
+                                +   '<select id="ci-env-var-' + j + '" class="modal-form-select" data-j="' + j + '"'
+                                +   ' style="font-size:0.78rem;padding:0.2rem 0.3rem;color:var(--accent)"'
+                                +   ' onchange="window._ciOnVarSelect(this)">'
+                                +   (isSubst ? window._ciVarSelectOpts(injType, key, varN) : '<option>--</option>')
+                                +   '</select>'
+                                +   '<input type="text" id="ci-env-varcustom-' + j + '" class="modal-form-input"'
+                                +   ' value="" placeholder="' + dlr + '{MY_VAR}"'
+                                +   ' style="font-size:0.78rem;padding:0.2rem 0.3rem;font-family:var(--font-mono,monospace);color:var(--accent);margin-top:2px;display:none">'
+                                + '</div>'
+                                // Type selector
+                                + '<select id="ci-env-type-' + j + '" class="modal-form-select" data-j="' + j + '"'
+                                + ' style="font-size:0.78rem;padding:0.2rem 0.3rem"'
+                                + ' onchange="window._ciOnTypeChange(this)">'
+                                + '<option value="hardcoded"' + (injType === 'hardcoded' ? ' selected' : '') + '>📋 Hardcoded</option>'
+                                + '<option value="variable"' + (injType === 'variable' ? ' selected' : '') + '>🔄 Variable</option>'
+                                + '<option value="secret"' + (injType === 'secret' ? ' selected' : '') + '>🔒 Secret</option>'
+                                + '</select>'
+                                // Remove button
+                                + '<button type="button" onclick="this.closest(\'.ci-env-row\').remove();window._ciCheckDupes()"'
+                                + ' style="background:none;border:none;cursor:pointer;font-size:0.78rem;color:var(--text-muted);padding:0 2px"'
+                                + ' title="Remove">✕</button>'
+                                + '</div>'
+                                // Dupe warning
+                                + '<div id="ci-env-dupe-' + j + '" hidden'
+                                + ' style="font-size:0.65rem;color:var(--warning);padding:1px 0.25rem;margin-top:1px">⚠ Duplicate key</div>'
+                                + '</div>';
+                        };
+
+                        // ── Type change handler (same pattern as K8s wizard) ──
+                        window._ciOnTypeChange = function(sel) {
+                            var j = sel.dataset.j;
+                            var vb = document.getElementById('ci-env-varbox-' + j);
+                            var ve = document.getElementById('ci-env-val-' + j);
+                            var vs = document.getElementById('ci-env-var-' + j);
+                            var isSub = sel.value !== 'hardcoded';
+                            if (vb) vb.hidden = !isSub;
+                            if (ve) ve.hidden = isSub;
+                            if (vs && isSub) {
+                                var keyEl = document.getElementById('ci-env-key-' + j);
+                                vs.innerHTML = window._ciVarSelectOpts(sel.value, keyEl ? keyEl.value : '', '');
+                                window._ciOnVarSelect(vs);
+                            }
+                        };
+
+                        // ── Var select change handler ──
+                        window._ciOnVarSelect = function(sel) {
+                            var j = sel.dataset.j;
+                            var customInp = document.getElementById('ci-env-varcustom-' + j);
+                            if (customInp) {
+                                customInp.style.display = sel.value === '__custom__' ? '' : 'none';
+                            }
+                        };
+
+                        // ── Duplicate detection ──
+                        window._ciCheckDupes = function() {
+                            var rows = document.querySelectorAll('.ci-env-row');
+                            var keyCount = {};
+                            rows.forEach(function(row) {
+                                var idx = row.dataset.idx;
+                                var keyEl = document.getElementById('ci-env-key-' + idx);
+                                if (keyEl && keyEl.value.trim()) {
+                                    var k = keyEl.value.trim().toUpperCase();
+                                    if (!keyCount[k]) keyCount[k] = [];
+                                    keyCount[k].push(idx);
+                                }
+                            });
+                            rows.forEach(function(row) {
+                                var idx = row.dataset.idx;
+                                var keyEl = document.getElementById('ci-env-key-' + idx);
+                                var dupeEl = document.getElementById('ci-env-dupe-' + idx);
+                                if (keyEl && dupeEl) {
+                                    var k = keyEl.value.trim().toUpperCase();
+                                    dupeEl.hidden = !(k && keyCount[k] && keyCount[k].length > 1);
+                                }
+                            });
+                        };
+
+                        // ── Add env row ──
+                        window._ciAddEnvRow = function() {
+                            var list = document.getElementById('ci-env-vars-list');
+                            if (!list) return;
+                            // Remove "no vars" placeholder
+                            var placeholder = list.querySelector('.ci-env-empty');
+                            if (placeholder) placeholder.remove();
+                            var j = list.querySelectorAll('.ci-env-row').length;
+                            var row = document.createElement('div');
+                            row.innerHTML = window._ciEnvRowHtml(j, '', '', 'hardcoded', '');
+                            list.appendChild(row.firstChild);
+                        };
+
+                        // ── Env status info ──
+                        var envSt = data._envStatus || {};
+                        var envInfoHtml = '';
+                        if (envSt.has_env || envSt.has_example) {
+                            var envFiles = (envSt.files || []).filter(function(f) { return f.exists; }).map(function(f) { return f.name; });
+                            envInfoHtml = '<div style="font-size:0.68rem;color:var(--text-muted);margin-bottom:0.3rem">'
+                                + '📁 Detected: <code>' + esc(envFiles.join(', ')) + '</code> (' + (envSt.total_vars || 0) + ' vars)'
+                                + (Object.keys(_composeEnvKeys).length > 0 ? ' · 🐳 ' + Object.keys(_composeEnvKeys).length + ' from Compose' : '')
+                                + (_vaultKeys.length > 0 ? ' · 🔐 ' + _vaultKeys.length + ' vault keys' : '')
+                                + '</div>';
+                        } else if (Object.keys(_composeEnvKeys).length > 0) {
+                            envInfoHtml = '<div style="font-size:0.68rem;color:var(--text-muted);margin-bottom:0.3rem">'
+                                + '🐳 ' + Object.keys(_composeEnvKeys).length + ' env vars from Docker Compose'
+                                + (_vaultKeys.length > 0 ? ' · 🔐 ' + _vaultKeys.length + ' vault keys' : '')
+                                + '</div>';
+                        }
+
+                        // ── Column headers ──
+                        var envHeaderHtml = '<div style="display:grid;grid-template-columns:2fr 2fr 1.2fr auto;gap:0.25rem;padding:0 0.25rem;margin-bottom:0.2rem">'
+                            + '<span style="font-size:0.66rem;font-weight:600;color:var(--text-muted);text-transform:uppercase">Key</span>'
+                            + '<span style="font-size:0.66rem;font-weight:600;color:var(--text-muted);text-transform:uppercase">Value / Reference</span>'
+                            + '<span style="font-size:0.66rem;font-weight:600;color:var(--text-muted);text-transform:uppercase">Type</span>'
+                            + '<span></span>'
+                            + '</div>';
+
+                        // ── Build env vars HTML ──
+                        var envVarsHtml = '<div style="margin-top:0.3rem">'
+                            + envInfoHtml
+                            + envHeaderHtml
+                            + '<div id="ci-env-vars-list">'
+                            + (data._ciEnvVars.length > 0
+                                ? data._ciEnvVars.map(function(ev, j) {
+                                    return window._ciEnvRowHtml(j, ev.key, ev.value || '', ev.type || 'hardcoded', ev.varName || '');
+                                }).join('')
+                                : '<div class="ci-env-empty" style="font-size:0.68rem;color:var(--text-muted);padding:0.2rem 0">No env vars configured yet.</div>')
+                            + '</div>'
+                            + '<div style="margin-top:0.3rem">'
+                            + '<button type="button" onclick="window._ciAddEnvRow()"'
+                            + ' style="font-size:0.68rem;padding:0.2rem 0.5rem;border:1px dashed var(--border-subtle);border-radius:4px;background:none;color:var(--accent);cursor:pointer">'
+                            + '+ Add variable</button></div></div>';
+
+                        el.innerHTML =
+                            wizSection('Pipeline Steps', 'What should the CI pipeline do?')
+                            + stackInfo
+                            + wizFormGrid([
                                 { name: 'ci-test', label: 'Run tests', type: 'checkbox', value: true },
                                 { name: 'ci-lint', label: 'Run linting', type: 'checkbox', value: true },
                                 { name: 'ci-typecheck', label: 'Type checking', type: 'checkbox', value: true },
                                 { name: 'ci-coverage', label: 'Upload coverage', type: 'checkbox', value: false },
-                                { name: 'ci-docker', label: 'Build Docker image', type: 'checkbox', value: docker.has_dockerfile },
-                                { name: 'ci-docker-push', label: 'Push to registry', type: 'checkbox', value: false },
-                            ])}
+                            ])
+                            + '<div id="ci-coverage-opts" style="display:none;margin-top:0.2rem">'
+                            + wizFormGrid([
+                                { name: 'ci-coverage-tool', label: 'Coverage tool', type: 'select', value: 'codecov', options: [
+                                    { value: 'codecov', label: 'Codecov' },
+                                    { value: 'coveralls', label: 'Coveralls' },
+                                ]},
+                            ])
+                            + '</div>'
 
-                            ${wizSection('Trigger', 'When should the pipeline run?')}
-                            ${wizFormGrid([
+                            + wizSection('Trigger', 'When should the pipeline run?')
+                            + wizFormGrid([
                                 { name: 'ci-trigger', label: 'Trigger', type: 'select', value: 'push-pr', options: [
                                     { value: 'push-pr', label: 'Push + Pull Request' },
                                     { value: 'push', label: 'Push only' },
                                     { value: 'pr', label: 'Pull Request only' },
-                                    { value: 'manual', label: 'Manual only' },
+                                    { value: 'manual', label: 'Manual only (workflow_dispatch)' },
                                 ]},
-                                { name: 'ci-branch', label: 'Branch filter', value: 'main', placeholder: 'main, develop' },
-                            ])}
-                        `;
+                                { name: 'ci-branch', label: 'Branch filter', value: 'main, master', placeholder: 'main, master, develop' },
+                            ])
+
+                            + wizSection('Concurrency', 'Prevent parallel runs from conflicting.')
+                            + wizFormGrid([
+                                { name: 'ci-cancel-in-progress', label: 'Cancel in-progress runs', type: 'checkbox', value: true },
+                            ])
+
+                            + wizSection('Environment Variables', 'Global env vars available to all jobs. Pre-filled from Compose, .env, and vault.')
+                            + envVarsHtml
+
+                            + (!hasStacks ?
+                                wizSection('Custom Commands', 'Override default test/lint commands when no stacks are detected.')
+                                + wizFormGrid([
+                                    { name: 'ci-python-ver', label: 'Python version', value: '3.12', placeholder: '3.12' },
+                                    { name: 'ci-install-cmd', label: 'Install command', value: 'pip install -e ".[dev]"', placeholder: 'pip install -e ".[dev]"' },
+                                    { name: 'ci-test-cmd', label: 'Test command', value: 'python -m pytest tests/ -v --tb=short', placeholder: 'python -m pytest tests/ -v --tb=short' },
+                                    { name: 'ci-lint-cmd', label: 'Lint command', value: 'ruff check src/', placeholder: 'ruff check src/' },
+                                    { name: 'ci-typecheck-cmd', label: 'Type-check command', value: 'mypy src/ --ignore-missing-imports', placeholder: 'mypy src/ --ignore-missing-imports' },
+                                ])
+                            : '');
+
+                        // --- Coverage tool toggle ---
+                        var covChk = document.getElementById('mf-ci-coverage');
+                        var covOpts = document.getElementById('ci-coverage-opts');
+                        if (covChk && covOpts) {
+                            covOpts.style.display = covChk.checked ? 'block' : 'none';
+                            covChk.addEventListener('change', function() { covOpts.style.display = covChk.checked ? 'block' : 'none'; });
+                        }
+
+                        // Initial dupe check
+                        window._ciCheckDupes();
                     },
                     collect: (data) => {
                         data.runTests = mfVal('ci-test');
                         data.runLint = mfVal('ci-lint');
                         data.typeCheck = mfVal('ci-typecheck');
                         data.coverage = mfVal('ci-coverage');
-                        data.dockerBuild = mfVal('ci-docker');
-                        data.dockerPush = mfVal('ci-docker-push');
+                        data.coverageTool = mfVal('ci-coverage-tool') || 'codecov';
                         data.trigger = mfVal('ci-trigger');
                         data.branch = mfVal('ci-branch');
+                        data.cancelInProgress = mfVal('ci-cancel-in-progress');
+                        // Collect env vars from rows (K8s wizard pattern)
+                        var envVars = {};
+                        var ciEnvVarsList = [];
+                        document.querySelectorAll('.ci-env-row').forEach(function(row) {
+                            var idx = row.dataset.idx;
+                            var keyEl = document.getElementById('ci-env-key-' + idx);
+                            var valEl = document.getElementById('ci-env-val-' + idx);
+                            var typeEl = document.getElementById('ci-env-type-' + idx);
+                            var varEl = document.getElementById('ci-env-var-' + idx);
+                            var customEl = document.getElementById('ci-env-varcustom-' + idx);
+                            var key = keyEl ? keyEl.value.trim() : '';
+                            if (!key) return;
+                            var type = typeEl ? typeEl.value : 'hardcoded';
+                            var value = '';
+                            var varName = '';
+                            if (type === 'hardcoded') {
+                                value = valEl ? valEl.value : '';
+                            } else {
+                                varName = (varEl && varEl.value === '__custom__' && customEl)
+                                    ? customEl.value : (varEl ? varEl.value : '');
+                            }
+                            envVars[key] = type === 'hardcoded' ? value : varName;
+                            ciEnvVarsList.push({ key: key, value: value, type: type, varName: varName });
+                        });
+                        data._globalEnvVars = envVars;
+                        data._ciEnvVars = ciEnvVarsList;
+                        // Custom commands only when no stacks detected
+                        if (!(data._stacks || []).length) {
+                            data.pythonVersion = mfVal('ci-python-ver');
+                            data.installCmd = mfVal('ci-install-cmd');
+                            data.testCmd = mfVal('ci-test-cmd');
+                            data.lintCmd = mfVal('ci-lint-cmd');
+                            data.typecheckCmd = mfVal('ci-typecheck-cmd');
+                        }
                     },
                 },
+
+                // ── Step 3: Build & Deploy ─────────────────────────────
+                {
+                    id: 'deploy', title: 'Build & Deploy',
+                    render: (data, el) => {
+                        const docker = data._docker || {};
+                        const k8s = data._k8s || {};
+                        const hasDocker = docker.has_dockerfile;
+                        const hasK8s = k8s.has_manifests || k8s.has_skaffold || k8s.has_helm_chart;
+
+                        // Docker build args editor HTML
+                        var dockerBuildArgsHtml = '<div style="margin-top:0.2rem">'
+                            + '<div id="ci-docker-args-list"></div>'
+                            + '<div style="display:flex;gap:0.3rem;margin-top:0.15rem">'
+                            + '<input id="ci-ba-key" class="modal-form-input" type="text" style="font-size:0.72rem;padding:0.2rem 0.3rem;flex:1;font-family:var(--font-mono,monospace)" placeholder="ARG_NAME">'
+                            + '<input id="ci-ba-val" class="modal-form-input" type="text" style="font-size:0.72rem;padding:0.2rem 0.3rem;flex:1" placeholder="value">'
+                            + '<button type="button" onclick="window._ciAddBuildArg()"'
+                            + ' style="font-size:0.66rem;padding:0.2rem 0.5rem;border:1px dashed var(--border-subtle);border-radius:4px;background:none;color:var(--accent);cursor:pointer">'
+                            + '+ Add</button></div></div>';
+
+                        var dockerCfgHtml = wizFormGrid([
+                                { name: 'ci-docker-push', label: 'Push to registry', type: 'checkbox', value: false },
+                                { name: 'ci-docker-registry', label: 'Registry URL', value: '', placeholder: 'ghcr.io/myorg' },
+                                { name: 'ci-docker-image', label: 'Image name', value: '', placeholder: 'myapp (defaults to project name)' },
+                            ])
+                            + '<div style="margin-top:0.3rem"><span style="font-size:0.72rem;font-weight:600;color:var(--text-muted)">Build arguments</span>'
+                            + dockerBuildArgsHtml + '</div>';
+
+                        el.innerHTML =
+                            wizSection('Docker Build', 'Configure container image build and push for the CI pipeline.')
+                            + wizFormGrid([
+                                { name: 'ci-docker', label: 'Build Docker image', type: 'checkbox', value: hasDocker },
+                            ])
+                            + '<div id="ci-docker-cfg" style="display:' + (hasDocker ? 'block' : 'none') + ';margin-top:0.3rem">'
+                            + dockerCfgHtml + '</div>'
+
+                            + wizSection('Kubernetes Deploy', 'Add a deployment step to the CI pipeline.')
+                            + wizFormGrid([
+                                { name: 'ci-k8s', label: 'Deploy to Kubernetes', type: 'checkbox', value: hasK8s },
+                            ])
+                            + '<div id="ci-k8s-cfg" style="display:' + (hasK8s ? 'block' : 'none') + ';margin-top:0.3rem">'
+                            + wizFormGrid([
+                                { name: 'ci-k8s-method', label: 'Deploy method', type: 'select', value: k8s.has_skaffold ? 'skaffold' : (k8s.has_helm_chart ? 'helm' : 'kubectl'), options: [
+                                    { value: 'kubectl', label: 'kubectl apply' },
+                                    { value: 'skaffold', label: 'skaffold run' },
+                                    { value: 'helm', label: 'helm upgrade --install' },
+                                ]},
+                                { name: 'ci-k8s-manifest-dir', label: 'Manifest directory', value: 'k8s/', placeholder: 'k8s/' },
+                                { name: 'ci-k8s-namespace', label: 'Namespace', value: '', placeholder: 'default' },
+                            ])
+                            + '<div id="ci-k8s-helm-opts" style="display:none;margin-top:0.3rem">'
+                            + wizFormGrid([
+                                { name: 'ci-helm-chart', label: 'Helm chart path', value: 'charts/', placeholder: 'charts/' },
+                                { name: 'ci-helm-release', label: 'Release name', value: '', placeholder: 'myapp' },
+                            ]) + '</div>'
+                            + '<div id="ci-k8s-skaffold-opts" style="display:none;margin-top:0.3rem">'
+                            + wizFormGrid([
+                                { name: 'ci-skaffold-file', label: 'Skaffold file', value: 'skaffold.yaml', placeholder: 'skaffold.yaml' },
+                            ]) + '</div>'
+                            + '</div>';
+
+                        // Docker build args editor
+                        if (!data._dockerBuildArgs) data._dockerBuildArgs = {};
+                        window._ciBuildArgs = data._dockerBuildArgs;
+                        window._ciRenderBuildArgs = function() {
+                            var c = document.getElementById('ci-docker-args-list');
+                            if (!c) return;
+                            var keys = Object.keys(window._ciBuildArgs);
+                            c.innerHTML = keys.map(function(k) {
+                                return '<div style="display:flex;gap:0.3rem;align-items:center;margin-bottom:0.15rem">'
+                                    + '<code style="font-size:0.72rem;min-width:80px;color:var(--accent)">' + esc(k) + '</code>'
+                                    + '<span style="font-size:0.72rem;color:var(--text-muted)">=</span>'
+                                    + '<span style="font-size:0.72rem;flex:1">' + esc(window._ciBuildArgs[k]) + '</span>'
+                                    + '<span onclick="delete window._ciBuildArgs[\'' + esc(k) + '\'];window._ciRenderBuildArgs()" style="cursor:pointer;color:var(--text-muted);font-size:0.68rem;padding:0 4px" title="Remove">✕</span>'
+                                    + '</div>';
+                            }).join('');
+                        };
+                        window._ciAddBuildArg = function() {
+                            var kEl = document.getElementById('ci-ba-key');
+                            var vEl = document.getElementById('ci-ba-val');
+                            if (!kEl || !vEl) return;
+                            var k = kEl.value.trim();
+                            var v = vEl.value.trim();
+                            if (!k) return;
+                            window._ciBuildArgs[k] = v;
+                            kEl.value = ''; vEl.value = '';
+                            window._ciRenderBuildArgs();
+                        };
+                        window._ciRenderBuildArgs();
+
+                        // Wire toggle visibility
+                        var dockerChk = document.getElementById('mf-ci-docker');
+                        if (dockerChk) dockerChk.addEventListener('change', function() {
+                            document.getElementById('ci-docker-cfg').style.display = dockerChk.checked ? 'block' : 'none';
+                        });
+                        var k8sChk = document.getElementById('mf-ci-k8s');
+                        if (k8sChk) k8sChk.addEventListener('change', function() {
+                            document.getElementById('ci-k8s-cfg').style.display = k8sChk.checked ? 'block' : 'none';
+                        });
+                        var methodSel = document.getElementById('mf-ci-k8s-method');
+                        var _updateMethodOpts = function() {
+                            var v = methodSel ? methodSel.value : '';
+                            var helmOpts = document.getElementById('ci-k8s-helm-opts');
+                            var skfOpts = document.getElementById('ci-k8s-skaffold-opts');
+                            if (helmOpts) helmOpts.style.display = v === 'helm' ? 'block' : 'none';
+                            if (skfOpts) skfOpts.style.display = v === 'skaffold' ? 'block' : 'none';
+                        };
+                        if (methodSel) { methodSel.addEventListener('change', _updateMethodOpts); _updateMethodOpts(); }
+                    },
+                    collect: (data) => {
+                        data.dockerBuild = mfVal('ci-docker');
+                        if (data.dockerBuild) {
+                            data.dockerPush = mfVal('ci-docker-push');
+                            data.dockerRegistry = mfVal('ci-docker-registry');
+                            data.dockerImage = mfVal('ci-docker-image');
+                            data._dockerBuildArgs = window._ciBuildArgs || {};
+                        }
+                        data.k8sDeploy = mfVal('ci-k8s');
+                        if (data.k8sDeploy) {
+                            data.k8sMethod = mfVal('ci-k8s-method');
+                            data.k8sManifestDir = mfVal('ci-k8s-manifest-dir');
+                            data.k8sNamespace = mfVal('ci-k8s-namespace');
+                            if (data.k8sMethod === 'helm') {
+                                data.helmChart = mfVal('ci-helm-chart');
+                                data.helmRelease = mfVal('ci-helm-release');
+                            }
+                            if (data.k8sMethod === 'skaffold') {
+                                data.skaffoldFile = mfVal('ci-skaffold-file');
+                            }
+                        }
+                    },
+                },
+
+                // ── Step 4: Environments ───────────────────────────────
+                {
+                    id: 'envs', title: 'Environments',
+                    render: (data, el) => {
+                        var hasK8s = data.k8sDeploy;
+
+                        // ── Classify env vars from Step 2 ──
+                        var step2Vars = data._ciEnvVars || [];
+                        var hardcodedVars = step2Vars.filter(function(v) { return v.type === 'hardcoded'; });
+                        var variableVars = step2Vars.filter(function(v) { return v.type === 'variable'; });
+                        var secretVars = step2Vars.filter(function(v) { return v.type === 'secret'; });
+
+                        // ── Build available vars/secrets from VAULT (same as K8s wizard) ──
+                        var _vaultKeys = data._vaultKeys || [];
+                        var _allEnvKeys = new Set();
+                        var _vaultSecretNames = [];
+                        var _vaultVarNames = [];
+                        _vaultKeys.forEach(function(vk) {
+                            var k = vk.key;
+                            if (_allEnvKeys.has(k)) return;
+                            _allEnvKeys.add(k);
+                            if (vk.kind === 'secret') _vaultSecretNames.push(k);
+                            else _vaultVarNames.push(k);
+                        });
+                        _vaultSecretNames.sort();
+                        _vaultVarNames.sort();
+                        // Build a set of all Step 2 env var keys for cross-reference
+                        var _step2KeySet = new Set(step2Vars.map(function(v) { return v.key; }));
+
+                        // ── Initialize environments from project.yml (or fallback) ──
+                        if (!data._ciEnvs) {
+                            var projectEnvs = data._envs || [];
+                            if (projectEnvs.length > 0) {
+                                data._ciEnvs = projectEnvs.map(function(pe) {
+                                    var n = pe.name || 'default';
+                                    return {
+                                        name: n,
+                                        branch: 'main',
+                                        namespace: n,
+                                        kubeconfig_secret: 'KUBE_CONFIG_' + n.toUpperCase().replace(/[^A-Z0-9]/g, '_'),
+                                        env_vars: {},
+                                        secrets: [],
+                                        require_approval: n === 'production' || n === 'prod',
+                                    };
+                                });
+                            } else {
+                                data._ciEnvs = [
+                                    { name: 'staging', branch: 'main', namespace: 'staging', kubeconfig_secret: 'KUBE_CONFIG_STAGING', env_vars: {}, secrets: [], require_approval: false },
+                                    { name: 'production', branch: 'main', namespace: 'production', kubeconfig_secret: 'KUBE_CONFIG_PRODUCTION', env_vars: {}, secrets: [], require_approval: true },
+                                ];
+                            }
+                        }
+
+                        // ── Seed secrets from Step 2 (only on first render) ──
+                        window._ciEnvs = data._ciEnvs;
+                        if (!data._ciEnvsSeeded) {
+                            data._ciEnvsSeeded = true;
+                            window._ciEnvs.forEach(function(env) {
+                                var existing = new Set(env.secrets || []);
+                                secretVars.forEach(function(sv) {
+                                    if (!existing.has(sv.key)) {
+                                        env.secrets.push(sv.key);
+                                        existing.add(sv.key);
+                                    }
+                                });
+                                // Seed per-env variable overrides with empty values
+                                if (!env.env_var_overrides) {
+                                    env.env_var_overrides = {};
+                                    variableVars.forEach(function(vv) {
+                                        env.env_var_overrides[vv.key] = '';
+                                    });
+                                }
+                            });
+                        }
+
+                        // ── Render function ──
+                        window._ciRenderEnvs = function() {
+                            var c = document.getElementById('ci-env-list');
+                            if (!c) return;
+                            c.innerHTML = window._ciEnvs.map(function(env, i) {
+                                var method = data.k8sMethod || 'kubectl';
+                                var valuesDefault = 'values-' + env.name + '.yaml';
+
+                                // Secrets badges (with notice for keys not in Step 2)
+                                var secretsList = (env.secrets || []).map(function(s) {
+                                    var inStep2 = _step2KeySet.has(s);
+                                    var borderColor = !inStep2 ? 'color-mix(in srgb, var(--warning) 40%, var(--border-subtle))' : 'var(--border-subtle)';
+                                    var noticeTitle = !inStep2 ? 'Not in Pipeline env vars — consider adding it in Step 2' : 'From Pipeline step';
+                                    var noticeDot = !inStep2 ? '<span style="color:var(--warning);font-size:0.58rem" title="Not in Pipeline env vars">⚠️</span>' : '';
+                                    return '<span style="display:inline-flex;align-items:center;gap:2px;padding:1px 6px;border:1px solid ' + borderColor + ';border-radius:3px;font-size:0.66rem;font-family:var(--font-mono,monospace);background:var(--bg-inset)" title="' + noticeTitle + '">'
+                                        + noticeDot + '🔒 ' + esc(s)
+                                        + '<span onclick="window._ciRemoveSecret(' + i + ',\'' + esc(s) + '\')" style="cursor:pointer;color:var(--text-muted);margin-left:2px" title="Remove">✕</span>'
+                                        + '</span>';
+                                }).join(' ');
+
+                                // ── Card ──
+                                var card = '<div style="padding:0.5rem;border:1px solid var(--border-subtle);border-radius:6px;background:var(--bg-inset);margin-bottom:0.4rem">'
+                                    + '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.35rem">'
+                                    + '<span style="font-weight:700;font-size:0.82rem;display:flex;align-items:center;gap:0.3rem">'
+                                    + '<span style="font-size:0.9rem">🌍</span> ' + esc(env.name)
+                                    + (env.require_approval ? ' <span style="font-size:0.62rem;padding:1px 5px;border-radius:3px;background:color-mix(in srgb,var(--warning) 15%,transparent);color:var(--warning)">requires approval</span>' : '')
+                                    + '</span>'
+                                    + '<span onclick="window._ciRemoveEnv(' + i + ')" style="cursor:pointer;color:var(--text-muted);font-size:0.72rem;padding:0 4px" title="Remove environment">✕</span>'
+                                    + '</div>'
+                                    + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:0.3rem">'
+                                    + '<div>'
+                                    + '<label style="font-size:0.66rem;color:var(--text-muted)">Deploy branch</label>'
+                                    + '<input class="modal-form-input ci-env-branch" data-idx="' + i + '" value="' + esc(env.branch || '') + '"'
+                                    + ' style="font-size:0.72rem;padding:0.2rem 0.3rem;width:100%" placeholder="main">'
+                                    + '</div>'
+                                    + '<div>'
+                                    + '<label style="font-size:0.66rem;color:var(--text-muted)">Require approval</label>'
+                                    + '<div style="padding-top:0.15rem"><input type="checkbox" class="ci-env-approval" data-idx="' + i + '"' + (env.require_approval ? ' checked' : '') + '></div>'
+                                    + '</div>';
+                                // K8s-specific fields
+                                if (hasK8s) {
+                                    card += '<div>'
+                                        + '<label style="font-size:0.66rem;color:var(--text-muted)">K8s Namespace</label>'
+                                        + '<input class="modal-form-input ci-env-ns" data-idx="' + i + '" value="' + esc(env.namespace || '') + '"'
+                                        + ' style="font-size:0.72rem;padding:0.2rem 0.3rem;width:100%" placeholder="' + esc(env.name) + '">'
+                                        + '</div>'
+                                        + '<div>'
+                                        + '<label style="font-size:0.66rem;color:var(--text-muted)">Kubeconfig secret</label>'
+                                        + '<input class="modal-form-input ci-env-kube" data-idx="' + i + '" value="' + esc(env.kubeconfig_secret || '') + '"'
+                                        + ' style="font-size:0.72rem;padding:0.2rem 0.3rem;width:100%;font-family:var(--font-mono,monospace)" placeholder="KUBE_CONFIG_' + esc(env.name.toUpperCase()) + '">'
+                                        + '</div>';
+                                    if (method === 'skaffold') {
+                                        card += '<div>'
+                                            + '<label style="font-size:0.66rem;color:var(--text-muted)">Skaffold profile</label>'
+                                            + '<input class="modal-form-input ci-env-profile" data-idx="' + i + '" value="' + esc(env.skaffold_profile || env.name) + '"'
+                                            + ' style="font-size:0.72rem;padding:0.2rem 0.3rem;width:100%;font-family:var(--font-mono,monospace)" placeholder="' + esc(env.name) + '">'
+                                            + '</div>';
+                                    }
+                                    if (method === 'helm') {
+                                        card += '<div>'
+                                            + '<label style="font-size:0.66rem;color:var(--text-muted)">Values file</label>'
+                                            + '<input class="modal-form-input ci-env-values" data-idx="' + i + '" value="' + esc(env.values_file || valuesDefault) + '"'
+                                            + ' style="font-size:0.72rem;padding:0.2rem 0.3rem;width:100%;font-family:var(--font-mono,monospace)" placeholder="' + esc(valuesDefault) + '">'
+                                            + '</div>';
+                                    }
+                                }
+
+                                // ── Per-environment variable overrides ──
+                                if (variableVars.length > 0) {
+                                    var overrides = env.env_var_overrides || {};
+                                    card += '<div style="grid-column:1/-1;margin-top:0.35rem;padding:0.4rem;border:1px solid var(--border-subtle);border-radius:5px;background:var(--bg-primary)">'
+                                        + '<label style="font-size:0.7rem;color:var(--accent);font-weight:600;display:block;margin-bottom:0.2rem">🔄 Variable overrides for ' + esc(env.name) + '</label>'
+                                        + '<div style="display:flex;flex-direction:column;gap:0.15rem">';
+                                    variableVars.forEach(function(vv) {
+                                        var curVal = overrides[vv.key] || '';
+                                        card += '<div style="display:grid;grid-template-columns:minmax(80px,1fr) 2fr;gap:0.3rem;align-items:center">'
+                                            + '<code style="font-size:0.7rem;color:var(--accent);font-family:var(--font-mono,monospace);overflow:hidden;text-overflow:ellipsis">' + esc(vv.key) + '</code>'
+                                            + '<input class="modal-form-input ci-env-override" data-idx="' + i + '" data-key="' + esc(vv.key) + '"'
+                                            + ' value="' + esc(curVal) + '"'
+                                            + ' style="font-size:0.7rem;padding:0.18rem 0.3rem;font-family:var(--font-mono,monospace)"'
+                                            + ' placeholder="value for ' + esc(env.name) + '">'
+                                            + '</div>';
+                                    });
+                                    card += '</div></div>';
+                                }
+
+                                // ── Secrets ──
+                                card += '<div style="grid-column:1/-1;margin-top:0.25rem;padding:0.4rem;border:1px solid var(--border-subtle);border-radius:5px;background:var(--bg-primary)">'
+                                    + '<label style="font-size:0.7rem;color:var(--accent);font-weight:600;display:block;margin-bottom:0.15rem">🔒 Secrets for ' + esc(env.name) + '</label>'
+                                    + '<div style="display:flex;flex-wrap:wrap;gap:0.2rem;margin-bottom:0.15rem">'
+                                    + (secretsList || '<span style="font-size:0.64rem;color:var(--text-muted);font-style:italic">No secrets yet</span>')
+                                    + '</div>';
+
+                                // Build categorized secret picker
+                                var existing = new Set(env.secrets || []);
+                                var selId = 'ci-env-secret-sel-' + i;
+                                var custId = 'ci-env-secret-cust-' + i;
+
+                                // Vault secrets + variables not yet added
+                                var vaultSecretOpts = _vaultSecretNames.filter(function(vs) { return !existing.has(vs); });
+                                var vaultVarOpts = _vaultVarNames.filter(function(vv) { return !existing.has(vv); });
+
+                                // Stack-aware suggestions
+                                var _stacks = data._stacks || [];
+                                var stackLower = _stacks.map(function(s) { return s.toLowerCase(); });
+                                var suggestions = [];
+                                // Docker
+                                if (data.dockerBuild || data.dockerPush) {
+                                    ['DOCKER_USERNAME', 'DOCKER_PASSWORD', 'REGISTRY_TOKEN'].forEach(function(s) { if (!existing.has(s)) suggestions.push(s); });
+                                }
+                                // Coverage
+                                if (data.coverage) {
+                                    var covTool = (data.coverageTool || '').toLowerCase();
+                                    if (covTool === 'codecov' || !covTool) { if (!existing.has('CODECOV_TOKEN')) suggestions.push('CODECOV_TOKEN'); }
+                                    if (covTool === 'sonarcloud' || covTool === 'sonar') { if (!existing.has('SONAR_TOKEN')) suggestions.push('SONAR_TOKEN'); }
+                                    if (covTool === 'coveralls') { if (!existing.has('COVERALLS_TOKEN')) suggestions.push('COVERALLS_TOKEN'); }
+                                }
+                                // Node / JS
+                                if (stackLower.indexOf('node') >= 0 || stackLower.indexOf('javascript') >= 0 || stackLower.indexOf('typescript') >= 0) {
+                                    ['NPM_TOKEN', 'GITHUB_NPM_TOKEN'].forEach(function(s) { if (!existing.has(s)) suggestions.push(s); });
+                                }
+                                // Python
+                                if (stackLower.indexOf('python') >= 0) {
+                                    ['PYPI_TOKEN', 'TWINE_PASSWORD'].forEach(function(s) { if (!existing.has(s)) suggestions.push(s); });
+                                }
+                                // Go
+                                if (stackLower.indexOf('go') >= 0 || stackLower.indexOf('golang') >= 0) {
+                                    if (!existing.has('GOPRIVATE_TOKEN')) suggestions.push('GOPRIVATE_TOKEN');
+                                }
+                                // Cloud providers (always useful)
+                                ['AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'GCP_SA_KEY', 'AZURE_CREDENTIALS'].forEach(function(s) {
+                                    if (!existing.has(s)) suggestions.push(s);
+                                });
+                                // Generic useful
+                                ['SSH_PRIVATE_KEY', 'SLACK_WEBHOOK', 'DEPLOY_TOKEN'].forEach(function(s) {
+                                    if (!existing.has(s)) suggestions.push(s);
+                                });
+                                // Deduplicate (vault entries might overlap with suggestions)
+                                var allVaultSet = new Set(vaultSecretOpts.concat(vaultVarOpts));
+                                suggestions = suggestions.filter(function(s) { return !allVaultSet.has(s); });
+
+                                card += '<div style="display:flex;gap:3px;align-items:center">'
+                                    + '<select id="' + selId + '" class="modal-form-select"'
+                                    + ' style="font-size:0.68rem;padding:2px 4px;min-width:170px;font-family:var(--font-mono,monospace);color:var(--accent)"'
+                                    + ' onchange="window._ciSecretPicked(' + i + ',this)">'
+                                    + '<option value="">+ Add secret / variable…</option>';
+                                if (vaultSecretOpts.length > 0) {
+                                    card += '<optgroup label="🔒 Vault Secrets">';
+                                    vaultSecretOpts.forEach(function(vs) {
+                                        card += '<option value="' + esc(vs) + '">' + esc(vs) + '</option>';
+                                    });
+                                    card += '</optgroup>';
+                                }
+                                if (vaultVarOpts.length > 0) {
+                                    card += '<optgroup label="🔑 Vault Variables">';
+                                    vaultVarOpts.forEach(function(vv) {
+                                        card += '<option value="' + esc(vv) + '">' + esc(vv) + '</option>';
+                                    });
+                                    card += '</optgroup>';
+                                }
+                                if (suggestions.length > 0) {
+                                    card += '<optgroup label="📦 Suggested for your stack">';
+                                    suggestions.forEach(function(sg) {
+                                        card += '<option value="' + esc(sg) + '">' + esc(sg) + '</option>';
+                                    });
+                                    card += '</optgroup>';
+                                }
+                                card += '<optgroup label="✏️ Manual">'
+                                    + '<option value="__custom__">Custom…</option>'
+                                    + '</optgroup>'
+                                    + '</select>'
+                                    + '<input id="' + custId + '" class="modal-form-input" type="text"'
+                                    + ' style="display:none;font-size:0.68rem;padding:2px 5px;width:120px;font-family:var(--font-mono,monospace)" placeholder="SECRET_NAME"'
+                                    + ' onkeydown="if(event.key===\'Enter\'){event.preventDefault();window._ciAddSecretCustom(' + i + ')}">'
+                                    + '<button id="ci-env-secret-btn-' + i + '" type="button" onclick="window._ciAddSecretCustom(' + i + ')"'
+                                    + ' style="display:none;font-size:0.62rem;padding:2px 7px;border:1px dashed var(--border-subtle);border-radius:3px;background:none;color:var(--accent);cursor:pointer">Add</button>'
+                                    + '</div>';
+
+                                // ── Notice: "does not exist yet" (K8s wizard pattern) ──
+                                var _pending = env._pendingCreate || '';
+                                card += '<div id="ci-env-notice-' + i + '"' + (_pending ? '' : ' hidden')
+                                    + ' style="font-size:0.78rem;color:var(--warning,#e8a820);margin:2px 0 4px;padding:4px 6px;border-radius:4px;background:rgba(232,168,32,0.06);border:1px solid rgba(232,168,32,0.15)">'
+                                    +   '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">'
+                                    +     '<span>⚠️ <strong id="ci-env-notice-name-' + i + '">' + esc(_pending) + '</strong> does not exist yet</span>'
+                                    +     '<label style="display:flex;align-items:center;gap:3px;cursor:pointer">'
+                                    +       '<input type="checkbox" id="ci-env-notice-create-' + i + '" checked style="margin:0">'
+                                    +       '<span>Create on execution</span>'
+                                    +     '</label>'
+                                    +   '</div>'
+                                    +   '<div id="ci-env-notice-valbox-' + i + '" style="display:flex;align-items:center;gap:4px;margin-top:3px">'
+                                    +     '<input type="text" id="ci-env-notice-newval-' + i + '" class="modal-form-input"'
+                                    +     ' placeholder="value (leave empty or generate)" style="flex:1;font-size:0.78rem;padding:0.25rem 0.35rem;font-family:var(--font-mono,monospace)">'
+                                    +     '<button type="button" onclick="window._ciGenerateVarValue(' + i + ')"'
+                                    +     ' style="font-size:0.78rem;padding:0.25rem 0.5rem;border:1px solid var(--border-subtle);border-radius:3px;background:var(--bg-card);cursor:pointer;white-space:nowrap"'
+                                    +     ' title="Generate a random value">🎲 Generate</button>'
+                                    +   '</div>'
+                                    + '</div>'
+                                    + '</div>';
+
+                                // ── Hardcoded (collapsible) ──
+                                if (hardcodedVars.length > 0) {
+                                    card += '<div style="grid-column:1/-1;margin-top:0.15rem">'
+                                        + '<details><summary style="cursor:pointer;font-size:0.64rem;color:var(--text-muted);user-select:none">📋 ' + hardcodedVars.length + ' hardcoded vars (same for all environments)</summary>'
+                                        + '<div style="font-size:0.62rem;font-family:var(--font-mono,monospace);color:var(--text-muted);display:flex;flex-wrap:wrap;gap:0.15rem;margin-top:0.1rem;padding:0.2rem 0">';
+                                    hardcodedVars.forEach(function(hv) {
+                                        card += '<span style="padding:1px 5px;border:1px solid var(--border-subtle);border-radius:3px;background:var(--bg-primary)">'
+                                            + esc(hv.key) + '=' + esc(hv.value || '') + '</span>';
+                                    });
+                                    card += '</div></details></div>';
+                                }
+
+                                card += '</div></div>';
+                                return card;
+                            }).join('');
+                        };
+                        window._ciAddEnv = function() {
+                            var inp = document.getElementById('ci-env-name-input');
+                            if (!inp) return;
+                            var name = inp.value.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '-');
+                            if (!name || window._ciEnvs.some(function(e) { return e.name === name; })) { inp.value = ''; return; }
+                            // Seed new env with Step 2 data
+                            var newSecrets = secretVars.map(function(sv) { return sv.key; });
+                            var newOverrides = {};
+                            variableVars.forEach(function(vv) { newOverrides[vv.key] = ''; });
+                            window._ciEnvs.push({
+                                name: name, branch: 'main', namespace: name,
+                                kubeconfig_secret: 'KUBE_CONFIG_' + name.toUpperCase().replace(/[^A-Z0-9]/g, '_'),
+                                env_vars: {}, env_var_overrides: newOverrides,
+                                secrets: newSecrets, require_approval: false,
+                            });
+                            inp.value = '';
+                            window._ciRenderEnvs();
+                        };
+                        window._ciRemoveEnv = function(i) {
+                            window._ciEnvs.splice(i, 1);
+                            window._ciRenderEnvs();
+                        };
+                        window._ciSecretPicked = function(envIdx, sel) {
+                            var val = sel.value;
+                            if (!val) return;
+                            if (val === '__custom__') {
+                                // Show custom input + add button, hide dropdown
+                                sel.style.display = 'none';
+                                var cust = document.getElementById('ci-env-secret-cust-' + envIdx);
+                                var btn = document.getElementById('ci-env-secret-btn-' + envIdx);
+                                if (cust) { cust.style.display = ''; cust.focus(); }
+                                if (btn) btn.style.display = '';
+                                sel.value = '';
+                                return;
+                            }
+                            // Direct add from dropdown
+                            if (!window._ciEnvs[envIdx].secrets) window._ciEnvs[envIdx].secrets = [];
+                            var s = val.trim().toUpperCase().replace(/[^A-Z0-9_]/g, '_');
+                            if (s && window._ciEnvs[envIdx].secrets.indexOf(s) === -1) {
+                                window._ciEnvs[envIdx].secrets.push(s);
+                            }
+                            sel.value = '';
+                            // Set pending notice if key not in vault
+                            if (s && !_allEnvKeys.has(s)) {
+                                window._ciEnvs[envIdx]._pendingCreate = s;
+                            } else {
+                                delete window._ciEnvs[envIdx]._pendingCreate;
+                            }
+                            window._ciRenderEnvs();
+                        };
+                        window._ciAddSecretCustom = function(envIdx) {
+                            var inp = document.getElementById('ci-env-secret-cust-' + envIdx);
+                            if (!inp) return;
+                            var s = inp.value.trim().toUpperCase().replace(/[^A-Z0-9_]/g, '_');
+                            if (!s) return;
+                            if (!window._ciEnvs[envIdx].secrets) window._ciEnvs[envIdx].secrets = [];
+                            if (window._ciEnvs[envIdx].secrets.indexOf(s) === -1) {
+                                window._ciEnvs[envIdx].secrets.push(s);
+                            }
+                            inp.value = '';
+                            // Set pending notice if key not in vault
+                            if (!_allEnvKeys.has(s)) {
+                                window._ciEnvs[envIdx]._pendingCreate = s;
+                            } else {
+                                delete window._ciEnvs[envIdx]._pendingCreate;
+                            }
+                            window._ciRenderEnvs();
+                        };
+                        window._ciRemoveSecret = function(envIdx, secretName) {
+                            var env = window._ciEnvs[envIdx];
+                            if (env && env.secrets) {
+                                env.secrets = env.secrets.filter(function(s) { return s !== secretName; });
+                            }
+                            window._ciRenderEnvs();
+                        };
+                        // ── Generate random value for the notice input ──
+                        window._ciGenerateVarValue = function(envIdx) {
+                            var inp = document.getElementById('ci-env-notice-newval-' + envIdx);
+                            if (!inp) return;
+                            var chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#%&*';
+                            var val = '';
+                            for (var n = 0; n < 32; n++) val += chars[Math.floor(Math.random() * chars.length)];
+                            inp.value = val;
+                        };
+                        // Sync input values back to model before leaving
+                        window._ciSyncEnvInputs = function() {
+                            document.querySelectorAll('.ci-env-branch').forEach(function(el) { window._ciEnvs[+el.dataset.idx].branch = el.value; });
+                            document.querySelectorAll('.ci-env-ns').forEach(function(el) { window._ciEnvs[+el.dataset.idx].namespace = el.value; });
+                            document.querySelectorAll('.ci-env-kube').forEach(function(el) { window._ciEnvs[+el.dataset.idx].kubeconfig_secret = el.value; });
+                            document.querySelectorAll('.ci-env-profile').forEach(function(el) { window._ciEnvs[+el.dataset.idx].skaffold_profile = el.value; });
+                            document.querySelectorAll('.ci-env-values').forEach(function(el) { window._ciEnvs[+el.dataset.idx].values_file = el.value; });
+                            document.querySelectorAll('.ci-env-approval').forEach(function(el) { window._ciEnvs[+el.dataset.idx].require_approval = el.checked; });
+                            // Sync per-env variable overrides
+                            document.querySelectorAll('.ci-env-override').forEach(function(el) {
+                                var idx = +el.dataset.idx;
+                                var key = el.dataset.key;
+                                if (!window._ciEnvs[idx].env_var_overrides) window._ciEnvs[idx].env_var_overrides = {};
+                                window._ciEnvs[idx].env_var_overrides[key] = el.value;
+                            });
+                        };
+
+                        // ── Summary banner ──
+                        var envNames = window._ciEnvs.map(function(e) { return e.name; });
+                        var summaryHtml = '<div style="font-size:0.74rem;padding:0.5rem 0.6rem;margin-bottom:0.5rem;background:color-mix(in srgb, var(--accent) 6%, transparent);border:1px solid color-mix(in srgb, var(--accent) 20%, transparent);border-radius:6px">'
+                            + '<div style="font-weight:700;color:var(--accent);margin-bottom:0.25rem;font-size:0.78rem">'
+                            + '🌍 ' + envNames.length + ' environment' + (envNames.length !== 1 ? 's' : '') + ': '
+                            + envNames.map(function(n) { return '<code style="font-size:0.72rem;background:var(--bg-primary);padding:1px 5px;border-radius:3px">' + esc(n) + '</code>'; }).join(' → ')
+                            + '</div>';
+
+                        if (step2Vars.length > 0) {
+                            summaryHtml += '<div style="display:flex;flex-direction:column;gap:0.2rem;color:var(--text-secondary);margin-top:0.15rem">';
+                            if (hardcodedVars.length > 0) {
+                                var hcKeys = hardcodedVars.slice(0, 4).map(function(v) { return v.key; });
+                                var hcMore = hardcodedVars.length > 4 ? ' +' + (hardcodedVars.length - 4) + ' more' : '';
+                                summaryHtml += '<div>📋 <strong>' + hardcodedVars.length + ' hardcoded</strong> — same value in all envs: <code style="font-size:0.68rem">' + esc(hcKeys.join(', ')) + '</code>' + hcMore + '</div>';
+                            }
+                            if (variableVars.length > 0) {
+                                var vrKeys = variableVars.map(function(v) { return v.key; });
+                                summaryHtml += '<div>🔄 <strong>' + variableVars.length + ' variable</strong> — set per-env values below: <code style="font-size:0.68rem">' + esc(vrKeys.join(', ')) + '</code></div>';
+                            }
+                            if (secretVars.length > 0) {
+                                var scKeys = secretVars.map(function(v) { return v.key; });
+                                summaryHtml += '<div>🔒 <strong>' + secretVars.length + ' secret</strong> — pre-added to each env: <code style="font-size:0.68rem">' + esc(scKeys.join(', ')) + '</code></div>';
+                            }
+                            summaryHtml += '</div>';
+                        } else {
+                            summaryHtml += '<div style="color:var(--text-muted);font-size:0.68rem;font-style:italic;margin-top:0.1rem">No env vars classified in Pipeline step. Add secrets or configure overrides per environment below.</div>';
+                        }
+
+                        if (!hasK8s) {
+                            summaryHtml += '<div style="font-size:0.66rem;color:var(--text-muted);margin-top:0.2rem;padding-top:0.2rem;border-top:1px solid var(--border-subtle)">💡 GitHub Actions environments support secrets, variables, and approval gates — no Kubernetes required.</div>';
+                        }
+                        summaryHtml += '</div>';
+
+                        // ── Build page ──
+                        var envHtml = wizSection('Environments', 'Configure per-environment secrets, variables, and deployment settings. Each gets its own GitHub Actions environment.')
+                            + summaryHtml
+                            + '<div id="ci-env-list"></div>'
+                            + '<div style="display:flex;gap:0.3rem;margin-top:0.35rem">'
+                            + '<input id="ci-env-name-input" class="modal-form-input" type="text"'
+                            + ' style="font-size:0.72rem;padding:0.2rem 0.4rem;flex:1;max-width:180px"'
+                            + ' placeholder="environment name" onkeydown="if(event.key===\'Enter\'){event.preventDefault();window._ciAddEnv();}">'
+                            + '<button type="button" onclick="window._ciAddEnv()"'
+                            + ' style="font-size:0.66rem;padding:0.2rem 0.5rem;border:1px dashed var(--border-subtle);border-radius:4px;background:none;color:var(--accent);cursor:pointer">'
+                            + '+ Add environment'
+                            + '</button>'
+                            + '</div>';
+                        el.innerHTML = envHtml;
+                        window._ciRenderEnvs();
+                    },
+                    collect: (data) => {
+                        if (window._ciSyncEnvInputs) window._ciSyncEnvInputs();
+                        data._ciEnvs = window._ciEnvs || [];
+                    },
+                },
+
+                // ── Step 5: Review ─────────────────────────────────────
                 {
                     id: 'review', title: 'Review & Apply',
                     render: (data, el) => {
@@ -106,6 +1081,12 @@
                         if (data.coverage) steps.push('Coverage');
                         if (data.dockerBuild) steps.push('Docker build');
                         if (data.dockerPush) steps.push('Docker push');
+                        if (data.k8sDeploy) steps.push(`K8s deploy (${data.k8sMethod || 'kubectl'})`);
+
+                        const envs = (data._ciEnvs || []);
+                        const envSummary = data.k8sDeploy && envs.length > 0
+                            ? envs.map(e => esc(e.name)).join(', ')
+                            : 'single';
 
                         el.innerHTML = `
                             ${wizSection('Review', 'A GitHub Actions workflow will be generated.')}
@@ -113,7 +1094,7 @@
                                 <span class="wiz-review-icon">📄</span>
                                 <div class="wiz-review-content">
                                     <div class="wiz-review-label">.github/workflows/ci.yml</div>
-                                    <div class="wiz-review-value">Steps: ${steps.join(' → ')}</div>
+                                    <div class="wiz-review-value">Steps: ${steps.join(' → ') || '(none)'}</div>
                                 </div>
                                 <span class="wiz-review-badge ready">create</span>
                             </div>
@@ -124,22 +1105,89 @@
                                     <div class="wiz-review-value">${esc(data.trigger || 'push-pr')} on ${esc(data.branch || 'main')}</div>
                                 </div>
                             </div>
+                            ${data._stacks && data._stacks.length > 0 ? `
+                            <div class="wiz-review-item">
+                                <span class="wiz-review-icon">📦</span>
+                                <div class="wiz-review-content">
+                                    <div class="wiz-review-label">Stacks</div>
+                                    <div class="wiz-review-value">${esc(data._stacks.join(', '))}</div>
+                                </div>
+                            </div>
+                            ` : ''}
+                            ${data.k8sDeploy ? `
+                            <div class="wiz-review-item">
+                                <span class="wiz-review-icon">☸️</span>
+                                <div class="wiz-review-content">
+                                    <div class="wiz-review-label">Deploy targets</div>
+                                    <div class="wiz-review-value">${envSummary}</div>
+                                </div>
+                            </div>
+                            ` : ''}
+
+                            <div style="margin-top:0.5rem">
+                                ${wizFormGrid([
+                                    { name: 'ci-overwrite', label: 'Overwrite existing ci.yml', type: 'checkbox', value: false },
+                                ])}
+                            </div>
                         `;
                     },
                 },
             ],
             onComplete: async (data) => {
-                await apiPost('/wizard/setup', {
+                const payload = {
                     action: 'setup_ci',
+                    // Pipeline
                     test: data.runTests,
                     lint: data.runLint,
                     typecheck: data.typeCheck,
+                    typecheck_cmd: data.typecheckCmd || '',
                     coverage: data.coverage,
-                    docker_build: data.dockerBuild,
-                    docker_push: data.dockerPush,
-                    trigger: data.trigger,
-                    branch: data.branch,
-                });
+                    coverage_tool: data.coverageTool || 'codecov',
+                    trigger_type: data.trigger || 'push-pr',
+                    branches: data.branch || 'main',
+                    stacks: data._stacks || [],
+                    overwrite: mfVal('ci-overwrite'),
+                    // Concurrency
+                    cancel_in_progress: data.cancelInProgress !== false,
+                    // Global env vars
+                    env_vars: data._globalEnvVars || {},
+                    // Custom commands (no-stack fallback)
+                    python_version: data.pythonVersion || '3.12',
+                    install_cmd: data.installCmd || '',
+                    test_cmd: data.testCmd || '',
+                    lint_cmd: data.lintCmd || '',
+                    // Docker
+                    docker: data.dockerBuild || false,
+                    docker_registry: data.dockerRegistry || '',
+                    docker_image: data.dockerImage || '',
+                    docker_push: data.dockerPush || false,
+                    docker_build_args: data._dockerBuildArgs || {},
+                    // K8s
+                    k8s: data.k8sDeploy || false,
+                    k8s_deploy_method: data.k8sMethod || 'kubectl',
+                    k8s_manifest_dir: data.k8sManifestDir || 'k8s/',
+                    k8s_namespace: data.k8sNamespace || '',
+                    helm_chart: data.helmChart || '',
+                    helm_release: data.helmRelease || '',
+                    skaffold_file: data.skaffoldFile || '',
+                    // Environments
+                    environments: (data._ciEnvs || []).map(function(e) {
+                        return {
+                            name: e.name,
+                            namespace: e.namespace || e.name,
+                            branch: e.branch || 'main',
+                            kubeconfig_secret: e.kubeconfig_secret || '',
+                            skaffold_profile: e.skaffold_profile || e.name,
+                            values_file: e.values_file || ('values-' + e.name + '.yaml'),
+                            env_vars: e.env_vars || {},
+                            env_var_overrides: e.env_var_overrides || {},
+                            secrets: e.secrets || [],
+                            require_approval: e.require_approval || false,
+                        };
+                    }),
+                };
+                await apiPost('/wizard/setup', payload);
+                cardInvalidate('ci');
                 _projectStatusTS = 0;
             },
             successMessage: 'CI/CD pipeline created!',

@@ -426,13 +426,15 @@ const _wizSubForms = {
 
         // ── Status strip ──
         html += `<div style="display:flex;flex-wrap:wrap;gap:0.25rem;margin-bottom:0.5rem">
-            <span style="font-size:0.65rem;padding:0.1rem 0.35rem;border-radius:4px;${detected ? 'background:color-mix(in srgb, var(--success) 10%, transparent);color:var(--success);border:1px solid color-mix(in srgb, var(--success) 25%, transparent)' : 'background:color-mix(in srgb, var(--text-muted) 10%, transparent);color:var(--text-muted);border:1px solid color-mix(in srgb, var(--text-muted) 25%, transparent)'}">${detected ? '✓ workflow found' : '○ no workflow'}</span>
+            <span style="font-size:0.65rem;padding:0.1rem 0.35rem;border-radius:4px;${detected ? 'background:color-mix(in srgb, var(--success) 10%, transparent);color:var(--success);border:1px solid color-mix(in srgb, var(--success) 25%, transparent)' : 'background:color-mix(in srgb, var(--text-muted) 10%, transparent);color:var(--text-muted);border:1px solid color-mix(in srgb, var(--text-muted) 25%, transparent)'}">
+                ${detected ? '✓ workflow found' : '○ no workflow'}
+            </span>
         </div>`;
 
-        // ── Config generation form ──
+        // ── Basic config generation form ──
         html += `<details style="margin-bottom:0.5rem" ${!detected ? 'open' : ''}>
             <summary style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;cursor:pointer;user-select:none;margin-bottom:0.3rem">
-                ${detected ? '📝 Regenerate Workflow' : '📝 Generate Workflow'}
+                ${detected ? '📝 Regenerate Basic Workflow' : '📝 Generate Basic Workflow'}
             </summary>
             <div style="padding-top:0.3rem">
                 ${_wizField('wiz-ci-branches', 'Trigger Branches', 'main, master', { help: 'Comma-separated' })}
@@ -443,6 +445,65 @@ const _wizSubForms = {
                 ${_wizField('wiz-ci-lint-cmd', 'Lint Command', 'ruff check src/')}
                 ${detected ? _wizField('wiz-ci-overwrite', 'Overwrite existing workflow', false, { type: 'checkbox' }) : ''}
                 ${_wizApplyBtn('int:ci')}
+            </div>
+        </details>`;
+
+        // ── Compose Full CI/CD Pipeline ──
+        // Auto-detect which integrations are available
+        const hasDocker = d.integrations['int:docker']?.detected || d.files.dockerfile;
+        const hasK8s = d.devops_cards?.k8s?.detected || d.files.k8s_manifests;
+        const hasTerraform = d.devops_cards?.terraform?.detected || d.files.terraform;
+        const envs = (_wizardConfig?.environments || []);
+        const projectName = (_wizardConfig?.name || name || 'app');
+
+        html += `<details style="margin-bottom:0.5rem">
+            <summary style="font-size:0.72rem;font-weight:600;color:var(--accent);text-transform:uppercase;cursor:pointer;user-select:none;margin-bottom:0.3rem">
+                🚀 Compose Full CI/CD Pipeline
+            </summary>
+            <div style="padding-top:0.3rem">
+                <div style="font-size:0.75rem;color:var(--text-secondary);line-height:1.5;margin-bottom:0.6rem">
+                    Generate a complete CI/CD pipeline based on <strong>all</strong> your enabled integrations.
+                    This combines test, build, deploy, and infrastructure jobs into coordinated GitHub Actions workflows.
+                </div>
+
+                <div style="font-size:0.72rem;color:var(--text-muted);font-weight:600;text-transform:uppercase;margin-bottom:0.3rem">
+                    Detected Capabilities
+                </div>
+                <div style="display:flex;flex-wrap:wrap;gap:0.25rem;margin-bottom:0.6rem">
+                    <span style="font-size:0.65rem;padding:0.1rem 0.35rem;border-radius:4px;${hasDocker ? 'background:color-mix(in srgb, var(--success) 10%, transparent);color:var(--success);border:1px solid color-mix(in srgb, var(--success) 25%, transparent)' : 'background:color-mix(in srgb, var(--text-muted) 10%, transparent);color:var(--text-muted);border:1px solid color-mix(in srgb, var(--text-muted) 25%, transparent)'}">
+                        ${hasDocker ? '✓' : '○'} Docker Build
+                    </span>
+                    <span style="font-size:0.65rem;padding:0.1rem 0.35rem;border-radius:4px;${hasK8s ? 'background:color-mix(in srgb, var(--success) 10%, transparent);color:var(--success);border:1px solid color-mix(in srgb, var(--success) 25%, transparent)' : 'background:color-mix(in srgb, var(--text-muted) 10%, transparent);color:var(--text-muted);border:1px solid color-mix(in srgb, var(--text-muted) 25%, transparent)'}">
+                        ${hasK8s ? '✓' : '○'} K8s Deploy
+                    </span>
+                    <span style="font-size:0.65rem;padding:0.1rem 0.35rem;border-radius:4px;${hasTerraform ? 'background:color-mix(in srgb, var(--success) 10%, transparent);color:var(--success);border:1px solid color-mix(in srgb, var(--success) 25%, transparent)' : 'background:color-mix(in srgb, var(--text-muted) 10%, transparent);color:var(--text-muted);border:1px solid color-mix(in srgb, var(--text-muted) 25%, transparent)'}">
+                        ${hasTerraform ? '✓' : '○'} Terraform
+                    </span>
+                    <span style="font-size:0.65rem;padding:0.1rem 0.35rem;border-radius:4px;${envs.length > 0 ? 'background:color-mix(in srgb, var(--success) 10%, transparent);color:var(--success);border:1px solid color-mix(in srgb, var(--success) 25%, transparent)' : 'background:color-mix(in srgb, var(--text-muted) 10%, transparent);color:var(--text-muted);border:1px solid color-mix(in srgb, var(--text-muted) 25%, transparent)'}">
+                        ${envs.length > 0 ? '✓ ' + envs.length + ' envs' : '○ single env'}
+                    </span>
+                </div>
+
+                ${_wizField('wiz-ci-compose-strategy', 'Workflow Strategy', 'unified', {
+                    type: 'select', options: ['unified', 'split'],
+                    help: 'Unified: single ci-cd.yml. Split: separate files linked with workflow_run.'
+                })}
+
+                ${_wizField('wiz-ci-compose-deploy', 'Deploy Method', 'kubectl', {
+                    type: 'select', options: ['kubectl', 'helm', 'skaffold'],
+                    help: 'How to deploy to K8s (only used if K8s is detected).'
+                })}
+
+                ${_wizField('wiz-ci-compose-registry', 'Docker Registry', 'ghcr.io', {
+                    help: 'Registry for pushing built images (e.g. ghcr.io/org, docker.io/org).'
+                })}
+
+                <div style="display:flex;gap:0.4rem;margin-top:0.6rem">
+                    <button class="btn btn-sm btn-primary" style="font-size:0.75rem"
+                        onclick="_wizComposeCi(this)">🚀 Generate Pipeline</button>
+                </div>
+
+                <div id="wiz-ci-compose-output" style="display:none;margin-top:0.6rem"></div>
             </div>
         </details>`;
 

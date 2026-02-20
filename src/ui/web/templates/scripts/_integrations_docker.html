@@ -111,8 +111,23 @@
                     if (parts.length) desc = `${f}  ·  ${parts.join(' · ')}`;
                 }
                 detections.push({ icon: '📄', label: 'Dockerfile', value: desc, click: `openFileInEditor('${esc(f)}','edit')` });
+                // Show warnings for malformed Dockerfiles
+                if (detail && detail.warnings && detail.warnings.length) {
+                    detail.warnings.forEach(w => {
+                        detections.push({ icon: '⚠️', label: 'Warning', value: w, cls: 'warning' });
+                    });
+                }
             });
             if (data.has_compose) detections.push({ icon: '📋', label: 'Compose', value: data.compose_file || 'docker-compose.yml', click: `openFileInEditor('${esc(data.compose_file||'docker-compose.yml')}','edit')` });
+            if (data.compose_warnings && data.compose_warnings.length) {
+                data.compose_warnings.forEach(w => {
+                    detections.push({ icon: '⚠️', label: 'Compose Warning', value: w, cls: 'warning' });
+                });
+            }
+            if (data.has_dockerignore) {
+                const patCount = (data.dockerignore_patterns || []).length;
+                detections.push({ icon: '🚫', label: '.dockerignore', value: `${patCount} pattern${patCount !== 1 ? 's' : ''}`, click: `openFileInEditor('.dockerignore','edit')` });
+            }
             if (detections.length) html += cardDetectionList(detections);
 
             // Live panel
@@ -144,12 +159,12 @@
                 html += `<div style="margin-top:var(--space-sm);font-size:0.78rem;color:var(--text-muted)">ℹ Create a <code>docker-compose.yml</code> to unlock Start/Stop/Build controls.</div>`;
             }
 
-            // Generate
-            const genItems = [];
-            if (!data.has_dockerfile) genItems.push({ label: 'Dockerfile', icon: '📄', onclick: "_intDockerGenerate('dockerfile')" });
-            genItems.push({ label: '.dockerignore', icon: '🚫', onclick: "_intDockerGenerate('dockerignore')" });
-            if (!data.has_compose) genItems.push({ label: 'docker-compose.yml', icon: '📋', onclick: "_intDockerGenerate('compose')" });
-            html += cardGenerateToolbar(genItems);
+            // Generate — always show all options (user may want to regenerate)
+            html += cardGenerateToolbar([
+                { label: 'Dockerfile', icon: '📄', onclick: "_intDockerGenerate('dockerfile')" },
+                { label: '.dockerignore', icon: '🚫', onclick: "_intDockerGenerate('dockerignore')" },
+                { label: 'docker-compose.yml', icon: '📋', onclick: "openSetupWizard('docker')" },
+            ]);
 
             // Cross-tab link
             html += cardCrossLink('devops', 'View Docker ops in DevOps');
@@ -477,40 +492,6 @@
                 const c = document.getElementById('dg-preview-code');
                 if (c) c.textContent = 'Error: ' + e.message;
             }
-
-        } else if (what === 'compose') {
-            // Compose Wizard — complex body, use modalOpen for wrapping
-            modalOpen({
-                title: '📋 Compose Wizard',
-                size: 'wide',
-                body: `
-                    <div style="margin-bottom:var(--space-sm)">
-                        <label style="font-size:0.78rem;font-weight:600;color:var(--text-secondary)">Project Name (optional)</label>
-                        <input type="text" id="cw-project-name" placeholder="my-project" style="width:100%;padding:0.35rem 0.5rem;font-size:0.8rem;background:var(--bg-inset);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);margin-top:0.15rem">
-                    </div>
-                    <div style="display:flex;align-items:center;gap:0.25rem;margin-bottom:var(--space-sm);flex-wrap:wrap">
-                        <div id="cw-svc-tabs" style="display:flex;gap:0.2rem;flex-wrap:wrap"></div>
-                        <button class="btn btn-sm btn-ghost" onclick="_cwAddService()" style="font-size:0.72rem;padding:0.1rem 0.35rem;color:var(--accent)">+ Add Service</button>
-                    </div>
-                    <div id="cw-svc-form" style="border:1px solid var(--border-subtle);border-radius:8px;padding:var(--space-sm);background:var(--bg-inset)"></div>
-                    <div style="margin-top:var(--space-sm)">
-                        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.2rem">
-                            <span style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase">Preview</span>
-                            <button class="btn btn-sm btn-ghost" onclick="_cwRefreshPreview()" style="font-size:0.68rem;padding:0.1rem 0.3rem">🔄 Refresh</button>
-                        </div>
-                        <pre id="cw-preview" style="max-height:250px;overflow:auto;background:var(--bg-primary);border:1px solid var(--border-subtle);border-radius:6px;padding:0.5rem;font-size:0.72rem;white-space:pre-wrap;font-family:var(--font-mono);color:var(--text-secondary)">Add a service to begin…</pre>
-                    </div>`,
-                footerButtons: [
-                    { label: 'Cancel', cls: 'btn-secondary', onclick: 'modalClose()' },
-                    { label: '📝 Open in Editor', cls: 'btn-ghost', id: 'cw-open-editor', style: 'display:none', onclick: '_cwOpenInEditor()' },
-                    { label: '💾 Write to disk', cls: 'btn-primary', id: 'cw-write', disabled: true, onclick: '_cwWriteToDisk()' },
-                ],
-            });
-
-            window._cwServices = [];
-            window._cwActiveIdx = -1;
-            window._cwGenerated = null;
-            _cwAddService();
         }
     }
 

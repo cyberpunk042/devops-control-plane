@@ -125,7 +125,7 @@ For each DevOps technology, the platform must achieve full **Detect → Observe 
 | **Observe** | Helm releases (installed), release values, release status | ✅ Routes exist |
 | **Facilitate** | Generate manifests (Deployment, Service, Ingress, ConfigMap, Secret, PVC) from wizard | ✅ Implemented |
 | **Facilitate** | Generate Skaffold config (build, deploy, profiles, portForward, envsubst hooks) | ✅ Implemented (0.3.x) |
-| **Facilitate** | Generate Helm Chart.yaml + values.yaml + templates/ scaffolding | ❌ **NOT IMPLEMENTED** |
+| **Facilitate** | Generate Helm Chart.yaml + values.yaml + templates/ scaffolding | ✅ Implemented (k8s_helm_generate.py) |
 | **Act** | Apply manifests, delete resources, scale, port-forward | ✅ Implemented |
 | **Act** | Helm install, upgrade, template, lint | ✅ CLI wrappers exist |
 
@@ -140,11 +140,11 @@ For each DevOps technology, the platform must achieve full **Detect → Observe 
 | **Detect** | helm CLI availability | ✅ |
 | **Observe** | List installed releases (`helm list`) | ✅ CLI wrapper |
 | **Observe** | Get release values (`helm get values`) | ✅ CLI wrapper |
-| **Facilitate** | Generate Chart.yaml from wizard state (name, version, description, deps) | ❌ **MISSING** |
-| **Facilitate** | Generate values.yaml from wizard services (image, port, replicas, env vars) | ❌ **MISSING** |
-| **Facilitate** | Generate templates/ (deployment.yaml, service.yaml, ingress.yaml) | ❌ **MISSING** |
-| **Facilitate** | Generate values-{env}.yaml per environment | ❌ **MISSING** |
-| **Facilitate** | Detection round-trip: generate → write → detect confirms | ❌ **MISSING** |
+| **Facilitate** | Generate Chart.yaml from wizard state (name, version, description, deps) | ✅ Implemented |
+| **Facilitate** | Generate values.yaml from wizard services (image, port, replicas, env vars) | ✅ Implemented |
+| **Facilitate** | Generate templates/ (deployment.yaml, service.yaml, ingress.yaml) | ✅ Implemented |
+| **Facilitate** | Generate values-{env}.yaml per environment | ✅ Implemented |
+| **Facilitate** | Detection round-trip: generate → write → detect confirms | ✅ Implemented (test_helm_roundtrip.py) |
 | **Act** | `helm install` with all options | ✅ CLI wrapper |
 | **Act** | `helm upgrade --install` with all options | ✅ CLI wrapper |
 | **Act** | `helm template` (offline render) | ✅ CLI wrapper |
@@ -159,7 +159,7 @@ For each DevOps technology, the platform must achieve full **Detect → Observe 
 | **Detect** | Find workflow files across 7 providers | Partial |
 | **Detect** | Parse workflow names, triggers, jobs, step counts | Partial |
 | **Observe** | Pipeline runs, test results, coverage | Partial (GitHub only) |
-| **Facilitate** | Generate workflows from detected stacks | ❌ **MISSING** |
+| **Facilitate** | Generate workflows from detected stacks | ✅ Implemented (ci_compose.py — unified + split strategies) |
 | **Act** | Trigger, cancel, re-run workflows | Partial (GitHub dispatch) |
 
 ### 4.4 Docker — Requirements

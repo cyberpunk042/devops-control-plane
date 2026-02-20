@@ -719,6 +719,97 @@
                                 logPre.style.color = 'var(--danger)';
                             }
                         };
+
+                        // ── Skaffold profile management ──
+                        // Pattern-based profile descriptors — mirrors backend _build_profile() routing.
+                        const _profilePatterns = {
+                            local: {
+                                icon: '🖥️', label: 'Local Development',
+                                activation: 'skaffold dev',
+                                features: ['No push (local images)', 'sha256 tags', 'envsubst hooks', 'Port forwarding', 'File sync (hot reload)'],
+                            },
+                            dev: {
+                                icon: '🔧', label: 'Dev (CI/CD)',
+                                activation: 'skaffold run',
+                                features: ['Push to registry', 'Kustomize overlay: overlays/dev', 'Namespace: {ns}-dev'],
+                            },
+                            staging: {
+                                icon: '🧪', label: 'Staging',
+                                activation: 'skaffold run',
+                                features: ['Push to registry', 'Kustomize overlay: overlays/{env}', 'Namespace: {ns}-{env}'],
+                            },
+                            prod: {
+                                icon: '🚀', label: 'Production',
+                                activation: 'skaffold deploy',
+                                features: ['Push to registry', 'gitCommit tags (release SHAs)', 'Server-side apply', 'Namespace: {ns}'],
+                            },
+                        };
+                        // Detect profile flavor by pattern (matches backend logic)
+                        const _resolveProfileDesc = (name) => {
+                            if (name.includes('local')) return { ...(_profilePatterns.local) };
+                            if (name === 'dev') return { ...(_profilePatterns.dev) };
+                            if (['staging', 'qa', 'preprod', 'pre-prod'].includes(name)) return { ...(_profilePatterns.staging) };
+                            if (['prod', 'production'].includes(name)) return { ...(_profilePatterns.prod) };
+                            return null; // generic / custom
+                        };
+
+                        window._skfProfiles = (_savedState?.skaffold_config?.profiles || ['dev-from-local', 'dev', 'staging', 'prod']).slice();
+
+                        window._skfRenderProfiles = () => {
+                            const c = document.getElementById('k8s-skaffold-profiles');
+                            if (!c) return;
+                            const nsInput = document.getElementById('k8s-namespace');
+                            const ns = nsInput ? nsInput.value || 'default' : 'default';
+
+                            c.innerHTML = window._skfProfiles.map((p, i) => {
+                                const desc = _resolveProfileDesc(p);
+                                if (desc) {
+                                    const feats = desc.features.map(f =>
+                                        f.replace('{ns}', ns).replace('{env}', p)
+                                    );
+                                    return `<div style="padding:0.35rem 0.5rem;border:1px solid var(--border-subtle);border-radius:6px;background:var(--bg-inset);font-size:0.72rem">`
+                                        + `<div style="display:flex;align-items:center;justify-content:space-between">`
+                                        + `<span style="font-weight:600">${desc.icon} <code style="font-size:0.72rem;background:var(--bg-primary);padding:1px 4px;border-radius:3px">${esc(p)}</code> <span style="font-weight:400;color:var(--text-muted)">— ${esc(desc.label)}</span></span>`
+                                        + `<span onclick="window._skfRemoveProfile(${i})" style="cursor:pointer;color:var(--text-muted);font-size:0.68rem;padding:0 4px" title="Remove profile">✕</span>`
+                                        + `</div>`
+                                        + `<div style="margin-top:3px;color:var(--text-muted);font-size:0.68rem">`
+                                        + `<span style="color:var(--accent);font-family:var(--font-mono,monospace)">${esc(desc.activation)}</span>`
+                                        + `<span style="margin:0 0.3rem">→</span>`
+                                        + feats.map(f => `<span style="display:inline-block;margin:1px 2px;padding:0 4px;border-radius:3px;background:var(--bg-primary);border:1px solid var(--border-subtle)">${esc(f)}</span>`).join('')
+                                        + `</div>`
+                                        + `</div>`;
+                                } else {
+                                    // Custom profile — generic behavior
+                                    return `<div style="padding:0.35rem 0.5rem;border:1px solid var(--border-subtle);border-radius:6px;background:var(--bg-inset);font-size:0.72rem">`
+                                        + `<div style="display:flex;align-items:center;justify-content:space-between">`
+                                        + `<span style="font-weight:600">📋 <code style="font-size:0.72rem;background:var(--bg-primary);padding:1px 4px;border-radius:3px">${esc(p)}</code> <span style="font-weight:400;color:var(--text-muted)">— custom profile</span></span>`
+                                        + `<span onclick="window._skfRemoveProfile(${i})" style="cursor:pointer;color:var(--text-muted);font-size:0.68rem;padding:0 4px" title="Remove profile">✕</span>`
+                                        + `</div>`
+                                        + `<div style="margin-top:3px;color:var(--text-muted);font-size:0.68rem">`
+                                        + `<span style="color:var(--accent);font-family:var(--font-mono,monospace)">skaffold run</span>`
+                                        + `<span style="margin:0 0.3rem">→</span>`
+                                        + `<span style="display:inline-block;margin:1px 2px;padding:0 4px;border-radius:3px;background:var(--bg-primary);border:1px solid var(--border-subtle)">Push to registry</span>`
+                                        + `<span style="display:inline-block;margin:1px 2px;padding:0 4px;border-radius:3px;background:var(--bg-primary);border:1px solid var(--border-subtle)">Namespace: ${esc(p)}</span>`
+                                        + `</div>`
+                                        + `</div>`;
+                                }
+                            }).join('');
+                        };
+                        window._skfAddProfile = () => {
+                            const inp = document.getElementById('k8s-skaffold-profile-input');
+                            if (!inp) return;
+                            const name = inp.value.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '-');
+                            if (!name || window._skfProfiles.includes(name)) { inp.value = ''; return; }
+                            window._skfProfiles.push(name);
+                            inp.value = '';
+                            window._skfRenderProfiles();
+                        };
+                        window._skfRemoveProfile = (i) => {
+                            window._skfProfiles.splice(i, 1);
+                            window._skfRenderProfiles();
+                        };
+                        // Render initial profiles after DOM is populated
+                        setTimeout(() => window._skfRenderProfiles(), 0);
                     },
                     collect: (data) => {
                         const mode = data._configMode || 'manual';

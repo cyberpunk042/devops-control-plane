@@ -2641,149 +2641,198 @@ Every pair of domains that can interact.
 > **Test file**: `tests/integration/test_docker_terraform_chain.py`.
 
 #### Provider → registry mapping
-- [ ] AWS → ECR registry type with ECR login action
-- [ ] Google → GAR registry type with gcloud auth
-- [ ] Azure → ACR registry type with ACR login
-- [ ] Returns registry URL pattern from Terraform output
+- [x] AWS → ECR registry type with ECR login action
+- [x] Google → GAR registry type with gcloud auth
+- [x] Azure → ACR registry type with ACR login
+- [x] Returns registry URL pattern from Terraform output
 
 #### Docker CI integration
-- [ ] Bridge output feeds into generate_docker_ci registry param
-- [ ] Registry URL includes provider-specific format (ECR URL, GAR URL, ACR URL)
-- [ ] Credentials mapped to correct secrets per provider
+- [x] Bridge output feeds into generate_docker_ci registry param
+- [x] Registry URL includes provider-specific format (ECR URL, GAR URL, ACR URL)
+- [x] Credentials mapped to correct secrets per provider
 
 #### Cross-domain outputs
-- [ ] registry_url from Terraform → Docker push target
-- [ ] Provider detected from Terraform config automatically
+- [x] registry_url from Terraform → Docker push target
+- [x] Provider detected from Terraform config automatically
+
+---
+
+## Spec Gap Fix — 0.4 Helm Round-Trip + 0.5 CI/CD Compose
+
+> **Rationale**: PROJECT_SCOPE §4.2 and §4.3 had gaps. Helm Facilitate was implemented
+> but not spec-tracked. CI/CD Facilitate has individual generators but no compose
+> orchestration. These must be solid before Layer 2 chains.
+
+### 0.4.close — Helm round-trip (close out)
+
+> Helm generation exists. Only gap: prove generate → detect round-trip works.
+> **Test file**: `tests/integration/test_helm_roundtrip.py`.
+
+- [x] Generate chart via `generate_helm_chart()` → run `_detect_helm_charts()` on output
+- [x] Detected chart has correct name, version, description
+- [x] Detected chart has_values, has_templates flags True
+- [x] Per-env values files detected in env_values_files list
+
+### 0.5 — CI/CD Compose Function
+
+> **New code**: `compose_ci_workflows()` in `src/core/services/ci_compose.py`.
+> **Test file**: `tests/integration/test_ci_compose_chain.py`.
+
+#### 0.5.1 — Basic structure
+- [x] Accepts wizard state, returns list[GeneratedFile]
+- [x] strategy="unified" → single ci-cd.yml with all jobs
+- [x] strategy="split" → separate files with workflow_run links
+- [x] Returns empty list when no CI-relevant config present
+
+#### 0.5.2 — Job dependency chains
+- [x] test → build → deploy ordering via `needs:`
+- [x] Image tag passed from build to deploy (${{ github.sha }})
+- [x] PR: test-only jobs. Push to main: full pipeline
+- [x] Deploy jobs have `if: github.event_name == 'push'`
+
+#### 0.5.3 — Domain integration
+- [x] stack_names → correct test jobs in output
+- [x] docker_services → correct build jobs in output
+- [x] deploy_config (kubectl) → kubectl deploy job
+- [x] deploy_config (helm) → helm deploy job
+- [x] deploy_config (skaffold) → skaffold deploy job
+- [x] terraform_config → infra job before deploy
+- [x] dns/cdn config → post-deploy steps
+
+#### 0.5.4 — Multi-environment
+- [x] Per-env deploy jobs when environments configured
+- [x] Environment-specific namespace in deploy jobs
+- [x] Environment-specific values file for Helm deploys
 
 ---
 
 ## Layer 2 — Three-Domain Chains
 
 ### 2.1 Docker + K8s + CI/CD
-- [ ] Full pipeline: test → docker build → docker push → kubectl apply
-- [ ] Full pipeline: test → docker build → docker push → skaffold run
-- [ ] Full pipeline: test → docker build → docker push → helm upgrade
-- [ ] Job dependency chain: test → build → deploy
-- [ ] Docker image tag passed from build to deploy job
-- [ ] Deploy only on push to main, not on PRs
-- [ ] PRs run tests only
+- [x] Full pipeline: test → docker build → docker push → kubectl apply
+- [x] Full pipeline: test → docker build → docker push → skaffold run
+- [x] Full pipeline: test → docker build → docker push → helm upgrade
+- [x] Job dependency chain: test → build → deploy
+- [x] Docker image tag passed from build to deploy job
+- [x] Deploy only on push to main, not on PRs
+- [x] PRs run tests only
 
 ### 2.2 Docker + K8s + Skaffold
-- [ ] Skaffold builds Docker image and deploys K8s manifests
-- [ ] Docker registry → Skaffold --default-repo → K8s image pull
-- [ ] Skaffold profiles select different K8s manifests per env
+- [x] Skaffold builds Docker image and deploys K8s manifests
+- [x] Docker registry → Skaffold --default-repo → K8s image pull
+- [x] Skaffold profiles select different K8s manifests per env
 
 ### 2.3 Docker + K8s + Helm
-- [ ] Docker image → Helm values → K8s Deployment
-- [ ] Docker registry → Helm image.repository
-- [ ] Docker tag → Helm image.tag
-- [ ] Helm values per env → different Docker tags per env
+- [x] Docker image → Helm values → K8s Deployment
+- [x] Docker registry → Helm image.repository
+- [x] Docker tag → Helm image.tag
+- [x] Helm values per env → different Docker tags per env
 
 ### 2.4 Docker + K8s + Terraform
-- [ ] Terraform provisions cluster + registry
-- [ ] Docker builds and pushes to provisioned registry
-- [ ] K8s deploys to provisioned cluster
+- [x] Terraform provisions cluster + registry
+- [x] Docker builds and pushes to provisioned registry
+- [x] K8s deploys to provisioned cluster
 
 ### 2.5 K8s + CI/CD + Multi-Environment
-- [ ] All environments referenced in CI
-- [ ] Namespace per environment
-- [ ] Deploy ordering: dev → staging → production
-- [ ] Production deploy constrained to main branch
-- [ ] Per-environment secrets in CI
-- [ ] Per-environment kubeconfig
-- [ ] Skaffold profiles per env in CI
-- [ ] Helm values per env in CI
+- [x] All environments referenced in CI
+- [x] Namespace per environment
+- [x] Deploy ordering: dev → staging → production
+- [x] Production deploy constrained to main branch
+- [x] Per-environment secrets in CI
+- [x] Per-environment kubeconfig
+- [x] Skaffold profiles per env in CI
+- [x] Helm values per env in CI
 
 ### 2.6 K8s + Terraform + CI/CD
-- [ ] CI does terraform plan → terraform apply → kubectl apply
-- [ ] Terraform provisions, then K8s deploys, in single workflow
-- [ ] Terraform state and kubeconfig both from secrets
+- [x] CI does terraform plan → terraform apply → kubectl apply
+- [x] Terraform provisions, then K8s deploys, in single workflow
+- [x] Terraform state and kubeconfig both from secrets
 
 ---
 
 ## Layer 3 — Full Stack Chains
 
 ### 3.1 Docker + K8s + Skaffold + CI/CD + Multi-Env
-- [ ] Wizard: enable Docker → enable K8s with Skaffold → enable CI/CD
-- [ ] CI: test → docker build (via Skaffold) → deploy per env (via Skaffold profiles)
-- [ ] Each env: different Skaffold profile, different namespace, different secrets
-- [ ] PR: test only. Push to main: full pipeline
+- [x] Wizard: enable Docker → enable K8s with Skaffold → enable CI/CD
+- [x] CI: test → docker build (via Skaffold) → deploy per env (via Skaffold profiles)
+- [x] Each env: different Skaffold profile, different namespace, different secrets
+- [x] PR: test only. Push to main: full pipeline
 
 ### 3.2 Docker + K8s + Helm + CI/CD + Multi-Env
-- [ ] Wizard: enable Docker → enable K8s with Helm → enable CI/CD
-- [ ] CI: test → docker build → docker push → helm upgrade per env
-- [ ] Each env: different values file, different namespace
-- [ ] Helm --set image.tag=${{ github.sha }}
-- [ ] PR: test only. Push to main: full pipeline
+- [x] Wizard: enable Docker → enable K8s with Helm → enable CI/CD
+- [x] CI: test → docker build → docker push → helm upgrade per env
+- [x] Each env: different values file, different namespace
+- [x] Helm --set image.tag=${{ github.sha }}
+- [x] PR: test only. Push to main: full pipeline
 
 ### 3.3 Docker + K8s + Terraform + CI/CD
-- [ ] CI: terraform plan/apply → docker build/push → k8s deploy
-- [ ] Terraform outputs feed into K8s config (cluster endpoint, registry URL)
+- [x] CI: terraform plan/apply → docker build/push → k8s deploy
+- [x] Terraform outputs feed into K8s config (cluster endpoint, registry URL)
 
 ### 3.4 Everything
-- [ ] Docker + K8s (Helm or Skaffold) + Terraform + CI/CD + DNS + Multi-Env
-- [ ] Complete wizard flow: detect → configure → generate → validate → deploy
-- [ ] Cleanup: delete all generated configs → clean slate
+- [x] Docker + K8s (Helm or Skaffold) + Terraform + CI/CD + DNS + Multi-Env
+- [x] Complete wizard flow: detect → configure → generate → validate → deploy
+- [x] Cleanup: delete all generated configs → clean slate
 
 ---
 
 ## Layer 4 — Order of Execution Variants
 
 ### 4.1 Docker first
-- [ ] Enable Docker → then K8s → K8s picks up Docker image
-- [ ] Enable Docker → then CI → CI picks up Docker build steps
-- [ ] Enable Docker → then K8s → then CI → CI has full pipeline
+- [x] Enable Docker → then K8s → K8s picks up Docker image
+- [x] Enable Docker → then CI → CI picks up Docker build steps
+- [x] Enable Docker → then K8s → then CI → CI has full pipeline
 
 ### 4.2 K8s first
-- [ ] Enable K8s (no Docker yet) → plain manifests with external image
-- [ ] Enable K8s → then Docker → manifests updated with Docker image
-- [ ] Enable K8s → then Docker → then CI → full pipeline
+- [x] Enable K8s (no Docker yet) → plain manifests with external image
+- [x] Enable K8s → then Docker → manifests updated with Docker image
+- [x] Enable K8s → then Docker → then CI → full pipeline
 
 ### 4.3 CI first
-- [ ] Enable CI alone → basic test-only workflow
-- [ ] Enable CI → then Docker → CI updated with Docker build
-- [ ] Enable CI → then K8s → CI updated with deploy steps
-- [ ] Enable CI → then Docker → then K8s → CI has full pipeline
+- [x] Enable CI alone → basic test-only workflow
+- [x] Enable CI → then Docker → CI updated with Docker build
+- [x] Enable CI → then K8s → CI updated with deploy steps
+- [x] Enable CI → then Docker → then K8s → CI has full pipeline
 
 ### 4.4 Terraform first
-- [ ] Enable Terraform → then K8s → K8s uses Terraform-provisioned cluster
-- [ ] Enable Terraform → then Docker → Docker uses Terraform-provisioned registry
+- [x] Enable Terraform → then K8s → K8s uses Terraform-provisioned cluster
+- [x] Enable Terraform → then Docker → Docker uses Terraform-provisioned registry
 
 ### 4.5 Re-run after changes
-- [ ] Change Docker registry → CI updates
-- [ ] Change K8s deploy method (kubectl → helm) → CI updates
-- [ ] Add environment → CI adds deploy job
-- [ ] Remove environment → CI removes deploy job
-- [ ] Disable Docker → CI removes Docker steps
+- [x] Change Docker registry → CI updates
+- [x] Change K8s deploy method (kubectl → helm) → CI updates
+- [x] Add environment → CI adds deploy job
+- [x] Remove environment → CI removes deploy job
+- [x] Disable Docker → CI removes Docker steps
 
 ---
 
 ## Layer 5 — Error & Edge Cases
 
 ### 5.1 Missing Tools
-- [ ] Docker enabled but docker CLI missing → clear message, install button
-- [ ] K8s enabled but kubectl missing → clear message, install button
-- [ ] Skaffold enabled but skaffold CLI missing → clear message, install button
-- [ ] Helm enabled but helm CLI missing → clear message, install button
-- [ ] Terraform enabled but terraform CLI missing → clear message, install button
+- [x] Docker enabled but docker CLI missing → clear message, install button
+- [x] K8s enabled but kubectl missing → clear message, install button
+- [x] Skaffold enabled but skaffold CLI missing → clear message, install button
+- [x] Helm enabled but helm CLI missing → clear message, install button
+- [x] Terraform enabled but terraform CLI missing → clear message, install button
 
 ### 5.2 Misconfiguration
-- [ ] Docker registry URL malformed → validation error
-- [ ] K8s namespace with invalid characters → validation error
-- [ ] Helm chart path doesn't exist → warning
-- [ ] Skaffold profiles reference nonexistent manifests → warning
-- [ ] CI references secrets that don't exist → warning in generated YAML comments
+- [x] Docker registry URL malformed → validation error
+- [x] K8s namespace with invalid characters → validation error
+- [x] Helm chart path doesn't exist → warning
+- [x] Skaffold profiles reference nonexistent manifests → warning
+- [x] CI references secrets that don't exist → warning in generated YAML comments
 
 ### 5.3 Partial State
-- [ ] Wizard interrupted mid-flow → state saved, resumable
-- [ ] Some files generated, some not → detection handles partial state
-- [ ] Generated files manually edited → detect picks up changes
+- [x] Wizard interrupted mid-flow → state saved, resumable
+- [x] Some files generated, some not → detection handles partial state
+- [x] Generated files manually edited → detect picks up changes
 
 ### 5.4 Cleanup
-- [ ] `delete_generated_configs("docker")` → removes Docker files only
-- [ ] `delete_generated_configs("k8s")` → removes K8s files only
-- [ ] `delete_generated_configs("ci")` → removes CI files only
-- [ ] `delete_generated_configs("skaffold")` → removes skaffold.yaml only
-- [ ] `delete_generated_configs("terraform")` → removes tf files only
-- [ ] Cleanup one domain → others untouched
-- [ ] Re-setup after cleanup → works cleanly
+- [x] `delete_generated_configs("docker")` → removes Docker files only
+- [x] `delete_generated_configs("k8s")` → removes K8s files only
+- [x] `delete_generated_configs("ci")` → removes CI files only
+- [x] `delete_generated_configs("skaffold")` → removes skaffold.yaml only
+- [x] `delete_generated_configs("terraform")` → removes tf files only
+- [x] Cleanup one domain → others untouched
+- [x] Re-setup after cleanup → works cleanly
