@@ -111,6 +111,14 @@
                 ? tpl.expanded.replace(/\{\{name\}\}/g, extractedName)
                 : undefined;
 
+            // Detect "default" badge in the element (context-aware enrichment)
+            var defaultBadge = el.querySelector('[style*="accent-glow"]');
+            if (defaultBadge && defaultBadge.textContent.trim().toLowerCase() === 'default') {
+                nodeTitle += ' · default';
+                var defaultNote = '\n\nAs the default environment, it will be pre-selected when you define secrets and variables in Step 3.';
+                nodeExpanded = nodeExpanded ? nodeExpanded + defaultNote : defaultNote;
+            }
+
             const syntheticNode = {
                 id: parentNode.id + '-dyn-' + i,
                 title: nodeTitle,

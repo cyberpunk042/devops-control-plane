@@ -84,8 +84,8 @@
                         <div id="wiz-envs" style="display:flex;flex-direction:column;gap:0.4rem;margin-bottom:0.5rem">
                             ${(cfg.environments || []).map((e, i) => `
                                 <div style="display:flex;align-items:center;gap:0.5rem;padding:0.3rem 0.5rem;background:var(--bg-inset);border:1px solid var(--border-subtle);border-radius:8px;font-size:0.82rem">
-                                    <span style="font-weight:600;min-width:80px">${esc(e.name)}</span>
-                                    <span style="color:var(--text-muted);flex:1">${esc(e.description || '')}</span>
+                                    <span style="font-weight:600;min-width:80px;cursor:pointer" onclick="wizardEditEnvField(${i},'name',this)" title="Click to edit">${esc(e.name)}</span>
+                                    <span style="color:var(--text-muted);flex:1;cursor:pointer" onclick="wizardEditEnvField(${i},'description',this)" title="Click to edit">${esc(e.description || '')}</span>
                                     ${e.default ? '<span style="font-size:0.7rem;background:var(--accent-glow);color:var(--accent);padding:0.1rem 0.4rem;border-radius:8px">default</span>' : ''}
                                     <span style="cursor:pointer;opacity:0.5;font-size:0.7rem" onclick="wizardRemoveEnv(${i})" title="Remove">✕</span>
                                 </div>

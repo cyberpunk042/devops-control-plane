@@ -212,6 +212,57 @@
         renderWizard();
     }
 
+    function wizardEditEnvField(i, field, spanEl) {
+        if (!_wizardConfig || !_wizardConfig.environments) return;
+        var env = _wizardConfig.environments[i];
+        if (!env) return;
+
+        var currentValue = env[field] || '';
+        var isName = field === 'name';
+
+        // Create an inline input to replace the span
+        var input = document.createElement('input');
+        input.type = 'text';
+        input.value = currentValue;
+        input.style.cssText = spanEl.style.cssText +
+            ';padding:0.15rem 0.4rem;border:1px solid var(--accent);border-radius:4px;' +
+            'background:var(--bg-inset);color:var(--text-primary);font-size:0.82rem;outline:none;' +
+            'cursor:text;';
+        if (isName) {
+            input.style.width = '100px';
+        }
+
+        function commit() {
+            var val = input.value.trim();
+            if (isName) {
+                if (!val) {
+                    toast('Environment name cannot be empty.', 'warning');
+                    input.focus();
+                    return;
+                }
+                // Check for duplicates (excluding self)
+                if (_wizardConfig.environments.some(function(e, idx) { return idx !== i && e.name === val; })) {
+                    toast('Environment name already exists.', 'warning');
+                    input.focus();
+                    return;
+                }
+            }
+            env[field] = val;
+            wizardDirty = true;
+            renderWizard();
+        }
+
+        input.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') { e.preventDefault(); commit(); }
+            if (e.key === 'Escape') { renderWizard(); }
+        });
+        input.addEventListener('blur', commit);
+
+        spanEl.replaceWith(input);
+        input.focus();
+        input.select();
+    }
+
     // ── Content folder helpers ──────────────────────────────────────
 
     function wizardToggleContentFolder(name, checked, labelEl) {

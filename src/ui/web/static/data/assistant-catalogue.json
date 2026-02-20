@@ -69,7 +69,8 @@
                 "dynamic": true,
                 "childTemplate": {
                     "title": "{{name}}",
-                    "content": "A deployment target. This environment gets its own secrets and variable values in Step 3.",
+                    "content": "The {{name}} environment — one of your deployment targets. It gets its own .env file with credentials and endpoint values scoped specifically to this context.",
+                    "expanded": "When you define secrets and variables in Step 3, each environment has its own set of values. So your API keys, database URLs, and feature flags can differ between environments while sharing the same project config and generated files.\n\n💡 Click the name or description to edit. Use × to remove this environment.",
                     "selector": "#wiz-envs > div"
                 },
                 "children": [
@@ -78,8 +79,8 @@
                         "title": "Environment name",
                         "icon": "➕",
                         "selector": "#wiz-new-env-name",
-                        "content": "The short name for this environment — like staging, qa, or preview.",
-                        "expanded": "Keep it lowercase, no spaces. This name becomes part of your .env file path (.env.staging), GitHub deployment environment name, and CI/CD workflow target.\n\n💡 Common patterns: development + production for simple projects. Add staging for a QA gate, or preview for PR-based ephemeral environments.",
+                        "content": "Add another deployment target — staging, qa, preview, or whatever your workflow needs.",
+                        "expanded": "Keep it lowercase, no spaces. This name becomes part of your .env file path (.env.staging), GitHub deployment environment name, and CI/CD workflow target.\n\nEach new environment gets its own secret values in Step 3.\n\n💡 Common patterns: development + production for simple projects. Add staging for a QA gate, or preview for PR-based ephemeral environments.",
                         "children": []
                     },
                     {
