@@ -95,5 +95,76 @@
                 ]
             }
         ]
+    },
+    {
+        "context": "wizard/modules",
+        "title": "Modules",
+        "icon": "🔍",
+        "content": "Modules are the building blocks of your project — each one maps to a directory in your codebase with its own stack and purpose.\n\nThe control plane uses them to decide what to generate: Dockerfiles, CI pipelines, linting configs, audit scans, and dashboard structure all flow from what you define here.",
+        "children": [
+            {
+                "id": "auto-detect",
+                "title": "Auto-Detect",
+                "icon": "🔍",
+                "selector": "button[onclick='wizardDetect()']",
+                "content": "Scans your project root for recognizable structures — pyproject.toml, package.json, docker-compose.yml, Makefile, docs folders — and creates module entries from what it finds.",
+                "expanded": "Detection looks at file signatures:\n• pyproject.toml or setup.py → python-lib or python-cli\n• app.py / wsgi.py → python-flask\n• package.json → node\n• docker-compose.yml → docker-compose\n• .md files in a docs/ folder → markdown\n\nIt also reads descriptions from package metadata when available. Detection is non-destructive — it won't overwrite modules you've already added manually.\n\n💡 If your project has an unusual structure, you can always add modules manually below.",
+                "children": []
+            },
+            {
+                "id": "modules-list",
+                "title": "Module List",
+                "icon": "📦",
+                "selector": "#wizard-modules-list",
+                "content": "Your configured modules — {{moduleCount}} so far. Each one represents a directory the control plane knows about and manages.",
+                "expanded": "Every module gets its own treatment in the pipeline:\n• Python modules get linting (ruff/flake8), type checking, and test runners\n• Flask modules get Dockerfile generation, health check endpoints, and deployment configs\n• Node modules get npm scripts, bundler configs, and dependency audits\n• Docker-compose modules get service orchestration and K8s migration paths\n• Markdown modules get Docusaurus site generation and content management\n\nThe control plane uses module paths to scope operations — when you run audit, lint, or generate configs, it targets the right directories.",
+                "dynamic": true,
+                "childTemplate": {
+                    "title": "{{name}}",
+                    "content": "The {{name}} module — managed by the control plane as part of your project structure.",
+                    "expanded": "This module's stack determines what the control plane generates for it: Dockerfiles, CI workflows, linting configs, and audit targets. Its domain assignment controls how it's grouped in the dashboard.\n\n💡 Use × to remove this module if it was detected incorrectly or is no longer needed.",
+                    "selector": "#wizard-modules-list > div"
+                },
+                "children": []
+            },
+            {
+                "id": "add-module",
+                "title": "Add Module",
+                "icon": "➕",
+                "selector": "#wiz-add-module",
+                "separator": true,
+                "content": "Manually define a module the auto-detector missed, or add one for a directory you're about to create. Pick a stack from the dropdown to tell the control plane what technology this module uses.",
+                "expanded": "Three fields define a module:\n• Name — appears in dashboard cards, CI pipeline names, and generated configs\n• Path — directory relative to project root (e.g. src/core, services/api)\n• Stack — the technology stack that drives everything the control plane generates\n\nAvailable stacks:\n🐍 python · python-lib · python-cli · python-flask\n📦 node · typescript\n🦀 rust · go · c · cpp · zig · swift\n☕ java-maven · java-gradle · dotnet\n💎 ruby · elixir · protobuf\n🐳 docker-compose · kubernetes · helm · terraform\n📄 static-site · markdown\n\nEach stack is a YAML file in stacks/<name>/stack.yml that encodes detection rules, required tools, and available automations. Pick the one that matches your module's technology, or use \"Custom\" for unlisted stacks.",
+                "children": [
+                    {
+                        "id": "mod-name",
+                        "title": "Module Name",
+                        "icon": "✏️",
+                        "selector": "#wiz-mod-name",
+                        "content": "A short, descriptive name for this module — like core, api, web, or docs.",
+                        "expanded": "This name appears in:\n• Dashboard module cards\n• CI pipeline names (e.g. lint-core, test-api)\n• Docker image tags when applicable\n• Generated config references\n\nKeep it lowercase, hyphen-separated. It doesn't need to match the directory name, but it helps.",
+                        "children": []
+                    },
+                    {
+                        "id": "mod-path",
+                        "title": "Module Path",
+                        "icon": "📂",
+                        "selector": "#wiz-mod-path",
+                        "content": "The directory path relative to your project root — this is where the control plane looks for source files.",
+                        "expanded": "Must point to an actual directory (or one you plan to create). The control plane uses this to:\n• Scope linting and audit operations to the right files\n• Generate Dockerfiles with correct COPY paths\n• Set up CI workflows that only trigger on changes in this directory\n• Resolve dependencies between modules\n\nExamples: src/core, src/ui/web, services/auth, docs",
+                        "children": []
+                    },
+                    {
+                        "id": "mod-stack",
+                        "title": "Stack",
+                        "icon": "🔧",
+                        "selector": "#wiz-mod-stack",
+                        "content": "A stack is a technology definition — it tells the control plane how to detect, build, lint, test, and deploy this module.",
+                        "expanded": "Each stack is defined in stacks/<name>/stack.yml with detection rules, required tools, and capabilities.\n\n🐍 Python\n• python — Python project (generic)\n• python-lib — Python library (no entry point)\n• python-cli — Click-based CLI tool\n• python-flask — Flask web application\n\n📦 JavaScript\n• node — Node.js project\n• typescript — TypeScript project\n\n🦀 Systems\n• rust — Rust project (Cargo)\n• go — Go project (Go modules)\n• c — C project (Makefile/CMake)\n• cpp — C++ project (Makefile/CMake)\n• zig — Zig project\n• swift — Swift project (SPM)\n\n☕ JVM & .NET\n• java-maven — Java project (Maven)\n• java-gradle — Java project (Gradle)\n• dotnet — .NET project\n\n💎 Other Languages\n• ruby — Ruby project (Bundler)\n• elixir — Elixir project (Mix)\n• protobuf — Protocol Buffers\n\n🐳 Infrastructure\n• docker-compose — Docker Compose orchestration\n• kubernetes — Kubernetes manifests\n• helm — Helm charts\n• terraform — Terraform configs\n\n📄 Content\n• static-site — Static site generator\n• markdown — Documentation (Docusaurus)\n\nUse \"Custom\" if your stack isn't listed — you can define its YAML later.",
+                        "children": []
+                    }
+                ]
+            }
+        ]
     }
 ]

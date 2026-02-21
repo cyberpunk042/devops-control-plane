@@ -148,6 +148,7 @@ def create_app(
     @app.context_processor
     def _inject_data_catalogs():  # type: ignore[no-untyped-def]
         from src.core.services.devops_cache import _load_cache
+        from src.core.config.stack_loader import discover_stacks
 
         # Build initial state from disk cache (available even on cold start)
         initial: dict[str, dict] = {}
@@ -160,8 +161,19 @@ def create_app(
         except Exception:
             pass  # Degrade gracefully — cards will fall back to API
 
+        # Merge static catalogs with project-level stacks
+        dcp = _registry.to_js_dict()
+        try:
+            stacks = discover_stacks(Path(project_root) / "stacks")
+            dcp["stacks"] = [
+                {"name": s.name, "description": s.description}
+                for s in sorted(stacks.values(), key=lambda s: s.name)
+            ]
+        except Exception:
+            dcp["stacks"] = []
+
         return {
-            "dcp_data": _registry.to_js_dict(),
+            "dcp_data": dcp,
             "initial_state": initial,
         }
 

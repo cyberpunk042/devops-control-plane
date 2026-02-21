@@ -140,16 +140,26 @@
                     `}
                 </div>
 
-                <div style="margin-top:1rem;padding:1rem;background:var(--bg-inset);border:1px solid var(--border-subtle);border-radius:10px">
+                <div id="wiz-add-module" style="margin-top:1rem;padding:1rem;background:var(--bg-inset);border:1px solid var(--border-subtle);border-radius:10px">
                     <div style="font-size:0.85rem;font-weight:600;margin-bottom:0.5rem;color:var(--text-secondary)">➕ Add Module</div>
-                    <div style="display:flex;gap:0.4rem;flex-wrap:wrap">
+                    <div style="display:flex;gap:0.4rem;align-items:center">
                         <input type="text" id="wiz-mod-name" placeholder="Name"
-                            style="width:120px;padding:0.35rem 0.6rem;border:1px solid var(--border-subtle);border-radius:6px;background:var(--bg-card);color:var(--text-primary);font-size:0.82rem">
-                        <input type="text" id="wiz-mod-path" placeholder="Path (e.g. src/core)"
-                            style="flex:1;min-width:150px;padding:0.35rem 0.6rem;border:1px solid var(--border-subtle);border-radius:6px;background:var(--bg-card);color:var(--text-primary);font-size:0.82rem;font-family:var(--font-mono)">
-                        <input type="text" id="wiz-mod-stack" placeholder="Stack"
                             style="width:100px;padding:0.35rem 0.6rem;border:1px solid var(--border-subtle);border-radius:6px;background:var(--bg-card);color:var(--text-primary);font-size:0.82rem">
-                        <button class="btn btn-secondary btn-sm" onclick="wizardAddModule()" style="font-size:0.78rem">+ Add</button>
+                        <input type="text" id="wiz-mod-path" placeholder="Path (e.g. src/core)"
+                            style="flex:1;min-width:120px;padding:0.35rem 0.6rem;border:1px solid var(--border-subtle);border-radius:6px;background:var(--bg-card);color:var(--text-primary);font-size:0.82rem;font-family:var(--font-mono)">
+                        <select id="wiz-mod-stack"
+                            onchange="var c=document.getElementById('wiz-mod-stack-custom');if(this.value==='__custom__'){c.style.display='';c.focus();this.style.display='none';}else{c.style.display='none';c.value='';}"
+                            style="width:130px;padding:0.35rem 0.6rem;border:1px solid var(--border-subtle);border-radius:6px;background:var(--bg-card);color:var(--text-primary);font-size:0.82rem">
+                            <option value="" disabled selected>Stack…</option>
+                            ${((window._dcp && window._dcp.stacks) || []).map(s =>
+                                '<option value="' + esc(s.name) + '">' + esc(s.name) + '</option>'
+                            ).join('')}
+                            <option value="__custom__">Custom…</option>
+                        </select>
+                        <input type="text" id="wiz-mod-stack-custom" placeholder="Custom stack"
+                            onblur="if(!this.value.trim()){this.style.display='none';var s=document.getElementById('wiz-mod-stack');s.style.display='';s.value='';}"
+                            style="display:none;width:130px;padding:0.35rem 0.6rem;border:1px solid var(--border-subtle);border-radius:6px;background:var(--bg-card);color:var(--text-primary);font-size:0.82rem">
+                        <button class="btn btn-secondary btn-sm" onclick="wizardAddModule()" style="font-size:0.78rem;white-space:nowrap">+ Add</button>
                     </div>
                 </div>
             `;

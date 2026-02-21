@@ -45,17 +45,24 @@
         if (!_wizardConfig) return;
         const name = document.getElementById('wiz-mod-name');
         const path = document.getElementById('wiz-mod-path');
-        const stack = document.getElementById('wiz-mod-stack');
+        const stackSel = document.getElementById('wiz-mod-stack');
+        const stackCustom = document.getElementById('wiz-mod-stack-custom');
 
         const n = name ? name.value.trim() : '';
         const p = path ? path.value.trim() : '';
         if (!n || !p) { toast('Name and path are required.', 'warning'); return; }
 
+        // Read stack from select or custom input
+        var stackVal = stackSel ? stackSel.value : '';
+        if (stackVal === '__custom__') {
+            stackVal = stackCustom ? stackCustom.value.trim() : '';
+        }
+
         if (!_wizardConfig.modules) _wizardConfig.modules = [];
         _wizardConfig.modules.push({
             name: n,
             path: p,
-            stack: stack ? stack.value.trim() : '',
+            stack: stackVal,
             domain: _wizardConfig.domains?.[0] || 'service',
         });
         wizardDirty = true;
@@ -398,6 +405,9 @@
             } else {
                 toast(`Found ${modules.length} module${modules.length > 1 ? 's' : ''}!`, 'success');
             }
+
+            // Re-flatten assistant tree so dynamic nodes pick up the new DOM
+            if (window._assistant) window._assistant.refresh();
         } catch (e) {
             list.innerHTML = `<p style="color:var(--error);padding:0.5rem">${esc(e.message)}</p>`;
         }

@@ -111,12 +111,43 @@
                 ? tpl.expanded.replace(/\{\{name\}\}/g, extractedName)
                 : undefined;
 
-            // Detect "default" badge in the element (context-aware enrichment)
+            // ── Context-aware enrichment ──────────────────────────
+            // Read DOM state to add application-specific knowledge.
+
+            // Detect "default" badge (environment rows)
             var defaultBadge = el.querySelector('[style*="accent-glow"]');
             if (defaultBadge && defaultBadge.textContent.trim().toLowerCase() === 'default') {
                 nodeTitle += ' · default';
                 var defaultNote = '\n\nAs the default environment, it will be pre-selected when you define secrets and variables in Step 3.';
                 nodeExpanded = nodeExpanded ? nodeExpanded + defaultNote : defaultNote;
+            }
+
+            // Extract stack/path/domain metadata (module rows)
+            var metaSpans = el.querySelectorAll('span');
+            var extractedStack = '', extractedPath = '', extractedDomain = '';
+            metaSpans.forEach(function(sp) {
+                var txt = sp.textContent.trim();
+                if (txt.indexOf('Stack:') === 0) extractedStack = txt.replace('Stack:', '').trim();
+                if (txt.indexOf('Domain:') === 0) extractedDomain = txt.replace('Domain:', '').trim();
+            });
+            var codeEl = el.querySelector('code');
+            if (codeEl) extractedPath = codeEl.textContent.trim();
+
+            if (extractedStack) {
+                nodeTitle += ' · ' + extractedStack;
+                // Stack-specific operational knowledge
+                var stackNotes = {
+                    'python-lib':      'As a Python library, this module gets linting (ruff/flake8), type checking, and can be imported by other modules. No Dockerfile is generated — it\'s a dependency, not a deployable.',
+                    'python-cli':      'As a CLI module (Click-based), this gets its own entry point, linting, and can be packaged as a standalone tool. The control plane generates CLI-specific test harnesses.',
+                    'python-flask':    'As a Flask application, this module gets Dockerfile generation, health check endpoints, WSGI/Gunicorn configs, and deployment manifests. It\'s a deployable service.',
+                    'node':            'As a Node.js module, this gets npm script integration, dependency audits, and bundler configuration. Package.json drives the generation pipeline.',
+                    'docker-compose':  'As a Docker Compose module, this defines multi-container orchestration. The control plane can migrate compose services to K8s Deployments when you set up Kubernetes.',
+                    'markdown':        'As a documentation module, this gets Docusaurus site generation, content management through the Content tab, and can be deployed via the Pages pipeline.'
+                };
+                var stackNote = stackNotes[extractedStack];
+                if (stackNote) {
+                    nodeExpanded = stackNote + (nodeExpanded ? '\n\n' + nodeExpanded : '');
+                }
             }
 
             const syntheticNode = {
@@ -170,14 +201,17 @@
                 // 3. Field-group proximity: the element shares a wrapper div
                 //    with the selector target. This handles hovering a <label>
                 //    that's a sibling of <input id="wiz-name">.
-                //    We use parentElement.closest('div') to skip the target
-                //    element itself when it IS a div (e.g. #wiz-domains).
-                const targetEl = _containerEl.querySelector(node.selector);
-                if (targetEl && targetEl.parentElement) {
-                    const wrapper = targetEl.parentElement.closest('div');
-                    if (wrapper && wrapper !== _containerEl &&
-                        (wrapper === element || wrapper.contains(element))) {
-                        return entry;
+                //    Skip for ID selectors — they already uniquely target
+                //    elements and proximity would false-positive on siblings
+                //    in the same flex row.
+                if (node.selector.charAt(0) !== '#') {
+                    const targetEl = _containerEl.querySelector(node.selector);
+                    if (targetEl && targetEl.parentElement) {
+                        const wrapper = targetEl.parentElement.closest('div');
+                        if (wrapper && wrapper !== _containerEl &&
+                            (wrapper === element || wrapper.contains(element))) {
+                            return entry;
+                        }
                     }
                 }
             } catch (e) {
@@ -308,8 +342,10 @@
             contentEl.innerHTML = _resolve(entry.node.content);
             div.appendChild(contentEl);
 
-            // Expanded content — only for active targets with expanded text
-            if (entry.isTarget && entry.node.expanded) {
+            // Expanded content — show for active targets and their direct parent
+            var showExpanded = entry.isTarget ||
+                (entry.node.expanded && i < pathNodes.length - 1 && pathNodes[i + 1].isTarget);
+            if (showExpanded && entry.node.expanded) {
                 var expandedEl = document.createElement('div');
                 expandedEl.className = 'assistant-node-expanded';
                 expandedEl.innerHTML = _resolve(entry.node.expanded);
@@ -545,7 +581,7 @@
         resolvers:  {}
     };
 
-    // ── Default resolvers for wizard/welcome ───────────────────────
+    // ── Default resolvers for wizard contexts ─────────────────────
 
     window._assistant.resolvers.envCount = function() {
         var envs = document.querySelectorAll('#wiz-envs > div');
@@ -555,6 +591,11 @@
     window._assistant.resolvers.domainCount = function() {
         var domains = document.querySelectorAll('#wiz-domains > span');
         return domains ? domains.length : 0;
+    };
+
+    window._assistant.resolvers.moduleCount = function() {
+        var mods = document.querySelectorAll('#wizard-modules-list > div');
+        return mods ? mods.length : 0;
     };
 
 })();
