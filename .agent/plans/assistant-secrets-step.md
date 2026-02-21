@@ -152,23 +152,38 @@ The secrets step renders this DOM structure:
 
 ```
 #wizard-body
-├── h2: "🔐 Secrets & Encryption"
-├── p: intro text
+├── div (flex header)
+│   ├── h2: "🔐 Secrets & Encryption"
+│   └── button: "🔄 Rescan"                    ← calls renderWizard()
+├── p: intro text (multi-env aware)
 ├── div: "🌍 Environment Vault Status" label
 ├── #wiz-env-vault-list                        ← dynamic parent
 │   ├── #wiz-env-vault-{envName}               ← dynamic child (one per env)
-│   │   └── icon + .env filename + desc + state label + [button]
+│   │   ├── <span data-env-active hidden>      ← hidden marker (active env only)
+│   │   ├── icon + .env filename + desc
+│   │   ├── ACTIVE badge (green, active env only)
+│   │   └── state label + [Create button]
 │   └── ...
 ├── #wiz-gh-integration                        ← static node, 3 variants
-│   └── div: GITHUB_REPOSITORY row             
+│   └── div: GITHUB_REPOSITORY row
 │       └── icon + code + desc + state + [button]
-├── (conditional) GitHub Deployment Envs        ← dynamic, appears before #wiz-enc-key-status
-│   ├── div per env                            ← dynamic child
-│   └── ...
+├── #wiz-gh-deploy-envs (conditional, multi-env only) ← child of gh-integration
+│   ├── div: "🌐 GitHub Deployment Environments" label
+│   ├── #wiz-gh-deploy-list                    ← dynamic child container
+│   │   ├── div per env (icon + code + desc + exists/not found + [Create])
+│   │   └── ...
+│   └── p: hint text
 ├── #wiz-enc-key-status                        ← static node, 2 variants
 │   └── configured card OR not-set form
 └── #wiz-secrets-list                          ← dynamic parent
-    └── div per detected secret file           ← dynamic child, 3 variants
+    ├── div: "Detected Secret Files" label
+    ├── #wiz-detected-files                    ← dynamic child container
+    │   ├── div per secret file
+    │   │   ├── icon + <code>filename</code>
+    │   │   ├── active-copy badge ("= .env.{name}", .env row in multi-env only)
+    │   │   └── state label (Encrypted/Plaintext/Missing)
+    │   └── ...
+    └── p: hint text
 ```
 
 ### Catalogue Tree
@@ -182,69 +197,72 @@ The secrets step renders this DOM structure:
     "children": [
         {
             "id": "env-vault-status",
-            "title": "Environment Vault Status",
-            "icon": "🌍",
             "selector": "#wiz-env-vault-list",
-            "separator": true,
-            "content": "...",
-            "expanded": "...",
             "dynamic": true,
             "childTemplate": {
-                "title": "{{name}}",
                 "selector": "#wiz-env-vault-list > div",
-                "content": "...",
-                "expanded": "...",
+                "nameSelector": "code",
                 "variants": [
-                    { "when": { "textContains": "unlocked" }, "content": "...", "expanded": "..." },
-                    { "when": { "textContains": "locked" }, "content": "...", "expanded": "..." },
-                    { "when": { "textContains": "missing" }, "content": "...", "expanded": "..." }
+                    // Active environment variants (match hidden [data-env-active] marker)
+                    { "when": { "textContains": "unlocked", "hasSelector": "[data-env-active]" }, ... },
+                    { "when": { "textContains": "locked",   "hasSelector": "[data-env-active]" }, ... },
+                    { "when": { "textContains": "missing",  "hasSelector": "[data-env-active]" }, ... },
+                    // Inactive environment variants (fallback — no hasSelector)
+                    { "when": { "textContains": "unlocked" }, ... },
+                    { "when": { "textContains": "locked" }, ... },
+                    { "when": { "textContains": "missing" }, ... }
                 ]
             }
         },
         {
             "id": "gh-integration",
-            "title": "GitHub Integration",
-            "icon": "🔗",
             "selector": "#wiz-gh-integration",
-            "separator": true,
-            "content": "...",
-            "expanded": "...",
             "variants": [
-                { "when": { "textContains": "configured" }, "content": "...", "expanded": "..." },
-                { "when": { "textContains": "detected" }, "content": "...", "expanded": "..." },
-                { "when": { "textContains": "could not detect" }, "content": "...", "expanded": "..." }
+                { "when": { "textContains": "configured" }, ... },
+                { "when": { "textContains": "detected" }, ... },
+                { "when": { "textContains": "could not detect" }, ... }
+            ],
+            "children": [
+                {
+                    "id": "gh-deploy-envs",
+                    "selector": "#wiz-gh-deploy-envs",
+                    "dynamic": true,
+                    "childTemplate": {
+                        "selector": "#wiz-gh-deploy-list > div",
+                        "nameSelector": "code",
+                        "variants": [
+                            { "when": { "textContains": "exists" }, ... },
+                            { "when": { "textContains": "not found" }, ... }
+                        ]
+                    }
+                }
             ]
         },
         {
             "id": "enc-key-status",
-            "title": "Content Encryption Key",
-            "icon": "🔑",
             "selector": "#wiz-enc-key-status",
-            "separator": true,
-            "content": "...",
-            "expanded": "...",
             "variants": [
-                { "when": { "textContains": "configured" }, "content": "...", "expanded": "..." },
-                { "when": { "textContains": "not set" }, "content": "...", "expanded": "..." }
+                { "when": { "textContains": "configured" }, ... },
+                { "when": { "textContains": "not set" }, ... }
             ]
         },
         {
             "id": "secrets-list",
-            "title": "Detected Secret Files",
-            "icon": "📄",
             "selector": "#wiz-secrets-list",
-            "separator": true,
-            "content": "...",
-            "expanded": "...",
             "dynamic": true,
             "childTemplate": {
-                "title": "{{name}}",
-                "selector": "#wiz-secrets-list div[style*='display:flex'] > div",
-                "content": "...",
+                "selector": "#wiz-detected-files > div",
+                "nameSelector": "code",
                 "variants": [
-                    { "when": { "textContains": "Encrypted" }, "content": "...", "expanded": "..." },
-                    { "when": { "textContains": "Plaintext" }, "content": "...", "expanded": "..." },
-                    { "when": { "textContains": "Missing" }, "content": "...", "expanded": "..." }
+                    // Active copy — .env row in multi-env with "= .env.{name}" badge
+                    { "when": { "textContains": "= .env." }, ... },
+                    // Environment-specific semantic descriptions
+                    { "when": { "textContains": ".env.development" }, ... },
+                    { "when": { "textContains": ".env.production" }, ... },
+                    // State variants
+                    { "when": { "textContains": "Encrypted" }, ... },
+                    { "when": { "textContains": "Plaintext" }, ... },
+                    { "when": { "textContains": "Missing" }, ... }
                 ]
             }
         }
@@ -252,138 +270,100 @@ The secrets step renders this DOM structure:
 }
 ```
 
+**Variant ordering matters** — the engine picks the first match. Active variants
+and environment-specific variants are listed before generic state variants so
+they win when both conditions are present in the text.
+
 ### Content Strategy — What the assistant says
 
 #### Step context (no hover)
 
-Sets the stage. Explains the three systems. Notes the immediate-action
-difference from Step 1.
+Sets the stage. Explains the multi-env file model.
 
-> "This step shows the state of your project's secrets infrastructure —
-> one vault per environment, your GitHub connection, and the content
-> encryption key. Unlike Step 1, some actions here take effect immediately
-> when you click them."
+> "This step shows the state of your project's secrets infrastructure.
+> In multi-environment mode, .env is the live working copy of the active
+> environment — switching environments swaps the underlying file automatically.
+> Each environment has its own vault file encrypted independently."
 
 #### 🌍 Environment Vault Status (section hover)
 
-Explains vault-per-environment architecture. Connects back to Step 1's
-environments. Uses `{{envCount}}` resolver for dynamic count.
+Explains vault-per-environment architecture. Multi-env awareness.
 
-> "Each environment you defined in Step 1 gets its own encrypted vault
-> file. Development secrets never leak into production — each .env file
-> is independent, encrypted separately, and managed through the 🔐
-> Secrets tab.
->
-> You've got {{envCount}} environments. The goal is to have each one
-> either unlocked (ready to edit) or locked (encrypted, safe on disk)."
+> "Each environment gets its own encrypted .env.{name} file. In multi-env
+> mode, .env is a copy of whichever environment is currently active."
 
-#### Dynamic env row variants
+#### Dynamic env row variants (6 total: 3 active + 3 inactive)
 
-**unlocked (🔓):**
-> "Your {{name}} vault is unlocked and ready. You can view and edit secrets
-> through the 🔐 Secrets tab on the dashboard.
->
-> Remember to lock it when you're done — plaintext .env files should
-> never be committed to git. The .gitignore should already exclude them,
-> but encryption is the real protection."
+Active variants use `hasSelector: "[data-env-active]"` to detect the hidden
+marker added to the active environment's DOM row. The state label includes
+"· ACTIVE" text which also triggers `_highlightActiveEnv()` in the engine.
 
-**locked (🔒):**
-> "Your {{name}} vault is encrypted — its contents are safely stored on
-> disk. To read or edit secrets, unlock it from the 🔐 Secrets tab.
->
-> This is the expected state when you're not actively working with
-> credentials. The vault passphrase decrypts it on demand."
+**unlocked · ACTIVE:** Active env, unlocked. Emphasizes this is the live copy.
 
-**missing (📭):**
-> "Your {{name}} vault doesn't exist yet. Hit + Create to generate the
-> .env file seeded with your Content Vault key.
->
-> This is normal for new environments. Creating it here is immediate —
-> the file is written to disk as soon as you click. You can add secrets
-> to it afterwards through the 🔐 Secrets tab."
+**locked · ACTIVE:** Active env, locked. Notes it needs unlocking to work.
 
-#### 🔗 GitHub Integration variants
+**missing · ACTIVE:** Active env, missing. Urgent — the active env has no file.
 
-**configured (✅):**
-> "Your GitHub repository is set in .env — the control plane knows where
-> to push secrets, dispatch workflows, and manage PRs.
->
-> This value stays local to your .env file. It's never pushed to GitHub
-> secrets — it's the link between your local vault and your remote repo."
+**unlocked (inactive):** Non-active env, unlocked. Suggests locking when done —
+each environment can have its own passphrase for independent protection.
 
-**detected (⚠️):**
-> "Your git remote was auto-detected but isn't saved in .env yet. Click
-> 💾 Save to .env to persist it.
->
-> Once saved, the control plane uses this to sync vault secrets to GitHub
-> Actions, dispatch workflows, and manage pull requests. Without it,
-> GitHub integration features won't know where to target."
+**locked (inactive):** Non-active env, locked. Expected safe state.
 
-**unknown (❓):**
-> "No git remote detected — you can set GITHUB_REPOSITORY manually in
-> your .env file as owner/repo (e.g., my-org/my-project).
->
-> This is needed if you want secrets sync, GitHub Actions dispatch, or
-> PR management through the control plane."
+**missing (inactive):** Non-active env, missing. Offer + Create.
 
-#### 🔑 Content Encryption Key variants
+#### 🔗 GitHub Integration variants (unchanged)
 
-**configured (✅):**
-> "Your content encryption key is set and ready. Content files (media,
-> documents, assets) managed by the content vault are encrypted with
-> this key.
->
-> This is separate from your environment vaults above — those handle
-> .env secrets (API keys, database URLs). The content encryption key
-> protects files, not variables."
+- **configured (✅):** Repo set in .env, integration ready.
+- **detected (⚠️):** Auto-detected but not saved. Offer 💾 Save.
+- **unknown (❓):** No remote found. Manual setup instructions.
 
-**not set (⚠️):**
-> "No content encryption key configured. If you plan to encrypt content
-> files (media, documents), you'll need this.
->
-> Enter your own key (at least 8 characters) or hit 🎲 Generate for a
-> strong random one. Either way, it's stored in .env — keep that file
-> safe. Losing the key means losing access to encrypted content.
->
-> If you don't need content encryption, you can skip this."
+#### 🌐 GitHub Deployment Environments (child of gh-integration)
+
+Now a proper child node with `#wiz-gh-deploy-envs` selector and dynamic
+per-env children via `#wiz-gh-deploy-list > div`.
+
+**exists (✅):** Environment provisioned on GitHub. Can push scoped secrets.
+
+**not found (⚠️):** Not on GitHub yet. Offer 🚀 Create.
+
+#### 🔑 Content Encryption Key variants (unchanged)
+
+- **configured (✅):** Key set, encryption ready.
+- **not set (⚠️):** No key. Form to enter or generate.
 
 #### 📄 Detected Secret Files (section)
 
-> "These are secret files found in your project — .env files, encrypted
-> vaults, and related artifacts. This is a read-only snapshot.
->
-> For full vault management — locking, unlocking, adding keys, pushing
-> to GitHub — use the 🔐 Secrets tab on the dashboard."
+Base content explains multi-env file model: .env = live copy of active
+environment, .env.{name} files hold each environment's stored secrets.
 
-#### Dynamic file row variants
+#### Dynamic file row variants (6 total)
 
-**Encrypted (🔒):**
-> "{{name}} is encrypted — its contents are safe on disk. Open the 🔐
-> Secrets tab if you need to unlock and read it."
+**= .env. (active copy):** The .env file with the active-copy badge. Explains
+that in multi-env mode, .env is automatically maintained as a copy of the
+active environment. Switching happens via the 🔐 Secrets tab.
 
-**Plaintext (🔓):**
-> "{{name}} is in plaintext — anyone with file access can read its
-> contents. Use the 🔐 Secrets tab to lock it when you're done editing."
+**.env.development:** Semantic description — "Development environment secrets,
+typically local databases, test API keys, and debug configurations."
 
-**Missing (❌):**
-> "{{name}} is expected but not found. It may have been deleted or hasn't
-> been created yet. Use + Create above or the 🔐 Secrets tab to set it up."
+**.env.production:** Semantic description — "Production environment secrets,
+live credentials and deployment configs. Lock when moving away — each
+environment can have its own passphrase for independent protection."
+
+**Encrypted (🔒):** Safe on disk, can commit to git.
+
+**Plaintext (🔓):** Readable, should lock when done editing.
+
+**Missing (❌):** Expected but not found. Offer + Create.
 
 ### Note on GitHub Deployment Environments section
 
 This section is **conditional** — it only appears for multi-env projects.
-It's inserted dynamically before `#wiz-enc-key-status`. The engine can
-handle this naturally: if the DOM elements don't exist when `_flattenTree`
-runs, no dynamic children are created. We have two options:
+It's inserted dynamically before `#wiz-enc-key-status` using
+`insertAdjacentHTML('beforebegin', ...)`.
 
-1. Add it as a static node with a selector that targets the dynamically
-   inserted HTML — if the section doesn't exist, `_matchNode` simply
-   won't match it.
-2. Skip it for v1 and add it if the user requests it.
-
-**Recommendation:** Option 1. The section header text "GitHub Deployment
-Environments" can be the selector anchor. This is a follow-up item after
-the core 5 sections are working.
+**Status: ✅ Done.** Wrapped in `id="wiz-gh-deploy-envs"` with child list
+`id="wiz-gh-deploy-list"`. Added as a child of `gh-integration` in the
+catalogue with dynamic per-env children and exists/not-found variants.
 
 ---
 
@@ -423,8 +403,18 @@ add a separate `vaultEnvCount` resolver.
 5. ✅ **Resolvers** — no new ones needed. Existing `envCount` targets Step 1
    DOM; Step 3 content doesn't use `{{envCount}}`
 6. 🔲 **Test** — verify all 4 sections, all state combinations
-7. 🔲 **GitHub Deployment Environments** — deferred (conditional section,
-   needs wrapping ID in HTML)
+7. ✅ **GitHub Deployment Environments** — `id="wiz-gh-deploy-envs"` wrapper
+   added, catalogue child of gh-integration with dynamic per-env children
+8. ✅ **Active environment awareness** — `_activeEnvName` hoisted to step
+   scope, ACTIVE badge + `[data-env-active]` marker on vault rows,
+   active-copy badge on .env in detected files, 6 active/inactive vault
+   variants, `_highlightActiveEnv()` in engine
+9. ✅ **Backend fix** — `vault_status()` route now respects `?env=` param
+10. ✅ **Config loading** — secrets step calls `wizardLoadConfig()` if null
+    (fixes direct `/#wizard/secrets` navigation)
+11. ✅ **Rescan button** — added to step header, calls `renderWizard()`
+12. ✅ **Environment-specific file descriptions** — .env.development and
+    .env.production get semantic descriptions in catalogue
 
 ---
 

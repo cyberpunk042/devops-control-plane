@@ -71,6 +71,14 @@ def api_config_save():  # type: ignore[no-untyped-def]
 
 @config_bp.route("/config/content-folders")
 def api_config_content_folders():  # type: ignore[no-untyped-def]
-    """List configured content folders and detect potential new ones."""
-    folders = config_ops.detect_content_folders(_project_root())
+    """List configured content folders and detect potential new ones.
+
+    Query params:
+        include_hidden: if "true", also return known infrastructure
+            directories (.ledger, .state, .backup, .large, .pages).
+    """
+    include_hidden = request.args.get("include_hidden", "").lower() == "true"
+    folders = config_ops.detect_content_folders(
+        _project_root(), include_hidden=include_hidden,
+    )
     return jsonify({"folders": folders})

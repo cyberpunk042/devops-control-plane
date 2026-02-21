@@ -462,12 +462,22 @@
 
         // ── Step 4: Content ─────────────────────────────────────────
         content: async (body) => {
+            const cfg = _wizardConfig || await wizardLoadConfig();
+            if (!cfg) {
+                body.innerHTML = '<p class="empty-state" style="color:var(--error)">❌ Could not load config.</p>';
+                return;
+            }
+
             body.innerHTML = `
-                <h2 style="margin-bottom:1rem">📁 Content Folders</h2>
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem">
+                    <h2 style="margin:0">📁 Content Folders</h2>
+                    <button onclick="renderWizard()" style="font-size:0.75rem;padding:0.25rem 0.6rem;border-radius:6px;border:1px solid var(--border-subtle);background:var(--bg-inset);cursor:pointer;color:var(--text-secondary)">🔄 Rescan</button>
+                </div>
                 <p style="color:var(--text-secondary);line-height:1.6;margin-bottom:1rem">
                     Select which project folders should be managed as content.
                     These folders will appear in the <strong>📁 Content</strong> tab where you can
                     browse, preview, upload, encrypt, and back up files.
+                    The Content tab also supports an <strong>🗂 Explore All</strong> mode to browse outside configured folders.
                 </p>
                 <div id="wiz-content-folders">
                     <span class="spinner"></span> Scanning project folders…
@@ -475,11 +485,14 @@
             `;
 
             try {
-                const data = await api('/config/content-folders');
+                const data = await api('/config/content-folders?include_hidden=true');
                 const el = document.getElementById('wiz-content-folders');
                 if (!el) return;
 
-                const folders = data.folders || [];
+                const allFolders = data.folders || [];
+                const folders = allFolders.filter(f => f.type !== 'infrastructure');
+                const infraFolders = allFolders.filter(f => f.type === 'infrastructure');
+
                 // Check which are currently configured in content folders
                 let configuredPaths = [];
                 try {
@@ -488,47 +501,81 @@
                 } catch (_) {}
 
                 // Initialize wizard content folders from current config
-                if (!_wizardConfig._contentFolders) {
-                    _wizardConfig._contentFolders = [...configuredPaths];
+                if (!cfg._contentFolders) {
+                    cfg._contentFolders = [...configuredPaths];
                 }
 
+                // ── Selectable folders section ──
+                let html = '';
                 if (folders.length === 0) {
-                    el.innerHTML = '<p class="empty-state">No project folders detected.</p>';
-                    return;
-                }
-
-                el.innerHTML = `
-                    <div style="display:flex;flex-direction:column;gap:0.35rem">
-                        ${folders.map(f => {
-                            const isActive = _wizardConfig._contentFolders.includes(f.name);
-                            const badge = f.suggested ? '<span style="font-size:0.65rem;background:var(--accent-glow);color:var(--accent);padding:0.1rem 0.35rem;border-radius:6px;margin-left:0.3rem">suggested</span>' : '';
-                            return `
-                                <label style="display:flex;align-items:center;gap:0.6rem;padding:0.5rem 0.75rem;background:var(--bg-inset);border:1px solid ${isActive ? 'var(--accent)' : 'var(--border-subtle)'};border-radius:8px;font-size:0.85rem;transition:all 0.15s;cursor:pointer"
-                                    onmouseenter="this.style.borderColor='var(--accent)'" onmouseleave="this.style.borderColor=${isActive ? "'var(--accent)'" : "'var(--border-subtle)'"}">
-                                    <input type="checkbox" ${isActive ? 'checked' : ''}
-                                        onchange="wizardToggleContentFolder('${esc(f.name)}', this.checked, this.closest('label'))"
-                                        style="width:16px;height:16px;accent-color:var(--accent);cursor:pointer">
-                                    <div style="flex:1">
-                                        <div style="font-weight:500">${esc(f.name)}${badge}</div>
-                                        <div style="font-size:0.75rem;color:var(--text-muted)">${f.file_count} file${f.file_count !== 1 ? 's' : ''}</div>
-                                    </div>
-                                    <span style="font-size:0.78rem;color:${isActive ? 'var(--accent)' : 'var(--text-muted)'};font-weight:500" data-folder-status="${esc(f.name)}">
-                                        ${isActive ? '✅ Active' : '—'}
-                                    </span>
-                                </label>
-                            `;
-                        }).join('')}
-                    </div>
-                    <p style="color:var(--text-muted);font-size:0.78rem;margin-top:0.75rem">
+                    html += '<p class="empty-state">No project folders detected.</p>';
+                } else {
+                    html += `<div id="wiz-content-list" style="display:flex;flex-direction:column;gap:0.35rem">`;
+                    html += folders.map(f => {
+                        const isActive = cfg._contentFolders.includes(f.name);
+                        const badge = f.suggested ? '<span style="font-size:0.65rem;background:var(--accent-glow);color:var(--accent);padding:0.1rem 0.35rem;border-radius:6px;margin-left:0.3rem">suggested</span>' : '';
+                        return `
+                            <label style="display:flex;align-items:center;gap:0.6rem;padding:0.5rem 0.75rem;background:var(--bg-inset);border:1px solid ${isActive ? 'var(--accent)' : 'var(--border-subtle)'};border-radius:8px;font-size:0.85rem;transition:all 0.15s;cursor:pointer"
+                                onmouseenter="this.style.borderColor='var(--accent)'" onmouseleave="this.style.borderColor=${isActive ? "'var(--accent)'" : "'var(--border-subtle)'"}">
+                                <input type="checkbox" ${isActive ? 'checked' : ''}
+                                    onchange="wizardToggleContentFolder('${esc(f.name)}', this.checked, this.closest('label'))"
+                                    style="width:16px;height:16px;accent-color:var(--accent);cursor:pointer">
+                                <div style="flex:1">
+                                    <div style="font-weight:500">${esc(f.name)}${badge}</div>
+                                    <div style="font-size:0.75rem;color:var(--text-muted)">${f.file_count} file${f.file_count !== 1 ? 's' : ''}</div>
+                                </div>
+                                <span style="font-size:0.78rem;color:${isActive ? 'var(--accent)' : 'var(--text-muted)'};font-weight:500" data-folder-status="${esc(f.name)}">
+                                    ${isActive ? '✅ Active' : '—'}
+                                </span>
+                            </label>
+                        `;
+                    }).join('');
+                    html += `</div>`;
+                    html += `<p style="color:var(--text-muted);font-size:0.78rem;margin-top:0.75rem">
                         💡 Selected folders appear in the <strong>📁 Content</strong> tab.
                         You can also use the <strong>🗂 Explore All</strong> option there to browse all project folders.
-                    </p>
-                `;
+                    </p>`;
+                }
+
+                // ── Infrastructure section ──
+                if (infraFolders.length > 0) {
+                    html += `
+                        <div id="wiz-content-infra" style="margin-top:1.5rem">
+                            <div style="font-size:0.85rem;font-weight:600;margin-bottom:0.5rem;color:var(--text-secondary)">
+                                🏗️ Content Infrastructure
+                            </div>
+                            <p style="color:var(--text-muted);font-size:0.78rem;margin-bottom:0.5rem">
+                                These directories are managed automatically by the control plane. They are created when needed — no manual setup required.
+                            </p>
+                            <div id="wiz-content-infra-list" style="display:flex;flex-direction:column;gap:0.3rem">
+                    `;
+                    html += infraFolders.map(f => {
+                        const statusColor = f.exists ? 'var(--success)' : 'var(--text-muted)';
+                        const statusLabel = f.exists
+                            ? `${f.file_count} file${f.file_count !== 1 ? 's' : ''}`
+                            : 'auto-created';
+                        const sharedBadge = f.shared
+                            ? '<span style="font-size:0.6rem;background:var(--accent-glow);color:var(--accent);padding:0.05rem 0.3rem;border-radius:4px;margin-left:0.3rem">shared</span>'
+                            : '<span style="font-size:0.6rem;background:var(--bg-inset);color:var(--text-muted);padding:0.05rem 0.3rem;border-radius:4px;border:1px solid var(--border-subtle);margin-left:0.3rem">local</span>';
+                        return `
+                            <div style="display:flex;align-items:center;gap:0.5rem;padding:0.4rem 0.6rem;background:var(--bg-inset);border:1px solid var(--border-subtle);border-radius:6px;font-size:0.82rem">
+                                <span>${esc(f.icon)}</span>
+                                <code style="font-size:0.8rem">${esc(f.name)}</code>${sharedBadge}
+                                <span style="flex:1;min-width:0;font-size:0.72rem;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:right" title="${esc(f.description)}">${esc(f.description)}</span>
+                                <span style="font-size:0.75rem;color:${statusColor};white-space:nowrap">${f.exists ? '✅' : '⬜'} ${statusLabel}</span>
+                            </div>
+                        `;
+                    }).join('');
+                    html += `</div></div>`;
+                }
+
+                el.innerHTML = html;
             } catch (e) {
                 const el = document.getElementById('wiz-content-folders');
                 if (el) el.innerHTML = `<p style="color:var(--error);font-size:0.85rem">❌ ${esc(e.message)}</p>`;
             }
         },
+
 
         // ── Step 5: Integrations ───────────────────────────────────
         integrations: async (body) => {

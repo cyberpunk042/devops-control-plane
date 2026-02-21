@@ -376,5 +376,115 @@
                 "children": []
             }
         ]
+    },
+    {
+        "context": "wizard/content",
+        "title": "Content Folders",
+        "icon": "📁",
+        "content": "Choose which folders appear in the 📁 Content tab — your workspace for browsing, previewing, encrypting, and archiving project files.\n\nBelow the folders, you'll see the infrastructure directories that the control plane manages automatically. These track your chat history, audit traces, backups, and optimized large files — they're created on demand as you use the system.",
+        "children": [
+            {
+                "id": "content-list",
+                "title": "Project Folders",
+                "icon": "📂",
+                "selector": "#wiz-content-list",
+                "separator": true,
+                "content": "Select the folders you want to manage through the Content tab. Each selected folder becomes browsable with preview, encryption, download, and archive capabilities.",
+                "expanded": "This controls the default folder tabs in the Content view. You can always browse any project directory using 🗂 Explore All — this selection just sets the defaults.\n\n💡 Folders marked 'suggested' match common content folder patterns (docs, media, assets, etc). You don't have to include all of them — pick the ones that matter to your workflow.",
+                "dynamic": true,
+                "childTemplate": {
+                    "title": "{{name}}",
+                    "nameSelector": "div > div:first-child",
+                    "content": "A project directory.",
+                    "selector": "#wiz-content-list > label",
+                    "variants": [
+                        {
+                            "when": {
+                                "textContains": "Active",
+                                "hasSelector": "[style*='suggested']"
+                            },
+                            "content": "This folder is selected and was auto-suggested as a common content folder.",
+                            "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">✅ Active · suggested</div><div class=\"state-detail\">This folder is included in the 📁 Content tab. It matched a common content folder pattern and was pre-suggested.\n\nYou'll get full management capabilities: browsing, preview, upload, encryption, backup archives, and large file optimization.</div></div>"
+                        },
+                        {
+                            "when": {
+                                "textContains": "Active"
+                            },
+                            "content": "This folder is selected for content management.",
+                            "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">✅ Active</div><div class=\"state-detail\">This folder will appear as a tab in the 📁 Content view. You can browse, upload, encrypt, download, and archive files inside it.\n\nUncheck it if you don't need to manage these files through the Content tab directly.</div></div>"
+                        },
+                        {
+                            "when": {
+                                "textContains": "suggested"
+                            },
+                            "content": "This looks like a good candidate for content management — it matches a common content folder pattern.",
+                            "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">💡 Suggested</div><div class=\"state-detail\">This directory name matches a common content folder pattern. Check it to include it in the Content tab — you'll get browsing, preview, encryption, and archive capabilities.\n\nSuggested doesn't mean required. If this folder isn't relevant to your workflow, leave it unchecked.</div></div>"
+                        },
+                        {
+                            "when": {
+                                "textContains": "—"
+                            },
+                            "content": "A project directory. Check the box to include it in the Content tab.",
+                            "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">Not selected</div><div class=\"state-detail\">This folder exists in your project but isn't currently managed through the Content tab.\n\nCheck it if you want to browse, upload, encrypt, or archive files in this directory. Leave it unchecked if it's source code or configuration that doesn't need content management.</div></div>"
+                        }
+                    ]
+                },
+                "children": []
+            },
+            {
+                "id": "content-infra",
+                "title": "Content Infrastructure",
+                "icon": "🏗️",
+                "selector": "#wiz-content-infra",
+                "separator": true,
+                "content": "These directories are created and maintained by the control plane. They're gitignored and never need manual management — the system handles creation, population, and cleanup.",
+                "expanded": "Think of them as internal storage layers:\n\n• .ledger — shares data via git branches (chat threads, traces, audits)\n• .state — local caches (preferences, scores, pending audits, run history)\n• .backup — compressed archive snapshots from the Content tab\n• .large — optimized oversized files, uploaded to release artifacts for sharing\n• .pages — generated site builds from the Pages pipeline\n\nEach one is gitignored. The 'shared' badge on .ledger means it syncs with collaborators via git push/pull — everything else stays local to your machine.",
+                "dynamic": true,
+                "childTemplate": {
+                    "title": "{{name}}",
+                    "nameSelector": "code",
+                    "content": "An infrastructure directory managed by the control plane.",
+                    "selector": "#wiz-content-infra-list > div",
+                    "variants": [
+                        {
+                            "when": {
+                                "textContains": ".ledger"
+                            },
+                            "content": "Git worktree for shared project data — chat threads, trace snapshots, and saved audit records.",
+                            "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">📒 Ledger</div><div class=\"state-detail\">The ledger is a separate git branch checked out as a worktree at your project root. It stores:\n\n• Chat threads and messages (from the 💬 Chat tab)\n• Execution traces (from traced operations)\n• Saved audit snapshots (promoted from pending results)\n\nBadge: 'shared' means this data syncs with your remote repository via git push/pull. Collaborators get the same history.\n\nYou never interact with .ledger directly — the control plane handles all reads and writes through the ledger service.</div></div>"
+                        },
+                        {
+                            "when": {
+                                "textContains": ".state"
+                            },
+                            "content": "Local cache — preferences, audit scores, pending audits, run history, and trace recordings.",
+                            "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">💾 Local State</div><div class=\"state-detail\">Machine-local storage for ephemeral and cached data:\n\n• devops_prefs.json — your dashboard preferences\n• devops_cache.json — cached scan results\n• audit_activity.json — audit execution log\n• audit_scores.json — audit score history\n• pending_audits.json — audits awaiting review\n• runs.jsonl — execution run history\n• traces/ — local trace recordings before sharing\n\nNone of this leaves your machine. This directory is almost certainly present by now — the control plane creates it the first time any feature needs local persistence.</div></div>"
+                        },
+                        {
+                            "when": {
+                                "textContains": ".backup"
+                            },
+                            "content": "Backup archives created from the Content tab's Archive view.",
+                            "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🗄️ Backups</div><div class=\"state-detail\">Compressed archive snapshots of folders you choose to protect. Created through the Archive view in the 📁 Content tab.\n\nBackup archives can exist at any level — the root .backup holds project-wide archives, while individual content folders can have their own .backup subdirectories.\n\nFor off-machine protection, you can upload archives to GitHub release artifacts.</div></div>"
+                        },
+                        {
+                            "when": {
+                                "textContains": ".large"
+                            },
+                            "content": "Optimized large files — gitignored, virtual in parent, uploadable to release artifacts.",
+                            "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">📦 Large Files</div><div class=\"state-detail\">When files over 2 MB are uploaded through the Content tab, they're automatically moved to a .large subdirectory. The original filename appears virtually in the parent folder — you browse and manage them normally.\n\n.large is gitignored, so large files don't bloat your repository. For sharing, they can be uploaded to GitHub release artifacts (☁️ icon in the Content tab).\n\nThis directory can appear at any folder level — not just inside configured content folders. The content browser's Explore All mode can work with .large directories anywhere in the project.</div></div>"
+                        },
+                        {
+                            "when": {
+                                "textContains": ".pages"
+                            },
+                            "content": "Generated site output from the Pages pipeline.",
+                            "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🌐 Pages Output</div><div class=\"state-detail\">Build output from the Pages pipeline — your generated Docusaurus site, static assets, and deployment artifacts.\n\nThis directory is rebuilt on each deploy. It's not something you edit directly — changes flow from your source content through the Pages build process.\n\n💡 If you see this without having used Pages yet, it was likely created by a previous build or site generation run.</div></div>"
+                        }
+                    ]
+                },
+                "children": []
+            }
+        ]
     }
 ]

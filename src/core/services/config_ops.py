@@ -36,6 +36,46 @@ _COMMON_CONTENT_NAMES = frozenset({
     "backups", "backup", "archive", "notes", "wiki",
 })
 
+# Infrastructure directories — auto-created by the system, not user-managed.
+# Always shown in the wizard for awareness; state-aware (exists / not yet).
+_INFRA_DIRS: list[dict] = [
+    {
+        "name": ".ledger",
+        "role": "ledger",
+        "icon": "📒",
+        "description": "Git worktree for chat threads, trace snapshots, and audit records",
+        "shared": True,
+    },
+    {
+        "name": ".state",
+        "role": "state",
+        "icon": "💾",
+        "description": "Local cache — preferences, audit scores, pending audits, run history, traces",
+        "shared": False,
+    },
+    {
+        "name": ".backup",
+        "role": "backup",
+        "icon": "🗄️",
+        "description": "Backup archives created from the Content tab's Archive view",
+        "shared": False,
+    },
+    {
+        "name": ".large",
+        "role": "large",
+        "icon": "📦",
+        "description": "Optimised large files (gitignored, virtual in parent). Can appear at any folder level",
+        "shared": False,
+    },
+    {
+        "name": ".pages",
+        "role": "pages",
+        "icon": "🌐",
+        "description": "Generated site output from the Pages pipeline",
+        "shared": False,
+    },
+]
+
 
 # ── Read Config ─────────────────────────────────────────────────
 
@@ -210,11 +250,25 @@ def save_config(
 # ── Detect Content Folders ──────────────────────────────────────
 
 
-def detect_content_folders(project_root: Path) -> list[dict]:
+def detect_content_folders(
+    project_root: Path,
+    *,
+    include_hidden: bool = False,
+) -> list[dict]:
     """List detected content folders and suggest common ones.
 
+    Args:
+        project_root: Project root directory.
+        include_hidden: If True, also return known infrastructure directories
+            (``.ledger``, ``.state``, ``.backup``, ``.large``, ``.pages``)
+            tagged with ``type: "infrastructure"``.  These are always listed
+            regardless of whether they exist — the system creates them
+            automatically when needed.
+
     Returns:
-        List of {"name", "path", "file_count", "suggested"} dicts.
+        List of {"name", "path", "file_count", "suggested", ...} dicts.
+        Infrastructure entries additionally carry ``type``, ``role``,
+        ``icon``, ``description``, ``shared``, and ``exists`` keys.
     """
     detected: list[dict] = []
 
@@ -228,15 +282,7 @@ def detect_content_folders(project_root: Path) -> list[dict]:
             continue
 
         # Count files recursively (limit scan depth)
-        file_count = 0
-        try:
-            for f in entry.rglob("*"):
-                if f.is_file():
-                    file_count += 1
-                if file_count > 999:
-                    break
-        except PermissionError:
-            pass
+        file_count = _count_files(entry)
 
         is_suggested = name.lower() in _COMMON_CONTENT_NAMES
         detected.append({
@@ -246,4 +292,36 @@ def detect_content_folders(project_root: Path) -> list[dict]:
             "suggested": is_suggested,
         })
 
+    if include_hidden:
+        for infra in _INFRA_DIRS:
+            d = project_root / infra["name"]
+            exists = d.is_dir()
+            file_count = _count_files(d) if exists else 0
+            detected.append({
+                "name": infra["name"],
+                "path": infra["name"],
+                "file_count": file_count,
+                "exists": exists,
+                "type": "infrastructure",
+                "role": infra["role"],
+                "icon": infra["icon"],
+                "description": infra["description"],
+                "shared": infra["shared"],
+                "suggested": False,
+            })
+
     return detected
+
+
+def _count_files(folder: Path, limit: int = 999) -> int:
+    """Count files recursively with a cap to avoid slow scans."""
+    count = 0
+    try:
+        for f in folder.rglob("*"):
+            if f.is_file():
+                count += 1
+            if count > limit:
+                break
+    except PermissionError:
+        pass
+    return count

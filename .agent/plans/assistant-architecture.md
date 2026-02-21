@@ -697,3 +697,77 @@ window._dcp.stacks = [
 ];
 ```
 
+---
+
+## 12. Hidden-Marker Variant Pattern
+
+Some DOM elements carry hidden `<span>` markers that serve as variant
+selectors without affecting the visual layout. The pattern:
+
+```html
+<!-- In the wizard step renderer -->
+<div id="wiz-env-vault-dev">
+    <span data-env-active hidden></span>   <!-- invisible, only for assistant -->
+    ...visible content...
+</div>
+```
+
+```json
+// In the catalogue
+{
+    "when": {
+        "textContains": "unlocked",
+        "hasSelector": "[data-env-active]"
+    },
+    "content": "This is the ACTIVE environment and it's unlocked..."
+}
+```
+
+The `hasSelector` condition uses `element.querySelector()`, so the hidden
+span doesn't need any text content — it just needs to exist inside the
+element's DOM subtree.
+
+**Why not use `textContains` alone?** Because the active badge text
+("ACTIVE") appears in the `textContent` of the element, but using that
+as the discriminator would be fragile — the word could appear in
+descriptions or labels. A dedicated `data-*` attribute is a stable contract
+between the renderer and the catalogue.
+
+**Current usage:** `[data-env-active]` on the active environment's vault
+status row in wizard/secrets step 3. The same pattern can be reused for
+any future scenario where visual text alone isn't a reliable discriminator.
+
+---
+
+## 13. Active Environment Highlighting (`_highlightActiveEnv`)
+
+When the assistant panel renders for `wizard/secrets`, the engine calls
+`_highlightActiveEnv()` in a `requestAnimationFrame` hook to visually
+distinguish the active environment's entry in the assistant node list.
+
+### How It Works
+
+1. After `_renderInteractionPath()` completes, scan all
+   `.assistant-node-entry` elements in the panel
+2. Find the one whose text contains "· ACTIVE" (the label added by the
+   vault row renderer)
+3. Add the CSS class `.assistant-node-active-env` to that entry
+4. This applies a subtle accent-colored left border and background tint
+
+### CSS
+
+```css
+.assistant-node-active-env {
+    border-left: 3px solid var(--accent);
+    background: color-mix(in srgb, var(--accent) 5%, transparent);
+    border-radius: 4px;
+}
+```
+
+### Relationship to Stack Highlighting
+
+This follows the same pattern as `_highlightSelectedStack` (section 11):
+a post-render decoration pass that adds CSS classes to assistant entries
+based on external state. Both run in `requestAnimationFrame` to ensure
+the DOM is ready.
+
