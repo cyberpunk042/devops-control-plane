@@ -486,5 +486,920 @@
                 "children": []
             }
         ]
+    },
+    {
+        "context": "wizard/integrations",
+        "title": "Integrations & DevOps",
+        "icon": "🔌",
+        "content": "This step detects your environment and lets you choose which integrations are active. {{toolsInstalled}} of {{toolsTotal}} tools are available, {{filesDetected}} project files detected, and {{integrationCount}} integration cards are ready to configure.\n\nEach integration you enable here becomes a card on the dashboard — giving you one-click access to its setup, status, and operations.",
+        "children": [
+            {
+                "id": "scan-bar",
+                "title": "Scan Status",
+                "icon": "🔍",
+                "selector": "#wiz-int-scan-bar",
+                "content": "The control plane scans your project root and system PATH to detect available tools, project files, and integration readiness.",
+                "expanded": "Results are cached in-memory and in your browser's session storage so you don't wait on every step change. The age shown is how long ago the last scan completed.\n\nHit 🔄 Re-scan to force a fresh detection — useful after installing a tool or adding a Dockerfile.",
+                "variants": [
+                    {
+                        "when": {
+                            "textContains": "rescan recommended"
+                        },
+                        "content": "Files on disk have changed since the last scan — the detection results may be stale.",
+                        "expanded": "<div class=\"assistant-state-card state-warning\"><div class=\"state-label\">⚡ Stale</div><div class=\"state-detail\">The staleness watcher detected file changes in your project since the last scan. This means new or modified Dockerfiles, manifests, config files, or tool installations may not be reflected in the current detection.\n\nHit 🔄 Re-scan to refresh. The scan is fast (< 2 seconds) and updates everything: tool availability, file detection, stack defaults, and integration status.</div></div>"
+                    },
+                    {
+                        "when": {
+                            "textContains": "fresh"
+                        },
+                        "content": "The scan is recent and up to date — detection results reflect the current state of your project.",
+                        "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">✓ Fresh</div><div class=\"state-detail\">Scan completed less than 30 seconds ago. All tool checks, file detection, and integration status reflect the current state of your project.\n\nYou can still force a re-scan anytime if you've made changes since landing on this step.</div></div>"
+                    }
+                ],
+                "children": []
+            },
+            {
+                "id": "system-tools",
+                "title": "System Tools",
+                "icon": "🔧",
+                "selector": "#wiz-int-tools-section",
+                "content": "{{toolsInstalled}} of {{toolsTotal}} development tools are available on your system. These are the CLI binaries the control plane calls to perform real work — building images, running tests, scanning for vulnerabilities, deploying to clusters.",
+                "expanded": "Tools marked ✗ are missing from your PATH. You can install them directly from here — pip-based tools install into your current virtualenv, while system tools need sudo.\n\nEvery tool here maps to a specific pipeline in the control plane. Missing tools don't block setup, but they'll limit what the corresponding integration cards can do.",
+                "dynamic": true,
+                "childTemplate": {
+                    "selector": "[id^='wiz-int-tool-']",
+                    "nameSelector": "code",
+                    "title": "{{name}}",
+                    "content": "Development tool used by the control plane.",
+                    "variants": [
+                        {
+                            "when": {
+                                "textContains": "✓ git"
+                            },
+                            "title": "git ✓",
+                            "icon": "✅",
+                            "content": "Version control — the foundation everything else depends on.",
+                            "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">✅ Installed</div><div class=\"state-detail\">Git is the bedrock of the control plane. Every integration below — GitHub, CI/CD, Docker, K8s — assumes a git repository exists.\n\nThe control plane uses git for: commit tracking, remote detection, branch awareness, .gitignore analysis, and the entire sync pipeline that pushes secrets and configs to GitHub.</div></div>"
+                        },
+                        {
+                            "when": {
+                                "textContains": "git"
+                            },
+                            "content": "Version control — the foundation everything else depends on.",
+                            "expanded": "<div class=\"assistant-state-card state-error\"><div class=\"state-label\">❌ Missing — Critical</div><div class=\"state-detail\">Git is not installed. This blocks nearly every integration — GitHub, CI/CD, Docker builds, and K8s deployments all assume a git repository.\n\nInstall it now. Without git, the control plane cannot detect your project structure or sync configurations.\n\n📦 Installs via: sudo apt-get install git</div></div>"
+                        },
+                        {
+                            "when": {
+                                "textContains": "✓ gh"
+                            },
+                            "title": "gh ✓",
+                            "icon": "✅",
+                            "content": "GitHub CLI — manages PRs, secrets, Actions, and environments from the terminal.",
+                            "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">✅ Installed</div><div class=\"state-detail\">The GitHub CLI is how the control plane interacts with your GitHub repository without needing API tokens or REST calls.\n\nUsed for: pushing secrets (gh secret set), syncing variables (gh variable set), dispatching workflows, creating deployment environments, and managing pull requests — all from the dashboard.</div></div>"
+                        },
+                        {
+                            "when": {
+                                "textContains": "gh"
+                            },
+                            "content": "GitHub CLI — manages PRs, secrets, Actions, and environments from the terminal.",
+                            "expanded": "<div class=\"assistant-state-card state-warning\"><div class=\"state-label\">⚠ Missing</div><div class=\"state-detail\">Without the GitHub CLI, you can't sync secrets to GitHub, dispatch workflows, or manage deployment environments from the control plane.\n\nThe control plane exclusively uses `gh` for all GitHub operations — no raw REST API calls. Install it to unlock the full GitHub integration.\n\n📦 Installs via: sudo snap install gh</div></div>"
+                        },
+                        {
+                            "when": {
+                                "textContains": "✓ docker-compose"
+                            },
+                            "title": "docker-compose ✓",
+                            "icon": "✅",
+                            "content": "Multi-service orchestration — manages docker-compose.yml stacks.",
+                            "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">✅ Installed</div><div class=\"state-detail\">Docker Compose is available. The control plane uses it to parse your compose files, enumerate services, manage stack lifecycle (up/down/restart), and generate compose configurations with detected stack defaults.\n\nYour compose services will appear in the Docker integration card with per-service controls.</div></div>"
+                        },
+                        {
+                            "when": {
+                                "textContains": "docker-compose"
+                            },
+                            "content": "Multi-service orchestration — manages docker-compose.yml stacks.",
+                            "expanded": "<div class=\"assistant-state-card state-warning\"><div class=\"state-label\">⚠ Missing</div><div class=\"state-detail\">Docker Compose orchestrates multi-container applications from a single YAML file. Without it, the control plane can't manage your compose stacks, start/stop services, or generate compose configurations.\n\nIf you only run single containers, this is optional. For multi-service setups (API + database + cache), it's essential.\n\n📦 Installs via: sudo apt-get install docker-compose-v2</div></div>"
+                        },
+                        {
+                            "when": {
+                                "textContains": "✓ docker"
+                            },
+                            "title": "docker ✓",
+                            "icon": "✅",
+                            "content": "Container runtime — builds images, runs containers, talks to the Docker daemon.",
+                            "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">✅ Installed</div><div class=\"state-detail\">Docker is available. The control plane uses it for: building container images from your Dockerfile, running docker compose stacks, inspecting the daemon for running containers, and producing deployment artifacts.\n\nThe Docker integration card on the dashboard gives you image management, compose orchestration, and Dockerfile generation — all powered by this binary.</div></div>"
+                        },
+                        {
+                            "when": {
+                                "textContains": "docker"
+                            },
+                            "content": "Container runtime — builds images, runs containers, talks to the Docker daemon.",
+                            "expanded": "<div class=\"assistant-state-card state-warning\"><div class=\"state-label\">⚠ Missing</div><div class=\"state-detail\">Docker is not installed. Without it, the control plane can't build container images, run compose stacks, or produce deployment artifacts.\n\nThe Docker integration card will still appear but will be limited to configuration — no builds or daemon interaction until Docker is available.\n\n📦 Installs via: sudo apt-get install docker.io</div></div>"
+                        },
+                        {
+                            "when": {
+                                "textContains": "✓ kubectl"
+                            },
+                            "title": "kubectl ✓",
+                            "icon": "✅",
+                            "content": "Kubernetes CLI — talks to clusters, applies manifests, inspects workloads.",
+                            "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">✅ Installed</div><div class=\"state-detail\">kubectl is available and the control plane can interact with Kubernetes clusters. Used for: applying manifests, inspecting pods/services/deployments, checking cluster connectivity, and the K8s manifest wizard.\n\nThe Kubernetes integration card uses kubectl for all cluster operations. Make sure your kubeconfig points to the right cluster.</div></div>"
+                        },
+                        {
+                            "when": {
+                                "textContains": "kubectl"
+                            },
+                            "content": "Kubernetes CLI — talks to clusters, applies manifests, inspects workloads.",
+                            "expanded": "<div class=\"assistant-state-card state-warning\"><div class=\"state-label\">⚠ Missing</div><div class=\"state-detail\">Without kubectl, the control plane can't communicate with Kubernetes clusters. The K8s integration card will be limited to manifest generation — no live cluster operations.\n\nIf you're not deploying to Kubernetes, this is safe to skip.\n\n📦 Installs via: sudo snap install kubectl --classic</div></div>"
+                        },
+                        {
+                            "when": {
+                                "textContains": "✓ terraform"
+                            },
+                            "title": "terraform ✓",
+                            "icon": "✅",
+                            "content": "Infrastructure as Code — provisions cloud resources from declarative configs.",
+                            "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">✅ Installed</div><div class=\"state-detail\">Terraform is available. The control plane uses it for: scaffolding provider configurations, generating backend state configs, planning infrastructure changes, and integrating with the Terraform card on the dashboard.\n\nThe Terraform integration detects your providers, backend, and existing state to give you a clear picture of your infrastructure posture.</div></div>"
+                        },
+                        {
+                            "when": {
+                                "textContains": "terraform"
+                            },
+                            "content": "Infrastructure as Code — provisions cloud resources from declarative configs.",
+                            "expanded": "<div class=\"assistant-state-card state-warning\"><div class=\"state-label\">⚠ Missing</div><div class=\"state-detail\">Without Terraform, the control plane can't scaffold IaC configs or inspect your infrastructure state. The Terraform card will be hidden by default unless you have a terraform/ directory.\n\nIf you manage infrastructure through other means (CloudFormation, Pulumi, manual), this is safe to skip.\n\n📦 Installs via: sudo snap install terraform --classic</div></div>"
+                        },
+                        {
+                            "when": {
+                                "textContains": "✓ helm"
+                            },
+                            "title": "helm ✓",
+                            "icon": "✅",
+                            "content": "Kubernetes package manager — manages charts, releases, and values files.",
+                            "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">✅ Installed</div><div class=\"state-detail\">Helm is available. The control plane uses it alongside kubectl for: listing releases, inspecting chart values, and generating Helm-based deployment configurations in the K8s manifest wizard.\n\nHelm charts provide a higher-level abstraction over raw K8s manifests — especially useful for complex applications with many resources.</div></div>"
+                        },
+                        {
+                            "when": {
+                                "textContains": "helm"
+                            },
+                            "content": "Kubernetes package manager — manages charts, releases, and values files.",
+                            "expanded": "<div class=\"assistant-state-card state-warning\"><div class=\"state-label\">⚠ Missing</div><div class=\"state-detail\">Without Helm, the control plane can still work with raw K8s manifests via kubectl. Helm adds chart management and release tracking on top.\n\nIf you deploy with raw YAML manifests, Helm is optional. If your project uses Helm charts, install it.\n\n📦 Installs via: curl script (sudo required)</div></div>"
+                        },
+                        {
+                            "when": {
+                                "textContains": "✓ node"
+                            },
+                            "title": "node ✓",
+                            "icon": "✅",
+                            "content": "Node.js runtime — required for npm, npx, and JavaScript-based tooling.",
+                            "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">✅ Installed</div><div class=\"state-detail\">Node.js is available. The control plane uses it indirectly through npm/npx for: JavaScript linting (ESLint), formatting (Prettier), and the Pages pipeline (Docusaurus builds).\n\nIf your project includes JavaScript or TypeScript modules, Node.js enables their full toolchain integration.</div></div>"
+                        },
+                        {
+                            "when": {
+                                "textContains": "node"
+                            },
+                            "content": "Node.js runtime — required for npm, npx, and JavaScript-based tooling.",
+                            "expanded": "<div class=\"assistant-state-card state-warning\"><div class=\"state-label\">⚠ Missing</div><div class=\"state-detail\">Without Node.js, JavaScript-based tools (ESLint, Prettier) and the Pages pipeline (Docusaurus) won't work. If your project is pure Python/Go/Rust, this is safe to skip.\n\n📦 Installs via: sudo snap install node --classic</div></div>"
+                        },
+                        {
+                            "when": {
+                                "textContains": "✓ npm"
+                            },
+                            "title": "npm ✓",
+                            "icon": "✅",
+                            "content": "Node package manager — installs JS dependencies and runs scripts.",
+                            "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">✅ Installed</div><div class=\"state-detail\">npm is available. Used by the control plane for: installing global tools (ESLint, Prettier), managing package.json dependencies, and running build scripts in JS/TS modules.\n\nThe Packages integration card uses npm for dependency auditing in Node.js projects.</div></div>"
+                        },
+                        {
+                            "when": {
+                                "textContains": "npm"
+                            },
+                            "content": "Node package manager — installs JS dependencies and runs scripts.",
+                            "expanded": "<div class=\"assistant-state-card state-warning\"><div class=\"state-label\">⚠ Missing</div><div class=\"state-detail\">Without npm, JavaScript tooling can't be installed and package.json projects can't be managed. Usually installed alongside Node.js.\n\n📦 Installs via: sudo apt-get install npm</div></div>"
+                        },
+                        {
+                            "when": {
+                                "textContains": "✓ ruff"
+                            },
+                            "title": "ruff ✓",
+                            "icon": "✅",
+                            "content": "Python linter and formatter — fast, Rust-powered, replaces flake8 + isort + black.",
+                            "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">✅ Installed</div><div class=\"state-detail\">Ruff is available. The control plane uses it in the Quality pipeline and audit scoring — it checks Python code for style violations, import ordering, and common mistakes.\n\nRuff is an order of magnitude faster than traditional Python linters. Its results feed into the 🔧 Code Quality card on the dashboard.</div></div>"
+                        },
+                        {
+                            "when": {
+                                "textContains": "ruff"
+                            },
+                            "content": "Python linter and formatter — fast, Rust-powered, replaces flake8 + isort + black.",
+                            "expanded": "<div class=\"assistant-state-card state-warning\"><div class=\"state-label\">⚠ Missing</div><div class=\"state-detail\">Without Ruff, the Code Quality card can't run lint checks on Python code. The audit scoring system treats this as a gap in your quality posture.\n\nIt's a pip install — no sudo needed, installs into your current virtualenv.\n\n📦 Installs via: pip install ruff</div></div>"
+                        },
+                        {
+                            "when": {
+                                "textContains": "✓ mypy"
+                            },
+                            "title": "mypy ✓",
+                            "icon": "✅",
+                            "content": "Python static type checker — catches type errors before runtime.",
+                            "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">✅ Installed</div><div class=\"state-detail\">mypy is available. The control plane uses it in the Quality pipeline to verify type annotations across your Python codebase.\n\nType checking results feed into audit scoring. Projects with strict typing enabled score higher on the quality dimension.</div></div>"
+                        },
+                        {
+                            "when": {
+                                "textContains": "mypy"
+                            },
+                            "content": "Python static type checker — catches type errors before runtime.",
+                            "expanded": "<div class=\"assistant-state-card state-warning\"><div class=\"state-label\">⚠ Missing</div><div class=\"state-detail\">Without mypy, the Quality pipeline skips type checking. If your Python code uses type annotations, installing mypy will improve your audit quality score.\n\n📦 Installs via: pip install mypy</div></div>"
+                        },
+                        {
+                            "when": {
+                                "textContains": "✓ pytest"
+                            },
+                            "title": "pytest ✓",
+                            "icon": "✅",
+                            "content": "Python test runner — discovers and executes test suites.",
+                            "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">✅ Installed</div><div class=\"state-detail\">pytest is available. The control plane uses it in the Testing pipeline — running your test suite, collecting coverage data, and feeding results into the 🧪 Testing card.\n\nTest results are a core input to audit scoring. Projects with passing tests and good coverage score significantly higher.</div></div>"
+                        },
+                        {
+                            "when": {
+                                "textContains": "pytest"
+                            },
+                            "content": "Python test runner — discovers and executes test suites.",
+                            "expanded": "<div class=\"assistant-state-card state-warning\"><div class=\"state-label\">⚠ Missing</div><div class=\"state-detail\">Without pytest, the Testing card can't run your test suite or collect coverage. The audit scoring system will flag the testing dimension as uncovered.\n\n📦 Installs via: pip install pytest</div></div>"
+                        },
+                        {
+                            "when": {
+                                "textContains": "✓ pip-audit"
+                            },
+                            "title": "pip-audit ✓",
+                            "icon": "✅",
+                            "content": "Python vulnerability scanner — checks installed packages against the PyPI advisory database.",
+                            "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">✅ Installed</div><div class=\"state-detail\">pip-audit is available. The control plane uses it in the Security pipeline to scan your Python dependencies for known CVEs.\n\nResults feed into the 🔐 Security Posture card. It cross-references your installed packages against the PyPI advisory database and OSV.dev.</div></div>"
+                        },
+                        {
+                            "when": {
+                                "textContains": "pip-audit"
+                            },
+                            "content": "Python vulnerability scanner — checks installed packages against the PyPI advisory database.",
+                            "expanded": "<div class=\"assistant-state-card state-warning\"><div class=\"state-label\">⚠ Missing</div><div class=\"state-detail\">Without pip-audit, the Security card can't check your Python dependencies for known vulnerabilities. This is one of the three security scanners the control plane uses.\n\n📦 Installs via: pip install pip-audit</div></div>"
+                        },
+                        {
+                            "when": {
+                                "textContains": "✓ bandit"
+                            },
+                            "title": "bandit ✓",
+                            "icon": "✅",
+                            "content": "Python security linter — scans source code AST for common vulnerability patterns.",
+                            "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">✅ Installed</div><div class=\"state-detail\">Bandit is available. The control plane uses it in the Security pipeline to perform static analysis on your Python source code — looking for hardcoded passwords, insecure function calls, SQL injection patterns, and similar issues.\n\nUnlike pip-audit (which checks dependencies), Bandit scans your own code.</div></div>"
+                        },
+                        {
+                            "when": {
+                                "textContains": "bandit"
+                            },
+                            "content": "Python security linter — scans source code AST for common vulnerability patterns.",
+                            "expanded": "<div class=\"assistant-state-card state-warning\"><div class=\"state-label\">⚠ Missing</div><div class=\"state-detail\">Without Bandit, the Security card can't scan your Python source code for vulnerability patterns. It complements pip-audit (which checks dependencies) by inspecting your actual code.\n\n📦 Installs via: pip install bandit</div></div>"
+                        },
+                        {
+                            "when": {
+                                "textContains": "✓ safety"
+                            },
+                            "title": "safety ✓",
+                            "icon": "✅",
+                            "content": "Python dependency checker — cross-references packages against a known vulnerability database.",
+                            "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">✅ Installed</div><div class=\"state-detail\">Safety is available. It provides a second opinion to pip-audit by checking your Python dependencies against its own vulnerability database.\n\nThe control plane runs both pip-audit and Safety for comprehensive coverage — they use different data sources and catch different issues.</div></div>"
+                        },
+                        {
+                            "when": {
+                                "textContains": "safety"
+                            },
+                            "content": "Python dependency checker — cross-references packages against a known vulnerability database.",
+                            "expanded": "<div class=\"assistant-state-card state-warning\"><div class=\"state-label\">⚠ Missing</div><div class=\"state-detail\">Without Safety, you lose one of the two dependency vulnerability scanners. pip-audit and Safety complement each other — they use different databases and catch different CVEs.\n\n📦 Installs via: pip install safety</div></div>"
+                        }
+                    ]
+                },
+                "children": []
+            },
+            {
+                "id": "file-detection",
+                "title": "File Detection",
+                "icon": "📋",
+                "selector": "#wiz-int-files-section",
+                "content": "{{filesDetected}} of {{filesTotal}} project files detected. These are the files and directories the control plane looks for to determine which integrations are relevant to your project.",
+                "expanded": "Each pill represents a specific file or directory. Found files (●) activate their corresponding integration by default — for example, a Dockerfile enables the Docker card, and a k8s/ directory enables Kubernetes.\n\nMissing files (○) don't block anything — you can still enable integrations manually and the control plane will generate the missing files for you during setup.",
+                "dynamic": true,
+                "childTemplate": {
+                    "selector": "#wiz-int-files-section > span",
+                    "title": "{{name}}",
+                    "content": "Project file or directory used for integration detection.",
+                    "variants": [
+                        {
+                            "when": {
+                                "textContains": "● git repo"
+                            },
+                            "title": "git repo ●",
+                            "content": "A .git directory exists — this project is under version control.",
+                            "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">● Found</div><div class=\"state-detail\">The .git directory confirms this is a git repository. This is the foundation for Git, GitHub, and CI/CD integrations.\n\nThe control plane reads your remotes, branches, and commit history from this directory.</div></div>"
+                        },
+                        {
+                            "when": {
+                                "textContains": "○ git repo"
+                            },
+                            "title": "git repo ○",
+                            "content": "No .git directory found — this project is not yet under version control.",
+                            "expanded": "<div class=\"assistant-state-card state-warning\"><div class=\"state-label\">○ Not found</div><div class=\"state-detail\">No git repository detected. Run `git init` to initialize one. Without it, the Git, GitHub, and CI/CD integrations cannot function.\n\nThe control plane will still let you configure integrations, but they won't be operational until a repository exists.</div></div>"
+                        },
+                        {
+                            "when": {
+                                "textContains": "● dockerfile"
+                            },
+                            "title": "dockerfile ●",
+                            "content": "A Dockerfile exists at the project root — Docker image builds are possible.",
+                            "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">● Found</div><div class=\"state-detail\">Your project has a Dockerfile. The Docker integration card can build images, inspect layers, and integrate with your CI/CD pipeline for automated builds.\n\nThe control plane parses your Dockerfile to detect base images, exposed ports, and build stages.</div></div>"
+                        },
+                        {
+                            "when": {
+                                "textContains": "○ dockerfile"
+                            },
+                            "title": "dockerfile ○",
+                            "content": "No Dockerfile at the project root.",
+                            "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">○ Not found</div><div class=\"state-detail\">No Dockerfile detected. The Docker integration can generate one for you based on your detected stack — including the right base image, dependencies, and port exposure.\n\nUse the ⚙️ Setup button on the Docker card to scaffold a Dockerfile.</div></div>"
+                        },
+                        {
+                            "when": {
+                                "textContains": "● docker compose"
+                            },
+                            "title": "docker compose ●",
+                            "content": "A docker-compose.yml exists — multi-service orchestration is configured.",
+                            "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">● Found</div><div class=\"state-detail\">Your project has a compose file. The Docker integration parses it to enumerate services, detect ports, and provide per-service management from the dashboard.\n\nServices from your compose file appear in the Docker card with start/stop/restart controls.</div></div>"
+                        },
+                        {
+                            "when": {
+                                "textContains": "○ docker compose"
+                            },
+                            "title": "docker compose ○",
+                            "content": "No docker-compose.yml or docker-compose.yaml found.",
+                            "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">○ Not found</div><div class=\"state-detail\">No compose file detected. If your project needs multiple services (API + database + cache), the Docker setup wizard can generate a compose file with detected stack defaults.\n\nSingle-container projects often don't need compose at all.</div></div>"
+                        },
+                        {
+                            "when": {
+                                "textContains": "● k8s manifests"
+                            },
+                            "title": "k8s manifests ●",
+                            "content": "A k8s/ or kubernetes/ directory exists — Kubernetes manifests are present.",
+                            "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">● Found</div><div class=\"state-detail\">Kubernetes manifests detected. The K8s integration card can apply these to your cluster, inspect their status, and generate additional manifests through the K8s wizard.\n\nThe manifest wizard supports Deployments, Services, ConfigMaps, Secrets, PVCs, Ingress, and more.</div></div>"
+                        },
+                        {
+                            "when": {
+                                "textContains": "○ k8s manifests"
+                            },
+                            "title": "k8s manifests ○",
+                            "content": "No k8s/ or kubernetes/ directory found.",
+                            "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">○ Not found</div><div class=\"state-detail\">No Kubernetes manifest directory detected. If you plan to deploy to K8s, the manifest wizard can generate a complete set of manifests based on your project's stack and requirements.\n\nEnable the Kubernetes integration to get started.</div></div>"
+                        },
+                        {
+                            "when": {
+                                "textContains": "● terraform dir"
+                            },
+                            "title": "terraform dir ●",
+                            "content": "A terraform/ directory or main.tf exists — infrastructure as code is configured.",
+                            "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">● Found</div><div class=\"state-detail\">Terraform configuration detected. The Terraform integration card can inspect your providers, backend configuration, and state to give you infrastructure visibility from the dashboard.</div></div>"
+                        },
+                        {
+                            "when": {
+                                "textContains": "○ terraform dir"
+                            },
+                            "title": "terraform dir ○",
+                            "content": "No terraform/ directory or main.tf found.",
+                            "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">○ Not found</div><div class=\"state-detail\">No Terraform configuration detected. The Terraform integration can scaffold a complete IaC setup — provider config, backend state, and resource templates — tailored to your cloud provider.</div></div>"
+                        },
+                        {
+                            "when": {
+                                "textContains": "● github actions"
+                            },
+                            "title": "github actions ●",
+                            "content": "GitHub Actions workflows exist in .github/workflows/.",
+                            "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">● Found</div><div class=\"state-detail\">GitHub Actions workflows detected. The CI/CD integration card can list, enable, disable, and dispatch these workflows. It also detects which secrets and variables each workflow needs.\n\nThe control plane can generate additional workflows (cron-based pipelines, deployment workflows) through the CI/CD setup.</div></div>"
+                        },
+                        {
+                            "when": {
+                                "textContains": "○ github actions"
+                            },
+                            "title": "github actions ○",
+                            "content": "No .github/workflows/ directory found.",
+                            "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">○ Not found</div><div class=\"state-detail\">No GitHub Actions workflows detected. The CI/CD integration can generate a pipeline workflow that runs your project's tests, security scans, and builds on push and on a schedule.</div></div>"
+                        },
+                        {
+                            "when": {
+                                "textContains": "● pyproject"
+                            },
+                            "title": "pyproject ●",
+                            "content": "pyproject.toml found — Python project metadata and dependencies are defined.",
+                            "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">● Found</div><div class=\"state-detail\">Your project has a pyproject.toml. The control plane reads this for: dependency lists (used by security scanners), version metadata, build configuration, and tool settings (ruff, mypy, pytest).\n\nThis is the modern standard for Python project configuration.</div></div>"
+                        },
+                        {
+                            "when": {
+                                "textContains": "○ pyproject"
+                            },
+                            "title": "pyproject ○",
+                            "content": "No pyproject.toml found.",
+                            "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">○ Not found</div><div class=\"state-detail\">No pyproject.toml detected. If this is a Python project, the control plane uses it for dependency scanning, tool configuration, and build metadata. Without it, setup.py or requirements.txt are used as fallbacks.</div></div>"
+                        },
+                        {
+                            "when": {
+                                "textContains": "● package json"
+                            },
+                            "title": "package json ●",
+                            "content": "package.json found — Node.js project metadata and dependencies are defined.",
+                            "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">● Found</div><div class=\"state-detail\">Your project has a package.json. The control plane reads this for: dependency lists (npm audit), scripts, version metadata, and detected stack classification.\n\nThe Packages card uses this for npm dependency management and vulnerability scanning.</div></div>"
+                        },
+                        {
+                            "when": {
+                                "textContains": "○ package json"
+                            },
+                            "title": "package json ○",
+                            "content": "No package.json found.",
+                            "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">○ Not found</div><div class=\"state-detail\">No package.json detected. If this isn't a Node.js project, this is expected and safe to ignore.</div></div>"
+                        },
+                        {
+                            "when": {
+                                "textContains": "● pages config"
+                            },
+                            "title": "pages config ●",
+                            "content": "project.yml found — Pages pipeline configuration is available.",
+                            "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">● Found</div><div class=\"state-detail\">project.yml is present. The Pages integration uses it for site generation settings — docs source directories, Docusaurus configuration, and deployment targets.</div></div>"
+                        },
+                        {
+                            "when": {
+                                "textContains": "○ pages config"
+                            },
+                            "title": "pages config ○",
+                            "content": "No project.yml found.",
+                            "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">○ Not found</div><div class=\"state-detail\">No project.yml detected. This file is generated by the Setup Wizard when you finish — it contains all your project configuration including module definitions, environment settings, and integration preferences.</div></div>"
+                        },
+                        {
+                            "when": {
+                                "textContains": "● dns dir"
+                            },
+                            "title": "dns dir ●",
+                            "content": "A dns/ directory exists — DNS configuration files are present.",
+                            "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">● Found</div><div class=\"state-detail\">DNS configuration directory detected. The DNS & CDN integration card reads zone files and record definitions from this directory for domain management.</div></div>"
+                        },
+                        {
+                            "when": {
+                                "textContains": "○ dns dir"
+                            },
+                            "title": "dns dir ○",
+                            "content": "No dns/ directory found.",
+                            "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">○ Not found</div><div class=\"state-detail\">No DNS directory detected. The DNS integration can generate one with record templates for your domains when you set it up.</div></div>"
+                        },
+                        {
+                            "when": {
+                                "textContains": "● cdn dir"
+                            },
+                            "title": "cdn dir ●",
+                            "content": "A cdn/ directory exists — CDN configuration is present.",
+                            "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">● Found</div><div class=\"state-detail\">CDN configuration directory detected. The DNS & CDN integration uses this for edge caching rules, origin settings, and CDN deployment configuration.</div></div>"
+                        },
+                        {
+                            "when": {
+                                "textContains": "○ cdn dir"
+                            },
+                            "title": "cdn dir ○",
+                            "content": "No cdn/ directory found.",
+                            "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">○ Not found</div><div class=\"state-detail\">No CDN directory detected. If you need CDN configuration for your static sites or APIs, the DNS & CDN integration can scaffold one during setup.</div></div>"
+                        },
+                        {
+                            "when": {
+                                "textContains": "● cname file"
+                            },
+                            "title": "cname file ●",
+                            "content": "A CNAME file exists — custom domain for GitHub Pages is configured.",
+                            "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">● Found</div><div class=\"state-detail\">A CNAME file is present, pointing your GitHub Pages site to a custom domain. The Pages integration uses this for deployment URL resolution and DNS record validation.</div></div>"
+                        },
+                        {
+                            "when": {
+                                "textContains": "○ cname file"
+                            },
+                            "title": "cname file ○",
+                            "content": "No CNAME file found.",
+                            "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">○ Not found</div><div class=\"state-detail\">No CNAME file detected. Without it, GitHub Pages uses the default github.io subdomain. If you want a custom domain, the Pages setup can create this file for you.</div></div>"
+                        }
+                    ]
+                },
+                "children": []
+            },
+            {
+                "id": "integrations-section",
+                "title": "Integrations",
+                "icon": "🔌",
+                "selector": "#wiz-int-section-integrations",
+                "separator": true,
+                "content": "These three integrations form the project's collaboration backbone — version control, remote hosting, and static site deployment.",
+                "expanded": "Git, GitHub, and Pages work as a chain: Git provides the repository, GitHub connects it to a remote with CI/CD and secrets management, and Pages deploys your documentation or static site through that remote.\n\nEach card shows its current status and readiness. Enable or disable cards with the checkbox — disabled cards won't appear on the dashboard but can be re-enabled anytime.\n\nClick ⚙️ Setup on any card for inline configuration, or 🚀 Full Setup for the complete setup wizard with guided steps.",
+                "children": [
+                    {
+                        "id": "git-card",
+                        "title": "Git",
+                        "icon": "🔀",
+                        "selector": "#wiz-int-wrap-int-git",
+                        "content": "Version control is the foundation of the control plane. Every integration — GitHub, CI/CD, Docker, K8s, Pages — depends on an initialized git repository with at least one remote.",
+                        "expanded": "Git underpins the entire pipeline. The control plane uses it for commit tracking, remote detection, branch management, .gitignore analysis, and the sync pipeline that pushes secrets and configs to GitHub.\n\nThe checkbox enables or hides the Git card from the dashboard. Even disabled, git is still required by other integrations — GitHub reads your remotes, CI/CD triggers on push events, Docker builds embed commit SHAs in image labels, and the vault system from Step 3 relies on .gitignore to protect plaintext .env files.\n\nClick ⚙️ Setup to configure remotes, .gitignore, hooks, and initial commit in one pass.",
+                        "variants": [
+                            {
+                                "when": {
+                                    "textContains": "✅ ready"
+                                },
+                                "content": "Your repository is initialized and connected — the foundation is healthy. Every downstream integration (GitHub, CI/CD, Docker, Pages) builds on this.",
+                                "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">✅ Fully Configured</div><div class=\"state-detail\">The control plane can read your remotes, track branches, analyse .gitignore coverage, and manage commit hooks. This is the baseline that unlocks everything else.\n\nYour .gitignore protects the vault secrets from Step 3 — encrypted .env files, plaintext credentials, and auto-generated keys are all excluded from version control. Pre-commit hooks, if installed, enforce the lint and format tools detected in System Tools above before each commit reaches the repository.\n\nOpen ⚙️ Setup to fine-tune: add or remove remotes, regenerate .gitignore with stack-aware patterns, or wire pre-commit hooks into your toolchain. Use 🚀 Full Setup for the guided wizard with validation.</div></div>"
+                            },
+                            {
+                                "when": {
+                                    "textContains": "not configured"
+                                },
+                                "content": "Git is installed but this directory isn't a repository yet. Downstream integrations (GitHub, CI/CD) are blocked until you initialize one.",
+                                "expanded": "<div class=\"assistant-state-card state-warning\"><div class=\"state-label\">⚠ No Repository</div><div class=\"state-detail\">The git binary is available but there's no .git/ directory in your project root. Without git init, the control plane can't detect remotes, branches, or .gitignore — and the GitHub and CI/CD cards below are stuck in an unconfigured state too.\n\nThis is the most actionable state — one setup pass fixes the entire chain. Click ⚙️ Setup to initialize the repository, choose a default branch, generate a stack-aware .gitignore, and optionally create an initial commit.\n\nAfter applying, hit 🔄 Re-scan in the scan bar above. The GitHub card will update to reflect the new repository, CI/CD workflow generation becomes available, and the File Detection pills will show the git repo as found.</div></div>"
+                            },
+                            {
+                                "when": {
+                                    "textContains": "not installed"
+                                },
+                                "content": "Git is not installed on this system. This is the single most critical blocker — every integration depends on it, directly or transitively.",
+                                "expanded": "<div class=\"assistant-state-card state-error\"><div class=\"state-label\">❌ Critical — Not Installed</div><div class=\"state-detail\">Without git, the control plane cannot initialize a repository, detect project structure, sync configurations, or interact with any remote service. Every integration card below — GitHub, CI/CD, Docker, K8s, Terraform, Pages, DNS — depends on git either directly or through the repository it manages.\n\nThe vault system from Step 3 also needs a repository so that .gitignore can protect plaintext .env files from accidental commits. The chat sync feature uses git push/pull for message replication.\n\nInstall git first, then hit 🔄 Re-scan in the scan bar above. All other integrations will unblock once the binary is on your PATH.\n\n📦 Install: sudo apt-get install git</div></div>"
+                            }
+                        ],
+                        "children": [
+                            {
+                                "id": "git-setup",
+                                "title": "Setup Panel",
+                                "icon": "⚙️",
+                                "selector": "#wiz-int-setup-int-git",
+                                "content": "The Git setup panel configures your repository in one pass — initialization, remotes, .gitignore, hooks, and initial commit. Hit ✅ Apply to execute all changes in sequence.",
+                                "expanded": "The status strip at the top shows what's already in place (✓ green) and what's missing (○ gray). Each section below targets one aspect of git configuration.\n\nChanges are applied when you click ✅ Apply — nothing runs until then. The panel re-detects after applying, so all cards and pills update to reflect the new state.\n\nThis is the inline version. For a more guided experience with step-by-step validation, use 🚀 Full Setup instead.",
+                                "children": [
+                                    {
+                                        "id": "git-status-strip",
+                                        "title": "Status Strip",
+                                        "icon": "📊",
+                                        "selector": "#wiz-git-status-strip",
+                                        "content": "At-a-glance health check — each pill tracks one aspect of your git configuration. Green (✓) means configured, gray (○) means missing or not yet set up.",
+                                        "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">📊 Configuration Overview</div><div class=\"state-detail\">The status strip provides a quick visual summary of your repository's setup state. Each pill corresponds to a section below where you can configure the missing piece.\n\nThe strip updates after every Apply or re-scan. It reads live detection data from the backend — not cached state — so it always reflects the current reality on disk.\n\nHover any individual pill for details about that specific check and what to do if it's showing a failure state.</div></div>",
+                                        "children": [
+                                            {
+                                                "id": "git-pill-binary",
+                                                "title": "Git Binary",
+                                                "icon": "💻",
+                                                "selector": "#wiz-git-pill-binary",
+                                                "content": "Whether the git binary is installed and available on your system PATH.",
+                                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">💻 Git Installation</div><div class=\"state-detail\">This pill checks if the git executable is reachable. The version number shown is the installed version.\n\nGit is the foundation — every other pill, section, and the entire GitHub integration depends on it. If this shows ✗, nothing else in this panel works.</div></div>",
+                                                "variants": [
+                                                    {
+                                                        "when": {
+                                                            "textContains": "✓ git"
+                                                        },
+                                                        "content": "Git is installed and available. The version number is detected from git --version.",
+                                                        "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">✅ Git Available</div><div class=\"state-detail\">The git binary was found on PATH and responded to version check. All git operations are unblocked.\n\nThe version shown is informational — the control plane works with any modern git version (2.x+).</div></div>"
+                                                    },
+                                                    {
+                                                        "when": {
+                                                            "textContains": "✗ git"
+                                                        },
+                                                        "content": "Git is not installed — this blocks every integration in this panel.",
+                                                        "expanded": "<div class=\"assistant-state-card state-error\"><div class=\"state-label\">❌ Git Missing</div><div class=\"state-detail\">The git executable was not found on PATH. This blocks:\n\n• Repository initialization\n• Remote management\n• .gitignore generation\n• Hook installation\n• Commit operations\n• The entire GitHub integration\n\nInstall git first, then re-scan to refresh this panel.</div></div>"
+                                                    }
+                                                ],
+                                                "children": []
+                                            },
+                                            {
+                                                "id": "git-pill-repo",
+                                                "title": "Repository",
+                                                "icon": "📁",
+                                                "selector": "#wiz-git-pill-repo",
+                                                "content": "Whether a .git/ directory exists — indicates the project is a git repository.",
+                                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">📁 Repository Status</div><div class=\"state-detail\">This pill checks for a .git/ directory in your project root. The branch name after the dot shows your current HEAD branch.\n\nInitialization creates the .git/ directory, which stores all version control metadata — commits, branches, refs, hooks, and configuration.</div></div>",
+                                                "variants": [
+                                                    {
+                                                        "when": {
+                                                            "textContains": "✓ repo"
+                                                        },
+                                                        "content": "Repository is initialized — the branch name shown is your current HEAD.",
+                                                        "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">✅ Repository Initialized</div><div class=\"state-detail\">A .git/ directory exists. The branch name after 'repo ·' is your current HEAD — this is the active branch that commits will target.\n\nWith a repository in place, all other operations are unblocked: adding remotes, generating .gitignore, installing hooks, and making commits.</div></div>"
+                                                    },
+                                                    {
+                                                        "when": {
+                                                            "textContains": "○ no repo"
+                                                        },
+                                                        "content": "No repository — git init will be run when you Apply.",
+                                                        "expanded": "<div class=\"assistant-state-card state-warning\"><div class=\"state-label\">⚠ Not Initialized</div><div class=\"state-detail\">No .git/ directory found. The project is not under version control yet.\n\nWhen you hit ✅ Apply, the control plane runs git init to create the repository. The default branch name is set from the Default Branch field below.\n\nUntil initialized: no commits, no branches, no remotes, no hooks.</div></div>"
+                                                    }
+                                                ],
+                                                "children": []
+                                            },
+                                            {
+                                                "id": "git-pill-remotes",
+                                                "title": "Remotes Count",
+                                                "icon": "🌐",
+                                                "selector": "#wiz-git-pill-remotes",
+                                                "content": "How many remotes are configured — at least one (origin) is needed for push/pull and GitHub features.",
+                                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🌐 Remote Count</div><div class=\"state-detail\">This pill counts all configured remotes (git remote -v). The number includes both origin and any additional remotes like upstream or deploy.\n\nThe GitHub integration reads the origin remote to determine your repository — no remotes means no GitHub features.</div></div>",
+                                                "variants": [
+                                                    {
+                                                        "when": {
+                                                            "textContains": "remote(s)"
+                                                        },
+                                                        "content": "At least one remote is configured — push/pull and GitHub integration are available.",
+                                                        "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">✅ Remotes Configured</div><div class=\"state-detail\">Your repository has one or more remotes. The origin remote is used by the GitHub integration to determine your repository slug for secrets sync, PR management, workflow dispatch, and Pages deployment.\n\nYou can manage remotes in the Remotes section below — add new ones or remove existing ones.</div></div>"
+                                                    },
+                                                    {
+                                                        "when": {
+                                                            "textContains": "○ no remotes"
+                                                        },
+                                                        "content": "No remotes — push/pull and all GitHub features are blocked.",
+                                                        "expanded": "<div class=\"assistant-state-card state-warning\"><div class=\"state-label\">⚠ No Remotes</div><div class=\"state-detail\">Without remotes, your repository is local-only. The control plane can't push code, sync secrets, dispatch CI/CD workflows, or deploy Pages.\n\nOpen the Remotes section below to add origin. If the GitHub CLI is authenticated, the URL may be pre-filled.</div></div>"
+                                                    }
+                                                ],
+                                                "children": []
+                                            },
+                                            {
+                                                "id": "git-pill-gitignore",
+                                                "title": "Gitignore Status",
+                                                "icon": "📄",
+                                                "selector": "#wiz-git-pill-gitignore",
+                                                "content": "Whether .gitignore exists and what percentage of recommended patterns it covers.",
+                                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">📄 Coverage Check</div><div class=\"state-detail\">This pill shows two things: whether a .gitignore file exists, and if so, what percentage of recommended patterns (for your detected stacks) are present.\n\n100% means every recommended pattern is covered. Lower percentages mean gaps exist — potential for secrets or build artifacts to leak into version control.\n\nOpen the .gitignore section below for details on what's missing and to regenerate.</div></div>",
+                                                "variants": [
+                                                    {
+                                                        "when": {
+                                                            "textContains": "✓ .gitignore"
+                                                        },
+                                                        "content": "File exists — the percentage shows recommended pattern coverage for your stacks.",
+                                                        "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">✅ .gitignore Present</div><div class=\"state-detail\">A .gitignore file exists in your project root. The percentage reflects how many recommended patterns for your detected stacks are included.\n\n100% means complete coverage. Below 100% means some recommended patterns are missing — check the .gitignore section below to see which ones and regenerate if needed.</div></div>"
+                                                    },
+                                                    {
+                                                        "when": {
+                                                            "textContains": "○ no .gitignore"
+                                                        },
+                                                        "content": "No .gitignore file — secrets and build artifacts could be committed.",
+                                                        "expanded": "<div class=\"assistant-state-card state-error\"><div class=\"state-label\">❌ No .gitignore</div><div class=\"state-detail\">No .gitignore file was found. This is a security risk — without it, git add . would stage everything including .env files with secrets, build artifacts, and dependency directories.\n\nOpen the .gitignore section below and check 'Create .gitignore' to generate one based on your detected stacks.</div></div>"
+                                                    }
+                                                ],
+                                                "children": []
+                                            },
+                                            {
+                                                "id": "git-pill-hooks",
+                                                "title": "Hooks Count",
+                                                "icon": "🪝",
+                                                "selector": "#wiz-git-pill-hooks",
+                                                "content": "How many git hooks are installed — hooks automate quality checks before commits and pushes.",
+                                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🪝 Hook Count</div><div class=\"state-detail\">This pill counts executable files in .git/hooks/ (excluding samples). Hooks are local scripts that git runs automatically at specific lifecycle events.\n\nThe most common hook is pre-commit — it runs checks before each commit. If the checks fail, the commit is blocked.\n\nIf lint or format tools are detected in your stack and no hooks exist, the Pre-commit Hook section below offers to install one.</div></div>",
+                                                "variants": [
+                                                    {
+                                                        "when": {
+                                                            "textContains": "hook(s)"
+                                                        },
+                                                        "content": "Hooks are installed — quality checks run automatically at git lifecycle events.",
+                                                        "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">✅ Hooks Active</div><div class=\"state-detail\">One or more git hooks are installed in .git/hooks/. These run automatically — typically before commits — to enforce code quality and catch issues early.\n\nThe hooks were either installed by the control plane or manually. You can inspect them at .git/hooks/ in your project root.</div></div>"
+                                                    },
+                                                    {
+                                                        "when": {
+                                                            "textContains": "○ no hooks"
+                                                        },
+                                                        "content": "No hooks installed — commits go through unchecked.",
+                                                        "expanded": "<div class=\"assistant-state-card state-warning\"><div class=\"state-label\">⚠ No Hooks</div><div class=\"state-detail\">No git hooks are installed. Commits are accepted without any automated checks.\n\nIf your stack has lint or format capabilities detected (shown in System Tools), the Pre-commit Hook section below can install a hook that runs those checks before every commit.\n\nHooks are a local first line of defense — the CI/CD pipeline provides the team-wide enforcement layer.</div></div>"
+                                                    }
+                                                ],
+                                                "children": []
+                                            }
+                                        ]
+                                    },
+                                    {
+                                        "id": "git-remotes",
+                                        "title": "Remotes",
+                                        "icon": "🌐",
+                                        "selector": "#wiz-git-section-remotes",
+                                        "content": "Remotes connect your local repository to its hosted counterpart. Adding origin is the first step to enabling push, pull, and the entire GitHub integration chain.",
+                                        "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🌐 Remote Configuration</div><div class=\"state-detail\">The control plane reads your remotes to detect your GitHub repository, resolve the deployment target for Pages, and configure CI/CD workflow dispatch.\n\nNaming conventions:\n• origin — your primary remote, usually your own GitHub repo\n• upstream — the parent repository if you're working from a fork\n\nIf the GitHub CLI is authenticated, the remote URL is pre-filled from your gh repo info. The format should be https://github.com/owner/repo.git or git@github.com:owner/repo.git for SSH.\n\nThe GitHub integration card below reads the origin remote to determine which repository to target for secrets sync, PR management, and Actions dispatch. No remote = no GitHub features.</div></div>",
+                                        "variants": [
+                                            {
+                                                "when": {
+                                                    "textContains": "no remotes"
+                                                },
+                                                "content": "No remotes configured — push, pull, and GitHub integration are blocked until you add at least origin.",
+                                                "expanded": "<div class=\"assistant-state-card state-warning\"><div class=\"state-label\">⚠ No Remotes</div><div class=\"state-detail\">Without a remote, your repository is local-only. The control plane can't push code, sync secrets to GitHub, dispatch workflows, or deploy Pages.\n\nAdd origin first — it's the primary remote that all GitHub features target. Type the remote name and URL below, then hit ＋ Add.\n\nIf the GitHub CLI detected your repository, the URL is pre-filled. Otherwise, use the format: https://github.com/your-org/your-repo.git</div></div>"
+                                            }
+                                        ],
+                                        "children": [
+                                            {
+                                                "id": "git-remote-name",
+                                                "title": "Remote Name",
+                                                "icon": "🏷️",
+                                                "selector": "#wiz-git-remote-name",
+                                                "content": "The remote name is a local alias for the hosted repository URL. It's how git references where to push and pull.",
+                                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🏷️ Naming Convention</div><div class=\"state-detail\">Standard names and what they mean:\n\n• origin — your primary repository. This is the default target for git push and git pull. The GitHub integration reads this remote to determine your repository slug.\n• upstream — the parent repository you forked from. Used for syncing changes from the original project.\n• deploy — some teams use a separate remote for deployment targets.\n\nIf this is your first remote, the placeholder suggests \"origin\" — that's almost always the right choice. The name is local to your machine and can be changed later with git remote rename.</div></div>",
+                                                "children": []
+                                            },
+                                            {
+                                                "id": "git-remote-url",
+                                                "title": "Remote URL",
+                                                "icon": "🔗",
+                                                "selector": "#wiz-git-remote-url",
+                                                "content": "The remote URL points to your hosted repository — this is where git push sends your code and where GitHub integration reads your project from.",
+                                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🔗 URL Format</div><div class=\"state-detail\">Two formats work:\n\n• HTTPS: https://github.com/owner/repo.git\n  — Works out of the box, authenticates via git credential manager or token.\n\n• SSH: git@github.com:owner/repo.git\n  — Requires SSH key setup. The control plane can detect SSH auth status and prompt for passphrase unlock when needed.\n\nIf the GitHub CLI (gh) is authenticated and detected your repository, this field is pre-filled with the HTTPS URL. You can switch to SSH if your workflow prefers it.\n\nThe URL you set here becomes the target for all GitHub operations — secrets sync, PR management, workflow dispatch, and Pages deployment.</div></div>",
+                                                "children": []
+                                            },
+                                            {
+                                                "id": "git-add-remote",
+                                                "title": "Add Remote",
+                                                "icon": "＋",
+                                                "selector": "#wiz-git-add-remote-btn",
+                                                "content": "Adds the remote immediately — this runs git remote add right now, not on Apply. The page re-detects after adding so all cards update.",
+                                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">＋ Instant Action</div><div class=\"state-detail\">Unlike other setup options that wait for ✅ Apply, adding a remote executes immediately via the /git/remote/add API endpoint. The reason: remotes affect detection results, so re-scanning after add gives accurate status for all other cards.\n\nAfter adding, the remote appears in the list above with a ✗ remove button. The GitHub card will update on the next re-scan to reflect the new remote.\n\nIf the name field is empty, it defaults to the placeholder value (\"origin\" for the first remote, \"upstream\" for additional ones).</div></div>",
+                                                "children": []
+                                            },
+                                            {
+                                                "id": "git-remotes-list",
+                                                "title": "Configured Remotes",
+                                                "icon": "📋",
+                                                "selector": "#wiz-git-remotes-list",
+                                                "content": "Your configured remotes — each row shows the name, URL, and a remove button. Removal is immediate and triggers re-detection.",
+                                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">📋 Remote Registry</div><div class=\"state-detail\">Each row in this list is a configured git remote. The name (origin, upstream) is a local alias, the URL is the hosted repository endpoint.\n\nThe ✗ button removes a remote immediately (git remote remove) — this is irreversible. After removal, the page re-detects so all cards and pills update. If you remove origin, the GitHub integration will lose its target repository.\n\nRemotes are stored in .git/config and are local to your machine — they don't affect other developers working on the same repository.</div></div>",
+                                                "children": []
+                                            },
+                                            {
+                                                "id": "git-gh-hint",
+                                                "title": "GitHub CLI Hint",
+                                                "icon": "🐙",
+                                                "selector": "#wiz-git-gh-hint",
+                                                "content": "The GitHub CLI detected your repository and pre-filled the remote URL. You can change it before adding.",
+                                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🐙 Auto-Detection</div><div class=\"state-detail\">The GitHub CLI (gh) command was found on your system and is authenticated. It identified a repository associated with this project directory.\n\nThe pre-filled URL uses the HTTPS format by default. You can change it to SSH (git@github.com:owner/repo.git) if your workflow uses SSH authentication.\n\nThis hint only appears when gh is installed, authenticated, and successfully resolved a repository slug for the current directory.</div></div>",
+                                                "children": []
+                                            }
+                                        ]
+                                    },
+                                    {
+                                        "id": "git-gitignore",
+                                        "title": ".gitignore",
+                                        "icon": "📄",
+                                        "selector": "#wiz-git-section-gitignore",
+                                        "content": "The .gitignore controls what git tracks. Proper coverage prevents secrets, build artifacts, and environment files from being committed — this is the first line of defense for your vault.",
+                                        "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">📄 .gitignore Coverage</div><div class=\"state-detail\">The control plane analyses your .gitignore against a catalog of expected patterns for your detected stacks. Coverage percentage reflects how many recommended patterns are present.\n\nCritical patterns (always needed):\n• .env, .env.* — vault secrets from Step 3\n• .env.vault — encrypted vault files (extra protection layer)\n\nStack-specific patterns are added based on your detected modules — the generator reads your stack definitions to determine which build artifacts, dependency directories, and compiled output directories to exclude.\n\nThe generator produces a comprehensive .gitignore in one pass. It's safe to regenerate — the generated file includes all your existing custom patterns.</div></div>",
+                                        "variants": [
+                                            {
+                                                "when": {
+                                                    "textContains": "100%"
+                                                },
+                                                "content": "Your .gitignore covers all recommended patterns for your detected stacks. Secrets, build artifacts, and environment files are protected.",
+                                                "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">✅ Full Coverage</div><div class=\"state-detail\">Every recommended pattern for your project's stacks is present in .gitignore. This means secrets from Step 3, build artifacts, and environment-specific files are all excluded from version control.\n\nYou can still open this section to regenerate if your stacks change — the generator always includes existing custom patterns alongside the recommended ones.</div></div>"
+                                            },
+                                            {
+                                                "when": {
+                                                    "textContains": "missing)"
+                                                },
+                                                "content": "No .gitignore file exists. Without it, secrets, build artifacts, and environment files could be committed to the repository.",
+                                                "expanded": "<div class=\"assistant-state-card state-error\"><div class=\"state-label\">❌ No .gitignore</div><div class=\"state-detail\">This is a security risk. Without .gitignore, git tracks everything — including plaintext .env files from Step 3, build artifacts, dependency directories, and IDE configuration.\n\nThe \"Create .gitignore\" checkbox generates a comprehensive file based on your detected stacks. It includes universal security patterns (blocking .env, credentials, keys) plus stack-specific patterns for build artifacts and dependency directories relevant to your stack.\n\nThis should be the first thing you fix — even before adding remotes. A .gitignore protects you from day one.</div></div>"
+                                            },
+                                            {
+                                                "when": {
+                                                    "textContains": "Missing"
+                                                },
+                                                "content": "Your .gitignore has gaps — some recommended patterns for your stacks are missing. Regenerating adds them without losing your custom entries.",
+                                                "expanded": "<div class=\"assistant-state-card state-warning\"><div class=\"state-label\">⚠ Incomplete Coverage</div><div class=\"state-detail\">The analysis found patterns recommended for your detected stacks that aren't in your .gitignore. Missing patterns are shown as red pills — each represents a file type or directory that could leak into version control.\n\nCommon gaps include build output directories, dependency caches, compiled artifacts, IDE configs (.vscode/, .idea/), and OS files (.DS_Store).\n\nCheck the \"Regenerate .gitignore\" checkbox and hit ✅ Apply to fill the gaps. The generator preserves your existing custom patterns and adds the missing recommended ones on top.</div></div>"
+                                            }
+                                        ],
+                                        "children": [
+                                            {
+                                                "id": "git-regen-gi",
+                                                "title": "Regenerate .gitignore",
+                                                "icon": "🔄",
+                                                "selector": "#wiz-git-regen-gi",
+                                                "content": "Regenerates your .gitignore with stack-aware patterns — fills gaps without removing your existing custom entries.",
+                                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🔄 Stack-Aware Regeneration</div><div class=\"state-detail\">The generator reads your detected stacks (from Step 2 modules) and the security catalog to produce a comprehensive .gitignore.\n\nWhat it adds:\n• Universal security patterns — .env, .env.*, credentials, private keys\n• Stack-specific patterns — build artifacts, dependency directories, and compiled output relevant to your detected language and framework stacks\n• IDE and OS patterns — .vscode/, .idea/, .DS_Store, Thumbs.db\n\nWhat it preserves:\n• Any custom patterns you've added manually\n• Comments and section headers in your existing file\n\nThis checkbox is pre-checked when the analysis detected gaps. Uncheck it if you want to manage .gitignore manually. The regeneration runs on ✅ Apply along with all other setup steps.</div></div>",
+                                                "children": []
+                                            },
+                                            {
+                                                "id": "git-create-gi",
+                                                "title": "Create .gitignore",
+                                                "icon": "📝",
+                                                "selector": "#wiz-git-create-gi",
+                                                "content": "Creates a new .gitignore from scratch — generated from your detected stacks with security-first defaults.",
+                                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">📝 New File Generation</div><div class=\"state-detail\">This creates a brand-new .gitignore file in your project root. The generated file includes:\n\n1. Security patterns (always included):\n   • .env, .env.* — blocks vault secrets from Step 3\n   • *.pem, *.key — blocks private keys and certificates\n   • .env.vault — blocks encrypted vault archives\n\n2. Stack patterns (based on detected modules):\n   Build artifacts, dependency directories, and compiled output specific to your detected language and framework stacks.\n\n3. Common patterns:\n   • .DS_Store, Thumbs.db — OS artifacts\n   • .vscode/, .idea/ — IDE configs\n\nThis is the single most important file to create before your first commit. Without it, git add . would stage everything — including secrets.</div></div>",
+                                                "children": []
+                                            },
+                                            {
+                                                "id": "git-missing-patterns",
+                                                "title": "Missing Patterns",
+                                                "icon": "⚠️",
+                                                "selector": "#wiz-git-missing-patterns",
+                                                "content": "Each red pill is a pattern recommended for your detected stacks that's missing from .gitignore. Check 'Regenerate' and Apply to add them all.",
+                                                "expanded": "<div class=\"assistant-state-card state-warning\"><div class=\"state-label\">⚠️ Gap Analysis</div><div class=\"state-detail\">The control plane compares your .gitignore against a catalog of recommended patterns for each detected stack. Each red pill represents a pattern that should be present but isn't.\n\nPatterns are matched by your stack's language family and framework — the catalog knows which build outputs, dependency directories, and compiled artifacts each stack produces.\n\nChecking 'Regenerate .gitignore' and hitting ✅ Apply adds all missing patterns in one pass without removing your existing custom entries. Up to 5 are shown here — if there are more, the count is displayed.</div></div>",
+                                                "children": []
+                                            }
+                                        ]
+                                    },
+                                    {
+                                        "id": "git-hooks",
+                                        "title": "Pre-commit Hook",
+                                        "icon": "🪝",
+                                        "selector": "#wiz-git-section-hooks",
+                                        "content": "Pre-commit hooks run your lint and format tools automatically before each commit — catching issues before they reach the repository and enforcing code quality at the gate.",
+                                        "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🪝 Automated Quality Gate</div><div class=\"state-detail\">This section appears when lint or format tools are detected in your stack but no pre-commit hook is installed yet. The hook runs automatically before every git commit — if the checks fail, the commit is blocked.\n\nThe commands wired into the hook come from your stack's capabilities, detected from the System Tools section above. The green pills below show which commands were detected and will be included in the hook script.\n\nThe hook is a simple shell script installed at .git/hooks/pre-commit. It runs each command in sequence and aborts the commit on any failure. This is the lightest quality gate — no CI required, runs locally, instant feedback.\n\nCheck the box and hit ✅ Apply to install it.</div></div>",
+                                        "children": [
+                                            {
+                                                "id": "git-setup-hooks-check",
+                                                "title": "Install Hook",
+                                                "icon": "☑️",
+                                                "selector": "#wiz-git-setup-hooks",
+                                                "content": "Check this to install a pre-commit hook that runs your lint and format commands before every commit.",
+                                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">☑️ Hook Installation</div><div class=\"state-detail\">When checked, ✅ Apply creates a shell script at .git/hooks/pre-commit with the commands detected from your stack capabilities:\n\nFor each capability found in System Tools above, the hook runs the corresponding check command. If any check fails (non-zero exit), the commit is aborted and you see the error output.\n\nThe hook file is a standard git hook — you can edit it manually after installation. It's not versioned (lives in .git/hooks/ which is gitignored by default), so each developer needs to install it locally.\n\nFor team-wide enforcement, the CI/CD pipeline runs the same checks — the hook is just a fast local pre-check to catch issues before pushing.</div></div>",
+                                                "children": []
+                                            },
+                                            {
+                                                "id": "git-hook-commands",
+                                                "title": "Detected Commands",
+                                                "icon": "🔧",
+                                                "selector": "#wiz-git-hook-commands",
+                                                "content": "These are the check commands detected from your stack's capabilities. They'll be wired into the pre-commit hook script.",
+                                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🔧 Stack Capabilities</div><div class=\"state-detail\">Each green pill represents a command detected from your stack definition's capabilities section. These commands are what the pre-commit hook will run before each commit.\n\nThe commands are not hardcoded — they come from your stack's YAML definition (discovered in Step 2). If your stack defines lint, format, or test capabilities, those commands appear here.\n\nThe hook runs each command in sequence. If any exits non-zero, the commit is blocked and the error output is shown.</div></div>",
+                                                "children": [
+                                                    {
+                                                        "id": "git-hook-lint",
+                                                        "title": "Lint Check",
+                                                        "icon": "🔍",
+                                                        "selector": "#wiz-git-hook-lint",
+                                                        "content": "The lint command from your stack's capabilities — runs static analysis to catch code issues before commit.",
+                                                        "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🔍 Static Analysis</div><div class=\"state-detail\">This is the lint command detected from your stack definition. Linting performs static analysis on your source code — catching bugs, style violations, and suspicious patterns without running the code.\n\nIn the pre-commit hook, this command runs in check mode (read-only). If it finds issues, the commit is blocked and you see the lint errors in your terminal.\n\nThe specific command shown here comes from your stack's 'lint' capability in its YAML definition.</div></div>",
+                                                        "children": []
+                                                    },
+                                                    {
+                                                        "id": "git-hook-format",
+                                                        "title": "Format Check",
+                                                        "icon": "✨",
+                                                        "selector": "#wiz-git-hook-format",
+                                                        "content": "The format command from your stack's capabilities — checks code formatting consistency before commit.",
+                                                        "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">✨ Formatting Verification</div><div class=\"state-detail\">This is the format command detected from your stack definition. Format checking verifies that your code follows consistent style rules — indentation, spacing, line length, and other formatting conventions.\n\nIn the pre-commit hook, this runs in check/verify mode — it reports formatting issues without modifying files. If unformatted code is found, the commit is blocked.\n\nThe specific command shown here comes from your stack's 'format' capability in its YAML definition.</div></div>",
+                                                        "children": []
+                                                    }
+                                                ]
+                                            }
+                                        ]
+                                    },
+                                    {
+                                        "id": "git-initial-commit",
+                                        "title": "Initial Commit",
+                                        "icon": "💾",
+                                        "selector": "#wiz-git-section-commit",
+                                        "content": "An initial commit anchors the repository — it's the baseline that all future changes are measured against and the first entry in your project's history.",
+                                        "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">💾 First Commit</div><div class=\"state-detail\">This section appears when the repository has no commits yet — either freshly initialized or never committed to. The initial commit typically includes your project.yml, .gitignore, and any existing source files.\n\nThe commit message defaults to \"Initial commit\" but you can customize it. The commit runs git add . followed by git commit -m after all other setup steps (remotes, .gitignore, hooks) have been applied — so the first commit captures a clean, properly configured state.\n\nAfter this commit, git log will show history, branch operations will work, and push to origin becomes possible.</div></div>",
+                                        "children": [
+                                            {
+                                                "id": "git-init-commit-check",
+                                                "title": "Create Commit",
+                                                "icon": "☑️",
+                                                "selector": "#wiz-git-init-commit",
+                                                "content": "Check this to create an initial commit after all other setup steps complete — this anchors the repository with a clean starting state.",
+                                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">☑️ Initial Commit Toggle</div><div class=\"state-detail\">When checked, ✅ Apply runs git add . followed by git commit -m with your message after completing all other steps (.gitignore generation, hook installation, branch setup).\n\nThis ordering matters: the .gitignore is created BEFORE the commit, so the first commit already respects ignore rules. Secrets and build artifacts won't be staged.\n\nThe initial commit gives you:\n• A baseline for git diff and git log\n• A branch HEAD that enables push to remote\n• A commit SHA that Docker builds can embed in image labels\n\nLeave unchecked if you want to review staged files before committing manually.</div></div>",
+                                                "children": []
+                                            },
+                                            {
+                                                "id": "git-commit-msg",
+                                                "title": "Commit Message",
+                                                "icon": "💬",
+                                                "selector": "#wiz-git-commit-msg",
+                                                "content": "The message for your initial commit — defaults to 'Initial commit' but you can describe what the first snapshot contains.",
+                                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">💬 First Message</div><div class=\"state-detail\">The commit message appears in git log and on GitHub's commit history. For initial commits, common patterns:\n\n• \"Initial commit\" — the classic default\n• \"Initial project setup with devops-control-plane\" — more descriptive\n• \"chore: bootstrap project structure\" — conventional commits format\n\nThis message is passed directly to git commit -m. It only applies if the \"Create initial commit\" checkbox above is checked.\n\nAfter the initial commit, future commits should follow your team's commit message convention — conventional commits, gitmoji, or plain descriptive messages.</div></div>",
+                                                "children": []
+                                            }
+                                        ]
+                                    },
+                                    {
+                                        "id": "git-branch",
+                                        "title": "Default Branch",
+                                        "icon": "🌿",
+                                        "selector": "#wiz-git-branch",
+                                        "content": "The default branch is your main development line — it determines the target for pull requests, the base for CI/CD triggers, and the name git uses when initializing.",
+                                        "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🌿 Branch Configuration</div><div class=\"state-detail\">Most projects use \"main\" — GitHub has defaulted to this since 2020. Some older projects still use \"master\" and that works too.\n\nThe control plane uses this branch name in several places:\n• CI/CD workflows trigger on push to this branch\n• GitHub PR targets default to this branch\n• Pages deployments reference this as the source branch\n• The docker image tagging uses branch name as part of the version string\n\nChanging this after the initial setup is possible but requires renaming the branch (git branch -m old new) and updating any CI/CD workflow YAML that references the old name.\n\nIf you're starting fresh, stick with \"main\". If you have an existing repo, the current branch name is pre-filled.</div></div>",
+                                        "children": []
+                                    },
+                                    {
+                                        "id": "git-apply",
+                                        "title": "Apply",
+                                        "icon": "✅",
+                                        "selector": "#wiz-apply-int-git",
+                                        "content": "Executes all checked setup steps in sequence — .gitignore generation, hook installation, branch configuration, then initial commit if checked.",
+                                        "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">✅ Execution Order</div><div class=\"state-detail\">When you click Apply, the control plane runs each checked step in a specific order:\n\n1. git init (if no repository exists)\n2. Branch rename (if different from current)\n3. .gitignore generation or regeneration\n4. Pre-commit hook installation\n5. git add . + git commit (if initial commit is checked)\n\nThis ordering is intentional — .gitignore is created before the commit, so the first snapshot already excludes secrets and build artifacts.\n\nAfter all steps complete, the panel re-detects and all status pills and cards update to reflect the new state. If any step fails, the error is shown and remaining steps are skipped.</div></div>",
+                                        "children": []
+                                    },
+                                    {
+                                        "id": "git-cancel",
+                                        "title": "Cancel",
+                                        "icon": "✖",
+                                        "selector": "#wiz-cancel-int-git",
+                                        "content": "Closes the setup panel without applying any changes. Nothing is modified on disk.",
+                                        "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">✖ Discard Changes</div><div class=\"state-detail\">Clicking Cancel collapses the setup panel and discards any unsaved field values. No git operations are performed — no files are created, modified, or deleted.\n\nYou can reopen the panel at any time by clicking ⚙️ Setup again. Field values will be re-populated from the current detection state, not from your previous unsaved edits.</div></div>",
+                                        "children": []
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+                ]
+            }
+        ]
     }
 ]

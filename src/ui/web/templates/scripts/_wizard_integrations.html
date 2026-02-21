@@ -28,7 +28,7 @@ function _wizRenderIntegrations() {
     const wasCached = d._cache?.fresh !== false;
 
     let scanBarHtml = `
-            <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:var(--space-md);
+            <div id="wiz-int-scan-bar" style="display:flex;align-items:center;gap:0.5rem;margin-bottom:var(--space-md);
                         padding:0.4rem 0.75rem;border-radius:var(--radius-sm);
                         background:var(--bg-inset);border:1px solid var(--border-subtle);font-size:0.72rem">
                 <span style="color:var(--text-muted)">🔍 Last scanned: <strong>${esc(scanAgeStr)}</strong></span>`;
@@ -59,7 +59,7 @@ function _wizRenderIntegrations() {
     const missing = toolEntries.filter(([, v]) => !v);
 
     let toolsHtml = `
-            <div style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.4rem">
+            <div id="wiz-int-tools-section" style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.4rem">
                 🔧 System Tools (${avail}/${toolEntries.length} available)
             </div>`;
 
@@ -84,7 +84,7 @@ function _wizRenderIntegrations() {
     if (installed.length > 0) {
         toolsHtml += `<div style="display:flex;flex-wrap:wrap;gap:0.25rem;margin-bottom:var(--space-md)">`;
         for (const [tool] of installed) {
-            toolsHtml += `<span style="font-size:0.65rem;padding:0.1rem 0.35rem;border-radius:4px;background:color-mix(in srgb, var(--success) 10%, transparent);color:var(--success);border:1px solid color-mix(in srgb, var(--success) 25%, transparent)">✓ ${esc(tool)}</span>`;
+            toolsHtml += `<span id="wiz-int-tool-${esc(tool)}" style="font-size:0.65rem;padding:0.1rem 0.35rem;border-radius:4px;background:color-mix(in srgb, var(--success) 10%, transparent);color:var(--success);border:1px solid color-mix(in srgb, var(--success) 25%, transparent)">✓ ${esc(tool)}</span>`;
         }
         toolsHtml += `</div>`;
     }
@@ -92,8 +92,8 @@ function _wizRenderIntegrations() {
     // ── Project files (compact) ────────────────────────────────
     const fileEntries = Object.entries(d.files);
     toolsHtml += `
-            <div style="display:flex;flex-wrap:wrap;gap:0.25rem;margin-bottom:var(--space-md)">
-                ${fileEntries.map(([k, v]) => `<span style="font-size:0.68rem;padding:0.1rem 0.4rem;border-radius:4px;border:1px solid ${v ? 'var(--accent)' : 'var(--border-subtle)'};color:${v ? 'var(--accent)' : 'var(--text-muted)'};background:${v ? 'color-mix(in srgb, var(--accent) 8%, transparent)' : 'var(--bg-inset)'}">${v ? '●' : '○'} ${esc(k.replace(/_/g, ' '))}</span>`).join('')}
+            <div id="wiz-int-files-section" style="display:flex;flex-wrap:wrap;gap:0.25rem;margin-bottom:var(--space-md)">
+                ${fileEntries.map(([k, v]) => `<span id="wiz-int-file-${esc(k)}" style="font-size:0.68rem;padding:0.1rem 0.4rem;border-radius:4px;border:1px solid ${v ? 'var(--accent)' : 'var(--border-subtle)'};color:${v ? 'var(--accent)' : 'var(--text-muted)'};background:${v ? 'color-mix(in srgb, var(--accent) 8%, transparent)' : 'var(--bg-inset)'}">${v ? '●' : '○'} ${esc(k.replace(/_/g, ' '))}</span>`).join('')}
             </div>`;
 
     // ── Card detail enrichment from embedded data ──────────────
@@ -103,7 +103,7 @@ function _wizRenderIntegrations() {
     const integrationOrder = ['int:git', 'int:github', 'int:pages'];
 
     let cardsHtml = `
-            <div style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.4rem">
+            <div id="wiz-int-section-integrations" style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.4rem">
                 🔌 Integrations
             </div>
             <div style="display:flex;flex-direction:column;gap:0.5rem;margin-bottom:var(--space-md)">`;
@@ -394,6 +394,7 @@ function _wizToggleSetup(key) {
     if (panel.style.display !== 'none') {
         panel.style.display = 'none';
         panel.innerHTML = '';
+        if (window._assistant) window._assistant.refresh();
         return;
     }
 
@@ -411,6 +412,7 @@ function _wizToggleSetup(key) {
     panel.style.borderTop = '1px solid var(--border-subtle)';
     panel.style.padding = '0.6rem 0.65rem';
     panel.style.background = 'var(--bg-card)';
+    if (window._assistant) window._assistant.refresh();
 }
 
 /** Reusable form field */
@@ -442,10 +444,13 @@ function _wizField(id, label, value, opts = {}) {
 }
 
 function _wizApplyBtn(key) {
+    const safeId = key.replace(':', '-');
     return `<div style="display:flex;gap:0.4rem;margin-top:0.6rem">
             <button class="btn btn-sm btn-primary" style="font-size:0.75rem"
+                id="wiz-apply-${safeId}"
                 onclick="_wizApplySetup('${esc(key)}', this)">✅ Apply</button>
             <button class="btn btn-sm btn-secondary" style="font-size:0.75rem"
+                id="wiz-cancel-${safeId}"
                 onclick="_wizToggleSetup('${esc(key)}')">Cancel</button>
         </div>`;
 }
@@ -461,9 +466,9 @@ const _wizSubForms = {
         const stackName = (d.stack_defaults || {}).primary_stack || '';
         const stackIcon = (d.stack_defaults || {}).icon || '';
         const domain = (d.stack_defaults || {}).domain || 'service';
-        const baseImage = sd.base_image || ('python:' + (d._python_version || '3.12') + '-slim');
-        const installCmd = sd.install_cmd || 'pip install -e .';
-        const entryCmd = sd.entry_cmd || 'python -m src';
+        const baseImage = sd.base_image || '';
+        const installCmd = sd.install_cmd || '';
+        const entryCmd = sd.entry_cmd || '';
         const defaultPort = sd.port || '8080';
         const isLibrary = domain === 'library';
         const hasDockerfile = info.has_dockerfile;
@@ -943,11 +948,11 @@ const _wizSubForms = {
         const sd = (d.stack_defaults || {}).ci || {};
         const stackName = (d.stack_defaults || {}).primary_stack || '';
         const stackIcon = (d.stack_defaults || {}).icon || '';
-        const langLabel = sd.language_label || 'Python Version';
-        const langVersion = sd.language_version || d._python_version || '3.12';
-        const installCmd = sd.install_cmd || 'pip install -e ".[dev]" || pip install -e .';
-        const testCmd = sd.test_cmd || 'python -m pytest tests/ -v --tb=short';
-        const lintCmd = sd.lint_cmd || 'ruff check src/';
+        const langLabel = sd.language_label || 'Language Version';
+        const langVersion = sd.language_version || '';
+        const installCmd = sd.install_cmd || '';
+        const testCmd = sd.test_cmd || '';
+        const lintCmd = sd.lint_cmd || '';
         const detected = info.detected;
 
         // ── CI status from embedded data ──
@@ -1579,7 +1584,7 @@ const _wizSubForms = {
         const sd = d.stack_defaults || {};
         const caps = sd.capabilities || {};
 
-        const _pill = (ok, label) => `<span style="font-size:0.62rem;padding:0.08rem 0.3rem;border-radius:4px;${ok ? 'background:color-mix(in srgb, var(--success) 10%, transparent);color:var(--success);border:1px solid color-mix(in srgb, var(--success) 25%, transparent)' : 'background:color-mix(in srgb, var(--text-muted) 8%, transparent);color:var(--text-muted);border:1px solid color-mix(in srgb, var(--text-muted) 20%, transparent)'}">${label}</span>`;
+        const _pill = (ok, label, id) => `<span ${id ? 'id="'+id+'"' : ''} style="font-size:0.62rem;padding:0.08rem 0.3rem;border-radius:4px;${ok ? 'background:color-mix(in srgb, var(--success) 10%, transparent);color:var(--success);border:1px solid color-mix(in srgb, var(--success) 25%, transparent)' : 'background:color-mix(in srgb, var(--text-muted) 8%, transparent);color:var(--text-muted);border:1px solid color-mix(in srgb, var(--text-muted) 20%, transparent)'}">${label}</span>`;
 
         // ── Header ──
         let html = `<div style="font-weight:600;font-size:0.85rem;margin-bottom:0.5rem">🔀 Git</div>`;
@@ -1588,23 +1593,23 @@ const _wizSubForms = {
         const gitVer = git.git_version ? 'v' + git.git_version : '';
         const giCov = Math.round((giAnalysis.coverage || 0) * 100);
         const giCovOk = giCov >= 90;
-        html += `<div style="display:flex;flex-wrap:wrap;gap:0.25rem;margin-bottom:0.5rem">
-            ${_pill(d.tools?.git, d.tools?.git ? '✓ git' + (gitVer ? ' ' + gitVer : '') : '✗ git missing')}
-            ${_pill(git.initialized, git.initialized ? '✓ repo · ' + (git.branch || '?') : '○ no repo')}
-            ${_pill(remotes.length > 0, remotes.length > 0 ? '✓ ' + remotes.length + ' remote(s)' : '○ no remotes')}
-            ${_pill(git.has_gitignore, git.has_gitignore ? '✓ .gitignore ' + giCov + '%' : '○ no .gitignore')}
-            ${_pill(git.hook_count > 0, git.hook_count > 0 ? '✓ ' + git.hook_count + ' hook(s)' : '○ no hooks')}
+        html += `<div id="wiz-git-status-strip" style="display:flex;flex-wrap:wrap;gap:0.25rem;margin-bottom:0.5rem">
+            ${_pill(d.tools?.git, d.tools?.git ? '✓ git' + (gitVer ? ' ' + gitVer : '') : '✗ git missing', 'wiz-git-pill-binary')}
+            ${_pill(git.initialized, git.initialized ? '✓ repo · ' + (git.branch || '?') : '○ no repo', 'wiz-git-pill-repo')}
+            ${_pill(remotes.length > 0, remotes.length > 0 ? '✓ ' + remotes.length + ' remote(s)' : '○ no remotes', 'wiz-git-pill-remotes')}
+            ${_pill(git.has_gitignore, git.has_gitignore ? '✓ .gitignore ' + giCov + '%' : '○ no .gitignore', 'wiz-git-pill-gitignore')}
+            ${_pill(git.hook_count > 0, git.hook_count > 0 ? '✓ ' + git.hook_count + ' hook(s)' : '○ no hooks', 'wiz-git-pill-hooks')}
         </div>`;
 
         // ── Remotes section ──
-        html += `<details style="margin-bottom:0.5rem" ${remotes.length === 0 ? 'open' : ''}>
+        html += `<details id="wiz-git-section-remotes" style="margin-bottom:0.5rem" ${remotes.length === 0 ? 'open' : ''}>
             <summary style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;cursor:pointer;user-select:none;margin-bottom:0.3rem">
                 🌐 Remotes (${remotes.length})
             </summary>
             <div style="padding-top:0.3rem">`;
 
         if (remotes.length > 0) {
-            html += `<div style="background:color-mix(in srgb, var(--bg-inset) 50%, transparent);border:1px solid var(--border-subtle);border-radius:6px;overflow:hidden;margin-bottom:0.4rem">`;
+            html += `<div id="wiz-git-remotes-list" style="background:color-mix(in srgb, var(--bg-inset) 50%, transparent);border:1px solid var(--border-subtle);border-radius:6px;overflow:hidden;margin-bottom:0.4rem">`;
             for (const r of remotes) {
                 const url = r.fetch || r.push || '';
                 const shortUrl = url.replace(/^https?:\/\//, '').replace(/\.git$/, '');
@@ -1639,14 +1644,14 @@ const _wizSubForms = {
                         catch(e){toast('❌ '+e.message,'error');btn.disabled=false;btn.textContent='＋ Add'}
                     })()">＋ Add</button>
             </div>
-            ${suggestUrl ? `<div style="font-size:0.65rem;color:var(--text-muted);margin-top:2px">🐙 Pre-filled from GitHub CLI: ${esc(ghSlug)}</div>` : ''}
+            ${suggestUrl ? `<div id="wiz-git-gh-hint" style="font-size:0.65rem;color:var(--text-muted);margin-top:2px">🐙 Pre-filled from GitHub CLI: ${esc(ghSlug)}</div>` : ''}
             </div>
         </details>`;
 
         // ── .gitignore section ──
         const giExists = git.has_gitignore;
         const giMissing = giAnalysis.missing_count || 0;
-        html += `<details style="margin-bottom:0.5rem" ${!giExists ? 'open' : ''}>
+        html += `<details id="wiz-git-section-gitignore" style="margin-bottom:0.5rem" ${!giExists ? 'open' : ''}>
             <summary style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;cursor:pointer;user-select:none;margin-bottom:0.3rem">
                 📄 .gitignore ${giExists ? '(' + giCov + '% coverage)' : '(missing)'}
             </summary>
@@ -1658,7 +1663,7 @@ const _wizSubForms = {
             html += `<div style="font-size:0.72rem;color:var(--warning);padding:0.2rem 0;margin-bottom:0.3rem">⚠️ Missing ${giMissing} recommended pattern(s).</div>`;
             const missing = (giAnalysis.missing_patterns || []).slice(0, 5);
             if (missing.length > 0) {
-                html += `<div style="display:flex;flex-wrap:wrap;gap:0.2rem;margin-bottom:0.3rem">`;
+                html += `<div id="wiz-git-missing-patterns" style="display:flex;flex-wrap:wrap;gap:0.2rem;margin-bottom:0.3rem">`;
                 for (const p of missing) {
                     html += `<span style="font-size:0.62rem;padding:0.05rem 0.25rem;border-radius:3px;background:color-mix(in srgb, var(--warning) 8%, transparent);color:var(--warning);border:1px solid color-mix(in srgb, var(--warning) 15%, transparent)">❌ ${esc(p.pattern || p)}</span>`;
                 }
@@ -1678,15 +1683,15 @@ const _wizSubForms = {
         const testCmd = caps.test || '';
         const hasLintTools = lintCmd || formatCmd;
         if (hasLintTools && git.hook_count === 0) {
-            html += `<details style="margin-bottom:0.5rem">
+            html += `<details id="wiz-git-section-hooks" style="margin-bottom:0.5rem">
                 <summary style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;cursor:pointer;user-select:none;margin-bottom:0.3rem">
                     🪝 Pre-commit Hook
                 </summary>
                 <div style="padding-top:0.3rem">
                     <div style="font-size:0.72rem;color:var(--text-secondary);margin-bottom:0.3rem">Run checks automatically before each commit:</div>
-                    <div style="display:flex;flex-wrap:wrap;gap:0.2rem;margin-bottom:0.3rem">
-                        ${lintCmd ? _pill(true, '✓ ' + lintCmd) : ''}
-                        ${formatCmd ? _pill(true, '✓ ' + formatCmd) : ''}
+                    <div id="wiz-git-hook-commands" style="display:flex;flex-wrap:wrap;gap:0.2rem;margin-bottom:0.3rem">
+                        ${lintCmd ? _pill(true, '✓ ' + lintCmd, 'wiz-git-hook-lint') : ''}
+                        ${formatCmd ? _pill(true, '✓ ' + formatCmd, 'wiz-git-hook-format') : ''}
                     </div>
                     ${_wizField('wiz-git-setup-hooks', 'Install pre-commit hook', false, { type: 'checkbox' })}
                 </div>
@@ -1695,7 +1700,7 @@ const _wizSubForms = {
 
         // ── Initial commit (if no commits yet) ──
         if (!git.initialized || git.commit_count === 0) {
-            html += `<details style="margin-bottom:0.5rem">
+            html += `<details id="wiz-git-section-commit" style="margin-bottom:0.5rem">
                 <summary style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;cursor:pointer;user-select:none;margin-bottom:0.3rem">
                     💾 Initial Commit
                 </summary>

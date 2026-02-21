@@ -362,8 +362,25 @@
         _addPath(hoverPath);
 
         // Sort by depth (shallowest first)
-        const sorted = Array.from(nodeMap.values());
+        var sorted = Array.from(nodeMap.values());
         sorted.sort(function(a, b) { return a.depth - b.depth; });
+
+        // Limit: keep only target + 1 immediate parent (max 2 nodes from target)
+        var maxTargetDepth = -1;
+        for (var i = 0; i < sorted.length; i++) {
+            if (sorted[i].isTarget && sorted[i].depth > maxTargetDepth) {
+                maxTargetDepth = sorted[i].depth;
+            }
+        }
+        if (maxTargetDepth >= 0) {
+            var minDepth = Math.max(0, maxTargetDepth - 1);
+            sorted = sorted.filter(function(e) { return e.depth >= minDepth; });
+            // Normalize depths so shallowest shown renders at depth 0
+            for (var j = 0; j < sorted.length; j++) {
+                sorted[j].depth = sorted[j].depth - minDepth;
+            }
+        }
+
         return sorted;
     }
 
@@ -973,6 +990,49 @@
         }
 
         return lines.join('\n');
+    };
+
+    // ── Integrations step resolvers ──────────────────────────────
+
+    window._assistant.resolvers.toolsMissing = function() {
+        // Missing tool rows have IDs and are inside the tools container
+        var rows = document.querySelectorAll('#wiz-int-body [id^="wiz-int-tool-"]:not([style*="success"])');
+        // Better: count rows that contain the "Install" button (only missing tools have one)
+        var missing = document.querySelectorAll('#wiz-int-body [id^="wiz-int-tool-"] button');
+        return missing ? missing.length : 0;
+    };
+
+    window._assistant.resolvers.toolsInstalled = function() {
+        // Installed tool pills contain "✓" and have success-colored background
+        var pills = document.querySelectorAll('#wiz-int-body span[id^="wiz-int-tool-"][style*="success"]');
+        return pills ? pills.length : 0;
+    };
+
+    window._assistant.resolvers.toolsTotal = function() {
+        var all = document.querySelectorAll('#wiz-int-body [id^="wiz-int-tool-"]');
+        return all ? all.length : 0;
+    };
+
+    window._assistant.resolvers.filesDetected = function() {
+        // File pills with ● indicator (found files)
+        var pills = document.querySelectorAll('#wiz-int-files-section span[id^="wiz-int-file-"]');
+        var count = 0;
+        if (pills) {
+            pills.forEach(function(p) {
+                if (p.textContent.indexOf('●') !== -1) count++;
+            });
+        }
+        return count;
+    };
+
+    window._assistant.resolvers.filesTotal = function() {
+        var pills = document.querySelectorAll('#wiz-int-files-section span[id^="wiz-int-file-"]');
+        return pills ? pills.length : 0;
+    };
+
+    window._assistant.resolvers.integrationCount = function() {
+        var cards = document.querySelectorAll('[id^="wiz-int-wrap-"]');
+        return cards ? cards.length : 0;
     };
 
 })();

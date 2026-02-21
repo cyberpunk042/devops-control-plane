@@ -4865,30 +4865,30 @@ select option {
 /* ── Layout: flex wrapper for wizard + panel ─────────────────────── */
 
 .assistant-layout {
-    position: relative;
+    display: flex;
+    gap: var(--space-md);
+    align-items: flex-start;
     min-height: 0;
 }
 
 .assistant-layout>#wizard-body {
     flex: 1;
     min-width: 0;
-    margin-right: calc(360px + var(--space-md));
 }
 
 /* ── Panel container ─────────────────────────────────────────────── */
 
 .assistant-panel {
-    position: absolute;
-    top: 0;
-    right: 0;
-    bottom: 0;
+    position: sticky;
+    top: 4rem;
     width: 360px;
+    flex-shrink: 0;
     background: var(--bg-primary);
     border: 1px solid var(--border-subtle);
     border-radius: var(--radius-lg);
     overflow-y: auto;
     overflow-x: hidden;
-    max-height: calc(100vh - 220px);
+    height: calc(100vh - 8rem);
     scroll-behavior: smooth;
     scrollbar-width: thin;
     scrollbar-color: var(--border-subtle) transparent;
