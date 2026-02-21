@@ -476,6 +476,7 @@
     }
 
     async function deployPages() {
+        if (!(await ensureGitAuth())) return;
         if (!confirm('Deploy to gh-pages?\n\nThis will merge all built segments and force-push to the remote gh-pages branch.')) return;
 
         // Auto-merge before deploying

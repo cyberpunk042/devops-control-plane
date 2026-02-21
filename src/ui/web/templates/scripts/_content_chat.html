@@ -80,6 +80,13 @@ function _chatStartPoll() {
   _chatStartIdleTracker();
   _chatPollTimer = setInterval(async () => {
     if (!_chatSelectedThread) return;
+
+    // Skip network poll if auth isn't ready — prompt once
+    if (_gitAuthStatus && !_gitAuthStatus.ok) {
+      if (!_ensureAuthResolve) ensureGitAuth();
+      return;
+    }
+
     _chatPollCycles++;
     // Show sync indicator
     var syncEl = document.getElementById('chat-sync-indicator');
@@ -1041,6 +1048,7 @@ async function chatCreateThread() {
 // ═══════════════════════════════════════════════════════════════
 
 async function chatSync(action) {
+  if (!(await ensureGitAuth())) return;
   try {
     toast('Syncing chat...', 'info');
     const result = await api('/chat/sync', {

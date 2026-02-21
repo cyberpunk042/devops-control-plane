@@ -64,54 +64,168 @@ async function _wizDockerLive(what) {
 
 // ── Docker operational actions ─────────────────────────────────
 
+let _dockerStreamAbort = null;
+
 async function _wizDockerAction(action, btnEl) {
     const output = document.getElementById('wiz-docker-action-output');
     const origText = btnEl.textContent;
-    btnEl.disabled = true;
+
+    // 'logs' is a fast read-only query — keep synchronous
+    if (action === 'logs') {
+        btnEl.disabled = true;
+        btnEl.textContent = '⏳…';
+        try {
+            const data = await api('/docker/logs?service=app&tail=50');
+            btnEl.textContent = origText;
+            btnEl.disabled = false;
+            if (output) {
+                output.style.display = 'block';
+                output.style.color = 'var(--text-secondary)';
+                output.textContent = data.logs || data.error || JSON.stringify(data, null, 2);
+            }
+        } catch (e) {
+            btnEl.textContent = origText;
+            btnEl.disabled = false;
+            if (output) {
+                output.style.display = 'block';
+                output.textContent = '❌ ' + e.message;
+                output.style.color = 'var(--error)';
+            }
+            toast('Docker logs failed: ' + e.message, 'error');
+        }
+        return;
+    }
+
+    // ── All other actions: stream via SSE ──
+
+    // Abort any previous stream
+    if (_dockerStreamAbort) {
+        try { _dockerStreamAbort.abort(); } catch (_) {}
+    }
+    _dockerStreamAbort = new AbortController();
+
+    // Disable ALL operation buttons while streaming
+    const allBtns = btnEl.parentElement ? btnEl.parentElement.querySelectorAll('button') : [];
+    allBtns.forEach(b => { b.disabled = true; });
     btnEl.textContent = '⏳…';
 
+    if (output) {
+        output.style.display = 'block';
+        output.style.color = 'var(--text-secondary)';
+        output.textContent = '';
+    }
+
+    const t0 = performance.now();
+    let timerInterval = null;
+
+    // Show elapsed timer in the output header
+    function _updateTimer() {
+        const secs = ((performance.now() - t0) / 1000).toFixed(1);
+        btnEl.textContent = `⏳ ${secs}s…`;
+    }
+    timerInterval = setInterval(_updateTimer, 200);
+
+    // Batched log rendering (same pattern as Pages SSE)
+    let _logBuffer = [];
+    let _logRafScheduled = false;
+
+    function _flushLog() {
+        if (_logBuffer.length === 0) { _logRafScheduled = false; return; }
+        if (output) {
+            output.textContent += _logBuffer.join('\n') + '\n';
+            output.scrollTop = output.scrollHeight;
+        }
+        _logBuffer = [];
+        _logRafScheduled = false;
+    }
+
+    function _addLine(line) {
+        _logBuffer.push(line);
+        if (!_logRafScheduled) {
+            _logRafScheduled = true;
+            requestAnimationFrame(_flushLog);
+        }
+    }
+
     try {
-        let data;
-        if (action === 'up') {
-            data = await api('/docker/up', { method: 'POST', body: '{}' });
-        } else if (action === 'down') {
-            data = await api('/docker/down', { method: 'POST', body: '{}' });
-        } else if (action === 'restart') {
-            data = await api('/docker/restart', { method: 'POST', body: '{}' });
-        } else if (action === 'build') {
-            data = await api('/docker/build', { method: 'POST', body: '{}' });
-        } else if (action === 'build-nc') {
-            data = await api('/docker/build', { method: 'POST', body: JSON.stringify({ no_cache: true }) });
-        } else if (action === 'prune') {
-            data = await api('/docker/prune', { method: 'POST', body: '{}' });
-        } else if (action === 'logs') {
-            data = await api('/docker/logs?service=app&tail=50');
+        const streamUrl = '/api/docker/stream/' + encodeURIComponent(action);
+        const response = await fetch(streamUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: '{}',
+            signal: _dockerStreamAbort.signal,
+        });
+
+        if (!response.ok) {
+            throw new Error(`Server ${response.status}: ${response.statusText}`);
         }
 
-        btnEl.textContent = origText;
-        btnEl.disabled = false;
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
 
-        if (data && output) {
-            output.style.display = 'block';
-            if (data.error) {
-                output.textContent = '❌ ' + data.error;
-                output.style.color = 'var(--error)';
-                toast(data.error, 'error');
-            } else {
-                output.style.color = 'var(--text-secondary)';
-                output.textContent = data.output || data.logs || data.message || JSON.stringify(data, null, 2);
-                toast(`✅ ${action} complete`, 'success');
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop();
+
+            for (const line of lines) {
+                if (!line.startsWith('data: ')) continue;
+                let evt;
+                try { evt = JSON.parse(line.slice(6)); } catch (e) { continue; }
+
+                if (evt.type === 'start') {
+                    _addLine(evt.label || `▶ ${action}…`);
+
+                } else if (evt.type === 'log') {
+                    _addLine(evt.line || '');
+
+                } else if (evt.type === 'done') {
+                    _flushLog();
+                    const dur = evt.duration_ms ? ` (${(evt.duration_ms / 1000).toFixed(1)}s)` : '';
+                    _addLine(`\n✅ ${evt.message || action + ' complete'}${dur}`);
+                    _flushLog();
+                    toast(`✅ ${action} complete${dur}`, 'success');
+
+                } else if (evt.type === 'error') {
+                    _flushLog();
+                    const dur = evt.duration_ms ? ` (${(evt.duration_ms / 1000).toFixed(1)}s)` : '';
+                    _addLine(`\n❌ ${evt.message || 'Failed'}${dur}`);
+                    _flushLog();
+                    if (output) output.style.color = 'var(--error)';
+                    toast(`❌ ${action} failed`, 'error');
+                }
             }
         }
+
+        // Flush any remaining buffer
+        _flushLog();
+
     } catch (e) {
-        btnEl.textContent = origText;
-        btnEl.disabled = false;
-        if (output) {
-            output.style.display = 'block';
-            output.textContent = '❌ ' + e.message;
-            output.style.color = 'var(--error)';
+        if (e.name === 'AbortError') {
+            if (output) {
+                _flushLog();
+                _addLine('\n⛔ Aborted');
+                _flushLog();
+            }
+        } else {
+            if (output) {
+                output.style.display = 'block';
+                output.style.color = 'var(--error)';
+                _flushLog();
+                _addLine('❌ ' + e.message);
+                _flushLog();
+            }
+            toast('Docker action failed: ' + e.message, 'error');
         }
-        toast('Docker action failed: ' + e.message, 'error');
+    } finally {
+        clearInterval(timerInterval);
+        btnEl.textContent = origText;
+        allBtns.forEach(b => { b.disabled = false; });
+        _dockerStreamAbort = null;
     }
 }
 
@@ -226,9 +340,8 @@ async function _wizComposeCi(btnEl) {
     const projectName = (_wizardConfig?.name || 'app');
     const d = _wizIntDetection;
 
-    // Build wizard state from detected integrations
     const state = {
-        stack_names: [d._python_version ? 'python' : 'generic'],
+        stack_names: (d.detected_stacks || []).length > 0 ? d.detected_stacks : ['generic'],
     };
 
     // Docker services (if Docker detected)
@@ -438,12 +551,20 @@ async function _wizApplySetup(key, btnEl) {
     } else if (key === 'int:ci') {
         payload.action = 'setup_ci';
         payload.branches = $('wiz-ci-branches');
-        payload.python_version = $('wiz-ci-python');
+        payload.language_version = $('wiz-ci-langver');
+        // Backward compat: backend may still expect python_version
+        payload.python_version = $('wiz-ci-langver');
         payload.install_cmd = $('wiz-ci-install');
         payload.test_cmd = $('wiz-ci-test');
         payload.lint = $('wiz-ci-lint');
         payload.lint_cmd = $('wiz-ci-lint-cmd');
         payload.overwrite = $('wiz-ci-overwrite') || false;
+        // Stack context
+        const ciD = _wizIntDetection;
+        if (ciD) {
+            payload.stacks = ciD.detected_stacks || [];
+            payload.language_family = (ciD.stack_defaults || {}).language_family || 'python';
+        }
     } else if (key === 'terraform') {
         payload.action = 'setup_terraform';
         payload.provider = $('wiz-tf-provider');
@@ -453,7 +574,47 @@ async function _wizApplySetup(key, btnEl) {
         payload.overwrite = $('wiz-tf-overwrite') || false;
     } else if (key === 'int:git') {
         payload.action = 'setup_git';
-        payload.remote = $('wiz-git-remote');
+        // Branch
+        const gitBranch = $('wiz-git-branch');
+        if (gitBranch) payload.default_branch = gitBranch;
+        // .gitignore: generate flag (regenerate or create)
+        if ($('wiz-git-regen-gi') || $('wiz-git-create-gi')) {
+            payload.generate_gitignore = true;
+        }
+        // Pre-commit hooks
+        if ($('wiz-git-setup-hooks')) {
+            payload.setup_hooks = true;
+            const sd = (_wizIntDetection || {}).stack_defaults || {};
+            const caps = sd.capabilities || {};
+            const hookCmds = [];
+            if (caps.lint) hookCmds.push(caps.lint);
+            if (caps.format) hookCmds.push(caps.format);
+            payload.hook_commands = hookCmds;
+        }
+        // Initial commit
+        if ($('wiz-git-init-commit')) {
+            payload.create_initial_commit = true;
+            payload.commit_message = $('wiz-git-commit-msg') || 'Initial commit';
+        }
+    } else if (key === 'int:github') {
+        payload.action = 'setup_github';
+        // Environments to create
+        const envCbs = document.querySelectorAll('.wiz-gh-env-create:checked');
+        const envsToCreate = Array.from(envCbs).map(cb => cb.dataset.env);
+        if (envsToCreate.length > 0) payload.create_environments = envsToCreate;
+        // Secrets push
+        if ($('wiz-gh-push-secrets')) payload.push_secrets = true;
+        // CODEOWNERS
+        if ($('wiz-gh-write-co')) {
+            const coContent = ($('wiz-gh-co-content') || '').trim();
+            if (coContent) payload.codeowners_content = coContent;
+        }
+    } else if (key === 'int:pages') {
+        payload.action = 'setup_pages';
+        // Auto-init segments from content folders
+        if ($('wiz-pages-auto-init')) {
+            payload.auto_init = true;
+        }
     } else {
         btnEl.textContent = '✅ Apply';
         btnEl.disabled = false;

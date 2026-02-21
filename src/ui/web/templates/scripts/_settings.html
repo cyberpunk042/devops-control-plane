@@ -14,6 +14,7 @@
         density: 'normal',       // dense | normal | spacious
         previewMode: 'modal',    // modal | forward
         assistantGuide: true,    // assistant side panel
+        sshPassphrasePrompt: 'always',  // 'always' | 'on-demand'
     };
 
     // ── Scale profiles ──────────────────────────────────────────────
@@ -163,6 +164,28 @@
             </div>
         </div>`;
 
+        // ── SSH Passphrase Prompt (only for SSH secure mode) ─────
+        // Show this toggle only when the user is in SSH mode with
+        // a passphrase-protected key.  Otherwise it's irrelevant.
+        const sshSecure = typeof _gitAuthStatus !== 'undefined'
+            && _gitAuthStatus
+            && _gitAuthStatus.remote_type === 'ssh'
+            && (_gitAuthStatus.needs === 'ssh_passphrase' || _gitAuthStatus.ssh_key);
+
+        if (sshSecure) {
+            const p = prefs.sshPassphrasePrompt || 'always';
+            html += `<div class="settings-group">
+                <div class="settings-label">🔒 SSH Passphrase Prompt</div>
+                <div class="settings-hint">When to ask for your SSH key passphrase</div>
+                <div class="settings-btn-group">
+                    <button class="settings-btn ${p === 'always' ? 'active' : ''}"
+                        onclick="_prefSetSshPrompt('always')">🚀 On Startup</button>
+                    <button class="settings-btn ${p === 'on-demand' ? 'active' : ''}"
+                        onclick="_prefSetSshPrompt('on-demand')">📋 On Demand</button>
+                </div>
+            </div>`;
+        }
+
         body.innerHTML = html;
     }
 
@@ -196,6 +219,11 @@
         if (window._assistant) {
             enabled ? window._assistant.enable() : window._assistant.disable();
         }
+        _renderSettingsPanel();
+    }
+
+    function _prefSetSshPrompt(mode) {
+        prefsSet('sshPassphrasePrompt', mode);
         _renderSettingsPanel();
     }
 

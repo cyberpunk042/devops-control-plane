@@ -96,17 +96,11 @@ function _wizRenderIntegrations() {
                 ${fileEntries.map(([k, v]) => `<span style="font-size:0.68rem;padding:0.1rem 0.4rem;border-radius:4px;border:1px solid ${v ? 'var(--accent)' : 'var(--border-subtle)'};color:${v ? 'var(--accent)' : 'var(--text-muted)'};background:${v ? 'color-mix(in srgb, var(--accent) 8%, transparent)' : 'var(--bg-inset)'}">${v ? '●' : '○'} ${esc(k.replace(/_/g, ' '))}</span>`).join('')}
             </div>`;
 
-    // ── Integration cards with sub-wizard ──────────────────────
-    const descs = {
-        'int:git': 'Git repository management.',
-        'int:github': 'GitHub CLI access — PRs, issues, environments.',
-        'int:ci': 'CI/CD pipeline setup and monitoring.',
-        'int:docker': 'Docker containerization — build, run, compose.',
-        'int:pages': 'Static site builder with multi-section support.',
-        'k8s': 'Kubernetes deployment — pods, services, ingress.',
-        'terraform': 'Infrastructure as Code — provision cloud resources.',
-        'dns': 'DNS resolution and CDN checks.',
-    };
+    // ── Card detail enrichment from embedded data ──────────────
+    const _cardDetails = _wizCardDetails(d);
+
+    // ── Integration order: Git → GitHub → Pages ───────────────
+    const integrationOrder = ['int:git', 'int:github', 'int:pages'];
 
     let cardsHtml = `
             <div style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.4rem">
@@ -114,26 +108,77 @@ function _wizRenderIntegrations() {
             </div>
             <div style="display:flex;flex-direction:column;gap:0.5rem;margin-bottom:var(--space-md)">`;
 
-    for (const [key, info] of Object.entries(d.integrations)) {
-        // Skip if this integration also exists in devops_cards (avoid duplicates)
+    for (const key of integrationOrder) {
+        const info = d.integrations[key];
+        if (!info) continue;
         const bareKey = key.replace(/^int:/, '');
         if (d.devops_cards[bareKey]) continue;
         const enabled = (savedPrefs[key] || info.suggest) !== 'hidden';
-        cardsHtml += _wizIntCard(key, info, enabled, descs[key] || '');
+        cardsHtml += _wizIntCard(key, info, enabled, _cardDetails[key] || '');
     }
     cardsHtml += `</div>`;
+
+    // ── DevOps Extensions: Docker → K8s → Terraform → DNS ────
+    const devopsIntegrationKeys = ['int:docker'];
+    const devopsCardOrder = ['k8s', 'terraform', 'dns'];
 
     cardsHtml += `
             <div style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.4rem">
                 ⚙️ DevOps Extensions
             </div>
             <div style="display:flex;flex-direction:column;gap:0.5rem;margin-bottom:var(--space-md)">`;
-    for (const [key, info] of Object.entries(d.devops_cards)) {
+
+    // Docker (from integrations dict)
+    for (const key of devopsIntegrationKeys) {
+        const info = d.integrations[key];
+        if (!info) continue;
+        const enabled = (savedPrefs[key] || info.suggest) !== 'hidden';
+        cardsHtml += _wizIntCard(key, info, enabled, _cardDetails[key] || '');
+    }
+
+    // K8s, Terraform, DNS (from devops_cards dict)
+    for (const key of devopsCardOrder) {
+        const info = d.devops_cards[key];
+        if (!info) continue;
         if (!info.tools_needed && info.detected === true) continue;
         const enabled = (savedPrefs[key] || info.suggest) !== 'hidden';
-        cardsHtml += _wizIntCard(key, info, enabled, descs[key] || '');
+        cardsHtml += _wizIntCard(key, info, enabled, _cardDetails[key] || '');
+    }
+
+    // Remaining devops_cards not in our explicit order (security, testing, quality, etc.)
+    for (const [key, info] of Object.entries(d.devops_cards)) {
+        if (devopsCardOrder.includes(key)) continue;
+        if (!info.tools_needed && info.detected === true) continue;
+        const enabled = (savedPrefs[key] || info.suggest) !== 'hidden';
+        cardsHtml += _wizIntCard(key, info, enabled, _cardDetails[key] || '');
     }
     cardsHtml += `</div>`;
+
+    // ── CI/CD — its own section, last ─────────────────────────
+    const ciInfo = d.integrations['int:ci'];
+    if (ciInfo) {
+        const ciEnabled = (savedPrefs['int:ci'] || ciInfo.suggest) !== 'hidden';
+        cardsHtml += `
+            <div style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.4rem">
+                🔄 Continuous Integration & Deployment
+            </div>
+            <div style="display:flex;flex-direction:column;gap:0.5rem;margin-bottom:var(--space-md)">
+                ${_wizIntCard('int:ci', ciInfo, ciEnabled, _cardDetails['int:ci'] || '')}
+            </div>`;
+    }
+
+    // ── Remaining integrations not in any explicit order ───────
+    const renderedKeys = new Set([...integrationOrder, ...devopsIntegrationKeys, 'int:ci']);
+    const remainingIntKeys = Object.keys(d.integrations).filter(k => !renderedKeys.has(k));
+    if (remainingIntKeys.length > 0) {
+        for (const key of remainingIntKeys) {
+            const info = d.integrations[key];
+            const bareKey = key.replace(/^int:/, '');
+            if (d.devops_cards[bareKey]) continue;
+            const enabled = (savedPrefs[key] || info.suggest) !== 'hidden';
+            cardsHtml += _wizIntCard(key, info, enabled, _cardDetails[key] || '');
+        }
+    }
 
     el.style.display = 'block';
     el.innerHTML = scanBarHtml + toolsHtml + cardsHtml + `
@@ -141,6 +186,103 @@ function _wizRenderIntegrations() {
                 💡 Click <strong>⚙️ Setup</strong> on any card to configure it.
                 Uncheck to hide from UI.
             </p>`;
+}
+
+// ── Card detail text — enriched from embedded detection data ───
+function _wizCardDetails(d) {
+    const ciSt = d.ci_status || {};
+    const ghCli = d.gh_cli_status || {};
+    const ghUser = d.gh_user || {};
+    const ghRepo = d.gh_repo_info || {};
+    const ghEnvs = d.gh_environments || {};
+    const dockerSt = d.docker_status || {};
+    const gitRemotes = d.git_remotes || {};
+    const envSt = d.env_status || {};
+    const stacks = d.detected_stacks || [];
+    const sd = d.stack_defaults || {};
+    const probes = d.status_probes || {};
+    const gitProbe = probes.git || {};
+    const ghProbe = probes.github || {};
+    const giAnalysis = d.gitignore_analysis || {};
+
+    const remotes = (gitRemotes.remotes || []);
+    const originRemote = remotes.find(r => r.name === 'origin');
+    const ciProviders = ciSt.providers || [];
+    const ciWorkflows = ciSt.total_workflows || 0;
+    const ghEnvList = ghEnvs.environments || [];
+
+    // ── Git card detail — branch, remote, .gitignore, hooks ──
+    let gitDesc = '';
+    if (gitProbe.initialized) {
+        const parts = [];
+        if (gitProbe.branch) parts.push(gitProbe.branch);
+        if (originRemote) {
+            const shortUrl = (originRemote.fetch || originRemote.push || '').replace(/^https?:\/\//, '').replace(/\.git$/, '');
+            parts.push(shortUrl || 'origin');
+        } else if (remotes.length > 0) {
+            parts.push(remotes.length + ' remote(s)');
+        }
+        if (gitProbe.has_gitignore) {
+            const cov = Math.round((giAnalysis.coverage || 0) * 100);
+            parts.push('.gitignore ' + cov + '%');
+        } else {
+            parts.push('no .gitignore');
+        }
+        if (gitProbe.hook_count > 0) parts.push(gitProbe.hook_count + ' hook(s)');
+        gitDesc = parts.join(' · ');
+    } else {
+        gitDesc = 'No repository — click Setup to initialize.';
+    }
+
+    // ── GitHub card detail — auth, repo, envs, secrets, CODEOWNERS ──
+    let ghDesc = '';
+    if (ghCli.authenticated) {
+        const parts = [];
+        if (ghUser.login) parts.push('@' + ghUser.login);
+        if (ghRepo.slug) parts.push(ghRepo.slug);
+        if (ghRepo.visibility) parts.push(ghRepo.visibility.toLowerCase());
+        if (ghEnvList.length > 0) parts.push(ghEnvList.length + ' env(s)');
+        if (ghProbe.has_codeowners) parts.push('CODEOWNERS ✓');
+        if (ghProbe.workflow_count > 0) parts.push(ghProbe.workflow_count + ' workflow(s)');
+        ghDesc = parts.join(' · ');
+    } else if (ghCli.available) {
+        ghDesc = 'gh CLI installed but not authenticated.';
+    } else {
+        ghDesc = 'GitHub CLI access — PRs, issues, environments.';
+    }
+
+    return {
+        'int:git': gitDesc,
+
+        'int:github': ghDesc,
+
+        'int:ci': ciWorkflows > 0
+            ? `${ciProviders.length > 0 ? ciProviders[0].name + ': ' : ''}${ciWorkflows} workflow${ciWorkflows !== 1 ? 's' : ''}${sd.primary_stack ? ' · ' + (sd.icon || '') + ' ' + sd.primary_stack : ''}`
+            : `No workflows detected.${sd.primary_stack ? ' Stack: ' + (sd.icon || '') + ' ' + sd.primary_stack : ''}`,
+
+        'int:docker': dockerSt.available
+            ? `Docker ${dockerSt.daemon_running ? '✓ running' : '⚠ daemon offline'}${dockerSt.compose_available ? ' · compose ✓' : ''}${d.integrations?.['int:docker']?.has_dockerfile ? ' · Dockerfile ✓' : ''}${d.integrations?.['int:docker']?.has_compose ? ' · compose.yml ✓' : ''}`
+            : 'Docker containerization — build, run, compose.',
+
+        'int:pages': (() => {
+            const ps = d.pages_status || {};
+            const pp = (d.status_probes || {}).pages || {};
+            const segs = ps.segments || [];
+            const cfs = ps.content_folders || [];
+            if (segs.length > 0) {
+                const builders = [...new Set(segs.map(s => s.builder))].join(', ');
+                return `${segs.length} segment${segs.length !== 1 ? 's' : ''} · ${builders}${ps.meta?.deploy_branch ? ' · 🌿 ' + ps.meta.deploy_branch : ''}`;
+            }
+            if (cfs.length > 0) {
+                return `${cfs.length} content folder${cfs.length !== 1 ? 's' : ''} detected — auto-init available`;
+            }
+            return 'Static site builder with multi-section support.';
+        })(),
+
+        'k8s': 'Kubernetes deployment — pods, services, ingress.',
+        'terraform': 'Infrastructure as Code — provision cloud resources.',
+        'dns': 'DNS resolution and CDN checks.',
+    };
 }
 
 // ── Integration card with inline sub-wizard ────────────────────
@@ -271,24 +413,113 @@ function _wizApplyBtn(key) {
 const _wizSubForms = {
 
     'int:docker': (info, name, d) => {
-        const pyVer = d._python_version || '3.12';
-        const hasPyproject = d.files.pyproject;
-        const installCmd = hasPyproject ? 'pip install -e .' : 'pip install -r requirements.txt';
+        const sd = (d.stack_defaults || {}).docker || {};
+        const stackName = (d.stack_defaults || {}).primary_stack || '';
+        const stackIcon = (d.stack_defaults || {}).icon || '';
+        const domain = (d.stack_defaults || {}).domain || 'service';
+        const baseImage = sd.base_image || ('python:' + (d._python_version || '3.12') + '-slim');
+        const installCmd = sd.install_cmd || 'pip install -e .';
+        const entryCmd = sd.entry_cmd || 'python -m src';
+        const defaultPort = sd.port || '8080';
+        const isLibrary = domain === 'library';
         const hasDockerfile = info.has_dockerfile;
         const hasCompose = info.has_compose;
         const daemonOk = info.daemon_ok;
 
-        let html = `<div style="font-weight:600;font-size:0.85rem;margin-bottom:0.5rem">🐳 Docker</div>`;
+        // ── Rich docker_status data (from backend docker_detect) ──
+        const dockerSt = d.docker_status || {};
+        const dockerVersion = (dockerSt.version || '').replace('Docker version ', '').split(',')[0];
+        const composeVersion = dockerSt.compose_version || '';
+        const dockerfiles = dockerSt.dockerfiles || [];
+        const dockerfileDetails = dockerSt.dockerfile_details || [];
+        const composeSvcDetails = dockerSt.compose_service_details || [];
+        const composeWarnings = dockerSt.compose_warnings || [];
+        const hasDockerignore = dockerSt.has_dockerignore || false;
+        const dockerignorePatterns = dockerSt.dockerignore_patterns || [];
 
-        // ── Live status strip ──
-        html += `<div id="wiz-docker-status" style="margin-bottom:0.6rem">
-            <div style="font-size:0.72rem;color:var(--text-muted);font-weight:600;text-transform:uppercase;margin-bottom:0.2rem">Status</div>
-            <div style="display:flex;flex-wrap:wrap;gap:0.25rem">
-                <span style="font-size:0.65rem;padding:0.1rem 0.35rem;border-radius:4px;${daemonOk ? 'background:color-mix(in srgb, var(--success) 10%, transparent);color:var(--success);border:1px solid color-mix(in srgb, var(--success) 25%, transparent)' : 'background:color-mix(in srgb, var(--error) 10%, transparent);color:var(--error);border:1px solid color-mix(in srgb, var(--error) 25%, transparent)'}">${daemonOk ? '✓ daemon' : '✗ daemon'}</span>
-                <span style="font-size:0.65rem;padding:0.1rem 0.35rem;border-radius:4px;${hasDockerfile ? 'background:color-mix(in srgb, var(--success) 10%, transparent);color:var(--success);border:1px solid color-mix(in srgb, var(--success) 25%, transparent)' : 'background:color-mix(in srgb, var(--warning) 10%, transparent);color:var(--warning);border:1px solid color-mix(in srgb, var(--warning) 25%, transparent)'}">${hasDockerfile ? '✓ Dockerfile' : '○ no Dockerfile'}</span>
-                <span style="font-size:0.65rem;padding:0.1rem 0.35rem;border-radius:4px;${hasCompose ? 'background:color-mix(in srgb, var(--success) 10%, transparent);color:var(--success);border:1px solid color-mix(in srgb, var(--success) 25%, transparent)' : 'background:color-mix(in srgb, var(--text-muted) 10%, transparent);color:var(--text-muted);border:1px solid color-mix(in srgb, var(--text-muted) 25%, transparent)'}">${hasCompose ? '✓ compose' : '○ no compose'}</span>
-            </div>
+        // Cross-integration detection (for warning on basic gen)
+        const modules = ((d.config_data || {}).modules || []);
+        const hasMultipleModules = modules.filter(m => {
+            const dom = (m.domain || '').toLowerCase();
+            return dom !== 'library' && dom !== 'docs';
+        }).length > 1;
+
+        const _pill = (ok, label) => `<span style="font-size:0.62rem;padding:0.08rem 0.3rem;border-radius:4px;${ok ? 'background:color-mix(in srgb, var(--success) 10%, transparent);color:var(--success);border:1px solid color-mix(in srgb, var(--success) 25%, transparent)' : 'background:color-mix(in srgb, var(--text-muted) 8%, transparent);color:var(--text-muted);border:1px solid color-mix(in srgb, var(--text-muted) 20%, transparent)'}">${label}</span>`;
+
+        // ── Header with stack badge ──
+        let html = `<div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.5rem">
+            <span style="font-weight:600;font-size:0.85rem">🐳 Docker</span>
+            ${stackName ? `<span style="font-size:0.62rem;padding:0.08rem 0.3rem;border-radius:4px;background:color-mix(in srgb, var(--accent) 10%, transparent);color:var(--accent);border:1px solid color-mix(in srgb, var(--accent) 25%, transparent)">${stackIcon} ${esc(stackName)}</span>` : ''}
         </div>`;
+
+        // ── Enriched status strip ──
+        html += `<div style="display:flex;flex-wrap:wrap;gap:0.25rem;margin-bottom:0.5rem">
+            ${_pill(daemonOk, daemonOk ? '✓ daemon' + (dockerVersion ? ' · ' + dockerVersion : '') : '✗ daemon')}
+            ${_pill(dockerSt.compose_available, dockerSt.compose_available ? '✓ compose' + (composeVersion ? ' ' + composeVersion : '') : '○ no compose CLI')}
+            ${_pill(hasDockerfile, hasDockerfile ? '✓ ' + dockerfiles.length + ' Dockerfile' + (dockerfiles.length !== 1 ? 's' : '') : '○ no Dockerfile')}
+            ${_pill(hasCompose, hasCompose ? '✓ ' + (dockerSt.compose_file || 'compose') + ' · ' + (dockerSt.services_count || 0) + ' svc' + ((dockerSt.services_count || 0) !== 1 ? 's' : '') : '○ no compose file')}
+            ${_pill(hasDockerignore, hasDockerignore ? '✓ .dockerignore · ' + dockerignorePatterns.length + ' rules' : '○ no .dockerignore')}
+        </div>`;
+
+        // ── Existing Dockerfile details ──
+        if (dockerfileDetails.length > 0) {
+            html += `<details style="margin-bottom:0.5rem" open>
+                <summary style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;cursor:pointer;user-select:none;margin-bottom:0.3rem">
+                    📄 Dockerfiles (${dockerfileDetails.length})
+                </summary>
+                <div style="background:color-mix(in srgb, var(--bg-inset) 50%, transparent);border:1px solid var(--border-subtle);border-radius:6px;overflow:hidden">`;
+
+            for (const df of dockerfileDetails) {
+                const bases = (df.base_images || []).slice(0, 3);
+                const stages = df.stages || [];
+                const ports = df.ports || [];
+                const warnings = df.warnings || [];
+                html += `<div style="padding:0.3rem 0.5rem;border-bottom:1px solid color-mix(in srgb, var(--border-subtle) 40%, transparent);font-size:0.72rem">
+                    <div style="display:flex;align-items:center;gap:0.4rem;margin-bottom:0.15rem">
+                        <code style="font-weight:600;font-size:0.7rem">${esc(df.path)}</code>
+                        ${df.stage_count > 1 ? `<span style="font-size:0.6rem;color:var(--accent)">${df.stage_count}-stage</span>` : ''}
+                        ${ports.length > 0 ? `<span style="font-size:0.6rem;color:var(--text-muted)">EXPOSE ${ports.join(', ')}</span>` : ''}
+                    </div>
+                    <div style="display:flex;flex-wrap:wrap;gap:0.15rem">
+                        ${bases.map(b => `<span style="font-size:0.6rem;padding:0.05rem 0.25rem;border-radius:3px;background:color-mix(in srgb, var(--accent) 8%, transparent);color:var(--accent);border:1px solid color-mix(in srgb, var(--accent) 15%, transparent)">${esc(b)}</span>`).join('')}
+                        ${stages.map(s => `<span style="font-size:0.6rem;padding:0.05rem 0.25rem;border-radius:3px;background:color-mix(in srgb, var(--text-muted) 8%, transparent);color:var(--text-muted)">AS ${esc(s)}</span>`).join('')}
+                    </div>
+                    ${warnings.length > 0 ? `<div style="margin-top:0.15rem">${warnings.map(w => `<div style="font-size:0.62rem;color:var(--warning)">⚠️ ${esc(w)}</div>`).join('')}</div>` : ''}
+                </div>`;
+            }
+            html += `</div></details>`;
+        }
+
+        // ── Existing compose service details ──
+        if (composeSvcDetails.length > 0) {
+            html += `<details style="margin-bottom:0.5rem">
+                <summary style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;cursor:pointer;user-select:none;margin-bottom:0.3rem">
+                    📋 Compose Services (${composeSvcDetails.length})
+                </summary>
+                <div style="background:color-mix(in srgb, var(--bg-inset) 50%, transparent);border:1px solid var(--border-subtle);border-radius:6px;overflow:hidden">`;
+
+            for (const svc of composeSvcDetails) {
+                const svcPorts = (svc.ports || []).map(p => p.host + ':' + p.container).join(', ');
+                const svcVols = (svc.volumes || []).length;
+                const svcDeps = (svc.depends_on || []).length;
+                const svcImage = svc.image || (svc.build ? '(build)' : '?');
+                html += `<div style="display:flex;align-items:center;gap:0.4rem;padding:0.25rem 0.5rem;border-bottom:1px solid color-mix(in srgb, var(--border-subtle) 40%, transparent);font-size:0.72rem">
+                    <strong style="min-width:70px;font-size:0.7rem">${esc(svc.name)}</strong>
+                    <code style="font-size:0.62rem;color:var(--text-secondary);background:var(--bg-primary);padding:1px 4px;border-radius:3px">${esc(svcImage)}</code>
+                    ${svcPorts ? `<span style="font-size:0.6rem;color:var(--text-muted)">:${svcPorts}</span>` : ''}
+                    <span style="flex:1"></span>
+                    ${svcVols > 0 ? `<span style="font-size:0.58rem;color:var(--text-muted)">${svcVols} vol</span>` : ''}
+                    ${svcDeps > 0 ? `<span style="font-size:0.58rem;color:var(--text-muted)">${svcDeps} dep</span>` : ''}
+                    ${svc.restart ? `<span style="font-size:0.58rem;color:var(--text-muted)">${esc(svc.restart)}</span>` : ''}
+                </div>`;
+            }
+            html += `</div>`;
+            // Compose warnings
+            if (composeWarnings.length > 0) {
+                html += `<div style="margin-top:0.3rem">${composeWarnings.map(w => `<div style="font-size:0.65rem;color:var(--warning);padding:0.1rem 0">⚠️ ${esc(w)}</div>`).join('')}</div>`;
+            }
+            html += `</details>`;
+        }
 
         // ── Containers / Images live panel ──
         if (daemonOk) {
@@ -329,24 +560,53 @@ const _wizSubForms = {
             </div>`;
         } else if (daemonOk && !hasCompose) {
             html += `<div style="font-size:0.72rem;color:var(--text-muted);margin-bottom:0.5rem">
-                ℹ Generate docker-compose.yml below to unlock Start/Stop/Build controls.
+                ℹ Generate docker-compose.yml to unlock Start/Stop/Build controls.
             </div>`;
         }
 
-        // ── Config generation form ──
+        // ── Basic config generation form (with warning like CI/CD) ──
         html += `<details style="margin-bottom:0.5rem" ${!hasDockerfile ? 'open' : ''}>
             <summary style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;cursor:pointer;user-select:none;margin-bottom:0.3rem">
-                ${hasDockerfile ? '📝 Regenerate Config' : '📝 Generate Config'}
+                ${hasDockerfile ? '📝 Regenerate Basic Config' : '📝 Generate Basic Config'}
             </summary>
             <div style="padding-top:0.3rem">
-                ${_wizField('wiz-docker-base', 'Base Image', 'python:' + pyVer + '-slim', { help: 'e.g. python:3.12-slim, node:20-alpine' })}
-                ${_wizField('wiz-docker-workdir', 'Working Directory', '/app')}
-                ${_wizField('wiz-docker-install', 'Install Command', installCmd, { help: 'Run during build' })}
-                ${_wizField('wiz-docker-port', 'Expose Port', '8080')}
-                ${_wizField('wiz-docker-cmd', 'Entry Command', 'python -m src', { help: 'CMD when container starts' })}
+                ${hasDockerfile && (hasMultipleModules || composeSvcDetails.length > 1) ? `<div style="font-size:0.72rem;color:var(--warning);line-height:1.4;margin-bottom:0.5rem;padding:0.35rem 0.5rem;border-radius:6px;background:color-mix(in srgb, var(--warning) 6%, transparent);border:1px solid color-mix(in srgb, var(--warning) 18%, transparent)">
+                    ⚠️ <strong>Basic generation</strong> creates a single-template Dockerfile for one service only.
+                    If your project has multiple modules, infra services, environment variables from vault, or custom port/volume mappings, they will not be included.
+                    Use <strong>🚀 Full Docker Setup</strong> below for per-module configuration with env vars, ports, volumes, and infrastructure services.
+                </div>` : ''}
+                ${_wizField('wiz-docker-base', 'Base Image', baseImage, { help: 'e.g. python:3.12-slim, golang:1.22-alpine, node:20-alpine' })}
+                ${_wizField('wiz-docker-workdir', 'Working Directory', sd.workdir || '/app')}
+                ${_wizField('wiz-docker-install', 'Install Command', installCmd, { help: 'Run during build to install dependencies' })}
+                ${isLibrary ? '' : _wizField('wiz-docker-port', 'Expose Port', defaultPort, { help: 'Port the service listens on' })}
+                ${isLibrary ? '' : _wizField('wiz-docker-cmd', 'Entry Command', entryCmd, { help: 'CMD when container starts' })}
                 ${_wizField('wiz-docker-compose', 'Also generate docker-compose.yml', !hasCompose, { type: 'checkbox' })}
                 ${hasDockerfile ? _wizField('wiz-docker-overwrite', 'Overwrite existing Dockerfile', false, { type: 'checkbox' }) : ''}
                 ${_wizApplyBtn('int:docker')}
+            </div>
+        </details>`;
+
+        // ── Full Docker Setup escalation (like CI/CD's "Compose Full Pipeline") ──
+        html += `<details style="margin-bottom:0.5rem">
+            <summary style="font-size:0.72rem;font-weight:600;color:var(--accent);text-transform:uppercase;cursor:pointer;user-select:none;margin-bottom:0.3rem">
+                🚀 Full Docker Setup
+            </summary>
+            <div style="padding-top:0.3rem">
+                <div style="font-size:0.75rem;color:var(--text-secondary);line-height:1.5;margin-bottom:0.6rem">
+                    Open the full multi-step Docker wizard for <strong>comprehensive</strong> container configuration.
+                    This includes per-module Dockerfiles, infrastructure services (databases, caches, queues),
+                    vault-aware environment variables, port and volume mappings, health checks, and live preview with editing.
+                </div>
+                <div style="display:flex;flex-wrap:wrap;gap:0.25rem;margin-bottom:0.6rem">
+                    ${_pill(modules.length > 0, modules.length > 0 ? '✓ ' + modules.length + ' module' + (modules.length !== 1 ? 's' : '') + ' detected' : '○ no modules')}
+                    ${_pill(hasDockerfile, hasDockerfile ? '✓ Dockerfile exists' : '○ will create')}
+                    ${_pill(hasCompose, hasCompose ? '✓ compose exists' : '○ will create')}
+                    ${_pill(hasDockerignore, hasDockerignore ? '✓ .dockerignore' : '○ will create')}
+                </div>
+                <div style="display:flex;gap:0.4rem;margin-top:0.4rem">
+                    <button class="btn btn-sm btn-primary" style="font-size:0.75rem"
+                        onclick="openSetupWizard('docker')">🚀 Open Full Setup</button>
+                </div>
             </div>
         </details>`;
 
@@ -419,69 +679,167 @@ const _wizSubForms = {
     },
 
     'int:ci': (info, name, d) => {
-        const pyVer = d._python_version || '3.12';
+        // ── Stack-aware defaults ──
+        const sd = (d.stack_defaults || {}).ci || {};
+        const stackName = (d.stack_defaults || {}).primary_stack || '';
+        const stackIcon = (d.stack_defaults || {}).icon || '';
+        const langLabel = sd.language_label || 'Python Version';
+        const langVersion = sd.language_version || d._python_version || '3.12';
+        const installCmd = sd.install_cmd || 'pip install -e ".[dev]" || pip install -e .';
+        const testCmd = sd.test_cmd || 'python -m pytest tests/ -v --tb=short';
+        const lintCmd = sd.lint_cmd || 'ruff check src/';
         const detected = info.detected;
 
-        let html = `<div style="font-weight:600;font-size:0.85rem;margin-bottom:0.5rem">🔄 CI/CD (GitHub Actions)</div>`;
+        // ── CI status from embedded data ──
+        const ciSt = d.ci_status || {};
+        const ciProviders = ciSt.providers || [];
+        const ciWorkflowCount = ciSt.total_workflows || 0;
+        const ciHas = ciSt.has_ci || false;
+        const ciProviderName = ciProviders.length > 0 ? ciProviders[0].name : '';
 
-        // ── Status strip ──
-        html += `<div style="display:flex;flex-wrap:wrap;gap:0.25rem;margin-bottom:0.5rem">
-            <span style="font-size:0.65rem;padding:0.1rem 0.35rem;border-radius:4px;${detected ? 'background:color-mix(in srgb, var(--success) 10%, transparent);color:var(--success);border:1px solid color-mix(in srgb, var(--success) 25%, transparent)' : 'background:color-mix(in srgb, var(--text-muted) 10%, transparent);color:var(--text-muted);border:1px solid color-mix(in srgb, var(--text-muted) 25%, transparent)'}">
-                ${detected ? '✓ workflow found' : '○ no workflow'}
-            </span>
+        // ── Cross-integration detection ──
+        const hasDocker = d.integrations['int:docker']?.detected || d.files.dockerfile;
+        const hasK8s = d.devops_cards?.k8s?.detected || d.files.k8s_manifests;
+        const hasTerraform = d.devops_cards?.terraform?.detected || d.files.terraform;
+        const hasGit = d.integrations['int:git']?.detected || false;
+        const hasGitHub = d.integrations['int:github']?.detected || false;
+        const hasPages = d.integrations['int:pages']?.detected || false;
+        const envs = (_wizardConfig?.environments || []);
+        const projectName = (_wizardConfig?.name || name || 'app');
+
+        // ── GitHub context from embedded data ──
+        const ghCli = d.gh_cli_status || {};
+        const ghUser = d.gh_user || {};
+        const ghRepo = d.gh_repo_info || {};
+        const ghEnvs = d.gh_environments || {};
+        const ghEnvList = ghEnvs.environments || [];
+        const ghAuthenticated = ghCli.authenticated || false;
+
+        // ── Environment / secrets context ──
+        const envSt = d.env_status || {};
+        const envFileCount = (envSt.files || []).filter(f => f.exists).length;
+        const envVarCount = envSt.total_vars || 0;
+
+        // ── Detected stacks ──
+        const stacks = d.detected_stacks || [];
+
+        // ── Header with stack badge ──
+        let html = `<div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.5rem">
+            <span style="font-weight:600;font-size:0.85rem">🔄 CI/CD</span>
+            ${ciProviderName ? `<span style="font-size:0.62rem;padding:0.08rem 0.3rem;border-radius:4px;background:color-mix(in srgb, var(--text-muted) 8%, transparent);color:var(--text-secondary);border:1px solid color-mix(in srgb, var(--text-muted) 20%, transparent)">${esc(ciProviderName)}</span>` : ''}
+            ${stackName ? `<span style="font-size:0.62rem;padding:0.08rem 0.3rem;border-radius:4px;background:color-mix(in srgb, var(--accent) 10%, transparent);color:var(--accent);border:1px solid color-mix(in srgb, var(--accent) 25%, transparent)">${stackIcon} ${esc(stackName)}</span>` : ''}
         </div>`;
 
-        // ── Basic config generation form ──
+        // ── Status strip — enriched with ci_status ──
+        html += `<div style="display:flex;flex-wrap:wrap;gap:0.25rem;margin-bottom:0.5rem">
+            <span style="font-size:0.65rem;padding:0.1rem 0.35rem;border-radius:4px;${ciHas ? 'background:color-mix(in srgb, var(--success) 10%, transparent);color:var(--success);border:1px solid color-mix(in srgb, var(--success) 25%, transparent)' : 'background:color-mix(in srgb, var(--text-muted) 10%, transparent);color:var(--text-muted);border:1px solid color-mix(in srgb, var(--text-muted) 25%, transparent)'}">
+                ${ciHas ? '✓ ' + ciWorkflowCount + ' workflow' + (ciWorkflowCount !== 1 ? 's' : '') : '○ no workflows'}
+            </span>
+            <span style="font-size:0.65rem;padding:0.1rem 0.35rem;border-radius:4px;${ghAuthenticated ? 'background:color-mix(in srgb, var(--success) 10%, transparent);color:var(--success);border:1px solid color-mix(in srgb, var(--success) 25%, transparent)' : 'background:color-mix(in srgb, var(--warning) 10%, transparent);color:var(--warning);border:1px solid color-mix(in srgb, var(--warning) 25%, transparent)'}">
+                ${ghAuthenticated ? '✓ gh auth' + (ghUser.login ? ' · ' + esc(ghUser.login) : '') : '⚠ gh not auth'}
+            </span>
+            ${ghRepo.slug ? `<span style="font-size:0.65rem;padding:0.1rem 0.35rem;border-radius:4px;background:color-mix(in srgb, var(--accent) 8%, transparent);color:var(--accent);border:1px solid color-mix(in srgb, var(--accent) 20%, transparent)">${esc(ghRepo.slug)}</span>` : ''}
+        </div>`;
+
+        // ── Pipeline Connections — integration surface dashboard ──
+        const _pill = (ok, label) => `<span style="font-size:0.62rem;padding:0.08rem 0.3rem;border-radius:4px;${ok ? 'background:color-mix(in srgb, var(--success) 10%, transparent);color:var(--success);border:1px solid color-mix(in srgb, var(--success) 25%, transparent)' : 'background:color-mix(in srgb, var(--text-muted) 8%, transparent);color:var(--text-muted);border:1px solid color-mix(in srgb, var(--text-muted) 20%, transparent)'}">${label}</span>`;
+        const _connRow = (icon, label, pills, role) => `<div style="display:grid;grid-template-columns:1.4fr 2.5fr 2fr;gap:0.3rem;align-items:center;padding:0.2rem 0;border-bottom:1px solid color-mix(in srgb, var(--border-subtle) 40%, transparent)">
+            <span style="font-size:0.68rem;font-weight:600;color:var(--text-secondary)">${icon} ${label}</span>
+            <div style="display:flex;flex-wrap:wrap;gap:0.15rem">${pills}</div>
+            <span style="font-size:0.62rem;color:var(--text-muted);font-style:italic">${role}</span>
+        </div>`;
+
+        html += `<details style="margin-bottom:0.5rem" open>
+            <summary style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;cursor:pointer;user-select:none;margin-bottom:0.3rem">
+                🔌 Pipeline Connections
+            </summary>
+            <div style="padding:0.3rem 0.2rem;background:color-mix(in srgb, var(--bg-inset) 50%, transparent);border:1px solid var(--border-subtle);border-radius:6px;padding:0.3rem 0.5rem">
+                ${_connRow('🔀', 'Git',
+                    _pill(hasGit, hasGit ? '✓ repo' : '○ no git'),
+                    'Trigger events · branch filter'
+                )}
+                ${_connRow('🐙', 'GitHub',
+                    _pill(ghAuthenticated, ghAuthenticated ? '✓ auth' : '○ no auth')
+                    + (ghEnvList.length > 0 ? ' ' + _pill(true, ghEnvList.length + ' env' + (ghEnvList.length !== 1 ? 's' : '')) : '')
+                    + (ghRepo.is_private ? ' ' + _pill(true, 'private') : (ghRepo.available ? ' ' + _pill(true, 'public') : '')),
+                    'Actions platform · secrets · envs'
+                )}
+                ${_connRow('📦', 'Stacks',
+                    stacks.length > 0
+                        ? stacks.slice(0, 3).map(s => _pill(true, esc(s))).join(' ') + (stacks.length > 3 ? ' ' + _pill(true, '+' + (stacks.length - 3)) : '')
+                        : _pill(false, '○ none'),
+                    'Test · lint · build commands'
+                )}
+                ${_connRow('🐳', 'Docker',
+                    _pill(hasDocker, hasDocker ? '✓ detected' : '○ not found'),
+                    'Image build · registry push'
+                )}
+                ${_connRow('☸️', 'Kubernetes',
+                    _pill(hasK8s, hasK8s ? '✓ detected' : '○ not found'),
+                    'Deploy · manifests · namespaces'
+                )}
+                ${_connRow('🏗️', 'Terraform',
+                    _pill(hasTerraform, hasTerraform ? '✓ detected' : '○ not found'),
+                    'Infra provisioning step'
+                )}
+                ${_connRow('⚙️', 'Environments',
+                    _pill(envs.length > 0, envs.length > 0 ? '✓ ' + envs.length + ' env' + (envs.length !== 1 ? 's' : '') : '○ single')
+                    + (envFileCount > 0 ? ' ' + _pill(true, envVarCount + ' vars') : ''),
+                    'Multi-env deploy · approvals'
+                )}
+                ${_connRow('📄', 'Pages',
+                    _pill(hasPages, hasPages ? '✓ detected' : '○ not found'),
+                    'Site build · deploy step'
+                )}
+            </div>
+        </details>`;
+
+        // ── Basic config generation form — stack-aware ──
+        const _hasConnectedIntegrations = hasDocker || hasK8s || hasTerraform || hasPages || envs.length > 1;
         html += `<details style="margin-bottom:0.5rem" ${!detected ? 'open' : ''}>
             <summary style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;cursor:pointer;user-select:none;margin-bottom:0.3rem">
                 ${detected ? '📝 Regenerate Basic Workflow' : '📝 Generate Basic Workflow'}
             </summary>
             <div style="padding-top:0.3rem">
+                ${detected && _hasConnectedIntegrations ? `<div style="font-size:0.72rem;color:var(--warning);line-height:1.4;margin-bottom:0.5rem;padding:0.35rem 0.5rem;border-radius:6px;background:color-mix(in srgb, var(--warning) 6%, transparent);border:1px solid color-mix(in srgb, var(--warning) 18%, transparent)">
+                    ⚠️ <strong>Basic workflow</strong> generates a single test + lint job only.
+                    If your current workflow includes Docker build, K8s deploy, or other integration steps, they will be lost.
+                    Use <strong>🚀 Compose Full Pipeline</strong> below to preserve connected integrations.
+                </div>` : ''}
                 ${_wizField('wiz-ci-branches', 'Trigger Branches', 'main, master', { help: 'Comma-separated' })}
-                ${_wizField('wiz-ci-python', 'Python Version', pyVer)}
-                ${_wizField('wiz-ci-install', 'Install Command', 'pip install -e ".[dev]" || pip install -e .')}
-                ${_wizField('wiz-ci-test', 'Test Command', 'python -m pytest tests/ -v --tb=short')}
+                ${_wizField('wiz-ci-langver', langLabel, langVersion, { help: 'Version for CI matrix' })}
+                ${_wizField('wiz-ci-install', 'Install Command', installCmd, { help: 'Install dependencies' })}
+                ${_wizField('wiz-ci-test', 'Test Command', testCmd, { help: 'Run test suite' })}
                 ${_wizField('wiz-ci-lint', 'Also run linting', true, { type: 'checkbox' })}
-                ${_wizField('wiz-ci-lint-cmd', 'Lint Command', 'ruff check src/')}
+                ${_wizField('wiz-ci-lint-cmd', 'Lint Command', lintCmd)}
                 ${detected ? _wizField('wiz-ci-overwrite', 'Overwrite existing workflow', false, { type: 'checkbox' }) : ''}
                 ${_wizApplyBtn('int:ci')}
             </div>
         </details>`;
 
-        // ── Compose Full CI/CD Pipeline ──
-        // Auto-detect which integrations are available
-        const hasDocker = d.integrations['int:docker']?.detected || d.files.dockerfile;
-        const hasK8s = d.devops_cards?.k8s?.detected || d.files.k8s_manifests;
-        const hasTerraform = d.devops_cards?.terraform?.detected || d.files.terraform;
-        const envs = (_wizardConfig?.environments || []);
-        const projectName = (_wizardConfig?.name || name || 'app');
-
+        // ── Compose Full CI/CD Pipeline — cross-integration aware ──
         html += `<details style="margin-bottom:0.5rem">
             <summary style="font-size:0.72rem;font-weight:600;color:var(--accent);text-transform:uppercase;cursor:pointer;user-select:none;margin-bottom:0.3rem">
                 🚀 Compose Full CI/CD Pipeline
             </summary>
             <div style="padding-top:0.3rem">
                 <div style="font-size:0.75rem;color:var(--text-secondary);line-height:1.5;margin-bottom:0.6rem">
-                    Generate a complete CI/CD pipeline based on <strong>all</strong> your enabled integrations.
-                    This combines test, build, deploy, and infrastructure jobs into coordinated GitHub Actions workflows.
+                    Generate a complete CI/CD pipeline based on <strong>all</strong> your detected integrations and project state.
+                    This considers every connection shown above — Docker, K8s, Terraform, environments — and combines them
+                    into coordinated GitHub Actions workflow(s).
                 </div>
 
                 <div style="font-size:0.72rem;color:var(--text-muted);font-weight:600;text-transform:uppercase;margin-bottom:0.3rem">
-                    Detected Capabilities
+                    Pipeline Jobs (from connections)
                 </div>
                 <div style="display:flex;flex-wrap:wrap;gap:0.25rem;margin-bottom:0.6rem">
-                    <span style="font-size:0.65rem;padding:0.1rem 0.35rem;border-radius:4px;${hasDocker ? 'background:color-mix(in srgb, var(--success) 10%, transparent);color:var(--success);border:1px solid color-mix(in srgb, var(--success) 25%, transparent)' : 'background:color-mix(in srgb, var(--text-muted) 10%, transparent);color:var(--text-muted);border:1px solid color-mix(in srgb, var(--text-muted) 25%, transparent)'}">
-                        ${hasDocker ? '✓' : '○'} Docker Build
-                    </span>
-                    <span style="font-size:0.65rem;padding:0.1rem 0.35rem;border-radius:4px;${hasK8s ? 'background:color-mix(in srgb, var(--success) 10%, transparent);color:var(--success);border:1px solid color-mix(in srgb, var(--success) 25%, transparent)' : 'background:color-mix(in srgb, var(--text-muted) 10%, transparent);color:var(--text-muted);border:1px solid color-mix(in srgb, var(--text-muted) 25%, transparent)'}">
-                        ${hasK8s ? '✓' : '○'} K8s Deploy
-                    </span>
-                    <span style="font-size:0.65rem;padding:0.1rem 0.35rem;border-radius:4px;${hasTerraform ? 'background:color-mix(in srgb, var(--success) 10%, transparent);color:var(--success);border:1px solid color-mix(in srgb, var(--success) 25%, transparent)' : 'background:color-mix(in srgb, var(--text-muted) 10%, transparent);color:var(--text-muted);border:1px solid color-mix(in srgb, var(--text-muted) 25%, transparent)'}">
-                        ${hasTerraform ? '✓' : '○'} Terraform
-                    </span>
-                    <span style="font-size:0.65rem;padding:0.1rem 0.35rem;border-radius:4px;${envs.length > 0 ? 'background:color-mix(in srgb, var(--success) 10%, transparent);color:var(--success);border:1px solid color-mix(in srgb, var(--success) 25%, transparent)' : 'background:color-mix(in srgb, var(--text-muted) 10%, transparent);color:var(--text-muted);border:1px solid color-mix(in srgb, var(--text-muted) 25%, transparent)'}">
-                        ${envs.length > 0 ? '✓ ' + envs.length + ' envs' : '○ single env'}
-                    </span>
+                    ${_pill(stacks.length > 0, stacks.length > 0 ? '✓ Test (' + esc(stacks[0]) + ')' : '○ Test')}
+                    ${_pill(stacks.length > 0, stacks.length > 0 ? '✓ Lint' : '○ Lint')}
+                    ${_pill(hasDocker, hasDocker ? '✓ Docker Build' : '○ Docker Build')}
+                    ${_pill(hasK8s, hasK8s ? '✓ K8s Deploy' : '○ K8s Deploy')}
+                    ${_pill(hasTerraform, hasTerraform ? '✓ Terraform' : '○ Terraform')}
+                    ${_pill(envs.length > 1, envs.length > 1 ? '✓ Multi-env' : '○ Single env')}
+                    ${_pill(hasPages, hasPages ? '✓ Pages Deploy' : '○ Pages')}
                 </div>
 
                 ${_wizField('wiz-ci-compose-strategy', 'Workflow Strategy', 'unified', {
@@ -489,14 +847,14 @@ const _wizSubForms = {
                     help: 'Unified: single ci-cd.yml. Split: separate files linked with workflow_run.'
                 })}
 
-                ${_wizField('wiz-ci-compose-deploy', 'Deploy Method', 'kubectl', {
+                ${hasK8s ? _wizField('wiz-ci-compose-deploy', 'Deploy Method', 'kubectl', {
                     type: 'select', options: ['kubectl', 'helm', 'skaffold'],
-                    help: 'How to deploy to K8s (only used if K8s is detected).'
-                })}
+                    help: 'How to deploy to K8s.'
+                }) : ''}
 
-                ${_wizField('wiz-ci-compose-registry', 'Docker Registry', 'ghcr.io', {
+                ${hasDocker ? _wizField('wiz-ci-compose-registry', 'Docker Registry', 'ghcr.io', {
                     help: 'Registry for pushing built images (e.g. ghcr.io/org, docker.io/org).'
-                })}
+                }) : ''}
 
                 <div style="display:flex;gap:0.4rem;margin-top:0.6rem">
                     <button class="btn btn-sm btn-primary" style="font-size:0.75rem"
@@ -557,51 +915,468 @@ const _wizSubForms = {
         return html;
     },
 
-    'int:git': (info) => {
+    'int:git': (info, safeName, d) => {
+        // ── Pull all embedded data ──
+        const probes = d.status_probes || {};
+        const git = probes.git || {};
+        const giAnalysis = d.gitignore_analysis || {};
+        const gitRemotesData = d.git_remotes || {};
+        const remotes = gitRemotesData.remotes || [];
+        const ghCli = d.gh_cli_status || {};
+        const sd = d.stack_defaults || {};
+        const caps = sd.capabilities || {};
+
+        const _pill = (ok, label) => `<span style="font-size:0.62rem;padding:0.08rem 0.3rem;border-radius:4px;${ok ? 'background:color-mix(in srgb, var(--success) 10%, transparent);color:var(--success);border:1px solid color-mix(in srgb, var(--success) 25%, transparent)' : 'background:color-mix(in srgb, var(--text-muted) 8%, transparent);color:var(--text-muted);border:1px solid color-mix(in srgb, var(--text-muted) 20%, transparent)'}">${label}</span>`;
+
+        // ── Header ──
         let html = `<div style="font-weight:600;font-size:0.85rem;margin-bottom:0.5rem">🔀 Git</div>`;
 
+        // ── Enriched status strip ──
+        const gitVer = git.git_version ? 'v' + git.git_version : '';
+        const giCov = Math.round((giAnalysis.coverage || 0) * 100);
+        const giCovOk = giCov >= 90;
         html += `<div style="display:flex;flex-wrap:wrap;gap:0.25rem;margin-bottom:0.5rem">
-            <span style="font-size:0.65rem;padding:0.1rem 0.35rem;border-radius:4px;${info.detected ? 'background:color-mix(in srgb, var(--success) 10%, transparent);color:var(--success);border:1px solid color-mix(in srgb, var(--success) 25%, transparent)' : 'background:color-mix(in srgb, var(--text-muted) 10%, transparent);color:var(--text-muted);border:1px solid color-mix(in srgb, var(--text-muted) 25%, transparent)'}">${info.detected ? '✓ repo initialized' : '○ no repo'}</span>
+            ${_pill(d.tools?.git, d.tools?.git ? '✓ git' + (gitVer ? ' ' + gitVer : '') : '✗ git missing')}
+            ${_pill(git.initialized, git.initialized ? '✓ repo · ' + (git.branch || '?') : '○ no repo')}
+            ${_pill(remotes.length > 0, remotes.length > 0 ? '✓ ' + remotes.length + ' remote(s)' : '○ no remotes')}
+            ${_pill(git.has_gitignore, git.has_gitignore ? '✓ .gitignore ' + giCov + '%' : '○ no .gitignore')}
+            ${_pill(git.hook_count > 0, git.hook_count > 0 ? '✓ ' + git.hook_count + ' hook(s)' : '○ no hooks')}
         </div>`;
 
-        html += `${_wizField('wiz-git-remote', 'Remote URL (optional)', '', { placeholder: 'git@github.com:user/repo.git' })}
-            ${_wizApplyBtn('int:git')}`;
+        // ── Remotes section ──
+        html += `<details style="margin-bottom:0.5rem" ${remotes.length === 0 ? 'open' : ''}>
+            <summary style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;cursor:pointer;user-select:none;margin-bottom:0.3rem">
+                🌐 Remotes (${remotes.length})
+            </summary>
+            <div style="padding-top:0.3rem">`;
+
+        if (remotes.length > 0) {
+            html += `<div style="background:color-mix(in srgb, var(--bg-inset) 50%, transparent);border:1px solid var(--border-subtle);border-radius:6px;overflow:hidden;margin-bottom:0.4rem">`;
+            for (const r of remotes) {
+                const url = r.fetch || r.push || '';
+                const shortUrl = url.replace(/^https?:\/\//, '').replace(/\.git$/, '');
+                html += `<div style="display:flex;align-items:center;gap:0.4rem;padding:0.25rem 0.5rem;border-bottom:1px solid color-mix(in srgb, var(--border-subtle) 40%, transparent);font-size:0.75rem">
+                    <code style="font-weight:600;min-width:55px;font-size:0.72rem">${esc(r.name)}</code>
+                    <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-secondary);font-size:0.7rem">${esc(shortUrl)}</span>
+                    <button class="btn btn-sm btn-ghost" style="font-size:0.6rem;padding:1px 4px;color:var(--error)"
+                        onclick="if(!this.dataset.c){this.textContent='Sure?';this.dataset.c='1';setTimeout(()=>{this.textContent='✗';delete this.dataset.c},2500);return}
+                        (async()=>{try{await apiPost('/git/remote/remove',{name:'${esc(r.name)}'});toast('✅ Remote removed','success');_wizRedetect();}catch(e){toast('❌ '+e.message,'error')}})()">✗</button>
+                </div>`;
+            }
+            html += `</div>`;
+        }
+
+        // Add remote form
+        const suggestOrigin = remotes.length === 0;
+        const ghSlug = ghCli.repo || '';
+        const suggestUrl = suggestOrigin && ghSlug ? 'https://github.com/' + ghSlug + '.git' : '';
+        html += `<div style="display:flex;gap:0.3rem;align-items:center">
+                <input type="text" id="wiz-git-remote-name" placeholder="${suggestOrigin ? 'origin' : 'upstream'}" value=""
+                    style="width:70px;font-size:0.72rem;padding:0.2rem 0.4rem;border:1px solid var(--border-subtle);border-radius:4px;background:var(--bg-inset);color:var(--text-primary)">
+                <input type="text" id="wiz-git-remote-url" placeholder="https://github.com/user/repo.git" value="${esc(suggestUrl)}"
+                    style="flex:1;font-size:0.72rem;padding:0.2rem 0.4rem;border:1px solid var(--border-subtle);border-radius:4px;background:var(--bg-inset);color:var(--text-primary)">
+                <button class="btn btn-sm btn-secondary" style="font-size:0.68rem;padding:0.12rem 0.35rem;white-space:nowrap" id="wiz-git-add-remote-btn"
+                    onclick="(async()=>{
+                        const btn=document.getElementById('wiz-git-add-remote-btn');
+                        const name=document.getElementById('wiz-git-remote-name').value.trim()||'${suggestOrigin ? 'origin' : 'upstream'}';
+                        const url=document.getElementById('wiz-git-remote-url').value.trim();
+                        if(!url){toast('Enter a remote URL','warn');return}
+                        btn.disabled=true;btn.textContent='Adding…';
+                        try{await apiPost('/git/remote/add',{name,url});toast('✅ Remote \\'' +name+ '\\' added','success');_wizRedetect()}
+                        catch(e){toast('❌ '+e.message,'error');btn.disabled=false;btn.textContent='＋ Add'}
+                    })()">＋ Add</button>
+            </div>
+            ${suggestUrl ? `<div style="font-size:0.65rem;color:var(--text-muted);margin-top:2px">🐙 Pre-filled from GitHub CLI: ${esc(ghSlug)}</div>` : ''}
+            </div>
+        </details>`;
+
+        // ── .gitignore section ──
+        const giExists = git.has_gitignore;
+        const giMissing = giAnalysis.missing_count || 0;
+        html += `<details style="margin-bottom:0.5rem" ${!giExists ? 'open' : ''}>
+            <summary style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;cursor:pointer;user-select:none;margin-bottom:0.3rem">
+                📄 .gitignore ${giExists ? '(' + giCov + '% coverage)' : '(missing)'}
+            </summary>
+            <div style="padding-top:0.3rem">`;
+
+        if (giExists && giMissing === 0) {
+            html += `<div style="font-size:0.75rem;color:var(--success);padding:0.2rem 0">✅ .gitignore is complete — ${giAnalysis.current_patterns || '?'} patterns, ${giCov}% coverage.</div>`;
+        } else if (giExists && giMissing > 0) {
+            html += `<div style="font-size:0.72rem;color:var(--warning);padding:0.2rem 0;margin-bottom:0.3rem">⚠️ Missing ${giMissing} recommended pattern(s).</div>`;
+            const missing = (giAnalysis.missing_patterns || []).slice(0, 5);
+            if (missing.length > 0) {
+                html += `<div style="display:flex;flex-wrap:wrap;gap:0.2rem;margin-bottom:0.3rem">`;
+                for (const p of missing) {
+                    html += `<span style="font-size:0.62rem;padding:0.05rem 0.25rem;border-radius:3px;background:color-mix(in srgb, var(--warning) 8%, transparent);color:var(--warning);border:1px solid color-mix(in srgb, var(--warning) 15%, transparent)">❌ ${esc(p.pattern || p)}</span>`;
+                }
+                if (giMissing > 5) html += `<span style="font-size:0.62rem;color:var(--text-muted)">+${giMissing - 5} more</span>`;
+                html += `</div>`;
+            }
+            html += `${_wizField('wiz-git-regen-gi', 'Regenerate .gitignore (stack-aware)', true, { type: 'checkbox' })}`;
+        } else {
+            html += `<div style="font-size:0.72rem;color:var(--text-muted);padding:0.2rem 0;margin-bottom:0.3rem">No .gitignore found. We can generate one based on your detected stacks.</div>`;
+            html += `${_wizField('wiz-git-create-gi', 'Create .gitignore', true, { type: 'checkbox' })}`;
+        }
+        html += `</div></details>`;
+
+        // ── Pre-commit hooks section ──
+        const lintCmd = caps.lint || '';
+        const formatCmd = caps.format || '';
+        const testCmd = caps.test || '';
+        const hasLintTools = lintCmd || formatCmd;
+        if (hasLintTools && git.hook_count === 0) {
+            html += `<details style="margin-bottom:0.5rem">
+                <summary style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;cursor:pointer;user-select:none;margin-bottom:0.3rem">
+                    🪝 Pre-commit Hook
+                </summary>
+                <div style="padding-top:0.3rem">
+                    <div style="font-size:0.72rem;color:var(--text-secondary);margin-bottom:0.3rem">Run checks automatically before each commit:</div>
+                    <div style="display:flex;flex-wrap:wrap;gap:0.2rem;margin-bottom:0.3rem">
+                        ${lintCmd ? _pill(true, '✓ ' + lintCmd) : ''}
+                        ${formatCmd ? _pill(true, '✓ ' + formatCmd) : ''}
+                    </div>
+                    ${_wizField('wiz-git-setup-hooks', 'Install pre-commit hook', false, { type: 'checkbox' })}
+                </div>
+            </details>`;
+        }
+
+        // ── Initial commit (if no commits yet) ──
+        if (!git.initialized || git.commit_count === 0) {
+            html += `<details style="margin-bottom:0.5rem">
+                <summary style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;cursor:pointer;user-select:none;margin-bottom:0.3rem">
+                    💾 Initial Commit
+                </summary>
+                <div style="padding-top:0.3rem">
+                    ${_wizField('wiz-git-init-commit', 'Create initial commit after setup', false, { type: 'checkbox' })}
+                    ${_wizField('wiz-git-commit-msg', 'Commit Message', 'Initial commit', { placeholder: 'Initial commit' })}
+                </div>
+            </details>`;
+        }
+
+        // ── Default branch ──
+        html += `${_wizField('wiz-git-branch', 'Default Branch', git.branch || 'main', { help: git.branch ? 'Current: ' + git.branch : 'Will be set on init' })}`;
+
+        // ── Apply button ──
+        html += _wizApplyBtn('int:git');
 
         return html;
     },
 
-    'int:github': (info) => {
+    'int:github': (info, safeName, d) => {
+        // ── Pull all embedded data ──
+        const ghCli = d.gh_cli_status || {};
+        const ghUser = d.gh_user || {};
+        const ghRepo = d.gh_repo_info || {};
+        const ghEnvs = d.gh_environments || {};
+        const probes = d.status_probes || {};
+        const ghProbe = probes.github || {};
+        const configData = d.config_data || {};
+        const localEnvs = configData.environments || [];
+        const ghEnvList = ghEnvs.environments || [];
+        const remoteEnvNames = ghEnvList.map(e => (typeof e === 'string' ? e : e.name || String(e)).toLowerCase());
+        const codeownersContent = d.codeowners_content || '';
+
+        const _pill = (ok, label) => `<span style="font-size:0.62rem;padding:0.08rem 0.3rem;border-radius:4px;${ok ? 'background:color-mix(in srgb, var(--success) 10%, transparent);color:var(--success);border:1px solid color-mix(in srgb, var(--success) 25%, transparent)' : 'background:color-mix(in srgb, var(--text-muted) 8%, transparent);color:var(--text-muted);border:1px solid color-mix(in srgb, var(--text-muted) 20%, transparent)'}">${label}</span>`;
+
         let html = `<div style="font-weight:600;font-size:0.85rem;margin-bottom:0.5rem">🐙 GitHub</div>`;
 
-        if (info.detected) {
-            html += `<div style="font-size:0.72rem;color:var(--success);margin-bottom:0.3rem">✓ GitHub CLI authenticated and ready.</div>`;
-        } else {
+        // ── Not installed / Not authenticated ──
+        if (!ghCli.available) {
             html += `<div style="font-size:0.75rem;color:var(--text-secondary);line-height:1.5;margin-bottom:0.5rem">
-                <strong>Setup steps:</strong><br>
-                1. Install the <code>gh</code> CLI (if not installed)<br>
-                2. Authenticate your GitHub account<br>
-                3. Click <strong>Re-detect</strong> to refresh.
+                The <code>gh</code> CLI is not installed. Install it to manage GitHub integration.
             </div>
             <div style="display:flex;gap:0.3rem;flex-wrap:wrap">
                 <button class="btn btn-sm btn-secondary" style="font-size:0.72rem"
                     onclick="_wizInstallTool('gh', this)">📦 Install gh</button>
+                <button class="btn btn-sm btn-secondary" style="font-size:0.72rem"
+                    onclick="_wizRedetect()">🔄 Re-detect</button>
+            </div>`;
+            return html;
+        }
+
+        if (!ghCli.authenticated) {
+            html += `<div style="display:flex;flex-wrap:wrap;gap:0.25rem;margin-bottom:0.5rem">
+                ${_pill(true, '✓ gh installed')}
+                ${_pill(false, '○ not authenticated')}
+            </div>`;
+            html += `<div style="font-size:0.75rem;color:var(--text-secondary);line-height:1.5;margin-bottom:0.5rem">
+                Authenticate your GitHub account to manage repositories, environments, secrets, and CODEOWNERS.
+            </div>
+            <div style="display:flex;gap:0.3rem;flex-wrap:wrap">
                 <button class="btn btn-sm btn-primary" style="font-size:0.72rem"
                     onclick="_showGhAuthModal(() => _wizRedetect())">🔑 Authenticate</button>
                 <button class="btn btn-sm btn-secondary" style="font-size:0.72rem"
                     onclick="_wizRedetect()">🔄 Re-detect</button>
             </div>`;
+            return html;
         }
+
+        // ── Authenticated — enriched status strip ──
+        const vis = (ghRepo.visibility || '').toLowerCase();
+        const isPrivate = ghRepo.is_private;
+        const matchCount = localEnvs.filter(e => remoteEnvNames.includes(e.name.toLowerCase())).length;
+        const hasCo = ghProbe.has_codeowners;
+
+        html += `<div style="display:flex;flex-wrap:wrap;gap:0.25rem;margin-bottom:0.5rem">
+            ${_pill(true, '✓ authenticated')}
+            ${ghUser.login ? _pill(true, '@' + esc(ghUser.login)) : ''}
+            ${ghRepo.slug ? _pill(true, esc(ghRepo.slug)) : _pill(false, '○ no repo linked')}
+            ${vis ? _pill(true, vis === 'private' ? '🔒 private' : '🌐 public') : ''}
+            ${ghRepo.default_branch ? _pill(true, '🌿 ' + esc(ghRepo.default_branch)) : ''}
+            ${ghEnvList.length > 0 ? _pill(true, ghEnvList.length + ' env(s)') : ''}
+            ${localEnvs.length > 0 && matchCount < localEnvs.length ? _pill(false, (localEnvs.length - matchCount) + ' env(s) missing on GH') : ''}
+            ${hasCo ? _pill(true, 'CODEOWNERS ✓') : _pill(false, '○ no CODEOWNERS')}
+            ${ghProbe.workflow_count > 0 ? _pill(true, ghProbe.workflow_count + ' workflow(s)') : ''}
+        </div>`;
+
+        // ── User card ──
+        const avatar = ghUser.avatar_url || '';
+        html += `<div style="display:flex;align-items:center;gap:0.5rem;padding:0.4rem 0.5rem;background:color-mix(in srgb, var(--bg-inset) 50%, transparent);border:1px solid var(--border-subtle);border-radius:6px;margin-bottom:0.5rem">
+            ${avatar ? `<img src="${esc(avatar)}" style="width:24px;height:24px;border-radius:50%;border:1.5px solid var(--accent)" alt="">` : '<span style="font-size:1rem">👤</span>'}
+            <div style="flex:1;min-width:0">
+                <span style="font-size:0.78rem;font-weight:600">${esc(ghUser.login || '?')}</span>
+                ${ghUser.name ? `<span style="font-size:0.68rem;color:var(--text-muted)"> · ${esc(ghUser.name)}</span>` : ''}
+            </div>
+            <button class="btn btn-sm btn-ghost" style="font-size:0.6rem;padding:1px 6px;color:var(--error)"
+                onclick="(async()=>{if(!confirm('Log out from GitHub CLI?'))return;await apiPost('/gh/auth/logout',{});toast('Logged out — Re-scan to refresh','info');_wizRedetect()})()">🔓 Logout</button>
+        </div>`;
+
+        // ── Repository info ──
+        if (ghRepo.slug) {
+            html += `<details style="margin-bottom:0.5rem" open>
+                <summary style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;cursor:pointer;user-select:none;margin-bottom:0.3rem">
+                    📦 Repository
+                </summary>
+                <div style="padding:0.3rem 0.4rem;background:color-mix(in srgb, var(--bg-inset) 50%, transparent);border:1px solid var(--border-subtle);border-radius:6px">
+                    <div style="display:flex;align-items:center;gap:0.4rem;font-size:0.78rem;margin-bottom:0.15rem">
+                        <code style="font-weight:600">${esc(ghRepo.slug)}</code>
+                        <span style="font-size:0.62rem;padding:0.05rem 0.2rem;border-radius:3px;background:color-mix(in srgb, ${isPrivate ? 'var(--warning)' : 'var(--success)'} 10%, transparent);color:${isPrivate ? 'var(--warning)' : 'var(--success)'};border:1px solid color-mix(in srgb, ${isPrivate ? 'var(--warning)' : 'var(--success)'} 20%, transparent)">${isPrivate ? '🔒 private' : '🌐 public'}</span>
+                        <span style="flex:1"></span>
+                        <a href="https://github.com/${esc(ghRepo.slug)}" target="_blank" style="font-size:0.65rem;color:var(--accent);text-decoration:none">Open ↗</a>
+                    </div>
+                    ${ghRepo.description ? `<div style="font-size:0.68rem;color:var(--text-muted);margin-bottom:0.1rem">${esc(ghRepo.description)}</div>` : ''}
+                    <div style="font-size:0.65rem;color:var(--text-muted)">
+                        Branch: <strong>${esc(ghRepo.default_branch || '?')}</strong>
+                        ${ghRepo.is_fork ? ' · 🍴 fork' : ''}
+                        ${ghRepo.homepage_url ? ' · 🌐 ' + esc(ghRepo.homepage_url) : ''}
+                    </div>
+                </div>
+            </details>`;
+        }
+
+        // ── Environment alignment ──
+        if (localEnvs.length > 0) {
+            const missingEnvs = localEnvs.filter(e => !remoteEnvNames.includes(e.name.toLowerCase()));
+            html += `<details style="margin-bottom:0.5rem" ${missingEnvs.length > 0 ? 'open' : ''}>
+                <summary style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;cursor:pointer;user-select:none;margin-bottom:0.3rem">
+                    ⚙️ Environments (${matchCount}/${localEnvs.length} aligned)
+                </summary>
+                <div style="padding-top:0.3rem">`;
+
+            html += `<div style="background:color-mix(in srgb, var(--bg-inset) 50%, transparent);border:1px solid var(--border-subtle);border-radius:6px;overflow:hidden;margin-bottom:0.3rem">`;
+            for (const env of localEnvs) {
+                const aligned = remoteEnvNames.includes(env.name.toLowerCase());
+                html += `<div style="display:flex;align-items:center;gap:0.4rem;padding:0.2rem 0.5rem;border-bottom:1px solid color-mix(in srgb, var(--border-subtle) 40%, transparent);font-size:0.72rem">
+                    <span style="width:18px;text-align:center">${aligned ? '✅' : '⬜'}</span>
+                    <code style="flex:1;font-size:0.7rem;font-weight:500">${esc(env.name)}</code>
+                    ${env.default ? '<span style="font-size:0.58rem;color:var(--warning)">⭐ default</span>' : ''}
+                    <span style="font-size:0.62rem;color:${aligned ? 'var(--success)' : 'var(--text-muted)'}">${aligned ? '✓ on GitHub' : '✗ missing'}</span>
+                    ${!aligned ? `<input type="checkbox" class="wiz-gh-env-create" data-env="${esc(env.name)}" checked style="width:12px;height:12px;accent-color:var(--accent)">` : ''}
+                </div>`;
+            }
+            html += `</div>`;
+
+            if (missingEnvs.length > 0) {
+                html += `<button class="btn btn-sm btn-secondary" style="font-size:0.68rem;padding:0.12rem 0.4rem" id="wiz-gh-create-envs-btn"
+                    onclick="(async()=>{
+                        const btn=document.getElementById('wiz-gh-create-envs-btn');
+                        const envs=Array.from(document.querySelectorAll('.wiz-gh-env-create:checked')).map(cb=>cb.dataset.env);
+                        if(envs.length===0){toast('No environments selected','info');return}
+                        btn.disabled=true;btn.textContent='Creating…';
+                        try{
+                            const r=await apiPost('/wizard/setup',{action:'setup_github',create_environments:envs});
+                            const created=(r.results||{}).environments_created||[];
+                            const failed=(r.results||{}).environments_failed||[];
+                            if(created.length>0) toast('✅ Created: '+created.join(', '),'success');
+                            if(failed.length>0) toast('❌ Failed: '+failed.map(f=>f.name).join(', '),'error');
+                            _wizRedetect();
+                        }catch(e){toast('❌ '+e.message,'error');btn.disabled=false;btn.textContent='Create Environments'}
+                    })()">🆕 Create ${missingEnvs.length} Environment(s)</button>`;
+            }
+            html += `</div></details>`;
+        }
+
+        // ── CODEOWNERS ──
+        html += `<details style="margin-bottom:0.5rem">
+            <summary style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;cursor:pointer;user-select:none;margin-bottom:0.3rem">
+                📋 CODEOWNERS ${hasCo ? '(exists)' : '(missing)'}
+            </summary>
+            <div style="padding-top:0.3rem">`;
+
+        if (hasCo && codeownersContent) {
+            html += `<div style="max-height:80px;overflow-y:auto;padding:0.3rem 0.4rem;background:color-mix(in srgb, var(--bg-inset) 50%, transparent);border:1px solid var(--border-subtle);border-radius:6px;margin-bottom:0.3rem">
+                <pre style="margin:0;white-space:pre-wrap;font-family:var(--font-mono);font-size:0.65rem;line-height:1.35;color:var(--text-secondary)">${esc(codeownersContent)}</pre>
+            </div>`;
+        } else if (!hasCo) {
+            const owner = ghRepo.owner || (ghRepo.slug || '').split('/')[0] || '';
+            html += `<div style="font-size:0.72rem;color:var(--text-muted);margin-bottom:0.3rem">No CODEOWNERS file. Define reviewers who are auto-assigned to PRs.</div>`;
+            html += `<div style="margin-bottom:0.4rem;display:flex;align-items:center;gap:0.4rem">
+                <input type="checkbox" id="wiz-gh-write-co" style="accent-color:var(--accent)"
+                    onchange="document.getElementById('wiz-gh-co-editor').style.display=this.checked?'block':'none'">
+                <label for="wiz-gh-write-co" style="font-size:0.75rem;color:var(--text-secondary);cursor:pointer">Create CODEOWNERS</label>
+            </div>`;
+            html += `<div id="wiz-gh-co-editor" style="display:none">
+                <textarea id="wiz-gh-co-content" style="width:100%;min-height:60px;font-family:var(--font-mono);font-size:0.68rem;padding:0.3rem;border:1px solid var(--border-subtle);border-radius:4px;background:var(--bg-inset);color:var(--text-primary)"># CODEOWNERS\n* @${esc(owner)}\n</textarea>
+            </div>`;
+        }
+        html += `</div></details>`;
+
+        // ── Secrets overview ──
+        html += `<details style="margin-bottom:0.5rem">
+            <summary style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;cursor:pointer;user-select:none;margin-bottom:0.3rem">
+                🔒 Secrets
+            </summary>
+            <div style="padding-top:0.3rem">
+                <div style="font-size:0.72rem;color:var(--text-secondary);margin-bottom:0.3rem">Secrets and variables synced to GitHub for CI/CD.</div>
+                ${_wizField('wiz-gh-push-secrets', 'Push vault secrets to GitHub now', false, { type: 'checkbox' })}
+                <div style="font-size:0.65rem;color:var(--text-muted)">Use the 🔐 Secrets tab or 🚀 Full Setup for granular per-key management.</div>
+            </div>
+        </details>`;
+
+        // ── Apply button ──
+        html += _wizApplyBtn('int:github');
 
         return html;
     },
 
-    'int:pages': (info) => {
+    'int:pages': (info, projectName, d) => {
+        const ps = d.pages_status || {};
+        const pp = (d.status_probes || {}).pages || {};
+        const segs = ps.segments || [];
+        const cfs = ps.content_folders || [];
+        const meta = ps.meta || {};
+        const builders = ps.builders_available || [];
+
         let html = `<div style="font-weight:600;font-size:0.85rem;margin-bottom:0.5rem">📄 Pages</div>`;
-        html += `<div style="font-size:0.72rem;color:var(--text-muted)">
-            ${info.detected
-                ? '✓ Pages config found in project.yml. Configure content in the Content step.'
-                : 'Pages builds from project.yml content sections. Configure in the Content step.'}
+
+        // ── Status strip ──
+        const pills = [];
+        if (pp.status === 'ready') pills.push('✅ ready');
+        else if (pp.status === 'partial') pills.push('⚠️ partial');
+        else pills.push('○ not configured');
+
+        if (segs.length > 0) pills.push(`📑 ${segs.length} segment${segs.length !== 1 ? 's' : ''}`);
+        if (pp.has_pages_dir) pills.push('📁 .pages/');
+        if (meta.deploy_branch) pills.push(`🌿 ${meta.deploy_branch}`);
+        if (cfs.length > 0 && segs.length === 0) pills.push(`📂 ${cfs.length} content folder${cfs.length !== 1 ? 's' : ''}`);
+
+        html += `<div style="display:flex;flex-wrap:wrap;gap:0.3rem;margin-bottom:0.6rem">
+            ${pills.map(p => `<span style="font-size:0.68rem;padding:0.15rem 0.45rem;border-radius:999px;background:var(--bg-inset);border:1px solid var(--border-subtle);color:var(--text-secondary)">${p}</span>`).join('')}
         </div>`;
+
+        // ── Existing segments ──
+        if (segs.length > 0) {
+            html += `<details open style="margin-bottom:0.5rem">
+                <summary style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;cursor:pointer;user-select:none;margin-bottom:0.3rem">📑 Segments (${segs.length})</summary>
+                <div style="border:1px solid var(--border-subtle);border-radius:6px;overflow:hidden">`;
+            for (const seg of segs) {
+                const previewUrl = '/pages/site/' + encodeURIComponent(seg.name) + '/';
+                html += `<div style="display:flex;align-items:center;justify-content:space-between;padding:0.35rem 0.5rem;border-bottom:1px solid var(--border-subtle);font-size:0.72rem">
+                    <div>
+                        <span style="font-weight:600;color:var(--text-primary)">${esc(seg.name)}</span>
+                        <span style="color:var(--text-muted);margin-left:0.4rem">${esc(seg.builder)}</span>
+                    </div>
+                    <div style="display:flex;align-items:center;gap:0.5rem">
+                        <span style="font-size:0.65rem;color:var(--text-muted)">${esc(seg.source)} → ${esc(seg.path)}</span>
+                        <a href="${previewUrl}" target="_blank" style="font-size:0.65rem;color:var(--accent);text-decoration:none" title="Open local preview">🔗</a>
+                    </div>
+                </div>`;
+            }
+            html += `</div></details>`;
+        }
+
+        // ── Content folders (with auto-init) ──
+        if (cfs.length > 0) {
+            const uninit = cfs.filter(cf => !cf.has_segment);
+            html += `<details ${segs.length === 0 ? 'open' : ''} style="margin-bottom:0.5rem">
+                <summary style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;cursor:pointer;user-select:none;margin-bottom:0.3rem">📂 Content Folders (${cfs.length})</summary>`;
+
+            for (const cf of cfs) {
+                const statusIcon = cf.has_segment ? '✅' : '⬜';
+                const statusText = cf.has_segment ? 'segment exists' : 'no segment';
+                html += `<div style="display:flex;align-items:center;justify-content:space-between;padding:0.3rem 0.5rem;border-bottom:1px solid var(--border-subtle);font-size:0.72rem">
+                    <div>
+                        <span>${statusIcon}</span>
+                        <span style="font-weight:600;color:var(--text-primary);margin-left:0.3rem">${esc(cf.name)}/</span>
+                        <span style="color:var(--text-muted);margin-left:0.3rem">${cf.file_count} file${cf.file_count !== 1 ? 's' : ''}</span>
+                    </div>
+                    <div style="display:flex;align-items:center;gap:0.4rem">
+                        <span style="font-size:0.65rem;padding:0.1rem 0.35rem;border-radius:4px;background:var(--bg-inset);color:var(--text-secondary)">${esc(cf.best_builder)}</span>
+                        <span style="font-size:0.6rem;color:var(--text-muted)">${esc(statusText)}</span>
+                    </div>
+                </div>`;
+                if (cf.suggestion && !cf.has_segment) {
+                    html += `<div style="font-size:0.6rem;color:var(--warning);padding:0.15rem 0.5rem">💡 ${esc(cf.suggestion)}</div>`;
+                }
+            }
+
+            if (uninit.length > 0) {
+                html += `<div style="margin-top:0.4rem;padding:0.3rem 0.5rem">
+                    <div style="margin-bottom:0.4rem;display:flex;align-items:center;gap:0.4rem">
+                        <input type="checkbox" id="wiz-pages-auto-init" checked style="accent-color:var(--accent)">
+                        <label for="wiz-pages-auto-init" style="font-size:0.75rem;color:var(--text-secondary);cursor:pointer">
+                            Auto-initialize ${uninit.length} segment${uninit.length !== 1 ? 's' : ''} from content folders
+                        </label>
+                    </div>
+                    <div style="font-size:0.6rem;color:var(--text-muted)">
+                        Each folder will get a segment using the best available builder (${uninit.map(u => u.name + ' → ' + u.best_builder).join(', ')}).
+                    </div>
+                </div>`;
+            }
+
+            html += `</details>`;
+        }
+
+        // ── Available builders ──
+        if (builders.length > 0) {
+            html += `<details style="margin-bottom:0.5rem">
+                <summary style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;cursor:pointer;user-select:none;margin-bottom:0.3rem">🔨 Available Builders (${builders.filter(b => b.available).length}/${builders.length})</summary>
+                <div style="display:flex;flex-wrap:wrap;gap:0.3rem;padding:0.2rem 0">`;
+            for (const b of builders) {
+                const color = b.available ? 'var(--success)' : 'var(--text-muted)';
+                const icon = b.available ? '✅' : '○';
+                html += `<span style="font-size:0.68rem;padding:0.15rem 0.45rem;border-radius:999px;background:var(--bg-inset);border:1px solid var(--border-subtle);color:${color}">${icon} ${esc(b.label)}</span>`;
+            }
+            html += `</div></details>`;
+        }
+
+        // ── Deploy info ──
+        if (meta.deploy_branch || meta.base_url) {
+            html += `<div style="font-size:0.68rem;color:var(--text-muted);margin-bottom:0.4rem">`;
+            if (meta.deploy_branch) html += `Deploy branch: <strong>${esc(meta.deploy_branch)}</strong>`;
+            if (meta.deploy_branch && meta.base_url) html += ` · `;
+            if (meta.base_url) html += `Base URL: <strong>${esc(meta.base_url)}</strong>`;
+            html += `</div>`;
+        }
+
+        // ── No content folders message ──
+        if (cfs.length === 0 && segs.length === 0) {
+            html += `<div style="font-size:0.72rem;color:var(--text-muted);padding:0.5rem 0">
+                No content folders detected (docs/, content/, etc.) and no Pages segments configured.<br>
+                Add content to your project or configure segments in the <strong>Pages tab</strong>.
+            </div>`;
+        }
+
+        // ── Apply button (only if there's something to auto-init) ──
+        if (ps.can_auto_init) {
+            html += _wizApplyBtn('int:pages');
+        }
+
+        // ── Escalation ──
+        html += `<div style="font-size:0.68rem;color:var(--text-muted);margin-top:0.5rem">
+            Full segment management (add, edit, build, deploy) is available in the <strong>Pages tab</strong>.
+        </div>`;
+
         return html;
     },
 };

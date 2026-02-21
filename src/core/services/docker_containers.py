@@ -4,9 +4,16 @@ from __future__ import annotations
 
 import json
 import logging
+import time
+from collections.abc import Generator
 from pathlib import Path
 
-from src.core.services.docker_common import run_docker, run_compose
+from src.core.services.docker_common import (
+    run_docker,
+    run_compose,
+    run_docker_stream,
+    run_compose_stream,
+)
 from src.core.services.docker_detect import find_compose_file
 
 logger = logging.getLogger(__name__)
@@ -15,6 +22,144 @@ logger = logging.getLogger(__name__)
 from src.core.services.audit_helpers import make_auditor
 
 _audit = make_auditor("docker")
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  Streaming action dispatch
+# ═══════════════════════════════════════════════════════════════════
+
+# Each action maps to its command type, compose/docker args, display
+# label, and audit metadata.  ``docker_action_stream`` uses this to
+# run any action via a single code path.
+
+_STREAMABLE_ACTIONS: dict[str, dict] = {
+    "up": {
+        "cmd": "compose",
+        "args": ["up", "-d"],
+        "label": "▶ Starting services…",
+        "audit_icon": "▶️",
+        "audit_title": "Docker Up",
+        "audit_verb": "started",
+    },
+    "down": {
+        "cmd": "compose",
+        "args": ["down"],
+        "label": "⏹ Stopping services…",
+        "audit_icon": "⏹️",
+        "audit_title": "Docker Down",
+        "audit_verb": "stopped",
+    },
+    "restart": {
+        "cmd": "compose",
+        "args": ["restart"],
+        "label": "🔄 Restarting services…",
+        "audit_icon": "🔄",
+        "audit_title": "Docker Restart",
+        "audit_verb": "restarted",
+    },
+    "build": {
+        "cmd": "compose",
+        "args": ["build"],
+        "label": "🔨 Building images…",
+        "audit_icon": "📦",
+        "audit_title": "Docker Build",
+        "audit_verb": "built",
+    },
+    "build-nc": {
+        "cmd": "compose",
+        "args": ["build", "--no-cache"],
+        "label": "🔨 Building images (no-cache)…",
+        "audit_icon": "📦",
+        "audit_title": "Docker Build (no-cache)",
+        "audit_verb": "built",
+    },
+    "prune": {
+        "cmd": "docker",
+        "args": ["system", "prune", "-f"],
+        "label": "🧹 Pruning unused resources…",
+        "audit_icon": "🧹",
+        "audit_title": "Docker Prune",
+        "audit_verb": "pruned",
+    },
+}
+
+
+def docker_action_stream(
+    project_root: Path,
+    action: str,
+    *,
+    service: str | None = None,
+) -> Generator[dict, None, None]:
+    """Stream a Docker action as a sequence of JSON-serialisable events.
+
+    Args:
+        project_root: Project root directory.
+        action: One of the keys in ``_STREAMABLE_ACTIONS``.
+        service: Optional service name (for up/down/restart/build).
+
+    Yields:
+        {"type": "start",  "action": ..., "label": ...}
+        {"type": "log",    "line": ..., "source": "stdout"|"stderr"}
+        {"type": "done",   "ok": True,  "duration_ms": ..., "message": ...}
+        {"type": "error",  "message": ..., "duration_ms": ...}
+    """
+    cfg = _STREAMABLE_ACTIONS.get(action)
+    if not cfg:
+        yield {"type": "error", "message": f"Unknown action: {action}"}
+        return
+
+    # Compose actions need a compose file (except prune which is plain docker)
+    if cfg["cmd"] == "compose":
+        compose_file = find_compose_file(project_root)
+        if not compose_file:
+            yield {"type": "error", "message": "No compose file found"}
+            return
+
+    yield {"type": "start", "action": action, "label": cfg["label"]}
+
+    # Build the argument list
+    args = list(cfg["args"])
+    if service and cfg["cmd"] == "compose" and action not in ("prune",):
+        args.append(service)
+
+    t0 = time.monotonic()
+
+    # Choose the right streaming runner
+    if cfg["cmd"] == "compose":
+        stream = run_compose_stream(*args, cwd=project_root)
+    else:
+        stream = run_docker_stream(*args, cwd=project_root)
+
+    exit_code: int = -1
+    for source, line in stream:
+        if source == "exit":
+            exit_code = int(line)
+        else:
+            yield {"type": "log", "line": str(line), "source": source}
+
+    duration_ms = int((time.monotonic() - t0) * 1000)
+
+    if exit_code == 0:
+        target = service or "all"
+        _audit(
+            f"{cfg['audit_icon']} {cfg['audit_title']}",
+            f"Compose {cfg['audit_verb']}" + (f" ({service})" if service else ""),
+            action=cfg["audit_verb"],
+            target=target,
+        )
+        yield {
+            "type": "done",
+            "ok": True,
+            "duration_ms": duration_ms,
+            "message": f"{cfg['audit_title']} completed successfully",
+        }
+    else:
+        yield {
+            "type": "error",
+            "message": f"{cfg['audit_title']} failed (exit code {exit_code})",
+            "duration_ms": duration_ms,
+        }
+
 
 def docker_containers(project_root: Path, *, all_: bool = True) -> dict:
     """List containers.

@@ -2,6 +2,15 @@
 description: 
 ---
 
+**** IMPORTANT MUST ALSO READ ".agent/workflows/why-do-AI-get-obliterated-RESTATEMENT-1.md" ****
+**** IMPORTANT MUST ALSO READ ".agent/workflows/why-do-AI-get-obliterated-RESTATEMENT-2.md" ****
+**** IMPORTANT MUST ALSO READ ".agent/workflows/why-do-AI-get-obliterated-RESTATEMENT-3.md" ****
+**** IMPORTANT MUST ALSO READ ".agent/workflows/why-do-AI-get-obliterated-RESTATEMENT-4.md" ****
+**** IMPORTANT MUST ALSO READ ".agent/workflows/why-do-AI-get-obliterated-RESTATEMENT-5.md" ****
+**** IMPORTANT MUST ALSO READ ".agent/workflows/why-do-AI-get-obliterated-RESTATEMENT-6.md" ****
+**** IMPORTANT MUST ALSO READ ".agent/workflows/why-do-AI-get-obliterated-RESTATEMENT-7.md" ****
+
+
 ## Part 14: The Contract
 
 This document represents a CONTRACT between the AI and the user.

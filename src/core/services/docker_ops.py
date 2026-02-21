@@ -27,6 +27,7 @@ from src.core.services.docker_detect import (  # noqa: F401
 
 # ── Observe + Act (containers) ──
 from src.core.services.docker_containers import (  # noqa: F401
+    docker_action_stream,
     docker_containers,
     docker_images,
     docker_compose_status,

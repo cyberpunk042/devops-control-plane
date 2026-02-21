@@ -2,6 +2,8 @@
 description: MANDATORY discipline protocol — strategic rules and workflows that make it impossible for AI to go rogue, not listen, break things, or trash the user's work. READ THIS BEFORE EVERY SINGLE INTERACTION.
 ---
 
+**** IMPORTANT MUST ALSO READ ".agent/workflows/why-do-AI-get-obliterated-RESTATEMENT-7.md" ****
+
 ## Part 7: Failure Pattern Catalog
 
 These are specific patterns that have caused failures. Each one has a

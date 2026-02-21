@@ -324,10 +324,8 @@ def generate_gitignore(
     sections.append("Thumbs.db")
     sections.append("")
 
-    # IDE section
-    sections.append("# ── IDE ──────────────────────────────────────────────────────────────")
-    sections.append(".vscode/")
-    sections.append(".idea/")
+    # Editor swap files section
+    sections.append("# ── Editor ──────────────────────────────────────────────────────────")
     sections.append("*.swp")
     sections.append("*.swo")
     sections.append("*~")

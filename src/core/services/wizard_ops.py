@@ -281,6 +281,7 @@ def wizard_detect(root: Path) -> dict:
         "devops_cards": devops_cards,
         "current_prefs": devops_cache.load_prefs(root),
         "detected_stacks": detected_stacks,
+        "stack_defaults": _wizard_stack_defaults(root, detected_stacks),
         "_python_version": py_ver,
         "_project_name": root.name,
 
@@ -297,6 +298,199 @@ def wizard_detect(root: Path) -> dict:
         "git_remotes": _wizard_git_remotes(root),
         "codeowners_content": _wizard_codeowners_content(root),
         "env_status": _wizard_env_status(root),
+        "pages_status": _wizard_pages_status(root),
+    }
+
+
+# ── Stack defaults — derive wizard form defaults from detected stacks ──
+
+
+# Language family → Docker base image template.
+# {version} is replaced at runtime with detected or default version.
+_DOCKER_IMAGES: dict[str, str] = {
+    "python":  "python:{version}-slim",
+    "go":      "golang:{version}-alpine",
+    "node":    "node:{version}-alpine",
+    "rust":    "rust:{version}-slim",
+    "java":    "eclipse-temurin:{version}-jdk-alpine",
+    "dotnet":  "mcr.microsoft.com/dotnet/sdk:{version}",
+    "ruby":    "ruby:{version}-slim",
+    "elixir":  "elixir:{version}-slim",
+    "php":     "php:{version}-cli",
+    "c":       "gcc:latest",
+    "cpp":     "gcc:latest",
+    "swift":   "swift:{version}",
+    "zig":     "alpine:latest",
+}
+
+# Language family → CI workflow version key (for actions/setup-*).
+_CI_VERSION_KEYS: dict[str, str] = {
+    "python": "python-version",
+    "go":     "go-version",
+    "node":   "node-version",
+    "rust":   "toolchain",
+    "java":   "java-version",
+    "dotnet":  "dotnet-version",
+    "ruby":   "ruby-version",
+    "elixir": "elixir-version",
+}
+
+# Default ports by framework (best-effort hints, user can override).
+_FRAMEWORK_PORTS: dict[str, str] = {
+    "python-flask":   "5000",
+    "python-fastapi": "8000",
+    "python-django":  "8000",
+    "node-express":   "3000",
+    "node-nextjs":    "3000",
+    "node-react":     "3000",
+    "go-gin":         "8080",
+    "go-fiber":       "3000",
+    "ruby-rails":     "3000",
+    "ruby-sinatra":   "4567",
+    "elixir-phoenix": "4000",
+    "rust-actix":     "8080",
+    "rust-axum":      "3000",
+    "dotnet-aspnet":  "5000",
+    "dotnet-blazor":  "5000",
+}
+
+# Default language versions (fallback when requires.min_version is empty).
+_DEFAULT_VERSIONS: dict[str, str] = {
+    "python": f"{sys.version_info.major}.{sys.version_info.minor}",
+    "go":     "1.22",
+    "node":   "20",
+    "rust":   "stable",
+    "java":   "21",
+    "dotnet":  "8.0",
+    "ruby":   "3.3",
+    "elixir": "1.16",
+    "php":    "8.3",
+    "swift":  "5.10",
+}
+
+
+def _wizard_stack_defaults(
+    root: Path,
+    detected_stacks: list[str],
+) -> dict:
+    """Derive wizard-relevant defaults from detected stacks.
+
+    Returns a dict the frontend can use to populate sub-wizard forms
+    with stack-appropriate defaults instead of hardcoded Python values.
+
+    Falls back gracefully: if no stacks are detected or resolution
+    fails, returns a generic Python-based default set.
+    """
+    # ── Resolve stacks ──────────────────────────────────────────
+    stacks_dir = root / "stacks"
+    resolved: dict = {}
+    try:
+        from src.core.config.stack_loader import discover_stacks
+        resolved = discover_stacks(stacks_dir)
+    except Exception:
+        pass
+
+    # Pick primary stack: most specific (flavored > base).
+    # detected_stacks is sorted alphabetically; prefer longest name
+    # (likely the most specific flavored stack).
+    primary = None
+    for name in sorted(detected_stacks, key=len, reverse=True):
+        if name in resolved:
+            primary = resolved[name]
+            break
+
+    if not primary:
+        # Fallback: generic defaults
+        return _generic_stack_defaults()
+
+    # ── Extract language family ─────────────────────────────────
+    family = primary.parent or primary.name  # base stack name
+
+    # ── Version ─────────────────────────────────────────────────
+    version = _DEFAULT_VERSIONS.get(family, "latest")
+    for req in primary.requires:
+        if req.min_version:
+            version = req.min_version
+            break
+    # For Python, use the running interpreter version (more accurate)
+    if family == "python":
+        version = f"{sys.version_info.major}.{sys.version_info.minor}"
+
+    # ── Capabilities → commands ─────────────────────────────────
+    caps: dict[str, str] = {}
+    for cap in primary.capabilities:
+        caps[cap.name] = cap.command
+
+    # ── Docker defaults ─────────────────────────────────────────
+    image_tpl = _DOCKER_IMAGES.get(family, "alpine:latest")
+    base_image = image_tpl.replace("{version}", version)
+
+    # Entry command: prefer serve, then run, then build
+    entry_cmd = caps.get("serve") or caps.get("run") or caps.get("build") or ""
+    # For Docker, bind to 0.0.0.0 if the serve command has --debug or localhost
+    if entry_cmd and family == "python" and "--debug" in entry_cmd:
+        entry_cmd = entry_cmd.replace("--debug", "--host=0.0.0.0")
+
+    port = _FRAMEWORK_PORTS.get(primary.name, "8080")
+
+    # ── CI defaults ─────────────────────────────────────────────
+    ci_version_key = _CI_VERSION_KEYS.get(family, "")
+
+    return {
+        "primary_stack": primary.name,
+        "language_family": family,
+        "icon": primary.icon or "",
+        "domain": primary.domain,
+        "docker": {
+            "base_image": base_image,
+            "install_cmd": caps.get("install", ""),
+            "entry_cmd": entry_cmd,
+            "workdir": "/app",
+            "port": port,
+        },
+        "ci": {
+            "install_cmd": caps.get("install", ""),
+            "test_cmd": caps.get("test", ""),
+            "lint_cmd": caps.get("lint", ""),
+            "format_cmd": caps.get("format", ""),
+            "language_version": version,
+            "language_key": ci_version_key,
+            "language_label": family.capitalize() + " Version",
+        },
+        "capabilities": caps,
+    }
+
+
+def _generic_stack_defaults() -> dict:
+    """Fallback defaults when no stacks are detected."""
+    py_ver = f"{sys.version_info.major}.{sys.version_info.minor}"
+    return {
+        "primary_stack": "",
+        "language_family": "python",
+        "icon": "🐍",
+        "domain": "service",
+        "docker": {
+            "base_image": f"python:{py_ver}-slim",
+            "install_cmd": "pip install -e .",
+            "entry_cmd": "python -m src",
+            "workdir": "/app",
+            "port": "8080",
+        },
+        "ci": {
+            "install_cmd": 'pip install -e ".[dev]" || pip install -e .',
+            "test_cmd": "pytest",
+            "lint_cmd": "ruff check .",
+            "format_cmd": "ruff format .",
+            "language_version": py_ver,
+            "language_key": "python-version",
+            "language_label": "Python Version",
+        },
+        "capabilities": {
+            "install": "pip install -e .",
+            "lint": "ruff check .",
+            "format": "ruff format .",
+            "test": "pytest",
+        },
     }
 
 
@@ -421,6 +615,90 @@ def _wizard_codeowners_content(root: Path) -> str:
     return ""
 
 
+def _wizard_pages_status(root: Path) -> dict:
+    """Pages status for wizard use — segments, meta, content folders."""
+    result: dict = {
+        "segments": [],
+        "meta": {},
+        "content_folders": [],
+        "can_auto_init": False,
+        "builders_available": [],
+    }
+    try:
+        from src.core.services.pages_engine import get_pages_meta, get_segments
+        from src.core.services.pages_discovery import (
+            detect_best_builder,
+            list_builders_detail,
+        )
+
+        # Existing segments
+        segments = get_segments(root)
+        result["segments"] = [
+            {
+                "name": s.name,
+                "builder": s.builder,
+                "source": s.source,
+                "path": s.path,
+                "auto": s.auto,
+            }
+            for s in segments
+        ]
+
+        # Pages metadata
+        result["meta"] = get_pages_meta(root)
+
+        # Available builders (slim summary)
+        builders = list_builders_detail()
+        result["builders_available"] = [
+            {"name": b["name"], "label": b["label"], "available": b["available"]}
+            for b in builders
+        ]
+
+        # Content folders — scan directly to avoid circular import
+        # with content_listing ↔ content_crypto
+        _DEFAULT_DIRS = ["docs", "content", "media", "assets", "archive"]
+        dir_names = _DEFAULT_DIRS
+        try:
+            import yaml as _yaml
+            pf = root / "project.yml"
+            if pf.is_file():
+                data = _yaml.safe_load(pf.read_text(encoding="utf-8"))
+                if isinstance(data, dict):
+                    cf = data.get("content_folders")
+                    if isinstance(cf, list) and cf:
+                        dir_names = cf
+        except Exception:
+            pass
+
+        existing_names = {s.name for s in segments}
+        for dir_name in dir_names:
+            folder_path = root / dir_name
+            if not folder_path.is_dir():
+                continue
+            # Count files (non-recursive, keep it light)
+            file_count = sum(1 for f in folder_path.iterdir() if f.is_file())
+            builder_name, reason, suggestion = detect_best_builder(folder_path)
+            result["content_folders"].append({
+                "name": dir_name,
+                "file_count": file_count,
+                "best_builder": builder_name,
+                "reason": reason,
+                "suggestion": suggestion,
+                "has_segment": dir_name in existing_names,
+            })
+
+        # Can auto-init if there are content folders without segments
+        uninit = [
+            cf for cf in result["content_folders"]
+            if not cf["has_segment"]
+        ]
+        result["can_auto_init"] = len(uninit) > 0
+
+    except Exception:
+        logger.exception("_wizard_pages_status failed")
+    return result
+
+
 # ═══════════════════════════════════════════════════════════════════
 # Re-exports — backward compatibility
 # ═══════════════════════════════════════════════════════════════════
@@ -433,6 +711,7 @@ from src.core.services.wizard_setup import (  # noqa: F401, E402
     setup_ci,
     setup_terraform,
     setup_dns,
+    setup_pages,
     wizard_setup,
     delete_generated_configs,
 )

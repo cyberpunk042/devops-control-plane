@@ -1,16 +1,39 @@
 <script>
 // ═══════════════════════════════════════════════════════════════
 // Git Auth — SSH/HTTPS credential management
+//
+// Boot flow:
+//   checkGitAuth()  — always probes auth status; shows modal
+//                     only if pref sshPassphrasePrompt !== 'on-demand'
+//
+// On-demand flow:
+//   ensureGitAuth() — returns a Promise that resolves to true
+//                     when auth is ready.  Shows the modal if
+//                     needed and waits for the user to provide
+//                     credentials.  Call this BEFORE any
+//                     operation that hits the git remote
+//                     (git sync, chat, etc.).
 // ═══════════════════════════════════════════════════════════════
 
 let _gitAuthStatus = null;
+let _ensureAuthResolve = null;  // set when ensureGitAuth() is waiting
+let _gitAuthContext = null;     // 'event' when triggered by auth:needed SSE
+let _gitAuthModalOpen = false;  // true while the auth modal is displayed
 
 async function checkGitAuth() {
   try {
     _gitAuthStatus = await api('/git/auth-status');
     if (_gitAuthStatus.ok) return;
 
+    // Check user preference — should we prompt on boot?
+    const promptPref = prefsGet('sshPassphrasePrompt');  // 'always' | 'on-demand'
+
     if (_gitAuthStatus.needs === 'ssh_passphrase') {
+      if (promptPref === 'on-demand') {
+        // User opted out of boot prompts — skip, but status is cached
+        // so ensureGitAuth() can trigger the modal later when needed.
+        return;
+      }
       showGitAuthModal('ssh');
     } else if (_gitAuthStatus.needs === 'https_credentials') {
       showGitAuthModal('https');
@@ -20,21 +43,84 @@ async function checkGitAuth() {
   }
 }
 
-function showGitAuthModal(type) {
+/**
+ * Ensure git auth is ready before a network operation.
+ * Returns a Promise<boolean>.
+ *   - true  → auth is OK, proceed
+ *   - false → user cancelled / auth still broken
+ *
+ * If auth needs credentials, shows the modal and waits.
+ */
+function ensureGitAuth() {
+  // Already good
+  if (_gitAuthStatus && _gitAuthStatus.ok) return Promise.resolve(true);
+
+  // Need to show modal — return a promise that resolves when the user
+  // successfully unlocks (or cancels).
+  return new Promise((resolve) => {
+    _ensureAuthResolve = resolve;
+
+    if (!_gitAuthStatus) {
+      // Status not fetched yet — fetch first, then decide
+      api('/git/auth-status').then(status => {
+        _gitAuthStatus = status;
+        if (status.ok) { _ensureAuthResolve = null; resolve(true); return; }
+        if (status.needs === 'ssh_passphrase') showGitAuthModal('ssh');
+        else if (status.needs === 'https_credentials') showGitAuthModal('https');
+        else { _ensureAuthResolve = null; resolve(false); }
+      }).catch(() => { _ensureAuthResolve = null; resolve(false); });
+    } else if (_gitAuthStatus.needs === 'ssh_passphrase') {
+      showGitAuthModal('ssh');
+    } else if (_gitAuthStatus.needs === 'https_credentials') {
+      showGitAuthModal('https');
+    } else {
+      _ensureAuthResolve = null;
+      resolve(false);
+    }
+  });
+}
+
+function showGitAuthModal(type, context) {
+  if (_gitAuthModalOpen) return;
+  _gitAuthModalOpen = true;
+  _gitAuthContext = context || null;
   const status = _gitAuthStatus || {};
   const keyName = status.ssh_key || 'SSH key';
   const remoteUrl = status.remote_url || 'origin';
 
   if (type === 'ssh') {
+    // Current pref state — pre-check the checkbox if already on-demand
+    const currentPref = prefsGet('sshPassphrasePrompt');
+    const checked = currentPref === 'on-demand' ? ' checked' : '';
+
+    // Context-aware explainer
+    const explainer = context === 'event'
+      ? '<strong>⚠️ Git operation blocked</strong><br>'
+        + 'A git network operation was attempted but your SSH key is not '
+        + 'unlocked. Please enter your passphrase below, then retry your '
+        + 'operation or refresh the page.'
+      : '<strong>🔒 SSH Secure Mode detected</strong><br>'
+        + 'Your SSH key is <em>passphrase-protected</em>, which is the recommended '
+        + 'security configuration. Some features (Git sync, remote operations) '
+        + 'require access to the remote repository through this key. '
+        + 'Please enter your passphrase so we can unlock it for this session.';
+
     modalOpen({
       title: '\uD83D\uDD11 SSH Key Passphrase Required',
       body: '<div style="font-size:0.85rem">'
-        + '<p style="color:var(--text-muted);margin-bottom:var(--space-md)">'
-        + 'Your git remote uses SSH and the key <strong>' + esc(keyName) + '</strong> '
-        + 'requires a passphrase to connect to:</p>'
+        // ── Explainer: WHY this is happening ──
+        + '<div style="padding:0.6rem 0.75rem;background:var(--accent-glow);'
+        + 'border:1px solid var(--accent);border-radius:var(--radius-sm);'
+        + 'margin-bottom:var(--space-md);font-size:0.78rem;line-height:1.5">'
+        + explainer
+        + '</div>'
+        // ── Key + remote info ──
+        + '<p style="color:var(--text-muted);margin-bottom:0.5rem;font-size:0.78rem">'
+        + 'Key: <strong>' + esc(keyName) + '</strong></p>'
         + '<code style="display:block;padding:0.5rem;background:var(--surface-raised);'
         + 'border-radius:var(--radius-sm);margin-bottom:var(--space-md);font-size:0.78rem;'
         + 'word-break:break-all">' + esc(remoteUrl) + '</code>'
+        // ── Input ──
         + '<label style="font-weight:500;font-size:0.78rem;display:block;margin-bottom:0.3rem">'
         + 'SSH Key Passphrase</label>'
         + '<input type="password" id="git-auth-passphrase" class="form-input" '
@@ -42,12 +128,26 @@ function showGitAuthModal(type) {
         + 'style="width:100%;margin-bottom:0.5rem" '
         + 'onkeydown="if(event.key===\'Enter\')submitGitAuthSSH()">'
         + '<p id="git-auth-error" style="color:#f87171;font-size:0.75rem;min-height:1rem"></p>'
+        // ── Preference checkbox ──
+        + '<label style="display:flex;align-items:center;gap:0.4rem;'
+        + 'font-size:0.75rem;color:var(--text-muted);cursor:pointer;margin-top:0.25rem">'
+        + '<input type="checkbox" id="git-auth-no-startup"' + checked + '>'
+        + ' Don\u2019t ask on startup \u2014 only prompt when required by an operation'
+        + '</label>'
         + '</div>',
       size: 'narrow',
       footerButtons: [
-        { label: 'Skip', cls: 'btn-ghost', onclick: 'modalClose()' },
+        { label: 'Skip', cls: 'btn-ghost', onclick: '_gitAuthSkip()' },
         { label: 'Unlock \u2192', cls: 'btn-primary', onclick: 'submitGitAuthSSH()' },
       ],
+      onClose: () => {
+        _gitAuthModalOpen = false;
+        // If user closes without unlocking, resolve with false
+        if (_ensureAuthResolve) {
+          _ensureAuthResolve(false);
+          _ensureAuthResolve = null;
+        }
+      },
     });
     // Focus the input after modal opens
     setTimeout(() => {
@@ -73,14 +173,36 @@ function showGitAuthModal(type) {
         + '</div>',
       size: 'narrow',
       footerButtons: [
-        { label: 'Skip', cls: 'btn-ghost', onclick: 'modalClose()' },
+        { label: 'Skip', cls: 'btn-ghost', onclick: '_gitAuthSkip()' },
         { label: 'Save \u2192', cls: 'btn-primary', onclick: 'submitGitAuthHTTPS()' },
       ],
+      onClose: () => {
+        _gitAuthModalOpen = false;
+        if (_ensureAuthResolve) {
+          _ensureAuthResolve(false);
+          _ensureAuthResolve = null;
+        }
+      },
     });
     setTimeout(() => {
       const inp = document.getElementById('git-auth-token');
       if (inp) inp.focus();
     }, 100);
+  }
+}
+
+/** Handle "Skip" — close modal + resolve on-demand waiters with false. */
+function _gitAuthSkip() {
+  // Save checkbox pref if it was checked
+  _saveNoStartupPref();
+  modalClose();
+}
+
+/** Save the "Don't ask on startup" checkbox state as a preference. */
+function _saveNoStartupPref() {
+  const cb = document.getElementById('git-auth-no-startup');
+  if (cb) {
+    prefsSet('sshPassphrasePrompt', cb.checked ? 'on-demand' : 'always');
   }
 }
 
@@ -107,9 +229,22 @@ async function submitGitAuthSSH() {
     });
 
     if (result.ok) {
+      // Save checkbox preference before closing
+      _saveNoStartupPref();
+
       modalClose();
-      toast('\uD83D\uDD13 SSH key unlocked — git sync is ready', 'success');
+      const toastMsg = _gitAuthContext === 'event'
+        ? '🔓 SSH key unlocked — retry your operation or refresh'
+        : '🔓 SSH key unlocked — git sync is ready';
+      toast(toastMsg, 'success');
       _gitAuthStatus = { ok: true };
+      _gitAuthContext = null;
+
+      // Resolve any ensureGitAuth() waiter
+      if (_ensureAuthResolve) {
+        _ensureAuthResolve(true);
+        _ensureAuthResolve = null;
+      }
     } else {
       if (errEl) errEl.textContent = result.error || 'Authentication failed';
       inp.value = '';
@@ -147,6 +282,11 @@ async function submitGitAuthHTTPS() {
       modalClose();
       toast('\uD83D\uDD10 Git credentials saved — sync is ready', 'success');
       _gitAuthStatus = { ok: true };
+
+      if (_ensureAuthResolve) {
+        _ensureAuthResolve(true);
+        _ensureAuthResolve = null;
+      }
     } else {
       if (errEl) errEl.textContent = result.error || 'Authentication failed';
     }
@@ -157,3 +297,4 @@ async function submitGitAuthHTTPS() {
   }
 }
 </script>
+

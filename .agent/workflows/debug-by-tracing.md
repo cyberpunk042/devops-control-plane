@@ -71,8 +71,10 @@ and fix the source of the empty value. Total: 5 minutes, 1 edit.
 The AI wasted 15+ minutes and 3 broken edits because it GUESSED instead of TRACED.
 
 
-MUST ACKNOWLEDGE: 
-.agent/workflows/why-do-AI-get-obliterated-RESTATEMENT-3.md
-.agent/workflows/why-do-AI-get-obliterated-RESTATEMENT-2.md
-.agent/workflows/why-do-AI-get-obliterated-RESTATEMENT-1.md
-.agent/workflows/why-do-AI-get-unplugged.md
+**** IMPORTANT MUST ALSO READ ".agent/workflows/why-do-AI-get-obliterated-RESTATEMENT-1.md" ****
+**** IMPORTANT MUST ALSO READ ".agent/workflows/why-do-AI-get-obliterated-RESTATEMENT-2.md" ****
+**** IMPORTANT MUST ALSO READ ".agent/workflows/why-do-AI-get-obliterated-RESTATEMENT-3.md" ****
+**** IMPORTANT MUST ALSO READ ".agent/workflows/why-do-AI-get-obliterated-RESTATEMENT-4.md" ****
+**** IMPORTANT MUST ALSO READ ".agent/workflows/why-do-AI-get-obliterated-RESTATEMENT-5.md" ****
+**** IMPORTANT MUST ALSO READ ".agent/workflows/why-do-AI-get-obliterated-RESTATEMENT-6.md" ****
+**** IMPORTANT MUST ALSO READ ".agent/workflows/why-do-AI-get-obliterated-RESTATEMENT-7.md" ****

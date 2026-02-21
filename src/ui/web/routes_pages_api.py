@@ -74,6 +74,7 @@ from src.core.services.pages_engine import (
 )
 from src.core.services.pages_builders import SegmentConfig
 from src.core.services.run_tracker import run_tracked
+from src.ui.web.routes_git_auth import requires_git_auth
 
 logger = logging.getLogger(__name__)
 
@@ -276,6 +277,7 @@ def merge_route():  # type: ignore[no-untyped-def]
 
 
 @pages_api_bp.route("/pages/deploy", methods=["POST"])
+@requires_git_auth
 @run_tracked("deploy", "deploy:pages")
 def deploy_route():  # type: ignore[no-untyped-def]
     """Deploy merged output to gh-pages."""

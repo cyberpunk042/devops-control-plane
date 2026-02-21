@@ -49,8 +49,28 @@ def setup_git(root: Path, data: dict) -> dict:
             )
             results.append(f"Branch renamed: {current} → {default_branch}")
 
-    # 3. Write .gitignore (if content provided)
+    # 3. Write .gitignore (generate from stacks or use provided content)
     gitignore_content = data.get("gitignore_content", "").strip()
+    if not gitignore_content and data.get("generate_gitignore"):
+        # Auto-generate from detected stacks
+        from src.core.services.security_scan import generate_gitignore as _gen_gi
+        try:
+            from src.core.config.loader import load_project
+            from src.core.config.stack_loader import discover_stacks
+            from src.core.services.detection import detect_modules
+
+            project = load_project(root / "project.yml")
+            stacks = discover_stacks(root / "stacks")
+            detection = detect_modules(project, root, stacks)
+            stack_names = sorted(
+                {m.effective_stack for m in detection.modules if m.effective_stack}
+            )
+        except Exception:
+            stack_names = []
+        if stack_names:
+            gi_result = _gen_gi(root, stack_names)
+            if gi_result.get("ok"):
+                gitignore_content = gi_result["file"].get("content", "").strip()
     if gitignore_content:
         gi_path = root / ".gitignore"
         gi_path.write_text(gitignore_content + "\n", encoding="utf-8")
@@ -197,6 +217,53 @@ def setup_github(root: Path, data: dict) -> dict:
         "message": "GitHub configuration applied",
         "results": results,
     }
+
+
+def setup_pages(root: Path, data: dict) -> dict:
+    """Initialize Pages segments from detected content folders.
+
+    Supported data keys:
+        auto_init  – bool, run init_pages_from_project to create segments
+    """
+    from src.core.services import devops_cache
+
+    results: list[str] = []
+
+    if data.get("auto_init"):
+        from src.core.services.pages_discovery import init_pages_from_project
+
+        init_result = init_pages_from_project(root)
+        added = init_result.get("added", [])
+        details = init_result.get("details", [])
+
+        for d in details:
+            results.append(
+                f"Segment '{d['name']}' → {d['builder']}"
+                + (f" ({d['suggestion']})" if d.get("suggestion") else "")
+            )
+
+        if not added:
+            results.append("No new segments to initialize")
+
+    if not results:
+        return {"ok": True, "message": "No pages actions requested", "results": []}
+
+    devops_cache.record_event(
+        root,
+        label="📄 Pages Setup",
+        summary=f"Pages configured: {', '.join(results) or 'no changes'}",
+        detail={"results": results},
+        card="wizard",
+        action="configured",
+        target="pages",
+    )
+
+    return {
+        "ok": True,
+        "message": f"Pages initialized ({len(results)} segment(s))",
+        "results": results,
+    }
+
 
 
 def setup_docker(root: Path, data: dict) -> dict:
@@ -1364,6 +1431,7 @@ _SETUP_ACTIONS = {
     "setup_ci": setup_ci,
     "setup_terraform": setup_terraform,
     "setup_dns": setup_dns,
+    "setup_pages": setup_pages,
 }
 
 

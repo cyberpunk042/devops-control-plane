@@ -26,6 +26,7 @@ from flask import Blueprint, current_app, jsonify, request
 from src.core.services import git_ops
 from src.core.services.devops_cache import get_cached
 from src.core.services.run_tracker import run_tracked
+from src.ui.web.routes_git_auth import requires_git_auth
 
 integrations_bp = Blueprint("integrations", __name__)
 
@@ -88,6 +89,7 @@ def git_commit():  # type: ignore[no-untyped-def]
 
 
 @integrations_bp.route("/git/pull", methods=["POST"])
+@requires_git_auth
 @run_tracked("git", "git:pull")
 def git_pull():  # type: ignore[no-untyped-def]
     """Pull from remote."""
@@ -104,6 +106,7 @@ def git_pull():  # type: ignore[no-untyped-def]
 
 
 @integrations_bp.route("/git/push", methods=["POST"])
+@requires_git_auth
 @run_tracked("git", "git:push")
 def git_push():  # type: ignore[no-untyped-def]
     """Push to remote."""

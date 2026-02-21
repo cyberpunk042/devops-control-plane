@@ -38,6 +38,8 @@ from src.core.services.chat import (
     send_message,
     update_message_flags,
 )
+from src.core.services.git_auth import is_auth_ok
+from src.ui.web.routes_git_auth import requires_git_auth
 
 logger = logging.getLogger(__name__)
 
@@ -100,8 +102,7 @@ def chat_thread_create():
         )
 
         # Auto-push to origin in background so other systems see the thread
-        from src.core.services.git_auth import is_auth_ok as _auth_ok_create
-        if _auth_ok_create():
+        if is_auth_ok():
             def _bg_push(r):
                 try:
                     push_chat(r)
@@ -135,8 +136,7 @@ def chat_messages():
         # Auto-pull latest from origin in background (non-blocking).
         # Messages load instantly from local; pull results appear on next load.
         # Only attempt if auth is verified — avoids hanging on SSH passphrase.
-        from src.core.services.git_auth import is_auth_ok as _auth_ok
-        if _auth_ok():
+        if is_auth_ok():
             def _bg_pull(r):
                 try:
                     pull_chat(r)
@@ -208,8 +208,7 @@ def chat_send():
 
         # Auto-push to origin in background (don't block the response)
         # Only attempt if auth is verified.
-        from src.core.services.git_auth import is_auth_ok as _auth_ok2
-        if _auth_ok2():
+        if is_auth_ok():
             def _bg_push(r):
                 try:
                     push_chat(r)
@@ -399,6 +398,7 @@ def chat_autocomplete():
 # ── Poll (single combined request) ────────────────────────────────
 
 @chat_bp.route("/chat/poll", methods=["POST"])
+@requires_git_auth
 def chat_poll():
     """Single poll endpoint: pull remote, return threads + messages.
 
@@ -413,13 +413,11 @@ def chat_poll():
         n = body.get("n", 100)
 
         # 1. Pull from remote (non-fatal)
-        from src.core.services.git_auth import is_auth_ok as _auth_ok
         pulled = False
-        if _auth_ok():
-            try:
-                pulled = pull_chat(root)
-            except Exception:
-                pass
+        try:
+            pulled = pull_chat(root)
+        except Exception:
+            pass
 
         # 2. Read threads with message_count
         threads = list_threads(root)
@@ -464,6 +462,7 @@ def chat_poll():
 # ── Sync (push/pull) ──────────────────────────────────────────────
 
 @chat_bp.route("/chat/sync", methods=["POST"])
+@requires_git_auth
 def chat_sync():
     """Push and/or pull chat data to/from origin.
 
@@ -544,8 +543,9 @@ def chat_move_message():
             deleted = delete_message(root, thread_id=src_thread, message_id=msg_id)
 
         # Push in background
-        from src.core.services.ledger.worktree import push_ledger_branch
-        threading.Thread(target=push_ledger_branch, args=(root,), daemon=True).start()
+        if is_auth_ok():
+            from src.core.services.ledger.worktree import push_ledger_branch
+            threading.Thread(target=push_ledger_branch, args=(root,), daemon=True).start()
 
         return jsonify({
             "new_message_id": new_msg.id,

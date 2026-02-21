@@ -84,6 +84,7 @@
             'state:stale',
             'audit:pending', 'audit:saved',
             'run:started', 'run:completed',
+            'auth:needed',
         ],
 
         /** Open the SSE connection. Safe to call multiple times. */
@@ -140,6 +141,7 @@
                 case 'audit:saved':    this._onAuditSaved(payload);   break;
                 case 'run:started':    this._onRunStarted(payload);   break;
                 case 'run:completed':  this._onRunCompleted(payload); break;
+                case 'auth:needed':    this._onAuthNeeded(payload);   break;
                 // sys:warming, sys:warm, sys:heartbeat — silently ignored for now
             }
         },
@@ -389,6 +391,26 @@
                     badge.title = `${subtype}${dur} — ${summary || status}`
                         + (runId ? `\n@run:${runId}` : '');
                 }
+            }
+        },
+
+        /** Server detected a git operation that requires auth. */
+        _onAuthNeeded(payload) {
+            const data = payload.data || {};
+            console.info('[SSE] auth:needed — %s', data.needs || 'unknown');
+
+            // Already aware — don't re-show modal
+            if (_gitAuthStatus && !_gitAuthStatus.ok) return;
+
+            // Update cached auth status
+            _gitAuthStatus = { ok: false, needs: data.needs, remote_url: data.remote_url, ssh_key: data.ssh_key };
+
+            // Show the auth modal with 'event' context so the user
+            // sees an explanation of WHY the prompt appeared.
+            if (data.needs === 'ssh_passphrase') {
+                showGitAuthModal('ssh', 'event');
+            } else if (data.needs === 'https_credentials') {
+                showGitAuthModal('https', 'event');
             }
         },
 

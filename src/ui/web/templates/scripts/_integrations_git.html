@@ -158,6 +158,7 @@
     }
 
     async function gitPull() {
+        if (!(await ensureGitAuth())) return;
         toast('Pulling…', 'info');
         try {
             const data = await api('/git/pull', { method: 'POST', body: '{}' });
@@ -170,6 +171,7 @@
     }
 
     async function gitPush() {
+        if (!(await ensureGitAuth())) return;
         toast('Pushing…', 'info');
         try {
             const data = await api('/git/push', { method: 'POST', body: '{}' });

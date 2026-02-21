@@ -100,8 +100,10 @@ instead of extending the existing modal with a new mode.
 □ Confirm the fix direction before implementing
 ```
 
-MUST ACKNOWLEDGE: 
-.agent/workflows/why-do-AI-get-obliterated-RESTATEMENT-3.md
-.agent/workflows/why-do-AI-get-obliterated-RESTATEMENT-2.md
-.agent/workflows/why-do-AI-get-obliterated-RESTATEMENT-1.md
-.agent/workflows/why-do-AI-get-unplugged.md
+**** IMPORTANT MUST ALSO READ ".agent/workflows/why-do-AI-get-obliterated-RESTATEMENT-1.md" ****
+**** IMPORTANT MUST ALSO READ ".agent/workflows/why-do-AI-get-obliterated-RESTATEMENT-2.md" ****
+**** IMPORTANT MUST ALSO READ ".agent/workflows/why-do-AI-get-obliterated-RESTATEMENT-3.md" ****
+**** IMPORTANT MUST ALSO READ ".agent/workflows/why-do-AI-get-obliterated-RESTATEMENT-4.md" ****
+**** IMPORTANT MUST ALSO READ ".agent/workflows/why-do-AI-get-obliterated-RESTATEMENT-5.md" ****
+**** IMPORTANT MUST ALSO READ ".agent/workflows/why-do-AI-get-obliterated-RESTATEMENT-6.md" ****
+**** IMPORTANT MUST ALSO READ ".agent/workflows/why-do-AI-get-obliterated-RESTATEMENT-7.md" ****

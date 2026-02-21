@@ -23,6 +23,8 @@ from pathlib import Path
 
 from flask import Blueprint, current_app, jsonify, request
 
+from src.core.services.git_auth import is_auth_ok
+
 from src.core.services.trace import (
     active_recordings,
     delete_trace,
@@ -231,8 +233,9 @@ def trace_share():
                 logger.warning("Failed to post trace to chat: %s", e)
 
         # Push in background so other machines see it
-        from src.core.services.ledger.worktree import push_ledger_branch
-        threading.Thread(target=push_ledger_branch, args=(root,), daemon=True).start()
+        if is_auth_ok():
+            from src.core.services.ledger.worktree import push_ledger_branch
+            threading.Thread(target=push_ledger_branch, args=(root,), daemon=True).start()
 
         return jsonify({"trace_id": trace_id, "shared": True})
     except Exception as e:
@@ -261,8 +264,9 @@ def trace_unshare():
             return jsonify({"error": f"Trace not found: {trace_id}"}), 404
 
         # Push in background so other machines see the flag change
-        from src.core.services.ledger.worktree import push_ledger_branch
-        threading.Thread(target=push_ledger_branch, args=(root,), daemon=True).start()
+        if is_auth_ok():
+            from src.core.services.ledger.worktree import push_ledger_branch
+            threading.Thread(target=push_ledger_branch, args=(root,), daemon=True).start()
 
         return jsonify({"trace_id": trace_id, "shared": False})
     except Exception as e:
