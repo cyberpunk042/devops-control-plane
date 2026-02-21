@@ -1,6 +1,16 @@
 # Node.js stack — detection and capabilities
 name: node
+icon: "📦"
 description: "Node.js project"
+detail: >
+  Node.js is a JavaScript runtime built on V8 that enables server-side
+  programming. It excels at I/O-heavy workloads, real-time applications, and
+  full-stack JavaScript development.
+  
+  Technical: Node.js project detected via package.json. Provides install
+  (npm), lint (eslint), format (prettier), test, and build capabilities.
+  Flavored stacks like node-express or node-nextjs add framework-specific
+  dev/serve commands.
 domain: service
 
 detection:

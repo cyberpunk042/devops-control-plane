@@ -167,14 +167,23 @@
 
         // ── Step 3: Secrets ─────────────────────────────────────────
         secrets: async (body) => {
-            const cfg = _wizardConfig || {};
+            const cfg = _wizardConfig || await wizardLoadConfig();
+            if (!cfg) {
+                body.innerHTML = '<p class="empty-state" style="color:var(--error)">❌ Could not load config.</p>';
+                return;
+            }
             const envs = cfg.environments || [{ name: 'dev', default: true }];
 
             body.innerHTML = `
-                <h2 style="margin-bottom:1rem">🔐 Secrets & Encryption</h2>
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem">
+                    <h2 style="margin:0">🔐 Secrets & Encryption</h2>
+                    <button class="btn btn-sm btn-ghost" onclick="renderWizard()" style="font-size:0.72rem;padding:0.2rem 0.5rem" title="Re-scan all vault, GitHub, and encryption status">🔄 Rescan</button>
+                </div>
                 <p style="color:var(--text-secondary);line-height:1.6;margin-bottom:1.5rem">
                     Each environment has its own <code>.env</code> file encrypted by the <strong>Vault</strong>.
-                    The <strong>Content Encryption Key</strong> protects files managed by the content vault.
+                    ${envs.length > 1
+                        ? 'In multi-environment mode, <code>.env</code> is the live working copy of the active environment — switching environments swaps the underlying file automatically.'
+                        : 'The <strong>Content Encryption Key</strong> lets you encrypt content files, chat messages, and backup archives on demand.'}
                 </p>
 
                 <div style="font-size:0.85rem;font-weight:600;margin-bottom:0.5rem;color:var(--text-secondary)">
@@ -196,6 +205,15 @@
                 <div id="wiz-enc-key-status" style="margin-bottom:1rem"></div>
                 <div id="wiz-secrets-list"></div>
             `;
+
+            // Resolve active environment name (available to all sections below)
+            let _activeEnvName = '';
+            if (_wizIsMultiEnv()) {
+                try {
+                    const aed = await api('/vault/active-env');
+                    _activeEnvName = aed.active || '';
+                } catch (_) {}
+            }
 
             // ── GitHub Integration auto-detect ──────────────────────
             try {
@@ -271,10 +289,16 @@
 
                     const row = document.getElementById(`wiz-env-vault-${env.name}`);
                     if (row) {
+                        const isActive = _wizIsMultiEnv() && env.name === _activeEnvName;
+                        const activeBadge = isActive
+                            ? `<span style="font-size:0.65rem;padding:0.08rem 0.3rem;border-radius:3px;background:var(--success);color:#000;font-weight:700;margin-left:0.15rem">ACTIVE</span>`
+                            : '';
+                        const activeMarker = isActive ? '<span data-env-active hidden></span>' : '';
                         row.innerHTML = `
+                            ${activeMarker}
                             <span style="font-size:1rem">${stateIcon}</span>
                             <code style="min-width:120px;font-size:0.8rem;font-weight:500">${esc(envFile)}</code>
-                            <span style="flex:1;color:var(--text-muted);font-size:0.78rem">${esc(env.description || env.name)}${env.default ? ' ⭐' : ''}</span>
+                            <span style="flex:1;color:var(--text-muted);font-size:0.78rem">${esc(env.description || env.name)}${env.default ? ' ⭐' : ''}${activeBadge}</span>
                             <span style="font-size:0.78rem;color:${stateColor};font-weight:500">${state}</span>
                             ${createBtn}
                         `;
@@ -305,10 +329,11 @@
                     const ghEnvEl = document.getElementById('wiz-enc-key-status');
                     if (ghEnvEl) {
                         let ghSection = `
+                            <div id="wiz-gh-deploy-envs">
                             <div style="font-size:0.85rem;font-weight:600;margin-bottom:0.5rem;color:var(--text-secondary)">
                                 🌐 GitHub Deployment Environments
                             </div>
-                            <div style="display:flex;flex-direction:column;gap:0.3rem;margin-bottom:1.25rem">`;
+                            <div id="wiz-gh-deploy-list" style="display:flex;flex-direction:column;gap:0.3rem;margin-bottom:1.25rem">`;
 
                         for (const env of envs) {
                             const exists = ghEnvs.includes(env.name.toLowerCase());
@@ -333,7 +358,8 @@
                         ghSection += `</div>
                             <p style="color:var(--text-muted);font-size:0.75rem;margin-bottom:1rem">
                                 💡 GitHub environments are needed to push environment-scoped secrets. Dev uses repo-level secrets.
-                            </p>`;
+                            </p>
+                            </div>`;
 
                         ghEnvEl.insertAdjacentHTML('beforebegin', ghSection);
                     }
@@ -404,15 +430,21 @@
                 } else {
                     el.innerHTML = `
                         <div style="font-size:0.85rem;font-weight:600;margin-bottom:0.5rem;color:var(--text-secondary)">Detected Secret Files</div>
-                        <div style="display:flex;flex-direction:column;gap:0.3rem">
+                        <div id="wiz-detected-files" style="display:flex;flex-direction:column;gap:0.3rem">
                             ${files.map(f => {
                                 const stIcon = f.locked ? '🔒' : f.exists ? '🔓' : '❌';
                                 const stLabel = f.locked ? 'Encrypted' : f.exists ? 'Plaintext' : 'Missing';
                                 const stColor = f.locked ? 'var(--warning)' : f.exists ? 'var(--success)' : 'var(--error)';
+                                // In multi-env mode, .env is the live copy of the active environment
+                                const isActiveCopy = _wizIsMultiEnv() && f.name === '.env' && _activeEnvName;
+                                const activeBadge = isActiveCopy
+                                    ? `<span style="font-size:0.65rem;padding:0.08rem 0.3rem;border-radius:3px;background:var(--success);color:#000;font-weight:700;margin-left:0.25rem">= .env.${esc(_activeEnvName)}</span>`
+                                    : '';
                                 return `
                                     <div style="display:flex;align-items:center;gap:0.5rem;padding:0.4rem 0.6rem;background:var(--bg-inset);border:1px solid var(--border-subtle);border-radius:6px;font-size:0.82rem">
                                         <span>${stIcon}</span>
-                                        <code style="flex:1;font-size:0.8rem">${esc(f.name)}</code>
+                                        <code style="font-size:0.8rem">${esc(f.name)}</code>${activeBadge}
+                                        <span style="flex:1"></span>
                                         <span style="font-size:0.75rem;color:${stColor}">${stLabel}</span>
                                     </div>
                                 `;

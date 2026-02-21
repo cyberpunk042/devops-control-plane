@@ -15,6 +15,7 @@
     let _flatNodes = [];          // [{ node, parents: [ancestor…] }]
     let _focusPath = null;        // { target: node, chain: [parents] }
     let _hoverPath = null;        // { target: node, chain: [parents] }
+    let _stickyPath = null;       // last successful hover — survives mouse-to-panel trips
     let _enabled = true;          // panel visibility toggle
     let _hoverDebounce = null;    // debounce timer for hover
     let _listeners = {};          // attached event listener refs
@@ -63,6 +64,71 @@
         });
     }
 
+    // ── State-Variant Resolution ───────────────────────────────────
+    // A node (or childTemplate) can carry a `variants` array.
+    // Each variant has a `when` condition checked against a DOM element.
+    // The first matching variant's content/expanded override the base.
+    // If no variant matches, the base fields are used as-is.
+
+    function _resolveVariant(node, element) {
+        if (!node.variants || !node.variants.length || !element) return node;
+
+        for (var i = 0; i < node.variants.length; i++) {
+            var v = node.variants[i];
+            if (!v.when) continue;
+
+            var match = true;
+
+            if (v.when.textContains) {
+                match = match && element.textContent
+                    .toLowerCase()
+                    .includes(v.when.textContains.toLowerCase());
+            }
+
+            if (match && v.when.hasSelector) {
+                match = match && !!element.querySelector(v.when.hasSelector);
+            }
+
+            if (match) {
+                // Merge: variant fields override base, everything else preserved
+                return {
+                    id: node.id,
+                    title: v.title || node.title,
+                    icon: v.icon || node.icon,
+                    content: v.content !== undefined ? v.content : node.content,
+                    expanded: v.expanded !== undefined ? v.expanded : node.expanded,
+                    selector: node.selector,
+                    separator: node.separator,
+                    children: node.children,
+                    dynamic: node.dynamic,
+                    childTemplate: node.childTemplate,
+                    variants: node.variants,
+                    _element: node._element,
+                    _isDynamic: node._isDynamic,
+                    _variantIndex: i
+                };
+            }
+        }
+
+        return node;  // No variant matched → base content
+    }
+
+    // Resolve variant for a DOM element matched to a static node.
+    // Static nodes don't have _element, so we find the element via selector.
+    function _resolveStaticVariant(node) {
+        if (!node.variants || !node.variants.length) return node;
+        if (node._element) return _resolveVariant(node, node._element);
+        if (!node.selector || !_containerEl) return node;
+
+        try {
+            var el = _containerEl.querySelector(node.selector);
+            if (el) return _resolveVariant(node, el);
+        } catch (e) {
+            // Invalid selector
+        }
+        return node;
+    }
+
     // ── Tree Flattening ────────────────────────────────────────────
     // Builds a flat index of [{ node, parents }] for selector matching.
     // Deepest nodes first so specific selectors win over general ones.
@@ -91,7 +157,12 @@
         const elements = _containerEl.querySelectorAll(tpl.selector);
         elements.forEach(function(el, i) {
             // Extract display name from the element's DOM
-            const nameEl = el.querySelector('[style*="font-weight:600"], [style*="font-weight: 600"], strong');
+            // 1. If childTemplate defines nameSelector, use that
+            // 2. Otherwise try font-weight:600 / strong heuristic
+            // 3. Fallback: first text node
+            var nameEl = tpl.nameSelector
+                ? el.querySelector(tpl.nameSelector)
+                : el.querySelector('[style*="font-weight:600"], [style*="font-weight: 600"], strong');
             var extractedName;
             if (nameEl) {
                 extractedName = nameEl.textContent.trim();
@@ -135,22 +206,44 @@
 
             if (extractedStack) {
                 nodeTitle += ' · ' + extractedStack;
-                // Stack-specific operational knowledge
-                var stackNotes = {
-                    'python-lib':      'As a Python library, this module gets linting (ruff/flake8), type checking, and can be imported by other modules. No Dockerfile is generated — it\'s a dependency, not a deployable.',
-                    'python-cli':      'As a CLI module (Click-based), this gets its own entry point, linting, and can be packaged as a standalone tool. The control plane generates CLI-specific test harnesses.',
-                    'python-flask':    'As a Flask application, this module gets Dockerfile generation, health check endpoints, WSGI/Gunicorn configs, and deployment manifests. It\'s a deployable service.',
-                    'node':            'As a Node.js module, this gets npm script integration, dependency audits, and bundler configuration. Package.json drives the generation pipeline.',
-                    'docker-compose':  'As a Docker Compose module, this defines multi-container orchestration. The control plane can migrate compose services to K8s Deployments when you set up Kubernetes.',
-                    'markdown':        'As a documentation module, this gets Docusaurus site generation, content management through the Content tab, and can be deployed via the Pages pipeline.'
-                };
-                var stackNote = stackNotes[extractedStack];
-                if (stackNote) {
-                    nodeExpanded = stackNote + (nodeExpanded ? '\n\n' + nodeExpanded : '');
+                // Build styled detail card (same UX as stack select)
+                var _dcpStacks = (window._dcp && window._dcp.stacks) || [];
+                var stackEntry = _dcpStacks.find(function(s) { return s.name === extractedStack; });
+                if (stackEntry) {
+                    var stackHtml = '<div class="assistant-stack-detail">';
+
+                    if (stackEntry.parent) {
+                        // Flavored: language first, then framework
+                        var parentEntry = _dcpStacks.find(function(s) { return s.name === stackEntry.parent; });
+                        if (parentEntry) {
+                            stackHtml += '<div class="assistant-stack-detail-name">' +
+                                (parentEntry.icon || '') + ' ' + parentEntry.name + '</div>';
+                            stackHtml += '<div class="assistant-stack-detail-text">' +
+                                (parentEntry.detail || parentEntry.description) + '</div>';
+                        }
+                        stackHtml += '<div class="assistant-stack-detail-framework">' +
+                            '\u21b3 ' + extractedStack + '</div>';
+                        stackHtml += '<div class="assistant-stack-detail-text">' +
+                            (stackEntry.detail || stackEntry.description) + '</div>';
+                    } else {
+                        // Base stack
+                        stackHtml += '<div class="assistant-stack-detail-name">' +
+                            (stackEntry.icon || '') + ' ' + extractedStack + '</div>';
+                        stackHtml += '<div class="assistant-stack-detail-text">' +
+                            (stackEntry.detail || stackEntry.description) + '</div>';
+                    }
+
+                    if (stackEntry.capabilities && stackEntry.capabilities.length > 0) {
+                        stackHtml += '<div class="assistant-stack-detail-caps">' +
+                            'Capabilities: ' + stackEntry.capabilities.join(', ') + '</div>';
+                    }
+
+                    stackHtml += '</div>';
+                    nodeExpanded = stackHtml + (nodeExpanded ? '\n' + nodeExpanded : '');
                 }
             }
 
-            const syntheticNode = {
+            var syntheticNode = {
                 id: parentNode.id + '-dyn-' + i,
                 title: nodeTitle,
                 content: nodeContent,
@@ -160,6 +253,19 @@
                 _isDynamic: true,
                 children: []
             };
+
+            // Apply childTemplate variants if defined
+            if (tpl.variants && tpl.variants.length) {
+                syntheticNode.variants = tpl.variants;
+                syntheticNode = _resolveVariant(syntheticNode, el);
+                // Re-apply {{name}} interpolation to variant content
+                if (syntheticNode.content) {
+                    syntheticNode.content = syntheticNode.content.replace(/\{\{name\}\}/g, extractedName);
+                }
+                if (syntheticNode.expanded) {
+                    syntheticNode.expanded = syntheticNode.expanded.replace(/\{\{name\}\}/g, extractedName);
+                }
+            }
 
             // Dynamic children go deepest-first (before their parent)
             result.unshift({ node: syntheticNode, parents: [...grandParentChain, parentNode] });
@@ -289,12 +395,20 @@
     function _renderInteractionPath() {
         if (!_panelEl || !_currentCtx) return;
 
-        // If no interaction, show entry state
+        // If no interaction, fall back to sticky path or entry state
         if (!_focusPath && !_hoverPath) {
-            _renderContextHeader();
-            _panelEl.classList.add('entry-state');
-            return;
+            if (_stickyPath) {
+                // Restore sticky hover so panel keeps its content
+                _hoverPath = _stickyPath;
+            } else {
+                _renderContextHeader();
+                _panelEl.classList.add('entry-state');
+                return;
+            }
         }
+
+        // Save current path as sticky (survives mouse-to-panel trips)
+        if (_hoverPath) _stickyPath = _hoverPath;
 
         _panelEl.classList.remove('entry-state');
 
@@ -311,8 +425,13 @@
         for (let i = 0; i < pathNodes.length; i++) {
             var entry = pathNodes[i];
 
+            // Resolve state-variant content for static nodes
+            var node = entry.node._isDynamic
+                ? entry.node  // Dynamic nodes already resolved in _resolveDynamic
+                : _resolveStaticVariant(entry.node);
+
             // Separator
-            if (entry.node.separator) {
+            if (node.separator) {
                 var sep = document.createElement('hr');
                 sep.className = 'assistant-separator';
                 inner.appendChild(sep);
@@ -320,7 +439,7 @@
 
             var div = document.createElement('div');
             div.className = 'assistant-node';
-            div.dataset.nodeId = entry.node.id;
+            div.dataset.nodeId = node.id;
             div.dataset.depth = entry.depth;
 
             // State class
@@ -333,31 +452,37 @@
             // Title
             var titleEl = document.createElement('div');
             titleEl.className = 'assistant-node-title';
-            titleEl.textContent = (entry.node.icon ? entry.node.icon + ' ' : '') + (entry.node.title || '');
+            titleEl.textContent = (node.icon ? node.icon + ' ' : '') + (node.title || '');
             div.appendChild(titleEl);
 
             // Content
             var contentEl = document.createElement('div');
             contentEl.className = 'assistant-node-content';
-            contentEl.innerHTML = _resolve(entry.node.content);
+            contentEl.innerHTML = _resolve(node.content);
             div.appendChild(contentEl);
 
             // Expanded content — show for active targets and their direct parent
             var showExpanded = entry.isTarget ||
-                (entry.node.expanded && i < pathNodes.length - 1 && pathNodes[i + 1].isTarget);
-            if (showExpanded && entry.node.expanded) {
+                (node.expanded && i < pathNodes.length - 1 && pathNodes[i + 1].isTarget);
+            if (showExpanded && node.expanded) {
                 var expandedEl = document.createElement('div');
                 expandedEl.className = 'assistant-node-expanded';
-                expandedEl.innerHTML = _resolve(entry.node.expanded);
+                expandedEl.innerHTML = _resolve(node.expanded);
                 div.appendChild(expandedEl);
             }
 
             inner.appendChild(div);
         }
 
-        // Center the active target in the panel viewport
+        // Center the active target in the panel viewport, then apply highlights
         requestAnimationFrame(function() {
-            _centerActiveNode();
+            var didHighlight = _highlightSelectedStack();
+            _highlightActiveEnv();
+            // If a stack is highlighted, _highlightSelectedStack scrolls to it.
+            // Otherwise, fall back to centering on the active target node.
+            if (!didHighlight) {
+                _centerActiveNode();
+            }
         });
     }
 
@@ -402,6 +527,12 @@
     function _onFocus(e) {
         if (!_enabled) return;
 
+        // Only hold persistent focus for interactive input elements.
+        // Buttons perform an action and shouldn't stick in the panel
+        // after you move the mouse away.
+        var tag = e.target.tagName;
+        if (tag !== 'INPUT' && tag !== 'SELECT' && tag !== 'TEXTAREA') return;
+
         var matched = _matchNode(e.target);
         if (!matched) return;
 
@@ -422,12 +553,207 @@
     function _onMouseLeave(e) {
         if (!_enabled) return;
 
-        // Don't clear hover if mouse moved to the assistant panel
-        if (_panelEl && (e.relatedTarget === _panelEl || _panelEl.contains(e.relatedTarget))) return;
+        // Don't clear hover if mouse moved to the assistant panel or its gap
+        var layout = _containerEl && _containerEl.closest('.assistant-layout');
+        if (layout && e.relatedTarget && (layout === e.relatedTarget || layout.contains(e.relatedTarget))) return;
 
         clearTimeout(_hoverDebounce);
         _hoverPath = null;
+        _stickyPath = null;
         _renderInteractionPath();
+    }
+
+    function _onLayoutLeave(e) {
+        if (!_enabled) return;
+
+        // Mouse truly left the entire assistant region (body + panel)
+        // relatedTarget is outside the layout — clear everything
+        var layout = _containerEl && _containerEl.closest('.assistant-layout');
+        if (layout && e.relatedTarget && layout.contains(e.relatedTarget)) return;
+
+        clearTimeout(_hoverDebounce);
+        _hoverPath = null;
+        _stickyPath = null;
+        _renderInteractionPath();
+    }
+
+    function _onChange(e) {
+        if (!_enabled) return;
+
+        // Center the changed element in the wizard view
+        if (e.target && e.target.scrollIntoView) {
+            e.target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+
+        // Navigate assistant to this element's node
+        var matched = _matchNode(e.target);
+        if (matched) {
+            _hoverPath = { target: matched.node, chain: matched.parents };
+        }
+
+        // Re-render — _highlightSelectedStack is called from
+        // _renderInteractionPath's requestAnimationFrame, so it
+        // runs automatically on every render, not just on change.
+        _renderInteractionPath();
+    }
+
+    // Highlight the selected stack's ENTIRE SECTION + show detail descriptions.
+    // Called at the end of EVERY _renderInteractionPath render.
+    // Returns true if a highlight was applied.
+    function _highlightSelectedStack() {
+        if (!_panelEl) return false;
+        var select = document.getElementById('wiz-mod-stack');
+        if (!select || !select.value || select.value === '' || select.value === '__custom__') return false;
+
+        var stackName = select.value;
+        var stacks = (window._dcp && window._dcp.stacks) || [];
+        var stack = stacks.find(function(s) { return s.name === stackName; });
+        if (!stack) return false;
+
+        // Find the base/parent stack
+        var baseStack = stack;
+        if (stack.parent) {
+            var parent = stacks.find(function(s) { return s.name === stack.parent; });
+            if (parent) baseStack = parent;
+        }
+
+        var expandedEls = _panelEl.querySelectorAll('.assistant-node-expanded');
+        var applied = false;
+
+        expandedEls.forEach(function(el) {
+            var html = el.innerHTML;
+
+            // Check this expanded block contains the selected stack
+            if (html.indexOf('\u2022 ' + stackName + ' \u2014') === -1) return;
+
+            // ── Line-by-line processing ──
+            var lines = html.split('\n');
+            var selectedIdx = -1;
+
+            // Find the line with the selected stack
+            for (var i = 0; i < lines.length; i++) {
+                if (lines[i].indexOf('\u2022 ' + stackName + ' \u2014') !== -1) {
+                    selectedIdx = i;
+                    break;
+                }
+            }
+            if (selectedIdx === -1) return;
+
+            // Walk backwards to find section header (non-bullet, non-empty line)
+            var headerIdx = selectedIdx;
+            for (var i = selectedIdx - 1; i >= 0; i--) {
+                var trimmed = lines[i].trim();
+                if (trimmed === '') break;          // blank line = section boundary
+                if (trimmed.charAt(0) === '\u2022') continue; // bullet = still in section
+                headerIdx = i;                      // non-bullet non-empty = header
+                break;
+            }
+
+            // Walk forwards to find end of section (next blank or non-bullet)
+            var endIdx = selectedIdx;
+            for (var i = selectedIdx + 1; i < lines.length; i++) {
+                var trimmed = lines[i].trim();
+                if (trimmed === '') break;
+                if (trimmed.charAt(0) !== '\u2022') break;
+                endIdx = i;
+            }
+
+            // ── Wrap section + mark entries ──
+            for (var i = headerIdx; i <= endIdx; i++) {
+                if (lines[i].indexOf('\u2022 ' + stackName + ' \u2014') !== -1) {
+                    lines[i] = '<span class="assistant-stack-selected">' + lines[i] + '</span>';
+                } else if (stack.parent && lines[i].indexOf('\u2022 ' + stack.parent + ' \u2014') !== -1) {
+                    lines[i] = '<span class="assistant-stack-parent">' + lines[i] + '</span>';
+                }
+            }
+
+            // Wrap entire section in a container
+            lines[headerIdx] = '<span class="assistant-stack-section">' + lines[headerIdx];
+            lines[endIdx] = lines[endIdx] + '</span>';
+
+            // ── Insert detail block BEFORE the listing ──
+            var baseDetail = baseStack.detail || baseStack.description || '';
+            var stackDetail = stack.detail || stack.description || '';
+
+            var detailDiv = document.createElement('div');
+            detailDiv.className = 'assistant-stack-detail';
+
+            if (stack.parent && baseStack.name !== stack.name) {
+                // Flavored stack: show LANGUAGE first, then FRAMEWORK
+                // Language header
+                detailDiv.innerHTML =
+                    '<div class="assistant-stack-detail-name">' +
+                        (baseStack.icon || '') + ' ' + baseStack.name +
+                    '</div>' +
+                    '<div class="assistant-stack-detail-text">' + baseDetail + '</div>' +
+                    // Framework section
+                    '<div class="assistant-stack-detail-framework">' +
+                        '\u21b3 ' + stack.name +
+                    '</div>' +
+                    '<div class="assistant-stack-detail-text">' + stackDetail + '</div>';
+            } else {
+                // Base stack: just show the stack itself
+                detailDiv.innerHTML =
+                    '<div class="assistant-stack-detail-name">' +
+                        (stack.icon || '') + ' ' + stack.name +
+                    '</div>' +
+                    '<div class="assistant-stack-detail-text">' + stackDetail + '</div>';
+            }
+
+            // Capabilities
+            if (stack.capabilities && stack.capabilities.length > 0) {
+                var capsEl = document.createElement('div');
+                capsEl.className = 'assistant-stack-detail-caps';
+                capsEl.textContent = 'Capabilities: ' + stack.capabilities.join(', ');
+                detailDiv.appendChild(capsEl);
+            }
+
+
+            // Set innerHTML with section + entry highlights
+            el.innerHTML = lines.join('\n');
+
+            // Insert detail block AFTER the highlighted section (not at the top)
+            var sectionEl = el.querySelector('.assistant-stack-section');
+            if (sectionEl && sectionEl.nextSibling) {
+                sectionEl.parentNode.insertBefore(detailDiv, sectionEl.nextSibling);
+            } else if (sectionEl) {
+                sectionEl.parentNode.appendChild(detailDiv);
+            } else {
+                // Fallback: prepend if no section found
+                el.insertBefore(detailDiv, el.firstChild);
+            }
+
+            applied = true;
+
+            // ── Scroll to the selected entry ──
+            var highlighted = el.querySelector('.assistant-stack-selected');
+            if (highlighted) {
+                var hRect = highlighted.getBoundingClientRect();
+                var pRect = _panelEl.getBoundingClientRect();
+                var scrollTo = _panelEl.scrollTop + (hRect.top - pRect.top) - (pRect.height / 2) + (hRect.height / 2);
+                _panelEl.scrollTo({ top: Math.max(0, scrollTo), behavior: 'smooth' });
+            }
+        });
+
+        return applied;
+    }
+
+    // Highlight assistant nodes that represent the active environment.
+    // Finds state cards with "· ACTIVE" in the label and adds a
+    // visual highlight class to the parent assistant node.
+    function _highlightActiveEnv() {
+        if (!_panelEl) return;
+
+        var stateLabels = _panelEl.querySelectorAll('.state-label');
+        stateLabels.forEach(function(label) {
+            if (label.textContent.indexOf('ACTIVE') === -1) return;
+
+            // Walk up to the nearest assistant-node container
+            var node = label.closest('.assistant-node');
+            if (node) {
+                node.classList.add('assistant-node-active-env');
+            }
+        });
     }
 
     function _onWheel(e) {
@@ -466,19 +792,23 @@
             focus:      function(e) { _onFocus(e); },
             blur:       function(e) { _onBlur(e); },
             mouseleave: function(e) { _onMouseLeave(e); },
-            wheel:      function(e) { _onWheel(e); }
+            layoutleave: function(e) { _onLayoutLeave(e); },
+            wheel:      function(e) { _onWheel(e); },
+            change:     function(e) { _onChange(e); }
         };
 
         containerEl.addEventListener('mouseover', _listeners.hover);
         containerEl.addEventListener('focusin', _listeners.focus);
+        containerEl.addEventListener('change', _listeners.change);
         containerEl.addEventListener('focusout', _listeners.blur);
         containerEl.addEventListener('mouseleave', _listeners.mouseleave);
 
-        // Attach wheel to the layout container (parent of both body + panel)
+        // Attach wheel + layout leave to the layout container (parent of both body + panel)
         var layout = containerEl.closest('.assistant-layout') || containerEl.parentElement;
         if (layout) {
             layout.addEventListener('wheel', _listeners.wheel, { passive: false });
-            _listeners._wheelTarget = layout;
+            layout.addEventListener('mouseleave', _listeners.layoutleave);
+            _listeners._layoutTarget = layout;
         }
     }
 
@@ -489,9 +819,11 @@
         _containerEl.removeEventListener('focusin', _listeners.focus);
         _containerEl.removeEventListener('focusout', _listeners.blur);
         _containerEl.removeEventListener('mouseleave', _listeners.mouseleave);
+        if (_listeners.change) _containerEl.removeEventListener('change', _listeners.change);
 
-        if (_listeners._wheelTarget) {
-            _listeners._wheelTarget.removeEventListener('wheel', _listeners.wheel);
+        if (_listeners._layoutTarget) {
+            _listeners._layoutTarget.removeEventListener('wheel', _listeners.wheel);
+            _listeners._layoutTarget.removeEventListener('mouseleave', _listeners.layoutleave);
         }
 
         _listeners = {};
@@ -523,6 +855,7 @@
         // Reset interaction state
         _focusPath = null;
         _hoverPath = null;
+        _stickyPath = null;
 
         // Render entry state
         _renderContextHeader();
@@ -596,6 +929,50 @@
     window._assistant.resolvers.moduleCount = function() {
         var mods = document.querySelectorAll('#wizard-modules-list > div');
         return mods ? mods.length : 0;
+    };
+
+    window._assistant.resolvers.selectedStack = function() {
+        var select = document.getElementById('wiz-mod-stack');
+        if (!select || !select.value || select.value === '' || select.value === '__custom__') return '';
+
+        var stacks = (window._dcp && window._dcp.stacks) || [];
+        var stack = stacks.find(function(s) { return s.name === select.value; });
+        if (!stack) return '\n\n⚠ Stack "' + select.value + '" not found in definitions';
+
+        var lines = [];
+        lines.push('');
+        lines.push('━━━ ' + (stack.icon || '📁') + ' ' + stack.name + ' ━━━');
+        lines.push(stack.description);
+        if (stack.domain && stack.domain !== 'service') {
+            lines.push('Domain: ' + stack.domain);
+        }
+
+        if (stack.parent) {
+            var parent = stacks.find(function(s) { return s.name === stack.parent; });
+            lines.push('');
+            lines.push('↳ Based on ' + (parent ? (parent.icon || '') + ' ' : '') + stack.parent);
+
+            if (parent && parent.capabilities && stack.capabilities) {
+                var parentCaps = {};
+                parent.capabilities.forEach(function(c) { parentCaps[c] = true; });
+                var inherited = stack.capabilities.filter(function(c) { return parentCaps[c]; });
+                var added = stack.capabilities.filter(function(c) { return !parentCaps[c]; });
+
+                if (inherited.length > 0) {
+                    lines.push('  Inherited: ' + inherited.join(', '));
+                }
+                if (added.length > 0) {
+                    lines.push('  ✨ Added: ' + added.join(', '));
+                }
+            }
+        } else {
+            if (stack.capabilities && stack.capabilities.length > 0) {
+                lines.push('');
+                lines.push('Capabilities: ' + stack.capabilities.join(', '));
+            }
+        }
+
+        return lines.join('\n');
     };
 
 })();

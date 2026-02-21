@@ -1,6 +1,17 @@
 # Python stack — detection and capabilities
 name: python
+icon: "🐍"
 description: "Python project (generic)"
+detail: >
+  Python is a versatile, high-level programming language used for web
+  development, data science, automation, and systems scripting. Its large
+  ecosystem of packages makes it one of the most popular choices for backend
+  services and tooling.
+  
+  Technical: Generic Python stack detected via pyproject.toml, setup.py, or
+  requirements.txt. Provides install, lint (ruff), format, test (pytest), and
+  type-check (mypy) capabilities. Flavored stacks like python-flask or
+  python-fastapi extend this with framework-specific commands.
 domain: service
 
 detection:

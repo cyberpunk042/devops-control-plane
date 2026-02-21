@@ -1,6 +1,15 @@
 # TypeScript stack — TypeScript-first Node.js projects
 name: typescript
+icon: "��"
 description: "TypeScript project"
+detail: >
+  TypeScript extends JavaScript with static types, interfaces, and modern
+  tooling. It catches bugs at compile time and scales to large codebases with
+  better IDE support and refactoring.
+  
+  Technical: TypeScript project detected via tsconfig.json. Provides install,
+  lint (eslint), format (prettier), type-check (tsc), test, and build
+  capabilities.
 domain: service
 
 detection:

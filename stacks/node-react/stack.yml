@@ -1,0 +1,24 @@
+# Node React stack — React single-page application (CRA/Vite)
+name: node-react
+parent: node
+description: "React SPA (CRA/Vite)"
+detail: >
+  A React single-page application (SPA) that runs entirely in the browser.
+  React SPAs are ideal for highly interactive UIs, dashboards, and
+  frontend-heavy projects.
+  
+  Technical: React SPA detected via react dependency in package.json. Inherits
+  Node.js base and adds a dev server command.
+domain: service
+
+detection:
+  files_any_of: []
+  files_all_of: []
+  content_contains:
+    package.json: "react"
+
+capabilities:
+  - name: dev
+    adapter: shell
+    command: "npm start"
+    description: "Run React dev server"

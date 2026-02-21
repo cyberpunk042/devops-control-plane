@@ -1,6 +1,14 @@
 # Protobuf / gRPC stack — buf or raw protoc
 name: protobuf
+icon: "📡"
 description: "Protocol Buffers / gRPC"
+detail: >
+  Protocol Buffers (protobuf) provide a language-neutral, platform-neutral
+  mechanism for serializing structured data. gRPC uses protobuf for efficient
+  service-to-service communication.
+  
+  Technical: Protocol Buffers / gRPC project detected via .proto files.
+  Provides generate and lint capabilities.
 domain: service
 
 detection:

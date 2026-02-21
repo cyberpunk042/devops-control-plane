@@ -21,7 +21,7 @@ src/ui/web/
 │       └── assistant-catalogue.json          # Superstructure — all contexts
 └── templates/
     ├── scripts/
-    │   ├── _assistant_engine.html             # Engine IIFE (~550 lines)
+    │   ├── _assistant_engine.html             # Engine IIFE (~930 lines)
     │   ├── _wizard_init.html                  # Integration hook (activate on step change)
     │   └── _settings.html                     # Integration hook (enable/disable toggle)
     ├── partials/
@@ -220,16 +220,116 @@ The `childTemplate` is a template that gets instantiated for EACH DOM element
 matching `childTemplate.selector`. The `{{name}}` placeholder gets replaced
 with text extracted from each element.
 
+#### `nameSelector` (optional)
+
+By default, the engine extracts the display name from the first element matching
+`[style*="font-weight:600"]` or `<strong>`, then falls back to the first text
+node. Some DOM structures (like vault rows or secret file rows) have an icon as
+the first text and the actual name inside a `<code>` element.
+
+`nameSelector` lets the catalogue override this:
+```json
+"childTemplate": {
+    "nameSelector": "code",
+    ...
+}
+```
+The engine queries `el.querySelector(nameSelector)` first. If found, its
+`textContent` becomes `{{name}}`.
+
+### State-Variant Resolution
+
+A node (or `childTemplate`) can carry a `variants` array. Each variant has a
+`when` condition checked against the matched DOM element. The engine evaluates
+variants in order and picks the **first match**. No match → base content.
+
+#### Schema
+
+```json
+{
+    "id": "gh-integration",
+    "selector": "#wiz-gh-integration",
+    "content": "Fallback content if no variant matches.",
+    "variants": [
+        {
+            "when": { "textContains": "configured" },
+            "content": "Your GitHub repository is set in .env...",
+            "expanded": "This value stays local..."
+        },
+        {
+            "when": { "textContains": "detected" },
+            "content": "Your git remote was auto-detected..."
+        }
+    ]
+}
+```
+
+#### Supported `when` Conditions
+
+| Condition | Meaning |
+|-----------|--------|
+| `textContains` | `element.textContent.toLowerCase().includes(val)` |
+| `hasSelector` | `!!element.querySelector(val)` |
+
+Conditions are AND'd — if both are specified, both must match.
+
+#### Engine Functions
+
+- **`_resolveVariant(node, element)`** — evaluates variants against the DOM
+  element, returns a new node object with merged fields. Tracks `_variantIndex`.
+- **`_resolveStaticVariant(node)`** — for rendering. Finds the DOM element via
+  `node.selector` or `node._element`, then calls `_resolveVariant`.
+
+#### Integration Points
+
+1. **Dynamic nodes** — in `_resolveDynamic()`, after creating the synthetic node.
+   `childTemplate.variants` are copied to the node, resolved against the DOM
+   element, then `{{name}}` interpolation is re-applied to variant content.
+
+2. **Static nodes** — in `_renderInteractionPath()`, resolved at render-time so
+   variants reflect current DOM state (e.g., a vault may change from "missing"
+   to "unlocked" after the user clicks + Create without leaving the step).
+
 ### Context-Aware Enrichment Pattern
 
 Dynamic nodes can be enriched beyond template interpolation by reading DOM
 state. This is how the engine adds application-specific knowledge:
 
 - **Default badge** → appends "pre-selected in Step 3" note
-- Future: environment type detection, status badges, tool availability
+- **Stack/path/domain metadata** → extracts from module row spans
+- **Stack detail cards** → builds styled HTML using `window._dcp.stacks` data
 
 This enrichment happens in `_resolveDynamic` during tree flattening, NOT
 during rendering. The synthetic node carries the enriched content.
+
+#### Module Stack Enrichment
+
+When a module row has a stack, `_resolveDynamic()` builds a styled HTML detail
+card (not raw text) using the same CSS classes as the stack select detail:
+
+```javascript
+// Styled HTML detail card for module hover
+var stackHtml = '<div class="assistant-stack-detail">';
+
+if (stackEntry.parent) {
+    // Flavored: language name + description first
+    stackHtml += '<div class="assistant-stack-detail-name">' + parent.icon + ' ' + parent.name + '</div>';
+    stackHtml += '<div class="assistant-stack-detail-text">' + parent.detail + '</div>';
+    // Then framework
+    stackHtml += '<div class="assistant-stack-detail-framework">↳ ' + stack.name + '</div>';
+    stackHtml += '<div class="assistant-stack-detail-text">' + stack.detail + '</div>';
+} else {
+    // Base stack: just show it
+    stackHtml += '<div class="assistant-stack-detail-name">' + stack.icon + ' ' + stack.name + '</div>';
+    stackHtml += '<div class="assistant-stack-detail-text">' + stack.detail + '</div>';
+}
+// Capabilities footer
+stackHtml += '</div>';
+```
+
+The `detail` field contains two paragraphs: a human-friendly description first,
+then a "Technical:" note. The `.assistant-stack-detail-text` has `white-space: pre-line`
+so line returns are respected.
 
 ---
 
@@ -449,6 +549,9 @@ Add new resolvers as needed for new contexts. They are simple DOM reads.
    direct children (e.g., `"#my-list > div"`)
 3. Use `"{{name}}"` in title/content/expanded for text interpolation
 4. Engine will query the DOM and create synthetic nodes automatically
+5. Optionally add `"nameSelector"` if the default name extraction hits the
+   wrong element (see section above)
+6. Optionally add `"variants"` for state-dependent content (see section above)
 
 ### Content Authoring Rules — App Context Aware
 
@@ -533,3 +636,64 @@ near the bottom can never reach the center of the viewport.
 | Scroll wheel over wizard area | Panel scrolls first, then page |
 | Panel content overflows | Panel scrolls internally, card height unchanged |
 | Resize below 1000px | Panel hidden, wizard takes full width |
+
+---
+
+## 11. Stack Highlighting (`_highlightSelectedStack`)
+
+When the user selects a stack from the dropdown, the engine highlights the
+corresponding section in the assistant's stack listing and inserts a detail card.
+
+### Flow
+
+1. Read the selected stack name from the `#wiz-mod-stack` dropdown
+2. Find the stack data in `window._dcp.stacks`
+3. If the stack has a parent, also find the parent (base/language) stack
+4. Iterate expanded content elements (`.assistant-node-expanded`)
+5. For each, split innerHTML by `\n` and search for the entry `• stackName —`
+6. Walk backwards from the entry to find the section header (line with emoji)
+7. Walk forwards to find the section end (next section header or end of content)
+8. **Mark entries**: selected entry → `.assistant-stack-selected`, parent entry → `.assistant-stack-parent`
+9. **Wrap section**: `<span class="assistant-stack-section">` around header…end
+10. Set innerHTML (section + entry highlights)
+11. **Insert detail card** as DOM element AFTER the section:
+    - Flavored stacks: language name + description first, then `↳ framework` + description
+    - Base stacks: stack name + description only
+    - Capabilities listed at bottom
+12. **Scroll** to center the selected entry using `getBoundingClientRect()`
+
+### CSS Classes
+
+| Class | Purpose |
+|-------|---------|
+| `.assistant-stack-section` | Background + left border on the entire language family section |
+| `.assistant-stack-selected` | Bold + accent highlight on the selected entry |
+| `.assistant-stack-parent` | Dimmer highlight on the parent entry |
+| `.assistant-stack-detail` | Styled card with description and capabilities |
+| `.assistant-stack-detail-name` | Stack/language name header |
+| `.assistant-stack-detail-text` | Description text (`white-space: pre-line`) |
+| `.assistant-stack-detail-framework` | Framework sub-header with border-top separator |
+| `.assistant-stack-detail-caps` | Capabilities footer (italic, dimmer) |
+
+### Data Layer
+
+All stack data is injected into `window._dcp.stacks` by the server (`server.py`):
+
+```javascript
+window._dcp.stacks = [
+    {
+        name: "python-flask",
+        description: "Flask web application",
+        detail: "Flask is a lightweight...",  // Human-friendly + technical
+        icon: "🐍",
+        domain: "service",
+        parent: "python",
+        capabilities: ["install", "lint", "format", "test", "types", "serve"],
+        capabilityDetails: [{name, command, description, adapter}, ...],
+        requires: [{adapter, minVersion}, ...],
+        detection: {filesAnyOf, filesAllOf, contentContains}
+    },
+    // ... 47 stacks total
+];
+```
+

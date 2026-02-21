@@ -1,0 +1,26 @@
+# Python CLI stack — Click/argparse command-line tool
+name: python-cli
+parent: python
+description: "Python CLI tool (Click/argparse)"
+detail: >
+  A Python command-line tool built with Click, argparse, or Typer. CLI stacks
+  prioritize distribution, argument parsing, and script-like execution rather
+  than web serving.
+  
+  Technical: Python CLI tool detected via click or argparse imports. Inherits
+  Python base capabilities and adds a run command.
+domain: service
+
+detection:
+  files_any_of: []
+  files_all_of: []
+  content_contains:
+    pyproject.toml: "[project.scripts]"
+
+# Inherits install, lint, format, test, types from parent
+# Adds: run capability for executing the CLI
+capabilities:
+  - name: run
+    adapter: shell
+    command: "python -m src.main"
+    description: "Run CLI entry point"

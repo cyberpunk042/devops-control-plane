@@ -1,6 +1,14 @@
 # Rust stack — detection and capabilities
 name: rust
+icon: "🦀"
 description: "Rust project"
+detail: >
+  Rust is a systems programming language focused on safety, speed, and
+  concurrency. It prevents memory bugs at compile time with its ownership
+  model and has no garbage collector.
+  
+  Technical: Rust project detected via Cargo.toml. Provides build, lint
+  (clippy), format (rustfmt), and test capabilities.
 domain: service
 
 detection:

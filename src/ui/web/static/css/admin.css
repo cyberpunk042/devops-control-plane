@@ -5050,6 +5050,146 @@ select option {
     border-top: 1px solid hsla(210, 30%, 30%, 0.15);
 }
 
+/* Selected stack entry highlight — bright accent */
+.assistant-stack-selected {
+    background: hsla(240, 70%, 60%, 0.18);
+    color: var(--text-primary);
+    font-weight: 600;
+    border-radius: 3px;
+    padding: 1px 5px;
+    outline: 1px solid hsla(240, 70%, 60%, 0.25);
+}
+
+/* Parent stack entry highlight — dim accent showing inheritance */
+.assistant-stack-parent {
+    background: hsla(240, 50%, 60%, 0.08);
+    color: var(--text-secondary);
+    border-radius: 3px;
+    padding: 1px 5px;
+    outline: 1px dashed hsla(240, 50%, 60%, 0.2);
+}
+
+/* Entire section block highlight */
+.assistant-stack-section {
+    display: block;
+    background: hsla(240, 70%, 60%, 0.06);
+    border-left: 3px solid hsla(240, 70%, 60%, 0.3);
+    border-radius: 0 6px 6px 0;
+    padding: 4px 8px;
+    margin: 2px -4px;
+}
+
+/* Detail block — shown above the listing when a stack is selected */
+.assistant-stack-detail {
+    background: hsla(240, 70%, 60%, 0.08);
+    border: 1px solid hsla(240, 70%, 60%, 0.15);
+    border-radius: 6px;
+    padding: 8px 10px;
+    margin-bottom: 8px;
+    white-space: normal;
+    line-height: 1.5;
+}
+
+.assistant-stack-detail-name {
+    font-weight: 700;
+    font-size: 0.85rem;
+    color: var(--text-primary);
+    margin-bottom: 4px;
+}
+
+.assistant-stack-detail-text {
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+    margin-bottom: 4px;
+    white-space: pre-line;
+}
+
+.assistant-stack-detail-framework {
+    font-weight: 600;
+    font-size: 0.82rem;
+    color: var(--text-primary);
+    margin-top: 6px;
+    padding-top: 6px;
+    border-top: 1px solid hsla(210, 30%, 30%, 0.15);
+}
+
+.assistant-stack-detail-caps {
+    font-size: 0.74rem;
+    color: var(--text-muted, hsla(210, 20%, 55%, 1));
+    margin-top: 4px;
+    font-style: italic;
+}
+
+/* Section header highlight — language family header */
+.assistant-stack-header {
+    color: var(--text-primary);
+    font-weight: 700;
+    font-size: 0.82rem;
+    background: hsla(240, 70%, 60%, 0.1);
+    border-radius: 3px;
+    padding: 1px 6px;
+}
+
+/* ── State-aware indicator cards ─────────────────────────────────── */
+/* Used in wizard/secrets (and future contexts) to show the current  */
+/* state of a component with a distinct visual treatment.            */
+
+.assistant-state-card {
+    border-radius: 6px;
+    padding: 8px 10px;
+    margin-top: 6px;
+    white-space: normal;
+    line-height: 1.5;
+    font-size: 0.78rem;
+}
+
+.assistant-state-card .state-label {
+    font-weight: 700;
+    font-size: 0.82rem;
+    margin-bottom: 3px;
+}
+
+.assistant-state-card .state-detail {
+    color: var(--text-secondary);
+    white-space: pre-line;
+}
+
+.assistant-state-card.state-success {
+    background: hsla(140, 60%, 40%, 0.10);
+    border-left: 3px solid hsla(140, 60%, 45%, 0.5);
+}
+
+.assistant-state-card.state-success .state-label {
+    color: hsla(140, 60%, 55%, 1);
+}
+
+.assistant-state-card.state-warning {
+    background: hsla(40, 80%, 50%, 0.08);
+    border-left: 3px solid hsla(40, 80%, 50%, 0.4);
+}
+
+.assistant-state-card.state-warning .state-label {
+    color: hsla(40, 80%, 55%, 1);
+}
+
+.assistant-state-card.state-error {
+    background: hsla(0, 70%, 50%, 0.08);
+    border-left: 3px solid hsla(0, 70%, 50%, 0.4);
+}
+
+.assistant-state-card.state-error .state-label {
+    color: hsla(0, 70%, 55%, 1);
+}
+
+.assistant-state-card.state-info {
+    background: hsla(210, 60%, 50%, 0.08);
+    border-left: 3px solid hsla(210, 60%, 50%, 0.35);
+}
+
+.assistant-state-card.state-info .state-label {
+    color: hsla(210, 60%, 60%, 1);
+}
+
 /* ── Active target: the hovered/focused leaf node ────────────────── */
 /* This is the visual focal point — it pops out from the parent chain */
 
@@ -5083,6 +5223,23 @@ select option {
 
 .assistant-node.in-chain .assistant-node-content {
     color: var(--text-muted);
+}
+
+/* ── Active environment indicator ────────────────────────────────── */
+
+.assistant-node.assistant-node-active-env {
+    border-left-color: var(--success) !important;
+    border-left-width: 2px !important;
+    background: hsla(142, 70%, 45%, 0.04);
+}
+
+.assistant-node.assistant-node-active-env .assistant-node-title::after {
+    content: ' · ACTIVE';
+    font-size: 0.6rem;
+    font-weight: 700;
+    color: var(--success);
+    letter-spacing: 0.04em;
+    vertical-align: middle;
 }
 
 /* ── Transitions ─────────────────────────────────────────────────── */

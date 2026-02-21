@@ -48,12 +48,18 @@ class Stack(BaseModel):
     """Technology knowledge — how a kind of module behaves.
 
     Stacks are loaded from stacks/<name>/stack.yml and matched to
-    modules during detection.
+    modules during detection.  Flavored stacks (e.g. ``python-flask``)
+    declare a ``parent`` and inherit detection rules, requirements, and
+    capabilities from the parent stack.  The loader resolves this at
+    load time — consumers always see flat, fully-resolved stacks.
     """
 
     name: str
     description: str = ""
+    detail: str = ""            # Rich description for assistant panel. Inherited from parent if empty.
     domain: str = "service"
+    icon: str = ""              # Emoji for UI (e.g. 🐍). Inherited from parent if empty.
+    parent: str = ""            # Parent stack name (empty = base stack, no inheritance)
 
     # What this stack needs
     requires: list[AdapterRequirement] = Field(default_factory=list)

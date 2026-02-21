@@ -1,0 +1,35 @@
+# Node Next.js stack — Next.js SSR/SSG application
+name: node-nextjs
+parent: node
+description: "Next.js application"
+detail: >
+  Next.js is a React framework for production with server-side rendering,
+  static generation, and API routes. It powers full-stack React applications
+  with built-in routing and optimization.
+  
+  Technical: Next.js application detected via next.config.* files. Inherits
+  Node.js base and adds build, dev, and serve commands tuned for the Next.js
+  framework.
+domain: service
+
+detection:
+  files_any_of:
+    - next.config.js
+    - next.config.mjs
+    - next.config.ts
+  files_all_of: []
+  content_contains: {}
+
+capabilities:
+  - name: build
+    adapter: shell
+    command: "npx next build"
+    description: "Build Next.js app"
+  - name: dev
+    adapter: shell
+    command: "npx next dev"
+    description: "Run Next.js dev server"
+  - name: serve
+    adapter: shell
+    command: "npx next start"
+    description: "Run production server"

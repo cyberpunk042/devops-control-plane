@@ -134,7 +134,7 @@
                 "selector": "#wiz-add-module",
                 "separator": true,
                 "content": "Manually define a module the auto-detector missed, or add one for a directory you're about to create. Pick a stack from the dropdown to tell the control plane what technology this module uses.",
-                "expanded": "Three fields define a module:\n• Name — appears in dashboard cards, CI pipeline names, and generated configs\n• Path — directory relative to project root (e.g. src/core, services/api)\n• Stack — the technology stack that drives everything the control plane generates\n\nAvailable stacks:\n🐍 python · python-lib · python-cli · python-flask\n📦 node · typescript\n🦀 rust · go · c · cpp · zig · swift\n☕ java-maven · java-gradle · dotnet\n💎 ruby · elixir · protobuf\n🐳 docker-compose · kubernetes · helm · terraform\n📄 static-site · markdown\n\nEach stack is a YAML file in stacks/<name>/stack.yml that encodes detection rules, required tools, and available automations. Pick the one that matches your module's technology, or use \"Custom\" for unlisted stacks.",
+                "expanded": "Three fields define a module:\n• Name — appears in dashboard cards, CI pipeline names, and generated configs\n• Path — directory relative to project root (e.g. src/core, services/api)\n• Stack — the technology stack that drives everything the control plane generates\n\nAvailable stacks (47 total):\n🐍 python · python-lib · python-cli · python-flask · python-fastapi · python-django\n📦 node · node-express · node-nextjs · node-react · node-lib · typescript · typescript-lib\n🐹 go · go-gin · go-fiber · go-cli · go-lib\n🦀 rust · rust-actix · rust-axum · rust-cli · rust-lib\n⚙️ c · cpp · ⚡ zig · 🍎 swift\n☕ java-maven · java-maven-spring · java-gradle · java-gradle-spring\n🔷 dotnet · dotnet-aspnet · dotnet-blazor\n💎 ruby · ruby-rails · ruby-sinatra · 💧 elixir · elixir-phoenix\n🐘 php · 📡 protobuf\n🐳 docker-compose · ☸️ kubernetes · ⎈ helm · 🏗️ terraform\n📝 markdown · 🌐 static-site\n\nFlavored stacks inherit from their base and add framework-specific capabilities. Each is defined in stacks/<name>/stack.yml.",
                 "children": [
                     {
                         "id": "mod-name",
@@ -159,11 +159,221 @@
                         "title": "Stack",
                         "icon": "🔧",
                         "selector": "#wiz-mod-stack",
-                        "content": "A stack is a technology definition — it tells the control plane how to detect, build, lint, test, and deploy this module.",
-                        "expanded": "Each stack is defined in stacks/<name>/stack.yml with detection rules, required tools, and capabilities.\n\n🐍 Python\n• python — Python project (generic)\n• python-lib — Python library (no entry point)\n• python-cli — Click-based CLI tool\n• python-flask — Flask web application\n\n📦 JavaScript\n• node — Node.js project\n• typescript — TypeScript project\n\n🦀 Systems\n• rust — Rust project (Cargo)\n• go — Go project (Go modules)\n• c — C project (Makefile/CMake)\n• cpp — C++ project (Makefile/CMake)\n• zig — Zig project\n• swift — Swift project (SPM)\n\n☕ JVM & .NET\n• java-maven — Java project (Maven)\n• java-gradle — Java project (Gradle)\n• dotnet — .NET project\n\n💎 Other Languages\n• ruby — Ruby project (Bundler)\n• elixir — Elixir project (Mix)\n• protobuf — Protocol Buffers\n\n🐳 Infrastructure\n• docker-compose — Docker Compose orchestration\n• kubernetes — Kubernetes manifests\n• helm — Helm charts\n• terraform — Terraform configs\n\n📄 Content\n• static-site — Static site generator\n• markdown — Documentation (Docusaurus)\n\nUse \"Custom\" if your stack isn't listed — you can define its YAML later.",
+                        "content": "A stack is a technology definition — it tells the control plane how to detect, build, lint, test, and deploy this module. Flavored stacks inherit capabilities from their base language.",
+                        "expanded": "Each stack is defined in stacks/<name>/stack.yml. Flavored stacks declare a parent and inherit detection rules, requirements, and capabilities from their base — then add their own.\n\n🐍 Python\n• python — Generic Python project\n• python-lib — Library, no entry point (domain: library)\n• python-cli — Click/argparse CLI tool (+run)\n• python-flask — Flask web app (+serve)\n• python-fastapi — FastAPI app (+serve via uvicorn)\n• python-django — Django app (+serve, migrate, shell)\n\n📦 JavaScript / TypeScript\n• node — Node.js project\n• node-express — Express.js server (+serve)\n• node-nextjs — Next.js app (+dev, serve, build override)\n• node-react — React SPA (+dev)\n• node-lib — npm library (domain: library)\n• typescript — TypeScript project\n• typescript-lib — TS library (domain: library)\n\n🐹 Go\n• go — Go project (Go modules)\n• go-gin — Gin web framework (+serve)\n• go-fiber — Fiber web framework (+serve)\n• go-cli — CLI tool (Cobra/urfave)\n• go-lib — Library (domain: library)\n\n🦀 Rust\n• rust — Rust project (Cargo)\n• rust-actix — Actix-web service (+serve)\n• rust-axum — Axum web service (+serve)\n• rust-cli — CLI tool (clap)\n• rust-lib — Library crate (domain: library)\n\n⚙️ Systems\n• c — C project (Makefile/CMake)\n• cpp — C++ project (Makefile/CMake)\n• zig — Zig project\n• swift — Swift project (SPM)\n\n☕ JVM & .NET\n• java-maven — Java (Maven build)\n• java-maven-spring — Spring Boot + Maven (+serve)\n• java-gradle — Java/Kotlin (Gradle build)\n• java-gradle-spring — Spring Boot + Gradle (+serve)\n• dotnet — .NET / C#\n• dotnet-aspnet — ASP.NET web app (+serve)\n• dotnet-blazor — Blazor app (+serve)\n\n💎 Other Languages\n• ruby — Ruby (Bundler)\n• ruby-rails — Rails (+serve, migrate, console)\n• ruby-sinatra — Sinatra (+serve)\n• elixir — Elixir (Mix)\n• elixir-phoenix — Phoenix (+serve, migrate, routes)\n• php — PHP (Composer)\n• protobuf — Protocol Buffers / gRPC\n\n🐳 Infrastructure\n• docker-compose — Docker Compose orchestration\n• kubernetes — Kubernetes manifests\n• helm — Helm charts\n• terraform — Terraform infrastructure\n\n📝 Content\n• markdown — Documentation (Docusaurus/MkDocs)\n• static-site — Static site (HTML/CSS/JS)\n\nUse \"Custom\" to type an unlisted stack name — you can create its YAML later.",
                         "children": []
                     }
                 ]
+            }
+        ]
+    },
+    {
+        "context": "wizard/secrets",
+        "title": "Secrets & Encryption",
+        "icon": "🔐",
+        "content": "This step shows the state of your project's secrets infrastructure — one vault per environment, your GitHub connection, and the content encryption key.\n\nUnlike Step 1, some actions here take effect immediately when you click them. The + Create and 💾 Save buttons write to disk right away — they don't wait for Finish.",
+        "children": [
+            {
+                "id": "env-vault-status",
+                "title": "Environment Vault Status",
+                "icon": "🌍",
+                "selector": "#wiz-env-vault-list",
+                "separator": true,
+                "content": "Each environment you defined in Step 1 gets its own encrypted vault file. In multi-environment mode, .env is a working copy of the active environment \u2014 when you switch environments, the control plane swaps the file automatically.",
+                "expanded": "The file model:\n\u2022 .env \u2014 live working copy of whichever environment is active\n\u2022 .env.{name} \u2014 stored snapshot of each environment's secrets\n\u2022 .env.active \u2014 marker file recording which environment is selected\n\nWhen you activate production, the control plane saves .env \u2192 .env.development, then copies .env.production \u2192 .env. In single-env mode, there's just .env \u2014 no swapping.\n\n\ud83d\udca1 Vault files (.env.vault) are the encrypted versions. The .gitignore excludes plaintext .env files, and encryption adds the real protection.",
+                "dynamic": true,
+                "childTemplate": {
+                    "title": "{{name}}",
+                    "nameSelector": "code",
+                    "content": "Vault file for the {{name}} environment.",
+                    "expanded": "Checking status\u2026",
+                    "selector": "#wiz-env-vault-list > div",
+                    "variants": [
+                        {
+                            "when": {
+                                "textContains": "unlocked",
+                                "hasSelector": "[data-env-active]"
+                            },
+                            "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">\ud83d\udd13 unlocked \u00b7 ACTIVE</div><div class=\"state-detail\">This is the active environment \u2014 .env is a live copy of this file right now. The vault is decrypted and ready for editing.\n\nAny changes you make in the \ud83d\udd10 Secrets tab modify this environment's .env directly. Remember to lock it when you're done.\n\nSwitching to another environment will save this file and swap in the new one.</div></div>"
+                        },
+                        {
+                            "when": {
+                                "textContains": "locked",
+                                "hasSelector": "[data-env-active]"
+                            },
+                            "expanded": "<div class=\"assistant-state-card state-warning\"><div class=\"state-label\">\ud83d\udd12 locked \u00b7 ACTIVE</div><div class=\"state-detail\">This is the active environment but the vault is locked \u2014 .env is encrypted on disk.\n\nUnlock it from the \ud83d\udd10 Secrets tab to view or edit secrets. The vault passphrase decrypts it on demand.\n\nSwitching to another environment will keep this vault locked and swap in the new one.</div></div>"
+                        },
+                        {
+                            "when": {
+                                "textContains": "missing",
+                                "hasSelector": "[data-env-active]"
+                            },
+                            "expanded": "<div class=\"assistant-state-card state-error\"><div class=\"state-label\">\ud83d\udced missing \u00b7 ACTIVE</div><div class=\"state-detail\">This is the active environment but no .env file exists yet. Hit + Create to generate one \u2014 the file is written to disk immediately.\n\nThis is normal for new setups. Once created, you can add secrets through the \ud83d\udd10 Secrets tab.</div></div>"
+                        },
+                        {
+                            "when": {
+                                "textContains": "unlocked"
+                            },
+                            "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">\ud83d\udd13 unlocked</div><div class=\"state-detail\">This vault is decrypted and ready. You can view and edit secrets through the \ud83d\udd10 Secrets tab on the dashboard.\n\nRemember to lock it when you're done \u2014 plaintext .env files should never be committed to git. The .gitignore already excludes them, but encryption is the real protection.</div></div>"
+                        },
+                        {
+                            "when": {
+                                "textContains": "locked"
+                            },
+                            "expanded": "<div class=\"assistant-state-card state-warning\"><div class=\"state-label\">\ud83d\udd12 locked</div><div class=\"state-detail\">This vault is encrypted \u2014 its contents are safe on disk. This is the expected state when you're not actively editing credentials.\n\nTo read or edit secrets, unlock it from the \ud83d\udd10 Secrets tab. The vault passphrase decrypts it on demand.</div></div>"
+                        },
+                        {
+                            "when": {
+                                "textContains": "missing"
+                            },
+                            "expanded": "<div class=\"assistant-state-card state-error\"><div class=\"state-label\">\ud83d\udced missing</div><div class=\"state-detail\">This vault doesn't exist yet. Hit + Create to generate it \u2014 the file is written to disk immediately with an auto-generated encryption key.\n\nThis is normal for new environments. You can add secrets afterwards through the \ud83d\udd10 Secrets tab.</div></div>"
+                        }
+                    ]
+                },
+                "children": []
+            },
+            {
+                "id": "gh-integration",
+                "title": "GitHub Integration",
+                "icon": "🔗",
+                "selector": "#wiz-gh-integration",
+                "separator": true,
+                "content": "GITHUB_REPOSITORY connects your local vault to your GitHub remote — it's how the control plane knows where to sync secrets and dispatch workflows.",
+                "expanded": "This value stays local to your .env file. It's never pushed to GitHub secrets — it's the bridge between your local credentials and your remote repository.\n\nWith this set, you get secrets sync to GitHub Actions, workflow dispatch, and PR management from the dashboard.",
+                "variants": [
+                    {
+                        "when": {
+                            "textContains": "configured"
+                        },
+                        "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">✅ configured</div><div class=\"state-detail\">Your repository is set in .env. The control plane can push secrets, dispatch workflows, and manage PRs.\n\nThis value stays local — it's never pushed to GitHub. It's the link between your local vault and your remote repo.</div></div>"
+                    },
+                    {
+                        "when": {
+                            "textContains": "detected"
+                        },
+                        "expanded": "<div class=\"assistant-state-card state-warning\"><div class=\"state-label\">⚠️ detected but not saved</div><div class=\"state-detail\">Your git remote was auto-detected but isn't persisted in .env yet. Click 💾 Save to .env to keep it — this takes effect immediately.\n\nWithout it saved, GitHub integration features won't know where to target on next startup.</div></div>"
+                    },
+                    {
+                        "when": {
+                            "textContains": "could not detect"
+                        },
+                        "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">❓ not detected</div><div class=\"state-detail\">No git remote found. You can set GITHUB_REPOSITORY manually in your .env file as owner/repo (e.g., my-org/my-project).\n\nThis is needed for secrets sync, GitHub Actions dispatch, and PR management.</div></div>"
+                    }
+                ],
+                "children": [
+                    {
+                        "id": "gh-deploy-envs",
+                        "title": "Deployment Environments",
+                        "icon": "🌐",
+                        "selector": "#wiz-gh-deploy-envs",
+                        "content": "GitHub Deployment Environments scope secrets to specific environments like development and production. Each environment in your project should have a matching GitHub environment.",
+                        "expanded": "Without matching GitHub environments, you can't push environment-scoped secrets. Dev typically uses repo-level secrets, but production needs its own environment for isolation.\n\n💡 Hit 🚀 Create to provision missing environments on GitHub directly from the wizard.",
+                        "dynamic": true,
+                        "childTemplate": {
+                            "title": "{{name}}",
+                            "nameSelector": "code",
+                            "content": "GitHub deployment environment.",
+                            "selector": "#wiz-gh-deploy-list > div",
+                            "variants": [
+                                {
+                                    "when": {
+                                        "textContains": "exists"
+                                    },
+                                    "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">✅ exists</div><div class=\"state-detail\">This environment is provisioned on GitHub. You can push scoped secrets to it from the \ud83d\udd10 Secrets tab and use environment-level protection rules in GitHub Actions.</div></div>"
+                                },
+                                {
+                                    "when": {
+                                        "textContains": "not found"
+                                    },
+                                    "expanded": "<div class=\"assistant-state-card state-warning\"><div class=\"state-label\">\u26a0\ufe0f not found</div><div class=\"state-detail\">This environment doesn\u2019t exist on GitHub yet. Hit \ud83d\ude80 Create to provision it \u2014 this is required before you can push environment-scoped secrets.\n\nWithout it, secrets sync for this environment will fail.</div></div>"
+                                }
+                            ]
+                        },
+                        "children": []
+                    }
+                ]
+            },
+            {
+                "id": "enc-key-status",
+                "title": "Content Encryption Key",
+                "icon": "🔑",
+                "selector": "#wiz-enc-key-status",
+                "separator": true,
+                "content": "CONTENT_VAULT_ENC_KEY is a general-purpose encryption key stored in your .env file. It enables on-demand encryption for any git-committed item — you toggle it per file or message, and the key does the rest.",
+                "expanded": "This key protects multiple things across the control plane:\n• Content files — media, documents, assets in the content vault\n• Chat messages — encrypted at rest, decrypted on read\n• Backup archives — encrypted snapshots of your project\n• New vault seeding — auto-injected when creating environment vaults\n\nIt's separate from the vault passphrase that locks .env files. The vault passphrase protects secrets (API keys, database URLs). This key protects everything else you choose to encrypt.",
+                "variants": [
+                    {
+                        "when": {
+                            "textContains": "configured"
+                        },
+                        "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">✅ configured</div><div class=\"state-detail\">Your encryption key is active. You can encrypt content files, chat messages, and backup archives on demand.\n\nThis key is auto-injected into new environment vaults when you create them. As long as your .env file is backed up, anything encrypted with this key is recoverable.</div></div>"
+                    },
+                    {
+                        "when": {
+                            "textContains": "not set"
+                        },
+                        "expanded": "<div class=\"assistant-state-card state-warning\"><div class=\"state-label\">⚠️ not set</div><div class=\"state-detail\">No encryption key configured. Without it, you can't encrypt content files, chat messages, or backup archives.\n\nEnter your own key (at least 8 characters) or hit 🎲 Generate for a strong random one. Either way, it's stored in .env — keep that file safe.\n\n⚠️ Losing this key means losing access to everything encrypted with it. There's no recovery mechanism.\n\nIf you don't need any of these encryption features, you can safely skip this.</div></div>"
+                    }
+                ],
+                "children": []
+            },
+            {
+                "id": "secrets-list",
+                "title": "Detected Secret Files",
+                "icon": "📄",
+                "selector": "#wiz-secrets-list",
+                "separator": true,
+                "content": "These are secret files found in your project \u2014 .env files, encrypted vaults, and related artifacts. This is a read-only snapshot of what\u2019s on disk right now.",
+                "expanded": "In multi-environment mode, .env is a live copy of the active environment \u2014 it will match one of the .env.{name} files. The other .env.{name} files hold each environment's stored secrets.\n\nFor full vault management \u2014 locking, unlocking, adding keys, pushing secrets to GitHub \u2014 use the \ud83d\udd10 Secrets tab on the dashboard after you finish the wizard.\n\n\ud83d\udca1 Encrypted files are safe to commit (they\u2019re ciphertext). Plaintext files should be locked before pushing to git.",
+                "dynamic": true,
+                "childTemplate": {
+                    "title": "{{name}}",
+                    "nameSelector": "code",
+                    "content": "A secret file in your project.",
+                    "selector": "#wiz-detected-files > div",
+                    "variants": [
+                        {
+                            "when": {
+                                "textContains": "= .env."
+                            },
+                            "content": "This is the live working copy of the active environment.",
+                            "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">\ud83d\udd13 Active Copy</div><div class=\"state-detail\">In multi-environment mode, .env is automatically maintained as a copy of whichever environment is currently active.\n\nWhen you switch environments from the \ud83d\udd10 Secrets tab, the control plane saves this file back and copies the new environment into its place.\n\nYou don\u2019t edit .env directly for switching \u2014 use the Activate button in the Secrets tab.</div></div>"
+                        },
+                        {
+                            "when": {
+                                "textContains": ".env.development"
+                            },
+                            "content": "Development environment secrets \u2014 used for local development and testing.",
+                            "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">\ud83d\udea7 Development</div><div class=\"state-detail\">This file holds secrets for your development environment \u2014 typically local databases, test API keys, and debug configurations.\n\nIts contents are separate from production. When development is active, .env is a copy of this file.</div></div>"
+                        },
+                        {
+                            "when": {
+                                "textContains": ".env.production"
+                            },
+                            "content": "Production environment secrets \u2014 used for released and deployed applications.",
+                            "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">\ud83d\ude80 Production</div><div class=\"state-detail\">This file holds secrets for your production environment \u2014 live database credentials, real API keys, and deployment-specific configurations.\n\nHandle with extra care. When production is active, .env is a copy of this file. We suggest locking the vault when you move away \u2014 each environment can have its own passphrase for independent protection.</div></div>"
+                        },
+                        {
+                            "when": {
+                                "textContains": "Encrypted"
+                            },
+                            "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">\ud83d\udd12 Encrypted</div><div class=\"state-detail\">Contents are safe on disk \u2014 this file can be committed to git without exposing secrets. To read or edit it, unlock through the \ud83d\udd10 Secrets tab.</div></div>"
+                        },
+                        {
+                            "when": {
+                                "textContains": "Plaintext"
+                            },
+                            "expanded": "<div class=\"assistant-state-card state-warning\"><div class=\"state-label\">\ud83d\udd13 Plaintext</div><div class=\"state-detail\">Anyone with file access can read this file\u2019s contents. Use the \ud83d\udd10 Secrets tab to lock it when you\u2019re done editing \u2014 plaintext .env files should never be committed to git.</div></div>"
+                        },
+                        {
+                            "when": {
+                                "textContains": "Missing"
+                            },
+                            "expanded": "<div class=\"assistant-state-card state-error\"><div class=\"state-label\">\u274c Missing</div><div class=\"state-detail\">This file is expected but not found on disk. It may have been deleted or hasn\u2019t been created yet. Use + Create in the vault section above, or the \ud83d\udd10 Secrets tab.</div></div>"
+                        }
+                    ]
+                },
+                "children": []
             }
         ]
     }

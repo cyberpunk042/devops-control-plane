@@ -1,0 +1,27 @@
+# Java Spring Boot (Gradle) stack
+name: java-gradle-spring
+parent: java-gradle
+description: "Spring Boot (Gradle)"
+detail: >
+  A Spring Boot application built with Gradle. Combines Spring's enterprise
+  features with Gradle's flexible, fast build system.
+  
+  Technical: Spring Boot application with Gradle. Detected via spring-boot in
+  build.gradle. Inherits Gradle base and adds serve and test commands.
+domain: service
+
+detection:
+  files_any_of: []
+  files_all_of: []
+  content_contains:
+    build.gradle: "spring-boot"
+
+capabilities:
+  - name: serve
+    adapter: shell
+    command: "./gradlew bootRun"
+    description: "Run Spring Boot app"
+  - name: test
+    adapter: shell
+    command: "./gradlew test"
+    description: "Run tests"

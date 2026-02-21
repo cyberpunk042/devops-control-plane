@@ -1,6 +1,13 @@
 # Helm stack — detection and capabilities
 name: helm
+icon: "⎈"
 description: "Helm chart"
+detail: >
+  Helm is the package manager for Kubernetes. It uses charts (templated
+  manifests) to define, install, and upgrade complex Kubernetes applications.
+  
+  Technical: Helm chart detected via Chart.yaml. Provides template, lint,
+  install, and upgrade capabilities.
 domain: ops
 
 detection:

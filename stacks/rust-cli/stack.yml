@@ -1,0 +1,19 @@
+# Rust CLI stack — Rust CLI tool (clap-based)
+name: rust-cli
+parent: rust
+description: "Rust CLI tool (clap)"
+detail: >
+  A Rust command-line tool built with clap, structopt, or similar. Rust CLIs
+  compile to fast, self-contained binaries with excellent error handling.
+  
+  Technical: Rust CLI tool detected via clap in Cargo.toml. Inherits all Rust
+  base capabilities.
+domain: service
+
+detection:
+  files_any_of: []
+  files_all_of: []
+  content_contains:
+    Cargo.toml: "clap"
+
+capabilities: []

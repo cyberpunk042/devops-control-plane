@@ -1,0 +1,39 @@
+# Python Django stack — Django web application
+name: python-django
+parent: python
+description: "Django application"
+detail: >
+  Django is a batteries-included Python web framework with ORM, admin panel,
+  migrations, and auth. It excels at content-heavy sites, admin dashboards,
+  and rapid prototyping of data-driven applications.
+  
+  Technical: Django web application detected via django dependency and
+  manage.py. Inherits Python base and adds serve (runserver), migrate, and
+  shell capabilities.
+domain: service
+
+detection:
+  files_any_of:
+    - manage.py
+  files_all_of: []
+  content_contains: {}
+
+# Inherits lint, format, test, types from parent
+# Overrides install, adds serve, migrate, shell
+capabilities:
+  - name: install
+    adapter: shell
+    command: "pip install -e '.[dev]'"
+    description: "Install with dev extras"
+  - name: serve
+    adapter: shell
+    command: "python manage.py runserver"
+    description: "Run Django dev server"
+  - name: migrate
+    adapter: shell
+    command: "python manage.py migrate"
+    description: "Run database migrations"
+  - name: shell
+    adapter: shell
+    command: "python manage.py shell"
+    description: "Open Django shell"

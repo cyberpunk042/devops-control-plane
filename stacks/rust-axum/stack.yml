@@ -1,0 +1,24 @@
+# Rust Axum stack — Axum web service
+name: rust-axum
+parent: rust
+description: "Axum web service"
+detail: >
+  Axum is a Rust web framework from the Tokio team, designed for ergonomic,
+  type-safe routing. It integrates deeply with the Tower ecosystem for
+  middleware and services.
+  
+  Technical: Axum web service detected via axum in Cargo.toml. Inherits Rust
+  base and adds a serve command.
+domain: service
+
+detection:
+  files_any_of: []
+  files_all_of: []
+  content_contains:
+    Cargo.toml: "axum"
+
+capabilities:
+  - name: serve
+    adapter: shell
+    command: "cargo run"
+    description: "Run Axum server"

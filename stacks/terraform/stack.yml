@@ -1,6 +1,14 @@
 # Terraform stack — detection and capabilities
 name: terraform
+icon: "🏗️"
 description: "Terraform infrastructure project"
+detail: >
+  Terraform is an infrastructure-as-code tool that lets you define cloud
+  resources in declarative HCL files. It manages the full lifecycle: plan,
+  apply, and destroy.
+  
+  Technical: Terraform infrastructure detected via .tf files. Provides init,
+  plan, apply, and destroy capabilities.
 domain: ops
 
 detection:

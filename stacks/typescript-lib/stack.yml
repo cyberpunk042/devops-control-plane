@@ -1,0 +1,24 @@
+# TypeScript library stack — npm package written in TypeScript
+name: typescript-lib
+parent: typescript
+description: "TypeScript library (npm package)"
+detail: >
+  A TypeScript library distributed as an npm package. Includes type
+  declarations and targets reuse across projects with strict typing and clean
+  API boundaries.
+  
+  Technical: TypeScript library package (domain: library). Inherits TypeScript
+  base and adds a prepublish step.
+domain: library
+
+# User-declared — no reliable auto-detection
+detection:
+  files_any_of: []
+  files_all_of: []
+  content_contains: {}
+
+capabilities:
+  - name: prepublish
+    adapter: shell
+    command: "npm pack --dry-run"
+    description: "Dry-run package creation"

@@ -1,6 +1,14 @@
 # C++ stack — detects CMakeLists.txt with C++ markers
 name: cpp
+icon: "⚙️"
 description: "C++ project (CMake/Make)"
+detail: >
+  C++ extends C with object-oriented features, templates, and the STL. It is
+  used for game engines, high-frequency trading, browsers, and
+  performance-sensitive desktop applications.
+  
+  Technical: C++ project detected via Makefile or CMakeLists.txt with
+  .cpp/.cxx sources. Provides build, clean, and test capabilities.
 domain: service
 
 detection:

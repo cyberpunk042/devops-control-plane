@@ -18,11 +18,10 @@
     // ── Module helpers ──────────────────────────────────────────────
 
     function _wizardModuleRow(m, i) {
-        const stackIcons = {
-            'python-lib': '🐍', 'python-cli': '🐍', 'python-flask': '🐍',
-            'node': '📦', 'docker-compose': '🐳', 'markdown': '📝',
-        };
-        const icon = stackIcons[m.stack] || '📁';
+        // Stack icon from data layer (defined in stacks/*/stack.yml)
+        const _dcpStacks = (window._dcp && window._dcp.stacks) || [];
+        const stackEntry = _dcpStacks.find(function(s) { return s.name === m.stack; });
+        const icon = stackEntry && stackEntry.icon ? stackEntry.icon : '📁';
         return `
             <div style="display:flex;align-items:center;gap:0.5rem;padding:0.5rem 0.75rem;background:var(--bg-inset);border:1px solid var(--border-subtle);border-radius:8px;font-size:0.85rem">
                 <span style="font-size:1rem">${icon}</span>

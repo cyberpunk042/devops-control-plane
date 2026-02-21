@@ -1,6 +1,14 @@
 # Elixir stack — Mix projects
 name: elixir
+icon: "💧"
 description: "Elixir project (Mix)"
+detail: >
+  Elixir is a functional programming language built on the Erlang VM (BEAM).
+  It excels at building scalable, fault-tolerant distributed systems with hot
+  code reloading.
+  
+  Technical: Elixir project detected via mix.exs. Provides install (deps.get),
+  compile, test, format, and console (iex -S mix) capabilities.
 domain: service
 
 detection:

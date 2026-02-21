@@ -1,6 +1,14 @@
 # Java (Maven) stack — detects pom.xml
 name: java-maven
+icon: "☕"
 description: "Java project (Maven)"
+detail: >
+  A Java project using Apache Maven for build management. Maven provides
+  dependency resolution, standardized project layout, and a rich plugin
+  ecosystem.
+  
+  Technical: Java Maven project detected via pom.xml. Provides build (mvn
+  package), test, and clean capabilities.
 domain: service
 
 detection:

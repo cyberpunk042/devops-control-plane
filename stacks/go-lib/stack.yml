@@ -1,0 +1,19 @@
+# Go library stack — Go library module (not an executable)
+name: go-lib
+parent: go
+description: "Go library"
+detail: >
+  A Go library module designed for import by other Go projects. Libraries
+  expose exported types and functions with no main package.
+  
+  Technical: Go library package (domain: library). User-declared — no
+  auto-detection for Go libraries.
+domain: library
+
+# User-declared — no reliable auto-detection
+detection:
+  files_any_of: []
+  files_all_of: []
+  content_contains: {}
+
+capabilities: []

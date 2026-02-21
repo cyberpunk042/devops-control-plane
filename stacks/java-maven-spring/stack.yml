@@ -1,0 +1,28 @@
+# Java Spring Boot (Maven) stack
+name: java-maven-spring
+parent: java-maven
+description: "Spring Boot (Maven)"
+detail: >
+  A Spring Boot application built with Maven. Spring Boot provides
+  auto-configuration, embedded servers, and a production-ready framework for
+  enterprise Java services.
+  
+  Technical: Spring Boot application with Maven. Detected via spring-boot in
+  pom.xml. Inherits Maven base and adds serve and test commands.
+domain: service
+
+detection:
+  files_any_of: []
+  files_all_of: []
+  content_contains:
+    pom.xml: "spring-boot"
+
+capabilities:
+  - name: serve
+    adapter: shell
+    command: "mvn spring-boot:run"
+    description: "Run Spring Boot app"
+  - name: test
+    adapter: shell
+    command: "mvn test"
+    description: "Run tests"

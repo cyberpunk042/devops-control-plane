@@ -1,6 +1,13 @@
 # Kubernetes stack — raw manifests and kustomize
 name: kubernetes
+icon: "☸️"
 description: "Kubernetes manifests (raw or Kustomize)"
+detail: >
+  Kubernetes is a container orchestration platform for automating deployment,
+  scaling, and management of containerized workloads across clusters.
+  
+  Technical: Kubernetes manifests detected via .yaml files with apiVersion
+  field. Provides apply, delete, and validate capabilities.
 domain: ops
 
 detection:

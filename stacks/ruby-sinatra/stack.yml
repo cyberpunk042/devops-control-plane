@@ -1,0 +1,24 @@
+# Ruby Sinatra stack
+name: ruby-sinatra
+parent: ruby
+description: "Sinatra application"
+detail: >
+  Sinatra is a lightweight Ruby web framework for building simple APIs and
+  small web apps with minimal boilerplate. It maps HTTP verbs directly to Ruby
+  blocks.
+  
+  Technical: Sinatra web application detected via sinatra in Gemfile. Inherits
+  Ruby base and adds a serve command.
+domain: service
+
+detection:
+  files_any_of: []
+  files_all_of: []
+  content_contains:
+    Gemfile: "sinatra"
+
+capabilities:
+  - name: serve
+    adapter: shell
+    command: "bundle exec ruby app.rb"
+    description: "Run Sinatra server"

@@ -1,6 +1,13 @@
 # Java (Gradle) stack — detects build.gradle or build.gradle.kts
 name: java-gradle
+icon: "☕"
 description: "Java/Kotlin project (Gradle)"
+detail: >
+  A Java or Kotlin project using Gradle for build management. Gradle offers
+  flexible, scriptable builds with incremental compilation and build caching.
+  
+  Technical: Java/Kotlin Gradle project detected via build.gradle or
+  build.gradle.kts. Provides build, test, and clean capabilities.
 domain: service
 
 detection:

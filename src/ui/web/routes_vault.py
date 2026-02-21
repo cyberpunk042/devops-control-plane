@@ -38,9 +38,8 @@ def _env_path() -> Path:
 
 @vault_bp.route("/vault/status")
 def vault_status():
-    """Get vault status for the default .env."""
-    root = _project_root()
-    return jsonify(vault.vault_status(root / ".env"))
+    """Get vault status — respects ``?env=`` for multi-env mode."""
+    return jsonify(vault.vault_status(_env_path()))
 
 
 # ── Active environment (file swapping) ───────────────────────────

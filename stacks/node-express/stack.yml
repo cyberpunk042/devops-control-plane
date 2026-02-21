@@ -1,0 +1,25 @@
+# Node Express stack — Express.js web server
+name: node-express
+parent: node
+description: "Express.js server"
+detail: >
+  Express.js is the most widely-used Node.js web framework. It provides
+  minimal middleware-based routing and is the foundation for REST APIs,
+  server-rendered pages, and BFF layers.
+  
+  Technical: Express.js server detected via express dependency in
+  package.json. Inherits Node.js base capabilities and adds a serve command
+  for running the Express server.
+domain: service
+
+detection:
+  files_any_of: []
+  files_all_of: []
+  content_contains:
+    package.json: "express"
+
+capabilities:
+  - name: serve
+    adapter: shell
+    command: "node index.js"
+    description: "Run Express server"

@@ -1,6 +1,14 @@
 # Zig stack — modern systems language
 name: zig
+icon: "⚡"
 description: "Zig project"
+detail: >
+  Zig is a modern systems programming language that aims to replace C with
+  better safety, readability, and tooling. It features comptime evaluation and
+  a built-in build system.
+  
+  Technical: Zig project detected via build.zig. Provides build, test, and run
+  capabilities using the Zig build system.
 domain: service
 
 detection:

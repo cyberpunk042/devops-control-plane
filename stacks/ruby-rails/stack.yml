@@ -1,0 +1,34 @@
+# Ruby on Rails stack
+name: ruby-rails
+parent: ruby
+description: "Ruby on Rails application"
+detail: >
+  Ruby on Rails is a full-stack web framework that emphasizes convention over
+  configuration. It provides ORM (Active Record), routing, views, and a rich
+  CLI for rapid development.
+  
+  Technical: Ruby on Rails application detected via rails in Gemfile and
+  config/routes.rb. Overrides console to use rails console and adds serve,
+  migrate capabilities.
+domain: service
+
+detection:
+  files_any_of:
+    - config/routes.rb
+  files_all_of: []
+  content_contains:
+    Gemfile: "rails"
+
+capabilities:
+  - name: serve
+    adapter: shell
+    command: "bundle exec rails server"
+    description: "Run Rails dev server"
+  - name: console
+    adapter: shell
+    command: "bundle exec rails console"
+    description: "Open Rails console"
+  - name: migrate
+    adapter: shell
+    command: "bundle exec rails db:migrate"
+    description: "Run database migrations"

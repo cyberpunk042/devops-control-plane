@@ -1,0 +1,24 @@
+# Rust Actix-web stack — Actix-web service
+name: rust-actix
+parent: rust
+description: "Actix-web service"
+detail: >
+  Actix-web is a powerful, fast Rust web framework built on the Actix actor
+  system. It consistently ranks among the fastest web frameworks in
+  benchmarks.
+  
+  Technical: Actix-web service detected via actix-web in Cargo.toml. Inherits
+  Rust base and adds a serve command.
+domain: service
+
+detection:
+  files_any_of: []
+  files_all_of: []
+  content_contains:
+    Cargo.toml: "actix-web"
+
+capabilities:
+  - name: serve
+    adapter: shell
+    command: "cargo run"
+    description: "Run Actix-web server"

@@ -1,0 +1,30 @@
+# Python FastAPI stack — FastAPI web application
+name: python-fastapi
+parent: python
+description: "FastAPI application"
+detail: >
+  FastAPI is a modern, high-performance Python web framework built on ASGI and
+  Pydantic. It generates interactive API docs automatically and delivers
+  near-Go-level speed for async workloads.
+  
+  Technical: FastAPI web application detected via fastapi dependency. Inherits
+  Python base and adds a serve command via uvicorn with hot-reload.
+domain: service
+
+detection:
+  files_any_of: []
+  files_all_of: []
+  content_contains:
+    pyproject.toml: "fastapi"
+
+# Inherits lint, format, test, types from parent
+# Overrides install, adds serve
+capabilities:
+  - name: install
+    adapter: shell
+    command: "pip install -e '.[dev]'"
+    description: "Install with dev extras"
+  - name: serve
+    adapter: shell
+    command: "uvicorn src.main:app --reload"
+    description: "Run Uvicorn dev server"

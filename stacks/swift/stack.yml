@@ -1,6 +1,13 @@
 # Swift stack — Swift Package Manager projects
 name: swift
+icon: "🍎"
 description: "Swift project (SPM)"
+detail: >
+  Swift is Apple's modern programming language for iOS, macOS, and server-side
+  development. It emphasizes safety, performance, and clean syntax.
+  
+  Technical: Swift project detected via Package.swift (Swift Package Manager).
+  Provides build, test, and run capabilities.
 domain: service
 
 detection:

@@ -66,10 +66,12 @@
             return;
         }
 
-        const stackIcons = {
-            'python': '🐍', 'python-lib': '🐍', 'python-cli': '🐍', 'python-flask': '🐍',
-            'node': '📦', 'docker-compose': '🐳', 'markdown': '📝',
-        };
+        // Stack icons from the data layer (defined in stacks/*/stack.yml)
+        const _dcpStacks = (window._dcp && window._dcp.stacks) || [];
+        function _stackIcon(name) {
+            var s = _dcpStacks.find(function(s) { return s.name === name; });
+            return s && s.icon ? s.icon : '📁';
+        }
 
         // Find which capabilities each module supports
         const moduleCaps = {};
@@ -81,7 +83,7 @@
         }
 
         container.innerHTML = modules.map(m => {
-            const icon = stackIcons[m.stack] || '📁';
+            const icon = _stackIcon(m.stack);
             const state = moduleStates[m.name] || {};
             const lastStatus = state.last_action_status || '';
             const statusClass = lastStatus === 'ok' ? 'ok' : lastStatus === 'failed' ? 'failed' : '';

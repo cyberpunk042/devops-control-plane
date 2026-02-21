@@ -1,0 +1,33 @@
+# Python Flask stack — Flask web application
+name: python-flask
+parent: python
+description: "Flask web application"
+detail: >
+  Flask is a lightweight Python web framework that gives developers full
+  control over request handling. It is well-suited for APIs, microservices,
+  and small-to-medium web applications where simplicity and flexibility
+  matter.
+  
+  Technical: Flask web application detected via flask dependency in
+  pyproject.toml. Inherits all Python base capabilities (lint, format, test,
+  types) and adds a serve command (flask run --debug) with overridden install
+  for dev extras.
+domain: service
+
+detection:
+  files_any_of: []
+  files_all_of: []
+  content_contains:
+    pyproject.toml: "flask"
+
+# Inherits lint, format, test, types from parent
+# Overrides install, adds serve
+capabilities:
+  - name: install
+    adapter: shell
+    command: "pip install -e '.[dev]'"
+    description: "Install with dev extras"
+  - name: serve
+    adapter: shell
+    command: "flask run --debug"
+    description: "Run Flask dev server"

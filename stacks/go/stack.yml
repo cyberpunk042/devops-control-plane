@@ -1,6 +1,14 @@
 # Go stack — detection and capabilities
 name: go
+icon: "🐹"
 description: "Go project"
+detail: >
+  Go (Golang) is a compiled, statically-typed language designed for
+  simplicity, concurrency, and fast builds. It is widely used for servers,
+  CLIs, and infrastructure tooling.
+  
+  Technical: Go project detected via go.mod. Provides build, lint
+  (golangci-lint), format (gofmt), test, and vet capabilities.
 domain: service
 
 detection:

@@ -1,6 +1,13 @@
 # .NET / C# stack — detects .sln or Directory.Build.props
 name: dotnet
+icon: "🔷"
 description: ".NET / C# project"
+detail: >
+  .NET is Microsoft's cross-platform framework for building web, desktop,
+  cloud, and mobile applications. It supports C#, F#, and Visual Basic.
+  
+  Technical: .NET / C# project detected via *.csproj or *.sln files. Provides
+  build, test, clean, and run capabilities.
 domain: service
 
 detection:

@@ -166,7 +166,28 @@ def create_app(
         try:
             stacks = discover_stacks(Path(project_root) / "stacks")
             dcp["stacks"] = [
-                {"name": s.name, "description": s.description}
+                {
+                    "name": s.name,
+                    "description": s.description,
+                    "detail": s.detail,
+                    "icon": s.icon,
+                    "domain": s.domain,
+                    "parent": s.parent,
+                    "capabilities": [c.name for c in s.capabilities],
+                    "capabilityDetails": [
+                        {"name": c.name, "command": c.command, "description": c.description, "adapter": c.adapter}
+                        for c in s.capabilities
+                    ],
+                    "requires": [
+                        {"adapter": r.adapter, "minVersion": r.min_version}
+                        for r in s.requires
+                    ],
+                    "detection": {
+                        "filesAnyOf": s.detection.files_any_of,
+                        "filesAllOf": s.detection.files_all_of,
+                        "contentContains": s.detection.content_contains,
+                    },
+                }
                 for s in sorted(stacks.values(), key=lambda s: s.name)
             ]
         except Exception:

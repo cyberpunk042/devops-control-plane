@@ -1,0 +1,24 @@
+# Node library stack — npm package (library, not an application)
+name: node-lib
+parent: node
+description: "npm library"
+detail: >
+  An npm library package designed for reuse and distribution via npm or
+  private registries. Libraries focus on clean exports, type declarations, and
+  package configuration.
+  
+  Technical: Node.js library package (domain: library). Inherits Node.js base
+  capabilities and adds a prepublish command for dry-running npm pack.
+domain: library
+
+# User-declared — no reliable auto-detection for "this is a library"
+detection:
+  files_any_of: []
+  files_all_of: []
+  content_contains: {}
+
+capabilities:
+  - name: prepublish
+    adapter: shell
+    command: "npm pack --dry-run"
+    description: "Dry-run package creation"

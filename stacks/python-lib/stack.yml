@@ -1,0 +1,24 @@
+# Python library stack — importable module, not a deployable service
+name: python-lib
+parent: python
+description: "Python library (no entry point)"
+detail: >
+  A Python library designed for reuse — imported by other projects,
+  distributed via PyPI. Libraries have no entry point of their own and focus
+  on packaging, API surface, and documentation.
+  
+  Technical: Python library package (domain: library). No entry point —
+  intended for distribution via pip. Inherits Python base capabilities.
+domain: library
+
+# No additional detection rules — this flavor is user-declared.
+# Auto-detect can't reliably distinguish a library from a generic Python project.
+detection:
+  files_any_of: []
+  files_all_of: []
+  content_contains: {}
+
+# No extra requires — inherits python ≥ 3.8 from parent
+
+# No extra capabilities — inherits install, lint, format, test, types from parent
+capabilities: []

@@ -1,0 +1,43 @@
+# PHP stack — Composer-based PHP projects
+name: php
+icon: "🐘"
+description: "PHP project (Composer)"
+detail: >
+  PHP is a widely-used server-side scripting language primarily for web
+  development. It powers platforms like WordPress, Laravel, and Symfony.
+  
+  Technical: PHP project detected via composer.json. Provides install
+  (composer), lint, format, test (phpunit), and serve capabilities.
+domain: service
+
+detection:
+  files_any_of:
+    - composer.json
+  files_all_of: []
+  content_contains: {}
+
+requires:
+  - adapter: shell
+    min_version: ""
+
+capabilities:
+  - name: install
+    adapter: shell
+    command: "composer install"
+    description: "Install dependencies"
+  - name: lint
+    adapter: shell
+    command: "vendor/bin/phpcs --standard=PSR12 ."
+    description: "Run PHP CodeSniffer"
+  - name: format
+    adapter: shell
+    command: "vendor/bin/phpcbf --standard=PSR12 ."
+    description: "Fix code style"
+  - name: test
+    adapter: shell
+    command: "vendor/bin/phpunit"
+    description: "Run tests"
+  - name: serve
+    adapter: shell
+    command: "php -S localhost:8080 -t public"
+    description: "Run built-in dev server"

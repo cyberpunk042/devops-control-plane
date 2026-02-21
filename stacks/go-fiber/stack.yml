@@ -1,0 +1,24 @@
+# Go Fiber stack — Fiber web framework
+name: go-fiber
+parent: go
+description: "Fiber web framework"
+detail: >
+  Fiber is a Go web framework inspired by Express.js, built on fasthttp. It
+  emphasizes developer experience and raw HTTP performance for API and web
+  workloads.
+  
+  Technical: Fiber web framework server detected via gofiber in go.mod.
+  Inherits Go base and adds a serve command.
+domain: service
+
+detection:
+  files_any_of: []
+  files_all_of: []
+  content_contains:
+    go.mod: "gofiber"
+
+capabilities:
+  - name: serve
+    adapter: shell
+    command: "go run ."
+    description: "Run Fiber server"

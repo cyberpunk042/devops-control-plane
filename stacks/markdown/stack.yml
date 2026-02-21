@@ -1,0 +1,41 @@
+# Markdown / documentation stack — Docusaurus, MkDocs, or plain Markdown
+name: markdown
+icon: "📝"
+description: "Documentation (Markdown)"
+detail: >
+  A documentation project using Docusaurus, MkDocs, or similar static-site
+  generators. Markdown stacks focus on content authoring, site generation, and
+  deployment.
+  
+  Technical: Documentation project detected via mkdocs.yml or
+  docusaurus.config.*. Provides lint (markdownlint), format, build, and serve
+  capabilities.
+domain: docs
+
+detection:
+  files_any_of:
+    - mkdocs.yml
+    - docusaurus.config.js
+    - docusaurus.config.ts
+  files_all_of: []
+  content_contains: {}
+
+requires: []
+
+capabilities:
+  - name: lint
+    adapter: shell
+    command: "npx markdownlint '**/*.md'"
+    description: "Lint Markdown files"
+  - name: format
+    adapter: shell
+    command: "npx prettier --write '**/*.md'"
+    description: "Format Markdown files"
+  - name: build
+    adapter: shell
+    command: "npx docusaurus build"
+    description: "Build documentation site"
+  - name: serve
+    adapter: shell
+    command: "npx docusaurus start"
+    description: "Serve docs locally"

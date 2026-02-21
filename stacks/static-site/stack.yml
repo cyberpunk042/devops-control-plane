@@ -1,6 +1,13 @@
 # Static site stack — plain HTML/CSS/JS without a build step
 name: static-site
+icon: "🌐"
 description: "Static site (HTML/CSS/JS)"
+detail: >
+  A static website built with plain HTML, CSS, and JavaScript. Static sites
+  are simple, fast, and can be hosted anywhere without a server runtime.
+  
+  Technical: Static website detected via index.html. Provides serve capability
+  via simple HTTP server.
 domain: docs
 
 detection:

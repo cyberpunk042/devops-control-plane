@@ -1,6 +1,14 @@
 # Docker Compose stack — detection and capabilities
 name: docker-compose
+icon: "🐳"
 description: "Docker Compose project"
+detail: >
+  Docker Compose defines and manages multi-container applications with a
+  single YAML file. It orchestrates services, networks, and volumes for local
+  development and testing.
+  
+  Technical: Docker Compose orchestration detected via docker-compose.yml or
+  compose.yml. Provides up, down, build, logs, and ps capabilities.
 domain: ops
 
 detection:

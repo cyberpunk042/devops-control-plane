@@ -1,0 +1,20 @@
+# Rust library stack — Rust library crate
+name: rust-lib
+parent: rust
+description: "Rust library crate"
+detail: >
+  A Rust library crate published to crates.io or used locally. Library crates
+  expose a public API through lib.rs and are consumed by binary crates or
+  other libraries.
+  
+  Technical: Rust library crate (domain: library) detected via [lib] section
+  in Cargo.toml.
+domain: library
+
+detection:
+  files_any_of: []
+  files_all_of: []
+  content_contains:
+    Cargo.toml: "[lib]"
+
+capabilities: []

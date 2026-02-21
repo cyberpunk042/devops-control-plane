@@ -1,0 +1,22 @@
+# ASP.NET web application stack
+name: dotnet-aspnet
+parent: dotnet
+description: "ASP.NET web application"
+detail: >
+  ASP.NET Core is a high-performance web framework for building REST APIs, MVC
+  web apps, and real-time services with SignalR.
+  
+  Technical: ASP.NET web application. Inherits .NET base and adds a serve
+  command with hot-reload (dotnet watch).
+domain: service
+
+detection:
+  files_any_of: []
+  files_all_of: []
+  content_contains: {}
+
+capabilities:
+  - name: serve
+    adapter: shell
+    command: "dotnet watch run"
+    description: "Run with hot-reload"

@@ -1,0 +1,19 @@
+# Go CLI stack — Cobra/urfave CLI tool
+name: go-cli
+parent: go
+description: "Go CLI tool (Cobra/urfave)"
+detail: >
+  A Go command-line tool typically built with Cobra, urfave/cli, or similar.
+  Go CLI tools compile to a single binary with zero runtime dependencies.
+  
+  Technical: Go CLI tool detected via cobra in go.mod. Inherits all Go base
+  capabilities.
+domain: service
+
+detection:
+  files_any_of: []
+  files_all_of: []
+  content_contains:
+    go.mod: "spf13/cobra"
+
+capabilities: []

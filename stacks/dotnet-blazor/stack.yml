@@ -1,0 +1,23 @@
+# Blazor application stack
+name: dotnet-blazor
+parent: dotnet
+description: "Blazor application"
+detail: >
+  Blazor lets you build interactive web UIs using C# instead of JavaScript. It
+  supports both server-side rendering and WebAssembly-based client-side
+  execution.
+  
+  Technical: Blazor web application. Inherits .NET base and adds a serve
+  command with hot-reload.
+domain: service
+
+detection:
+  files_any_of: []
+  files_all_of: []
+  content_contains: {}
+
+capabilities:
+  - name: serve
+    adapter: shell
+    command: "dotnet watch run"
+    description: "Run Blazor with hot-reload"

@@ -1,0 +1,33 @@
+# Elixir Phoenix stack — Phoenix web framework
+name: elixir-phoenix
+parent: elixir
+description: "Phoenix web framework"
+detail: >
+  Phoenix is a productive Elixir web framework that delivers high performance
+  and real-time features via Channels. It follows MVC patterns with functional
+  programming principles.
+  
+  Technical: Phoenix web framework application detected via phoenix in
+  mix.exs. Inherits Elixir base and adds serve, migrate, and routes
+  capabilities.
+domain: service
+
+detection:
+  files_any_of: []
+  files_all_of: []
+  content_contains:
+    mix.exs: "phoenix"
+
+capabilities:
+  - name: serve
+    adapter: shell
+    command: "mix phx.server"
+    description: "Run Phoenix dev server"
+  - name: migrate
+    adapter: shell
+    command: "mix ecto.migrate"
+    description: "Run Ecto migrations"
+  - name: routes
+    adapter: shell
+    command: "mix phx.routes"
+    description: "List Phoenix routes"

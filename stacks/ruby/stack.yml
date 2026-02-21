@@ -1,6 +1,13 @@
 # Ruby stack — detection and capabilities
 name: ruby
+icon: "💎"
 description: "Ruby project"
+detail: >
+  Ruby is a dynamic, object-oriented language known for developer happiness
+  and elegant syntax. Its ecosystem is built around Bundler and gems.
+  
+  Technical: Ruby project detected via Gemfile (Bundler). Provides install,
+  lint (rubocop), test (rspec), and console (irb) capabilities.
 domain: service
 
 detection:

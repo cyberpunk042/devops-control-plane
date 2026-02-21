@@ -1,6 +1,14 @@
 # C stack — detects CMakeLists.txt or Makefile in C projects
 name: c
+icon: "⚙️"
 description: "C project (Make/CMake)"
+detail: >
+  C is a foundational systems programming language used for operating systems,
+  embedded software, and performance-critical applications. It compiles
+  directly to machine code.
+  
+  Technical: C project detected via Makefile or CMakeLists.txt. Provides
+  build, clean, and test capabilities.
 domain: service
 
 detection:

@@ -1,0 +1,24 @@
+# Go Gin stack — Gin web framework
+name: go-gin
+parent: go
+description: "Gin web framework"
+detail: >
+  Gin is a high-performance Go web framework with a Martini-like API. It uses
+  httprouter under the hood and is designed for building fast JSON APIs and
+  web services.
+  
+  Technical: Gin web framework server detected via gin-gonic in go.mod.
+  Inherits Go base and adds a serve command.
+domain: service
+
+detection:
+  files_any_of: []
+  files_all_of: []
+  content_contains:
+    go.mod: "gin-gonic"
+
+capabilities:
+  - name: serve
+    adapter: shell
+    command: "go run ."
+    description: "Run Gin server"
