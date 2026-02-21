@@ -1397,6 +1397,604 @@
                                 ]
                             }
                         ]
+                    },
+                    {
+                        "id": "gh-card",
+                        "title": "GitHub",
+                        "icon": "🐙",
+                        "selector": "#wiz-int-wrap-int-github",
+                        "content": "GitHub integration connects your local project to GitHub's API — environment management, secrets sync, CODEOWNERS automation, and Actions dispatch all flow through the gh CLI.",
+                        "variants": [
+                            {
+                                "when": {
+                                    "textContains": "✅ ready"
+                                },
+                                "content": "Authenticated as {{ghUser}} and linked to {{ghRepo}}. {{ghEnvAligned}} of {{ghEnvTotal}} environments aligned, {{ghWorkflows}} workflow(s) active. Open ⚙️ Setup to check what's left.",
+                                "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">✅ Fully Connected</div><div class=\"state-detail\">The gh CLI is authenticated and linked to {{ghRepo}}. The control plane can manage deployment environments, push vault secrets from Step 3, write CODEOWNERS for automatic PR review, and query workflow status.\n\nYour integration health:\n• {{ghEnvAligned}} of {{ghEnvTotal}} environments from Step 1 are on GitHub\n• {{ghWorkflows}} Actions workflow(s) detected\n• Repository is {{ghVis}}\n\nOpen ⚙️ Setup to drill into each dimension, or use 🚀 Full Setup for the guided wizard with repository creation and visibility management.</div></div>"
+                            },
+                            {
+                                "when": {
+                                    "textContains": "not configured"
+                                },
+                                "content": "The gh CLI is installed but not authenticated. Without a GitHub session, the control plane can't sync your {{envCount}} environments or push vault secrets.",
+                                "expanded": "<div class=\"assistant-state-card state-warning\"><div class=\"state-label\">⚠ Not Authenticated</div><div class=\"state-detail\">The GitHub CLI binary is on your system but hasn't been linked to a GitHub account. This blocks:\n\n• Creating your {{envCount}} environments on GitHub for CI/CD deployment gating\n• Pushing vault secrets so Actions workflows can use them\n• Writing CODEOWNERS for automatic PR review assignment\n• Querying repository metadata and workflow status\n\nClick ⚙️ Setup → 🔑 Authenticate to run the OAuth flow. After authenticating, hit 🔄 Re-scan — the card will update with your account, repository link, and full integration status.</div></div>"
+                            },
+                            {
+                                "when": {
+                                    "textContains": "not installed"
+                                },
+                                "content": "The gh CLI isn't installed. Without it, your {{envCount}} environments, vault secrets, and CODEOWNERS have to be managed manually on github.com.",
+                                "expanded": "<div class=\"assistant-state-card state-error\"><div class=\"state-label\">❌ CLI Not Available</div><div class=\"state-detail\">The gh CLI is the bridge between your local project and GitHub's API. Without it, the control plane can't:\n\n• Create deployment environments for your CI/CD workflows\n• Push the vault secrets you configured in Step 3\n• Write CODEOWNERS for automatic review assignment\n• Query repository status, visibility, or workflow health\n\nYou'd have to do all of this manually through github.com.\n\nClick ⚙️ Setup → 📦 Install gh. After installation, authenticate and re-scan — everything else unlocks from there.\n\n📦 Install: https://cli.github.com or brew install gh</div></div>"
+                            }
+                        ],
+                        "children": [
+                            {
+                                "id": "gh-setup",
+                                "title": "Setup Panel",
+                                "icon": "⚙️",
+                                "selector": "#wiz-int-setup-int-github",
+                                "content": "Your GitHub integration dashboard — authentication, repository link, environment alignment, CODEOWNERS, and secrets sync. What you see here depends on your gh CLI state.",
+                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">⚙️ GitHub Configuration</div><div class=\"state-detail\">This panel adapts to your current state:\n\n• Not installed → install prompt for the gh CLI binary\n• Not authenticated → OAuth login to link a GitHub account\n• Authenticated → full dashboard with {{ghEnvTotal}} environments, repository details, CODEOWNERS, and secrets sync\n\nEnvironments come from Step 1's project config. Secrets come from Step 3's vault. CODEOWNERS controls who reviews PRs. Everything here feeds into your CI/CD pipeline.\n\nFor the full guided experience with repository creation and visibility management, use 🚀 Full Setup instead.</div></div>",
+                                "children": [
+                                    {
+                                        "id": "gh-status-strip",
+                                        "title": "Status Strip",
+                                        "icon": "📊",
+                                        "selector": "#wiz-gh-status-strip",
+                                        "content": "Integration health at a glance — {{ghEnvAligned}} of {{ghEnvTotal}} environments aligned, {{ghWorkflows}} workflow(s), repo is {{ghVis}}. Green pills are working, gray ones need attention.",
+                                        "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">📊 Integration Health</div><div class=\"state-detail\">Each pill is one dimension of your GitHub integration:\n\n• Authentication — API access for all operations\n• Account — the identity ({{ghUser}}) operations run under\n• Repository — {{ghRepo}} is the target for CI/CD, Pages, and environments\n• Visibility — {{ghVis}} controls who sees code, logs, and deployments\n• Branch — {{ghBranch}} is the CI/CD trigger target and PR merge destination\n• Environments — {{ghEnvAligned}} of {{ghEnvTotal}} aligned with Step 1\n• CODEOWNERS — PR review automation status\n• Workflows — {{ghWorkflows}} Actions pipeline(s) detected\n\nGray pills aren't always blockers — missing CODEOWNERS means manual review, not broken CI/CD. But missing environments will stall workflows that use deployment gates.</div></div>",
+                                        "children": [
+                                            {
+                                                "id": "gh-pill-auth",
+                                                "title": "Authentication",
+                                                "icon": "🔑",
+                                                "selector": "#wiz-gh-pill-auth",
+                                                "content": "You're authenticated — the control plane has API access to manage {{ghRepo}} on your behalf.",
+                                                "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">✓ Authenticated</div><div class=\"state-detail\">Your gh CLI session is active. The control plane can make API calls to GitHub as {{ghUser}} — creating environments, pushing secrets, writing CODEOWNERS, querying repository metadata.\n\nThe session persists until you explicitly log out or the OAuth token expires. If you see auth errors later, re-authenticate through the setup panel.</div></div>",
+                                                "children": []
+                                            },
+                                            {
+                                                "id": "gh-pill-user",
+                                                "title": "Account",
+                                                "icon": "👤",
+                                                "selector": "#wiz-gh-pill-user",
+                                                "content": "Operating as {{ghUser}} — environment creation, secrets push, and CODEOWNERS writes all happen under this identity's permissions.",
+                                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">👤 {{ghUser}}</div><div class=\"state-detail\">All GitHub operations happen under {{ghUser}}'s permissions. If {{ghRepo}} is owned by an organization, this account needs the right access level — environment creation and secrets management typically require admin or maintain role.\n\nIf operations fail with permission errors, use the 🔓 Logout button in the user card below to switch to an account with the necessary access.</div></div>",
+                                                "children": []
+                                            },
+                                            {
+                                                "id": "gh-pill-repo",
+                                                "title": "Repository",
+                                                "icon": "📦",
+                                                "selector": "#wiz-gh-pill-repo",
+                                                "content": "Linked to {{ghRepo}} — your CI/CD workflows, Pages deployments, and environment scoping all reference this repository.",
+                                                "variants": [
+                                                    {
+                                                        "when": {
+                                                            "textContains": "no repo"
+                                                        },
+                                                        "content": "No repository linked. You need a git remote pointing to GitHub — set one up in the Git card's remotes section, or create a new repo through 🚀 Full Setup.",
+                                                        "expanded": "<div class=\"assistant-state-card state-warning\"><div class=\"state-label\">○ No Repository Linked</div><div class=\"state-detail\">The gh CLI can't find a GitHub repository for this project. This means either:\n\n• No git remote is configured (check the Git card above)\n• The remote points to a non-GitHub host (GitLab, Bitbucket, etc.)\n• The repository doesn't exist on GitHub yet\n\nWithout a linked repo, environments can't be created, secrets can't be pushed, and CODEOWNERS has nowhere to live.\n\nUse 🚀 Full Setup to create a new repository — it handles git remote add, initial push, and visibility settings in one flow.</div></div>"
+                                                    }
+                                                ],
+                                                "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">📦 {{ghRepo}}</div><div class=\"state-detail\">This is your project's home on GitHub. The slug is used by:\n\n• CI/CD — Actions workflows trigger on push to this repository\n• Pages — deployments publish to GitHub Pages under this repo\n• Environments — deployment environments are scoped per-repository\n• Secrets — vault keys pushed here are available in Actions\n\nThe 📦 Repository section below has full details — visibility, default branch, description, and a direct link to GitHub.</div></div>",
+                                                "children": []
+                                            },
+                                            {
+                                                "id": "gh-pill-vis",
+                                                "title": "Visibility",
+                                                "icon": "👁",
+                                                "selector": "#wiz-gh-pill-vis",
+                                                "content": "Your repo is {{ghVis}} — this affects who can see your code, Actions logs, and Pages deployments.",
+                                                "variants": [
+                                                    {
+                                                        "when": {
+                                                            "textContains": "private"
+                                                        },
+                                                        "content": "{{ghRepo}} is private — code, Actions logs, and Pages are restricted to collaborators only.",
+                                                        "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🔒 Private Repository</div><div class=\"state-detail\">Only collaborators with explicit access can see {{ghRepo}}:\n\n• Source code is not publicly visible\n• GitHub Actions logs are restricted to collaborators\n• Pages deployments require authentication (Enterprise) or are disabled\n• Fork PRs from outside collaborators are not possible\n\nThe vault system from Step 3 protects secrets from commits, but private visibility adds a second layer — even if something leaks into the repo, only collaborators see it.\n\nUse 🚀 Full Setup to change visibility — going public is irreversible for code that's already been seen.</div></div>"
+                                                    },
+                                                    {
+                                                        "when": {
+                                                            "textContains": "public"
+                                                        },
+                                                        "content": "{{ghRepo}} is public — your code, Actions logs, and Pages deployments are visible to everyone on the internet.",
+                                                        "expanded": "<div class=\"assistant-state-card state-warning\"><div class=\"state-label\">🌐 Public Repository</div><div class=\"state-detail\">Anyone on the internet can see {{ghRepo}}:\n\n• Source code is fully visible — no secrets should ever be committed\n• GitHub Actions logs are public — workflow outputs are readable by anyone\n• Pages deployments are accessible without authentication\n• Anyone can fork and submit PRs (but fork PRs have limited secrets access)\n\nDouble-check your .gitignore coverage in the Git card — the vault's encrypted .env files and plaintext credentials must be excluded. Step 3's vault system handles this, but verify the Git card's .gitignore pill shows good coverage.</div></div>"
+                                                    }
+                                                ],
+                                                "expanded": "",
+                                                "children": []
+                                            },
+                                            {
+                                                "id": "gh-pill-branch",
+                                                "title": "Default Branch",
+                                                "icon": "🌿",
+                                                "selector": "#wiz-gh-pill-branch",
+                                                "content": "Default branch is {{ghBranch}} — PRs merge here, Actions trigger on push here, Pages deploy from here.",
+                                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🌿 {{ghBranch}}</div><div class=\"state-detail\">{{ghBranch}} is where everything converges:\n\n• PRs merge into {{ghBranch}}\n• CI/CD workflows trigger on push to {{ghBranch}}\n• Pages deployments source from {{ghBranch}}\n\nThis should match the branch in your CI/CD card's workflow YAML. If your workflow triggers on 'master' but GitHub's default is 'main', pushes won't fire the pipeline.\n\nUse 🚀 Full Setup to change the default branch on GitHub.</div></div>",
+                                                "children": []
+                                            },
+                                            {
+                                                "id": "gh-pill-envs",
+                                                "title": "Environments",
+                                                "icon": "🌍",
+                                                "selector": "#wiz-gh-pill-envs",
+                                                "content": "{{ghEnvAligned}} environment(s) exist on GitHub — CI/CD can target them for deployment gating and scoped secrets.",
+                                                "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">🌍 {{ghEnvAligned}} Deployment Environment(s)</div><div class=\"state-detail\">These GitHub deployment environments match your Step 1 project config. When a CI/CD workflow uses environment: in a job, GitHub gates the deployment — it can require approvals, set wait timers, and scope secrets.\n\nEnvironment-scoped secrets mean your production DB_PASSWORD is only visible to jobs targeting the production environment. Development jobs can't see it — that's the separation you built in Step 3.\n\nSee the ⚙️ Environments section below for the full alignment breakdown.</div></div>",
+                                                "children": []
+                                            },
+                                            {
+                                                "id": "gh-pill-envs-missing",
+                                                "title": "Missing Environments",
+                                                "icon": "⚠️",
+                                                "selector": "#wiz-gh-pill-envs-missing",
+                                                "content": "{{ghEnvMissing}} environment(s) from Step 1 don't exist on GitHub yet — CI/CD workflows targeting them will stall at the deployment gate.",
+                                                "expanded": "<div class=\"assistant-state-card state-warning\"><div class=\"state-label\">⚠ {{ghEnvMissing}} Environment(s) Missing</div><div class=\"state-detail\">Your project defines {{ghEnvTotal}} environments in Step 1, but {{ghEnvMissing}} haven't been created on GitHub. If your CI/CD workflow uses environment: for those, GitHub can't deploy — the workflow stalls waiting for an environment that doesn't exist.\n\nScroll down to the ⚙️ Environments section — check the missing ones and click 🆕 Create. After creation, push scoped secrets through the 🔒 Secrets section so each environment has its own credentials in Actions.</div></div>",
+                                                "children": []
+                                            },
+                                            {
+                                                "id": "gh-pill-codeowners",
+                                                "title": "CODEOWNERS",
+                                                "icon": "📋",
+                                                "selector": "#wiz-gh-pill-codeowners",
+                                                "content": "CODEOWNERS controls automatic PR review assignment — who gets notified when files in {{ghRepo}} are changed.",
+                                                "variants": [
+                                                    {
+                                                        "when": {
+                                                            "textContains": "CODEOWNERS ✓"
+                                                        },
+                                                        "content": "CODEOWNERS is active on {{ghRepo}} — GitHub auto-assigns reviewers to PRs based on which files changed.",
+                                                        "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">✅ Review Automation Active</div><div class=\"state-detail\">Your CODEOWNERS file tells GitHub who should review changes to specific files in {{ghRepo}}. When a PR touches files matching a pattern, the listed owners are automatically added as reviewers.\n\nSee the 📋 CODEOWNERS section below for the current rules. The most common pattern is * @owner which catches everything — add path-specific patterns for team members who own specific areas of the codebase.</div></div>"
+                                                    },
+                                                    {
+                                                        "when": {
+                                                            "textContains": "no CODEOWNERS"
+                                                        },
+                                                        "content": "No CODEOWNERS on {{ghRepo}} — every PR requires manual reviewer selection. Create one in the 📋 section below.",
+                                                        "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">○ No Review Automation</div><div class=\"state-detail\">Without CODEOWNERS, every PR to {{ghRepo}} requires manual reviewer assignment. Works fine for solo projects, but as collaborators join, it's easy to miss adding the right reviewer for infrastructure, docs, or security-sensitive changes.\n\nScroll down to 📋 CODEOWNERS to create one — the default template assigns {{ghUser}} to all files. Customize with path-specific rules for your team structure.</div></div>"
+                                                    }
+                                                ],
+                                                "expanded": "",
+                                                "children": []
+                                            },
+                                            {
+                                                "id": "gh-pill-workflows",
+                                                "title": "Workflows",
+                                                "icon": "🔄",
+                                                "selector": "#wiz-gh-pill-workflows",
+                                                "content": "{{ghWorkflows}} Actions workflow(s) detected in {{ghRepo}} — these are your CI/CD pipelines, managed through the CI/CD card.",
+                                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🔄 {{ghWorkflows}} Workflow(s)</div><div class=\"state-detail\">These are YAML workflow files in .github/workflows/ of {{ghRepo}}. Each one defines a CI/CD pipeline — what triggers it, what it builds, what it tests, where it deploys.\n\nWorkflows are configured through the CI/CD integration card. The GitHub card shows the count to confirm the connection is healthy — {{ghRepo}} has active pipelines and the gh CLI can query their status.\n\nIf the count seems wrong, hit 🔄 Re-scan in the scan bar above.</div></div>",
+                                                "children": []
+                                            }
+                                        ]
+                                    },
+                                    {
+                                        "id": "gh-user-card",
+                                        "title": "Account",
+                                        "icon": "👤",
+                                        "selector": "#wiz-gh-user-card",
+                                        "content": "Operating as {{ghUser}} — all GitHub API operations (environments, secrets, CODEOWNERS, visibility changes) happen under this identity.",
+                                        "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">👤 {{ghUser}}</div><div class=\"state-detail\">All operations the control plane performs on {{ghRepo}} — creating deployment environments, pushing vault secrets, writing CODEOWNERS — happen under {{ghUser}}'s permissions.\n\nIf {{ghRepo}} belongs to an organization, {{ghUser}} needs admin or maintain role for environment creation and secrets management.\n\nThe 🔓 Logout button disconnects this account. After logging out, re-scan to get a fresh login prompt. Use this to switch accounts if operations fail due to insufficient permissions.</div></div>",
+                                        "children": []
+                                    },
+                                    {
+                                        "id": "gh-repo",
+                                        "title": "Repository",
+                                        "icon": "📦",
+                                        "selector": "#wiz-gh-section-repo",
+                                        "content": "{{ghRepo}} is {{ghVis}}, default branch is {{ghBranch}}. This is the repository your CI/CD, Pages, and environment scoping all target.",
+                                        "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">📦 {{ghRepo}}</div><div class=\"state-detail\">Your project's home on GitHub:\n\n• Visibility — {{ghVis}}. Controls who sees code, Actions logs, and Pages deployments.\n• Default branch — {{ghBranch}}. PRs merge here, Actions trigger here, Pages deploy from here.\n• Fork status — fork repos have limited secrets access for outside PRs.\n\nThe Open ↗ link goes directly to {{ghRepo}} on GitHub. Use 🚀 Full Setup to change visibility or the default branch.</div></div>",
+                                        "variants": [
+                                            {
+                                                "when": {
+                                                    "textContains": "🔒 private"
+                                                },
+                                                "content": "{{ghRepo}} is private, default branch is {{ghBranch}}. Code, Actions logs, and Pages are restricted to collaborators.",
+                                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🔒 {{ghRepo}} · private</div><div class=\"state-detail\">Only collaborators with explicit access can see {{ghRepo}}:\n\n• Source code is not publicly visible\n• GitHub Actions logs are restricted to collaborators\n• Pages deployments require Enterprise auth or are disabled\n• Fork PRs from outside collaborators are blocked\n\nDefault branch is {{ghBranch}} — PRs merge there, CI/CD triggers on push there.\n\nThe vault from Step 3 protects secrets from commits. Private visibility adds a second layer — even if something leaks into the repo, only collaborators see it.\n\nUse 🚀 Full Setup to change visibility — going public is irreversible for code that's already been seen.</div></div>"
+                                            },
+                                            {
+                                                "when": {
+                                                    "textContains": "🌐 public"
+                                                },
+                                                "content": "{{ghRepo}} is public, default branch is {{ghBranch}}. Code, Actions logs, and Pages are visible to everyone on the internet.",
+                                                "expanded": "<div class=\"assistant-state-card state-warning\"><div class=\"state-label\">🌐 {{ghRepo}} · public</div><div class=\"state-detail\">Anyone on the internet can see {{ghRepo}}:\n\n• Source code is fully visible — no secrets should ever be committed\n• GitHub Actions logs are public — workflow outputs readable by anyone\n• Pages deployments are accessible without authentication\n• Anyone can fork and submit PRs (fork PRs have limited secrets access)\n\nDefault branch is {{ghBranch}} — PRs merge there, CI/CD triggers on push there.\n\nDouble-check .gitignore coverage in the Git card — the vault's encrypted .env files and plaintext credentials must be excluded. Step 3's vault handles this, but verify the Git card's .gitignore pill shows good coverage.</div></div>"
+                                            }
+                                        ],
+                                        "children": []
+                                    },
+                                    {
+                                        "id": "gh-envs",
+                                        "title": "Environments",
+                                        "icon": "⚙️",
+                                        "selector": "#wiz-gh-section-envs",
+                                        "content": "All {{ghEnvTotal}} environments from Step 1 are on GitHub — CI/CD can target every one for deployment gating and scoped secrets.",
+                                        "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">✅ {{ghEnvTotal}}/{{ghEnvTotal}} Aligned</div><div class=\"state-detail\">All {{ghEnvTotal}} environments you defined in Step 1 exist as deployment environments on {{ghRepo}}. CI/CD workflows can target every one of them.\n\nWhen a workflow uses environment: production in a job, GitHub gates the deployment — it can require approvals, set wait timers, and scope secrets so production credentials are only available to production jobs.\n\nEnvironment-scoped secrets from 🔒 Secrets are properly separated — your production DB_PASSWORD is invisible to development jobs.\n\n⭐ marks your default environment from Step 1 — the one pre-selected when working with secrets and variables.</div></div>",
+                                        "variants": [
+                                            {
+                                                "when": {
+                                                    "textContains": "✗ missing"
+                                                },
+                                                "content": "{{ghEnvAligned}} of {{ghEnvTotal}} aligned — {{ghEnvMissing}} environment(s) still need to be created on GitHub for CI/CD deployment gating.",
+                                                "expanded": "<div class=\"assistant-state-card state-warning\"><div class=\"state-label\">⚠ {{ghEnvMissing}} of {{ghEnvTotal}} Missing</div><div class=\"state-detail\">{{ghEnvMissing}} of your {{ghEnvTotal}} environments from Step 1 don't exist on GitHub yet. CI/CD workflows that reference these with environment: will stall — GitHub can't deploy to an environment that doesn't exist.\n\nCheck the boxes next to the missing ones and click 🆕 Create. After creation, push scoped secrets through 🔒 Secrets so each environment has its own credentials in Actions.\n\nThis takes seconds and is reversible — environments can be deleted from GitHub's repository settings.</div></div>"
+                                            }
+                                        ],
+                                        "children": []
+                                    },
+                                    {
+                                        "id": "gh-codeowners",
+                                        "title": "CODEOWNERS",
+                                        "icon": "📋",
+                                        "selector": "#wiz-gh-section-codeowners",
+                                        "content": "CODEOWNERS automates PR review assignment on {{ghRepo}} — GitHub reads this file to decide who reviews changes to which files.",
+                                        "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">📋 Review Automation</div><div class=\"state-detail\">The CODEOWNERS file lives at .github/CODEOWNERS in {{ghRepo}} and tells GitHub who to assign as reviewers when a PR changes specific files.\n\nPattern format:\n• * @owner — assigns the owner to ALL files (catch-all)\n• /src/infra/ @platform-team — scopes to infrastructure\n• *.md @docs-team — scopes to documentation\n• /src/security/ @security @lead — multiple reviewers\n\nPatterns match top-to-bottom, last match wins. The catch-all should be first, with specific overrides below.\n\nThis file is committed to your repository — it's versioned and reviewable like any other code change.</div></div>",
+                                        "variants": [
+                                            {
+                                                "when": {
+                                                    "textContains": "(exists)"
+                                                },
+                                                "content": "CODEOWNERS is active on {{ghRepo}} — the preview below shows your current review assignment rules. Every PR gets automatic reviewer selection.",
+                                                "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">✅ CODEOWNERS Active</div><div class=\"state-detail\">The file is live in {{ghRepo}}. Every PR now gets automatic reviewer assignment based on the patterns defined. The preview below shows the current content.\n\nTo update rules, edit the file directly or use 🚀 Full Setup which provides an editor. Changes take effect on the next PR — existing open PRs don't retroactively get new reviewers.</div></div>"
+                                            },
+                                            {
+                                                "when": {
+                                                    "textContains": "(missing)"
+                                                },
+                                                "content": "No CODEOWNERS on {{ghRepo}} — every PR requires manual reviewer selection. Check the box below to create one with {{ghUser}} as the default owner.",
+                                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">📝 Create CODEOWNERS</div><div class=\"state-detail\">Without CODEOWNERS, you manually select reviewers for every PR to {{ghRepo}}. The checkbox below generates a default file that assigns {{ghUser}} to all files.\n\nCustomize the template before applying:\n• /docs/ @docs-team\n• /src/infra/ @platform-team\n• *.yml @devops-team\n\nThe file is written to .github/CODEOWNERS when you click ✅ Apply. It takes effect on the next PR created.</div></div>"
+                                            }
+                                        ],
+                                        "children": []
+                                    },
+                                    {
+                                        "id": "gh-secrets",
+                                        "title": "Secrets",
+                                        "icon": "🔒",
+                                        "selector": "#wiz-gh-section-secrets",
+                                        "content": "Your vault keys from Step 3 need to be on GitHub for Actions to use them. With {{envCount}} environments, each gets its own scoped secrets — production keys stay separate from development keys.",
+                                        "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🔒 Vault → GitHub Sync</div><div class=\"state-detail\">The secrets you configured in Step 3's vault are local to your machine. GitHub Actions can't access them until they're pushed to {{ghRepo}}.\n\nWith {{envCount}} environments, scoping works like this:\n• Each environment gets its own GitHub environment secrets\n• A production DB_PASSWORD is only visible to jobs using environment: production\n• Development jobs see only development secrets — no cross-contamination\n\nThe 'Push now' checkbox triggers a sync of all vault keys when you ✅ Apply. For per-key control — choosing which to push, which to skip — use the 🔐 Secrets tab on the dashboard or 🚀 Full Setup.\n\nSecrets pushed to GitHub are encrypted at rest and auto-masked in Actions logs.</div></div>",
+                                        "children": []
+                                    },
+                                    {
+                                        "id": "gh-apply",
+                                        "title": "Apply",
+                                        "icon": "✅",
+                                        "selector": "#wiz-apply-int-github",
+                                        "content": "Runs all checked actions: create {{ghEnvMissing}} missing environment(s), push vault secrets, write CODEOWNERS — in that order.",
+                                        "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">✅ Execution Order</div><div class=\"state-detail\">When you click Apply, the control plane runs each checked action against {{ghRepo}}:\n\n1. Create checked environments on GitHub (so deployment gates work)\n2. Push vault secrets (scoped per-environment if multi-env)\n3. Write CODEOWNERS (so PR review is automated)\n\nThis ordering matters — environments are created first so environment-scoped secrets land in the right targets.\n\nAfter all steps complete, re-detection runs and all status pills update. If any step fails, the error shows in a toast.\n\nFor repository creation, visibility changes, and branch management, use 🚀 Full Setup instead.</div></div>",
+                                        "children": []
+                                    },
+                                    {
+                                        "id": "gh-cancel",
+                                        "title": "Cancel",
+                                        "icon": "✖",
+                                        "selector": "#wiz-cancel-int-github",
+                                        "content": "Closes the setup panel without applying. No API calls to {{ghRepo}} — nothing changes on GitHub.",
+                                        "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">✖ Discard Changes</div><div class=\"state-detail\">Cancel collapses the panel and discards unsaved selections — environment checkboxes, CODEOWNERS content, secrets push toggle. No API calls are made to {{ghRepo}}.\n\nReopen anytime with ⚙️ Setup — checkbox states repopulate from the current detection state, not your previous unsaved selections.</div></div>",
+                                        "children": []
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        "id": "pages-card",
+                        "title": "Pages",
+                        "icon": "📄",
+                        "selector": "#wiz-int-wrap-int-pages",
+                        "content": "Pages is your static site builder — documentation sites, landing pages, and content-driven sections built from your project's content folders and deployed through GitHub Pages or other targets.",
+                        "variants": [
+                            {
+                                "when": {
+                                    "textContains": "✅ ready"
+                                },
+                                "content": "{{pagesSegments}} segment(s) configured and building. Deploy branch is {{pagesBranch}}, {{pagesBuildersAvail}} of {{pagesBuildersTotal}} builders available. Your static sites are operational.",
+                                "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">✅ Pages Ready</div><div class=\"state-detail\">Your static site pipeline is healthy:\n\n• {{pagesSegments}} segment(s) configured — each one is a buildable site section\n• Deploy branch is {{pagesBranch}} — built output lands there for GitHub Pages\n• {{pagesBuildersAvail}} of {{pagesBuildersTotal}} builders available\n\nSegments pull content from source directories, build through their assigned builder (Docusaurus, MkDocs, Hugo, plain HTML), and output to the deploy path.\n\nFull segment management — adding, editing, building, deploying — is in the Pages tab on the dashboard. This card gives you the overview and quick auto-init for new content folders.</div></div>"
+                            },
+                            {
+                                "when": {
+                                    "textContains": "⚠️ partial"
+                                },
+                                "content": "Pages is partially configured — {{pagesSegments}} segment(s) exist but the pipeline isn't fully operational. Check the sections below for what's missing.",
+                                "expanded": "<div class=\"assistant-state-card state-warning\"><div class=\"state-label\">⚠ Partially Configured</div><div class=\"state-detail\">You have {{pagesSegments}} segment(s) defined but the Pages pipeline isn't fully ready. Common causes:\n\n• A builder required by a segment isn't installed (check 🔨 Builders below)\n• Content source directory is empty or missing\n• Deploy branch isn't set for GitHub Pages\n\nOpen the sections below to see what needs attention. The Pages tab has full management — build logs, preview, and deploy controls.</div></div>"
+                            },
+                            {
+                                "when": {
+                                    "textContains": "not configured"
+                                },
+                                "content": "No Pages segments configured yet. If your project has content folders (docs/, content/), the auto-init below can create segments automatically.",
+                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">○ Not Configured</div><div class=\"state-detail\">Pages isn't set up yet. This means no static sites are being built from your project.\n\nIf you have content folders — docs/, content/, site/ — they'll appear in the 📂 Content Folders section with an auto-init option. The control plane detects the best builder for each folder (Docusaurus for docs with docusaurus.config.js, MkDocs for mkdocs.yml, etc.).\n\nYou can also create segments manually from the Pages tab, choosing any source directory and builder combination.\n\nPages deployment typically goes through GitHub Pages on branch {{pagesBranch}} — which links back to your GitHub card's repository configuration.</div></div>"
+                            }
+                        ],
+                        "children": [
+                            {
+                                "id": "pages-setup",
+                                "title": "Setup Panel",
+                                "icon": "⚙️",
+                                "selector": "#wiz-int-setup-int-pages",
+                                "content": "Your Pages dashboard — segments, content folders, available builders, and deployment configuration. What you see depends on what the detection scan found in your project.",
+                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">⚙️ Pages Configuration</div><div class=\"state-detail\">The Pages system works in segments — each one is an independent static site section:\n\n• A segment has a source (content directory), a builder (Docusaurus, MkDocs, Hugo, plain), and an output path\n• Multiple segments combine into one deployed site — docs + blog + landing page all coexist\n• Each builder is auto-detected from your source structure (docusaurus.config.js → Docusaurus, mkdocs.yml → MkDocs)\n\nThe setup panel here shows what the detection scan found. For full management — adding segments, building, previewing, deploying — use the Pages tab on the dashboard.</div></div>",
+                                "children": [
+                                    {
+                                        "id": "pages-status-strip",
+                                        "title": "Status Strip",
+                                        "icon": "📊",
+                                        "selector": "#wiz-pages-status-strip",
+                                        "content": "Pages health at a glance — {{pagesSegments}} segment(s), deploy branch {{pagesBranch}}, {{pagesBuildersAvail}} builders available.",
+                                        "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">📊 Pages Health</div><div class=\"state-detail\">Each pill is one dimension of your Pages setup:\n\n• Status — overall pipeline health (ready, partial, not configured)\n• Segments — {{pagesSegments}} buildable site section(s) defined\n• .pages/ — the configuration directory exists in your project root\n• Deploy branch — {{pagesBranch}} is where built output goes for GitHub Pages\n• Content folders — detected directories that could become segments\n\nGreen status means all segments have valid sources, working builders, and a deploy target. Partial means something's incomplete — a missing builder or empty source.</div></div>",
+                                        "children": [
+                                            {
+                                                "id": "pages-pill-status",
+                                                "title": "Status",
+                                                "icon": "📋",
+                                                "selector": "#wiz-pages-pill-status",
+                                                "content": "Overall Pages pipeline status — whether segments are configured and builders are operational.",
+                                                "variants": [
+                                                    {
+                                                        "when": {
+                                                            "textContains": "✅ ready"
+                                                        },
+                                                        "content": "All {{pagesSegments}} segment(s) are healthy — sources exist, builders are available, output paths are configured.",
+                                                        "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">✅ Pipeline Ready</div><div class=\"state-detail\">Every configured segment has:\n\n• A valid source directory with content\n• An available builder installed on your system\n• An output path for the built site\n\nYou can build and preview segments from the Pages tab. Deployment pushes built output to {{pagesBranch}} for GitHub Pages.</div></div>"
+                                                    },
+                                                    {
+                                                        "when": {
+                                                            "textContains": "⚠️ partial"
+                                                        },
+                                                        "content": "Some segments have issues — a builder might be missing or a source directory is empty. Check the sections below.",
+                                                        "expanded": "<div class=\"assistant-state-card state-warning\"><div class=\"state-label\">⚠ Partially Ready</div><div class=\"state-detail\">At least one segment has a problem. Common issues:\n\n• Builder not installed — check 🔨 Builders section\n• Source directory empty or deleted since last scan\n• Output path conflicts between segments\n\nHit 🔄 Re-scan to refresh detection. The Pages tab shows per-segment build status with detailed error messages.</div></div>"
+                                                    },
+                                                    {
+                                                        "when": {
+                                                            "textContains": "not configured"
+                                                        },
+                                                        "content": "No segments exist yet. Content folders below can be auto-initialized, or create segments manually in the Pages tab.",
+                                                        "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">○ No Segments</div><div class=\"state-detail\">Pages has no configured segments. A segment is required before anything can be built or deployed.\n\nTwo paths to create one:\n• Auto-init from detected content folders (📂 section below)\n• Manual creation in the Pages tab — choose any directory + builder\n\nThe auto-init option examines each content folder's structure and picks the best builder automatically.</div></div>"
+                                                    }
+                                                ],
+                                                "expanded": "",
+                                                "children": []
+                                            },
+                                            {
+                                                "id": "pages-pill-segments",
+                                                "title": "Segments",
+                                                "icon": "📑",
+                                                "selector": "#wiz-pages-pill-segments",
+                                                "content": "{{pagesSegments}} segment(s) — each one is an independent buildable site section with its own source directory and builder.",
+                                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">📑 {{pagesSegments}} Segment(s)</div><div class=\"state-detail\">Each segment is a self-contained build unit:\n\n• Has its own source directory (e.g., docs/, content/blog/)\n• Uses a specific builder (Docusaurus, MkDocs, Hugo, plain HTML)\n• Outputs to a path within the deployed site\n\nMultiple segments combine into one site — you can have docs at /docs, a blog at /blog, and a landing page at / all building independently.\n\nSee the 📑 Segments section below for the full list with source → output mappings and preview links.</div></div>",
+                                                "children": []
+                                            },
+                                            {
+                                                "id": "pages-pill-pagesdir",
+                                                "title": ".pages/ Directory",
+                                                "icon": "📁",
+                                                "selector": "#wiz-pages-pill-pagesdir",
+                                                "content": "The .pages/ directory holds Pages configuration — segment definitions, builder settings, and deploy metadata.",
+                                                "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">📁 .pages/ Exists</div><div class=\"state-detail\">Your project has a .pages/ directory at the root. This is where the Pages system stores:\n\n• Segment definitions (which directories build into which site sections)\n• Builder configuration and overrides\n• Deploy metadata (branch, base URL, custom domain)\n• Theme and plugin settings per builder\n\nThis directory is committed to your repository — your Pages configuration is versioned and reproducible across environments.</div></div>",
+                                                "children": []
+                                            },
+                                            {
+                                                "id": "pages-pill-branch",
+                                                "title": "Deploy Branch",
+                                                "icon": "🌿",
+                                                "selector": "#wiz-pages-pill-branch",
+                                                "content": "Built site output goes to {{pagesBranch}} — GitHub Pages serves from this branch automatically when configured on your repository.",
+                                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🌿 {{pagesBranch}}</div><div class=\"state-detail\">The deploy branch is where built static site output is committed. GitHub Pages reads from this branch to serve your site.\n\nThe flow:\n1. Build segments locally (or in CI/CD)\n2. Built output is committed to {{pagesBranch}}\n3. GitHub Pages picks it up and serves at your.domain.com or username.github.io/repo\n\nThis links back to your GitHub card — {{ghRepo}} needs GitHub Pages enabled in repository settings, pointing at {{pagesBranch}} as the source.\n\nThe CI/CD card's workflow can automate this: build on push to {{ghBranch}}, deploy output to {{pagesBranch}}.</div></div>",
+                                                "children": []
+                                            },
+                                            {
+                                                "id": "pages-pill-folders",
+                                                "title": "Content Folders",
+                                                "icon": "📂",
+                                                "selector": "#wiz-pages-pill-folders",
+                                                "content": "{{pagesFolders}} content folder(s) detected that could become segments — auto-init available if you want to build them into your site.",
+                                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">📂 {{pagesFolders}} Content Folder(s)</div><div class=\"state-detail\">The detection scan found {{pagesFolders}} directories in your project that contain buildable content (markdown, HTML, RST) but don't have segments yet.\n\nEach folder is matched with the best builder:\n• Has docusaurus.config.js → Docusaurus\n• Has mkdocs.yml → MkDocs\n• Contains .md files → plain markdown (fallback)\n\nCheck the 📂 Content Folders section below to auto-initialize segments from these. Apply creates the segment definitions — you can preview and build from the Pages tab afterward.</div></div>",
+                                                "children": []
+                                            }
+                                        ]
+                                    },
+                                    {
+                                        "id": "pages-segments",
+                                        "title": "Segments",
+                                        "icon": "📑",
+                                        "selector": "#wiz-pages-section-segments",
+                                        "content": "{{pagesSegments}} configured segment(s) — each row shows the segment name, builder, source → output mapping, and a local preview link.",
+                                        "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">📑 {{pagesSegments}} Active Segment(s)</div><div class=\"state-detail\">These segments are configured and buildable. Each row shows:\n\n• Name — the segment identifier used in commands and the Pages tab\n• Builder — which build tool processes the content (Docusaurus, MkDocs, etc.)\n• Source → Path — the content directory and where it appears in the deployed site\n• 🔗 — opens a local preview of the built segment\n\nSegments build independently — changing docs doesn't rebuild blog. The Pages tab has build controls, logs, and full preview for each segment.\n\nDeployment pushes all segment outputs to {{pagesBranch}} as a combined site.</div></div>",
+                                        "children": []
+                                    },
+                                    {
+                                        "id": "pages-folders",
+                                        "title": "Content Folders",
+                                        "icon": "📂",
+                                        "selector": "#wiz-pages-section-folders",
+                                        "content": "Detected content directories that can become segments. ✅ means a segment already exists, ⬜ means auto-init is available.",
+                                        "variants": [
+                                            {
+                                                "when": {
+                                                    "textContains": "no segment"
+                                                },
+                                                "content": "{{pagesUninit}} content folder(s) don't have segments yet — check the auto-init box and Apply to create them automatically with the best matching builder.",
+                                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">📂 {{pagesUninit}} Uninitialized</div><div class=\"state-detail\">{{pagesUninit}} content folder(s) were detected but don't have segments yet. Each one shows:\n\n• The folder name and file count\n• The best-matching builder (detected from config files and content type)\n• A 💡 suggestion if the detection has a specific recommendation\n\nThe auto-init checkbox at the bottom creates segments for all uninitialized folders using their detected builders. After init, you can build and preview from the Pages tab.\n\nThis is the fastest way to get your content building — one click creates properly configured segments.</div></div>"
+                                            }
+                                        ],
+                                        "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">📂 All Folders Linked</div><div class=\"state-detail\">Every detected content folder has a corresponding segment. Your project's content directories are fully integrated into the Pages pipeline.\n\nEach folder's content is being built through its assigned builder whenever you trigger a build from the Pages tab or CI/CD workflow.</div></div>",
+                                        "children": []
+                                    },
+                                    {
+                                        "id": "pages-builders",
+                                        "title": "Builders",
+                                        "icon": "🔨",
+                                        "selector": "#wiz-pages-section-builders",
+                                        "content": "{{pagesBuildersAvail}} of {{pagesBuildersTotal}} builders available on your system — these are the tools that compile content into static HTML.",
+                                        "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🔨 {{pagesBuildersAvail}}/{{pagesBuildersTotal}} Builders</div><div class=\"state-detail\">Builders are the engines that transform your content into static HTML. Each one handles a different source format:\n\n• Docusaurus — React-based, MDX support, versioned docs, blog\n• MkDocs — Python-based, Material theme, simpler configuration\n• Hugo — Go-based, extremely fast builds, shortcodes\n• Plain — copies HTML/CSS/JS directly, no compilation\n\n✅ means the builder's CLI is installed and ready. ○ means it's known but not installed — segments using that builder can't build until you install it.\n\nThe system tools section at the top of this step shows CLI availability. Missing builders can be installed from there.</div></div>",
+                                        "children": [
+                                            {
+                                                "id": "pages-builder-docusaurus",
+                                                "title": "Docusaurus",
+                                                "icon": "🦖",
+                                                "selector": "#wiz-pages-builder-docusaurus",
+                                                "content": "Docusaurus — React-based documentation framework with MDX support. The most feature-rich builder for documentation sites.",
+                                                "variants": [
+                                                    {
+                                                        "when": {
+                                                            "textContains": "✅"
+                                                        },
+                                                        "content": "Docusaurus is installed and ready — Node.js and npx detected. The most powerful builder for documentation-heavy projects.",
+                                                        "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">🦖 Docusaurus · ready</div><div class=\"state-detail\">Docusaurus is available and can build segments assigned to it.\n\nWhat it gives you:\n• MDX — write React components directly in markdown\n• Versioned docs — maintain docs across software versions\n• Blog engine — built-in blog with RSS and pagination\n• Search — Algolia-powered search out of the box\n• i18n — built-in internationalization support\n• Theme system — fully customizable React-based themes\n\nBest for: documentation sites, knowledge bases, multi-version API docs, developer portals.\n\nRequires: Node.js 18+ (detected via npx). Builds are slower than Hugo but the output is a full React SPA with client-side navigation.\n\nThis is the default builder when a content folder contains markdown and Node.js is available.</div></div>"
+                                                    },
+                                                    {
+                                                        "when": {
+                                                            "textContains": "○"
+                                                        },
+                                                        "content": "Docusaurus requires Node.js 18+ (npx). Install Node.js to use this builder for MDX-enabled documentation sites.",
+                                                        "expanded": "<div class=\"assistant-state-card state-warning\"><div class=\"state-label\">🦖 Docusaurus · not available</div><div class=\"state-detail\">Docusaurus can't build because Node.js is missing.\n\nTo install:\n• Node.js 18+ from https://nodejs.org\n• Or via nvm: nvm install 18\n\nOnce Node.js is installed, npx handles Docusaurus initialization and builds automatically — no global install needed.\n\nAlternative: MkDocs uses Python instead of Node.js and is simpler to set up, though it has fewer features (no MDX, no React components).</div></div>"
+                                                    }
+                                                ],
+                                                "expanded": "",
+                                                "children": []
+                                            },
+                                            {
+                                                "id": "pages-builder-mkdocs",
+                                                "title": "MkDocs",
+                                                "icon": "📘",
+                                                "selector": "#wiz-pages-builder-mkdocs",
+                                                "content": "MkDocs — Python-based documentation generator with Material theme support. Simpler than Docusaurus but very polished.",
+                                                "variants": [
+                                                    {
+                                                        "when": {
+                                                            "textContains": "✅"
+                                                        },
+                                                        "content": "MkDocs is installed and ready — Python and mkdocs CLI detected. Great for clean, Material-themed documentation.",
+                                                        "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">📘 MkDocs · ready</div><div class=\"state-detail\">MkDocs is available and can build segments assigned to it.\n\nWhat it gives you:\n• Material theme — polished, responsive design out of the box\n• Navigation — automatic sidebar from directory structure\n• Search — built-in lunr.js search, no external service needed\n• Plugins — rich ecosystem (mermaid diagrams, code annotations, admonitions)\n• Fast — Python-based but builds are quick for typical doc sizes\n\nBest for: project documentation, internal wikis, API reference sites, README-style docs.\n\nRequires: Python 3 with pip. Configuration lives in mkdocs.yml.\n\nMkDocs is the fallback when Node.js isn't available but Python is — it produces excellent results with less configuration than Docusaurus.</div></div>"
+                                                    },
+                                                    {
+                                                        "when": {
+                                                            "textContains": "○"
+                                                        },
+                                                        "content": "MkDocs requires Python 3 and the mkdocs package. Install with: pip install mkdocs mkdocs-material",
+                                                        "expanded": "<div class=\"assistant-state-card state-warning\"><div class=\"state-label\">📘 MkDocs · not available</div><div class=\"state-detail\">MkDocs isn't installed. Python is likely available but the mkdocs package is missing.\n\nTo install:\n• pip install mkdocs mkdocs-material\n• Or in a venv: python -m pip install mkdocs mkdocs-material\n\nThe Material theme is strongly recommended — it provides the polished look and responsive layout. Without it, MkDocs uses a basic theme.\n\nAlternative: Docusaurus requires Node.js but is more feature-rich (MDX, versioned docs, React components).</div></div>"
+                                                    }
+                                                ],
+                                                "expanded": "",
+                                                "children": []
+                                            },
+                                            {
+                                                "id": "pages-builder-hugo",
+                                                "title": "Hugo",
+                                                "icon": "⚡",
+                                                "selector": "#wiz-pages-builder-hugo",
+                                                "content": "Hugo — Go-based static site generator. Single binary, no runtime dependencies, extremely fast builds.",
+                                                "variants": [
+                                                    {
+                                                        "when": {
+                                                            "textContains": "✅"
+                                                        },
+                                                        "content": "Hugo is installed and ready — the hugo binary is available. Fastest builder for large content sites.",
+                                                        "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">⚡ Hugo · ready</div><div class=\"state-detail\">Hugo is available and can build segments assigned to it.\n\nWhat it gives you:\n• Speed — builds thousands of pages in milliseconds (Go compiled binary)\n• Shortcodes — reusable content snippets without a framework\n• Taxonomies — categories, tags, series out of the box\n• Multilingual — built-in i18n with per-language content trees\n• Themes — 300+ themes available, single-file configuration\n\nBest for: blogs, large content sites, multi-language sites, sites where build speed matters.\n\nRequires: hugo binary (no runtime dependencies). Single binary — no package manager, no node_modules, no virtual environments.\n\nHugo is the fastest builder by far but has less flexibility than Docusaurus for custom interactive components.</div></div>"
+                                                    },
+                                                    {
+                                                        "when": {
+                                                            "textContains": "○"
+                                                        },
+                                                        "content": "Hugo requires the hugo binary. The control plane can download it to ~/.local/bin/ automatically.",
+                                                        "expanded": "<div class=\"assistant-state-card state-warning\"><div class=\"state-label\">⚡ Hugo · not available</div><div class=\"state-detail\">The hugo binary isn't installed.\n\nTo install:\n• The control plane can download it automatically (🔧 Install in the system tools section)\n• Or manually: https://gohugo.io/installation/\n• Homebrew: brew install hugo\n• Snap: snap install hugo\n\nHugo is a single binary — no runtime dependencies. It downloads and runs immediately. No python, no node, no package manager needed.\n\nAlternative: Docusaurus or MkDocs if you already have Node.js or Python installed.</div></div>"
+                                                    }
+                                                ],
+                                                "expanded": "",
+                                                "children": []
+                                            },
+                                            {
+                                                "id": "pages-builder-sphinx",
+                                                "title": "Sphinx",
+                                                "icon": "📜",
+                                                "selector": "#wiz-pages-builder-sphinx",
+                                                "content": "Sphinx — Python documentation generator. The standard for Python project docs, supports RST and Markdown via MyST.",
+                                                "variants": [
+                                                    {
+                                                        "when": {
+                                                            "textContains": "✅"
+                                                        },
+                                                        "content": "Sphinx is installed and ready — Python and sphinx-build detected. The standard choice for Python project documentation.",
+                                                        "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">📜 Sphinx · ready</div><div class=\"state-detail\">Sphinx is available and can build segments assigned to it.\n\nWhat it gives you:\n• RST — reStructuredText, the most expressive plain-text markup\n• Cross-referencing — automatic links between docs, API references, glossary terms\n• API autodoc — generate docs directly from Python docstrings\n• Extensions — hundreds of extensions (intersphinx, napoleon, todo, coverage)\n• MyST — Markdown support via myst-parser (write markdown instead of RST)\n\nBest for: Python projects, API documentation, academic/technical writing, projects needing cross-references.\n\nRequires: Python 3 with sphinx. Configuration lives in conf.py.\n\nSphinx is the gold standard for Python projects — if your project is Python-heavy with docstrings, autodoc will save you hours of manual documentation.</div></div>"
+                                                    },
+                                                    {
+                                                        "when": {
+                                                            "textContains": "○"
+                                                        },
+                                                        "content": "Sphinx requires Python 3 and the sphinx package. Install with: pip install sphinx myst-parser",
+                                                        "expanded": "<div class=\"assistant-state-card state-warning\"><div class=\"state-label\">📜 Sphinx · not available</div><div class=\"state-detail\">Sphinx isn't installed.\n\nTo install:\n• pip install sphinx myst-parser\n• myst-parser enables Markdown alongside RST\n• For the RTD theme: pip install sphinx-rtd-theme\n\nSphinx is most useful for Python projects with docstrings that need API reference generation. For pure markdown documentation, MkDocs or Docusaurus are simpler.\n\nAlternative: MkDocs for simpler markdown docs, Docusaurus for MDX and React.</div></div>"
+                                                    }
+                                                ],
+                                                "expanded": "",
+                                                "children": []
+                                            },
+                                            {
+                                                "id": "pages-builder-raw",
+                                                "title": "Static Files",
+                                                "icon": "📋",
+                                                "selector": "#wiz-pages-builder-raw",
+                                                "content": "Static Files — copies HTML, CSS, and JS directly to the output. No build step, no dependencies. Always available.",
+                                                "variants": [
+                                                    {
+                                                        "when": {
+                                                            "textContains": "✅"
+                                                        },
+                                                        "content": "Static Files is always available — no build tools needed. Copies your files directly to the deployed site.",
+                                                        "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">📋 Static Files · always available</div><div class=\"state-detail\">The raw/static builder is always ready — it requires no external tools.\n\nWhat it does:\n• Copies files as-is from source to output directory\n• No compilation, no transformation, no dependencies\n• HTML, CSS, JS, images — anything goes\n\nBest for: pre-built sites, hand-crafted HTML, legacy content, assets that don't need processing.\n\nThis is the fallback builder when no specialized tool is available or when your content is already built HTML. It's also useful for embedding pre-existing sites as segments alongside Docusaurus or MkDocs segments.</div></div>"
+                                                    }
+                                                ],
+                                                "expanded": "",
+                                                "children": []
+                                            },
+                                            {
+                                                "id": "pages-builder-custom",
+                                                "title": "Custom Build",
+                                                "icon": "🔧",
+                                                "selector": "#wiz-pages-builder-custom",
+                                                "content": "Custom Build — run any shell command as the build step. Full flexibility for non-standard toolchains. Always available.",
+                                                "variants": [
+                                                    {
+                                                        "when": {
+                                                            "textContains": "✅"
+                                                        },
+                                                        "content": "Custom Build is always available — define any build command for segments that don't fit standard builders.",
+                                                        "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">🔧 Custom Build · always available</div><div class=\"state-detail\">The custom builder lets you define any shell command as your build step.\n\nUse cases:\n• Gatsby, Astro, Next.js, Eleventy, or any other SSG\n• Custom scripts that generate HTML from templates\n• Compile-to-HTML workflows (Pandoc, LaTeX → HTML)\n• Chained builds that combine multiple tools\n\nConfiguration: set the build command, source directory, and output path in the segment config. The command runs from the project root.\n\nThis builder exists because the Pages system shouldn't limit you to the built-in options. If your tool can produce HTML output, it works as a custom builder.</div></div>"
+                                                    }
+                                                ],
+                                                "expanded": "",
+                                                "children": []
+                                            }
+                                        ]
+                                    },
+                                    {
+                                        "id": "pages-deploy-info",
+                                        "title": "Deploy Info",
+                                        "icon": "🚀",
+                                        "selector": "#wiz-pages-deploy-info",
+                                        "content": "Deploy branch is {{pagesBranch}} — built output goes here. GitHub Pages on {{ghRepo}} should be configured to serve from this branch.",
+                                        "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🚀 Deployment Target</div><div class=\"state-detail\">Your Pages deployment configuration:\n\n• Deploy branch — {{pagesBranch}}. Built segment output is committed here.\n• GitHub Pages — {{ghRepo}} needs Pages enabled in repository settings, source set to {{pagesBranch}}.\n\nThe deployment flow:\n1. Build all segments (locally or in CI/CD)\n2. Commit built output to {{pagesBranch}}\n3. GitHub Pages serves the combined site\n\nBase URL matters if your repo is at github.io/repo-name — internal links need the prefix. The Pages tab has base URL configuration per segment.</div></div>",
+                                        "children": []
+                                    },
+                                    {
+                                        "id": "pages-apply",
+                                        "title": "Apply",
+                                        "icon": "✅",
+                                        "selector": "#wiz-apply-int-pages",
+                                        "content": "Auto-initializes {{pagesUninit}} segment(s) from uninitialized content folders using their best-matching builders.",
+                                        "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">✅ Auto-Initialize Segments</div><div class=\"state-detail\">Apply creates segment definitions for each checked content folder:\n\n1. Reads the content folder's structure and detected builder\n2. Creates a segment in .pages/ with the right configuration\n3. Sets the output path within the deployed site\n\nAfter initialization, segments are ready to build and preview from the Pages tab. No content is modified — only .pages/ segment definitions are created.\n\nThis is reversible — delete any segment from the Pages tab if the auto-detected configuration isn't right.</div></div>",
+                                        "children": []
+                                    },
+                                    {
+                                        "id": "pages-cancel",
+                                        "title": "Cancel",
+                                        "icon": "✖",
+                                        "selector": "#wiz-cancel-int-pages",
+                                        "content": "Closes the setup panel without creating any segments. No files are modified.",
+                                        "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">✖ Discard</div><div class=\"state-detail\">Cancel collapses the panel without creating segments or modifying any files. The auto-init checkbox state is discarded.\n\nReopen anytime with ⚙️ Setup — detection results repopulate from the current project state.</div></div>",
+                                        "children": []
+                                    }
+                                ]
+                            }
+                        ]
                     }
                 ]
             }

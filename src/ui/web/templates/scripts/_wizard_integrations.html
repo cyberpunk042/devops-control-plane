@@ -1734,7 +1734,7 @@ const _wizSubForms = {
         const remoteEnvNames = ghEnvList.map(e => (typeof e === 'string' ? e : e.name || String(e)).toLowerCase());
         const codeownersContent = d.codeowners_content || '';
 
-        const _pill = (ok, label) => `<span style="font-size:0.62rem;padding:0.08rem 0.3rem;border-radius:4px;${ok ? 'background:color-mix(in srgb, var(--success) 10%, transparent);color:var(--success);border:1px solid color-mix(in srgb, var(--success) 25%, transparent)' : 'background:color-mix(in srgb, var(--text-muted) 8%, transparent);color:var(--text-muted);border:1px solid color-mix(in srgb, var(--text-muted) 20%, transparent)'}">${label}</span>`;
+        const _pill = (ok, label, id) => `<span ${id ? 'id="'+id+'"' : ''} style="font-size:0.62rem;padding:0.08rem 0.3rem;border-radius:4px;${ok ? 'background:color-mix(in srgb, var(--success) 10%, transparent);color:var(--success);border:1px solid color-mix(in srgb, var(--success) 25%, transparent)' : 'background:color-mix(in srgb, var(--text-muted) 8%, transparent);color:var(--text-muted);border:1px solid color-mix(in srgb, var(--text-muted) 20%, transparent)'}">${label}</span>`;
 
         let html = `<div style="font-weight:600;font-size:0.85rem;margin-bottom:0.5rem">🐙 GitHub</div>`;
 
@@ -1775,21 +1775,21 @@ const _wizSubForms = {
         const matchCount = localEnvs.filter(e => remoteEnvNames.includes(e.name.toLowerCase())).length;
         const hasCo = ghProbe.has_codeowners;
 
-        html += `<div style="display:flex;flex-wrap:wrap;gap:0.25rem;margin-bottom:0.5rem">
-            ${_pill(true, '✓ authenticated')}
-            ${ghUser.login ? _pill(true, '@' + esc(ghUser.login)) : ''}
-            ${ghRepo.slug ? _pill(true, esc(ghRepo.slug)) : _pill(false, '○ no repo linked')}
-            ${vis ? _pill(true, vis === 'private' ? '🔒 private' : '🌐 public') : ''}
-            ${ghRepo.default_branch ? _pill(true, '🌿 ' + esc(ghRepo.default_branch)) : ''}
-            ${ghEnvList.length > 0 ? _pill(true, ghEnvList.length + ' env(s)') : ''}
-            ${localEnvs.length > 0 && matchCount < localEnvs.length ? _pill(false, (localEnvs.length - matchCount) + ' env(s) missing on GH') : ''}
-            ${hasCo ? _pill(true, 'CODEOWNERS ✓') : _pill(false, '○ no CODEOWNERS')}
-            ${ghProbe.workflow_count > 0 ? _pill(true, ghProbe.workflow_count + ' workflow(s)') : ''}
+        html += `<div id="wiz-gh-status-strip" style="display:flex;flex-wrap:wrap;gap:0.25rem;margin-bottom:0.5rem">
+            ${_pill(true, '✓ authenticated', 'wiz-gh-pill-auth')}
+            ${ghUser.login ? _pill(true, '@' + esc(ghUser.login), 'wiz-gh-pill-user') : ''}
+            ${ghRepo.slug ? _pill(true, esc(ghRepo.slug), 'wiz-gh-pill-repo') : _pill(false, '○ no repo linked', 'wiz-gh-pill-repo')}
+            ${vis ? _pill(true, vis === 'private' ? '🔒 private' : '🌐 public', 'wiz-gh-pill-vis') : ''}
+            ${ghRepo.default_branch ? _pill(true, '🌿 ' + esc(ghRepo.default_branch), 'wiz-gh-pill-branch') : ''}
+            ${ghEnvList.length > 0 ? _pill(true, ghEnvList.length + ' env(s)', 'wiz-gh-pill-envs') : ''}
+            ${localEnvs.length > 0 && matchCount < localEnvs.length ? _pill(false, (localEnvs.length - matchCount) + ' env(s) missing on GH', 'wiz-gh-pill-envs-missing') : ''}
+            ${hasCo ? _pill(true, 'CODEOWNERS ✓', 'wiz-gh-pill-codeowners') : _pill(false, '○ no CODEOWNERS', 'wiz-gh-pill-codeowners')}
+            ${ghProbe.workflow_count > 0 ? _pill(true, ghProbe.workflow_count + ' workflow(s)', 'wiz-gh-pill-workflows') : ''}
         </div>`;
 
         // ── User card ──
         const avatar = ghUser.avatar_url || '';
-        html += `<div style="display:flex;align-items:center;gap:0.5rem;padding:0.4rem 0.5rem;background:color-mix(in srgb, var(--bg-inset) 50%, transparent);border:1px solid var(--border-subtle);border-radius:6px;margin-bottom:0.5rem">
+        html += `<div id="wiz-gh-user-card" style="display:flex;align-items:center;gap:0.5rem;padding:0.4rem 0.5rem;background:color-mix(in srgb, var(--bg-inset) 50%, transparent);border:1px solid var(--border-subtle);border-radius:6px;margin-bottom:0.5rem">
             ${avatar ? `<img src="${esc(avatar)}" style="width:24px;height:24px;border-radius:50%;border:1.5px solid var(--accent)" alt="">` : '<span style="font-size:1rem">👤</span>'}
             <div style="flex:1;min-width:0">
                 <span style="font-size:0.78rem;font-weight:600">${esc(ghUser.login || '?')}</span>
@@ -1801,7 +1801,7 @@ const _wizSubForms = {
 
         // ── Repository info ──
         if (ghRepo.slug) {
-            html += `<details style="margin-bottom:0.5rem" open>
+            html += `<details id="wiz-gh-section-repo" style="margin-bottom:0.5rem" open>
                 <summary style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;cursor:pointer;user-select:none;margin-bottom:0.3rem">
                     📦 Repository
                 </summary>
@@ -1825,7 +1825,7 @@ const _wizSubForms = {
         // ── Environment alignment ──
         if (localEnvs.length > 0) {
             const missingEnvs = localEnvs.filter(e => !remoteEnvNames.includes(e.name.toLowerCase()));
-            html += `<details style="margin-bottom:0.5rem" ${missingEnvs.length > 0 ? 'open' : ''}>
+            html += `<details id="wiz-gh-section-envs" style="margin-bottom:0.5rem" ${missingEnvs.length > 0 ? 'open' : ''}>
                 <summary style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;cursor:pointer;user-select:none;margin-bottom:0.3rem">
                     ⚙️ Environments (${matchCount}/${localEnvs.length} aligned)
                 </summary>
@@ -1865,7 +1865,7 @@ const _wizSubForms = {
         }
 
         // ── CODEOWNERS ──
-        html += `<details style="margin-bottom:0.5rem">
+        html += `<details id="wiz-gh-section-codeowners" style="margin-bottom:0.5rem">
             <summary style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;cursor:pointer;user-select:none;margin-bottom:0.3rem">
                 📋 CODEOWNERS ${hasCo ? '(exists)' : '(missing)'}
             </summary>
@@ -1890,7 +1890,7 @@ const _wizSubForms = {
         html += `</div></details>`;
 
         // ── Secrets overview ──
-        html += `<details style="margin-bottom:0.5rem">
+        html += `<details id="wiz-gh-section-secrets" style="margin-bottom:0.5rem">
             <summary style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;cursor:pointer;user-select:none;margin-bottom:0.3rem">
                 🔒 Secrets
             </summary>
@@ -1918,23 +1918,21 @@ const _wizSubForms = {
         let html = `<div style="font-weight:600;font-size:0.85rem;margin-bottom:0.5rem">📄 Pages</div>`;
 
         // ── Status strip ──
-        const pills = [];
-        if (pp.status === 'ready') pills.push('✅ ready');
-        else if (pp.status === 'partial') pills.push('⚠️ partial');
-        else pills.push('○ not configured');
+        const _ppill = (text, id) => `<span ${id ? 'id="'+id+'"' : ''} style="font-size:0.68rem;padding:0.15rem 0.45rem;border-radius:999px;background:var(--bg-inset);border:1px solid var(--border-subtle);color:var(--text-secondary)">${text}</span>`;
 
-        if (segs.length > 0) pills.push(`📑 ${segs.length} segment${segs.length !== 1 ? 's' : ''}`);
-        if (pp.has_pages_dir) pills.push('📁 .pages/');
-        if (meta.deploy_branch) pills.push(`🌿 ${meta.deploy_branch}`);
-        if (cfs.length > 0 && segs.length === 0) pills.push(`📂 ${cfs.length} content folder${cfs.length !== 1 ? 's' : ''}`);
-
-        html += `<div style="display:flex;flex-wrap:wrap;gap:0.3rem;margin-bottom:0.6rem">
-            ${pills.map(p => `<span style="font-size:0.68rem;padding:0.15rem 0.45rem;border-radius:999px;background:var(--bg-inset);border:1px solid var(--border-subtle);color:var(--text-secondary)">${p}</span>`).join('')}
-        </div>`;
+        html += `<div id="wiz-pages-status-strip" style="display:flex;flex-wrap:wrap;gap:0.3rem;margin-bottom:0.6rem">`;
+        if (pp.status === 'ready') html += _ppill('✅ ready', 'wiz-pages-pill-status');
+        else if (pp.status === 'partial') html += _ppill('⚠️ partial', 'wiz-pages-pill-status');
+        else html += _ppill('○ not configured', 'wiz-pages-pill-status');
+        if (segs.length > 0) html += _ppill(`📑 ${segs.length} segment${segs.length !== 1 ? 's' : ''}`, 'wiz-pages-pill-segments');
+        if (pp.has_pages_dir) html += _ppill('📁 .pages/', 'wiz-pages-pill-pagesdir');
+        if (meta.deploy_branch) html += _ppill(`🌿 ${meta.deploy_branch}`, 'wiz-pages-pill-branch');
+        if (cfs.length > 0 && segs.length === 0) html += _ppill(`📂 ${cfs.length} content folder${cfs.length !== 1 ? 's' : ''}`, 'wiz-pages-pill-folders');
+        html += `</div>`;
 
         // ── Existing segments ──
         if (segs.length > 0) {
-            html += `<details open style="margin-bottom:0.5rem">
+            html += `<details id="wiz-pages-section-segments" open style="margin-bottom:0.5rem">
                 <summary style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;cursor:pointer;user-select:none;margin-bottom:0.3rem">📑 Segments (${segs.length})</summary>
                 <div style="border:1px solid var(--border-subtle);border-radius:6px;overflow:hidden">`;
             for (const seg of segs) {
@@ -1956,7 +1954,7 @@ const _wizSubForms = {
         // ── Content folders (with auto-init) ──
         if (cfs.length > 0) {
             const uninit = cfs.filter(cf => !cf.has_segment);
-            html += `<details ${segs.length === 0 ? 'open' : ''} style="margin-bottom:0.5rem">
+            html += `<details id="wiz-pages-section-folders" ${segs.length === 0 ? 'open' : ''} style="margin-bottom:0.5rem">
                 <summary style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;cursor:pointer;user-select:none;margin-bottom:0.3rem">📂 Content Folders (${cfs.length})</summary>`;
 
             for (const cf of cfs) {
@@ -1997,20 +1995,20 @@ const _wizSubForms = {
 
         // ── Available builders ──
         if (builders.length > 0) {
-            html += `<details style="margin-bottom:0.5rem">
+            html += `<details id="wiz-pages-section-builders" style="margin-bottom:0.5rem">
                 <summary style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;cursor:pointer;user-select:none;margin-bottom:0.3rem">🔨 Available Builders (${builders.filter(b => b.available).length}/${builders.length})</summary>
                 <div style="display:flex;flex-wrap:wrap;gap:0.3rem;padding:0.2rem 0">`;
             for (const b of builders) {
                 const color = b.available ? 'var(--success)' : 'var(--text-muted)';
                 const icon = b.available ? '✅' : '○';
-                html += `<span style="font-size:0.68rem;padding:0.15rem 0.45rem;border-radius:999px;background:var(--bg-inset);border:1px solid var(--border-subtle);color:${color}">${icon} ${esc(b.label)}</span>`;
+                html += `<span id="wiz-pages-builder-${esc(b.name)}" style="font-size:0.68rem;padding:0.15rem 0.45rem;border-radius:999px;background:var(--bg-inset);border:1px solid var(--border-subtle);color:${color}">${icon} ${esc(b.label)}</span>`;
             }
             html += `</div></details>`;
         }
 
         // ── Deploy info ──
         if (meta.deploy_branch || meta.base_url) {
-            html += `<div style="font-size:0.68rem;color:var(--text-muted);margin-bottom:0.4rem">`;
+            html += `<div id="wiz-pages-deploy-info" style="font-size:0.68rem;color:var(--text-muted);margin-bottom:0.4rem">`;
             if (meta.deploy_branch) html += `Deploy branch: <strong>${esc(meta.deploy_branch)}</strong>`;
             if (meta.deploy_branch && meta.base_url) html += ` · `;
             if (meta.base_url) html += `Base URL: <strong>${esc(meta.base_url)}</strong>`;

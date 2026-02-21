@@ -1035,5 +1035,121 @@
         return cards ? cards.length : 0;
     };
 
+    // ── GitHub card resolvers ────────────────────────────────────
+
+    window._assistant.resolvers.ghUser = function() {
+        var pill = document.getElementById('wiz-gh-pill-user');
+        if (!pill) return '';
+        return pill.textContent.trim();  // e.g. "@cyberpunk042"
+    };
+
+    window._assistant.resolvers.ghRepo = function() {
+        var pill = document.getElementById('wiz-gh-pill-repo');
+        if (!pill) return '';
+        var text = pill.textContent.trim();
+        return text.indexOf('no repo') !== -1 ? '' : text;
+    };
+
+    window._assistant.resolvers.ghVis = function() {
+        var pill = document.getElementById('wiz-gh-pill-vis');
+        if (!pill) return '';
+        var text = pill.textContent.trim();
+        if (text.indexOf('private') !== -1) return 'private';
+        if (text.indexOf('public') !== -1) return 'public';
+        return '';
+    };
+
+    window._assistant.resolvers.ghBranch = function() {
+        var pill = document.getElementById('wiz-gh-pill-branch');
+        if (!pill) return '';
+        return pill.textContent.replace('🌿', '').trim();
+    };
+
+    window._assistant.resolvers.ghEnvTotal = function() {
+        var section = document.getElementById('wiz-gh-section-envs');
+        if (!section) return 0;
+        var rows = section.querySelectorAll('[style*="display:flex"][style*="align-items:center"]');
+        return rows ? rows.length : 0;
+    };
+
+    window._assistant.resolvers.ghEnvAligned = function() {
+        var section = document.getElementById('wiz-gh-section-envs');
+        if (!section) return 0;
+        var summary = section.querySelector('summary');
+        if (!summary) return 0;
+        var match = summary.textContent.match(/(\d+)\/\d+/);
+        return match ? parseInt(match[1], 10) : 0;
+    };
+
+    window._assistant.resolvers.ghEnvMissing = function() {
+        var total = window._assistant.resolvers.ghEnvTotal();
+        var aligned = window._assistant.resolvers.ghEnvAligned();
+        return total - aligned;
+    };
+
+    window._assistant.resolvers.ghWorkflows = function() {
+        var pill = document.getElementById('wiz-gh-pill-workflows');
+        if (!pill) return 0;
+        var match = pill.textContent.match(/(\d+)/);
+        return match ? parseInt(match[1], 10) : 0;
+    };
+
+    // ── Pages card resolvers ─────────────────────────────────────
+
+    window._assistant.resolvers.pagesSegments = function() {
+        var pill = document.getElementById('wiz-pages-pill-segments');
+        if (!pill) return 0;
+        var match = pill.textContent.match(/(\d+)/);
+        return match ? parseInt(match[1], 10) : 0;
+    };
+
+    window._assistant.resolvers.pagesFolders = function() {
+        var pill = document.getElementById('wiz-pages-pill-folders');
+        if (!pill) return 0;
+        var match = pill.textContent.match(/(\d+)/);
+        return match ? parseInt(match[1], 10) : 0;
+    };
+
+    window._assistant.resolvers.pagesBranch = function() {
+        var pill = document.getElementById('wiz-pages-pill-branch');
+        if (!pill) return '';
+        return pill.textContent.replace('🌿', '').trim();
+    };
+
+    window._assistant.resolvers.pagesBuildersAvail = function() {
+        var section = document.getElementById('wiz-pages-section-builders');
+        if (!section) return 0;
+        var pills = section.querySelectorAll('span');
+        var count = 0;
+        if (pills) {
+            pills.forEach(function(p) {
+                if (p.textContent.indexOf('✅') !== -1) count++;
+            });
+        }
+        return count;
+    };
+
+    window._assistant.resolvers.pagesBuildersTotal = function() {
+        var section = document.getElementById('wiz-pages-section-builders');
+        if (!section) return 0;
+        var summary = section.querySelector('summary');
+        if (!summary) return 0;
+        var match = summary.textContent.match(/(\d+)\/(\d+)/);
+        return match ? parseInt(match[2], 10) : 0;
+    };
+
+    window._assistant.resolvers.pagesUninit = function() {
+        var section = document.getElementById('wiz-pages-section-folders');
+        if (!section) return 0;
+        var rows = section.querySelectorAll('span');
+        var count = 0;
+        if (rows) {
+            rows.forEach(function(s) {
+                if (s.textContent.trim() === '⬜') count++;
+            });
+        }
+        return count;
+    };
+
 })();
 </script>

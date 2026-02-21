@@ -38,9 +38,9 @@ src/ui/web/
 ```html
 <div class="wizard-content">
   <div class="card full-width">
-    <div class="assistant-layout">          <!-- position: relative -->
-      <div id="wizard-body">...</div>       <!-- margin-right reserves panel space -->
-      <div id="assistant-panel" class="assistant-panel">...</div>  <!-- position: absolute -->
+    <div class="assistant-layout">          <!-- display: flex row -->
+      <div id="wizard-body">...</div>       <!-- flex: 1 -->
+      <div id="assistant-panel" class="assistant-panel">...</div>  <!-- position: sticky -->
     </div>
     <div class="wizard-nav">...</div>
   </div>
@@ -51,35 +51,38 @@ src/ui/web/
 
 ```css
 .assistant-layout {
-    position: relative;     /* Positioning context for the panel */
+    display: flex;          /* Side-by-side: wizard-body + panel */
+    gap: var(--space-md);
+    align-items: flex-start; /* Panel doesn't stretch to match body height */
     min-height: 0;
 }
 
 .assistant-layout > #wizard-body {
     flex: 1;
     min-width: 0;
-    margin-right: calc(360px + var(--space-md));  /* Reserve space for panel */
 }
 
 .assistant-panel {
-    position: absolute;     /* OUT of flow — does NOT affect parent height */
-    top: 0;
-    right: 0;
-    bottom: 0;              /* Stretches to fill layout height */
+    position: sticky;       /* Stays visible as user scrolls the page */
+    top: 4rem;              /* Clears the sticky nav bar + breathing room */
     width: 360px;
-    max-height: calc(100vh - 220px);  /* Viewport cap */
-    overflow-y: auto;       /* Scrolls internally */
+    flex-shrink: 0;
+    height: calc(100vh - 8rem);  /* Viewport-sized, scrolls internally */
+    overflow-y: auto;
 }
 ```
 
-### Why `position: absolute`
+### Why `position: sticky` + `align-items: flex-start`
 
-In CSS flexbox with `flex-direction: row`, the container's cross-axis height
-equals the tallest flex item — regardless of `align-self`, `max-height`, or
-`overflow`. The ONLY way to prevent the panel from expanding the card is to
-take it out of flow entirely. `position: absolute` achieves this. The layout
-height = wizard-body height only. The panel stretches via `top:0; bottom:0`
-to fill that height.
+The panel needs to remain visible as the user scrolls the main page (body
+scroll). `position: sticky` pins it to the viewport once scrolled past its
+natural position. `align-items: flex-start` on the flex container prevents
+the panel from stretching to match the wizard-body height — without this,
+the panel would be as tall as the content and sticky would have no effect
+(the element needs to be shorter than its container to stick).
+
+The `top: 4rem` value clears the sticky `.tabs` navigation bar (~48px)
+plus breathing room.
 
 ### Wizard Content Width
 
@@ -384,17 +387,24 @@ Merges focus and hover paths into a single render.
 1. If both paths are null → render entry state (context header centered)
 2. Collect all unique nodes from both paths (targets + parent chains)
 3. Sort by depth (shallowest first)
-4. Mark each node as `isTarget` (the leaf being focused/hovered) or
+4. **Trim to target + 1 immediate parent** (max 2 nodes rendered)
+5. Normalize depths so the shallowest shown renders at depth 0
+6. Mark each node as `isTarget` (the leaf being focused/hovered) or
    `inChain` (a parent of a target)
-5. Render nodes sequentially to the panel
-6. Targets get `expanded` content rendered; chain nodes get `content` only
-7. Call `_centerActiveNode()` to scroll the panel
+7. Render nodes sequentially to the panel
+8. Targets get `expanded` content rendered; chain nodes get `content` only
+9. Call `_centerActiveNode()` to scroll the panel
 
 ### `_mergeInteractionPaths(focusPath, hoverPath)`
 
 Deduplicates by `node.id`. If both paths share a parent, it appears once.
-Target nodes are always promoted to `isTarget = true`. The result is an
-array sorted by depth.
+Target nodes are always promoted to `isTarget = true`. After sorting by
+depth, the result is **trimmed**: only nodes within 1 depth of the deepest
+target are kept (the target itself + its immediate parent). Depths are then
+normalized so the shallowest remaining node renders at depth 0.
+
+This ensures the panel focuses on the specific element being interacted
+with, rather than showing the entire ancestor chain from the context root.
 
 ### `_centerActiveNode()`
 
