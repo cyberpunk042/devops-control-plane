@@ -289,6 +289,9 @@ def wizard_detect(root: Path) -> dict:
         "status_probes": run_all_probes(root),
         "config_data": _wizard_config_data(root),
         "docker_status": _wizard_docker_status(root),
+        "k8s_status": _wizard_k8s_status(root),
+        "terraform_status": _wizard_terraform_status(root),
+        "dns_status": _wizard_dns_status(root),
         "gh_cli_status": _wizard_gh_cli_status(root),
         "gh_user": _wizard_gh_user(root),
         "gh_repo_info": _wizard_gh_repo_info(root),
@@ -519,6 +522,33 @@ def _wizard_docker_status(root: Path) -> dict:
         return docker_status(root)
     except Exception:
         return {"available": False}
+
+
+def _wizard_k8s_status(root: Path) -> dict:
+    """Full K8s detection (manifests, helm, kustomize, tools) for wizard use."""
+    try:
+        from src.core.services.k8s_detect import k8s_status
+        return k8s_status(root)
+    except Exception:
+        return {"has_k8s": False, "kubectl": {"available": False, "version": None}}
+
+
+def _wizard_terraform_status(root: Path) -> dict:
+    """Full Terraform detection (CLI, files, providers, modules, backend) for wizard use."""
+    try:
+        from src.core.services.terraform_ops import terraform_status
+        return terraform_status(root)
+    except Exception:
+        return {"has_terraform": False, "cli": {"available": False, "version": None}}
+
+
+def _wizard_dns_status(root: Path) -> dict:
+    """Full DNS/CDN detection (providers, domains, certs, files) for wizard use."""
+    try:
+        from src.core.services.dns_cdn_ops import dns_cdn_status
+        return dns_cdn_status(root)
+    except Exception:
+        return {"has_dns": False, "has_cdn": False, "cdn_providers": [], "domains": []}
 
 
 def _wizard_env_status(root: Path) -> dict:

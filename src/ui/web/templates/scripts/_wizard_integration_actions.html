@@ -246,6 +246,21 @@ async function _wizK8sLive(what) {
                 panel.innerHTML = `<span style="color:var(--error)">❌ Validation issues:</span><br>` +
                     (data.errors || []).map(e => `<div style="color:var(--error);margin-left:0.5rem">• ${esc(e)}</div>`).join('');
             }
+        } else if (what === 'cluster') {
+            const data = await api('/k8s/cluster');
+            const lines = [];
+            if (data.context) lines.push(`Context: <strong>${esc(data.context)}</strong>`);
+            const ct = data.cluster_type || {};
+            if (ct.type) lines.push(`Type: ${esc(ct.type)}${ct.detected_via ? ' <span style="color:var(--text-muted)">(' + esc(ct.detected_via) + ')</span>' : ''}`);
+            if (data.nodes && Array.isArray(data.nodes)) {
+                for (const n of data.nodes) {
+                    const readyIcon = n.ready ? '<span style="color:var(--success)">✓</span>' : '<span style="color:var(--error)">✗</span>';
+                    lines.push(`  ${readyIcon} Node <strong>${esc(n.name)}</strong>${n.roles ? ' [' + esc(n.roles) + ']' : ''}${n.version ? ' ' + esc(n.version) : ''}`);
+                }
+            }
+            const nsCt = (data.namespaces || []).length;
+            if (nsCt > 0) lines.push(`Namespaces: ${nsCt}`);
+            panel.innerHTML = lines.length > 0 ? lines.join('<br>') : '<span style="color:var(--text-muted)">Cluster info unavailable.</span>';
         } else {
             const data = await api(`/k8s/resources?kind=${what}`);
             const items = data.items || data.resources || [];
@@ -269,6 +284,165 @@ async function _wizK8sLive(what) {
     }
 }
 
+// ── Terraform live panel ───────────────────────────────────────
+
+async function _wizTfLive(what) {
+    const panel = document.getElementById('wiz-tf-live-panel');
+    if (!panel) return;
+    panel.style.display = 'block';
+    panel.innerHTML = '<span class="spinner"></span> Loading\u2026';
+
+    try {
+        if (what === 'validate') {
+            const data = await api('/terraform/validate', { method: 'POST' });
+            if (data.valid) {
+                panel.innerHTML = '<span style="color:var(--success)">\u2705 Configuration is valid.</span>';
+            } else {
+                const errs = data.errors || [];
+                panel.innerHTML = `<span style="color:var(--error)">\u274c Validation issues:</span><br>` +
+                    errs.map(e => `<div style="color:var(--error);margin-left:0.5rem">\u2022 ${esc(typeof e === 'string' ? e : e.message || JSON.stringify(e))}</div>`).join('');
+            }
+        } else if (what === 'state') {
+            const data = await api('/terraform/state');
+            const items = data.resources || [];
+            if (items.length === 0) {
+                panel.innerHTML = '<span style="color:var(--text-muted)">No resources in state.</span>';
+            } else {
+                panel.innerHTML = items.map(r => {
+                    return `<div style="display:flex;gap:0.5rem;padding:0.15rem 0;border-bottom:1px solid var(--border-subtle)">` +
+                        `<span style="flex:1"><strong>${esc(r.type || '')}</strong>.${esc(r.name || '')}</span>` +
+                        (r.provider ? `<span style="color:var(--text-muted)">${esc(r.provider)}</span>` : '') +
+                        `</div>`;
+                }).join('');
+            }
+        } else if (what === 'workspaces') {
+            const data = await api('/terraform/workspaces');
+            const list = data.workspaces || [];
+            const current = data.current || '';
+            if (list.length === 0) {
+                panel.innerHTML = '<span style="color:var(--text-muted)">No workspaces found.</span>';
+            } else {
+                panel.innerHTML = list.map(ws =>
+                    `<div style="display:flex;gap:0.5rem;padding:0.15rem 0;border-bottom:1px solid var(--border-subtle)">` +
+                    `<span style="flex:1">${ws === current ? '<strong>' : ''}${esc(ws)}${ws === current ? '</strong>' : ''}</span>` +
+                    `${ws === current ? '<span style="color:var(--success);font-size:0.62rem">\u2713 current</span>' : ''}` +
+                    `</div>`
+                ).join('');
+            }
+        } else if (what === 'outputs') {
+            const data = await api('/terraform/output');
+            const outputs = data.outputs || {};
+            const keys = Object.keys(outputs);
+            if (keys.length === 0) {
+                panel.innerHTML = '<span style="color:var(--text-muted)">No outputs available.</span>';
+            } else {
+                panel.innerHTML = keys.map(k => {
+                    const val = typeof outputs[k] === 'object' ? (outputs[k].value ?? JSON.stringify(outputs[k])) : outputs[k];
+                    return `<div style="display:flex;gap:0.5rem;padding:0.15rem 0;border-bottom:1px solid var(--border-subtle)">` +
+                        `<span style="flex:1"><strong>${esc(k)}</strong></span>` +
+                        `<span style="color:var(--text-muted)">${esc(String(val))}</span>` +
+                        `</div>`;
+                }).join('');
+            }
+        }
+    } catch (e) {
+        panel.innerHTML = `<span style="color:var(--error)">Error: ${esc(e.message)}</span>`;
+    }
+}
+
+// ── DNS live panel ─────────────────────────────────────────────
+
+async function _wizDnsLive(what) {
+    const panel = document.getElementById('wiz-dns-live-panel');
+    if (!panel) return;
+    panel.style.display = 'block';
+
+    if (what === 'lookup') {
+        // Show input form for DNS lookup
+        const defaultDomain = document.getElementById('wiz-dns-domain')?.value || 'example.com';
+        panel.innerHTML = `<div style="display:flex;gap:0.5rem;align-items:center;margin-bottom:0.3rem">
+            <input type="text" id="wiz-dns-lookup-input" placeholder="example.com" value="${esc(defaultDomain)}"
+                style="flex:1;font-size:0.75rem;padding:0.2rem 0.4rem;border:1px solid var(--border-subtle);border-radius:4px;background:var(--bg-primary);color:var(--text-primary)"
+                onkeydown="if(event.key==='Enter')_wizDnsDoLookup()">
+            <button class="btn btn-sm btn-primary" id="wiz-dns-lookup-btn" style="font-size:0.68rem" onclick="_wizDnsDoLookup()">Lookup</button>
+        </div>
+        <div id="wiz-dns-lookup-result"></div>`;
+        setTimeout(() => document.getElementById('wiz-dns-lookup-input')?.focus(), 50);
+    } else if (what === 'ssl') {
+        const defaultDomain = document.getElementById('wiz-dns-domain')?.value || 'example.com';
+        panel.innerHTML = `<div style="display:flex;gap:0.5rem;align-items:center;margin-bottom:0.3rem">
+            <input type="text" id="wiz-dns-ssl-input" placeholder="example.com" value="${esc(defaultDomain)}"
+                style="flex:1;font-size:0.75rem;padding:0.2rem 0.4rem;border:1px solid var(--border-subtle);border-radius:4px;background:var(--bg-primary);color:var(--text-primary)"
+                onkeydown="if(event.key==='Enter')_wizDnsDoSsl()">
+            <button class="btn btn-sm btn-primary" id="wiz-dns-ssl-btn" style="font-size:0.68rem" onclick="_wizDnsDoSsl()">Check</button>
+        </div>
+        <div id="wiz-dns-ssl-result"></div>`;
+        setTimeout(() => document.getElementById('wiz-dns-ssl-input')?.focus(), 50);
+    }
+}
+
+async function _wizDnsDoLookup() {
+    const input = document.getElementById('wiz-dns-lookup-input');
+    const result = document.getElementById('wiz-dns-lookup-result');
+    const btn = document.getElementById('wiz-dns-lookup-btn');
+    if (!input || !result) return;
+    const domain = input.value.trim();
+    if (!domain) { result.innerHTML = '<span style="color:var(--warning)">Enter a domain</span>'; return; }
+    btn.disabled = true; btn.textContent = '\u23f3';
+    try {
+        const data = await api('/dns/lookup/' + encodeURIComponent(domain));
+        if (!data.ok) {
+            result.innerHTML = `<span style="color:var(--error)">Lookup failed: ${esc(data.error || 'unknown')}</span>`;
+        } else {
+            const records = data.records || [];
+            const cname = data.cname;
+            let h = '';
+            if (cname) h += `<div style="margin-bottom:0.2rem"><strong>CNAME:</strong> ${esc(cname)}</div>`;
+            if (records.length > 0) {
+                h += records.map(r =>
+                    `<div style="display:flex;gap:0.5rem;padding:0.1rem 0;border-bottom:1px solid var(--border-subtle)">` +
+                    `<span style="min-width:3rem;font-weight:600">${esc(r.type || '')}</span>` +
+                    `<span style="flex:1">${esc(r.value || '')}</span></div>`
+                ).join('');
+            } else {
+                h = '<span style="color:var(--text-muted)">No records found.</span>';
+            }
+            result.innerHTML = h;
+        }
+    } catch (e) {
+        result.innerHTML = `<span style="color:var(--error)">Error: ${esc(e.message)}</span>`;
+    }
+    btn.disabled = false; btn.textContent = 'Lookup';
+}
+
+async function _wizDnsDoSsl() {
+    const input = document.getElementById('wiz-dns-ssl-input');
+    const result = document.getElementById('wiz-dns-ssl-result');
+    const btn = document.getElementById('wiz-dns-ssl-btn');
+    if (!input || !result) return;
+    const domain = input.value.trim();
+    if (!domain) { result.innerHTML = '<span style="color:var(--warning)">Enter a domain</span>'; return; }
+    btn.disabled = true; btn.textContent = '\u23f3';
+    try {
+        const data = await api('/dns/ssl/' + encodeURIComponent(domain));
+        if (!data.ok) {
+            result.innerHTML = `<span style="color:var(--error)">SSL check failed: ${esc(data.error || 'unknown')}</span>`;
+        } else {
+            const color = data.valid ? 'var(--success)' : 'var(--error)';
+            result.innerHTML = `<div style="padding:0.3rem 0">
+                <div style="color:${color};margin-bottom:0.2rem">${data.valid ? '\u2705 Valid' : '\u274c Invalid'} SSL Certificate</div>
+                <div style="font-size:0.68rem;color:var(--text-muted)">
+                    <div>Issuer: <strong>${esc(data.issuer || 'unknown')}</strong></div>
+                    <div>Expires: ${esc(data.expiry || 'unknown')}${data.days_remaining != null ? ' (' + data.days_remaining + ' days)' : ''}</div>
+                </div>
+            </div>`;
+        }
+    } catch (e) {
+        result.innerHTML = `<span style="color:var(--error)">Error: ${esc(e.message)}</span>`;
+    }
+    btn.disabled = false; btn.textContent = 'Check';
+}
+
 // ── Delete config with confirmation ────────────────────────────
 
 async function _wizDeleteConfig(target, btnEl) {
@@ -278,6 +452,7 @@ async function _wizDeleteConfig(target, btnEl) {
         ci: 'CI workflow (.github/workflows/ci.yml)',
         skaffold: 'Skaffold config (skaffold.yaml)',
         terraform: 'Terraform config (terraform/)',
+        dns: 'DNS & CDN config (dns/)',
         all: 'ALL generated configs',
     };
     const label = labels[target] || target;
@@ -542,12 +717,20 @@ async function _wizApplySetup(key, btnEl) {
         payload.overwrite = $('wiz-docker-overwrite') || false;
     } else if (key === 'k8s') {
         payload.action = 'setup_k8s';
-        payload.app_name = $('wiz-k8s-name');
-        payload.image = $('wiz-k8s-image');
-        payload.port = $('wiz-k8s-port');
-        payload.replicas = $('wiz-k8s-replicas');
-        payload.namespace = $('wiz-k8s-namespace');
-        payload.service_type = $('wiz-k8s-service-type');
+        const appName = $('wiz-k8s-name') || 'app';
+        const port = parseInt($('wiz-k8s-port') || '8080', 10) || 8080;
+        payload._services = [{
+            name: appName,
+            kind: 'Deployment',
+            image: $('wiz-k8s-image') || appName + ':latest',
+            port: port,
+            replicas: parseInt($('wiz-k8s-replicas') || '1', 10) || 1,
+            serviceType: $('wiz-k8s-service-type') || 'ClusterIP',
+        }];
+        payload.namespace = $('wiz-k8s-namespace') || 'default';
+        payload.output_dir = 'k8s';
+        const overwriteEl = document.getElementById('wiz-k8s-overwrite');
+        if (overwriteEl && overwriteEl.checked) payload.overwrite = true;
     } else if (key === 'int:ci') {
         payload.action = 'setup_ci';
         payload.branches = $('wiz-ci-branches');
@@ -572,6 +755,14 @@ async function _wizApplySetup(key, btnEl) {
         payload.project_name = $('wiz-tf-project');
         payload.backend = $('wiz-tf-backend');
         payload.overwrite = $('wiz-tf-overwrite') || false;
+    } else if (key === 'dns') {
+        payload.action = 'setup_dns';
+        payload.domain = $('wiz-dns-domain');
+        payload.mail = $('wiz-dns-mail');
+        if (payload.mail === 'none') payload.mail = '';
+        payload.spf = $('wiz-dns-spf') !== false;
+        payload.dmarc = $('wiz-dns-dmarc') !== false;
+        payload.overwrite = $('wiz-dns-overwrite') || false;
     } else if (key === 'int:git') {
         payload.action = 'setup_git';
         // Branch

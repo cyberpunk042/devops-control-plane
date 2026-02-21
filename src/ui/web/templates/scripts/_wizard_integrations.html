@@ -279,9 +279,53 @@ function _wizCardDetails(d) {
             return 'Static site builder with multi-section support.';
         })(),
 
-        'k8s': 'Kubernetes deployment — pods, services, ingress.',
-        'terraform': 'Infrastructure as Code — provision cloud resources.',
-        'dns': 'DNS resolution and CDN checks.',
+        'k8s': (() => {
+            const k8sSt = d.k8s_status || {};
+            const kctl = k8sSt.kubectl || {};
+            if (!kctl.available) return 'kubectl not found';
+            const parts = [];
+            if (kctl.version) parts.push('kubectl ' + (kctl.version + '').split(',')[0]);
+            if (k8sSt.total_resources > 0) parts.push(k8sSt.total_resources + ' resource' + (k8sSt.total_resources !== 1 ? 's' : ''));
+            else parts.push('no manifests');
+            const hc = (k8sSt.helm_charts || []).length;
+            if (hc > 0) parts.push(hc + ' Helm chart' + (hc !== 1 ? 's' : ''));
+            if (k8sSt.kustomize && k8sSt.kustomize.exists) {
+                const oc = k8sSt.kustomize.overlay_count || 0;
+                parts.push('Kustomize' + (oc > 0 ? ' (' + oc + ' overlay' + (oc !== 1 ? 's' : '') + ')' : ''));
+            }
+            if (k8sSt.deployment_readiness) parts.push(k8sSt.deployment_readiness.replace(/_/g, ' '));
+            return parts.join(' · ') || 'Kubernetes deployment — pods, services, ingress.';
+        })(),
+        'terraform': (() => {
+            const tfSt = d.terraform_status || {};
+            const cli = tfSt.cli || {};
+            if (!cli.available) return 'terraform not found';
+            const parts = [];
+            if (cli.version) parts.push('terraform ' + (cli.version + '').split('\n')[0]);
+            const rc = tfSt.resource_count || 0;
+            if (rc > 0) parts.push(rc + ' resource' + (rc !== 1 ? 's' : ''));
+            else parts.push('no resources');
+            const prov = tfSt.providers || [];
+            if (prov.length > 0) parts.push(prov.slice(0, 3).map(p => typeof p === 'string' ? p.split('/').pop() : p).join(', '));
+            const mods = tfSt.modules || [];
+            if (mods.length > 0) parts.push(mods.length + ' module' + (mods.length !== 1 ? 's' : ''));
+            if (tfSt.backend) parts.push(tfSt.backend.type + ' backend');
+            if (tfSt.initialized) parts.push('initialized');
+            return parts.join(' · ') || 'Infrastructure as Code — provision cloud resources.';
+        })(),
+        'dns': (() => {
+            const dnsSt = d.dns_status || {};
+            const parts = [];
+            const cdnProvs = dnsSt.cdn_providers || [];
+            if (cdnProvs.length > 0) parts.push(cdnProvs.map(p => p.name).join(', '));
+            const doms = dnsSt.domains || [];
+            if (doms.length > 0) parts.push(doms.length + ' domain' + (doms.length !== 1 ? 's' : ''));
+            const dnsFiles = dnsSt.dns_files || [];
+            if (dnsFiles.length > 0) parts.push(dnsFiles.length + ' DNS file' + (dnsFiles.length !== 1 ? 's' : ''));
+            const certs = dnsSt.ssl_certs || [];
+            if (certs.length > 0) parts.push(certs.length + ' cert' + (certs.length !== 1 ? 's' : ''));
+            return parts.join(' \u00b7 ') || 'DNS resolution and CDN checks.';
+        })(),
     };
 }
 
@@ -516,7 +560,7 @@ const _wizSubForms = {
             html += `</div>`;
             // Compose warnings
             if (composeWarnings.length > 0) {
-                html += `<div style="margin-top:0.3rem">${composeWarnings.map(w => `<div style="font-size:0.65rem;color:var(--warning);padding:0.1rem 0">⚠️ ${esc(w)}</div>`).join('')}</div>`;
+                html += `<div style="margin-top:0.3rem">${composeWarnings.map(w => `<div style="font-size:0.65rem;color:var(--warning)">⚠️ ${esc(w)}</div>`).join('')}</div>`;
             }
             html += `</details>`;
         }
@@ -626,13 +670,194 @@ const _wizSubForms = {
         const clusterOk = info.cluster_ok;
         const hasManifests = d.files.k8s_manifests;
 
-        let html = `<div style="font-weight:600;font-size:0.85rem;margin-bottom:0.5rem">☸️ Kubernetes</div>`;
+        // ── Rich K8s status data (from backend k8s_detect) ──
+        const k8sSt = d.k8s_status || {};
+        const kctl = k8sSt.kubectl || {};
+        const helmCharts = k8sSt.helm_charts || [];
+        const kustomize = k8sSt.kustomize || {};
+        const resSummary = k8sSt.resource_summary || {};
+        const totalRes = k8sSt.total_resources || 0;
+        const manifestDirs = k8sSt.manifest_dirs || [];
+        const manifests = k8sSt.manifests || [];
+        const strategy = k8sSt.deployment_strategy || 'none';
+        const readiness = k8sSt.deployment_readiness || 'not_configured';
+        const secretSafety = k8sSt.secret_safety || {};
+        const infraSvcs = k8sSt.infra_services || [];
+        const toolAvail = k8sSt.tool_availability || {};
+        const envs = k8sSt.environments || [];
+        const missingTools = k8sSt.missing_tools || [];
 
-        // ── Status strip ──
-        html += `<div style="display:flex;flex-wrap:wrap;gap:0.25rem;margin-bottom:0.5rem">
-            <span style="font-size:0.65rem;padding:0.1rem 0.35rem;border-radius:4px;${clusterOk ? 'background:color-mix(in srgb, var(--success) 10%, transparent);color:var(--success);border:1px solid color-mix(in srgb, var(--success) 25%, transparent)' : 'background:color-mix(in srgb, var(--warning) 10%, transparent);color:var(--warning);border:1px solid color-mix(in srgb, var(--warning) 25%, transparent)'}">${clusterOk ? '✓ cluster connected' : '⚠ no cluster'}</span>
-            <span style="font-size:0.65rem;padding:0.1rem 0.35rem;border-radius:4px;${hasManifests ? 'background:color-mix(in srgb, var(--success) 10%, transparent);color:var(--success);border:1px solid color-mix(in srgb, var(--success) 25%, transparent)' : 'background:color-mix(in srgb, var(--text-muted) 10%, transparent);color:var(--text-muted);border:1px solid color-mix(in srgb, var(--text-muted) 25%, transparent)'}">${hasManifests ? '✓ manifests' : '○ no manifests'}</span>
+        // Stack context
+        const sd = (d.stack_defaults || {});
+        const stackName = sd.primary_stack || '';
+        const stackIcon = sd.icon || '';
+        const dockerSd = sd.docker || {};
+        const defaultPort = dockerSd.port || '8080';
+
+        // Cross-integration detection
+        const dockerDetected = d.integrations?.['int:docker']?.detected;
+        const modules = ((d.config_data || {}).modules || []);
+        const hasMultipleModules = modules.filter(m => {
+            const dom = (m.domain || '').toLowerCase();
+            return dom !== 'library' && dom !== 'docs';
+        }).length > 1;
+
+        const _pill = (ok, label) => `<span style="font-size:0.62rem;padding:0.08rem 0.3rem;border-radius:4px;${ok ? 'background:color-mix(in srgb, var(--success) 10%, transparent);color:var(--success);border:1px solid color-mix(in srgb, var(--success) 25%, transparent)' : 'background:color-mix(in srgb, var(--text-muted) 8%, transparent);color:var(--text-muted);border:1px solid color-mix(in srgb, var(--text-muted) 20%, transparent)'}">${label}</span>`;
+
+        // ── Header with stack badge ──
+        let html = `<div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.5rem">
+            <span style="font-weight:600;font-size:0.85rem">☸️ Kubernetes</span>
+            ${stackName ? `<span style="font-size:0.62rem;padding:0.08rem 0.3rem;border-radius:4px;background:color-mix(in srgb, var(--accent) 10%, transparent);color:var(--accent);border:1px solid color-mix(in srgb, var(--accent) 25%, transparent)">${stackIcon} ${esc(stackName)}</span>` : ''}
         </div>`;
+
+        // ── Enriched status strip (7 pills) ──
+        const kctlVer = (kctl.version || '').split(',')[0];
+        html += `<div style="display:flex;flex-wrap:wrap;gap:0.25rem;margin-bottom:0.5rem">
+            ${_pill(kctl.available, kctl.available ? '✓ kubectl' + (kctlVer ? ' ' + kctlVer : '') : '✗ no kubectl')}
+            ${_pill(totalRes > 0, totalRes > 0 ? '✓ ' + totalRes + ' resource' + (totalRes !== 1 ? 's' : '') : '○ no manifests')}
+            ${_pill(helmCharts.length > 0, helmCharts.length > 0 ? '✓ ' + helmCharts.length + ' Helm chart' + (helmCharts.length !== 1 ? 's' : '') : '○ no Helm')}
+            ${_pill(kustomize.exists, kustomize.exists ? '✓ Kustomize' + (kustomize.overlay_count > 0 ? ' (' + kustomize.overlay_count + ' overlay' + (kustomize.overlay_count !== 1 ? 's' : '') + ')' : '') : '○ no Kustomize')}
+            ${strategy !== 'none' ? _pill(true, strategy === 'mixed' ? '⚡ mixed strategy' : '✓ ' + strategy) : ''}
+            ${_pill(readiness === 'ready', readiness === 'ready' ? '✓ ready' : readiness === 'needs_config' ? '⚠ needs config' : readiness === 'needs_tools' ? '⚠ needs tools' : '○ not configured')}
+            ${_pill(clusterOk, clusterOk ? '✓ cluster' : '○ no cluster')}
+        </div>`;
+
+        // ── Missing tools (installable) ──
+        if (missingTools.length > 0) {
+            html += `<div style="font-size:0.72rem;color:var(--warning);line-height:1.4;margin-bottom:0.5rem;padding:0.35rem 0.5rem;border-radius:6px;background:color-mix(in srgb, var(--warning) 6%, transparent);border:1px solid color-mix(in srgb, var(--warning) 18%, transparent)">
+                ⚠️ Missing tools: <strong>${esc(missingTools.map(t => t.label || t.id || t).join(', '))}</strong>
+            </div>`;
+        }
+
+        // ── Manifest details (collapsible) ──
+        if (manifests.length > 0) {
+            html += `<details style="margin-bottom:0.5rem" open>
+                <summary style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;cursor:pointer;user-select:none;margin-bottom:0.3rem">
+                    📄 Manifests (${manifests.length} file${manifests.length !== 1 ? 's' : ''} · ${totalRes} resource${totalRes !== 1 ? 's' : ''})
+                </summary>
+                <div style="background:color-mix(in srgb, var(--bg-inset) 50%, transparent);border:1px solid var(--border-subtle);border-radius:6px;overflow:hidden">`;
+
+            // Resource summary chips
+            const resKinds = Object.entries(resSummary).sort((a, b) => b[1] - a[1]);
+            if (resKinds.length > 0) {
+                html += `<div style="display:flex;flex-wrap:wrap;gap:0.15rem;padding:0.3rem 0.5rem;border-bottom:1px solid color-mix(in srgb, var(--border-subtle) 40%, transparent)">`;
+                for (const [kind, count] of resKinds) {
+                    html += `<span style="font-size:0.6rem;padding:0.05rem 0.25rem;border-radius:3px;background:color-mix(in srgb, var(--accent) 8%, transparent);color:var(--accent);border:1px solid color-mix(in srgb, var(--accent) 15%, transparent)">${esc(kind)}: ${count}</span>`;
+                }
+                html += `</div>`;
+            }
+
+            // Per-file manifest listing (max 8)
+            for (const mf of manifests.slice(0, 8)) {
+                const kinds = (mf.resources || []).map(r => r.kind).join(', ');
+                html += `<div style="display:flex;align-items:center;gap:0.4rem;padding:0.25rem 0.5rem;border-bottom:1px solid color-mix(in srgb, var(--border-subtle) 40%, transparent);font-size:0.72rem">
+                    <code style="font-weight:600;font-size:0.7rem;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis">${esc(mf.path)}</code>
+                    <span style="font-size:0.6rem;color:var(--text-muted);white-space:nowrap">${mf.count} · ${esc(kinds)}</span>
+                </div>`;
+            }
+            if (manifests.length > 8) {
+                html += `<div style="padding:0.2rem 0.5rem;font-size:0.62rem;color:var(--text-muted)">… and ${manifests.length - 8} more file(s)</div>`;
+            }
+            html += `</div></details>`;
+        }
+
+        // ── Helm Charts (collapsible, conditional) ──
+        if (helmCharts.length > 0) {
+            html += `<details style="margin-bottom:0.5rem">
+                <summary style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;cursor:pointer;user-select:none;margin-bottom:0.3rem">
+                    ⎈ Helm Charts (${helmCharts.length})
+                </summary>
+                <div style="background:color-mix(in srgb, var(--bg-inset) 50%, transparent);border:1px solid var(--border-subtle);border-radius:6px;overflow:hidden">`;
+
+            for (const chart of helmCharts) {
+                const envFiles = (chart.env_values_files || []).length;
+                html += `<div style="padding:0.3rem 0.5rem;border-bottom:1px solid color-mix(in srgb, var(--border-subtle) 40%, transparent);font-size:0.72rem">
+                    <div style="display:flex;align-items:center;gap:0.4rem;margin-bottom:0.1rem">
+                        <strong style="font-size:0.72rem">${esc(chart.name || 'unknown')}</strong>
+                        ${chart.version ? `<code style="font-size:0.6rem;color:var(--text-muted)">${esc(chart.version)}</code>` : ''}
+                        ${chart.type === 'library' ? `<span style="font-size:0.58rem;color:var(--text-muted)">library</span>` : ''}
+                    </div>
+                    <div style="display:flex;flex-wrap:wrap;gap:0.15rem">
+                        ${chart.has_values ? `<span style="font-size:0.58rem;color:var(--text-muted)">values.yaml</span>` : ''}
+                        ${chart.has_templates ? `<span style="font-size:0.58rem;color:var(--text-muted)">templates/</span>` : ''}
+                        ${chart.has_subcharts ? `<span style="font-size:0.58rem;color:var(--text-muted)">subcharts</span>` : ''}
+                        ${envFiles > 0 ? `<span style="font-size:0.58rem;color:var(--accent)">${envFiles} env values</span>` : ''}
+                    </div>
+                    <div style="font-size:0.62rem;color:var(--text-muted);margin-top:0.1rem">${esc(chart.path || '')}</div>
+                </div>`;
+            }
+            html += `</div></details>`;
+        }
+
+        // ── Kustomize (collapsible, conditional) ──
+        if (kustomize.exists) {
+            const overlays = kustomize.overlays || [];
+            html += `<details style="margin-bottom:0.5rem">
+                <summary style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;cursor:pointer;user-select:none;margin-bottom:0.3rem">
+                    🗂 Kustomize (${kustomize.mode || 'single'}${overlays.length > 0 ? ' · ' + overlays.length + ' overlay' + (overlays.length !== 1 ? 's' : '') : ''})
+                </summary>
+                <div style="background:color-mix(in srgb, var(--bg-inset) 50%, transparent);border:1px solid var(--border-subtle);border-radius:6px;padding:0.3rem 0.5rem;font-size:0.72rem">
+                    <div style="display:flex;flex-wrap:wrap;gap:0.15rem;margin-bottom:0.2rem">
+                        ${_pill(kustomize.has_bases, kustomize.has_bases ? '✓ base/' : '○ no base')}
+                        ${_pill(kustomize.has_patches, kustomize.has_patches ? '✓ patches' : '○ no patches')}
+                        ${_pill(kustomize.has_config_map_generator, kustomize.has_config_map_generator ? '✓ configMapGen (' + (kustomize.config_map_generator_count || 0) + ')' : '○ no configMapGen')}
+                        ${_pill(kustomize.has_image_overrides, kustomize.has_image_overrides ? '✓ ' + (kustomize.image_override_count || 0) + ' image override(s)' : '○ no image overrides')}
+                    </div>`;
+
+            if (overlays.length > 0) {
+                const overlayDetails = kustomize.overlay_details || [];
+                html += `<div style="margin-top:0.2rem">`;
+                for (const ov of overlayDetails) {
+                    html += `<div style="display:flex;gap:0.4rem;padding:0.1rem 0;font-size:0.7rem">
+                        <code style="font-weight:600">${esc(ov.name)}</code>
+                        ${ov.patch_count > 0 ? `<span style="font-size:0.58rem;color:var(--text-muted)">${ov.patch_count} patch${ov.patch_count !== 1 ? 'es' : ''}</span>` : ''}
+                    </div>`;
+                }
+                html += `</div>`;
+            }
+            html += `</div></details>`;
+        }
+
+        // ── Environments (from kustomize/helm overlays) ──
+        if (envs.length > 0) {
+            html += `<div style="display:flex;flex-wrap:wrap;gap:0.15rem;margin-bottom:0.5rem">`;
+            for (const env of envs) {
+                html += `<span style="font-size:0.6rem;padding:0.05rem 0.25rem;border-radius:3px;background:color-mix(in srgb, var(--accent) 8%, transparent);color:var(--accent);border:1px solid color-mix(in srgb, var(--accent) 15%, transparent)">${esc(env.name)} <span style="font-size:0.5rem;color:var(--text-muted)">(${esc(env.source || '').replace(/_/g, ' ')})</span></span>`;
+            }
+            html += `</div>`;
+        }
+
+        // ── Secret safety warnings ──
+        if (secretSafety.has_raw_secrets) {
+            html += `<div style="font-size:0.72rem;color:var(--warning);line-height:1.4;margin-bottom:0.4rem;padding:0.3rem 0.5rem;border-radius:6px;background:color-mix(in srgb, var(--warning) 6%, transparent);border:1px solid color-mix(in srgb, var(--warning) 18%, transparent)">
+                ⚠️ <strong>Raw Secret manifests detected</strong> — consider using <code>secretGenerator</code> or external-secrets.
+            </div>`;
+        }
+        if (secretSafety.has_envsubst_vars && (secretSafety.envsubst_vars || []).length > 0) {
+            html += `<div style="font-size:0.72rem;color:var(--warning);line-height:1.4;margin-bottom:0.4rem;padding:0.3rem 0.5rem;border-radius:6px;background:color-mix(in srgb, var(--warning) 6%, transparent);border:1px solid color-mix(in srgb, var(--warning) 18%, transparent)">
+                ⚠️ envsubst variables: <code>${esc(secretSafety.envsubst_vars.slice(0, 8).join(', '))}${secretSafety.envsubst_vars.length > 8 ? '…' : ''}</code> — ensure these are set before apply.
+            </div>`;
+        }
+
+        // ── Infrastructure service dependencies ──
+        if (infraSvcs.length > 0) {
+            html += `<div style="margin-bottom:0.5rem;padding:0.3rem 0.5rem;border-radius:6px;background:color-mix(in srgb, var(--accent) 4%, transparent);border:1px solid color-mix(in srgb, var(--accent) 12%, transparent)">
+                <div style="font-size:0.65rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;margin-bottom:0.15rem">🏗 Infra Dependencies</div>`;
+            for (const svc of infraSvcs) {
+                html += `<div style="font-size:0.7rem;color:var(--text-secondary);padding:0.05rem 0">
+                    <strong>${esc(svc.name)}</strong>
+                    <span style="font-size:0.58rem;color:var(--text-muted)">(${esc((svc.detected_via || '').replace(/_/g, ' '))})</span>
+                </div>`;
+            }
+            html += `</div>`;
+        }
+
+        // ── Docker dependency hint ──
+        if (!dockerDetected && totalRes > 0) {
+            html += `<div style="font-size:0.72rem;color:var(--text-muted);margin-bottom:0.5rem;padding:0.3rem 0.5rem;border-radius:6px;background:color-mix(in srgb, var(--text-muted) 4%, transparent);border:1px solid color-mix(in srgb, var(--text-muted) 12%, transparent)">
+                ℹ K8s deployments reference container images — consider setting up <strong>Docker</strong> to build them.
+            </div>`;
+        }
 
         // ── Live cluster panel ──
         if (clusterOk) {
@@ -646,24 +871,59 @@ const _wizSubForms = {
                         onclick="_wizK8sLive('deployments')">🚀 Deployments</button>
                     <button class="btn btn-sm btn-secondary" style="font-size:0.68rem;padding:0.12rem 0.4rem"
                         onclick="_wizK8sLive('validate')">✅ Validate</button>
+                    <button class="btn btn-sm btn-secondary" style="font-size:0.68rem;padding:0.12rem 0.4rem"
+                        onclick="_wizK8sLive('cluster')">🖥 Cluster</button>
                 </div>
                 <div id="wiz-k8s-live-panel" style="display:none;background:var(--bg-inset);border:1px solid var(--border-subtle);border-radius:6px;padding:0.4rem 0.5rem;font-size:0.72rem;max-height:180px;overflow:auto;font-family:var(--font-mono,monospace)"></div>
             </div>`;
         }
 
-        // ── Config generation form ──
+        // ── Config generation form (stack-aware) ──
+        const hasHelm = helmCharts.length > 0;
+        const hasKustomize = kustomize.exists;
         html += `<details style="margin-bottom:0.5rem" ${!hasManifests ? 'open' : ''}>
             <summary style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;cursor:pointer;user-select:none;margin-bottom:0.3rem">
                 ${hasManifests ? '📝 Regenerate Manifests' : '📝 Generate Manifests'}
             </summary>
             <div style="padding-top:0.3rem">
+                ${hasManifests && (hasHelm || hasKustomize || hasMultipleModules) ? `<div style="font-size:0.72rem;color:var(--warning);line-height:1.4;margin-bottom:0.5rem;padding:0.35rem 0.5rem;border-radius:6px;background:color-mix(in srgb, var(--warning) 6%, transparent);border:1px solid color-mix(in srgb, var(--warning) 18%, transparent)">
+                    ⚠️ <strong>Basic generation</strong> creates simple Deployment + Service manifests.
+                    ${hasHelm ? 'Your project uses <strong>Helm charts</strong>. ' : ''}${hasKustomize ? 'Your project uses <strong>Kustomize</strong>. ' : ''}${hasMultipleModules ? 'Your project has <strong>multiple modules</strong>. ' : ''}
+                    Use <strong>🚀 Full K8s Setup</strong> below for comprehensive per-service configuration.
+                </div>` : ''}
                 ${_wizField('wiz-k8s-name', 'App Name', safeName)}
                 ${_wizField('wiz-k8s-image', 'Container Image', safeName + ':latest', { help: 'Docker image to deploy' })}
-                ${_wizField('wiz-k8s-port', 'Container Port', '8080')}
+                ${_wizField('wiz-k8s-port', 'Container Port', defaultPort, { help: 'Port the service listens on' })}
                 ${_wizField('wiz-k8s-replicas', 'Replicas', '1')}
                 ${_wizField('wiz-k8s-namespace', 'Namespace', 'default')}
                 ${_wizField('wiz-k8s-service-type', 'Service Type', 'ClusterIP', { type: 'select', options: ['ClusterIP', 'NodePort', 'LoadBalancer'] })}
+                ${hasManifests ? _wizField('wiz-k8s-overwrite', 'Overwrite existing manifests', false, { type: 'checkbox' }) : ''}
                 ${_wizApplyBtn('k8s')}
+            </div>
+        </details>`;
+
+        // ── Full K8s Setup escalation (like Docker's) ──
+        html += `<details style="margin-bottom:0.5rem">
+            <summary style="font-size:0.72rem;font-weight:600;color:var(--accent);text-transform:uppercase;cursor:pointer;user-select:none;margin-bottom:0.3rem">
+                🚀 Full K8s Setup
+            </summary>
+            <div style="padding-top:0.3rem">
+                <div style="font-size:0.75rem;color:var(--text-secondary);line-height:1.5;margin-bottom:0.6rem">
+                    Open the full multi-step Kubernetes wizard for <strong>comprehensive</strong> manifest generation.
+                    This includes per-service Deployments, env vars from vault, Helm chart generation,
+                    Skaffold configuration, volume and probe configuration, HPA autoscaling, and live preview with editing.
+                </div>
+                <div style="display:flex;flex-wrap:wrap;gap:0.25rem;margin-bottom:0.6rem">
+                    ${_pill(totalRes > 0, totalRes > 0 ? '✓ ' + totalRes + ' resource(s) detected' : '○ will create')}
+                    ${_pill(kctl.available, kctl.available ? '✓ kubectl' : '○ no kubectl')}
+                    ${_pill(helmCharts.length > 0, helmCharts.length > 0 ? '✓ ' + helmCharts.length + ' Helm chart(s)' : '○ no Helm')}
+                    ${_pill(kustomize.exists, kustomize.exists ? '✓ Kustomize' : '○ no Kustomize')}
+                    ${_pill(dockerDetected, dockerDetected ? '✓ Docker ready' : '○ no Docker')}
+                </div>
+                <div style="display:flex;gap:0.4rem;margin-top:0.4rem">
+                    <button class="btn btn-sm btn-primary" style="font-size:0.75rem"
+                        onclick="openSetupWizard('k8s')">🚀 Open Full Setup</button>
+                </div>
             </div>
         </details>`;
 
@@ -876,18 +1136,191 @@ const _wizSubForms = {
         return html;
     },
 
-    'terraform': (info, name) => {
+    'terraform': (info, name, d) => {
         const safeName = name.replace(/[^a-z0-9-]/gi, '-').toLowerCase();
         const detected = info.detected;
         const hasTerraform = !((info.tools_needed || []).includes('terraform'));
 
-        let html = `<div style="font-weight:600;font-size:0.85rem;margin-bottom:0.5rem">🏗️ Terraform</div>`;
+        // ── Rich Terraform status data (from backend terraform_status) ──
+        const tfSt = d.terraform_status || {};
+        const cli = tfSt.cli || {};
+        const tfFiles = tfSt.files || [];
+        const providers = tfSt.providers || [];
+        const modules = tfSt.modules || [];
+        const resources = tfSt.resources || [];
+        const resCount = tfSt.resource_count || 0;
+        const backend = tfSt.backend || null;
+        const initialized = tfSt.initialized || false;
+        const tfRoot = tfSt.root || null;
+        const missingTools = tfSt.missing_tools || [];
 
-        // ── Status strip ──
-        html += `<div style="display:flex;flex-wrap:wrap;gap:0.25rem;margin-bottom:0.5rem">
-            <span style="font-size:0.65rem;padding:0.1rem 0.35rem;border-radius:4px;${hasTerraform ? 'background:color-mix(in srgb, var(--success) 10%, transparent);color:var(--success);border:1px solid color-mix(in srgb, var(--success) 25%, transparent)' : 'background:color-mix(in srgb, var(--warning) 10%, transparent);color:var(--warning);border:1px solid color-mix(in srgb, var(--warning) 25%, transparent)'}">${hasTerraform ? '✓ terraform installed' : '⚠ terraform not found'}</span>
-            <span style="font-size:0.65rem;padding:0.1rem 0.35rem;border-radius:4px;${detected ? 'background:color-mix(in srgb, var(--success) 10%, transparent);color:var(--success);border:1px solid color-mix(in srgb, var(--success) 25%, transparent)' : 'background:color-mix(in srgb, var(--text-muted) 10%, transparent);color:var(--text-muted);border:1px solid color-mix(in srgb, var(--text-muted) 25%, transparent)'}">${detected ? '✓ config found' : '○ no config'}</span>
+        // Stack context
+        const sd = (d.stack_defaults || {});
+        const stackName = sd.primary_stack || '';
+        const stackIcon = sd.icon || '';
+
+        // Cross-integration detection
+        const k8sDetected = d.devops_cards?.k8s?.detected;
+
+        const _pill = (ok, label) => `<span style="font-size:0.62rem;padding:0.08rem 0.3rem;border-radius:4px;${ok ? 'background:color-mix(in srgb, var(--success) 10%, transparent);color:var(--success);border:1px solid color-mix(in srgb, var(--success) 25%, transparent)' : 'background:color-mix(in srgb, var(--text-muted) 8%, transparent);color:var(--text-muted);border:1px solid color-mix(in srgb, var(--text-muted) 20%, transparent)'}">${label}</span>`;
+
+        // ── Header with stack badge ──
+        let html = `<div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.5rem">
+            <span style="font-weight:600;font-size:0.85rem">🏗️ Terraform</span>
+            ${stackName ? `<span style="font-size:0.62rem;padding:0.08rem 0.3rem;border-radius:4px;background:color-mix(in srgb, var(--accent) 10%, transparent);color:var(--accent);border:1px solid color-mix(in srgb, var(--accent) 25%, transparent)">${stackIcon} ${esc(stackName)}</span>` : ''}
         </div>`;
+
+        // ── Enriched status strip (7 pills) ──
+        const cliVer = (cli.version || '').split('\n')[0];
+        html += `<div style="display:flex;flex-wrap:wrap;gap:0.25rem;margin-bottom:0.5rem">
+            ${_pill(cli.available, cli.available ? '✓ terraform' + (cliVer ? ' ' + cliVer : '') : '✗ no terraform')}
+            ${_pill(resCount > 0, resCount > 0 ? '✓ ' + resCount + ' resource' + (resCount !== 1 ? 's' : '') : '○ no resources')}
+            ${_pill(providers.length > 0, providers.length > 0 ? '✓ ' + providers.length + ' provider' + (providers.length !== 1 ? 's' : '') : '○ no providers')}
+            ${_pill(modules.length > 0, modules.length > 0 ? '✓ ' + modules.length + ' module' + (modules.length !== 1 ? 's' : '') : '○ no modules')}
+            ${_pill(backend != null, backend ? '✓ ' + backend.type + ' backend' : '○ no backend')}
+            ${_pill(initialized, initialized ? '✓ initialized' : '○ not initialized')}
+            ${_pill(detected, detected ? '✓ config found' : '○ no config')}
+        </div>`;
+
+        // ── Missing tools banner ──
+        if (missingTools.length > 0) {
+            html += `<div style="font-size:0.72rem;color:var(--warning);line-height:1.4;margin-bottom:0.5rem;padding:0.35rem 0.5rem;border-radius:6px;background:color-mix(in srgb, var(--warning) 6%, transparent);border:1px solid color-mix(in srgb, var(--warning) 18%, transparent)">
+                ⚠️ Missing tools: <strong>${esc(missingTools.map(t => t.label || t.id || t).join(', '))}</strong>
+            </div>`;
+        }
+
+        // ── TF file details (collapsible) ──
+        if (tfFiles.length > 0) {
+            // Group by type
+            const typeMap = {};
+            for (const f of tfFiles) {
+                const t = f.type || 'other';
+                typeMap[t] = (typeMap[t] || 0) + 1;
+            }
+
+            html += `<details style="margin-bottom:0.5rem" open>
+                <summary style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;cursor:pointer;user-select:none;margin-bottom:0.3rem">
+                    📄 Files (${tfFiles.length} .tf file${tfFiles.length !== 1 ? 's' : ''}${tfRoot ? ' in ' + esc(tfRoot) : ''})
+                </summary>
+                <div style="background:color-mix(in srgb, var(--bg-inset) 50%, transparent);border:1px solid var(--border-subtle);border-radius:6px;overflow:hidden">`;
+
+            // Type chips
+            const typeEntries = Object.entries(typeMap).sort((a, b) => b[1] - a[1]);
+            if (typeEntries.length > 0) {
+                html += `<div style="display:flex;flex-wrap:wrap;gap:0.15rem;padding:0.3rem 0.5rem;border-bottom:1px solid color-mix(in srgb, var(--border-subtle) 40%, transparent)">`;
+                for (const [type, count] of typeEntries) {
+                    html += `<span style="font-size:0.6rem;padding:0.05rem 0.25rem;border-radius:3px;background:color-mix(in srgb, var(--accent) 8%, transparent);color:var(--accent);border:1px solid color-mix(in srgb, var(--accent) 15%, transparent)">${esc(type)}: ${count}</span>`;
+                }
+                html += `</div>`;
+            }
+
+            // Per-file listing (max 10)
+            for (const f of tfFiles.slice(0, 10)) {
+                html += `<div style="display:flex;align-items:center;gap:0.4rem;padding:0.25rem 0.5rem;border-bottom:1px solid color-mix(in srgb, var(--border-subtle) 40%, transparent);font-size:0.72rem">
+                    <code style="font-weight:600;font-size:0.7rem;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis">${esc(f.path)}</code>
+                    <span style="font-size:0.6rem;color:var(--text-muted);white-space:nowrap">${esc(f.type || '')}</span>
+                </div>`;
+            }
+            if (tfFiles.length > 10) {
+                html += `<div style="padding:0.2rem 0.5rem;font-size:0.62rem;color:var(--text-muted)">… and ${tfFiles.length - 10} more file(s)</div>`;
+            }
+            html += `</div></details>`;
+        }
+
+        // ── Providers (collapsible, conditional) ──
+        if (providers.length > 0) {
+            html += `<details style="margin-bottom:0.5rem">
+                <summary style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;cursor:pointer;user-select:none;margin-bottom:0.3rem">
+                    ☁ Providers (${providers.length})
+                </summary>
+                <div style="background:color-mix(in srgb, var(--bg-inset) 50%, transparent);border:1px solid var(--border-subtle);border-radius:6px;overflow:hidden">`;
+
+            for (const prov of providers) {
+                const provName = typeof prov === 'string' ? prov : (prov.name || prov);
+                html += `<div style="padding:0.25rem 0.5rem;border-bottom:1px solid color-mix(in srgb, var(--border-subtle) 40%, transparent);font-size:0.72rem">
+                    <code style="font-weight:600">${esc(provName)}</code>
+                </div>`;
+            }
+            html += `</div></details>`;
+        }
+
+        // ── Modules (collapsible, conditional) ──
+        if (modules.length > 0) {
+            html += `<details style="margin-bottom:0.5rem">
+                <summary style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;cursor:pointer;user-select:none;margin-bottom:0.3rem">
+                    📦 Modules (${modules.length})
+                </summary>
+                <div style="background:color-mix(in srgb, var(--bg-inset) 50%, transparent);border:1px solid var(--border-subtle);border-radius:6px;overflow:hidden">`;
+
+            for (const mod of modules) {
+                html += `<div style="padding:0.25rem 0.5rem;border-bottom:1px solid color-mix(in srgb, var(--border-subtle) 40%, transparent);font-size:0.72rem">
+                    <div style="display:flex;align-items:center;gap:0.4rem">
+                        <strong style="font-size:0.72rem">${esc(mod.name || 'unnamed')}</strong>
+                        <code style="font-size:0.6rem;color:var(--text-muted)">${esc(mod.source || '')}</code>
+                    </div>
+                </div>`;
+            }
+            html += `</div></details>`;
+        }
+
+        // ── Resources summary (collapsible, condensed) ──
+        if (resources.length > 0) {
+            // Group by type
+            const resTypeMap = {};
+            for (const r of resources) {
+                const t = r.type || 'unknown';
+                resTypeMap[t] = (resTypeMap[t] || 0) + 1;
+            }
+
+            html += `<details style="margin-bottom:0.5rem">
+                <summary style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;cursor:pointer;user-select:none;margin-bottom:0.3rem">
+                    📦 Resources (${resCount})
+                </summary>
+                <div style="display:flex;flex-wrap:wrap;gap:0.15rem;padding:0.3rem 0">`;
+
+            for (const [type, count] of Object.entries(resTypeMap).sort((a, b) => b[1] - a[1])) {
+                html += `<span style="font-size:0.6rem;padding:0.05rem 0.25rem;border-radius:3px;background:color-mix(in srgb, var(--accent) 8%, transparent);color:var(--accent);border:1px solid color-mix(in srgb, var(--accent) 15%, transparent)">${esc(type)}: ${count}</span>`;
+            }
+            html += `</div></details>`;
+        }
+
+        // ── Backend info ──
+        if (backend) {
+            html += `<div style="margin-bottom:0.5rem;padding:0.3rem 0.5rem;border-radius:6px;background:color-mix(in srgb, var(--accent) 4%, transparent);border:1px solid color-mix(in srgb, var(--accent) 12%, transparent)">
+                <div style="font-size:0.65rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;margin-bottom:0.1rem">💾 State Backend</div>
+                <div style="font-size:0.72rem;color:var(--text-secondary)">
+                    <strong>${esc(backend.type)}</strong>
+                    ${backend.file ? `<span style="font-size:0.6rem;color:var(--text-muted)"> in ${esc(backend.file)}</span>` : ''}
+                </div>
+            </div>`;
+        }
+
+        // ── K8s cross-integration hint ──
+        if (k8sDetected && resCount > 0) {
+            const hasK8sRes = resources.some(r => (r.type || '').includes('kubernetes') || (r.type || '').includes('k8s'));
+            if (hasK8sRes) {
+                html += `<div style="font-size:0.72rem;color:var(--text-muted);margin-bottom:0.5rem;padding:0.3rem 0.5rem;border-radius:6px;background:color-mix(in srgb, var(--text-muted) 4%, transparent);border:1px solid color-mix(in srgb, var(--text-muted) 12%, transparent)">
+                    ℹ Terraform provisions K8s resources — your <strong>Kubernetes</strong> integration can manage the deployed workloads.
+                </div>`;
+            }
+        }
+
+        // ── Live panel (state, workspaces, validate, plan) ──
+        if (detected && cli.available) {
+            html += `<div style="margin-bottom:0.6rem">
+                <div style="display:flex;flex-wrap:wrap;gap:0.25rem;margin-bottom:0.3rem">
+                    <button class="btn btn-sm btn-secondary" style="font-size:0.68rem;padding:0.12rem 0.4rem"
+                        onclick="_wizTfLive('state')">📋 State</button>
+                    <button class="btn btn-sm btn-secondary" style="font-size:0.68rem;padding:0.12rem 0.4rem"
+                        onclick="_wizTfLive('workspaces')">🗃️ Workspaces</button>
+                    <button class="btn btn-sm btn-secondary" style="font-size:0.68rem;padding:0.12rem 0.4rem"
+                        onclick="_wizTfLive('validate')">✅ Validate</button>
+                    <button class="btn btn-sm btn-secondary" style="font-size:0.68rem;padding:0.12rem 0.4rem"
+                        onclick="_wizTfLive('outputs')">📧 Outputs</button>
+                </div>
+                <div id="wiz-tf-live-panel" style="display:none;background:var(--bg-inset);border:1px solid var(--border-subtle);border-radius:6px;padding:0.4rem 0.5rem;font-size:0.72rem;max-height:180px;overflow:auto;font-family:var(--font-mono,monospace)"></div>
+            </div>`;
+        }
 
         // ── Config generation form ──
         html += `<details style="margin-bottom:0.5rem" ${!detected ? 'open' : ''}>
@@ -895,12 +1328,42 @@ const _wizSubForms = {
                 ${detected ? '📝 Regenerate Config' : '📝 Generate Config'}
             </summary>
             <div style="padding-top:0.3rem">
-                ${_wizField('wiz-tf-provider', 'Provider', 'aws', { type: 'select', options: ['aws', 'google', 'azurerm', 'digitalocean', 'other'] })}
+                ${detected && (modules.length > 0 || providers.length > 1) ? `<div style="font-size:0.72rem;color:var(--warning);line-height:1.4;margin-bottom:0.5rem;padding:0.35rem 0.5rem;border-radius:6px;background:color-mix(in srgb, var(--warning) 6%, transparent);border:1px solid color-mix(in srgb, var(--warning) 18%, transparent)">
+                    ⚠️ <strong>Basic generation</strong> creates starter main.tf + variables.tf + outputs.tf.
+                    ${modules.length > 0 ? 'Your project uses <strong>' + modules.length + ' module(s)</strong>. ' : ''}${providers.length > 1 ? 'Your project uses <strong>multiple providers</strong>. ' : ''}
+                    Use <strong>🚀 Full Terraform Setup</strong> below for comprehensive resource and environment configuration.
+                </div>` : ''}
+                ${_wizField('wiz-tf-provider', 'Provider', providers.length > 0 ? providers[0].split('/').pop() : 'aws', { type: 'select', options: ['aws', 'google', 'azurerm', 'digitalocean', 'other'] })}
                 ${_wizField('wiz-tf-region', 'Region', 'us-east-1')}
                 ${_wizField('wiz-tf-project', 'Project Name', safeName)}
-                ${_wizField('wiz-tf-backend', 'State Backend', 'local', { type: 'select', options: ['local', 's3', 'gcs', 'azurerm'] })}
+                ${_wizField('wiz-tf-backend', 'State Backend', backend ? backend.type : 'local', { type: 'select', options: ['local', 's3', 'gcs', 'azurerm'] })}
                 ${detected ? _wizField('wiz-tf-overwrite', 'Overwrite existing config', false, { type: 'checkbox' }) : ''}
                 ${_wizApplyBtn('terraform')}
+            </div>
+        </details>`;
+
+        // ── Full Terraform Setup escalation ──
+        html += `<details style="margin-bottom:0.5rem">
+            <summary style="font-size:0.72rem;font-weight:600;color:var(--accent);text-transform:uppercase;cursor:pointer;user-select:none;margin-bottom:0.3rem">
+                🚀 Full Terraform Setup
+            </summary>
+            <div style="padding-top:0.3rem">
+                <div style="font-size:0.75rem;color:var(--text-secondary);line-height:1.5;margin-bottom:0.6rem">
+                    Open the full multi-step Terraform wizard for <strong>comprehensive</strong> IaC configuration.
+                    This includes provider selection, backend configuration, resource definitions,
+                    environment management, variable files, and live preview with HCL editing.
+                </div>
+                <div style="display:flex;flex-wrap:wrap;gap:0.25rem;margin-bottom:0.6rem">
+                    ${_pill(cli.available, cli.available ? '✓ terraform' : '○ no terraform')}
+                    ${_pill(resCount > 0, resCount > 0 ? '✓ ' + resCount + ' resource(s)' : '○ will create')}
+                    ${_pill(providers.length > 0, providers.length > 0 ? '✓ ' + providers.map(p => typeof p === 'string' ? p.split('/').pop() : p).join(', ') : '○ no providers')}
+                    ${_pill(initialized, initialized ? '✓ initialized' : '○ not initialized')}
+                    ${_pill(backend != null, backend ? '✓ ' + backend.type : '○ no backend')}
+                </div>
+                <div style="display:flex;gap:0.4rem;margin-top:0.4rem">
+                    <button class="btn btn-sm btn-primary" style="font-size:0.75rem"
+                        onclick="openSetupWizard('terraform')">🚀 Open Full Setup</button>
+                </div>
             </div>
         </details>`;
 
@@ -909,6 +1372,196 @@ const _wizSubForms = {
             html += `<div style="border-top:1px solid var(--border-subtle);padding-top:0.5rem;margin-top:0.3rem">
                 <button class="btn btn-sm" style="font-size:0.68rem;padding:0.12rem 0.4rem;color:var(--error);border:1px solid color-mix(in srgb, var(--error) 30%, transparent)"
                     onclick="_wizDeleteConfig('terraform', this)">🗑 Delete Terraform Config</button>
+            </div>`;
+        }
+
+        return html;
+    },
+
+    'dns': (info, name, d) => {
+        const safeName = name.replace(/[^a-z0-9-]/gi, '-').toLowerCase();
+        const detected = info.detected;
+
+        // ── Rich DNS/CDN status data (from backend dns_cdn_status) ──
+        const dnsSt = d.dns_status || {};
+        const cdnProviders = dnsSt.cdn_providers || [];
+        const domains = dnsSt.domains || [];
+        const dnsFiles = dnsSt.dns_files || [];
+        const sslCerts = dnsSt.ssl_certs || [];
+        const hasCdn = dnsSt.has_cdn || false;
+        const hasDns = dnsSt.has_dns || false;
+        const missingTools = dnsSt.missing_tools || [];
+
+        // Stack & cross-integration context
+        const sd = (d.stack_defaults || {});
+        const stackName = sd.primary_stack || '';
+        const stackIcon = sd.icon || '';
+        const tfDetected = d.devops_cards?.terraform?.detected;
+        const pagesDetected = d.integrations?.['int:pages']?.detected;
+        const hasCname = info.has_cname;
+
+        const _pill = (ok, label) => `<span style="font-size:0.62rem;padding:0.08rem 0.3rem;border-radius:4px;${ok ? 'background:color-mix(in srgb, var(--success) 10%, transparent);color:var(--success);border:1px solid color-mix(in srgb, var(--success) 25%, transparent)' : 'background:color-mix(in srgb, var(--text-muted) 8%, transparent);color:var(--text-muted);border:1px solid color-mix(in srgb, var(--text-muted) 20%, transparent)'}">${label}</span>`;
+
+        // ── Header with stack badge ──
+        let html = `<div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.5rem">
+            <span style="font-weight:600;font-size:0.85rem">\ud83c\udf10 DNS & CDN</span>
+            ${stackName ? `<span style="font-size:0.62rem;padding:0.08rem 0.3rem;border-radius:4px;background:color-mix(in srgb, var(--accent) 10%, transparent);color:var(--accent);border:1px solid color-mix(in srgb, var(--accent) 25%, transparent)">${stackIcon} ${esc(stackName)}</span>` : ''}
+        </div>`;
+
+        // ── Status strip (6 pills) ──
+        html += `<div style="display:flex;flex-wrap:wrap;gap:0.25rem;margin-bottom:0.5rem">
+            ${_pill(hasDns, hasDns ? '\u2713 DNS configured' : '\u25cb no DNS')}
+            ${_pill(hasCdn, hasCdn ? '\u2713 CDN detected' : '\u25cb no CDN')}
+            ${_pill(domains.length > 0, domains.length > 0 ? '\u2713 ' + domains.length + ' domain' + (domains.length !== 1 ? 's' : '') : '\u25cb no domains')}
+            ${_pill(dnsFiles.length > 0, dnsFiles.length > 0 ? '\u2713 ' + dnsFiles.length + ' file' + (dnsFiles.length !== 1 ? 's' : '') : '\u25cb no files')}
+            ${_pill(sslCerts.length > 0, sslCerts.length > 0 ? '\u2713 ' + sslCerts.length + ' cert' + (sslCerts.length !== 1 ? 's' : '') : '\u25cb no certs')}
+            ${_pill(detected, detected ? '\u2713 config found' : '\u25cb no config')}
+        </div>`;
+
+        // ── Missing tools banner ──
+        if (missingTools.length > 0) {
+            html += `<div style="font-size:0.72rem;color:var(--warning);line-height:1.4;margin-bottom:0.5rem;padding:0.35rem 0.5rem;border-radius:6px;background:color-mix(in srgb, var(--warning) 6%, transparent);border:1px solid color-mix(in srgb, var(--warning) 18%, transparent)">
+                \u26a0\ufe0f Missing tools: <strong>${esc(missingTools.map(t => t.label || t.id || t).join(', '))}</strong>
+                <span style="font-size:0.62rem;color:var(--text-muted)">(DNS lookup and SSL checks need dig/openssl)</span>
+            </div>`;
+        }
+
+        // ── CDN Providers (collapsible, conditional) ──
+        if (cdnProviders.length > 0) {
+            html += `<details style="margin-bottom:0.5rem" open>
+                <summary style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;cursor:pointer;user-select:none;margin-bottom:0.3rem">
+                    \u26a1 CDN Providers (${cdnProviders.length})
+                </summary>
+                <div style="background:color-mix(in srgb, var(--bg-inset) 50%, transparent);border:1px solid var(--border-subtle);border-radius:6px;overflow:hidden">`;
+
+            for (const prov of cdnProviders) {
+                const detBy = (prov.detected_by || []).join(', ');
+                html += `<div style="display:flex;align-items:center;gap:0.4rem;padding:0.25rem 0.5rem;border-bottom:1px solid color-mix(in srgb, var(--border-subtle) 40%, transparent);font-size:0.72rem">
+                    <strong style="flex:1">${esc(prov.name || prov.id || 'unknown')}</strong>
+                    ${prov.cli_available ? `<span style="font-size:0.6rem;color:var(--success)">\u2713 ${esc(prov.cli || 'CLI')}</span>` : ''}
+                    <span style="font-size:0.6rem;color:var(--text-muted)">${esc(detBy)}</span>
+                </div>`;
+            }
+            html += `</div></details>`;
+        }
+
+        // ── Domains (collapsible, conditional) ──
+        if (domains.length > 0) {
+            html += `<details style="margin-bottom:0.5rem" open>
+                <summary style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;cursor:pointer;user-select:none;margin-bottom:0.3rem">
+                    \ud83c\udf10 Domains (${domains.length})
+                </summary>
+                <div style="display:flex;flex-wrap:wrap;gap:0.15rem;padding:0.3rem 0">`;
+
+            for (const dom of domains) {
+                html += `<span style="font-size:0.65rem;padding:0.08rem 0.35rem;border-radius:4px;background:color-mix(in srgb, var(--accent) 8%, transparent);color:var(--accent);border:1px solid color-mix(in srgb, var(--accent) 15%, transparent)"><code>${esc(dom)}</code></span>`;
+            }
+            html += `</div></details>`;
+        }
+
+        // ── DNS Files (collapsible, conditional) ──
+        if (dnsFiles.length > 0) {
+            html += `<details style="margin-bottom:0.5rem">
+                <summary style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;cursor:pointer;user-select:none;margin-bottom:0.3rem">
+                    \ud83d\udcc4 DNS Files (${dnsFiles.length})
+                </summary>
+                <div style="background:color-mix(in srgb, var(--bg-inset) 50%, transparent);border:1px solid var(--border-subtle);border-radius:6px;overflow:hidden">`;
+
+            for (const f of dnsFiles) {
+                html += `<div style="padding:0.25rem 0.5rem;border-bottom:1px solid color-mix(in srgb, var(--border-subtle) 40%, transparent);font-size:0.72rem">
+                    <code style="font-weight:600;font-size:0.7rem">${esc(f)}</code>
+                </div>`;
+            }
+            html += `</div></details>`;
+        }
+
+        // ── SSL Certificates (collapsible, conditional) ──
+        if (sslCerts.length > 0) {
+            html += `<details style="margin-bottom:0.5rem">
+                <summary style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;cursor:pointer;user-select:none;margin-bottom:0.3rem">
+                    \ud83d\udd12 SSL Certificates (${sslCerts.length})
+                </summary>
+                <div style="background:color-mix(in srgb, var(--bg-inset) 50%, transparent);border:1px solid var(--border-subtle);border-radius:6px;overflow:hidden">`;
+
+            for (const cert of sslCerts) {
+                const icon = cert.type === 'private_key' ? '\ud83d\udd11' : '\ud83d\udcc4';
+                html += `<div style="display:flex;align-items:center;gap:0.4rem;padding:0.25rem 0.5rem;border-bottom:1px solid color-mix(in srgb, var(--border-subtle) 40%, transparent);font-size:0.72rem">
+                    <span>${icon}</span>
+                    <code style="font-weight:600;font-size:0.7rem;flex:1">${esc(cert.path)}</code>
+                    <span style="font-size:0.6rem;color:var(--text-muted)">${esc(cert.type)}</span>
+                </div>`;
+            }
+            html += `</div></details>`;
+        }
+
+        // ── Cross-integration hints ──
+        if (tfDetected) {
+            html += `<div style="font-size:0.72rem;color:var(--text-muted);margin-bottom:0.5rem;padding:0.3rem 0.5rem;border-radius:6px;background:color-mix(in srgb, var(--text-muted) 4%, transparent);border:1px solid color-mix(in srgb, var(--text-muted) 12%, transparent)">
+                \u2139 <strong>Terraform</strong> detected \u2014 DNS records can be managed as Terraform resources via the Full Setup wizard.
+            </div>`;
+        }
+        if (pagesDetected && hasCname) {
+            html += `<div style="font-size:0.72rem;color:var(--text-muted);margin-bottom:0.5rem;padding:0.3rem 0.5rem;border-radius:6px;background:color-mix(in srgb, var(--text-muted) 4%, transparent);border:1px solid color-mix(in srgb, var(--text-muted) 12%, transparent)">
+                \u2139 <strong>GitHub Pages</strong> CNAME detected \u2014 domain is configured for Pages hosting.
+            </div>`;
+        }
+
+        // ── Live panel (DNS lookup, SSL check) ──
+        html += `<div style="margin-bottom:0.6rem">
+            <div style="display:flex;flex-wrap:wrap;gap:0.25rem;margin-bottom:0.3rem">
+                <button class="btn btn-sm btn-secondary" style="font-size:0.68rem;padding:0.12rem 0.4rem"
+                    onclick="_wizDnsLive('lookup')">\ud83d\udd0d DNS Lookup</button>
+                <button class="btn btn-sm btn-secondary" style="font-size:0.68rem;padding:0.12rem 0.4rem"
+                    onclick="_wizDnsLive('ssl')">\ud83d\udd12 SSL Check</button>
+            </div>
+            <div id="wiz-dns-live-panel" style="display:none;background:var(--bg-inset);border:1px solid var(--border-subtle);border-radius:6px;padding:0.4rem 0.5rem;font-size:0.72rem;max-height:220px;overflow:auto"></div>
+        </div>`;
+
+        // ── Config generation form ──
+        const defaultDomain = domains.length > 0 ? domains[0] : 'example.com';
+        html += `<details style="margin-bottom:0.5rem" ${!detected ? 'open' : ''}>
+            <summary style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;cursor:pointer;user-select:none;margin-bottom:0.3rem">
+                ${detected ? '\ud83d\udcdd Regenerate Config' : '\ud83d\udcdd Generate DNS Config'}
+            </summary>
+            <div style="padding-top:0.3rem">
+                ${_wizField('wiz-dns-domain', 'Domain', defaultDomain, { help: 'Primary domain (e.g. example.com)' })}
+                ${_wizField('wiz-dns-mail', 'Mail Provider', 'none', { type: 'select', options: ['none', 'google', 'protonmail', 'fastmail', 'zoho'] })}
+                ${_wizField('wiz-dns-spf', 'Include SPF record', true, { type: 'checkbox' })}
+                ${_wizField('wiz-dns-dmarc', 'Include DMARC record', true, { type: 'checkbox' })}
+                ${detected ? _wizField('wiz-dns-overwrite', 'Overwrite existing config', false, { type: 'checkbox' }) : ''}
+                ${_wizApplyBtn('dns')}
+            </div>
+        </details>`;
+
+        // ── Full DNS Setup escalation ──
+        html += `<details style="margin-bottom:0.5rem">
+            <summary style="font-size:0.72rem;font-weight:600;color:var(--accent);text-transform:uppercase;cursor:pointer;user-select:none;margin-bottom:0.3rem">
+                \ud83d\ude80 Full DNS & CDN Setup
+            </summary>
+            <div style="padding-top:0.3rem">
+                <div style="font-size:0.75rem;color:var(--text-secondary);line-height:1.5;margin-bottom:0.6rem">
+                    Open the full multi-step DNS & CDN wizard for <strong>comprehensive</strong> configuration.
+                    This includes domain management, CDN provider selection, SSL certificates,
+                    traffic routing, K8s ingress, proxy configs, and Terraform DNS resource generation.
+                </div>
+                <div style="display:flex;flex-wrap:wrap;gap:0.25rem;margin-bottom:0.6rem">
+                    ${_pill(hasDns, hasDns ? '\u2713 DNS configured' : '\u25cb will create')}
+                    ${_pill(hasCdn, hasCdn ? '\u2713 CDN: ' + cdnProviders.map(p => p.name).join(', ') : '\u25cb no CDN')}
+                    ${_pill(domains.length > 0, domains.length > 0 ? '\u2713 ' + domains.length + ' domain(s)' : '\u25cb no domains')}
+                    ${_pill(sslCerts.length > 0, sslCerts.length > 0 ? '\u2713 SSL certs' : '\u25cb no certs')}
+                </div>
+                <div style="display:flex;gap:0.4rem;margin-top:0.4rem">
+                    <button class="btn btn-sm btn-primary" style="font-size:0.75rem"
+                        onclick="openSetupWizard('dns')">\ud83d\ude80 Open Full Setup</button>
+                </div>
+            </div>
+        </details>`;
+
+        // ── Delete config ──
+        if (detected) {
+            html += `<div style="border-top:1px solid var(--border-subtle);padding-top:0.5rem;margin-top:0.3rem">
+                <button class="btn btn-sm" style="font-size:0.68rem;padding:0.12rem 0.4rem;color:var(--error);border:1px solid color-mix(in srgb, var(--error) 30%, transparent)"
+                    onclick="_wizDeleteConfig('dns', this)">\ud83d\uddd1 Delete DNS Config</button>
             </div>`;
         }
 
