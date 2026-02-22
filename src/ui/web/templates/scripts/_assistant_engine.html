@@ -1612,6 +1612,18 @@
         var el = document.getElementById('wiz-tf-backend');
         return el ? el.value : '';
     };
+    window._assistant.resolvers.dnsMailValue = function() {
+        var el = document.getElementById('wiz-dns-mail');
+        return el ? el.value : '';
+    };
+    window._assistant.resolvers.ciStrategyValue = function() {
+        var el = document.getElementById('wiz-ci-compose-strategy');
+        return el ? el.value : '';
+    };
+    window._assistant.resolvers.ciDeployValue = function() {
+        var el = document.getElementById('wiz-ci-compose-deploy');
+        return el ? el.value : '';
+    };
 
     // ── Docker image breakdown resolvers ─────────────────────────
 

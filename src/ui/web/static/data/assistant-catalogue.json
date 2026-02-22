@@ -3546,6 +3546,1040 @@
                                 ]
                             }
                         ]
+                    },
+                    {
+                        "id": "dns-cdn-card",
+                        "title": "DNS & CDN",
+                        "icon": "🌐",
+                        "selector": "#wiz-int-wrap-dns",
+                        "content": "Domain name system and content delivery network configuration — domains, DNS records, CDN providers, and SSL certificates.",
+                        "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🌐 DNS & CDN Setup</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"margin:0.3rem 0;font-size:0.75rem\">This panel manages your project's DNS and CDN configuration. It covers:</div><div style=\"display:grid;grid-template-columns:auto 1fr;gap:0.2rem 0.5rem;margin:0.3rem 0;font-size:0.75rem\"><span style=\"font-weight:600;color:var(--text-secondary)\">DNS</span><span>zone files, A/AAAA/CNAME/MX/TXT records for your domains</span><span style=\"font-weight:600;color:var(--text-secondary)\">CDN</span><span>content delivery providers — Cloudflare, AWS CloudFront, Fastly, etc.</span><span style=\"font-weight:600;color:var(--text-secondary)\">SSL</span><span>TLS certificates — auto-detected from project files</span><span style=\"font-weight:600;color:var(--text-secondary)\">Mail</span><span>SPF, DKIM, DMARC records for email deliverability</span><span style=\"font-weight:600;color:var(--text-secondary)\">Live Tools</span><span>DNS lookup and SSL check directly from the panel</span></div></div></div>",
+                        "children": [
+                            {
+                                "id": "dns-section-status",
+                                "title": "Status",
+                                "icon": "📊",
+                                "selector": "#wiz-dns-section-status",
+                                "content": "DNS & CDN status overview — quick summary of your current configuration state.",
+                                "children": [
+                                    {
+                                        "id": "dns-pill-dns",
+                                        "title": "DNS Status",
+                                        "icon": "🌐",
+                                        "selector": "#wiz-dns-pill-dns",
+                                        "content": "DNS configuration status.",
+                                        "variants": [
+                                            {
+                                                "when": {
+                                                    "textContains": "✓ DNS configured"
+                                                },
+                                                "content": "DNS configuration is present — zone files and records are defined.",
+                                                "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">🌐 DNS · configured</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"margin:0.3rem 0;font-size:0.75rem\">DNS configuration detected. Your project has zone files with record definitions. Use the DNS Lookup tool below to verify records resolve correctly.</div><div style=\"margin:0.3rem 0;font-size:0.75rem\">To modify records, regenerate the config or edit the zone files directly in your dns/ directory.</div></div></div>"
+                                            },
+                                            {
+                                                "when": {
+                                                    "textContains": "○ no DNS"
+                                                },
+                                                "content": "No DNS configuration found — generate one with the form below.",
+                                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🌐 DNS · not configured</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"margin:0.3rem 0;font-size:0.75rem\">No DNS configuration detected. Use the Generate DNS Config form below to create zone files and record definitions for your domain.</div><div style=\"margin:0.3rem 0;font-size:0.75rem\">The generator creates A, CNAME, MX, TXT (SPF/DMARC) records based on your domain and mail provider selection.</div></div></div>"
+                                            }
+                                        ],
+                                        "children": []
+                                    },
+                                    {
+                                        "id": "dns-pill-cdn",
+                                        "title": "CDN Status",
+                                        "icon": "⚡",
+                                        "selector": "#wiz-dns-pill-cdn",
+                                        "content": "CDN provider detection status.",
+                                        "variants": [
+                                            {
+                                                "when": {
+                                                    "textContains": "✓ CDN"
+                                                },
+                                                "content": "CDN provider detected — content delivery is configured for your project.",
+                                                "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">⚡ CDN · detected</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"margin:0.3rem 0;font-size:0.75rem\">A CDN provider configuration was found. CDN accelerates content delivery by caching static assets at edge locations worldwide.</div><div style=\"margin:0.3rem 0;font-size:0.75rem\">The Full Setup wizard can configure advanced CDN settings including cache rules, origin configuration, and WAF integration.</div></div></div>"
+                                            },
+                                            {
+                                                "when": {
+                                                    "textContains": "○ no CDN"
+                                                },
+                                                "content": "No CDN detected — optional, configure via Full Setup for edge caching.",
+                                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">⚡ CDN · not detected</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"margin:0.3rem 0;font-size:0.75rem\">No CDN configuration found. A CDN is optional but recommended for production sites.</div><div style=\"margin:0.3rem 0;font-size:0.75rem\">Benefits: faster page loads, DDoS protection, SSL termination, global edge caching. Use the Full Setup wizard to configure one.</div></div></div>"
+                                            }
+                                        ],
+                                        "children": []
+                                    },
+                                    {
+                                        "id": "dns-pill-domains",
+                                        "title": "Domains",
+                                        "icon": "🔗",
+                                        "selector": "#wiz-dns-pill-domains",
+                                        "content": "Domain detection status.",
+                                        "variants": [
+                                            {
+                                                "when": {
+                                                    "textContains": "✓"
+                                                },
+                                                "content": "Domain(s) detected in your project configuration.",
+                                                "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">🔗 Domains · found</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"margin:0.3rem 0;font-size:0.75rem\">One or more domains are referenced in your project. These are used for DNS record generation, SSL certificate configuration, and CDN origin setup.</div></div></div>"
+                                            },
+                                            {
+                                                "when": {
+                                                    "textContains": "○ no domains"
+                                                },
+                                                "content": "No domains detected — enter your domain in the config form below.",
+                                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🔗 Domains · none</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"margin:0.3rem 0;font-size:0.75rem\">No domains detected in project files. Enter your primary domain (e.g., example.com) in the Generate Config form to create DNS records.</div></div></div>"
+                                            }
+                                        ],
+                                        "children": []
+                                    },
+                                    {
+                                        "id": "dns-pill-files",
+                                        "title": "DNS Files",
+                                        "icon": "📄",
+                                        "selector": "#wiz-dns-pill-files",
+                                        "content": "DNS file detection status.",
+                                        "variants": [
+                                            {
+                                                "when": {
+                                                    "textContains": "✓"
+                                                },
+                                                "content": "DNS configuration files found in your project.",
+                                                "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">📄 Files · found</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"margin:0.3rem 0;font-size:0.75rem\">DNS configuration files detected. These contain zone definitions and record entries. Expand the DNS Files section below to see individual files.</div></div></div>"
+                                            },
+                                            {
+                                                "when": {
+                                                    "textContains": "○ no files"
+                                                },
+                                                "content": "No DNS files found — generate them with the config form.",
+                                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">📄 Files · none</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"margin:0.3rem 0;font-size:0.75rem\">No DNS configuration files found. Use Generate DNS Config to create zone files with A, CNAME, MX, and TXT records for your domain.</div></div></div>"
+                                            }
+                                        ],
+                                        "children": []
+                                    },
+                                    {
+                                        "id": "dns-pill-certs",
+                                        "title": "SSL Certificates",
+                                        "icon": "🔒",
+                                        "selector": "#wiz-dns-pill-certs",
+                                        "content": "SSL certificate detection status.",
+                                        "variants": [
+                                            {
+                                                "when": {
+                                                    "textContains": "✓"
+                                                },
+                                                "content": "SSL certificates detected in your project.",
+                                                "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">🔒 SSL · found</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"margin:0.3rem 0;font-size:0.75rem\">SSL/TLS certificates detected. These are used for HTTPS encryption. Use the SSL Check tool below to verify certificate validity and expiration.</div><div style=\"margin:0.3rem 0;font-size:0.75rem\">⚠ Never commit private keys to git. Ensure .gitignore covers *.key and *.pem files.</div></div></div>"
+                                            },
+                                            {
+                                                "when": {
+                                                    "textContains": "○ no certs"
+                                                },
+                                                "content": "No SSL certificates found — most modern setups use auto-provisioned certs (Let's Encrypt, ACM).",
+                                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🔒 SSL · none</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"margin:0.3rem 0;font-size:0.75rem\">No SSL certificates found in the project. This is normal — most production setups use auto-provisioned certificates:</div><div style=\"margin:0.3rem 0;font-size:0.75rem\">• <strong>Let's Encrypt</strong> — free, auto-renewed via certbot or ACME clients<br>• <strong>AWS ACM</strong> — free certs for CloudFront and ALB<br>• <strong>Cloudflare</strong> — automatic SSL for proxied domains</div></div></div>"
+                                            }
+                                        ],
+                                        "children": []
+                                    },
+                                    {
+                                        "id": "dns-pill-config",
+                                        "title": "Config Status",
+                                        "icon": "⚙",
+                                        "selector": "#wiz-dns-pill-config",
+                                        "content": "Overall DNS config detection.",
+                                        "variants": [
+                                            {
+                                                "when": {
+                                                    "textContains": "✓ config found"
+                                                },
+                                                "content": "DNS configuration exists — you can regenerate or modify it.",
+                                                "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">⚙ Config · found</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"margin:0.3rem 0;font-size:0.75rem\">A generated DNS configuration exists. You can regenerate it with different settings (enable Overwrite) or edit the files directly.</div></div></div>"
+                                            },
+                                            {
+                                                "when": {
+                                                    "textContains": "○ no config"
+                                                },
+                                                "content": "No generated config — use the form below to create one.",
+                                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">⚙ Config · none</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"margin:0.3rem 0;font-size:0.75rem\">No generated DNS configuration found. Fill in the form below with your domain and mail provider, then click Apply to generate DNS record files.</div></div></div>"
+                                            }
+                                        ],
+                                        "children": []
+                                    }
+                                ]
+                            },
+                            {
+                                "id": "dns-section-live",
+                                "title": "Live Tools",
+                                "icon": "🔧",
+                                "selector": "#wiz-dns-section-live",
+                                "content": "Live DNS and SSL diagnostic tools — query DNS records and check certificate status in real-time.",
+                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🔧 Live DNS Tools</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"margin:0.3rem 0;font-size:0.75rem\">Interactive diagnostic tools that query live infrastructure. Results appear in the panel below the buttons.</div><div style=\"margin:0.3rem 0;font-size:0.75rem\">These tools require <strong>dig</strong> (DNS lookup) and <strong>openssl</strong> (SSL check) to be installed on the server. If they're missing, the Missing Tools banner above will indicate which ones.</div></div></div>",
+                                "children": [
+                                    {
+                                        "id": "dns-btn-lookup",
+                                        "title": "DNS Lookup",
+                                        "icon": "🔍",
+                                        "selector": "#wiz-dns-btn-lookup",
+                                        "content": "Query live DNS records for your domain — A, AAAA, CNAME, MX, TXT, NS records.",
+                                        "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🔍 DNS Lookup</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"margin:0.3rem 0;font-size:0.75rem\">Runs <code>dig</code> against public DNS servers to resolve records for your domain. Shows:</div><div style=\"display:grid;grid-template-columns:auto 1fr;gap:0.2rem 0.5rem;margin:0.3rem 0;font-size:0.73rem\"><span style=\"font-weight:600;color:var(--text-secondary)\">A / AAAA</span><span>IPv4 and IPv6 addresses the domain points to</span><span style=\"font-weight:600;color:var(--text-secondary)\">CNAME</span><span>alias records (e.g., www → apex)</span><span style=\"font-weight:600;color:var(--text-secondary)\">MX</span><span>mail server routing with priorities</span><span style=\"font-weight:600;color:var(--text-secondary)\">TXT</span><span>SPF, DMARC, domain verification entries</span><span style=\"font-weight:600;color:var(--text-secondary)\">NS</span><span>authoritative nameservers for the zone</span></div><div style=\"margin:0.3rem 0;font-size:0.75rem\">Use this to verify your DNS configuration is live and propagated after making changes at your registrar.</div></div></div>",
+                                        "children": []
+                                    },
+                                    {
+                                        "id": "dns-btn-ssl",
+                                        "title": "SSL Check",
+                                        "icon": "🔒",
+                                        "selector": "#wiz-dns-btn-ssl",
+                                        "content": "Check SSL/TLS certificate validity, expiration, and chain for your domain.",
+                                        "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🔒 SSL Certificate Check</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"margin:0.3rem 0;font-size:0.75rem\">Connects to your domain via <code>openssl s_client</code> and inspects the TLS certificate. Reports:</div><div style=\"display:grid;grid-template-columns:auto 1fr;gap:0.2rem 0.5rem;margin:0.3rem 0;font-size:0.73rem\"><span style=\"font-weight:600;color:var(--text-secondary)\">Issuer</span><span>who issued the cert (Let's Encrypt, DigiCert, Cloudflare, etc.)</span><span style=\"font-weight:600;color:var(--text-secondary)\">Validity</span><span>not-before and not-after dates</span><span style=\"font-weight:600;color:var(--text-secondary)\">Subject</span><span>domain(s) the cert covers (CN + SANs)</span><span style=\"font-weight:600;color:var(--text-secondary)\">Chain</span><span>intermediate and root CA verification</span></div><div style=\"margin:0.3rem 0;font-size:0.75rem\">Useful for verifying HTTPS is working, checking expiration dates, and confirming the correct certificate is served.</div></div></div>",
+                                        "children": []
+                                    }
+                                ]
+                            },
+                            {
+                                "id": "dns-section-config",
+                                "title": "Generate DNS Config",
+                                "icon": "📝",
+                                "content": "Generate DNS zone files and record definitions for your domain.",
+                                "children": [
+                                    {
+                                        "id": "dns-field-domain",
+                                        "title": "Domain",
+                                        "icon": "🌐",
+                                        "selector": "#wiz-dns-domain",
+                                        "content": "Your primary domain name for DNS record generation.",
+                                        "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🌐 Domain</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"margin:0.3rem 0;font-size:0.75rem\">The root domain for all generated DNS records. Enter the apex domain (e.g., example.com), not a subdomain.</div><div style=\"margin:0.3rem 0;font-size:0.75rem\">Generated records will include:<br>• <strong>A record</strong> — points domain to your server IP<br>• <strong>CNAME</strong> — www subdomain alias<br>• <strong>MX</strong> — mail routing (if mail provider selected)<br>• <strong>TXT</strong> — SPF, DMARC verification records</div></div></div>",
+                                        "children": []
+                                    },
+                                    {
+                                        "id": "dns-field-mail",
+                                        "title": "Mail Provider",
+                                        "icon": "📧",
+                                        "selector": "#wiz-dns-mail",
+                                        "content": "Mail provider for MX record generation.",
+                                        "variants": [
+                                            {
+                                                "when": {
+                                                    "resolver": "dnsMailValue",
+                                                    "equals": "none"
+                                                },
+                                                "content": "No mail provider — MX records will not be generated.",
+                                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">📧 No Mail Provider</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"margin:0.3rem 0;font-size:0.75rem\">No mail provider selected. No MX records will be generated. Select a provider if you need email on this domain.</div></div></div>"
+                                            },
+                                            {
+                                                "when": {
+                                                    "resolver": "dnsMailValue",
+                                                    "equals": "google"
+                                                },
+                                                "content": "Google Workspace selected — generates MX records for Gmail.",
+                                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">📧 Google Workspace</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"margin:0.3rem 0;font-size:0.75rem\">Generates MX records pointing to Google's mail servers (ASPMX.L.GOOGLE.COM and alternates).</div><div style=\"display:grid;grid-template-columns:auto 1fr;gap:0.2rem 0.5rem;margin:0.3rem 0;font-size:0.73rem\"><span style=\"font-weight:600;color:var(--text-secondary)\">Priority 1</span><span>ASPMX.L.GOOGLE.COM</span><span style=\"font-weight:600;color:var(--text-secondary)\">Priority 5</span><span>ALT1.ASPMX.L.GOOGLE.COM, ALT2.ASPMX.L.GOOGLE.COM</span></div></div></div>"
+                                            },
+                                            {
+                                                "when": {
+                                                    "resolver": "dnsMailValue",
+                                                    "equals": "protonmail"
+                                                },
+                                                "content": "ProtonMail selected — generates MX records for Proton Mail.",
+                                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">📧 ProtonMail</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"margin:0.3rem 0;font-size:0.75rem\">Generates MX records pointing to Proton Mail servers. ProtonMail provides end-to-end encrypted email.</div><div style=\"display:grid;grid-template-columns:auto 1fr;gap:0.2rem 0.5rem;margin:0.3rem 0;font-size:0.73rem\"><span style=\"font-weight:600;color:var(--text-secondary)\">Priority 10</span><span>mail.protonmail.ch</span><span style=\"font-weight:600;color:var(--text-secondary)\">Priority 20</span><span>mailsec.protonmail.ch</span></div></div></div>"
+                                            },
+                                            {
+                                                "when": {
+                                                    "resolver": "dnsMailValue",
+                                                    "equals": "fastmail"
+                                                },
+                                                "content": "Fastmail selected — generates MX records for Fastmail.",
+                                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">📧 Fastmail</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"margin:0.3rem 0;font-size:0.75rem\">Generates MX records pointing to Fastmail servers. Known for privacy, standards compliance, and calendar/contacts support.</div><div style=\"display:grid;grid-template-columns:auto 1fr;gap:0.2rem 0.5rem;margin:0.3rem 0;font-size:0.73rem\"><span style=\"font-weight:600;color:var(--text-secondary)\">Priority 10</span><span>in1-smtp.messagingengine.com</span><span style=\"font-weight:600;color:var(--text-secondary)\">Priority 20</span><span>in2-smtp.messagingengine.com</span></div></div></div>"
+                                            },
+                                            {
+                                                "when": {
+                                                    "resolver": "dnsMailValue",
+                                                    "equals": "zoho"
+                                                },
+                                                "content": "Zoho Mail selected — generates MX records for Zoho.",
+                                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">📧 Zoho Mail</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"margin:0.3rem 0;font-size:0.75rem\">Generates MX records pointing to Zoho's mail servers. Zoho offers a free tier for up to 5 users.</div><div style=\"display:grid;grid-template-columns:auto 1fr;gap:0.2rem 0.5rem;margin:0.3rem 0;font-size:0.73rem\"><span style=\"font-weight:600;color:var(--text-secondary)\">Priority 10</span><span>mx.zoho.com</span><span style=\"font-weight:600;color:var(--text-secondary)\">Priority 20</span><span>mx2.zoho.com</span></div></div></div>"
+                                            }
+                                        ],
+                                        "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">📧 Mail Provider</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"margin:0.3rem 0;font-size:0.75rem\">Select the email provider for this domain to generate the correct MX records. Choose 'none' if you don't need email on this domain.</div></div></div>",
+                                        "children": []
+                                    },
+                                    {
+                                        "id": "dns-field-spf",
+                                        "title": "SPF Record",
+                                        "icon": "🛡",
+                                        "selector": "#wiz-dns-spf",
+                                        "content": "Include an SPF TXT record — prevents email spoofing by declaring authorized senders.",
+                                        "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🛡 SPF Record</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"margin:0.3rem 0;font-size:0.75rem\">Sender Policy Framework — a DNS TXT record that lists which mail servers are authorized to send email for your domain.</div><div style=\"margin:0.3rem 0;font-size:0.75rem\">Without SPF, your domain is vulnerable to email spoofing. Most mail providers require SPF for deliverability.</div><div style=\"margin:0.3rem 0;font-size:0.73rem\">Example: <code>v=spf1 include:_spf.google.com ~all</code></div></div></div>",
+                                        "children": []
+                                    },
+                                    {
+                                        "id": "dns-field-dmarc",
+                                        "title": "DMARC Record",
+                                        "icon": "🛡",
+                                        "selector": "#wiz-dns-dmarc",
+                                        "content": "Include a DMARC TXT record — tells receivers how to handle unauthenticated email.",
+                                        "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🛡 DMARC Record</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"margin:0.3rem 0;font-size:0.75rem\">Domain-based Message Authentication — builds on SPF and DKIM to tell receiving servers what to do with emails that fail authentication checks.</div><div style=\"margin:0.3rem 0;font-size:0.75rem\">Policies: <strong>none</strong> (monitor only), <strong>quarantine</strong> (flag as spam), <strong>reject</strong> (block entirely).</div><div style=\"margin:0.3rem 0;font-size:0.73rem\">Example: <code>v=DMARC1; p=quarantine; rua=mailto:dmarc@example.com</code></div></div></div>",
+                                        "children": []
+                                    },
+                                    {
+                                        "id": "dns-field-overwrite",
+                                        "title": "Overwrite",
+                                        "icon": "⚠",
+                                        "selector": "#wiz-dns-overwrite",
+                                        "content": "Whether to overwrite existing DNS config files — only shown when config already exists.",
+                                        "children": []
+                                    }
+                                ]
+                            },
+                            {
+                                "id": "dns-section-fullsetup",
+                                "title": "Full DNS & CDN Setup",
+                                "icon": "🚀",
+                                "selector": "#wiz-dns-section-fullsetup",
+                                "content": "Full multi-step DNS & CDN wizard — domain management, CDN provider selection, SSL certificates, traffic routing, and Terraform DNS resources.",
+                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🚀 Full DNS & CDN Setup</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"margin:0.3rem 0;font-size:0.75rem\">The full setup wizard provides comprehensive DNS and CDN configuration beyond basic record generation:</div><div style=\"margin:0.15rem 0;font-size:0.75rem;color:var(--text-secondary)\">✓ Multi-domain management</div><div style=\"margin:0.15rem 0;font-size:0.75rem;color:var(--text-secondary)\">✓ CDN provider selection and configuration</div><div style=\"margin:0.15rem 0;font-size:0.75rem;color:var(--text-secondary)\">✓ SSL certificate management</div><div style=\"margin:0.15rem 0;font-size:0.75rem;color:var(--text-secondary)\">✓ Traffic routing and proxy configuration</div><div style=\"margin:0.15rem 0;font-size:0.75rem;color:var(--text-secondary)\">✓ K8s ingress integration</div><div style=\"margin:0.15rem 0;font-size:0.75rem;color:var(--text-secondary)\">✓ Terraform DNS resource generation</div></div></div>",
+                                "children": [
+                                    {
+                                        "id": "dns-fullsetup-pill-dns",
+                                        "title": "DNS",
+                                        "icon": "🌐",
+                                        "selector": "#wiz-dns-fullsetup-pill-dns",
+                                        "content": "DNS configuration readiness for full setup.",
+                                        "variants": [
+                                            {
+                                                "when": {
+                                                    "textContains": "✓ DNS configured"
+                                                },
+                                                "content": "DNS is already configured — the full setup can extend or modify existing records.",
+                                                "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">🌐 DNS · ready</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"margin:0.3rem 0;font-size:0.75rem\">DNS configuration exists. The full setup wizard will build on top of your existing records, adding CDN, SSL, and advanced routing configuration.</div></div></div>"
+                                            },
+                                            {
+                                                "when": {
+                                                    "textContains": "○ will create"
+                                                },
+                                                "content": "No DNS config yet — the full setup will create one from scratch.",
+                                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🌐 DNS · will create</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"margin:0.3rem 0;font-size:0.75rem\">No existing DNS configuration. The full setup wizard will create a complete DNS setup including zones, records, and optional CDN/SSL integration.</div></div></div>"
+                                            }
+                                        ],
+                                        "children": []
+                                    },
+                                    {
+                                        "id": "dns-fullsetup-pill-cdn",
+                                        "title": "CDN",
+                                        "icon": "⚡",
+                                        "selector": "#wiz-dns-fullsetup-pill-cdn",
+                                        "content": "CDN provider readiness for full setup.",
+                                        "variants": [
+                                            {
+                                                "when": {
+                                                    "textContains": "✓ CDN"
+                                                },
+                                                "content": "CDN provider detected — the full setup can configure advanced CDN settings.",
+                                                "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">⚡ CDN · detected</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"margin:0.3rem 0;font-size:0.75rem\">CDN provider found. The full setup wizard can configure cache policies, origin settings, SSL termination, and WAF rules for your provider.</div></div></div>"
+                                            },
+                                            {
+                                                "when": {
+                                                    "textContains": "○ no CDN"
+                                                },
+                                                "content": "No CDN detected — the full setup can help you choose and configure one.",
+                                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">⚡ CDN · will configure</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"margin:0.3rem 0;font-size:0.75rem\">No CDN provider detected. The full setup wizard will help you choose a CDN provider (Cloudflare, CloudFront, Fastly, etc.) and generate the configuration.</div></div></div>"
+                                            }
+                                        ],
+                                        "children": []
+                                    },
+                                    {
+                                        "id": "dns-fullsetup-pill-domains",
+                                        "title": "Domains",
+                                        "icon": "🔗",
+                                        "selector": "#wiz-dns-fullsetup-pill-domains",
+                                        "content": "Domain readiness for full setup.",
+                                        "variants": [
+                                            {
+                                                "when": {
+                                                    "textContains": "✓"
+                                                },
+                                                "content": "Domains detected — the full setup will use these as starting points.",
+                                                "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">🔗 Domains · found</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"margin:0.3rem 0;font-size:0.75rem\">Domains are already known. The full setup wizard will pre-populate domain fields and allow you to add more domains for multi-domain configurations.</div></div></div>"
+                                            },
+                                            {
+                                                "when": {
+                                                    "textContains": "○ no domains"
+                                                },
+                                                "content": "No domains detected — you'll enter domains during full setup.",
+                                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🔗 Domains · none</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"margin:0.3rem 0;font-size:0.75rem\">No domains detected. The full setup wizard will prompt you to enter your domains and configure records for each one.</div></div></div>"
+                                            }
+                                        ],
+                                        "children": []
+                                    },
+                                    {
+                                        "id": "dns-fullsetup-pill-certs",
+                                        "title": "SSL Certs",
+                                        "icon": "🔒",
+                                        "selector": "#wiz-dns-fullsetup-pill-certs",
+                                        "content": "SSL certificate readiness for full setup.",
+                                        "variants": [
+                                            {
+                                                "when": {
+                                                    "textContains": "✓ SSL certs"
+                                                },
+                                                "content": "SSL certificates found — the full setup can integrate them with CDN and ingress.",
+                                                "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">🔒 SSL · found</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"margin:0.3rem 0;font-size:0.75rem\">SSL certificates detected. The full setup wizard can configure these for CDN SSL termination, K8s ingress TLS, and reverse proxy HTTPS.</div></div></div>"
+                                            },
+                                            {
+                                                "when": {
+                                                    "textContains": "○ no certs"
+                                                },
+                                                "content": "No SSL certs — the full setup can configure auto-provisioning (Let's Encrypt, ACM).",
+                                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🔒 SSL · will configure</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"margin:0.3rem 0;font-size:0.75rem\">No SSL certificates found. The full setup wizard can configure automatic certificate provisioning via Let's Encrypt, AWS ACM, or your CDN provider's built-in SSL.</div></div></div>"
+                                            }
+                                        ],
+                                        "children": []
+                                    }
+                                ]
+                            },
+                            {
+                                "id": "dns-apply",
+                                "title": "Apply",
+                                "icon": "✅",
+                                "selector": "#wiz-apply-dns",
+                                "content": "Generate DNS configuration files with the settings from the config form above.",
+                                "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">✅ Apply DNS Config</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"margin:0.3rem 0;font-size:0.75rem\">Clicking Apply generates DNS zone files and record definitions based on the form values:</div><div style=\"display:grid;grid-template-columns:auto 1fr;gap:0.2rem 0.5rem;margin:0.3rem 0;font-size:0.75rem\"><span style=\"font-weight:600;color:var(--text-secondary)\">Zone file</span><span>BIND-format zone with SOA, NS, A, CNAME records</span><span style=\"font-weight:600;color:var(--text-secondary)\">MX records</span><span>Mail routing for your selected provider</span><span style=\"font-weight:600;color:var(--text-secondary)\">TXT records</span><span>SPF and DMARC entries for email authentication</span></div><div style=\"margin:0.3rem 0;font-size:0.75rem\">Files are created in the dns/ directory. After generation, configure these records with your domain registrar or DNS provider.</div></div></div>",
+                                "children": []
+                            },
+                            {
+                                "id": "dns-cancel",
+                                "title": "Cancel",
+                                "icon": "✖",
+                                "selector": "#wiz-cancel-dns",
+                                "content": "Close the DNS setup panel without generating any files. No changes are made.",
+                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">✖ Discard</div><div class=\"state-detail\">Cancel collapses the DNS setup panel without generating any files or modifying any existing configuration.<br><br>Reopen anytime with ⚙️ Setup — all form fields repopulate from the current project state and detection.</div></div>",
+                                "children": []
+                            }
+                        ]
+                    },
+                    {
+                        "id": "cicd-card",
+                        "title": "CI/CD",
+                        "icon": "🔄",
+                        "selector": "#wiz-int-wrap-ci",
+                        "content": "Continuous integration and delivery — GitHub Actions workflow generation, pipeline composition, and cross-integration orchestration.",
+                        "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🔄 CI/CD Pipeline</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"margin:0.3rem 0;font-size:0.75rem\">This panel manages CI/CD workflow generation for your project. It detects your stack, integrations, and environment configuration to produce GitHub Actions workflows.</div><div style=\"display:grid;grid-template-columns:auto 1fr;gap:0.2rem 0.5rem;margin:0.3rem 0;font-size:0.75rem\"><span style=\"font-weight:600;color:var(--text-secondary)\">Basic</span><span>single workflow — test + lint for your detected stack</span><span style=\"font-weight:600;color:var(--text-secondary)\">Compose</span><span>full pipeline — Docker build, K8s deploy, Terraform, multi-env</span><span style=\"font-weight:600;color:var(--text-secondary)\">Connections</span><span>integration surface — what your CI pipeline can orchestrate</span></div></div></div>",
+                        "children": [
+                            {
+                                "id": "ci-section-status",
+                                "title": "Status Strip",
+                                "icon": "📊",
+                                "selector": "#wiz-ci-section-status",
+                                "content": "CI/CD status overview — workflows, GitHub authentication, and repository info.",
+                                "children": [
+                                    {
+                                        "id": "ci-pill-workflows",
+                                        "title": "Workflows",
+                                        "icon": "📋",
+                                        "selector": "#wiz-ci-pill-workflows",
+                                        "content": "CI workflow detection status.",
+                                        "variants": [
+                                            {
+                                                "when": {
+                                                    "textContains": "✓"
+                                                },
+                                                "content": "CI workflows detected — your project has GitHub Actions workflow files.",
+                                                "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">📋 Workflows · found</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"margin:0.3rem 0;font-size:0.75rem\">Existing CI/CD workflow files detected in <code>.github/workflows/</code>. Use Regenerate Basic Workflow (with Overwrite) to replace them, or Compose Full Pipeline to generate a more comprehensive setup.</div></div></div>"
+                                            },
+                                            {
+                                                "when": {
+                                                    "textContains": "○ no workflows"
+                                                },
+                                                "content": "No CI workflows found — generate one with the form below.",
+                                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">📋 Workflows · none</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"margin:0.3rem 0;font-size:0.75rem\">No CI/CD workflows found. Use Generate Basic Workflow for a simple test + lint pipeline, or Compose Full Pipeline to build a complete CI/CD setup from your detected integrations.</div></div></div>"
+                                            }
+                                        ],
+                                        "children": []
+                                    },
+                                    {
+                                        "id": "ci-pill-ghauth",
+                                        "title": "GitHub Auth",
+                                        "icon": "🐙",
+                                        "selector": "#wiz-ci-pill-ghauth",
+                                        "content": "GitHub CLI authentication status.",
+                                        "variants": [
+                                            {
+                                                "when": {
+                                                    "textContains": "✓ gh auth"
+                                                },
+                                                "content": "GitHub CLI is authenticated — secrets, environments, and repo operations are available.",
+                                                "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">🐙 GitHub · authenticated</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"margin:0.3rem 0;font-size:0.75rem\">GitHub CLI (<code>gh</code>) is authenticated. This enables:<br>• Repository secret management<br>• Environment creation and configuration<br>• Workflow dispatch and status checks<br>• Pull request and issue automation</div></div></div>"
+                                            },
+                                            {
+                                                "when": {
+                                                    "textContains": "⚠ gh not auth"
+                                                },
+                                                "content": "GitHub CLI not authenticated — run 'gh auth login' to enable repository operations.",
+                                                "expanded": "<div class=\"assistant-state-card state-warning\"><div class=\"state-label\">🐙 GitHub · not authenticated</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"margin:0.3rem 0;font-size:0.75rem\">GitHub CLI is not authenticated. Some features require authentication:<br>• Secret management requires <code>gh auth login</code><br>• Environment creation needs repo access<br><br>Workflow file generation still works without auth — files are created locally.</div></div></div>"
+                                            }
+                                        ],
+                                        "children": []
+                                    },
+                                    {
+                                        "id": "ci-pill-repo",
+                                        "title": "Repository",
+                                        "icon": "📦",
+                                        "selector": "#wiz-ci-pill-repo",
+                                        "content": "GitHub repository slug — identifies your repo for workflow configuration.",
+                                        "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">📦 Repository</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"margin:0.3rem 0;font-size:0.75rem\">The GitHub repository slug (org/repo) detected from your git remote. This is used for container registry paths (ghcr.io/org/repo), workflow badge URLs, and environment references.</div></div></div>",
+                                        "children": []
+                                    }
+                                ]
+                            },
+                            {
+                                "id": "ci-section-connections",
+                                "title": "Pipeline Connections",
+                                "icon": "🔌",
+                                "content": "Integration surface dashboard — shows which integrations your CI pipeline can orchestrate.",
+                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🔌 Pipeline Connections</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"margin:0.3rem 0;font-size:0.75rem\">Each row shows an integration that can be wired into your CI/CD pipeline. Green pills mean the integration is detected and can generate pipeline steps. Grey pills mean the integration is not present — those steps will be skipped.</div><div style=\"margin:0.3rem 0;font-size:0.75rem\">The Compose Full Pipeline wizard reads all connections to build a coordinated multi-job workflow.</div></div></div>",
+                                "children": [
+                                    {
+                                        "id": "ci-conn-git",
+                                        "title": "Git",
+                                        "icon": "🔀",
+                                        "selector": "#wiz-ci-conn-git",
+                                        "content": "Git repository connection — provides trigger events and branch filtering for CI workflows.",
+                                        "variants": [
+                                            {
+                                                "when": {
+                                                    "textContains": "✓ repo"
+                                                },
+                                                "content": "Git repo detected — workflows will trigger on push/PR to configured branches.",
+                                                "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">🔀 Git · connected</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"margin:0.3rem 0;font-size:0.75rem\">Git repository detected. Workflows trigger on:<br>• <strong>push</strong> to configured branches (main, master, etc.)<br>• <strong>pull_request</strong> targeting those branches<br>• Branch filter is configurable in the Basic Workflow form.</div></div></div>"
+                                            },
+                                            {
+                                                "when": {
+                                                    "textContains": "○ no git"
+                                                },
+                                                "content": "No Git repo — workflows can still be generated but won't have trigger context.",
+                                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🔀 Git · not connected</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"margin:0.3rem 0;font-size:0.75rem\">No Git repository detected. Workflow files can still be generated, but they won't have automatic push/PR trigger context until the project is initialized as a Git repo.</div></div></div>"
+                                            }
+                                        ],
+                                        "children": []
+                                    },
+                                    {
+                                        "id": "ci-conn-github",
+                                        "title": "GitHub",
+                                        "icon": "🐙",
+                                        "selector": "#wiz-ci-conn-github",
+                                        "content": "GitHub platform connection — Actions runner, secrets, environments, and repo visibility.",
+                                        "variants": [
+                                            {
+                                                "when": {
+                                                    "textContains": "✓ auth"
+                                                },
+                                                "content": "GitHub authenticated — full access to Actions, secrets, and environment management.",
+                                                "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">🐙 GitHub · connected</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"margin:0.3rem 0;font-size:0.75rem\">GitHub CLI authenticated. Your pipeline can leverage:<br>• <strong>GitHub Actions</strong> — cloud CI runners<br>• <strong>Secrets</strong> — secure variable injection<br>• <strong>Environments</strong> — deployment targets with protection rules<br>• <strong>GHCR</strong> — GitHub Container Registry for Docker images</div></div></div>"
+                                            },
+                                            {
+                                                "when": {
+                                                    "textContains": "○ no auth"
+                                                },
+                                                "content": "GitHub not authenticated — workflow files generated locally, but secret/env management unavailable.",
+                                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🐙 GitHub · not connected</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"margin:0.3rem 0;font-size:0.75rem\">GitHub CLI not authenticated. Workflow files will still be generated locally, but you won't be able to manage secrets or environments through the wizard. Run <code>gh auth login</code> to connect.</div></div></div>"
+                                            }
+                                        ],
+                                        "children": []
+                                    },
+                                    {
+                                        "id": "ci-conn-stacks",
+                                        "title": "Stacks",
+                                        "icon": "📦",
+                                        "selector": "#wiz-ci-conn-stacks",
+                                        "content": "Detected language stacks — determines test, lint, and build commands for the pipeline.",
+                                        "variants": [
+                                            {
+                                                "when": {
+                                                    "textContains": "○ none"
+                                                },
+                                                "content": "No language stacks detected — test/lint commands will need manual configuration.",
+                                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">📦 Stacks · none</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"margin:0.3rem 0;font-size:0.75rem\">No language stacks detected. The Basic Workflow form fields will be empty — you'll need to manually specify the language version, install command, and test command.</div></div></div>"
+                                            }
+                                        ],
+                                        "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">📦 Detected Stacks</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"margin:0.3rem 0;font-size:0.75rem\">Your project's language stacks were auto-detected. Each stack provides default commands for:<br>• <strong>Install</strong> — dependency installation (pip install, npm install, etc.)<br>• <strong>Test</strong> — test suite runner (pytest, npm test, etc.)<br>• <strong>Lint</strong> — code quality checks (flake8, eslint, etc.)<br>These defaults pre-populate the workflow form fields.</div></div></div>",
+                                        "children": []
+                                    },
+                                    {
+                                        "id": "ci-conn-docker",
+                                        "title": "Docker",
+                                        "icon": "🐳",
+                                        "selector": "#wiz-ci-conn-docker",
+                                        "content": "Docker integration — enables container image build and registry push steps in the pipeline.",
+                                        "variants": [
+                                            {
+                                                "when": {
+                                                    "textContains": "✓ detected"
+                                                },
+                                                "content": "Docker detected — pipeline can include image build + registry push steps.",
+                                                "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">🐳 Docker · connected</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"margin:0.3rem 0;font-size:0.75rem\">Docker configuration detected. The Compose Full Pipeline can include:<br>• <strong>Build</strong> — docker build from your Dockerfile<br>• <strong>Push</strong> — push to configured registry (GHCR, DockerHub, etc.)<br>• <strong>Scan</strong> — optional vulnerability scanning<br>• Image tags auto-generated from branch/tag/SHA.</div></div></div>"
+                                            },
+                                            {
+                                                "when": {
+                                                    "textContains": "○ not found"
+                                                },
+                                                "content": "No Docker config — Docker build/push steps will be omitted from composed pipelines.",
+                                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🐳 Docker · not connected</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"margin:0.3rem 0;font-size:0.75rem\">No Dockerfile or Docker configuration detected. Docker build and push steps will not be included in composed pipelines. Set up Docker integration first if you need containerized deployments.</div></div></div>"
+                                            }
+                                        ],
+                                        "children": []
+                                    },
+                                    {
+                                        "id": "ci-conn-k8s",
+                                        "title": "Kubernetes",
+                                        "icon": "☸️",
+                                        "selector": "#wiz-ci-conn-k8s",
+                                        "content": "Kubernetes integration — enables deployment steps in the pipeline.",
+                                        "variants": [
+                                            {
+                                                "when": {
+                                                    "textContains": "✓ detected"
+                                                },
+                                                "content": "Kubernetes detected — pipeline can include deploy steps via kubectl, helm, or skaffold.",
+                                                "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">☸️ Kubernetes · connected</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"margin:0.3rem 0;font-size:0.75rem\">Kubernetes manifests detected. The Compose Full Pipeline can include:<br>• <strong>kubectl apply</strong> — direct manifest deployment<br>• <strong>helm upgrade</strong> — Helm chart release<br>• <strong>skaffold</strong> — dev-loop and deployment<br>Deploy method is selectable in the compose form.</div></div></div>"
+                                            },
+                                            {
+                                                "when": {
+                                                    "textContains": "○ not found"
+                                                },
+                                                "content": "No Kubernetes manifests — K8s deploy steps will be omitted from composed pipelines.",
+                                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">☸️ Kubernetes · not connected</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"margin:0.3rem 0;font-size:0.75rem\">No Kubernetes manifests or configuration detected. K8s deployment steps will not be included in composed pipelines. Set up the K8s integration first if you need cluster deployments.</div></div></div>"
+                                            }
+                                        ],
+                                        "children": []
+                                    },
+                                    {
+                                        "id": "ci-conn-terraform",
+                                        "title": "Terraform",
+                                        "icon": "🏗️",
+                                        "selector": "#wiz-ci-conn-terraform",
+                                        "content": "Terraform integration — enables infrastructure provisioning steps in the pipeline.",
+                                        "variants": [
+                                            {
+                                                "when": {
+                                                    "textContains": "✓ detected"
+                                                },
+                                                "content": "Terraform detected — pipeline can include plan + apply infrastructure steps.",
+                                                "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">🏗️ Terraform · connected</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"margin:0.3rem 0;font-size:0.75rem\">Terraform configuration detected. The Compose Full Pipeline can include:<br>• <strong>terraform plan</strong> — preview infrastructure changes<br>• <strong>terraform apply</strong> — provision infrastructure<br>• Runs before deployment steps to ensure infra is ready.</div></div></div>"
+                                            },
+                                            {
+                                                "when": {
+                                                    "textContains": "○ not found"
+                                                },
+                                                "content": "No Terraform config — infrastructure provisioning steps will be omitted.",
+                                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🏗️ Terraform · not connected</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"margin:0.3rem 0;font-size:0.75rem\">No Terraform configuration detected. Infrastructure provisioning steps will not be included in composed pipelines. Set up Terraform integration first if you need IaC in your CI/CD.</div></div></div>"
+                                            }
+                                        ],
+                                        "children": []
+                                    },
+                                    {
+                                        "id": "ci-conn-envs",
+                                        "title": "Environments",
+                                        "icon": "⚙️",
+                                        "selector": "#wiz-ci-conn-envs",
+                                        "content": "Environment configuration — multi-environment deployments with approval gates and secrets.",
+                                        "variants": [
+                                            {
+                                                "when": {
+                                                    "textContains": "✓"
+                                                },
+                                                "content": "Multiple environments detected — pipeline can generate per-environment deployment jobs.",
+                                                "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">⚙️ Environments · configured</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"margin:0.3rem 0;font-size:0.75rem\">Multiple environments detected. The Compose Full Pipeline can generate:<br>• Per-environment deployment jobs with matrix strategy<br>• GitHub environment protection rules<br>• Environment-scoped secrets (e.g., staging vs production credentials)<br>• Sequential deployment with approval gates</div></div></div>"
+                                            },
+                                            {
+                                                "when": {
+                                                    "textContains": "○ single"
+                                                },
+                                                "content": "Single environment — pipeline deploys to one target without environment matrix.",
+                                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">⚙️ Environments · single</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"margin:0.3rem 0;font-size:0.75rem\">No multi-environment configuration detected. Pipeline will deploy to a single target. To enable staged deployments (dev → staging → production), configure environments in the wizard.</div></div></div>"
+                                            }
+                                        ],
+                                        "children": []
+                                    },
+                                    {
+                                        "id": "ci-conn-pages",
+                                        "title": "Pages",
+                                        "icon": "📄",
+                                        "selector": "#wiz-ci-conn-pages",
+                                        "content": "Pages integration — site build and deploy steps for documentation or static sites.",
+                                        "variants": [
+                                            {
+                                                "when": {
+                                                    "textContains": "✓ detected"
+                                                },
+                                                "content": "Pages detected — pipeline can include site build + deploy steps.",
+                                                "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">📄 Pages · connected</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"margin:0.3rem 0;font-size:0.75rem\">Pages/documentation site detected. The Compose Full Pipeline can include a site build and deployment step (e.g., GitHub Pages deploy action).</div></div></div>"
+                                            },
+                                            {
+                                                "when": {
+                                                    "textContains": "○ not found"
+                                                },
+                                                "content": "No Pages site — site build/deploy steps will be omitted.",
+                                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">📄 Pages · not connected</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"margin:0.3rem 0;font-size:0.75rem\">No documentation or static site configuration detected. Pages deploy steps will not be included in composed pipelines.</div></div></div>"
+                                            }
+                                        ],
+                                        "children": []
+                                    }
+                                ]
+                            },
+                            {
+                                "id": "ci-section-basic",
+                                "title": "Generate Basic Workflow",
+                                "icon": "📝",
+                                "content": "Generate a single GitHub Actions workflow with test + lint jobs for your detected stack.",
+                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">📝 Basic Workflow</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"margin:0.3rem 0;font-size:0.75rem\">Generates a single <code>.github/workflows/ci.yml</code> file with test and optional lint jobs. Stack-aware defaults auto-populate the form based on your detected language.</div><div style=\"margin:0.3rem 0;font-size:0.75rem\">⚠ If your project has Docker, K8s, or other integrations, use <strong>Compose Full Pipeline</strong> instead — the basic workflow only covers test + lint.</div></div></div>",
+                                "children": [
+                                    {
+                                        "id": "ci-field-branches",
+                                        "title": "Trigger Branches",
+                                        "icon": "🔀",
+                                        "selector": "#wiz-ci-branches",
+                                        "content": "Comma-separated list of branches that trigger the CI workflow on push and pull_request.",
+                                        "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🔀 Trigger Branches</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"margin:0.3rem 0;font-size:0.75rem\">Defines which branches trigger the workflow. Common patterns:<br>• <strong>main, master</strong> — production branches only<br>• <strong>main, develop</strong> — production + integration branch<br>• <strong>main, release/*</strong> — with glob patterns for release branches<br><br>Both <code>push</code> and <code>pull_request</code> events use this filter.</div></div></div>",
+                                        "children": []
+                                    },
+                                    {
+                                        "id": "ci-field-langver",
+                                        "title": "Language Version",
+                                        "icon": "📦",
+                                        "selector": "#wiz-ci-langver",
+                                        "content": "Language/runtime version for the CI matrix — auto-filled from stack detection.",
+                                        "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">📦 Language Version</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"margin:0.3rem 0;font-size:0.75rem\">The version string used in the CI matrix for <code>setup-*</code> actions (e.g., setup-python, setup-node). Auto-detected from your project files (pyproject.toml, package.json, etc.).<br><br>You can specify multiple versions for matrix testing: <code>3.11, 3.12</code></div></div></div>",
+                                        "children": []
+                                    },
+                                    {
+                                        "id": "ci-field-install",
+                                        "title": "Install Command",
+                                        "icon": "📥",
+                                        "selector": "#wiz-ci-install",
+                                        "content": "Command to install project dependencies — runs before test and lint steps.",
+                                        "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">📥 Install Command</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"margin:0.3rem 0;font-size:0.75rem\">Runs in the CI environment before test/lint steps. Examples:<br>• <code>pip install -e .[dev]</code> — Python editable install with dev deps<br>• <code>npm ci</code> — Node.js clean install from lockfile<br>• <code>go mod download</code> — Go module fetch</div></div></div>",
+                                        "children": []
+                                    },
+                                    {
+                                        "id": "ci-field-test",
+                                        "title": "Test Command",
+                                        "icon": "🧪",
+                                        "selector": "#wiz-ci-test",
+                                        "content": "Command to run the test suite — the primary CI verification step.",
+                                        "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🧪 Test Command</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"margin:0.3rem 0;font-size:0.75rem\">The main test runner. This runs after install and determines the CI pass/fail status. Examples:<br>• <code>pytest</code> — Python test runner<br>• <code>npm test</code> — Node.js test script<br>• <code>go test ./...</code> — Go recursive test</div></div></div>",
+                                        "children": []
+                                    },
+                                    {
+                                        "id": "ci-field-lint",
+                                        "title": "Also Run Linting",
+                                        "icon": "✨",
+                                        "selector": "#wiz-ci-lint",
+                                        "content": "Enable a separate lint step in the workflow — runs code quality checks.",
+                                        "children": []
+                                    },
+                                    {
+                                        "id": "ci-field-lint-cmd",
+                                        "title": "Lint Command",
+                                        "icon": "✨",
+                                        "selector": "#wiz-ci-lint-cmd",
+                                        "content": "Command for code linting — only used if linting is enabled.",
+                                        "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">✨ Lint Command</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"margin:0.3rem 0;font-size:0.75rem\">Runs as a separate job or step for code quality. Examples:<br>• <code>flake8 .</code> — Python PEP8 linting<br>• <code>npm run lint</code> — Node.js ESLint<br>• <code>golangci-lint run</code> — Go multi-linter</div></div></div>",
+                                        "children": []
+                                    },
+                                    {
+                                        "id": "ci-field-overwrite",
+                                        "title": "Overwrite",
+                                        "icon": "⚠",
+                                        "selector": "#wiz-ci-overwrite",
+                                        "content": "Overwrite existing workflow files — only shown when workflows already exist.",
+                                        "children": []
+                                    }
+                                ]
+                            },
+                            {
+                                "id": "ci-section-compose",
+                                "title": "Compose Full Pipeline",
+                                "icon": "🚀",
+                                "content": "Generate a complete CI/CD pipeline from all detected integrations — Docker, K8s, Terraform, environments, Pages.",
+                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🚀 Compose Full Pipeline</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"margin:0.3rem 0;font-size:0.75rem\">Builds a coordinated GitHub Actions workflow that combines <strong>all</strong> your detected integrations into a single (or split) pipeline:</div><div style=\"display:grid;grid-template-columns:auto 1fr;gap:0.2rem 0.5rem;margin:0.3rem 0;font-size:0.73rem\"><span style=\"font-weight:600;color:var(--text-secondary)\">Test + Lint</span><span>from detected stack (always included)</span><span style=\"font-weight:600;color:var(--text-secondary)\">Docker Build</span><span>if Dockerfile detected — build + push to registry</span><span style=\"font-weight:600;color:var(--text-secondary)\">K8s Deploy</span><span>if manifests detected — kubectl/helm/skaffold</span><span style=\"font-weight:600;color:var(--text-secondary)\">Terraform</span><span>if .tf files detected — plan + apply</span><span style=\"font-weight:600;color:var(--text-secondary)\">Multi-env</span><span>if environments configured — staged rollout</span><span style=\"font-weight:600;color:var(--text-secondary)\">Pages</span><span>if site detected — build + deploy docs</span></div></div></div>",
+                                "children": [
+                                    {
+                                        "id": "ci-job-test",
+                                        "title": "Test Job",
+                                        "icon": "🧪",
+                                        "selector": "#wiz-ci-job-test",
+                                        "content": "Test step in the composed pipeline.",
+                                        "variants": [
+                                            {
+                                                "when": {
+                                                    "textContains": "✓ Test"
+                                                },
+                                                "content": "Test job included — runs your detected stack's test command.",
+                                                "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">🧪 Test · included</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"margin:0.3rem 0;font-size:0.75rem\">Test job will be generated using your stack's detected test command. This is the first step in the pipeline — all other steps depend on tests passing.</div></div></div>"
+                                            },
+                                            {
+                                                "when": {
+                                                    "textContains": "○ Test"
+                                                },
+                                                "content": "No test command detected — test job will be empty or skipped.",
+                                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🧪 Test · no stack</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"margin:0.3rem 0;font-size:0.75rem\">No language stack detected, so no test command is available. Configure your stack or use the Basic Workflow form to manually specify test commands.</div></div></div>"
+                                            }
+                                        ],
+                                        "children": []
+                                    },
+                                    {
+                                        "id": "ci-job-lint",
+                                        "title": "Lint Job",
+                                        "icon": "✨",
+                                        "selector": "#wiz-ci-job-lint",
+                                        "content": "Lint step in the composed pipeline.",
+                                        "variants": [
+                                            {
+                                                "when": {
+                                                    "textContains": "✓ Lint"
+                                                },
+                                                "content": "Lint job included — runs code quality checks for your detected stack.",
+                                                "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">✨ Lint · included</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"margin:0.3rem 0;font-size:0.75rem\">Lint job will run your stack's detected linter. Runs in parallel with the test job to minimize pipeline duration.</div></div></div>"
+                                            },
+                                            {
+                                                "when": {
+                                                    "textContains": "○ Lint"
+                                                },
+                                                "content": "No lint command detected — lint job will be skipped.",
+                                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">✨ Lint · no stack</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"margin:0.3rem 0;font-size:0.75rem\">No language stack detected for linting. Configure your stack or manually specify a lint command in the Basic Workflow form.</div></div></div>"
+                                            }
+                                        ],
+                                        "children": []
+                                    },
+                                    {
+                                        "id": "ci-job-docker",
+                                        "title": "Docker Build",
+                                        "icon": "🐳",
+                                        "selector": "#wiz-ci-job-docker",
+                                        "content": "Docker image build + push step in the composed pipeline.",
+                                        "variants": [
+                                            {
+                                                "when": {
+                                                    "textContains": "✓ Docker Build"
+                                                },
+                                                "content": "Docker build included — builds container image and pushes to configured registry.",
+                                                "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">🐳 Docker Build · included</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"margin:0.3rem 0;font-size:0.75rem\">Docker build + push step will be generated. Runs after test/lint pass. Uses buildx for multi-platform support. Image tagged with branch, tag, and commit SHA.</div></div></div>"
+                                            },
+                                            {
+                                                "when": {
+                                                    "textContains": "○ Docker Build"
+                                                },
+                                                "content": "No Docker config — build step will be omitted.",
+                                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🐳 Docker Build · skipped</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"margin:0.3rem 0;font-size:0.75rem\">No Dockerfile detected. Docker build and push steps will not be included. Set up the Docker integration first if you need containerized deployments.</div></div></div>"
+                                            }
+                                        ],
+                                        "children": []
+                                    },
+                                    {
+                                        "id": "ci-job-k8s",
+                                        "title": "K8s Deploy",
+                                        "icon": "☸️",
+                                        "selector": "#wiz-ci-job-k8s",
+                                        "content": "Kubernetes deployment step in the composed pipeline.",
+                                        "variants": [
+                                            {
+                                                "when": {
+                                                    "textContains": "✓ K8s Deploy"
+                                                },
+                                                "content": "K8s deploy included — deploys to cluster after build steps complete.",
+                                                "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">☸️ K8s Deploy · included</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"margin:0.3rem 0;font-size:0.75rem\">Kubernetes deployment step will be generated. Deploy method (kubectl, helm, skaffold) is configurable below. Runs after Docker build when Docker is also connected.</div></div></div>"
+                                            },
+                                            {
+                                                "when": {
+                                                    "textContains": "○ K8s Deploy"
+                                                },
+                                                "content": "No K8s manifests — deploy step will be omitted.",
+                                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">☸️ K8s Deploy · skipped</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"margin:0.3rem 0;font-size:0.75rem\">No Kubernetes manifests detected. K8s deployment steps will not be included. Set up the K8s integration first.</div></div></div>"
+                                            }
+                                        ],
+                                        "children": []
+                                    },
+                                    {
+                                        "id": "ci-job-terraform",
+                                        "title": "Terraform",
+                                        "icon": "🏗️",
+                                        "selector": "#wiz-ci-job-terraform",
+                                        "content": "Terraform infrastructure provisioning step in the composed pipeline.",
+                                        "variants": [
+                                            {
+                                                "when": {
+                                                    "textContains": "✓ Terraform"
+                                                },
+                                                "content": "Terraform included — runs plan + apply before deployment steps.",
+                                                "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">🏗️ Terraform · included</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"margin:0.3rem 0;font-size:0.75rem\">Terraform plan and apply steps will be generated. Infrastructure provisioning runs before deployment to ensure resources exist.</div></div></div>"
+                                            },
+                                            {
+                                                "when": {
+                                                    "textContains": "○ Terraform"
+                                                },
+                                                "content": "No Terraform config — infra provisioning step will be omitted.",
+                                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🏗️ Terraform · skipped</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"margin:0.3rem 0;font-size:0.75rem\">No Terraform configuration detected. Infrastructure provisioning steps will not be included.</div></div></div>"
+                                            }
+                                        ],
+                                        "children": []
+                                    },
+                                    {
+                                        "id": "ci-job-envs",
+                                        "title": "Multi-env",
+                                        "icon": "⚙️",
+                                        "selector": "#wiz-ci-job-envs",
+                                        "content": "Multi-environment deployment in the composed pipeline.",
+                                        "variants": [
+                                            {
+                                                "when": {
+                                                    "textContains": "✓ Multi-env"
+                                                },
+                                                "content": "Multi-env included — generates per-environment deployment jobs with staging → production flow.",
+                                                "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">⚙️ Multi-env · included</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"margin:0.3rem 0;font-size:0.75rem\">Multiple environments detected. Pipeline will generate per-environment deployment jobs with GitHub environment protection rules and sequential deployment gates.</div></div></div>"
+                                            },
+                                            {
+                                                "when": {
+                                                    "textContains": "○ Single env"
+                                                },
+                                                "content": "Single environment — deploys to one target without environment matrix.",
+                                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">⚙️ Single env</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"margin:0.3rem 0;font-size:0.75rem\">Only one environment detected. Pipeline deploys directly without environment matrix or staged rollout. Configure environments in the wizard for multi-stage deployments.</div></div></div>"
+                                            }
+                                        ],
+                                        "children": []
+                                    },
+                                    {
+                                        "id": "ci-job-pages",
+                                        "title": "Pages Deploy",
+                                        "icon": "📄",
+                                        "selector": "#wiz-ci-job-pages",
+                                        "content": "Pages/documentation site deploy step in the composed pipeline.",
+                                        "variants": [
+                                            {
+                                                "when": {
+                                                    "textContains": "✓ Pages Deploy"
+                                                },
+                                                "content": "Pages deploy included — builds and deploys documentation site.",
+                                                "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">📄 Pages · included</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"margin:0.3rem 0;font-size:0.75rem\">Pages/documentation site detected. A build + deploy step will be added to the pipeline for GitHub Pages deployment.</div></div></div>"
+                                            },
+                                            {
+                                                "when": {
+                                                    "textContains": "○ Pages"
+                                                },
+                                                "content": "No Pages site — site deploy step will be omitted.",
+                                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">📄 Pages · skipped</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"margin:0.3rem 0;font-size:0.75rem\">No documentation or static site configuration detected. Pages deploy steps will not be included.</div></div></div>"
+                                            }
+                                        ],
+                                        "children": []
+                                    },
+                                    {
+                                        "id": "ci-field-strategy",
+                                        "title": "Workflow Strategy",
+                                        "icon": "📐",
+                                        "selector": "#wiz-ci-compose-strategy",
+                                        "content": "How the pipeline is organized — single file or split across multiple workflow files.",
+                                        "variants": [
+                                            {
+                                                "when": {
+                                                    "resolver": "ciStrategyValue",
+                                                    "equals": "unified"
+                                                },
+                                                "content": "Unified strategy — all jobs in a single ci-cd.yml file.",
+                                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">📐 Unified Strategy</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"margin:0.3rem 0;font-size:0.75rem\">All pipeline jobs (test, build, deploy) are defined in a single <code>ci-cd.yml</code> file. Jobs use <code>needs:</code> to define dependencies.</div><div style=\"margin:0.3rem 0;font-size:0.75rem\"><strong>Pros:</strong> simpler to manage, single trigger, jobs share context<br><strong>Cons:</strong> a single file can become complex for large pipelines</div></div></div>"
+                                            },
+                                            {
+                                                "when": {
+                                                    "resolver": "ciStrategyValue",
+                                                    "equals": "split"
+                                                },
+                                                "content": "Split strategy — separate workflow files linked with workflow_run triggers.",
+                                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">📐 Split Strategy</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"margin:0.3rem 0;font-size:0.75rem\">Pipeline is split across multiple files (e.g., <code>ci.yml</code>, <code>build.yml</code>, <code>deploy.yml</code>). Files are linked using <code>workflow_run</code> triggers.</div><div style=\"margin:0.3rem 0;font-size:0.75rem\"><strong>Pros:</strong> modular, easier to maintain individually, reusable across repos<br><strong>Cons:</strong> more files, slightly harder to debug dependencies</div></div></div>"
+                                            }
+                                        ],
+                                        "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">📐 Workflow Strategy</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"margin:0.3rem 0;font-size:0.75rem\">Choose how the pipeline is organized:<br>• <strong>Unified</strong> — single ci-cd.yml with all jobs<br>• <strong>Split</strong> — separate files linked by workflow_run</div></div></div>",
+                                        "children": []
+                                    },
+                                    {
+                                        "id": "ci-field-deploy",
+                                        "title": "Deploy Method",
+                                        "icon": "☸️",
+                                        "selector": "#wiz-ci-compose-deploy",
+                                        "content": "How to deploy to Kubernetes — only shown when K8s manifests are detected.",
+                                        "variants": [
+                                            {
+                                                "when": {
+                                                    "resolver": "ciDeployValue",
+                                                    "equals": "kubectl"
+                                                },
+                                                "content": "kubectl apply — direct manifest deployment using kubectl.",
+                                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">☸️ kubectl</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"margin:0.3rem 0;font-size:0.75rem\">Uses <code>kubectl apply -f</code> to deploy manifests directly. Simple and transparent — what you see in the YAML is what gets deployed.</div><div style=\"margin:0.3rem 0;font-size:0.75rem\">Best for: simple deployments, small teams, when you want full control over manifests.</div></div></div>"
+                                            },
+                                            {
+                                                "when": {
+                                                    "resolver": "ciDeployValue",
+                                                    "equals": "helm"
+                                                },
+                                                "content": "Helm upgrade — deploy via Helm chart releases with templated values.",
+                                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">☸️ Helm</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"margin:0.3rem 0;font-size:0.75rem\">Uses <code>helm upgrade --install</code> to manage releases. Helm provides templating, versioning, and rollback capabilities for Kubernetes deployments.</div><div style=\"margin:0.3rem 0;font-size:0.75rem\">Best for: complex deployments, multiple environments with different values, rollback needs.</div></div></div>"
+                                            },
+                                            {
+                                                "when": {
+                                                    "resolver": "ciDeployValue",
+                                                    "equals": "skaffold"
+                                                },
+                                                "content": "Skaffold — build + deploy with Skaffold's pipeline orchestration.",
+                                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">☸️ Skaffold</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"margin:0.3rem 0;font-size:0.75rem\">Uses <code>skaffold run</code> to handle the full build → tag → deploy lifecycle. Skaffold manages Docker builds and K8s deployment together with profiles for different environments.</div><div style=\"margin:0.3rem 0;font-size:0.75rem\">Best for: dev-loop parity, teams that want CI to mirror their local workflow.</div></div></div>"
+                                            }
+                                        ],
+                                        "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">☸️ Deploy Method</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"margin:0.3rem 0;font-size:0.75rem\">Select the Kubernetes deployment strategy:<br>• <strong>kubectl</strong> — direct manifest apply<br>• <strong>helm</strong> — chart-based releases<br>• <strong>skaffold</strong> — full build + deploy pipeline</div></div></div>",
+                                        "children": []
+                                    },
+                                    {
+                                        "id": "ci-field-registry",
+                                        "title": "Docker Registry",
+                                        "icon": "🐳",
+                                        "selector": "#wiz-ci-compose-registry",
+                                        "content": "Docker registry for pushing built images — only shown when Docker is detected.",
+                                        "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🐳 Docker Registry</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"margin:0.3rem 0;font-size:0.75rem\">The container registry where built images are pushed. Common options:<br>• <strong>ghcr.io</strong> — GitHub Container Registry (free for public repos)<br>• <strong>docker.io</strong> — Docker Hub<br>• <strong>*.dkr.ecr.*.amazonaws.com</strong> — AWS ECR<br>• <strong>gcr.io</strong> — Google Container Registry<br><br>Format: <code>registry/org</code> — the image name and tag are appended automatically.</div></div></div>",
+                                        "children": []
+                                    },
+                                    {
+                                        "id": "ci-btn-compose",
+                                        "title": "Generate Pipeline",
+                                        "icon": "🚀",
+                                        "selector": "#wiz-ci-btn-compose",
+                                        "content": "Generate the complete CI/CD pipeline based on all detected connections and compose settings.",
+                                        "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">🚀 Generate Pipeline</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"margin:0.3rem 0;font-size:0.75rem\">Generates workflow file(s) combining all connected integrations. The output preview will appear below, showing the generated YAML before it's written to <code>.github/workflows/</code>.</div></div></div>",
+                                        "children": []
+                                    }
+                                ]
+                            },
+                            {
+                                "id": "ci-apply",
+                                "title": "Apply",
+                                "icon": "✅",
+                                "selector": "#wiz-apply-int-ci",
+                                "content": "Generate the basic CI workflow file with the settings from the form above.",
+                                "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">✅ Apply Basic Workflow</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"margin:0.3rem 0;font-size:0.75rem\">Generates a single <code>.github/workflows/ci.yml</code> file with test + lint jobs based on the form values. The file is created in your project directory.</div></div></div>",
+                                "children": []
+                            },
+                            {
+                                "id": "ci-cancel",
+                                "title": "Cancel",
+                                "icon": "✖",
+                                "selector": "#wiz-cancel-int-ci",
+                                "content": "Close the CI/CD setup panel without generating any files. No changes are made.",
+                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">✖ Discard</div><div class=\"state-detail\">Cancel collapses the CI/CD setup panel without generating any files or modifying existing workflows.<br><br>Reopen anytime with ⚙️ Setup — all form fields repopulate from the current project state.</div></div>",
+                                "children": []
+                            },
+                            {
+                                "id": "ci-btn-delete",
+                                "title": "Delete Workflow",
+                                "icon": "🗑",
+                                "selector": "#wiz-ci-btn-delete",
+                                "content": "Delete the generated CI workflow files — removes .github/workflows files created by the wizard.",
+                                "expanded": "<div class=\"assistant-state-card state-warning\"><div class=\"state-label\">🗑 Delete Workflow</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"margin:0.3rem 0;font-size:0.75rem\">Removes CI workflow files generated by the wizard. This only deletes wizard-generated files — manually created workflows are preserved.<br><br>⚠ This action cannot be undone. The files are deleted from disk immediately.</div></div></div>",
+                                "children": []
+                            }
+                        ]
                     }
                 ]
             }

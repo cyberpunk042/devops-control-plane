@@ -999,19 +999,19 @@ const _wizSubForms = {
         </div>`;
 
         // ── Status strip — enriched with ci_status ──
-        html += `<div style="display:flex;flex-wrap:wrap;gap:0.25rem;margin-bottom:0.5rem">
-            <span style="font-size:0.65rem;padding:0.1rem 0.35rem;border-radius:4px;${ciHas ? 'background:color-mix(in srgb, var(--success) 10%, transparent);color:var(--success);border:1px solid color-mix(in srgb, var(--success) 25%, transparent)' : 'background:color-mix(in srgb, var(--text-muted) 10%, transparent);color:var(--text-muted);border:1px solid color-mix(in srgb, var(--text-muted) 25%, transparent)'}">
+        html += `<div id="wiz-ci-section-status" style="display:flex;flex-wrap:wrap;gap:0.25rem;margin-bottom:0.5rem">
+            <span id="wiz-ci-pill-workflows" style="font-size:0.65rem;padding:0.1rem 0.35rem;border-radius:4px;${ciHas ? 'background:color-mix(in srgb, var(--success) 10%, transparent);color:var(--success);border:1px solid color-mix(in srgb, var(--success) 25%, transparent)' : 'background:color-mix(in srgb, var(--text-muted) 10%, transparent);color:var(--text-muted);border:1px solid color-mix(in srgb, var(--text-muted) 25%, transparent)'}">
                 ${ciHas ? '✓ ' + ciWorkflowCount + ' workflow' + (ciWorkflowCount !== 1 ? 's' : '') : '○ no workflows'}
             </span>
-            <span style="font-size:0.65rem;padding:0.1rem 0.35rem;border-radius:4px;${ghAuthenticated ? 'background:color-mix(in srgb, var(--success) 10%, transparent);color:var(--success);border:1px solid color-mix(in srgb, var(--success) 25%, transparent)' : 'background:color-mix(in srgb, var(--warning) 10%, transparent);color:var(--warning);border:1px solid color-mix(in srgb, var(--warning) 25%, transparent)'}">
+            <span id="wiz-ci-pill-ghauth" style="font-size:0.65rem;padding:0.1rem 0.35rem;border-radius:4px;${ghAuthenticated ? 'background:color-mix(in srgb, var(--success) 10%, transparent);color:var(--success);border:1px solid color-mix(in srgb, var(--success) 25%, transparent)' : 'background:color-mix(in srgb, var(--warning) 10%, transparent);color:var(--warning);border:1px solid color-mix(in srgb, var(--warning) 25%, transparent)'}">
                 ${ghAuthenticated ? '✓ gh auth' + (ghUser.login ? ' · ' + esc(ghUser.login) : '') : '⚠ gh not auth'}
             </span>
-            ${ghRepo.slug ? `<span style="font-size:0.65rem;padding:0.1rem 0.35rem;border-radius:4px;background:color-mix(in srgb, var(--accent) 8%, transparent);color:var(--accent);border:1px solid color-mix(in srgb, var(--accent) 20%, transparent)">${esc(ghRepo.slug)}</span>` : ''}
+            ${ghRepo.slug ? `<span id="wiz-ci-pill-repo" style="font-size:0.65rem;padding:0.1rem 0.35rem;border-radius:4px;background:color-mix(in srgb, var(--accent) 8%, transparent);color:var(--accent);border:1px solid color-mix(in srgb, var(--accent) 20%, transparent)">${esc(ghRepo.slug)}</span>` : ''}
         </div>`;
 
         // ── Pipeline Connections — integration surface dashboard ──
-        const _pill = (ok, label) => `<span style="font-size:0.62rem;padding:0.08rem 0.3rem;border-radius:4px;${ok ? 'background:color-mix(in srgb, var(--success) 10%, transparent);color:var(--success);border:1px solid color-mix(in srgb, var(--success) 25%, transparent)' : 'background:color-mix(in srgb, var(--text-muted) 8%, transparent);color:var(--text-muted);border:1px solid color-mix(in srgb, var(--text-muted) 20%, transparent)'}">${label}</span>`;
-        const _connRow = (icon, label, pills, role) => `<div style="display:grid;grid-template-columns:1.4fr 2.5fr 2fr;gap:0.3rem;align-items:center;padding:0.2rem 0;border-bottom:1px solid color-mix(in srgb, var(--border-subtle) 40%, transparent)">
+        const _pill = (ok, label, id) => `<span${id ? ' id="' + id + '"' : ''} style="font-size:0.62rem;padding:0.08rem 0.3rem;border-radius:4px;${ok ? 'background:color-mix(in srgb, var(--success) 10%, transparent);color:var(--success);border:1px solid color-mix(in srgb, var(--success) 25%, transparent)' : 'background:color-mix(in srgb, var(--text-muted) 8%, transparent);color:var(--text-muted);border:1px solid color-mix(in srgb, var(--text-muted) 20%, transparent)'}">${label}</span>`;
+        const _connRow = (icon, label, pills, role, id) => `<div${id ? ' id="' + id + '"' : ''} style="display:grid;grid-template-columns:1.4fr 2.5fr 2fr;gap:0.3rem;align-items:center;padding:0.2rem 0;border-bottom:1px solid color-mix(in srgb, var(--border-subtle) 40%, transparent)">
             <span style="font-size:0.68rem;font-weight:600;color:var(--text-secondary)">${icon} ${label}</span>
             <div style="display:flex;flex-wrap:wrap;gap:0.15rem">${pills}</div>
             <span style="font-size:0.62rem;color:var(--text-muted);font-style:italic">${role}</span>
@@ -1024,40 +1024,48 @@ const _wizSubForms = {
             <div style="padding:0.3rem 0.2rem;background:color-mix(in srgb, var(--bg-inset) 50%, transparent);border:1px solid var(--border-subtle);border-radius:6px;padding:0.3rem 0.5rem">
                 ${_connRow('🔀', 'Git',
                     _pill(hasGit, hasGit ? '✓ repo' : '○ no git'),
-                    'Trigger events · branch filter'
+                    'Trigger events · branch filter',
+                    'wiz-ci-conn-git'
                 )}
                 ${_connRow('🐙', 'GitHub',
                     _pill(ghAuthenticated, ghAuthenticated ? '✓ auth' : '○ no auth')
                     + (ghEnvList.length > 0 ? ' ' + _pill(true, ghEnvList.length + ' env' + (ghEnvList.length !== 1 ? 's' : '')) : '')
                     + (ghRepo.is_private ? ' ' + _pill(true, 'private') : (ghRepo.available ? ' ' + _pill(true, 'public') : '')),
-                    'Actions platform · secrets · envs'
+                    'Actions platform · secrets · envs',
+                    'wiz-ci-conn-github'
                 )}
                 ${_connRow('📦', 'Stacks',
                     stacks.length > 0
                         ? stacks.slice(0, 3).map(s => _pill(true, esc(s))).join(' ') + (stacks.length > 3 ? ' ' + _pill(true, '+' + (stacks.length - 3)) : '')
                         : _pill(false, '○ none'),
-                    'Test · lint · build commands'
+                    'Test · lint · build commands',
+                    'wiz-ci-conn-stacks'
                 )}
                 ${_connRow('🐳', 'Docker',
                     _pill(hasDocker, hasDocker ? '✓ detected' : '○ not found'),
-                    'Image build · registry push'
+                    'Image build · registry push',
+                    'wiz-ci-conn-docker'
                 )}
                 ${_connRow('☸️', 'Kubernetes',
                     _pill(hasK8s, hasK8s ? '✓ detected' : '○ not found'),
-                    'Deploy · manifests · namespaces'
+                    'Deploy · manifests · namespaces',
+                    'wiz-ci-conn-k8s'
                 )}
                 ${_connRow('🏗️', 'Terraform',
                     _pill(hasTerraform, hasTerraform ? '✓ detected' : '○ not found'),
-                    'Infra provisioning step'
+                    'Infra provisioning step',
+                    'wiz-ci-conn-terraform'
                 )}
                 ${_connRow('⚙️', 'Environments',
                     _pill(envs.length > 0, envs.length > 0 ? '✓ ' + envs.length + ' env' + (envs.length !== 1 ? 's' : '') : '○ single')
                     + (envFileCount > 0 ? ' ' + _pill(true, envVarCount + ' vars') : ''),
-                    'Multi-env deploy · approvals'
+                    'Multi-env deploy · approvals',
+                    'wiz-ci-conn-envs'
                 )}
                 ${_connRow('📄', 'Pages',
                     _pill(hasPages, hasPages ? '✓ detected' : '○ not found'),
-                    'Site build · deploy step'
+                    'Site build · deploy step',
+                    'wiz-ci-conn-pages'
                 )}
             </div>
         </details>`;
@@ -1101,13 +1109,13 @@ const _wizSubForms = {
                     Pipeline Jobs (from connections)
                 </div>
                 <div style="display:flex;flex-wrap:wrap;gap:0.25rem;margin-bottom:0.6rem">
-                    ${_pill(stacks.length > 0, stacks.length > 0 ? '✓ Test (' + esc(stacks[0]) + ')' : '○ Test')}
-                    ${_pill(stacks.length > 0, stacks.length > 0 ? '✓ Lint' : '○ Lint')}
-                    ${_pill(hasDocker, hasDocker ? '✓ Docker Build' : '○ Docker Build')}
-                    ${_pill(hasK8s, hasK8s ? '✓ K8s Deploy' : '○ K8s Deploy')}
-                    ${_pill(hasTerraform, hasTerraform ? '✓ Terraform' : '○ Terraform')}
-                    ${_pill(envs.length > 1, envs.length > 1 ? '✓ Multi-env' : '○ Single env')}
-                    ${_pill(hasPages, hasPages ? '✓ Pages Deploy' : '○ Pages')}
+                    ${_pill(stacks.length > 0, stacks.length > 0 ? '✓ Test (' + esc(stacks[0]) + ')' : '○ Test', 'wiz-ci-job-test')}
+                    ${_pill(stacks.length > 0, stacks.length > 0 ? '✓ Lint' : '○ Lint', 'wiz-ci-job-lint')}
+                    ${_pill(hasDocker, hasDocker ? '✓ Docker Build' : '○ Docker Build', 'wiz-ci-job-docker')}
+                    ${_pill(hasK8s, hasK8s ? '✓ K8s Deploy' : '○ K8s Deploy', 'wiz-ci-job-k8s')}
+                    ${_pill(hasTerraform, hasTerraform ? '✓ Terraform' : '○ Terraform', 'wiz-ci-job-terraform')}
+                    ${_pill(envs.length > 1, envs.length > 1 ? '✓ Multi-env' : '○ Single env', 'wiz-ci-job-envs')}
+                    ${_pill(hasPages, hasPages ? '✓ Pages Deploy' : '○ Pages', 'wiz-ci-job-pages')}
                 </div>
 
                 ${_wizField('wiz-ci-compose-strategy', 'Workflow Strategy', 'unified', {
@@ -1125,7 +1133,7 @@ const _wizSubForms = {
                 }) : ''}
 
                 <div style="display:flex;gap:0.4rem;margin-top:0.6rem">
-                    <button class="btn btn-sm btn-primary" style="font-size:0.75rem"
+                    <button id="wiz-ci-btn-compose" class="btn btn-sm btn-primary" style="font-size:0.75rem"
                         onclick="_wizComposeCi(this)">🚀 Generate Pipeline</button>
                 </div>
 
@@ -1136,7 +1144,7 @@ const _wizSubForms = {
         // ── Delete config ──
         if (detected) {
             html += `<div style="border-top:1px solid var(--border-subtle);padding-top:0.5rem;margin-top:0.3rem">
-                <button class="btn btn-sm" style="font-size:0.68rem;padding:0.12rem 0.4rem;color:var(--error);border:1px solid color-mix(in srgb, var(--error) 30%, transparent)"
+                <button id="wiz-ci-btn-delete" class="btn btn-sm" style="font-size:0.68rem;padding:0.12rem 0.4rem;color:var(--error);border:1px solid color-mix(in srgb, var(--error) 30%, transparent)"
                     onclick="_wizDeleteConfig('ci', this)">🗑 Delete Workflow</button>
             </div>`;
         }
@@ -1408,7 +1416,7 @@ const _wizSubForms = {
         const pagesDetected = d.integrations?.['int:pages']?.detected;
         const hasCname = info.has_cname;
 
-        const _pill = (ok, label) => `<span style="font-size:0.62rem;padding:0.08rem 0.3rem;border-radius:4px;${ok ? 'background:color-mix(in srgb, var(--success) 10%, transparent);color:var(--success);border:1px solid color-mix(in srgb, var(--success) 25%, transparent)' : 'background:color-mix(in srgb, var(--text-muted) 8%, transparent);color:var(--text-muted);border:1px solid color-mix(in srgb, var(--text-muted) 20%, transparent)'}">${label}</span>`;
+        const _pill = (ok, label, id) => `<span ${id ? `id="${id}"` : ''} style="font-size:0.62rem;padding:0.08rem 0.3rem;border-radius:4px;${ok ? 'background:color-mix(in srgb, var(--success) 10%, transparent);color:var(--success);border:1px solid color-mix(in srgb, var(--success) 25%, transparent)' : 'background:color-mix(in srgb, var(--text-muted) 8%, transparent);color:var(--text-muted);border:1px solid color-mix(in srgb, var(--text-muted) 20%, transparent)'}">${label}</span>`;
 
         // ── Header with stack badge ──
         let html = `<div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.5rem">
@@ -1417,13 +1425,13 @@ const _wizSubForms = {
         </div>`;
 
         // ── Status strip (6 pills) ──
-        html += `<div style="display:flex;flex-wrap:wrap;gap:0.25rem;margin-bottom:0.5rem">
-            ${_pill(hasDns, hasDns ? '\u2713 DNS configured' : '\u25cb no DNS')}
-            ${_pill(hasCdn, hasCdn ? '\u2713 CDN detected' : '\u25cb no CDN')}
-            ${_pill(domains.length > 0, domains.length > 0 ? '\u2713 ' + domains.length + ' domain' + (domains.length !== 1 ? 's' : '') : '\u25cb no domains')}
-            ${_pill(dnsFiles.length > 0, dnsFiles.length > 0 ? '\u2713 ' + dnsFiles.length + ' file' + (dnsFiles.length !== 1 ? 's' : '') : '\u25cb no files')}
-            ${_pill(sslCerts.length > 0, sslCerts.length > 0 ? '\u2713 ' + sslCerts.length + ' cert' + (sslCerts.length !== 1 ? 's' : '') : '\u25cb no certs')}
-            ${_pill(detected, detected ? '\u2713 config found' : '\u25cb no config')}
+        html += `<div id="wiz-dns-section-status" style="display:flex;flex-wrap:wrap;gap:0.25rem;margin-bottom:0.5rem">
+            ${_pill(hasDns, hasDns ? '\u2713 DNS configured' : '\u25cb no DNS', 'wiz-dns-pill-dns')}
+            ${_pill(hasCdn, hasCdn ? '\u2713 CDN detected' : '\u25cb no CDN', 'wiz-dns-pill-cdn')}
+            ${_pill(domains.length > 0, domains.length > 0 ? '\u2713 ' + domains.length + ' domain' + (domains.length !== 1 ? 's' : '') : '\u25cb no domains', 'wiz-dns-pill-domains')}
+            ${_pill(dnsFiles.length > 0, dnsFiles.length > 0 ? '\u2713 ' + dnsFiles.length + ' file' + (dnsFiles.length !== 1 ? 's' : '') : '\u25cb no files', 'wiz-dns-pill-files')}
+            ${_pill(sslCerts.length > 0, sslCerts.length > 0 ? '\u2713 ' + sslCerts.length + ' cert' + (sslCerts.length !== 1 ? 's' : '') : '\u25cb no certs', 'wiz-dns-pill-certs')}
+            ${_pill(detected, detected ? '\u2713 config found' : '\u25cb no config', 'wiz-dns-pill-config')}
         </div>`;
 
         // ── Missing tools banner ──
@@ -1515,11 +1523,11 @@ const _wizSubForms = {
         }
 
         // ── Live panel (DNS lookup, SSL check) ──
-        html += `<div style="margin-bottom:0.6rem">
+        html += `<div id="wiz-dns-section-live" style="margin-bottom:0.6rem">
             <div style="display:flex;flex-wrap:wrap;gap:0.25rem;margin-bottom:0.3rem">
-                <button class="btn btn-sm btn-secondary" style="font-size:0.68rem;padding:0.12rem 0.4rem"
+                <button id="wiz-dns-btn-lookup" class="btn btn-sm btn-secondary" style="font-size:0.68rem;padding:0.12rem 0.4rem"
                     onclick="_wizDnsLive('lookup')">\ud83d\udd0d DNS Lookup</button>
-                <button class="btn btn-sm btn-secondary" style="font-size:0.68rem;padding:0.12rem 0.4rem"
+                <button id="wiz-dns-btn-ssl" class="btn btn-sm btn-secondary" style="font-size:0.68rem;padding:0.12rem 0.4rem"
                     onclick="_wizDnsLive('ssl')">\ud83d\udd12 SSL Check</button>
             </div>
             <div id="wiz-dns-live-panel" style="display:none;background:var(--bg-inset);border:1px solid var(--border-subtle);border-radius:6px;padding:0.4rem 0.5rem;font-size:0.72rem;max-height:220px;overflow:auto"></div>
@@ -1552,11 +1560,11 @@ const _wizSubForms = {
                     This includes domain management, CDN provider selection, SSL certificates,
                     traffic routing, K8s ingress, proxy configs, and Terraform DNS resource generation.
                 </div>
-                <div style="display:flex;flex-wrap:wrap;gap:0.25rem;margin-bottom:0.6rem">
-                    ${_pill(hasDns, hasDns ? '\u2713 DNS configured' : '\u25cb will create')}
-                    ${_pill(hasCdn, hasCdn ? '\u2713 CDN: ' + cdnProviders.map(p => p.name).join(', ') : '\u25cb no CDN')}
-                    ${_pill(domains.length > 0, domains.length > 0 ? '\u2713 ' + domains.length + ' domain(s)' : '\u25cb no domains')}
-                    ${_pill(sslCerts.length > 0, sslCerts.length > 0 ? '\u2713 SSL certs' : '\u25cb no certs')}
+                <div id="wiz-dns-section-fullsetup" style="display:flex;flex-wrap:wrap;gap:0.25rem;margin-bottom:0.6rem">
+                    ${_pill(hasDns, hasDns ? '\u2713 DNS configured' : '\u25cb will create', 'wiz-dns-fullsetup-pill-dns')}
+                    ${_pill(hasCdn, hasCdn ? '\u2713 CDN: ' + cdnProviders.map(p => p.name).join(', ') : '\u25cb no CDN', 'wiz-dns-fullsetup-pill-cdn')}
+                    ${_pill(domains.length > 0, domains.length > 0 ? '\u2713 ' + domains.length + ' domain(s)' : '\u25cb no domains', 'wiz-dns-fullsetup-pill-domains')}
+                    ${_pill(sslCerts.length > 0, sslCerts.length > 0 ? '\u2713 SSL certs' : '\u25cb no certs', 'wiz-dns-fullsetup-pill-certs')}
                 </div>
                 <div style="display:flex;gap:0.4rem;margin-top:0.4rem">
                     <button class="btn btn-sm btn-primary" style="font-size:0.75rem"
