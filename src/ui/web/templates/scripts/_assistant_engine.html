@@ -1199,7 +1199,7 @@
 
     // ── Public API ─────────────────────────────────────────────────
 
-    async function activate(contextId, containerEl) {
+    async function activate(contextId, containerEl, panelEl) {
         await _loadCatalogue();
         if (!_catalogue) return;
 
@@ -1214,7 +1214,7 @@
 
         _currentCtx = ctx;
         _containerEl = containerEl;
-        _panelEl = _resolvePanel();
+        _panelEl = panelEl || _resolvePanel();
         if (!_panelEl) return;
 
         // Flatten the tree for selector matching

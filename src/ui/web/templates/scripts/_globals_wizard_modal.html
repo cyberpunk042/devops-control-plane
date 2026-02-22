@@ -52,6 +52,7 @@
      * @param {Object} [opts.initialData] - initial data object
      * @param {string} [opts.finishLabel] - finish button label (default: 'Finish')
      * @param {string} [opts.finishCls] - finish button class (default: 'btn-primary')
+     * @param {string} [opts.assistantContext] - catalogue context ID (e.g. 'setup/docker')
      * @returns {Object} wizard controller
      */
     function wizardModalOpen(opts) {
@@ -61,16 +62,27 @@
         const data = opts.initialData || {};
         let stepIdx = 0;
         const steps = opts.steps;
+        const hasAssistant = !!opts.assistantContext;
+
+        // Build modal body — with or without assistant panel
+        const modalBody = hasAssistant
+            ? `<div class="assistant-layout wiz-modal-layout">
+                 <div class="wiz-modal-main">
+                   <div class="wiz-modal-steps" id="wiz-modal-steps"></div>
+                   <div class="wiz-step-body" id="wiz-step-body"></div>
+                   <div class="wiz-step-error" id="wiz-step-error"></div>
+                 </div>
+                 <div id="assistant-panel-modal" class="assistant-panel assistant-panel-modal"></div>
+               </div>`
+            : `<div class="wiz-modal-steps" id="wiz-modal-steps"></div>
+               <div class="wiz-step-body" id="wiz-step-body"></div>
+               <div class="wiz-step-error" id="wiz-step-error"></div>`;
 
         // Build the modal shell
         const overlay = modalOpen({
             title: opts.title,
-            size: opts.size || 'wide',
-            body: `
-                <div class="wiz-modal-steps" id="wiz-modal-steps"></div>
-                <div class="wiz-step-body" id="wiz-step-body"></div>
-                <div class="wiz-step-error" id="wiz-step-error"></div>
-            `,
+            size: hasAssistant ? 'assisted' : (opts.size || 'wide'),
+            body: modalBody,
             footerButtons: [
                 { label: 'Cancel', cls: 'btn-secondary', onclick: 'wizardModalClose()', id: 'wiz-btn-cancel' },
                 { label: '← Back', cls: 'btn-secondary', onclick: '_wizModalBack()', id: 'wiz-btn-back' },
@@ -91,6 +103,15 @@
 
         // Render first step
         _wizModalRender();
+
+        // Activate assistant panel for this modal context
+        if (hasAssistant && window._assistant) {
+            const modalMain = overlay.querySelector('.wiz-modal-main');
+            const modalPanel = document.getElementById('assistant-panel-modal');
+            if (modalMain && modalPanel) {
+                window._assistant.activate(opts.assistantContext, modalMain, modalPanel);
+            }
+        }
 
         return _wizModal;
     }
@@ -113,6 +134,13 @@
             }).join('');
         }
 
+        // Helper: refresh assistant after step DOM is ready
+        const _refreshAssistant = () => {
+            if (_wizModal && _wizModal.opts.assistantContext && window._assistant) {
+                window._assistant.refresh();
+            }
+        };
+
         // Body
         const bodyEl = document.getElementById('wiz-step-body');
         if (bodyEl) {
@@ -131,6 +159,7 @@
                 if (result && typeof result.then === 'function') {
                     result.then(() => {
                         if (nextBtn) { nextBtn.disabled = false; nextBtn.style.opacity = '1'; }
+                        _refreshAssistant();
                     }).catch(e => {
                         bodyEl.innerHTML = `<div class="wiz-step-error-panel">
                             <span style="font-size:1.2rem">⚠️</span>
@@ -143,6 +172,7 @@
                     });
                 } else {
                     if (nextBtn) { nextBtn.disabled = false; nextBtn.style.opacity = '1'; }
+                    _refreshAssistant();
                 }
             } catch (e) {
                 bodyEl.innerHTML = `<div class="wiz-step-error-panel">
@@ -279,6 +309,14 @@
 
     /** Close the wizard modal. */
     function wizardModalClose() {
+        // Restore assistant to the wizard step context
+        if (_wizModal && _wizModal.opts.assistantContext && window._assistant) {
+            var wizBody = document.getElementById('wizard-body');
+            if (wizBody && typeof currentWizardStep !== 'undefined' && typeof wizardSteps !== 'undefined') {
+                var stepId = wizardSteps[currentWizardStep].id;
+                window._assistant.activate('wizard/' + stepId, wizBody);
+            }
+        }
         _wizModal = null;
         modalClose();
     }

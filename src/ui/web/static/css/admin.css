@@ -2882,6 +2882,36 @@ body {
     max-width: 440px;
 }
 
+.modal-box.assisted {
+    max-width: 1180px;
+}
+
+/* ── Modal assistant layout ─────────────────────────────────────── */
+
+.assistant-layout.wiz-modal-layout {
+    display: flex;
+    gap: var(--space-md);
+    align-items: stretch;
+    height: 100%;
+    min-height: 0;
+}
+
+.wiz-modal-main {
+    flex: 1;
+    min-width: 0;
+    overflow-y: auto;
+    min-height: 0;
+}
+
+.assistant-panel.assistant-panel-modal {
+    position: relative;
+    height: auto;
+    max-height: none;
+    width: 300px;
+    top: 0;
+    overflow-y: auto;
+}
+
 .modal-box.preview {
     max-width: 85vw;
     max-height: 85vh;
