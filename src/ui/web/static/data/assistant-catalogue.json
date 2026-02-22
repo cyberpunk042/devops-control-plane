@@ -4584,5 +4584,209 @@
                 ]
             }
         ]
+    },
+    {
+        "context": "setup/git",
+        "title": "Git Setup",
+        "icon": "🔀",
+        "content": "A quick look at your project's Git setup. This step scans — nothing changes until you reach Configure.\n\nGit is the foundation of the control plane: remotes, .gitignore, hooks, and CI/CD all build on top of it. Everything you see here feeds into the next two steps.",
+        "children": [
+            {
+                "id": "detect-banner",
+                "title": "Read-only Scan",
+                "icon": "🔍",
+                "selector": "#git-detect-banner",
+                "content": "This step only reads — no files are created, no settings are changed. It shows what's already configured so you can decide what to do in Configure.",
+                "children": []
+            },
+            {
+                "id": "detect-section",
+                "title": "Git Repository",
+                "icon": "📁",
+                "selector": "#git-detect-section",
+                "separator": true,
+                "content": "The scan results for your project's Git configuration. Each row below is a check — green means ready, yellow means partial, red means missing.",
+                "children": [
+                    {
+                        "id": "detect-grid",
+                        "title": "Detection Results",
+                        "icon": "📊",
+                        "selector": "#git-detect-grid",
+                        "content": "All Git checks at a glance. The status rows below tell you what's installed, what's configured, and what's missing.",
+                        "children": [
+                            {
+                                "id": "detect-cli",
+                                "title": "Git CLI",
+                                "icon": "⚙️",
+                                "selector": "#git-detect-cli",
+                                "content": "Git is the foundation — every check below depends on it being present.",
+                                "variants": [
+                                    {
+                                        "when": {
+                                            "textContains": "Installed"
+                                        },
+                                        "content": "Git is installed and available.",
+                                        "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">✅ Installed</div><div class=\"state-detail\">Git is the foundation — remotes, .gitignore, hooks, and the entire CI/CD pipeline all depend on it. Version doesn't matter much as long as it's reasonably recent.\n\nEverything below this row assumes git is installed. If this check fails, nothing else in the wizard can work.</div></div>"
+                                    },
+                                    {
+                                        "when": {
+                                            "textContains": "Not found"
+                                        },
+                                        "content": "Git is not installed — nothing else in this wizard can work without it.",
+                                        "expanded": "<div class=\"assistant-state-card state-error\"><div class=\"state-label\">❌ Not Found</div><div class=\"state-detail\">Without Git, no repository can be initialized, no remotes can be added, and no .gitignore can be managed. Every integration downstream — GitHub, CI/CD, Docker — assumes a git repository exists.\n\nInstall git first, then re-open this wizard.\n\n📦 sudo apt-get install git</div></div>"
+                                    }
+                                ],
+                                "children": []
+                            },
+                            {
+                                "id": "detect-repo",
+                                "title": "Repository",
+                                "icon": "📁",
+                                "selector": "#git-detect-repo",
+                                "content": "Whether a .git directory exists and your current branch.",
+                                "variants": [
+                                    {
+                                        "when": {
+                                            "textContains": "Initialized"
+                                        },
+                                        "content": "Your repository is live and tracking changes.",
+                                        "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">✅ Initialized</div><div class=\"state-detail\">Your repository is live. The branch shown here is what you'll push from — you can rename it in the Configure step if needed.\n\nThe control plane reads your commit history, branch state, and remote configuration from the .git directory.</div></div>"
+                                    },
+                                    {
+                                        "when": {
+                                            "textContains": "Not initialized"
+                                        },
+                                        "content": "No repository yet — the Configure step will create one.",
+                                        "expanded": "<div class=\"assistant-state-card state-error\"><div class=\"state-label\">📭 Not Initialized</div><div class=\"state-detail\">No .git directory found. The Configure step will run git init for you and set your default branch.\n\nUntil a repository is initialized, remotes can't be added and commits can't be made. This is the first thing the wizard will fix.</div></div>"
+                                    }
+                                ],
+                                "children": []
+                            },
+                            {
+                                "id": "detect-remotes",
+                                "title": "Remotes",
+                                "icon": "🌐",
+                                "content": "Remote connections link your local repository to GitHub, GitLab, or other hosts — they're where git push sends your code.",
+                                "dynamic": true,
+                                "childTemplate": {
+                                    "title": "{{name}}",
+                                    "nameSelector": ".wiz-status-label",
+                                    "content": "A configured git remote.",
+                                    "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">🌐 Connected</div><div class=\"state-detail\">This is where git push sends your code. If the URL needs to change (e.g., SSH ↔ HTTPS, or a repo move), update it in the Configure step.\n\nThe GitHub Setup wizard (next) uses your remote URL to connect environments, secrets, and CI/CD to this repository.</div></div>",
+                                    "selector": "[id^='git-detect-remote-']:not(#git-detect-remote-none)"
+                                },
+                                "children": [
+                                    {
+                                        "id": "detect-remote-none",
+                                        "title": "No Remote",
+                                        "icon": "⚠️",
+                                        "selector": "#git-detect-remote-none",
+                                        "content": "No remotes configured — your work stays local.",
+                                        "expanded": "<div class=\"assistant-state-card state-warning\"><div class=\"state-label\">⚠️ No Remote</div><div class=\"state-detail\">Without a remote, you can't push, pull, or sync your code. Your commits stay on this machine only.\n\nAdd a remote in the Configure step — if the GitHub CLI is authenticated, the URL can be pre-filled automatically.</div></div>",
+                                        "children": []
+                                    }
+                                ]
+                            },
+                            {
+                                "id": "detect-gitignore",
+                                "title": ".gitignore",
+                                "icon": "📄",
+                                "selector": "#git-detect-gitignore",
+                                "content": "Controls which files git tracks — protects your repo from committing secrets, build artifacts, and OS clutter.",
+                                "variants": [
+                                    {
+                                        "when": {
+                                            "textContains": "100%"
+                                        },
+                                        "content": "Your .gitignore covers all recommended patterns.",
+                                        "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">✅ Complete Coverage</div><div class=\"state-detail\">Your .gitignore covers all recommended patterns for your detected stacks. No action needed — the Configure step will skip this section.\n\nThe control plane checks coverage against your project's detected stacks (Python, Node, Docker, etc.) and common sensitive patterns (.env, credentials, IDE files).</div></div>"
+                                    },
+                                    {
+                                        "when": {
+                                            "textContains": "Present"
+                                        },
+                                        "content": "Your .gitignore exists but has coverage gaps.",
+                                        "expanded": "<div class=\"assistant-state-card state-warning\"><div class=\"state-label\">⚠️ Partial Coverage</div><div class=\"state-detail\">Some recommended patterns are missing — these gaps could leak build artifacts or sensitive files into your repository.\n\nThe Configure step shows exactly which patterns are missing and can replace your .gitignore with a complete, stack-aware version. You'll see a preview before anything changes.</div></div>"
+                                    },
+                                    {
+                                        "when": {
+                                            "textContains": "Missing"
+                                        },
+                                        "content": "No .gitignore — everything gets committed.",
+                                        "expanded": "<div class=\"assistant-state-card state-error\"><div class=\"state-label\">❌ Missing</div><div class=\"state-detail\">Without a .gitignore, everything in your project directory gets committed — secrets, build output, OS metadata, IDE files, node_modules, __pycache__, all of it.\n\nThe Configure step will generate one tuned to your detected stacks. It analyzes your project's languages and frameworks to produce the right patterns.\n\n⚠️ If you've already pushed without a .gitignore, those files are in your git history. Adding one now prevents future leaks but doesn't clean the past.</div></div>"
+                                    }
+                                ],
+                                "children": []
+                            },
+                            {
+                                "id": "detect-hooks",
+                                "title": "Hooks",
+                                "icon": "🪝",
+                                "selector": "#git-detect-hooks",
+                                "content": "Git hooks run scripts automatically at specific points — before commits, before pushes, after merges.",
+                                "variants": [
+                                    {
+                                        "when": {
+                                            "textContains": "active"
+                                        },
+                                        "content": "You've got quality gates that run before code leaves your machine.",
+                                        "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">🪝 Active</div><div class=\"state-detail\">These hooks run automatically — they're your first line of defense against committing broken or non-compliant code.\n\nThe wizard will preserve existing hooks during setup. If you want to modify them, you can do that through the Configure step or directly in .git/hooks/.</div></div>"
+                                    },
+                                    {
+                                        "when": {
+                                            "textContains": "None"
+                                        },
+                                        "content": "No automated checks before commits.",
+                                        "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">➖ None Configured</div><div class=\"state-detail\">No hooks means no automated checks before commits or pushes. Code goes straight to the repository without validation.\n\nIf lint tools are detected in your project (ruff, eslint, mypy, etc.), the Configure step can set up a pre-commit hook that runs them automatically before each commit.\n\n💡 Pre-commit hooks are lightweight — they typically add 1–3 seconds to each commit.</div></div>"
+                                    }
+                                ],
+                                "children": []
+                            },
+                            {
+                                "id": "detect-ghcli",
+                                "title": "GitHub CLI",
+                                "icon": "🐙",
+                                "selector": "#git-detect-ghcli",
+                                "content": "The gh CLI enables deeper GitHub integration — not required for Git setup, but unlocks secrets sync and CI/CD management.",
+                                "variants": [
+                                    {
+                                        "when": {
+                                            "textContains": "Authenticated"
+                                        },
+                                        "content": "GitHub CLI is linked — Configure can pre-fill your remote URL.",
+                                        "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">✅ Authenticated</div><div class=\"state-detail\">The GitHub CLI is logged in and linked to a repository. This means:\n\n• The Configure step can pre-fill your remote URL from the linked repo\n• The GitHub Setup wizard (next after Git) will use this for environments, secrets sync, and CI/CD\n• You can manage pull requests, dispatch workflows, and create deployment environments from the dashboard\n\n💡 The gh CLI is how the control plane interacts with GitHub — no raw API tokens needed.</div></div>"
+                                    },
+                                    {
+                                        "when": {
+                                            "textContains": "not authenticated"
+                                        },
+                                        "content": "gh is installed but not logged in.",
+                                        "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">⚠️ Not Authenticated</div><div class=\"state-detail\">The GitHub CLI is installed but not logged in. You can still complete Git setup without it — remotes, .gitignore, and hooks don't need GitHub authentication.\n\nTo unlock the full GitHub integration later, run:\n\ngh auth login\n\nThis enables secrets sync, environment management, and CI/CD dispatch from the dashboard.</div></div>"
+                                    },
+                                    {
+                                        "when": {
+                                            "textContains": "Not installed"
+                                        },
+                                        "content": "gh CLI is not installed — not a problem for Git setup.",
+                                        "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">➖ Not Installed</div><div class=\"state-detail\">The GitHub CLI is optional for Git setup — remotes, .gitignore, and hooks work without it.\n\nBut if you plan to use the GitHub Setup wizard next (for environments, secrets sync, and CI/CD), installing gh unlocks the full experience.\n\n📦 sudo snap install gh</div></div>"
+                                    }
+                                ],
+                                "children": []
+                            }
+                        ]
+                    }
+                ]
+            },
+            {
+                "id": "detect-hints",
+                "title": "Recommendations",
+                "icon": "💡",
+                "selector": "#git-detect-hints",
+                "separator": true,
+                "content": "These are opportunities detected in your project — each one maps to a configuration section in the next step.",
+                "expanded": "The hints below summarize what the Configure step can act on. They're generated from your scan results: detected stacks determine .gitignore patterns, missing patterns trigger replacement suggestions, and detected lint tools enable pre-commit hook setup.\n\n💡 If no hints appear, your Git setup is already solid.",
+                "children": []
+            }
+        ]
     }
 ]

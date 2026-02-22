@@ -111,6 +111,18 @@
             if (modalMain && modalPanel) {
                 window._assistant.activate(opts.assistantContext, modalMain, modalPanel);
             }
+
+            // Make the panel follow modal-body scroll
+            if (modalPanel) {
+                const modalBody = overlay.querySelector('.modal-body');
+                if (modalBody) {
+                    const scrollHandler = () => {
+                        modalPanel.style.top = modalBody.scrollTop + 'px';
+                    };
+                    modalBody.addEventListener('scroll', scrollHandler);
+                    _wizModal._scrollCleanup = () => modalBody.removeEventListener('scroll', scrollHandler);
+                }
+            }
         }
 
         return _wizModal;
@@ -317,6 +329,7 @@
                 window._assistant.activate('wizard/' + stepId, wizBody);
             }
         }
+        if (_wizModal && _wizModal._scrollCleanup) _wizModal._scrollCleanup();
         _wizModal = null;
         modalClose();
     }
@@ -338,10 +351,11 @@
      * Build a section header inside a wizard step.
      * @param {string} title - section title
      * @param {string} [subtitle] - optional subtitle
+     * @param {string} [id] - optional DOM id for assistant matching
      * @returns {string} HTML
      */
-    function wizSection(title, subtitle) {
-        return `<div class="wiz-section-header">
+    function wizSection(title, subtitle, id) {
+        return `<div class="wiz-section-header"${id ? ` id="${id}"` : ''}>
             <h3 class="wiz-section-title">${esc(title)}</h3>
             ${subtitle ? `<p class="wiz-section-subtitle">${esc(subtitle)}</p>` : ''}
         </div>`;
@@ -354,13 +368,14 @@
      * @param {string} value - status text (or raw HTML if rawValue=true)
      * @param {'ok'|'warn'|'error'|'muted'} [type] - color coding
      * @param {boolean} [rawValue] - if true, value is raw HTML (not escaped)
+     * @param {string} [id] - optional DOM id for assistant matching
      * @returns {string} HTML
      */
-    function wizStatusRow(icon, label, value, type, rawValue) {
+    function wizStatusRow(icon, label, value, type, rawValue, id) {
         const colorMap = { ok: 'var(--success)', warn: 'var(--warning)', error: 'var(--error)', muted: 'var(--text-muted)' };
         const color = colorMap[type] || 'var(--text-primary)';
         const displayValue = rawValue ? value : esc(value);
-        return `<div class="wiz-status-row">
+        return `<div class="wiz-status-row"${id ? ` id="${id}"` : ''}>
             <span class="wiz-status-icon">${icon}</span>
             <span class="wiz-status-label">${esc(label)}</span>
             <span class="wiz-status-value" style="color:${color}">${displayValue}</span>

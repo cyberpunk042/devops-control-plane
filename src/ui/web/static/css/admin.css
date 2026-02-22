@@ -2889,26 +2889,24 @@ body {
 /* ── Modal assistant layout ─────────────────────────────────────── */
 
 .assistant-layout.wiz-modal-layout {
-    display: flex;
-    gap: var(--space-md);
-    align-items: stretch;
-    height: 100%;
-    min-height: 0;
+    display: block;
+    position: relative;
 }
 
 .wiz-modal-main {
-    flex: 1;
-    min-width: 0;
+    margin-right: calc(300px + var(--space-md));
     overflow-y: auto;
-    min-height: 0;
+    min-height: 200px;
 }
 
 .assistant-panel.assistant-panel-modal {
-    position: relative;
-    height: auto;
-    max-height: none;
-    width: 300px;
+    position: absolute;
     top: 0;
+    right: 0;
+    bottom: 0;
+    width: 300px;
+    height: auto;
+    max-height: calc(100vh - 14rem);
     overflow-y: auto;
 }
 
