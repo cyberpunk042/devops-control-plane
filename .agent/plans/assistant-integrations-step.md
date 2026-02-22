@@ -1,8 +1,12 @@
-# Assistant — Integrations Step Plan
+# Assistant — Integrations Step Plan — COMPLETED
 
 > **Scope:** `wizard/integrations` catalogue entry for the assistant side panel.
-> **Status:** Phase A ✅ — context root, scan bar, system tools (30 variants), file detection (24 variants), 6 resolvers, 4 renderer ID additions.
-> **Reference:** `assistant-realization.md`, `assistant-scenarios.md`, `assistant-unified-plan.md`
+> **Status:** ✅ All phases implemented. Context root, scan bar, system tools,
+> file detection, integrations section, devops extensions (Docker with per-item
+> dynamic enrichment for Dockerfiles and Compose Services; K8s with per-manifest
+> kind breakdown, per-chart Helm analysis, and per-overlay Kustomize enrichment),
+> CI/CD, and sub-forms.
+> **Reference:** `assistant-architecture.md` (living source of truth)
 
 ---
 
@@ -33,31 +37,50 @@ contextual assistant content.
 
 We split into **5 phases** to avoid scope creep and maintain quality:
 
-### Phase A — Context Root + Scan Bar + System Tools + File Detection
+### Phase A — Context Root + Scan Bar + System Tools + File Detection ✅
 - Context root (`wizard/integrations`)
 - Scan status bar (stale/fresh variants)
 - System Tools section with dynamic per-tool rows
 - File Detection badge row
 - New template resolvers: `toolCount`, `fileCount`, `integrationCount`
 
-### Phase B — Integrations Section (Git, GitHub, Pages)
+### Phase B — Integrations Section (Git, GitHub, Pages) ✅
 - Section header
 - Git card (3 status variants)
 - GitHub card (3 status variants)
 - Pages card (3 status variants)
 
-### Phase C — DevOps Extensions (Docker, K8s, Terraform, DNS)
+### Phase C — DevOps Extensions (Docker, K8s, Terraform, DNS) ✅
 - Section header
 - Docker card (most complex — daemon status, Dockerfile, compose)
-- K8s card (cluster, kubectl, helm)
+  - **Dockerfiles section:** dynamic nodes with `childTemplate` + per-file
+    enrichment via `_parseDockerImage()` (see architecture doc)
+  - **Compose Services section:** dynamic nodes with per-service role
+    classification, image breakdown, and metadata extraction
+- K8s card — full `#wiz-int-wrap-k8s` catalogue entry with:
+  - **Card-level variants:** cluster connected / no cluster / kubectl missing
+  - **12 static children:** status strip, manifests, Helm charts, Kustomize,
+    environments, infra dependencies, live cluster, generate manifests (6 form
+    fields), full K8s setup, delete, apply, cancel
+  - **3 dynamic childTemplates:**
+    - `k8s-section-manifests` → per-file resource kind breakdown (18 known kinds
+      mapped with icons and descriptions)
+    - `k8s-section-helm` → per-chart metadata extraction (version, values,
+      templates, subcharts)
+    - `k8s-section-kustomize` → per-overlay patch count and apply commands
+  - **Engine enrichment:** ~90 lines in `_resolveDynamic()` for K8s-specific
+    DOM parsing (resource kind map, chart metadata, overlay patches)
+  - **Template resolvers:** `k8sManifests`, `k8sResources` for `{{}}` vars
+  - **DOM IDs added:** 11 section IDs (`wiz-k8s-section-*`) on previously
+    anonymous elements in `_wizard_integrations.html`
 - Terraform card (CLI, provider, backend)
 - DNS card (CDN, domains, certs)
 
-### Phase D — CI/CD + Remaining Cards
+### Phase D — CI/CD + Remaining Cards ✅
 - CI/CD section header + card
 - Security, Testing, Quality, Packages, Env, Docs (devops_cards extras)
 
-### Phase E — Sub-Forms (per integration)
+### Phase E — Sub-Forms (per integration) ✅
 - Each integration's ⚙️ Setup panel has its own field list
 - Deepest nesting (card → setup panel → form section → individual field)
 - Docker sub-form alone has ~20 fields
@@ -402,20 +425,18 @@ Total Phase A addition: ~10KB of JSON.
 
 ---
 
-## 7. Open Questions for User
+## 7. Open Questions — Resolved
 
-1. **File detection pills** — Should we add IDs to individual file pills
-   (1 line renderer change) to enable per-file assistant content? Or treat the
-   whole row as one section node?
+1. **File detection pills** — ✅ IDs added to individual file pills.
+   Per-file descriptions enabled via `childTemplate` matching.
 
-2. **Template resolvers** — Worth adding `{{toolsMissing}}` and similar, or keep
-   content static? Dynamic feels more assistant-like but adds engine dependency.
+2. **Template resolvers** — ✅ Dynamic resolvers added for `{{toolsMissing}}`
+   and similar. Content uses template vars for counts.
 
-3. **Installed tools row** — Installed tools show as badge pills without IDs.
-   Should we add IDs to those too, or is the "all installed" state handled by
-   the parent section node?
+3. **Installed tools row** — Handled by the parent section node. No IDs
+   added to installed tool pills — the "all installed" state is covered
+   by the parent's content.
 
-4. **Depth limits** — With context root → scan bar OR tools section → tool row,
-   we have 3 levels max in Phase A. That matches previous steps. Later phases
-   (cards → sub-forms → fields) will hit 4-5. Any concerns about panel scroll
-   height at that depth?
+4. **Depth limits** — No issues at 3 levels in Phase A. Later phases
+   (cards → sub-forms → fields) hit 4-5 without scroll height issues.
+   Panel handles deep nesting well.

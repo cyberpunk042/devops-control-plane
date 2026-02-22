@@ -89,6 +89,18 @@
                 match = match && !!element.querySelector(v.when.hasSelector);
             }
 
+            if (match && v.when.resolver) {
+                var resolverFn = window._assistant.resolvers[v.when.resolver];
+                var resolverVal = resolverFn ? String(resolverFn()) : '';
+                if (v.when.equals !== undefined) {
+                    match = match && resolverVal === String(v.when.equals);
+                } else if (v.when.contains !== undefined) {
+                    match = match && resolverVal.toLowerCase().indexOf(String(v.when.contains).toLowerCase()) !== -1;
+                } else if (v.when.not !== undefined) {
+                    match = match && resolverVal !== String(v.when.not);
+                }
+            }
+
             if (match) {
                 // Merge: variant fields override base, everything else preserved
                 return {
@@ -243,6 +255,307 @@
                 }
             }
 
+            // ── Dockerfile enrichment (per-file analysis) ──────────
+            // Reuses the same logic as the dockerfileAnalysis resolver
+            // to produce identical quality per-file breakdowns.
+            if (parentNode.id === 'docker-section-dockerfiles') {
+                // Base images: accent-colored spans (exclude stage/port text)
+                var baseSpans = el.querySelectorAll('span[style*="accent"]');
+                var bases = [];
+                baseSpans.forEach(function(s) {
+                    var txt = s.textContent.trim();
+                    if (txt.indexOf('AS ') !== 0 && txt.indexOf('-stage') === -1 && txt.indexOf('EXPOSE') === -1) {
+                        bases.push(txt);
+                    }
+                });
+
+                // Stages
+                var stageSpans = el.querySelectorAll('span[style*="text-muted"]');
+                var stages = [];
+                stageSpans.forEach(function(s) {
+                    var txt = s.textContent.trim();
+                    if (txt.indexOf('AS ') === 0) stages.push(txt.substring(3));
+                });
+
+                // Ports
+                var portSpan = el.querySelector('span[style*="text-muted"]');
+                var portMatch = portSpan ? portSpan.textContent.match(/EXPOSE\s+([\d, ]+)/) : null;
+                var ports = portMatch ? portMatch[1] : '';
+
+                // Build per-image breakdown cards using _parseDockerImage
+                var imageCards = '';
+                bases.forEach(function(b) {
+                    var p = _parseDockerImage(b);
+                    if (!p) return;
+                    imageCards += '<div style="display:flex;gap:0.3rem;flex-wrap:wrap;margin-top:0.25rem">' +
+                        '<span style="font-size:0.7rem;padding:0.1rem 0.35rem;border-radius:4px;background:color-mix(in srgb, var(--accent) 12%, transparent);color:var(--accent);font-weight:600">🔧 ' + p.label + '</span>' +
+                        '<span style="font-size:0.7rem;padding:0.1rem 0.35rem;border-radius:4px;background:color-mix(in srgb, var(--text-secondary) 10%, transparent);color:var(--text-secondary)">📌 ' + p.version + '</span>' +
+                        (p.variant ? '<span style="font-size:0.7rem;padding:0.1rem 0.35rem;border-radius:4px;background:color-mix(in srgb, var(--success) 10%, transparent);color:var(--success)">📦 ' + p.variant + '</span>' : '') +
+                        '</div>' +
+                        (p.variantExplain ? '<div style="font-size:0.65rem;color:var(--text-muted);margin-top:0.15rem;padding-left:0.2rem">' + p.variantExplain + '</div>' : '');
+                });
+
+                // Stage info
+                var stageInfo = '';
+                if (stages.length > 0) {
+                    stageInfo = '<div style="font-size:0.68rem;color:var(--accent);margin-top:0.2rem">⚡ ' + (stages.length + 1) + '-stage build (stages: ' + stages.join(', ') + ')</div>';
+                }
+
+                // Port info
+                var portInfo = '';
+                if (ports) {
+                    portInfo = '<div style="font-size:0.68rem;color:var(--text-muted);margin-top:0.1rem">🔌 EXPOSE ' + ports + '</div>';
+                }
+
+                nodeExpanded = '<div class="assistant-state-card state-info" style="margin-bottom:0.4rem">' +
+                    '<div class="state-label">📄 ' + extractedName + '</div>' +
+                    '<div class="state-detail">' + imageCards + stageInfo + portInfo + '</div>' +
+                    '</div>';
+            }
+
+            // ── Compose service enrichment (per-service analysis) ────
+            // Same logic as dockerSvcAnalysis resolver for identical quality.
+            if (parentNode.id === 'docker-section-compose-svcs') {
+                var imageEl = el.querySelector('code');
+                var image = imageEl ? imageEl.textContent.trim() : '?';
+
+                var parsed = null;
+                if (image !== '(build)' && image !== '?') {
+                    parsed = _parseDockerImage(image);
+                }
+
+                // Determine role and card style
+                var role = 'application';
+                var cardStyle = 'state-success';
+                if (parsed) {
+                    if (parsed.family === 'database') { role = 'database'; cardStyle = 'state-info'; }
+                    else if (parsed.family === 'cache') { role = 'cache'; cardStyle = 'state-info'; }
+                    else if (parsed.family === 'webserver') { role = 'proxy'; cardStyle = 'state-info'; }
+                }
+                if (image === '(build)') { role = 'application (builds from Dockerfile)'; }
+
+                // Volumes, deps, restart from muted spans
+                var mutedSpans = el.querySelectorAll('span[style*="text-muted"]');
+                var metaHtml = '';
+                mutedSpans.forEach(function(s) {
+                    var txt = s.textContent.trim();
+                    if (txt) metaHtml += '<span style="font-size:0.65rem;padding:0.05rem 0.25rem;border-radius:3px;background:color-mix(in srgb, var(--text-muted) 8%, transparent);color:var(--text-muted);margin-right:0.2rem">' + txt + '</span>';
+                });
+
+                // Image breakdown pills
+                var imagePills = '';
+                if (parsed) {
+                    imagePills = '<div style="display:flex;gap:0.3rem;flex-wrap:wrap;margin-top:0.25rem">' +
+                        '<span style="font-size:0.7rem;padding:0.1rem 0.35rem;border-radius:4px;background:color-mix(in srgb, var(--accent) 12%, transparent);color:var(--accent);font-weight:600">🔧 ' + parsed.label + '</span>' +
+                        '<span style="font-size:0.7rem;padding:0.1rem 0.35rem;border-radius:4px;background:color-mix(in srgb, var(--text-secondary) 10%, transparent);color:var(--text-secondary)">📌 ' + parsed.version + '</span>' +
+                        (parsed.variant ? '<span style="font-size:0.7rem;padding:0.1rem 0.35rem;border-radius:4px;background:color-mix(in srgb, var(--success) 10%, transparent);color:var(--success)">📦 ' + parsed.variant + '</span>' : '') +
+                        '</div>' +
+                        (parsed.variantExplain ? '<div style="font-size:0.65rem;color:var(--text-muted);margin-top:0.15rem;padding-left:0.2rem">' + parsed.variantExplain + '</div>' : '');
+                } else if (image === '(build)') {
+                    imagePills = '<div style="font-size:0.68rem;color:var(--accent);margin-top:0.2rem">🔨 Builds from local Dockerfile — see Dockerfile Analysis for image details</div>';
+                }
+
+                nodeExpanded = '<div class="assistant-state-card ' + cardStyle + '" style="margin-bottom:0.4rem">' +
+                    '<div class="state-label">' + extractedName + ' <span style="font-size:0.7rem;opacity:0.7">(' + role + ')</span></div>' +
+                    '<div class="state-detail">' + imagePills +
+                    (metaHtml ? '<div style="margin-top:0.2rem">' + metaHtml + '</div>' : '') +
+                    '</div></div>';
+            }
+
+            // ── K8s manifest enrichment (per-file analysis) ─────────
+            // Reads resource kinds from the muted span next to the file path.
+            if (parentNode.id === 'k8s-section-manifests') {
+                // Parse "count · Kind1, Kind2" from the muted span
+                var kindSpan = el.querySelector('span[style*="text-muted"]');
+                var kindText = kindSpan ? kindSpan.textContent.trim() : '';
+                var countMatch = kindText.match(/^(\d+)\s*·\s*(.+)$/);
+                var resCount = countMatch ? countMatch[1] : '?';
+                var kindList = countMatch ? countMatch[2].split(',').map(function(k) { return k.trim(); }) : [];
+
+                // Map known K8s kinds to icons and descriptions
+                var kindMap = {
+                    'Deployment': { icon: '🚀', desc: 'manages replicated pods with rolling updates' },
+                    'StatefulSet': { icon: '🗄', desc: 'pods with stable identity and persistent storage' },
+                    'DaemonSet': { icon: '📡', desc: 'runs one pod per node across the cluster' },
+                    'Service': { icon: '🌐', desc: 'stable network endpoint for pods' },
+                    'ConfigMap': { icon: '🔧', desc: 'key-value config injected as env vars or files' },
+                    'Secret': { icon: '🔒', desc: 'base64-encoded sensitive data' },
+                    'Ingress': { icon: '🌍', desc: 'HTTP routing rules for external traffic' },
+                    'PersistentVolumeClaim': { icon: '📀', desc: 'requests durable storage for pods' },
+                    'CronJob': { icon: '⏰', desc: 'scheduled pod execution' },
+                    'Job': { icon: '⚡', desc: 'run-to-completion batch task' },
+                    'HorizontalPodAutoscaler': { icon: '📈', desc: 'auto-scales replicas on metrics' },
+                    'ServiceAccount': { icon: '🔑', desc: 'pod identity for RBAC permissions' },
+                    'Role': { icon: '🛡', desc: 'namespace-scoped permission set' },
+                    'ClusterRole': { icon: '🛡', desc: 'cluster-wide permission set' },
+                    'RoleBinding': { icon: '🔗', desc: 'binds a Role to a ServiceAccount' },
+                    'Namespace': { icon: '📂', desc: 'virtual cluster partition' },
+                    'NetworkPolicy': { icon: '🔐', desc: 'pod-level network access rules' },
+                    'PodDisruptionBudget': { icon: '🛟', desc: 'minimum availability during disruptions' }
+                };
+
+                var kindPills = '';
+                kindList.forEach(function(k) {
+                    var info = kindMap[k] || { icon: '📦', desc: 'Kubernetes resource' };
+                    kindPills += '<div style="display:flex;gap:0.3rem;align-items:center;margin-top:0.15rem">' +
+                        '<span style="font-size:0.7rem;padding:0.1rem 0.35rem;border-radius:4px;background:color-mix(in srgb, var(--accent) 12%, transparent);color:var(--accent);font-weight:600">' + info.icon + ' ' + k + '</span>' +
+                        '<span style="font-size:0.65rem;color:var(--text-muted)">' + info.desc + '</span>' +
+                        '</div>';
+                });
+
+                nodeExpanded = '<div class="assistant-state-card state-info" style="margin-bottom:0.4rem">' +
+                    '<div class="state-label">📄 ' + extractedName + ' <span style="font-size:0.7rem;opacity:0.7">(' + resCount + ' resource' + (resCount !== '1' ? 's' : '') + ')</span></div>' +
+                    '<div class="state-detail">' + kindPills + '</div>' +
+                    '</div>';
+            }
+
+            // ── K8s Helm chart enrichment (per-chart analysis) ──────
+            // Reads chart metadata from the DOM row structure.
+            if (parentNode.id === 'k8s-section-helm') {
+                var chartVersion = '';
+                var versionEl = el.querySelector('code[style*="text-muted"]');
+                if (versionEl) chartVersion = versionEl.textContent.trim();
+
+                // Read metadata spans (values.yaml, templates/, subcharts, env values)
+                var chartMeta = [];
+                var metaSpansHelm = el.querySelectorAll('span[style*="text-muted"]');
+                metaSpansHelm.forEach(function(s) {
+                    var txt = s.textContent.trim();
+                    if (txt) chartMeta.push(txt);
+                });
+                var envValuesSpan = el.querySelector('span[style*="accent"]');
+                if (envValuesSpan) chartMeta.push(envValuesSpan.textContent.trim());
+
+                var chartMetaHtml = '';
+                chartMeta.forEach(function(m) {
+                    chartMetaHtml += '<span style="font-size:0.65rem;padding:0.05rem 0.25rem;border-radius:3px;background:color-mix(in srgb, var(--text-muted) 8%, transparent);color:var(--text-muted);margin-right:0.2rem">' + m + '</span>';
+                });
+
+                nodeExpanded = '<div class="assistant-state-card state-info" style="margin-bottom:0.4rem">' +
+                    '<div class="state-label">⎈ ' + extractedName + (chartVersion ? ' <span style="font-size:0.7rem;opacity:0.7">v' + chartVersion + '</span>' : '') + '</div>' +
+                    '<div class="state-detail">' +
+                    (chartMetaHtml ? '<div style="display:flex;flex-wrap:wrap;gap:0.15rem;margin-top:0.15rem">' + chartMetaHtml + '</div>' : '') +
+                    '<div style="font-size:0.68rem;color:var(--text-muted);margin-top:0.2rem">Helm chart bundles K8s resources into a reusable, configurable package. Install with: helm install ' + extractedName + ' ./' + extractedName + '</div>' +
+                    '</div></div>';
+            }
+
+            // ── K8s Kustomize overlay enrichment (per-overlay) ──────
+            if (parentNode.id === 'k8s-section-kustomize') {
+                var patchSpan = el.querySelector('span[style*="text-muted"]');
+                var patchText = patchSpan ? patchSpan.textContent.trim() : '';
+
+                nodeExpanded = '<div class="assistant-state-card state-info" style="margin-bottom:0.4rem">' +
+                    '<div class="state-label">📁 ' + extractedName + (patchText ? ' <span style="font-size:0.7rem;opacity:0.7">(' + patchText + ')</span>' : '') + '</div>' +
+                    '<div class="state-detail">' +
+                    '<div style="font-size:0.68rem;color:var(--text-muted);margin-top:0.1rem">Environment overlay — applies patches on top of base manifests for ' + extractedName + '-specific configuration.</div>' +
+                    '<div style="font-size:0.68rem;color:var(--text-muted);margin-top:0.1rem">Apply: <code style="font-size:0.65rem">kubectl apply -k overlays/' + extractedName + '/</code></div>' +
+                    '</div></div>';
+            }
+
+            // ── Terraform file enrichment (per-file analysis) ────────
+            // Reads the file type from the muted span next to the file path.
+            if (parentNode.id === 'tf-section-files') {
+                var typeSpan = el.querySelector('span[style*="text-muted"]');
+                var fileType = typeSpan ? typeSpan.textContent.trim() : '';
+
+                // Map .tf file types to icons and descriptions
+                var tfFileTypeMap = {
+                    'resource':  { icon: '📦', desc: 'declares infrastructure objects — the core of any Terraform config' },
+                    'variable':  { icon: '📥', desc: 'input parameters — make configs reusable across environments' },
+                    'output':    { icon: '📤', desc: 'exports values after apply — IPs, URLs, ARNs, connection strings' },
+                    'provider':  { icon: '☁', desc: 'configures cloud API connections — credentials, region, features' },
+                    'data':      { icon: '🔍', desc: 'reads existing infrastructure — lookup AMIs, VPCs, DNS zones without creating them' },
+                    'module':    { icon: '📦', desc: 'imports reusable infrastructure packages from registry, Git, or local path' },
+                    'backend':   { icon: '💾', desc: 'configures where Terraform state is stored and how it\'s locked' },
+                    'locals':    { icon: '🏷️', desc: 'computed values used within the same module — reduce repetition' },
+                    'terraform': { icon: '⚙️', desc: 'terraform block — version constraints, required providers, backend' },
+                    'mixed':     { icon: '📄', desc: 'contains multiple block types — resources, variables, outputs, etc.' }
+                };
+
+                var typeInfo = tfFileTypeMap[fileType] || { icon: '📄', desc: 'Terraform configuration file' };
+
+                nodeExpanded = '<div class="assistant-state-card state-info" style="margin-bottom:0.4rem">' +
+                    '<div class="state-label">' + typeInfo.icon + ' ' + extractedName + (fileType ? ' <span style="font-size:0.7rem;opacity:0.7">(' + fileType + ')</span>' : '') + '</div>' +
+                    '<div class="state-detail">' +
+                    '<div style="font-size:0.7rem;color:var(--text-secondary);margin-top:0.1rem">' + typeInfo.desc + '</div>' +
+                    '</div></div>';
+            }
+
+            // ── Terraform provider enrichment (per-provider analysis) ─
+            // Maps provider names to cloud platform descriptions.
+            if (parentNode.id === 'tf-section-providers') {
+                var providerName = extractedName.toLowerCase().trim();
+                // Strip registry prefix: hashicorp/aws → aws
+                if (providerName.indexOf('/') !== -1) providerName = providerName.split('/').pop();
+
+                var tfProviderMap = {
+                    'aws':          { icon: '🟧', label: 'Amazon Web Services', desc: '1000+ resource types — EC2, S3, RDS, Lambda, ECS, EKS, and more' },
+                    'google':       { icon: '🔵', label: 'Google Cloud Platform', desc: 'Compute Engine, GKE, Cloud SQL, BigQuery, Cloud Functions' },
+                    'azurerm':      { icon: '🔷', label: 'Microsoft Azure', desc: 'VMs, AKS, Cosmos DB, App Service, Azure Functions' },
+                    'digitalocean': { icon: '🔵', label: 'DigitalOcean', desc: 'Droplets, DOKS (K8s), Spaces, Databases, App Platform' },
+                    'kubernetes':   { icon: '☸️', label: 'Kubernetes', desc: 'manages K8s resources (Deployments, Services, ConfigMaps) via Terraform' },
+                    'helm':         { icon: '⎈', label: 'Helm', desc: 'deploys Helm charts as Terraform resources — integrates with K8s provider' },
+                    'cloudflare':   { icon: '🟠', label: 'Cloudflare', desc: 'DNS records, Workers, Tunnels, WAF rules, Page Rules' },
+                    'github':       { icon: '🐙', label: 'GitHub', desc: 'repositories, teams, branch protection, Actions secrets' },
+                    'gitlab':       { icon: '🦊', label: 'GitLab', desc: 'projects, groups, CI/CD variables, deploy tokens' },
+                    'null':         { icon: '⬜', label: 'Null Provider', desc: 'placeholder resources for local-exec and remote-exec provisioners' },
+                    'random':       { icon: '🎲', label: 'Random Provider', desc: 'generates random values — IDs, passwords, pet names, shuffles' },
+                    'local':        { icon: '📁', label: 'Local Provider', desc: 'manages local files and directories via Terraform state' },
+                    'tls':          { icon: '🔐', label: 'TLS Provider', desc: 'generates TLS certificates and private keys' },
+                    'docker':       { icon: '🐳', label: 'Docker', desc: 'manages Docker containers, images, networks, and volumes' },
+                    'vault':        { icon: '🔒', label: 'HashiCorp Vault', desc: 'manages secrets, auth backends, policies, and mounts' }
+                };
+
+                var provInfo = tfProviderMap[providerName] || { icon: '☁', label: providerName, desc: 'Terraform provider — see registry.terraform.io for documentation' };
+
+                nodeExpanded = '<div class="assistant-state-card state-info" style="margin-bottom:0.4rem">' +
+                    '<div class="state-label">' + provInfo.icon + ' ' + provInfo.label + '</div>' +
+                    '<div class="state-detail">' +
+                    '<div style="font-size:0.7rem;color:var(--text-secondary);margin-top:0.1rem">' + provInfo.desc + '</div>' +
+                    '<div style="font-size:0.65rem;color:var(--text-muted);margin-top:0.15rem">Registry: registry.terraform.io/providers/hashicorp/' + providerName + '</div>' +
+                    '</div></div>';
+            }
+
+            // ── Terraform module enrichment (per-module analysis) ─────
+            // Reads module source from the code element to determine source type.
+            if (parentNode.id === 'tf-section-modules') {
+                var sourceEl = el.querySelector('code[style*="text-muted"]');
+                var moduleSource = sourceEl ? sourceEl.textContent.trim() : '';
+
+                // Determine source type from the source string
+                var sourceType = 'unknown';
+                var sourceIcon = '📦';
+                var sourceDesc = 'Terraform module';
+                if (moduleSource.indexOf('registry.terraform.io') !== -1 || (!moduleSource.startsWith('./') && !moduleSource.startsWith('../') && !moduleSource.startsWith('git') && !moduleSource.startsWith('http') && moduleSource.indexOf('/') !== -1 && !moduleSource.startsWith('.'))) {
+                    sourceType = 'registry';
+                    sourceIcon = '📦';
+                    sourceDesc = 'Terraform Registry module — official or community-maintained, versioned and documented';
+                } else if (moduleSource.startsWith('git::') || moduleSource.startsWith('github.com') || moduleSource.startsWith('git@')) {
+                    sourceType = 'git';
+                    sourceIcon = '🔗';
+                    sourceDesc = 'Git-sourced module — version pinned via ?ref=tag, branch, or commit SHA';
+                } else if (moduleSource.startsWith('./') || moduleSource.startsWith('../')) {
+                    sourceType = 'local';
+                    sourceIcon = '📁';
+                    sourceDesc = 'Local module — project-local reusable block, no network fetch needed';
+                } else if (moduleSource.startsWith('http://') || moduleSource.startsWith('https://')) {
+                    sourceType = 'http';
+                    sourceIcon = '🌐';
+                    sourceDesc = 'HTTP-sourced module — downloaded from URL as archive';
+                } else if (moduleSource.startsWith('s3::') || moduleSource.startsWith('gcs::')) {
+                    sourceType = 'cloud';
+                    sourceIcon = '☁';
+                    sourceDesc = 'Cloud storage module — downloaded from S3 bucket or GCS';
+                }
+
+                nodeExpanded = '<div class="assistant-state-card state-info" style="margin-bottom:0.4rem">' +
+                    '<div class="state-label">' + sourceIcon + ' ' + extractedName + ' <span style="font-size:0.7rem;opacity:0.7">(' + sourceType + ')</span></div>' +
+                    '<div class="state-detail">' +
+                    (moduleSource ? '<div style="font-size:0.68rem;color:var(--accent);margin-top:0.1rem"><code style="font-size:0.65rem">' + moduleSource + '</code></div>' : '') +
+                    '<div style="font-size:0.7rem;color:var(--text-secondary);margin-top:0.15rem">' + sourceDesc + '</div>' +
+                    '</div></div>';
+            }
+
             var syntheticNode = {
                 id: parentNode.id + '-dyn-' + i,
                 title: nodeTitle,
@@ -278,54 +591,67 @@
     function _matchNode(element) {
         if (!element || !_flatNodes.length) return null;
 
+        // Collect ALL matching nodes, then return the deepest one.
+        // When multiple nodes share the same selector (e.g., a parent and its
+        // children all point at #wiz-docker-base), we want the most specific
+        // child — the one with the longest parent chain.
+        var bestMatch = null;
+        var bestDepth = -1;
+
         for (let i = 0; i < _flatNodes.length; i++) {
             const entry = _flatNodes[i];
             const node = entry.node;
+            var matched = false;
 
             // Dynamic nodes: match by direct element reference
             if (node._element) {
                 if (node._element === element || node._element.contains(element)) {
-                    return entry;
+                    matched = true;
                 }
-                continue;
-            }
+            } else if (node.selector) {
+                // Static nodes: match by CSS selector
+                try {
+                    // 1. Direct match: the element itself IS the selector target
+                    if (element.matches(node.selector)) {
+                        matched = true;
+                    }
 
-            // Static nodes: match by CSS selector
-            if (!node.selector) continue;
+                    // 2. Inside: the element is a descendant of the selector target
+                    if (!matched && element.closest(node.selector)) {
+                        matched = true;
+                    }
 
-            try {
-                // 1. Direct match: the element itself IS the selector target
-                if (element.matches(node.selector)) {
-                    return entry;
-                }
-
-                // 2. Inside: the element is a descendant of the selector target
-                if (element.closest(node.selector)) {
-                    return entry;
-                }
-
-                // 3. Field-group proximity: the element shares a wrapper div
-                //    with the selector target. This handles hovering a <label>
-                //    that's a sibling of <input id="wiz-name">.
-                //    Skip for ID selectors — they already uniquely target
-                //    elements and proximity would false-positive on siblings
-                //    in the same flex row.
-                if (node.selector.charAt(0) !== '#') {
-                    const targetEl = _containerEl.querySelector(node.selector);
-                    if (targetEl && targetEl.parentElement) {
-                        const wrapper = targetEl.parentElement.closest('div');
-                        if (wrapper && wrapper !== _containerEl &&
-                            (wrapper === element || wrapper.contains(element))) {
-                            return entry;
+                    // 3. Field-group proximity: the element shares a wrapper div
+                    //    with the selector target. This handles hovering a <label>
+                    //    that's a sibling of <input id="wiz-name">.
+                    //    Skip for ID selectors — they already uniquely target
+                    //    elements and proximity would false-positive on siblings
+                    //    in the same flex row.
+                    if (!matched && node.selector.charAt(0) !== '#') {
+                        const targetEl = _containerEl.querySelector(node.selector);
+                        if (targetEl && targetEl.parentElement) {
+                            const wrapper = targetEl.parentElement.closest('div');
+                            if (wrapper && wrapper !== _containerEl &&
+                                (wrapper === element || wrapper.contains(element))) {
+                                matched = true;
+                            }
                         }
                     }
+                } catch (e) {
+                    // Invalid selector — skip silently
                 }
-            } catch (e) {
-                // Invalid selector — skip silently
+            }
+
+            if (matched) {
+                var depth = entry.parents ? entry.parents.length : 0;
+                if (depth > bestDepth) {
+                    bestDepth = depth;
+                    bestMatch = entry;
+                }
             }
         }
 
-        return null;
+        return bestMatch;
     }
 
     // ── Path Merging ───────────────────────────────────────────────
@@ -424,8 +750,17 @@
             }
         }
 
-        // Save current path as sticky (survives mouse-to-panel trips)
-        if (_hoverPath) _stickyPath = _hoverPath;
+        // Save current path as sticky (survives mouse-to-panel trips).
+        // Ancestor guard: only update sticky if the new hover is at the same
+        // depth or deeper. This prevents a brief border-crossing on the way
+        // to the panel from clobbering a deep target with its parent.
+        if (_hoverPath) {
+            var newDepth = _hoverPath.chain ? _hoverPath.chain.length : 0;
+            var stickyDepth = _stickyPath && _stickyPath.chain ? _stickyPath.chain.length : -1;
+            if (newDepth >= stickyDepth) {
+                _stickyPath = _hoverPath;
+            }
+        }
 
         _panelEl.classList.remove('entry-state');
 
@@ -535,6 +870,22 @@
 
             // Same hover target as before? Don't re-render
             if (_hoverPath && _hoverPath.target.id === matched.node.id) return;
+
+            // Padding guard: if the mouse is on a container's own
+            // padding/dead-space (e.target IS the selector element, not a
+            // child within it), and we already have a deeper hover target,
+            // skip — the user is crossing dead space, not targeting the parent.
+            if (_hoverPath && _hoverPath.chain && matched.node.selector) {
+                var newDepth = matched.parents ? matched.parents.length : 0;
+                var currentDepth = _hoverPath.chain.length;
+                if (newDepth < currentDepth) {
+                    try {
+                        if (e.target.matches(matched.node.selector)) {
+                            return; // Mouse is on container padding, not content
+                        }
+                    } catch(ex) {}
+                }
+            }
 
             _hoverPath = { target: matched.node, chain: matched.parents };
             _renderInteractionPath();
@@ -1149,6 +1500,388 @@
             });
         }
         return count;
+    };
+
+    // ── Docker card resolvers ────────────────────────────────────
+
+    window._assistant.resolvers.dockerDaemon = function() {
+        var pill = document.getElementById('wiz-docker-pill-daemon');
+        if (!pill) return '';
+        return pill.textContent.indexOf('✓') !== -1 ? '✓' : '✗';
+    };
+
+    window._assistant.resolvers.dockerVersion = function() {
+        var pill = document.getElementById('wiz-docker-pill-daemon');
+        if (!pill) return '';
+        var match = pill.textContent.match(/·\s*(.+)/);
+        return match ? match[1].trim() : '';
+    };
+
+    window._assistant.resolvers.dockerComposeCli = function() {
+        var pill = document.getElementById('wiz-docker-pill-compose-cli');
+        if (!pill) return '';
+        return pill.textContent.indexOf('✓') !== -1 ? '✓' : '○';
+    };
+
+    window._assistant.resolvers.dockerDockerfiles = function() {
+        var pill = document.getElementById('wiz-docker-pill-dockerfile');
+        if (!pill) return 0;
+        var match = pill.textContent.match(/(\d+)/);
+        return match ? parseInt(match[1], 10) : 0;
+    };
+
+    window._assistant.resolvers.dockerServices = function() {
+        var pill = document.getElementById('wiz-docker-pill-composefile');
+        if (!pill) return 0;
+        var match = pill.textContent.match(/(\d+)\s*svc/);
+        return match ? parseInt(match[1], 10) : 0;
+    };
+
+    window._assistant.resolvers.dockerIgnoreRules = function() {
+        var pill = document.getElementById('wiz-docker-pill-dockerignore');
+        if (!pill) return 0;
+        var match = pill.textContent.match(/(\d+)\s*rule/);
+        return match ? parseInt(match[1], 10) : 0;
+    };
+
+    window._assistant.resolvers.dockerModules = function() {
+        var pill = document.getElementById('wiz-docker-fullsetup-pill-modules');
+        if (!pill) return 0;
+        var match = pill.textContent.match(/(\d+)/);
+        return match ? parseInt(match[1], 10) : 0;
+    };
+
+    window._assistant.resolvers.dockerStack = function() {
+        var badge = document.getElementById('wiz-docker-stack-badge');
+        if (!badge) return '';
+        return badge.textContent.trim();
+    };
+
+    // ── K8s template variable resolvers ──────────────────────────
+
+    window._assistant.resolvers.k8sManifests = function() {
+        var section = document.getElementById('wiz-k8s-section-manifests');
+        if (!section) return 0;
+        var summary = section.querySelector('summary');
+        if (!summary) return 0;
+        var match = summary.textContent.match(/(\d+)\s*file/);
+        return match ? parseInt(match[1], 10) : 0;
+    };
+
+    window._assistant.resolvers.k8sResources = function() {
+        var strip = document.getElementById('wiz-k8s-section-status');
+        if (!strip) return 0;
+        var pills = strip.querySelectorAll('span');
+        for (var i = 0; i < pills.length; i++) {
+            var match = pills[i].textContent.match(/(\d+)\s*resource/);
+            if (match) return parseInt(match[1], 10);
+        }
+        return 0;
+    };
+
+    // ── Terraform template variable resolvers ────────────────────
+
+    window._assistant.resolvers.tfResources = function() {
+        var strip = document.getElementById('wiz-tf-section-status');
+        if (!strip) return 0;
+        var pills = strip.querySelectorAll('span');
+        for (var i = 0; i < pills.length; i++) {
+            var match = pills[i].textContent.match(/(\d+)\s*resource/);
+            if (match) return parseInt(match[1], 10);
+        }
+        return 0;
+    };
+
+    window._assistant.resolvers.tfProviders = function() {
+        var strip = document.getElementById('wiz-tf-section-status');
+        if (!strip) return 0;
+        var pills = strip.querySelectorAll('span');
+        for (var i = 0; i < pills.length; i++) {
+            var match = pills[i].textContent.match(/(\d+)\s*provider/);
+            if (match) return parseInt(match[1], 10);
+        }
+        return 0;
+    };
+
+    // ── Terraform field value resolvers (for <select> elements) ──
+    window._assistant.resolvers.tfProviderValue = function() {
+        var el = document.getElementById('wiz-tf-provider');
+        return el ? el.value : '';
+    };
+    window._assistant.resolvers.tfBackendValue = function() {
+        var el = document.getElementById('wiz-tf-backend');
+        return el ? el.value : '';
+    };
+
+    // ── Docker image breakdown resolvers ─────────────────────────
+
+    // Knowledge map: runtime name → { label, description, variant explanations }
+    var _dockerImageKnowledge = {
+        'python':           { label: 'Python',       family: 'python',  variantInfo: { 'slim': 'Debian-based minimal (~150MB) — good balance of compatibility and size', 'alpine': 'Alpine Linux (~50MB) — smallest, may need musl workarounds for some C extensions', 'bookworm': 'Full Debian Bookworm — all system libraries included, largest image', 'bullseye': 'Full Debian Bullseye — older stable Debian' } },
+        'golang':           { label: 'Go',           family: 'go',      variantInfo: { 'alpine': 'Alpine base (~250MB) — ideal for multi-stage builds where final image copies only the binary', 'bookworm': 'Full Debian — all build tools available', 'bullseye': 'Older Debian stable' } },
+        'node':             { label: 'Node.js',      family: 'node',    variantInfo: { 'alpine': 'Alpine base (~180MB) — smallest, works for most npm packages', 'slim': 'Debian slim (~200MB) — better native module compatibility', 'bookworm': 'Full Debian — all build tools for native addons', 'bullseye': 'Older Debian stable', 'lts': 'Long Term Support release' } },
+        'rust':             { label: 'Rust',         family: 'rust',    variantInfo: { 'slim': 'Debian slim — smaller image with Rust toolchain', 'alpine': 'Alpine base — smallest but may need musl target', 'bookworm': 'Full Debian' } },
+        'eclipse-temurin':  { label: 'Java (Temurin)', family: 'java', variantInfo: { 'jdk-alpine': 'Alpine + JDK — smallest Java runtime', 'jdk-jammy': 'Ubuntu Jammy + JDK', 'jre-alpine': 'Alpine + JRE only — no compiler, smallest runtime', 'jdk': 'Default JDK' } },
+        'ruby':             { label: 'Ruby',         family: 'ruby',    variantInfo: { 'slim': 'Debian slim — most common Ruby choice', 'alpine': 'Alpine — smallest but gem native extensions may need extra packages', 'bookworm': 'Full Debian' } },
+        'elixir':           { label: 'Elixir',       family: 'elixir',  variantInfo: { 'slim': 'Debian slim with Erlang/OTP', 'alpine': 'Alpine base' } },
+        'php':              { label: 'PHP',          family: 'php',     variantInfo: { 'cli': 'CLI only — no web server', 'fpm': 'FastCGI Process Manager — for nginx/Apache', 'apache': 'Built-in Apache — simplest for web apps', 'alpine': 'Alpine base' } },
+        'gcc':              { label: 'GCC (C/C++)',  family: 'c',       variantInfo: {} },
+        'swift':            { label: 'Swift',        family: 'swift',   variantInfo: { 'slim': 'Minimal Swift runtime', 'jammy': 'Ubuntu Jammy base' } },
+        'alpine':           { label: 'Alpine Linux', family: 'generic', variantInfo: {} },
+        'nginx':            { label: 'Nginx',        family: 'webserver', variantInfo: { 'alpine': 'Alpine base (~40MB) — smallest web server image', 'bookworm': 'Full Debian' } },
+        'postgres':         { label: 'PostgreSQL',   family: 'database', variantInfo: { 'alpine': 'Alpine base — smaller database image', 'bookworm': 'Full Debian with all extensions' } },
+        'mysql':            { label: 'MySQL',        family: 'database', variantInfo: {} },
+        'mongo':            { label: 'MongoDB',      family: 'database', variantInfo: {} },
+        'redis':            { label: 'Redis',        family: 'cache',   variantInfo: { 'alpine': 'Alpine base (~30MB) — most common Redis choice' } },
+        'mcr.microsoft.com/dotnet/sdk': { label: '.NET SDK', family: 'dotnet', variantInfo: { 'alpine': 'Alpine base', 'jammy': 'Ubuntu Jammy' } },
+        'mcr.microsoft.com/dotnet/aspnet': { label: '.NET ASP.NET Runtime', family: 'dotnet', variantInfo: { 'alpine': 'Alpine base — smallest runtime' } }
+    };
+
+    // Parse an image string like "python:3.12-slim" into { runtime, version, variant, label, ... }
+    function _parseDockerImage(imageStr) {
+        if (!imageStr) return null;
+        imageStr = imageStr.trim();
+
+        // Handle registry prefixes (mcr.microsoft.com/dotnet/sdk:8.0)
+        var colonIdx = imageStr.lastIndexOf(':');
+        var repo = colonIdx !== -1 ? imageStr.substring(0, colonIdx) : imageStr;
+        var tag = colonIdx !== -1 ? imageStr.substring(colonIdx + 1) : 'latest';
+
+        // Split tag into version and variant: "3.12-slim" → "3.12", "slim"
+        // Handle multi-part variants: "21-jdk-alpine" → "21", "jdk-alpine"
+        var version = tag;
+        var variant = '';
+        var dashIdx = tag.indexOf('-');
+        if (dashIdx !== -1) {
+            version = tag.substring(0, dashIdx);
+            variant = tag.substring(dashIdx + 1);
+        }
+
+        // Look up knowledge
+        var knowledge = _dockerImageKnowledge[repo] || null;
+        var label = knowledge ? knowledge.label : repo;
+        var family = knowledge ? knowledge.family : 'unknown';
+
+        // Variant explanation
+        var variantExplain = '';
+        if (knowledge && variant && knowledge.variantInfo[variant]) {
+            variantExplain = knowledge.variantInfo[variant];
+        } else if (variant === 'slim') {
+            variantExplain = 'Minimal Debian-based image — smaller than full, more compatible than Alpine';
+        } else if (variant === 'alpine') {
+            variantExplain = 'Alpine Linux base — smallest image size, uses musl libc instead of glibc';
+        } else if (variant === 'latest' || !variant) {
+            variantExplain = 'Default variant — full image with all tools and libraries';
+        }
+
+        return {
+            raw: imageStr,
+            repo: repo,
+            tag: tag,
+            version: version,
+            variant: variant,
+            label: label,
+            family: family,
+            variantExplain: variantExplain
+        };
+    }
+
+    // Resolver: parsed base image from the genconfig form field
+    window._assistant.resolvers.dockerBaseRuntime = function() {
+        var input = document.getElementById('wiz-docker-base');
+        if (!input) return '';
+        var parsed = _parseDockerImage(input.value);
+        return parsed ? parsed.label : '';
+    };
+
+    window._assistant.resolvers.dockerBaseVersion = function() {
+        var input = document.getElementById('wiz-docker-base');
+        if (!input) return '';
+        var parsed = _parseDockerImage(input.value);
+        return parsed ? parsed.version : '';
+    };
+
+    window._assistant.resolvers.dockerBaseVariant = function() {
+        var input = document.getElementById('wiz-docker-base');
+        if (!input) return '';
+        var parsed = _parseDockerImage(input.value);
+        return parsed ? parsed.variant : '';
+    };
+
+    window._assistant.resolvers.dockerBaseVariantExplain = function() {
+        var input = document.getElementById('wiz-docker-base');
+        if (!input) return '';
+        var parsed = _parseDockerImage(input.value);
+        return parsed ? parsed.variantExplain : '';
+    };
+
+    // Composite resolver: full image breakdown as highlighted HTML state-cards
+    window._assistant.resolvers.dockerBaseBreakdown = function() {
+        var input = document.getElementById('wiz-docker-base');
+        if (!input || !input.value) return '<div class="assistant-state-card state-warning"><div class="state-label">No base image configured</div></div>';
+        var p = _parseDockerImage(input.value);
+        if (!p) return '<div class="assistant-state-card state-warning"><div class="state-label">Could not parse image</div></div>';
+        return '<div class="assistant-state-card state-info" style="margin-bottom:0.4rem">' +
+            '<div class="state-label">🔧 Runtime · ' + p.label + '</div>' +
+            '<div class="state-detail">Image repository: <code>' + p.repo + '</code><br>' +
+            'The ' + p.label + ' runtime provides the interpreter, compiler, or server binary pre-installed in your container.</div>' +
+            '</div>' +
+            '<div class="assistant-state-card state-info" style="margin-bottom:0.4rem">' +
+            '<div class="state-label">📌 Version · ' + p.version + '</div>' +
+            '<div class="state-detail">Pinned to <strong>' + p.version + '</strong> — ensures reproducible builds across environments. ' +
+            'Security patches arrive within this version line automatically on rebuild.</div>' +
+            '</div>' +
+            '<div class="assistant-state-card ' + (p.variant ? 'state-success' : 'state-warning') + '">' +
+            '<div class="state-label">📦 Variant · ' + (p.variant || 'default') + '</div>' +
+            '<div class="state-detail">' + (p.variantExplain || 'Default variant — full image with all tools and libraries.') + '</div>' +
+            '</div>';
+    };
+
+    // ── Dockerfile analysis resolver ────────────────────────────
+    // Returns HTML state-cards per Dockerfile with image breakdown
+
+    window._assistant.resolvers.dockerfileAnalysis = function() {
+        var section = document.getElementById('wiz-docker-section-dockerfiles');
+        if (!section) return '<div class="assistant-state-card state-warning"><div class="state-label">No Dockerfiles detected</div></div>';
+        var rows = section.querySelectorAll('div[style*="border-bottom"]');
+        if (!rows || rows.length === 0) return '<div class="assistant-state-card state-warning"><div class="state-label">No Dockerfiles detected</div></div>';
+        var html = '';
+        rows.forEach(function(row) {
+            var codeEl = row.querySelector('code');
+            var path = codeEl ? codeEl.textContent.trim() : '?';
+
+            // Base images are accent-colored spans
+            var baseSpans = row.querySelectorAll('span[style*="accent"]');
+            var bases = [];
+            baseSpans.forEach(function(s) {
+                var txt = s.textContent.trim();
+                if (txt.indexOf('AS ') !== 0 && txt.indexOf('-stage') === -1 && txt.indexOf('EXPOSE') === -1) {
+                    bases.push(txt);
+                }
+            });
+
+            // Stages
+            var stageSpans = row.querySelectorAll('span[style*="text-muted"]');
+            var stages = [];
+            stageSpans.forEach(function(s) {
+                var txt = s.textContent.trim();
+                if (txt.indexOf('AS ') === 0) stages.push(txt.substring(3));
+            });
+
+            // Ports
+            var portSpan = row.querySelector('span[style*="text-muted"]');
+            var portMatch = portSpan ? portSpan.textContent.match(/EXPOSE\s+([\d, ]+)/) : null;
+            var ports = portMatch ? portMatch[1] : '';
+
+            // Build per-image breakdown cards
+            var imageCards = '';
+            bases.forEach(function(b) {
+                var p = _parseDockerImage(b);
+                if (!p) return;
+                imageCards += '<div style="display:flex;gap:0.3rem;flex-wrap:wrap;margin-top:0.25rem">' +
+                    '<span style="font-size:0.7rem;padding:0.1rem 0.35rem;border-radius:4px;background:color-mix(in srgb, var(--accent) 12%, transparent);color:var(--accent);font-weight:600">🔧 ' + p.label + '</span>' +
+                    '<span style="font-size:0.7rem;padding:0.1rem 0.35rem;border-radius:4px;background:color-mix(in srgb, var(--text-secondary) 10%, transparent);color:var(--text-secondary)">📌 ' + p.version + '</span>' +
+                    (p.variant ? '<span style="font-size:0.7rem;padding:0.1rem 0.35rem;border-radius:4px;background:color-mix(in srgb, var(--success) 10%, transparent);color:var(--success)">📦 ' + p.variant + '</span>' : '') +
+                    '</div>' +
+                    (p.variantExplain ? '<div style="font-size:0.65rem;color:var(--text-muted);margin-top:0.15rem;padding-left:0.2rem">' + p.variantExplain + '</div>' : '');
+            });
+
+            // Stage info
+            var stageInfo = '';
+            if (stages.length > 0) {
+                stageInfo = '<div style="font-size:0.68rem;color:var(--accent);margin-top:0.2rem">⚡ ' + (stages.length + 1) + '-stage build (stages: ' + stages.join(', ') + ')</div>';
+            }
+
+            // Port info
+            var portInfo = '';
+            if (ports) {
+                portInfo = '<div style="font-size:0.68rem;color:var(--text-muted);margin-top:0.1rem">🔌 EXPOSE ' + ports + '</div>';
+            }
+
+            html += '<div class="assistant-state-card state-info" style="margin-bottom:0.4rem">' +
+                '<div class="state-label">📄 ' + path + '</div>' +
+                '<div class="state-detail">' + imageCards + stageInfo + portInfo + '</div>' +
+                '</div>';
+        });
+        return html;
+    };
+
+    // ── Compose service topology resolver ───────────────────────
+    // Returns HTML state-cards per service with image breakdown and role classification
+
+    window._assistant.resolvers.dockerSvcAnalysis = function() {
+        var section = document.getElementById('wiz-docker-section-compose-svcs');
+        if (!section) return '<div class="assistant-state-card state-warning"><div class="state-label">No compose services detected</div></div>';
+        var rows = section.querySelectorAll('div[style*="border-bottom"]');
+        if (!rows || rows.length === 0) return '<div class="assistant-state-card state-warning"><div class="state-label">No compose services detected</div></div>';
+
+        var services = [];
+        var html = '';
+
+        rows.forEach(function(row) {
+            var nameEl = row.querySelector('strong');
+            var imageEl = row.querySelector('code');
+            var name = nameEl ? nameEl.textContent.trim() : '?';
+            var image = imageEl ? imageEl.textContent.trim() : '?';
+
+            var parsed = null;
+            if (image !== '(build)' && image !== '?') {
+                parsed = _parseDockerImage(image);
+            }
+
+            // Determine role and card style
+            var role = 'application';
+            var cardStyle = 'state-success';
+            if (parsed) {
+                if (parsed.family === 'database') { role = 'database'; cardStyle = 'state-info'; }
+                else if (parsed.family === 'cache') { role = 'cache'; cardStyle = 'state-info'; }
+                else if (parsed.family === 'webserver') { role = 'proxy'; cardStyle = 'state-info'; }
+            }
+            if (image === '(build)') { role = 'application (builds from Dockerfile)'; }
+
+            services.push({ name: name, role: role, parsed: parsed });
+
+            // Volumes, deps, restart from muted spans
+            var mutedSpans = row.querySelectorAll('span[style*="text-muted"]');
+            var metaHtml = '';
+            mutedSpans.forEach(function(s) {
+                var txt = s.textContent.trim();
+                if (txt) metaHtml += '<span style="font-size:0.65rem;padding:0.05rem 0.25rem;border-radius:3px;background:color-mix(in srgb, var(--text-muted) 8%, transparent);color:var(--text-muted);margin-right:0.2rem">' + txt + '</span>';
+            });
+
+            // Image breakdown pills
+            var imagePills = '';
+            if (parsed) {
+                imagePills = '<div style="display:flex;gap:0.3rem;flex-wrap:wrap;margin-top:0.25rem">' +
+                    '<span style="font-size:0.7rem;padding:0.1rem 0.35rem;border-radius:4px;background:color-mix(in srgb, var(--accent) 12%, transparent);color:var(--accent);font-weight:600">🔧 ' + parsed.label + '</span>' +
+                    '<span style="font-size:0.7rem;padding:0.1rem 0.35rem;border-radius:4px;background:color-mix(in srgb, var(--text-secondary) 10%, transparent);color:var(--text-secondary)">📌 ' + parsed.version + '</span>' +
+                    (parsed.variant ? '<span style="font-size:0.7rem;padding:0.1rem 0.35rem;border-radius:4px;background:color-mix(in srgb, var(--success) 10%, transparent);color:var(--success)">📦 ' + parsed.variant + '</span>' : '') +
+                    '</div>' +
+                    (parsed.variantExplain ? '<div style="font-size:0.65rem;color:var(--text-muted);margin-top:0.15rem;padding-left:0.2rem">' + parsed.variantExplain + '</div>' : '');
+            } else if (image === '(build)') {
+                imagePills = '<div style="font-size:0.68rem;color:var(--accent);margin-top:0.2rem">🔨 Builds from local Dockerfile — see Dockerfile Analysis above for image details</div>';
+            }
+
+            html += '<div class="assistant-state-card ' + cardStyle + '" style="margin-bottom:0.4rem">' +
+                '<div class="state-label">' + name + ' <span style="font-size:0.7rem;opacity:0.7">(' + role + ')</span></div>' +
+                '<div class="state-detail">' + imagePills +
+                (metaHtml ? '<div style="margin-top:0.2rem">' + metaHtml + '</div>' : '') +
+                '</div></div>';
+        });
+
+        // Topology summary card
+        var hasDb = services.some(function(s) { return s.role === 'database'; });
+        var hasCache = services.some(function(s) { return s.role === 'cache'; });
+        var topology = '';
+        if (services.length === 1) topology = 'Single service';
+        else if (hasDb && hasCache) topology = 'Full stack (app + database + cache)';
+        else if (hasDb) topology = 'App + Database';
+        else topology = 'Multi-service (' + services.length + ' services)';
+
+        return '<div class="assistant-state-card state-success" style="margin-bottom:0.5rem">' +
+            '<div class="state-label">🗺 Topology · ' + topology + '</div>' +
+            '<div class="state-detail">' + services.length + ' service(s) detected</div>' +
+            '</div>' + html;
     };
 
 })();

@@ -1,17 +1,18 @@
-# Assistant — Unified System Plan (v2)
+# Assistant — Unified System Plan (v2) — COMPLETED
 
-> **What this document is:** The single source of truth for the assistant system.
+> **Status:** ✅ All phases implemented. This document is now a **historical
+> reference** for the original design. For the current living architecture,
+> see `assistant-architecture.md`.
+>
+> **What this document is:** The original design plan for the assistant system.
 > Supersedes all previous layer plans (L1–L9). The architecture was fundamentally
 > revised after building 4 concrete scenarios that revealed what the assistant
 > actually IS — a full-panel page mirror, not a single-message element tooltip.
 >
 > **Reference documents:**
+> - `assistant-architecture.md` — **living source of truth** (read this first)
 > - `assistant-realization.md` — what the assistant IS, how it reasons
 > - `assistant-scenarios.md` — 4 concrete examples of full panel output
->
-> **What changed from v1:** The 9-layer pipeline, provider protocol, category
-> priority system, and data-guide attribute approach are all replaced. The new
-> architecture has 4 concerns driven by an external JSON superstructure.
 
 ---
 
@@ -80,7 +81,7 @@ The old 9-layer pipeline is replaced by 4 distinct concerns:
 ├──────────────────────────────────────────────────────────┤
 │                                                          │
 │   2. ENGINE (Logic)                                      │
-│   _assistant_engine.html — ~300 lines                    │
+│   _assistant_engine.html — ~1638 lines                   │
 │                                                          │
 │   Does: loads superstructure, renders panel tree,        │
 │   maps DOM events to tree nodes, scroll sync,            │
@@ -316,7 +317,9 @@ in the content strings, not the resolvers.
 
 ### File: `_assistant_engine.html`
 
-One IIFE. One `window._assistant` public API. ~300 lines.
+One IIFE. One `window._assistant` public API. ~1638 lines (grew significantly
+beyond the original ~300 estimate as features were added: variants, dynamic
+children, per-item enrichment, stack detail cards, active env highlighting).
 
 ### Public API
 
@@ -666,11 +669,12 @@ src/ui/web/
 ├── static/
 │   ├── css/admin.css                         # Presentation (CSS additions)
 │   └── data/
-│       └── assistant-catalogue.json          # Superstructure (single file)
+│       └── assistant-catalogue.json          # Superstructure (~2646 lines)
 └── templates/
     ├── scripts/
-    │   ├── _assistant_engine.html             # Engine (~300 lines)
-    │   ├── _wizard.html                       # Integration hook (activate)
+    │   ├── _assistant_engine.html             # Engine (~1638 lines)
+    │   ├── _wizard_init.html                  # Integration hook (activate)
+    │   ├── _wizard_integrations.html          # Renderer (IDs on Dockerfile/Compose rows)
     │   └── _settings.html                     # Integration hook (toggle)
     └── dashboard.html                         # Script inclusion
 ```
@@ -683,7 +687,7 @@ src/ui/web/
 
 ## Implementation Order
 
-### Phase 1: Engine + First Context
+### Phase 1: Engine + First Context ✅
 
 1. Create `static/data/assistant-catalogue.json` with first context
 2. Author `wizard/welcome` context (from Scenario 1)
@@ -698,7 +702,7 @@ src/ui/web/
 **User sees:** Panel appears next to wizard step 1. Full tree of assistant
 content for the welcome step. No hover interaction yet.
 
-### Phase 2: Interaction
+### Phase 2: Interaction ✅
 
 1. Add hover/focus event listeners in the engine
 2. Implement selector matching (matchNode)
@@ -709,7 +713,7 @@ content for the welcome step. No hover interaction yet.
 **User sees:** Hovering elements on the page highlights the corresponding
 entry in the panel and shows expanded content.
 
-### Phase 3: Remaining Wizard Contexts
+### Phase 3: Remaining Wizard Contexts ✅
 
 1. Write JSON files for wizard steps 2–6 (from scenarios + new content)
 2. Test context switching between steps
@@ -717,7 +721,7 @@ entry in the panel and shows expanded content.
 
 **User sees:** Assistant works across all 6 wizard steps.
 
-### Phase 4: Modal Contexts
+### Phase 4: Modal Contexts ✅
 
 1. Write JSON files for K8s setup (detect, configure, review)
 2. Write JSON files for Docker setup (detect, configure, preview)
@@ -727,7 +731,7 @@ entry in the panel and shows expanded content.
 **User sees:** Opening K8s/Docker setup shows context-specific assistant
 content. Closing the modal returns to wizard context.
 
-### Phase 5: Polish
+### Phase 5: Polish ✅
 
 1. Refine CSS — indentation depths, responsive behavior
 2. Add template variables for dynamic counts
@@ -754,14 +758,28 @@ Many of the old layer concepts are now handled differently or eliminated:
 | L8 State | **Eliminated for V1.** No need to track visited, dismissed, rejected. Content is event-driven along the interaction path. |
 | L9 Lifecycle | **Simplified.** activate/deactivate + context stack. No complex teardown. |
 
-### What might come back for V2
+### What was implemented from this list
 
-- **Actions** — nodes could have an `action` field that triggers Apply, Navigate
-- **Dynamic providers** — for nodes that need complex runtime assessment (port conflicts, validation)
-- **State tracking** — to know if the user has already seen/configured something
-- **Contextual warnings** — nodes that change content based on current state
+- ✅ **Contextual warnings (variants)** — nodes carry a `variants` array with
+  `when` conditions (`textContains`, `hasSelector`, `borderContains`). The
+  engine picks the first match and overrides content/expanded/title.
+  Added during wizard/secrets step work.
+- ✅ **Dynamic children** — nodes with `dynamic: true` + `childTemplate`
+  generate child nodes from DOM elements at runtime. Used for environments,
+  modules, vaults, secret files, tools, compose services, dockerfiles.
+- ✅ **Per-item enrichment** — `_resolveDynamic()` performs context-aware
+  enrichment for specific parent IDs (modules → stack cards, dockerfiles →
+  image analysis, compose services → role classification).
+- ✅ **Active environment highlighting** — `_highlightActiveEnv()` detects
+  the active env and highlights its vault row in the panel.
+- ✅ **`_parseDockerImage()` helper** — structured image analysis reused
+  across resolvers and dynamic enrichment.
+- 🔲 **Actions** — still deferred. Nodes could carry `action` fields.
+- 🔲 **Dynamic providers** — not needed. Pre-written content + variants +
+  enrichment covers all current use cases.
+- 🔲 **State tracking** — not needed for current scope.
 
-These are additions to the superstructure schema, not architectural changes.
+These additions are documented in `assistant-architecture.md`.
 The engine already has the hooks (resolver protocol, node properties).
 
 ---
@@ -796,10 +814,10 @@ by this plan:
 | `assistant-layer3-*.md` | Superseded — provider protocol eliminated |
 | `assistant-layer4-*.md` | Partially relevant — visual concepts simplified |
 | `assistant-layer5-*.md` | Deferred — actions are V2 |
-| `assistant-layer6-*.md` | Partially relevant — behavioral simplified |
-| `assistant-layer7-*.md` | Superseded — integration simplified to resolvers |
-| `assistant-layer8-*.md` | Superseded — state tracking eliminated for V1 |
-| `assistant-layer9-*.md` | Partially relevant — lifecycle simplified |
+| `assistant-infrastructure-analysis.md` | Superseded — old 9-layer analysis |
 | `assistant-realization.md` | **Active** — the definitive what/why reference |
 | `assistant-scenarios.md` | **Active** — the definitive content reference |
-| `assistant-infrastructure-analysis.md` | Reference — still useful for understanding existing code |
+| `assistant-architecture.md` | **Active** — the living source of truth |
+| `assistant-secrets-step.md` | **Completed** — wizard/secrets implementation record |
+| `assistant-content-step.md` | **Completed** — wizard/content implementation record |
+| `assistant-integrations-step.md` | **Completed** — wizard/integrations implementation record |

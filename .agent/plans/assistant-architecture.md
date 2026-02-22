@@ -4,10 +4,15 @@
 > works *as actually built*. Read this before making any change to the
 > engine, catalogue, layout, or content.
 >
+> **Last updated:** 2026-02-21 (K8s enrichment added)
+>
 > **Companion docs:**
 > - `assistant-realization.md` — what the assistant IS (philosophy)
 > - `assistant-scenarios.md` — concrete examples of full panel output
-> - `assistant-unified-plan.md` — original design (mostly accurate, some pseudocode outdated)
+> - `assistant-unified-plan.md` — original design (completed — historical reference)
+> - `assistant-secrets-step.md` — wizard/secrets implementation (completed)
+> - `assistant-content-step.md` — wizard/content implementation (completed)
+> - `assistant-integrations-step.md` — wizard/integrations implementation (completed)
 
 ---
 
@@ -18,11 +23,12 @@ src/ui/web/
 ├── static/
 │   ├── css/admin.css                         # Panel layout + node styling
 │   └── data/
-│       └── assistant-catalogue.json          # Superstructure — all contexts
+│       └── assistant-catalogue.json          # Superstructure — all contexts (~2873 lines)
 └── templates/
     ├── scripts/
-    │   ├── _assistant_engine.html             # Engine IIFE (~930 lines)
+    │   ├── _assistant_engine.html             # Engine IIFE (~1750 lines)
     │   ├── _wizard_init.html                  # Integration hook (activate on step change)
+    │   ├── _wizard_integrations.html          # Renderer (IDs on Docker + K8s section rows)
     │   └── _settings.html                     # Integration hook (enable/disable toggle)
     ├── partials/
     │   └── _tab_wizard.html                   # DOM structure (assistant-layout, panel, wizard-body)
@@ -301,6 +307,8 @@ state. This is how the engine adds application-specific knowledge:
 - **Default badge** → appends "pre-selected in Step 3" note
 - **Stack/path/domain metadata** → extracts from module row spans
 - **Stack detail cards** → builds styled HTML using `window._dcp.stacks` data
+- **Dockerfile analysis** → per-file base images, stages, ports via `_parseDockerImage`
+- **Compose service analysis** → per-service image breakdown, role classification, metadata
 
 This enrichment happens in `_resolveDynamic` during tree flattening, NOT
 during rendering. The synthetic node carries the enriched content.
@@ -333,6 +341,97 @@ stackHtml += '</div>';
 The `detail` field contains two paragraphs: a human-friendly description first,
 then a "Technical:" note. The `.assistant-stack-detail-text` has `white-space: pre-line`
 so line returns are respected.
+
+#### Dockerfile Per-File Enrichment
+
+When the parent node is `docker-section-dockerfiles`, `_resolveDynamic()` reads
+each Dockerfile row's DOM to extract base images, stages, and ports, then builds
+rich per-file analysis using `_parseDockerImage()`:
+
+```javascript
+// For each Dockerfile row element:
+// 1. Extract base image strings from accent-colored spans
+// 2. Extract stage names from "AS xxx" text in muted spans
+// 3. Extract port numbers from "EXPOSE xxx" text
+// 4. Call _parseDockerImage(imageString) for each base image
+//    → returns { label, version, variant, variantExplain, family }
+// 5. Build styled pills: runtime (accent), version (secondary), variant (success)
+// 6. Append stage info and port info
+// 7. Set nodeExpanded to the complete state-card HTML
+```
+
+The renderer (`_wizard_integrations.html`) adds `id="wiz-docker-df-{i}"` to
+each Dockerfile row. The catalogue's `childTemplate` uses:
+- `selector: '[id^="wiz-docker-df-"]'`
+- `nameSelector: "code"` (extracts the Dockerfile path)
+
+#### Compose Service Per-Service Enrichment
+
+Same pattern for `docker-section-compose-svcs`. Each service row gets role
+classification based on `_parseDockerImage().family`:
+
+| Family | Role | Card Style |
+|--------|------|------------|
+| `database` | database | `state-info` |
+| `cache` | cache | `state-info` |
+| `webserver` | proxy | `state-info` |
+| (other) | application | `state-success` |
+| `(build)` | application (builds from Dockerfile) | `state-success` |
+
+The enrichment also reads metadata from muted spans (volumes, deps, restart)
+and builds the same styled pills for image breakdown.
+
+The renderer adds `id="wiz-docker-svc-{i}"` to each service row. The catalogue's
+`childTemplate` uses:
+- `selector: '[id^="wiz-docker-svc-"]'`
+- `nameSelector: "strong"` (extracts the service name)
+
+#### `_parseDockerImage(imageString)` Helper
+
+Parses a Docker image string (e.g. `python:3.11-slim-bookworm`) into structured
+components used by both the `dockerfileAnalysis` resolver and dynamic enrichment:
+
+```javascript
+// Returns:
+{
+    label: "Python",           // Human-friendly runtime name
+    version: "3.11",           // Version tag
+    variant: "slim-bookworm",  // OS variant (alpine, slim, bookworm, etc.)
+    variantExplain: "Minimal Debian 12 ...",  // Human explanation of variant
+    family: "runtime"          // Category: runtime, database, cache, webserver, queue
+}
+```
+
+This function is defined once in the engine and reused everywhere Docker image
+analysis is needed — ensuring consistent quality between parent-level resolvers
+and dynamic child enrichment.
+
+#### K8s Manifest Enrichment
+
+Per-manifest enrichment reads resource kinds from the muted span next to each
+manifest file path. A 18-entry `kindMap` maps K8s resource kinds to icons and
+descriptions (Deployment → 🚀, Service → 🌐, ConfigMap → 🔧, etc.).
+
+The renderer adds `id="wiz-k8s-section-manifests"` to the details element.
+The catalogue's `childTemplate` uses:
+- `selector: '#wiz-k8s-section-manifests [style*="border-bottom"]'`
+- `nameSelector: "code"` (extracts the file path)
+
+#### K8s Helm Chart Enrichment
+
+Per-chart enrichment reads chart name from `<strong>`, version from `<code>`,
+and metadata spans (values.yaml, templates/, subcharts, env values) from the
+DOM row structure.
+
+#### K8s Kustomize Overlay Enrichment
+
+Per-overlay enrichment reads overlay name from `<code>` and patch count from
+the muted span. Generates an apply command: `kubectl apply -k overlays/{name}/`.
+
+#### K8s Template Resolvers
+
+- `k8sManifests` — reads manifest file count from the manifests section summary
+- `k8sResources` — reads total resource count from the status strip pills
 
 ---
 

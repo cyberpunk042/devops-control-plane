@@ -493,37 +493,38 @@ const _wizSubForms = {
             return dom !== 'library' && dom !== 'docs';
         }).length > 1;
 
-        const _pill = (ok, label) => `<span style="font-size:0.62rem;padding:0.08rem 0.3rem;border-radius:4px;${ok ? 'background:color-mix(in srgb, var(--success) 10%, transparent);color:var(--success);border:1px solid color-mix(in srgb, var(--success) 25%, transparent)' : 'background:color-mix(in srgb, var(--text-muted) 8%, transparent);color:var(--text-muted);border:1px solid color-mix(in srgb, var(--text-muted) 20%, transparent)'}">${label}</span>`;
+        const _pill = (ok, label, id) => `<span ${id ? `id="${id}"` : ''} style="font-size:0.62rem;padding:0.08rem 0.3rem;border-radius:4px;${ok ? 'background:color-mix(in srgb, var(--success) 10%, transparent);color:var(--success);border:1px solid color-mix(in srgb, var(--success) 25%, transparent)' : 'background:color-mix(in srgb, var(--text-muted) 8%, transparent);color:var(--text-muted);border:1px solid color-mix(in srgb, var(--text-muted) 20%, transparent)'}">${label}</span>`;
 
         // ── Header with stack badge ──
-        let html = `<div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.5rem">
+        let html = `<div id="wiz-docker-header" style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.5rem">
             <span style="font-weight:600;font-size:0.85rem">🐳 Docker</span>
-            ${stackName ? `<span style="font-size:0.62rem;padding:0.08rem 0.3rem;border-radius:4px;background:color-mix(in srgb, var(--accent) 10%, transparent);color:var(--accent);border:1px solid color-mix(in srgb, var(--accent) 25%, transparent)">${stackIcon} ${esc(stackName)}</span>` : ''}
+            ${stackName ? `<span id="wiz-docker-stack-badge" style="font-size:0.62rem;padding:0.08rem 0.3rem;border-radius:4px;background:color-mix(in srgb, var(--accent) 10%, transparent);color:var(--accent);border:1px solid color-mix(in srgb, var(--accent) 25%, transparent)">${stackIcon} ${esc(stackName)}</span>` : ''}
         </div>`;
 
         // ── Enriched status strip ──
-        html += `<div style="display:flex;flex-wrap:wrap;gap:0.25rem;margin-bottom:0.5rem">
-            ${_pill(daemonOk, daemonOk ? '✓ daemon' + (dockerVersion ? ' · ' + dockerVersion : '') : '✗ daemon')}
-            ${_pill(dockerSt.compose_available, dockerSt.compose_available ? '✓ compose' + (composeVersion ? ' ' + composeVersion : '') : '○ no compose CLI')}
-            ${_pill(hasDockerfile, hasDockerfile ? '✓ ' + dockerfiles.length + ' Dockerfile' + (dockerfiles.length !== 1 ? 's' : '') : '○ no Dockerfile')}
-            ${_pill(hasCompose, hasCompose ? '✓ ' + (dockerSt.compose_file || 'compose') + ' · ' + (dockerSt.services_count || 0) + ' svc' + ((dockerSt.services_count || 0) !== 1 ? 's' : '') : '○ no compose file')}
-            ${_pill(hasDockerignore, hasDockerignore ? '✓ .dockerignore · ' + dockerignorePatterns.length + ' rules' : '○ no .dockerignore')}
+        html += `<div id="wiz-docker-status-strip" style="display:flex;flex-wrap:wrap;gap:0.25rem;margin-bottom:0.5rem">
+            ${_pill(daemonOk, daemonOk ? '✓ daemon' + (dockerVersion ? ' · ' + dockerVersion : '') : '✗ daemon', 'wiz-docker-pill-daemon')}
+            ${_pill(dockerSt.compose_available, dockerSt.compose_available ? '✓ compose' + (composeVersion ? ' ' + composeVersion : '') : '○ no compose CLI', 'wiz-docker-pill-compose-cli')}
+            ${_pill(hasDockerfile, hasDockerfile ? '✓ ' + dockerfiles.length + ' Dockerfile' + (dockerfiles.length !== 1 ? 's' : '') : '○ no Dockerfile', 'wiz-docker-pill-dockerfile')}
+            ${_pill(hasCompose, hasCompose ? '✓ ' + (dockerSt.compose_file || 'compose') + ' · ' + (dockerSt.services_count || 0) + ' svc' + ((dockerSt.services_count || 0) !== 1 ? 's' : '') : '○ no compose file', 'wiz-docker-pill-composefile')}
+            ${_pill(hasDockerignore, hasDockerignore ? '✓ .dockerignore · ' + dockerignorePatterns.length + ' rules' : '○ no .dockerignore', 'wiz-docker-pill-dockerignore')}
         </div>`;
 
         // ── Existing Dockerfile details ──
         if (dockerfileDetails.length > 0) {
-            html += `<details style="margin-bottom:0.5rem" open>
+            html += `<details id="wiz-docker-section-dockerfiles" style="margin-bottom:0.5rem" open>
                 <summary style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;cursor:pointer;user-select:none;margin-bottom:0.3rem">
                     📄 Dockerfiles (${dockerfileDetails.length})
                 </summary>
                 <div style="background:color-mix(in srgb, var(--bg-inset) 50%, transparent);border:1px solid var(--border-subtle);border-radius:6px;overflow:hidden">`;
 
-            for (const df of dockerfileDetails) {
+            for (let dfIdx = 0; dfIdx < dockerfileDetails.length; dfIdx++) {
+                const df = dockerfileDetails[dfIdx];
                 const bases = (df.base_images || []).slice(0, 3);
                 const stages = df.stages || [];
                 const ports = df.ports || [];
                 const warnings = df.warnings || [];
-                html += `<div style="padding:0.3rem 0.5rem;border-bottom:1px solid color-mix(in srgb, var(--border-subtle) 40%, transparent);font-size:0.72rem">
+                html += `<div id="wiz-docker-df-${dfIdx}" style="padding:0.3rem 0.5rem;border-bottom:1px solid color-mix(in srgb, var(--border-subtle) 40%, transparent);font-size:0.72rem">
                     <div style="display:flex;align-items:center;gap:0.4rem;margin-bottom:0.15rem">
                         <code style="font-weight:600;font-size:0.7rem">${esc(df.path)}</code>
                         ${df.stage_count > 1 ? `<span style="font-size:0.6rem;color:var(--accent)">${df.stage_count}-stage</span>` : ''}
@@ -541,18 +542,19 @@ const _wizSubForms = {
 
         // ── Existing compose service details ──
         if (composeSvcDetails.length > 0) {
-            html += `<details style="margin-bottom:0.5rem">
+            html += `<details id="wiz-docker-section-compose-svcs" style="margin-bottom:0.5rem">
                 <summary style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;cursor:pointer;user-select:none;margin-bottom:0.3rem">
                     📋 Compose Services (${composeSvcDetails.length})
                 </summary>
                 <div style="background:color-mix(in srgb, var(--bg-inset) 50%, transparent);border:1px solid var(--border-subtle);border-radius:6px;overflow:hidden">`;
 
-            for (const svc of composeSvcDetails) {
+            for (let svcIdx = 0; svcIdx < composeSvcDetails.length; svcIdx++) {
+                const svc = composeSvcDetails[svcIdx];
                 const svcPorts = (svc.ports || []).map(p => p.host + ':' + p.container).join(', ');
                 const svcVols = (svc.volumes || []).length;
                 const svcDeps = (svc.depends_on || []).length;
                 const svcImage = svc.image || (svc.build ? '(build)' : '?');
-                html += `<div style="display:flex;align-items:center;gap:0.4rem;padding:0.25rem 0.5rem;border-bottom:1px solid color-mix(in srgb, var(--border-subtle) 40%, transparent);font-size:0.72rem">
+                html += `<div id="wiz-docker-svc-${svcIdx}" style="display:flex;align-items:center;gap:0.4rem;padding:0.25rem 0.5rem;border-bottom:1px solid color-mix(in srgb, var(--border-subtle) 40%, transparent);font-size:0.72rem">
                     <strong style="min-width:70px;font-size:0.7rem">${esc(svc.name)}</strong>
                     <code style="font-size:0.62rem;color:var(--text-secondary);background:var(--bg-primary);padding:1px 4px;border-radius:3px">${esc(svcImage)}</code>
                     ${svcPorts ? `<span style="font-size:0.6rem;color:var(--text-muted)">:${svcPorts}</span>` : ''}
@@ -574,11 +576,11 @@ const _wizSubForms = {
         if (daemonOk) {
             html += `<div id="wiz-docker-live" style="margin-bottom:0.6rem">
                 <div style="display:flex;gap:0.3rem;margin-bottom:0.3rem">
-                    <button class="btn btn-sm btn-secondary" style="font-size:0.68rem;padding:0.12rem 0.4rem"
+                    <button id="wiz-docker-btn-containers" class="btn btn-sm btn-secondary" style="font-size:0.68rem;padding:0.12rem 0.4rem"
                         onclick="_wizDockerLive('containers')">📦 Containers</button>
-                    <button class="btn btn-sm btn-secondary" style="font-size:0.68rem;padding:0.12rem 0.4rem"
+                    <button id="wiz-docker-btn-images" class="btn btn-sm btn-secondary" style="font-size:0.68rem;padding:0.12rem 0.4rem"
                         onclick="_wizDockerLive('images')">🖼 Images</button>
-                    <button class="btn btn-sm btn-secondary" style="font-size:0.68rem;padding:0.12rem 0.4rem"
+                    <button id="wiz-docker-btn-compose-live" class="btn btn-sm btn-secondary" style="font-size:0.68rem;padding:0.12rem 0.4rem"
                         onclick="_wizDockerLive('compose')">📋 Compose</button>
                 </div>
                 <div id="wiz-docker-live-panel" style="display:none;background:var(--bg-inset);border:1px solid var(--border-subtle);border-radius:6px;padding:0.4rem 0.5rem;font-size:0.72rem;max-height:180px;overflow:auto;font-family:var(--font-mono,monospace)"></div>
@@ -587,39 +589,39 @@ const _wizSubForms = {
 
         // ── Operational buttons (require compose) ──
         if (hasCompose && daemonOk) {
-            html += `<div style="margin-bottom:0.6rem">
+            html += `<div id="wiz-docker-section-ops" style="margin-bottom:0.6rem">
                 <div style="font-size:0.72rem;color:var(--text-muted);font-weight:600;text-transform:uppercase;margin-bottom:0.25rem">Operations</div>
                 <div style="display:flex;flex-wrap:wrap;gap:0.25rem">
-                    <button class="btn btn-sm btn-primary" style="font-size:0.68rem;padding:0.15rem 0.45rem"
+                    <button id="wiz-docker-btn-start" class="btn btn-sm btn-primary" style="font-size:0.68rem;padding:0.15rem 0.45rem"
                         onclick="_wizDockerAction('up', this)">▶ Start</button>
-                    <button class="btn btn-sm btn-secondary" style="font-size:0.68rem;padding:0.15rem 0.45rem"
+                    <button id="wiz-docker-btn-stop" class="btn btn-sm btn-secondary" style="font-size:0.68rem;padding:0.15rem 0.45rem"
                         onclick="_wizDockerAction('down', this)">⏹ Stop</button>
-                    <button class="btn btn-sm btn-secondary" style="font-size:0.68rem;padding:0.15rem 0.45rem"
+                    <button id="wiz-docker-btn-restart" class="btn btn-sm btn-secondary" style="font-size:0.68rem;padding:0.15rem 0.45rem"
                         onclick="_wizDockerAction('restart', this)">🔄 Restart</button>
-                    <button class="btn btn-sm btn-secondary" style="font-size:0.68rem;padding:0.15rem 0.45rem"
+                    <button id="wiz-docker-btn-build" class="btn btn-sm btn-secondary" style="font-size:0.68rem;padding:0.15rem 0.45rem"
                         onclick="_wizDockerAction('build', this)">🔨 Build</button>
-                    <button class="btn btn-sm btn-secondary" style="font-size:0.68rem;padding:0.15rem 0.45rem"
+                    <button id="wiz-docker-btn-build-nc" class="btn btn-sm btn-secondary" style="font-size:0.68rem;padding:0.15rem 0.45rem"
                         onclick="_wizDockerAction('build-nc', this)">🔨 Build (no-cache)</button>
-                    <button class="btn btn-sm btn-secondary" style="font-size:0.68rem;padding:0.15rem 0.45rem"
+                    <button id="wiz-docker-btn-prune" class="btn btn-sm btn-secondary" style="font-size:0.68rem;padding:0.15rem 0.45rem"
                         onclick="_wizDockerAction('prune', this)">🧹 Prune</button>
-                    <button class="btn btn-sm btn-secondary" style="font-size:0.68rem;padding:0.15rem 0.45rem"
+                    <button id="wiz-docker-btn-logs" class="btn btn-sm btn-secondary" style="font-size:0.68rem;padding:0.15rem 0.45rem"
                         onclick="_wizDockerAction('logs', this)">📜 Logs</button>
                 </div>
                 <div id="wiz-docker-action-output" style="display:none;margin-top:0.4rem;background:var(--bg-inset);border:1px solid var(--border-subtle);border-radius:6px;padding:0.4rem 0.5rem;font-size:0.7rem;max-height:200px;overflow:auto;font-family:var(--font-mono,monospace);white-space:pre-wrap"></div>
             </div>`;
         } else if (daemonOk && !hasCompose) {
-            html += `<div style="font-size:0.72rem;color:var(--text-muted);margin-bottom:0.5rem">
+            html += `<div id="wiz-docker-ops-hint" style="font-size:0.72rem;color:var(--text-muted);margin-bottom:0.5rem">
                 ℹ Generate docker-compose.yml to unlock Start/Stop/Build controls.
             </div>`;
         }
 
         // ── Basic config generation form (with warning like CI/CD) ──
-        html += `<details style="margin-bottom:0.5rem" ${!hasDockerfile ? 'open' : ''}>
+        html += `<details id="wiz-docker-section-genconfig" style="margin-bottom:0.5rem" ${!hasDockerfile ? 'open' : ''}>
             <summary style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;cursor:pointer;user-select:none;margin-bottom:0.3rem">
                 ${hasDockerfile ? '📝 Regenerate Basic Config' : '📝 Generate Basic Config'}
             </summary>
             <div style="padding-top:0.3rem">
-                ${hasDockerfile && (hasMultipleModules || composeSvcDetails.length > 1) ? `<div style="font-size:0.72rem;color:var(--warning);line-height:1.4;margin-bottom:0.5rem;padding:0.35rem 0.5rem;border-radius:6px;background:color-mix(in srgb, var(--warning) 6%, transparent);border:1px solid color-mix(in srgb, var(--warning) 18%, transparent)">
+                ${hasDockerfile && (hasMultipleModules || composeSvcDetails.length > 1) ? `<div id="wiz-docker-genconfig-warning" style="font-size:0.72rem;color:var(--warning);line-height:1.4;margin-bottom:0.5rem;padding:0.35rem 0.5rem;border-radius:6px;background:color-mix(in srgb, var(--warning) 6%, transparent);border:1px solid color-mix(in srgb, var(--warning) 18%, transparent)">
                     ⚠️ <strong>Basic generation</strong> creates a single-template Dockerfile for one service only.
                     If your project has multiple modules, infra services, environment variables from vault, or custom port/volume mappings, they will not be included.
                     Use <strong>🚀 Full Docker Setup</strong> below for per-module configuration with env vars, ports, volumes, and infrastructure services.
@@ -636,24 +638,24 @@ const _wizSubForms = {
         </details>`;
 
         // ── Full Docker Setup escalation (like CI/CD's "Compose Full Pipeline") ──
-        html += `<details style="margin-bottom:0.5rem">
+        html += `<details id="wiz-docker-section-fullsetup" style="margin-bottom:0.5rem">
             <summary style="font-size:0.72rem;font-weight:600;color:var(--accent);text-transform:uppercase;cursor:pointer;user-select:none;margin-bottom:0.3rem">
                 🚀 Full Docker Setup
             </summary>
             <div style="padding-top:0.3rem">
-                <div style="font-size:0.75rem;color:var(--text-secondary);line-height:1.5;margin-bottom:0.6rem">
+                <div id="wiz-docker-fullsetup-desc" style="font-size:0.75rem;color:var(--text-secondary);line-height:1.5;margin-bottom:0.6rem">
                     Open the full multi-step Docker wizard for <strong>comprehensive</strong> container configuration.
                     This includes per-module Dockerfiles, infrastructure services (databases, caches, queues),
                     vault-aware environment variables, port and volume mappings, health checks, and live preview with editing.
                 </div>
                 <div style="display:flex;flex-wrap:wrap;gap:0.25rem;margin-bottom:0.6rem">
-                    ${_pill(modules.length > 0, modules.length > 0 ? '✓ ' + modules.length + ' module' + (modules.length !== 1 ? 's' : '') + ' detected' : '○ no modules')}
-                    ${_pill(hasDockerfile, hasDockerfile ? '✓ Dockerfile exists' : '○ will create')}
-                    ${_pill(hasCompose, hasCompose ? '✓ compose exists' : '○ will create')}
-                    ${_pill(hasDockerignore, hasDockerignore ? '✓ .dockerignore' : '○ will create')}
+                    ${_pill(modules.length > 0, modules.length > 0 ? '✓ ' + modules.length + ' module' + (modules.length !== 1 ? 's' : '') + ' detected' : '○ no modules', 'wiz-docker-fullsetup-pill-modules')}
+                    ${_pill(hasDockerfile, hasDockerfile ? '✓ Dockerfile exists' : '○ will create', 'wiz-docker-fullsetup-pill-dockerfile')}
+                    ${_pill(hasCompose, hasCompose ? '✓ compose exists' : '○ will create', 'wiz-docker-fullsetup-pill-compose')}
+                    ${_pill(hasDockerignore, hasDockerignore ? '✓ .dockerignore' : '○ will create', 'wiz-docker-fullsetup-pill-dockerignore')}
                 </div>
                 <div style="display:flex;gap:0.4rem;margin-top:0.4rem">
-                    <button class="btn btn-sm btn-primary" style="font-size:0.75rem"
+                    <button id="wiz-docker-btn-fullsetup" class="btn btn-sm btn-primary" style="font-size:0.75rem"
                         onclick="openSetupWizard('docker')">🚀 Open Full Setup</button>
                 </div>
             </div>
@@ -661,8 +663,8 @@ const _wizSubForms = {
 
         // ── Delete config ──
         if (hasDockerfile || hasCompose) {
-            html += `<div style="border-top:1px solid var(--border-subtle);padding-top:0.5rem;margin-top:0.3rem">
-                <button class="btn btn-sm" style="font-size:0.68rem;padding:0.12rem 0.4rem;color:var(--error);border:1px solid color-mix(in srgb, var(--error) 30%, transparent)"
+            html += `<div id="wiz-docker-section-delete" style="border-top:1px solid var(--border-subtle);padding-top:0.5rem;margin-top:0.3rem">
+                <button id="wiz-docker-btn-delete" class="btn btn-sm" style="font-size:0.68rem;padding:0.12rem 0.4rem;color:var(--error);border:1px solid color-mix(in srgb, var(--error) 30%, transparent)"
                     onclick="_wizDeleteConfig('docker', this)">🗑 Delete Docker Config</button>
             </div>`;
         }
@@ -707,7 +709,7 @@ const _wizSubForms = {
             return dom !== 'library' && dom !== 'docs';
         }).length > 1;
 
-        const _pill = (ok, label) => `<span style="font-size:0.62rem;padding:0.08rem 0.3rem;border-radius:4px;${ok ? 'background:color-mix(in srgb, var(--success) 10%, transparent);color:var(--success);border:1px solid color-mix(in srgb, var(--success) 25%, transparent)' : 'background:color-mix(in srgb, var(--text-muted) 8%, transparent);color:var(--text-muted);border:1px solid color-mix(in srgb, var(--text-muted) 20%, transparent)'}">${label}</span>`;
+        const _pill = (ok, label, id) => `<span ${id ? `id="${id}"` : ''} style="font-size:0.62rem;padding:0.08rem 0.3rem;border-radius:4px;${ok ? 'background:color-mix(in srgb, var(--success) 10%, transparent);color:var(--success);border:1px solid color-mix(in srgb, var(--success) 25%, transparent)' : 'background:color-mix(in srgb, var(--text-muted) 8%, transparent);color:var(--text-muted);border:1px solid color-mix(in srgb, var(--text-muted) 20%, transparent)'}">${label}</span>`;
 
         // ── Header with stack badge ──
         let html = `<div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.5rem">
@@ -717,14 +719,14 @@ const _wizSubForms = {
 
         // ── Enriched status strip (7 pills) ──
         const kctlVer = (kctl.version || '').split(',')[0];
-        html += `<div style="display:flex;flex-wrap:wrap;gap:0.25rem;margin-bottom:0.5rem">
-            ${_pill(kctl.available, kctl.available ? '✓ kubectl' + (kctlVer ? ' ' + kctlVer : '') : '✗ no kubectl')}
-            ${_pill(totalRes > 0, totalRes > 0 ? '✓ ' + totalRes + ' resource' + (totalRes !== 1 ? 's' : '') : '○ no manifests')}
-            ${_pill(helmCharts.length > 0, helmCharts.length > 0 ? '✓ ' + helmCharts.length + ' Helm chart' + (helmCharts.length !== 1 ? 's' : '') : '○ no Helm')}
-            ${_pill(kustomize.exists, kustomize.exists ? '✓ Kustomize' + (kustomize.overlay_count > 0 ? ' (' + kustomize.overlay_count + ' overlay' + (kustomize.overlay_count !== 1 ? 's' : '') + ')' : '') : '○ no Kustomize')}
-            ${strategy !== 'none' ? _pill(true, strategy === 'mixed' ? '⚡ mixed strategy' : '✓ ' + strategy) : ''}
-            ${_pill(readiness === 'ready', readiness === 'ready' ? '✓ ready' : readiness === 'needs_config' ? '⚠ needs config' : readiness === 'needs_tools' ? '⚠ needs tools' : '○ not configured')}
-            ${_pill(clusterOk, clusterOk ? '✓ cluster' : '○ no cluster')}
+        html += `<div id="wiz-k8s-section-status" style="display:flex;flex-wrap:wrap;gap:0.25rem;margin-bottom:0.5rem">
+            ${_pill(kctl.available, kctl.available ? '✓ kubectl' + (kctlVer ? ' ' + kctlVer : '') : '✗ no kubectl', 'wiz-k8s-pill-kubectl')}
+            ${_pill(totalRes > 0, totalRes > 0 ? '✓ ' + totalRes + ' resource' + (totalRes !== 1 ? 's' : '') : '○ no manifests', 'wiz-k8s-pill-resources')}
+            ${_pill(helmCharts.length > 0, helmCharts.length > 0 ? '✓ ' + helmCharts.length + ' Helm chart' + (helmCharts.length !== 1 ? 's' : '') : '○ no Helm', 'wiz-k8s-pill-helm')}
+            ${_pill(kustomize.exists, kustomize.exists ? '✓ Kustomize' + (kustomize.overlay_count > 0 ? ' (' + kustomize.overlay_count + ' overlay' + (kustomize.overlay_count !== 1 ? 's' : '') + ')' : '') : '○ no Kustomize', 'wiz-k8s-pill-kustomize')}
+            ${strategy !== 'none' ? _pill(true, strategy === 'mixed' ? '⚡ mixed strategy' : '✓ ' + strategy, 'wiz-k8s-pill-strategy') : ''}
+            ${_pill(readiness === 'ready', readiness === 'ready' ? '✓ ready' : readiness === 'needs_config' ? '⚠ needs config' : readiness === 'needs_tools' ? '⚠ needs tools' : '○ not configured', 'wiz-k8s-pill-readiness')}
+            ${_pill(clusterOk, clusterOk ? '✓ cluster' : '○ no cluster', 'wiz-k8s-pill-cluster')}
         </div>`;
 
         // ── Missing tools (installable) ──
@@ -736,7 +738,7 @@ const _wizSubForms = {
 
         // ── Manifest details (collapsible) ──
         if (manifests.length > 0) {
-            html += `<details style="margin-bottom:0.5rem" open>
+            html += `<details id="wiz-k8s-section-manifests" style="margin-bottom:0.5rem" open>
                 <summary style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;cursor:pointer;user-select:none;margin-bottom:0.3rem">
                     📄 Manifests (${manifests.length} file${manifests.length !== 1 ? 's' : ''} · ${totalRes} resource${totalRes !== 1 ? 's' : ''})
                 </summary>
@@ -768,7 +770,7 @@ const _wizSubForms = {
 
         // ── Helm Charts (collapsible, conditional) ──
         if (helmCharts.length > 0) {
-            html += `<details style="margin-bottom:0.5rem">
+            html += `<details id="wiz-k8s-section-helm" style="margin-bottom:0.5rem">
                 <summary style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;cursor:pointer;user-select:none;margin-bottom:0.3rem">
                     ⎈ Helm Charts (${helmCharts.length})
                 </summary>
@@ -797,7 +799,7 @@ const _wizSubForms = {
         // ── Kustomize (collapsible, conditional) ──
         if (kustomize.exists) {
             const overlays = kustomize.overlays || [];
-            html += `<details style="margin-bottom:0.5rem">
+            html += `<details id="wiz-k8s-section-kustomize" style="margin-bottom:0.5rem">
                 <summary style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;cursor:pointer;user-select:none;margin-bottom:0.3rem">
                     🗂 Kustomize (${kustomize.mode || 'single'}${overlays.length > 0 ? ' · ' + overlays.length + ' overlay' + (overlays.length !== 1 ? 's' : '') : ''})
                 </summary>
@@ -825,7 +827,7 @@ const _wizSubForms = {
 
         // ── Environments (from kustomize/helm overlays) ──
         if (envs.length > 0) {
-            html += `<div style="display:flex;flex-wrap:wrap;gap:0.15rem;margin-bottom:0.5rem">`;
+            html += `<div id="wiz-k8s-section-envs" style="display:flex;flex-wrap:wrap;gap:0.15rem;margin-bottom:0.5rem">`;
             for (const env of envs) {
                 html += `<span style="font-size:0.6rem;padding:0.05rem 0.25rem;border-radius:3px;background:color-mix(in srgb, var(--accent) 8%, transparent);color:var(--accent);border:1px solid color-mix(in srgb, var(--accent) 15%, transparent)">${esc(env.name)} <span style="font-size:0.5rem;color:var(--text-muted)">(${esc(env.source || '').replace(/_/g, ' ')})</span></span>`;
             }
@@ -846,7 +848,7 @@ const _wizSubForms = {
 
         // ── Infrastructure service dependencies ──
         if (infraSvcs.length > 0) {
-            html += `<div style="margin-bottom:0.5rem;padding:0.3rem 0.5rem;border-radius:6px;background:color-mix(in srgb, var(--accent) 4%, transparent);border:1px solid color-mix(in srgb, var(--accent) 12%, transparent)">
+            html += `<div id="wiz-k8s-section-infra" style="margin-bottom:0.5rem;padding:0.3rem 0.5rem;border-radius:6px;background:color-mix(in srgb, var(--accent) 4%, transparent);border:1px solid color-mix(in srgb, var(--accent) 12%, transparent)">
                 <div style="font-size:0.65rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;margin-bottom:0.15rem">🏗 Infra Dependencies</div>`;
             for (const svc of infraSvcs) {
                 html += `<div style="font-size:0.7rem;color:var(--text-secondary);padding:0.05rem 0">
@@ -866,7 +868,8 @@ const _wizSubForms = {
 
         // ── Live cluster panel ──
         if (clusterOk) {
-            html += `<div style="margin-bottom:0.6rem">
+            // Note: id on outer div for assistant selector matching
+            html += `<div id="wiz-k8s-section-live" style="margin-bottom:0.6rem">
                 <div style="display:flex;flex-wrap:wrap;gap:0.25rem;margin-bottom:0.3rem">
                     <button class="btn btn-sm btn-secondary" style="font-size:0.68rem;padding:0.12rem 0.4rem"
                         onclick="_wizK8sLive('pods')">📦 Pods</button>
@@ -886,7 +889,7 @@ const _wizSubForms = {
         // ── Config generation form (stack-aware) ──
         const hasHelm = helmCharts.length > 0;
         const hasKustomize = kustomize.exists;
-        html += `<details style="margin-bottom:0.5rem" ${!hasManifests ? 'open' : ''}>
+        html += `<details id="wiz-k8s-section-genconfig" style="margin-bottom:0.5rem" ${!hasManifests ? 'open' : ''}>
             <summary style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;cursor:pointer;user-select:none;margin-bottom:0.3rem">
                 ${hasManifests ? '📝 Regenerate Manifests' : '📝 Generate Manifests'}
             </summary>
@@ -908,7 +911,7 @@ const _wizSubForms = {
         </details>`;
 
         // ── Full K8s Setup escalation (like Docker's) ──
-        html += `<details style="margin-bottom:0.5rem">
+        html += `<details id="wiz-k8s-section-fullsetup" style="margin-bottom:0.5rem">
             <summary style="font-size:0.72rem;font-weight:600;color:var(--accent);text-transform:uppercase;cursor:pointer;user-select:none;margin-bottom:0.3rem">
                 🚀 Full K8s Setup
             </summary>
@@ -919,11 +922,11 @@ const _wizSubForms = {
                     Skaffold configuration, volume and probe configuration, HPA autoscaling, and live preview with editing.
                 </div>
                 <div style="display:flex;flex-wrap:wrap;gap:0.25rem;margin-bottom:0.6rem">
-                    ${_pill(totalRes > 0, totalRes > 0 ? '✓ ' + totalRes + ' resource(s) detected' : '○ will create')}
-                    ${_pill(kctl.available, kctl.available ? '✓ kubectl' : '○ no kubectl')}
-                    ${_pill(helmCharts.length > 0, helmCharts.length > 0 ? '✓ ' + helmCharts.length + ' Helm chart(s)' : '○ no Helm')}
-                    ${_pill(kustomize.exists, kustomize.exists ? '✓ Kustomize' : '○ no Kustomize')}
-                    ${_pill(dockerDetected, dockerDetected ? '✓ Docker ready' : '○ no Docker')}
+                    ${_pill(totalRes > 0, totalRes > 0 ? '✓ ' + totalRes + ' resource(s) detected' : '○ will create', 'wiz-k8s-fullsetup-pill-resources')}
+                    ${_pill(kctl.available, kctl.available ? '✓ kubectl' : '○ no kubectl', 'wiz-k8s-fullsetup-pill-kubectl')}
+                    ${_pill(helmCharts.length > 0, helmCharts.length > 0 ? '✓ ' + helmCharts.length + ' Helm chart(s)' : '○ no Helm', 'wiz-k8s-fullsetup-pill-helm')}
+                    ${_pill(kustomize.exists, kustomize.exists ? '✓ Kustomize' : '○ no Kustomize', 'wiz-k8s-fullsetup-pill-kustomize')}
+                    ${_pill(dockerDetected, dockerDetected ? '✓ Docker ready' : '○ no Docker', 'wiz-k8s-fullsetup-pill-docker')}
                 </div>
                 <div style="display:flex;gap:0.4rem;margin-top:0.4rem">
                     <button class="btn btn-sm btn-primary" style="font-size:0.75rem"
@@ -934,7 +937,7 @@ const _wizSubForms = {
 
         // ── Delete config ──
         if (hasManifests) {
-            html += `<div style="border-top:1px solid var(--border-subtle);padding-top:0.5rem;margin-top:0.3rem">
+            html += `<div id="wiz-k8s-section-delete" style="border-top:1px solid var(--border-subtle);padding-top:0.5rem;margin-top:0.3rem">
                 <button class="btn btn-sm" style="font-size:0.68rem;padding:0.12rem 0.4rem;color:var(--error);border:1px solid color-mix(in srgb, var(--error) 30%, transparent)"
                     onclick="_wizDeleteConfig('k8s', this)">🗑 Delete K8s Manifests</button>
             </div>`;
@@ -1167,7 +1170,7 @@ const _wizSubForms = {
         // Cross-integration detection
         const k8sDetected = d.devops_cards?.k8s?.detected;
 
-        const _pill = (ok, label) => `<span style="font-size:0.62rem;padding:0.08rem 0.3rem;border-radius:4px;${ok ? 'background:color-mix(in srgb, var(--success) 10%, transparent);color:var(--success);border:1px solid color-mix(in srgb, var(--success) 25%, transparent)' : 'background:color-mix(in srgb, var(--text-muted) 8%, transparent);color:var(--text-muted);border:1px solid color-mix(in srgb, var(--text-muted) 20%, transparent)'}">${label}</span>`;
+        const _pill = (ok, label, id) => `<span ${id ? `id="${id}"` : ''} style="font-size:0.62rem;padding:0.08rem 0.3rem;border-radius:4px;${ok ? 'background:color-mix(in srgb, var(--success) 10%, transparent);color:var(--success);border:1px solid color-mix(in srgb, var(--success) 25%, transparent)' : 'background:color-mix(in srgb, var(--text-muted) 8%, transparent);color:var(--text-muted);border:1px solid color-mix(in srgb, var(--text-muted) 20%, transparent)'}">${label}</span>`;
 
         // ── Header with stack badge ──
         let html = `<div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.5rem">
@@ -1177,14 +1180,14 @@ const _wizSubForms = {
 
         // ── Enriched status strip (7 pills) ──
         const cliVer = (cli.version || '').split('\n')[0];
-        html += `<div style="display:flex;flex-wrap:wrap;gap:0.25rem;margin-bottom:0.5rem">
-            ${_pill(cli.available, cli.available ? '✓ terraform' + (cliVer ? ' ' + cliVer : '') : '✗ no terraform')}
-            ${_pill(resCount > 0, resCount > 0 ? '✓ ' + resCount + ' resource' + (resCount !== 1 ? 's' : '') : '○ no resources')}
-            ${_pill(providers.length > 0, providers.length > 0 ? '✓ ' + providers.length + ' provider' + (providers.length !== 1 ? 's' : '') : '○ no providers')}
-            ${_pill(modules.length > 0, modules.length > 0 ? '✓ ' + modules.length + ' module' + (modules.length !== 1 ? 's' : '') : '○ no modules')}
-            ${_pill(backend != null, backend ? '✓ ' + backend.type + ' backend' : '○ no backend')}
-            ${_pill(initialized, initialized ? '✓ initialized' : '○ not initialized')}
-            ${_pill(detected, detected ? '✓ config found' : '○ no config')}
+        html += `<div id="wiz-tf-section-status" style="display:flex;flex-wrap:wrap;gap:0.25rem;margin-bottom:0.5rem">
+            ${_pill(cli.available, cli.available ? '✓ terraform' + (cliVer ? ' ' + cliVer : '') : '✗ no terraform', 'wiz-tf-pill-cli')}
+            ${_pill(resCount > 0, resCount > 0 ? '✓ ' + resCount + ' resource' + (resCount !== 1 ? 's' : '') : '○ no resources', 'wiz-tf-pill-resources')}
+            ${_pill(providers.length > 0, providers.length > 0 ? '✓ ' + providers.length + ' provider' + (providers.length !== 1 ? 's' : '') : '○ no providers', 'wiz-tf-pill-providers')}
+            ${_pill(modules.length > 0, modules.length > 0 ? '✓ ' + modules.length + ' module' + (modules.length !== 1 ? 's' : '') : '○ no modules', 'wiz-tf-pill-modules')}
+            ${_pill(backend != null, backend ? '✓ ' + backend.type + ' backend' : '○ no backend', 'wiz-tf-pill-backend')}
+            ${_pill(initialized, initialized ? '✓ initialized' : '○ not initialized', 'wiz-tf-pill-initialized')}
+            ${_pill(detected, detected ? '✓ config found' : '○ no config', 'wiz-tf-pill-config')}
         </div>`;
 
         // ── Missing tools banner ──
@@ -1203,7 +1206,7 @@ const _wizSubForms = {
                 typeMap[t] = (typeMap[t] || 0) + 1;
             }
 
-            html += `<details style="margin-bottom:0.5rem" open>
+            html += `<details id="wiz-tf-section-files" style="margin-bottom:0.5rem" open>
                 <summary style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;cursor:pointer;user-select:none;margin-bottom:0.3rem">
                     📄 Files (${tfFiles.length} .tf file${tfFiles.length !== 1 ? 's' : ''}${tfRoot ? ' in ' + esc(tfRoot) : ''})
                 </summary>
@@ -1234,7 +1237,7 @@ const _wizSubForms = {
 
         // ── Providers (collapsible, conditional) ──
         if (providers.length > 0) {
-            html += `<details style="margin-bottom:0.5rem">
+            html += `<details id="wiz-tf-section-providers" style="margin-bottom:0.5rem">
                 <summary style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;cursor:pointer;user-select:none;margin-bottom:0.3rem">
                     ☁ Providers (${providers.length})
                 </summary>
@@ -1251,7 +1254,7 @@ const _wizSubForms = {
 
         // ── Modules (collapsible, conditional) ──
         if (modules.length > 0) {
-            html += `<details style="margin-bottom:0.5rem">
+            html += `<details id="wiz-tf-section-modules" style="margin-bottom:0.5rem">
                 <summary style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;cursor:pointer;user-select:none;margin-bottom:0.3rem">
                     📦 Modules (${modules.length})
                 </summary>
@@ -1277,7 +1280,7 @@ const _wizSubForms = {
                 resTypeMap[t] = (resTypeMap[t] || 0) + 1;
             }
 
-            html += `<details style="margin-bottom:0.5rem">
+            html += `<details id="wiz-tf-section-resources" style="margin-bottom:0.5rem">
                 <summary style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;cursor:pointer;user-select:none;margin-bottom:0.3rem">
                     📦 Resources (${resCount})
                 </summary>
@@ -1291,7 +1294,7 @@ const _wizSubForms = {
 
         // ── Backend info ──
         if (backend) {
-            html += `<div style="margin-bottom:0.5rem;padding:0.3rem 0.5rem;border-radius:6px;background:color-mix(in srgb, var(--accent) 4%, transparent);border:1px solid color-mix(in srgb, var(--accent) 12%, transparent)">
+            html += `<div id="wiz-tf-section-backend" style="margin-bottom:0.5rem;padding:0.3rem 0.5rem;border-radius:6px;background:color-mix(in srgb, var(--accent) 4%, transparent);border:1px solid color-mix(in srgb, var(--accent) 12%, transparent)">
                 <div style="font-size:0.65rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;margin-bottom:0.1rem">💾 State Backend</div>
                 <div style="font-size:0.72rem;color:var(--text-secondary)">
                     <strong>${esc(backend.type)}</strong>
@@ -1312,7 +1315,7 @@ const _wizSubForms = {
 
         // ── Live panel (state, workspaces, validate, plan) ──
         if (detected && cli.available) {
-            html += `<div style="margin-bottom:0.6rem">
+            html += `<div id="wiz-tf-section-live" style="margin-bottom:0.6rem">
                 <div style="display:flex;flex-wrap:wrap;gap:0.25rem;margin-bottom:0.3rem">
                     <button class="btn btn-sm btn-secondary" style="font-size:0.68rem;padding:0.12rem 0.4rem"
                         onclick="_wizTfLive('state')">📋 State</button>
@@ -1328,7 +1331,7 @@ const _wizSubForms = {
         }
 
         // ── Config generation form ──
-        html += `<details style="margin-bottom:0.5rem" ${!detected ? 'open' : ''}>
+        html += `<details id="wiz-tf-section-genconfig" style="margin-bottom:0.5rem" ${!detected ? 'open' : ''}>
             <summary style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;cursor:pointer;user-select:none;margin-bottom:0.3rem">
                 ${detected ? '📝 Regenerate Config' : '📝 Generate Config'}
             </summary>
@@ -1348,7 +1351,7 @@ const _wizSubForms = {
         </details>`;
 
         // ── Full Terraform Setup escalation ──
-        html += `<details style="margin-bottom:0.5rem">
+        html += `<details id="wiz-tf-section-fullsetup" style="margin-bottom:0.5rem">
             <summary style="font-size:0.72rem;font-weight:600;color:var(--accent);text-transform:uppercase;cursor:pointer;user-select:none;margin-bottom:0.3rem">
                 🚀 Full Terraform Setup
             </summary>
@@ -1359,11 +1362,11 @@ const _wizSubForms = {
                     environment management, variable files, and live preview with HCL editing.
                 </div>
                 <div style="display:flex;flex-wrap:wrap;gap:0.25rem;margin-bottom:0.6rem">
-                    ${_pill(cli.available, cli.available ? '✓ terraform' : '○ no terraform')}
-                    ${_pill(resCount > 0, resCount > 0 ? '✓ ' + resCount + ' resource(s)' : '○ will create')}
-                    ${_pill(providers.length > 0, providers.length > 0 ? '✓ ' + providers.map(p => typeof p === 'string' ? p.split('/').pop() : p).join(', ') : '○ no providers')}
-                    ${_pill(initialized, initialized ? '✓ initialized' : '○ not initialized')}
-                    ${_pill(backend != null, backend ? '✓ ' + backend.type : '○ no backend')}
+                    ${_pill(cli.available, cli.available ? '✓ terraform' : '○ no terraform', 'wiz-tf-fullsetup-pill-cli')}
+                    ${_pill(resCount > 0, resCount > 0 ? '✓ ' + resCount + ' resource(s)' : '○ will create', 'wiz-tf-fullsetup-pill-resources')}
+                    ${_pill(providers.length > 0, providers.length > 0 ? '✓ ' + providers.map(p => typeof p === 'string' ? p.split('/').pop() : p).join(', ') : '○ no providers', 'wiz-tf-fullsetup-pill-providers')}
+                    ${_pill(initialized, initialized ? '✓ initialized' : '○ not initialized', 'wiz-tf-fullsetup-pill-initialized')}
+                    ${_pill(backend != null, backend ? '✓ ' + backend.type : '○ no backend', 'wiz-tf-fullsetup-pill-backend')}
                 </div>
                 <div style="display:flex;gap:0.4rem;margin-top:0.4rem">
                     <button class="btn btn-sm btn-primary" style="font-size:0.75rem"
@@ -1374,7 +1377,7 @@ const _wizSubForms = {
 
         // ── Delete config ──
         if (detected) {
-            html += `<div style="border-top:1px solid var(--border-subtle);padding-top:0.5rem;margin-top:0.3rem">
+            html += `<div id="wiz-tf-section-delete" style="border-top:1px solid var(--border-subtle);padding-top:0.5rem;margin-top:0.3rem">
                 <button class="btn btn-sm" style="font-size:0.68rem;padding:0.12rem 0.4rem;color:var(--error);border:1px solid color-mix(in srgb, var(--error) 30%, transparent)"
                     onclick="_wizDeleteConfig('terraform', this)">🗑 Delete Terraform Config</button>
             </div>`;

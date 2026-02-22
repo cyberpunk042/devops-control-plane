@@ -1,5 +1,9 @@
-# Assistant V1 — Implementation Plan
+# Assistant V1 — Implementation Plan — COMPLETED
 
+> **Status:** ✅ All deliverables implemented. This document is a **historical
+> reference** for the initial engine + catalogue implementation. For the current
+> living architecture, see `assistant-architecture.md`.
+>
 > Traceable plan for the superstructure data file and engine.
 > Every decision links back to: goal → requirement → change → test → evidence.
 

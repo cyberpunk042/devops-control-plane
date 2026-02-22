@@ -1,5 +1,9 @@
-# Assistant — Implementation Plan
+# Assistant — Implementation Plan — COMPLETED
 
+> **Status:** ✅ All 6 stages implemented. This document is a **historical
+> reference** for the staged implementation approach. For the current
+> living architecture, see `assistant-architecture.md`.
+>
 > Ordered so each stage produces something visible and testable.
 > Each stage is broken down further when we get to it.
 
