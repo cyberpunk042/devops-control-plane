@@ -36,34 +36,35 @@
                             const deployable = classified.filter(m => m._class === 'deployable' && m._family);
 
                             // Docker status
-                            let html = wizSection('Docker Environment', 'Current Docker configuration detected in this project.');
-                            html += `<div class="wiz-status-grid">
+                            let html = wizSection('Docker Environment', 'Current Docker configuration detected in this project.', 'docker-detect-env-section');
+                            html += `<div class="wiz-status-grid" id="docker-detect-grid">
                                 ${wizStatusRow('🐳', 'Docker Engine',
                                     dockerStatus.available ? (dockerStatus.version || '').replace('Docker version ','').split(',')[0] || 'Available' : 'Not found',
-                                    dockerStatus.available ? 'ok' : 'error')}
-                                ${dockerStatus.compose_available ? wizStatusRow('⚙️', 'Docker Compose', (dockerStatus.compose_version || '✓'), 'ok') : ''}
-                                ${wizStatusRow('📄', 'Dockerfile', docker.has_dockerfile ? 'Present' : 'Missing', docker.has_dockerfile ? 'ok' : 'warn')}
-                                ${wizStatusRow('📋', 'Compose file', docker.has_compose ? 'Present' : 'Missing', docker.has_compose ? 'ok' : 'warn')}
-                                ${wizStatusRow('🚫', '.dockerignore', docker.has_dockerignore ? 'Present' : 'Missing', docker.has_dockerignore ? 'ok' : 'warn')}
+                                    dockerStatus.available ? 'ok' : 'error', false, 'docker-detect-engine')}
+                                ${dockerStatus.compose_available ? wizStatusRow('⚙️', 'Docker Compose', (dockerStatus.compose_version || '✓'), 'ok', false, 'docker-detect-compose') : ''}
+                                ${wizStatusRow('📄', 'Dockerfile', docker.has_dockerfile ? 'Present' : 'Missing', docker.has_dockerfile ? 'ok' : 'warn', false, 'docker-detect-dockerfile')}
+                                ${wizStatusRow('📋', 'Compose file', docker.has_compose ? 'Present' : 'Missing', docker.has_compose ? 'ok' : 'warn', false, 'docker-detect-composefile')}
+                                ${wizStatusRow('🚫', '.dockerignore', docker.has_dockerignore ? 'Present' : 'Missing', docker.has_dockerignore ? 'ok' : 'warn', false, 'docker-detect-ignore')}
                             </div>`;
 
                             if (!dockerStatus.available) {
-                                html += `<div class="wiz-step-warn-panel" style="margin-top:1rem">
+                                html += `<div class="wiz-step-warn-panel" id="docker-detect-warn-missing" style="margin-top:1rem">
                                     <span>⚠️</span>
                                     <span>Docker is not installed. You can still generate config files, but won't be able to build/run until Docker is available.</span>
                                 </div>`;
                             }
 
                             // Module table
-                            html += wizSection('Project Modules', `${modules.length} module${modules.length !== 1 ? 's' : ''} detected — ${deployable.length} deployable.`);
+                            html += wizSection('Project Modules', `${modules.length} module${modules.length !== 1 ? 's' : ''} detected — ${deployable.length} deployable.`, 'docker-detect-mod-section');
                             if (modules.length > 0) {
-                                html += `<div style="display:flex;flex-direction:column;gap:0.25rem">`;
-                                for (const m of classified) {
+                                html += `<div id="docker-detect-modules" style="display:flex;flex-direction:column;gap:0.25rem">`;
+                                for (let _mi = 0; _mi < classified.length; _mi++) {
+                                    const m = classified[_mi];
                                     const isDep = m._class === 'deployable' && m._family;
                                     const badge = isDep ? 'deployable' : m._class;
                                     const badgeColor = isDep ? 'var(--success)' : 'var(--text-muted)';
                                     const badgeIcon = isDep ? '🟢' : m._class === 'library' ? '📚' : m._class === 'docs' ? '📝' : '⚙️';
-                                    html += `<div style="display:flex;align-items:center;gap:0.5rem;font-size:0.82rem;padding:0.3rem 0.5rem;border-radius:6px;background:var(--bg-inset)">
+                                    html += `<div id="docker-detect-mod-${_mi}" data-modclass="${badge}" style="display:flex;align-items:center;gap:0.5rem;font-size:0.82rem;padding:0.3rem 0.5rem;border-radius:6px;background:var(--bg-inset)">
                                         <span style="width:18px;text-align:center">${badgeIcon}</span>
                                         <strong style="min-width:80px">${esc(m.name)}</strong>
                                         <code style="font-size:0.72rem;background:var(--bg-primary);padding:1px 5px;border-radius:3px;color:var(--text-secondary)">${esc(m.stack || '?')}</code>
@@ -74,7 +75,7 @@
                                 html += `</div>`;
 
                                 if (deployable.length > 0) {
-                                    html += `<div style="margin-top:0.75rem;font-size:0.8rem;color:var(--text-secondary)">
+                                    html += `<div id="docker-detect-deployable-hint" style="margin-top:0.75rem;font-size:0.8rem;color:var(--text-secondary)">
                                         💡 <strong>${deployable.length}</strong> deployable module${deployable.length !== 1 ? 's' : ''} detected.
                                         The next step lets you choose which ones become containers.
                                     </div>`;

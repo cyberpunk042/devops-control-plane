@@ -425,8 +425,8 @@
                         let html = '';
 
                         // ── Global compose settings ─────────────────
-                        html += wizSection('Compose Project', 'Global settings for docker-compose.yml.');
-                        html += `<div style="display:grid;grid-template-columns:1fr 1fr;gap:0.4rem;max-width:500px">
+                        html += wizSection('Compose Project', 'Global settings for docker-compose.yml.', 'dk-cfg-compose-section');
+                        html += `<div id="dk-cfg-compose-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:0.4rem;max-width:500px">
                             <div>${_lbl('Project name', 'optional')}${_inp('mf-dk-project-name', '', 'my-project')}</div>
                             <div>${_lbl('Platform', 'optional')}
                                 <select id="mf-dk-platform" class="modal-form-select" style="font-size:0.76rem;padding:0.2rem 0.3rem">
@@ -439,7 +439,8 @@
                         html += wizSection('Containers',
                             deployable.length > 0
                                 ? 'Select which modules should become Docker containers and configure each one.'
-                                : 'No deployable modules found — configure a container manually.'
+                                : 'No deployable modules found — configure a container manually.',
+                            'dk-cfg-containers-section'
                         );
 
                         if (deployable.length > 0) {
@@ -479,7 +480,7 @@
                                         </div>
 
                                         <!-- Dockerfile settings -->
-                                        <details style="margin-top:0.4rem">
+                                        <details id="dk-mod-dockerfile-${i}" style="margin-top:0.4rem">
                                             <summary style="cursor:pointer;font-size:0.72rem;color:var(--accent);user-select:none;padding:0.15rem 0">▸ Dockerfile Settings</summary>
                                             <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:0.4rem;margin-top:0.3rem">
                                                 <div>${_lbl('Working directory')}${_inp(`mf-dk-workdir-${i}`, d.workdir, '/app')}</div>
@@ -492,7 +493,7 @@
                                         </details>
 
                                         <!-- Compose settings -->
-                                        <details style="margin-top:0.3rem">
+                                        <details id="dk-mod-compose-${i}" style="margin-top:0.3rem">
                                             <summary style="cursor:pointer;font-size:0.72rem;color:var(--accent);user-select:none;padding:0.15rem 0">▸ Compose Settings</summary>
                                             <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.4rem;margin-top:0.3rem">
                                                 <div>${_lbl('Container name', 'optional')}${_inp(`mf-dk-cname-${i}`, '', m.name)}</div>
@@ -500,7 +501,7 @@
                                                 <div>${_lbl('Build args', 'KEY=VAL per line')}${_ta(`mf-dk-buildargs-${i}`, '', 'ENV=production', 2)}</div>
                                                 <div>${_lbl('Networks', 'one per line')}${_ta(`mf-dk-networks-${i}`, '', 'backend\nfrontend', 2)}</div>
                                                 <div style="grid-column:1/-1">
-                                                    <details open style="margin-top:0.2rem">
+                                                    <details id="dk-mod-env-${i}" open style="margin-top:0.2rem">
                                                         <summary style="cursor:pointer;font-size:0.78rem;color:var(--accent);user-select:none;padding:0.15rem 0">▸ Environment Variables</summary>
                                                         <div style="margin-top:0.25rem">
                                                             <div style="display:grid;grid-template-columns:2fr 2fr 1.5fr 1.2fr auto;gap:0.25rem;margin-bottom:0.15rem;padding:0 0.25rem">
@@ -518,9 +519,9 @@
                                                         </div>
                                                     </details>
                                                 </div>
-                                                <div style="grid-column:1/-1">${_dkPortSection(i, nextPort)}</div>
-                                                <div style="grid-column:1/-1">${_dkVolSection(i)}</div>
-                                                <div style="grid-column:1/-1;margin-top:0.3rem">
+                                                <div id="dk-mod-ports-wrap-${i}" style="grid-column:1/-1">${_dkPortSection(i, nextPort)}</div>
+                                                <div id="dk-mod-vols-wrap-${i}" style="grid-column:1/-1">${_dkVolSection(i)}</div>
+                                                <div id="dk-mod-deps-wrap-${i}" style="grid-column:1/-1;margin-top:0.3rem">
                                                     ${_lbl('Depends on')}
                                                     <div style="display:flex;flex-wrap:wrap;gap:0.35rem;margin-top:0.1rem">
                                                         ${otherSvcs.map(sn => `<label style="display:inline-flex;align-items:center;gap:0.3rem;font-size:0.78rem;cursor:pointer;padding:0.2rem 0.5rem;border-radius:5px;border:1px solid var(--border-subtle);background:var(--bg-primary);transition:border-color 0.15s,background 0.15s"
@@ -543,7 +544,7 @@
                             // Manual container config
                             const defFamily = 'python';
                             const d = _dockerStackDefaults[defFamily];
-                            html += `<div style="border:1px solid var(--border-subtle);border-radius:8px;background:var(--bg-inset);padding:0.6rem">
+                            html += `<div id="dk-mod-card-manual" style="border:1px solid var(--border-subtle);border-radius:8px;background:var(--bg-inset);padding:0.6rem">
                                 <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:0.4rem;align-items:start">
                                     <div>${_lbl('Stack template')}
                                         <select id="mf-dk-manual-stack" class="modal-form-select" style="font-size:0.76rem;padding:0.2rem 0.3rem"
@@ -562,7 +563,7 @@
                                         </select>
                                     </div>
                                 </div>
-                                <details style="margin-top:0.4rem">
+                                <details id="dk-mod-dockerfile-manual" style="margin-top:0.4rem">
                                     <summary style="cursor:pointer;font-size:0.72rem;color:var(--accent);user-select:none;padding:0.15rem 0">▸ Dockerfile Settings</summary>
                                     <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:0.4rem;margin-top:0.3rem">
                                         <div>${_lbl('Working directory')}${_inp('mf-dk-manual-workdir', d.workdir, '/app')}</div>
@@ -573,13 +574,13 @@
                                         <div>${_lbl('EXPOSE port')}${_num('mf-dk-manual-expose', d.expose)}</div>
                                     </div>
                                 </details>
-                                <details style="margin-top:0.3rem">
+                                <details id="dk-mod-compose-manual" style="margin-top:0.3rem">
                                     <summary style="cursor:pointer;font-size:0.72rem;color:var(--accent);user-select:none;padding:0.15rem 0">▸ Compose Settings</summary>
                                     <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.4rem;margin-top:0.3rem">
                                         <div>${_lbl('Container name', 'optional')}${_inp('mf-dk-manual-cname', '', 'app')}</div>
                                         <div>${_lbl('Health check', 'optional')}${_inp('mf-dk-manual-health', '', '')}</div>
                                         <div style="grid-column:1/-1">
-                                            <details open style="margin-top:0.2rem">
+                                            <details id="dk-mod-env-manual" open style="margin-top:0.2rem">
                                                 <summary style="cursor:pointer;font-size:0.78rem;color:var(--accent);user-select:none;padding:0.15rem 0">▸ Environment Variables</summary>
                                                 <div style="margin-top:0.25rem">
                                                     <div style="display:grid;grid-template-columns:2fr 2fr 1.5fr 1.2fr auto;gap:0.25rem;margin-bottom:0.15rem;padding:0 0.25rem">
@@ -597,8 +598,8 @@
                                                 </div>
                                             </details>
                                         </div>
-                                        <div style="grid-column:1/-1">${_dkPortSection('manual', d.expose || 8080)}</div>
-                                        <div style="grid-column:1/-1">${_dkVolSection('manual')}</div>
+                                        <div id="dk-mod-ports-wrap-manual" style="grid-column:1/-1">${_dkPortSection('manual', d.expose || 8080)}</div>
+                                        <div id="dk-mod-vols-wrap-manual" style="grid-column:1/-1">${_dkVolSection('manual')}</div>
                                     </div>
                                 </details>
                             </div>`;
@@ -609,7 +610,7 @@
 
                         // Overwrite warning
                         if (docker.has_dockerfile) {
-                            html += `<div style="margin-top:0.5rem">
+                            html += `<div id="dk-cfg-overwrite-wrap" style="margin-top:0.5rem">
                                 ${modalFormField({ name: 'dk-overwrite', label: 'Overwrite existing Dockerfile(s)', type: 'checkbox', value: false })}
                             </div>`;
                         }
@@ -746,8 +747,8 @@
                         html += `</div>`;
 
                         // ── Section C: Options ─────────────────────────
-                        html += wizSection('Generation Options', 'What files to create.');
-                        html += `<div class="modal-form-grid">`;
+                        html += wizSection('Generation Options', 'What files to create.', 'dk-cfg-genopts-section');
+                        html += `<div id="dk-cfg-genopts-grid" class="modal-form-grid">`;
                         html += modalFormField({ name: 'dk-compose', label: 'Generate docker-compose.yml', type: 'checkbox', value: !docker.has_compose || deployable.length > 1, fullWidth: true });
                         html += modalFormField({ name: 'dk-ignore',  label: 'Generate .dockerignore',      type: 'checkbox', value: !docker.has_dockerignore, fullWidth: true });
                         html += `</div>`;
@@ -775,7 +776,31 @@
                                         });
                                     }
                                 }
+                                // ── Infra → Dep sync: unchecking infra removes it from all deps
+                                if (!cb.checked) {
+                                    document.querySelectorAll(`input[type="checkbox"][value="${key}"]`).forEach(dep => {
+                                        if (dep.className && dep.className.match(/dk-dep-/)) {
+                                            dep.checked = false;
+                                            const lbl = dep.closest('label');
+                                            if (lbl) {
+                                                lbl.style.borderColor = 'var(--border-subtle)';
+                                                lbl.style.background = 'var(--bg-primary)';
+                                            }
+                                        }
+                                    });
+                                }
                                 window._wizValidation.recheck('dk');
+                            }
+                            // ── Dep → Infra sync: checking an infra dep auto-enables it
+                            if (cb.className && cb.className.match(/dk-dep-\d+/)) {
+                                const depVal = cb.value;
+                                const infraToggle = document.getElementById('mf-dk-infra-' + depVal);
+                                if (infraToggle) {
+                                    if (cb.checked && !infraToggle.checked) {
+                                        infraToggle.checked = true;
+                                        infraToggle.dispatchEvent(new Event('change', { bubbles: true }));
+                                    }
+                                }
                             }
                             // Custom image select
                             if (cb.tagName === 'SELECT' && cb.id && cb.id.startsWith('mf-dk-infra-img-')) {
@@ -968,10 +993,14 @@
                         // Port conflict check using user-entered ports
                         const portMap = new Map();
                         for (const c of data._selectedContainers) {
-                            if (portMap.has(c.port)) {
-                                return `Port conflict: "${c.name}" and "${portMap.get(c.port)}" both use port ${c.port}.`;
+                            for (const portMapping of (c.ports || [])) {
+                                const p = parseInt(portMapping.split(':')[0]);
+                                if (!p) continue;
+                                if (portMap.has(p)) {
+                                    return `Port conflict: "${c.name}" and "${portMap.get(p)}" both use host port ${p}.`;
+                                }
+                                portMap.set(p, c.name);
                             }
-                            portMap.set(c.port, c.name);
                         }
                         for (const inf of data._selectedInfra) {
                             for (const portMapping of (inf.ports || [])) {

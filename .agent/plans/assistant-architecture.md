@@ -4,7 +4,7 @@
 > works *as actually built*. Read this before making any change to the
 > engine, catalogue, layout, or content.
 >
-> **Last updated:** 2026-02-21 (K8s enrichment added)
+> **Last updated:** 2026-02-22 (port enrichment, matching step 2.5, focus behavior, dep↔infra sync)
 >
 > **Companion docs:**
 > - `assistant-realization.md` — what the assistant IS (philosophy)
@@ -23,10 +23,10 @@ src/ui/web/
 ├── static/
 │   ├── css/admin.css                         # Panel layout + node styling
 │   └── data/
-│       └── assistant-catalogue.json          # Superstructure — all contexts (~2873 lines)
+│       └── assistant-catalogue.json          # Superstructure — all contexts (~6581 lines)
 └── templates/
     ├── scripts/
-    │   ├── _assistant_engine.html             # Engine IIFE (~1750 lines)
+    │   ├── _assistant_engine.html             # Engine IIFE (~2900 lines)
     │   ├── _wizard_init.html                  # Integration hook (activate on step change)
     │   ├── _wizard_integrations.html          # Renderer (IDs on Docker + K8s section rows)
     │   └── _settings.html                     # Integration hook (enable/disable toggle)
@@ -118,8 +118,20 @@ var _focusPath = null;      // {target: node, chain: [parents]}
 var _hoverPath = null;      // {target: node, chain: [parents]}
 var _listeners = {};        // Event listener cleanup refs
 var _hoverDebounce = null;  // Debounce timer for hover events
+var _hoverDwellTimer = null; // 300ms dwell timer — clears stale _focusPath
 var _enabled = true;        // Toggle state
 ```
+
+**Focus path behavior (2026-02-22):**
+
+- **Checkboxes and radio buttons** are excluded from setting `_focusPath`.
+  They are fire-and-forget toggle inputs — checking a box should not make it
+  "stick" in the assistant panel the way a text input or select menu does.
+
+- **Hover dwell (300ms)** clears any existing `_focusPath`. If the user hovers
+  the same element for 300ms (intentional dwell, not a quick mouse pass), the
+  focused element is cleared and the hovered element becomes the sole target.
+  This prevents stale focus artifacts from earlier interactions.
 
 ### Public API
 
@@ -440,32 +452,55 @@ the muted span. Generates an apply command: `kubectl apply -k overlays/{name}/`.
 ### `_matchNode(element)`
 
 Maps a DOM element (from hover/focus event) to a superstructure node.
-Iterates `_flatNodes` (deepest-first) and returns the first match.
+Iterates `_flatNodes` (deepest-first) and returns the best match (deepest depth wins).
 
-**Three matching strategies (in order per node):**
+**Four matching strategies (in order per node):**
 
 1. **Dynamic element reference** — if `node._element === element` or
    `node._element.contains(element)` → match. This handles dynamically
    created nodes that have no CSS selector.
 
-2. **CSS selector** — `element.matches(node.selector)` or
+2. **CSS selector (direct + ancestor)** — `element.matches(node.selector)` or
    `element.closest(node.selector)` → match. For static nodes with
-   selectors like `#wiz-name`, `#wiz-desc`.
+   selectors like `#wiz-name`, `#wiz-desc`. Note: `closest()` walks UP,
+   so this catches "element is inside the selector target" but NOT
+   "element wraps the selector target".
 
-3. **Field-group proximity** — if the hovered element shares a wrapper
+3. **Containment (2026-02-22)** — `element.querySelector(node.selector)` → match.
+   This catches `<label><input id="mf-dk-compose">text</label>` where hovering
+   the label should match the checkbox child. Safe because `querySelector` only
+   matches descendants — no false positives from siblings.
+   Sets `proximateTarget` to the found child.
+
+4. **Field-group proximity** — if the hovered element shares a wrapper
    `div` with the selector target, match. This handles hovering a `<label>`
    that is a sibling of `<input id="wiz-name">` inside the same field group.
+   **Skipped for `#id` selectors** — they already uniquely target elements
+   and proximity would false-positive on siblings in the same flex row.
+   Uses `querySelectorAll` to check ALL instances (critical for class selectors).
 
 ```javascript
-// Field-group proximity check:
-// Use parentElement.closest('div') to skip the target element itself
-// when it IS a div (e.g., #wiz-domains is a div)
-const targetEl = _containerEl.querySelector(node.selector);
-if (targetEl && targetEl.parentElement) {
-    const wrapper = targetEl.parentElement.closest('div');
-    if (wrapper && wrapper !== _containerEl &&
-        (wrapper === element || wrapper.contains(element))) {
-        return entry;
+// Step 2.5 — Containment check:
+var contained = element.querySelector(node.selector);
+if (contained) {
+    matched = true;
+    proximateTarget = contained;
+}
+
+// Step 3 — Field-group proximity (non-ID selectors only):
+if (!matched && node.selector.charAt(0) !== '#') {
+    const targets = _containerEl.querySelectorAll(node.selector);
+    for (let t = 0; t < targets.length; t++) {
+        const targetEl = targets[t];
+        if (targetEl.parentElement) {
+            const wrapper = targetEl.parentElement.closest('div');
+            if (wrapper && wrapper !== _containerEl &&
+                (wrapper === element || wrapper.contains(element))) {
+                matched = true;
+                proximateTarget = targetEl;
+                break;
+            }
+        }
     }
 }
 ```
@@ -474,6 +509,60 @@ if (targetEl && targetEl.parentElement) {
 and the target IS a div (like `#wiz-domains`), it returns itself. The wrapper
 would be the element, not its parent field group. Starting from `parentElement`
 ensures we find the actual container div.
+
+**`proximateTarget` scoping (2026-02-22):** The proximate target is a `var`
+scoped to each loop iteration, never stored on `node`. This prevents stale
+targets from persisting when a node matches via step 1 or 2 on a subsequent
+call after previously matching via proximity on a different element.
+
+### Selector Pitfalls
+
+#### ⚠️ RULE: A child node must NEVER share its selector with a parent or sibling
+
+`_matchNode` uses `element.closest(node.selector)` as matching strategy #2.
+`closest()` walks UP the DOM tree — so any ancestor element that matches the
+selector will produce a positive match. If a child node uses the same selector
+as its parent (e.g., both point at `#some-grid`), then **every** hover target
+inside that container matches BOTH the parent and the child.
+
+The engine resolves ties by depth (`entry.parents.length`). When the child is
+at the same depth as its siblings, the **first match processed wins** (strict
+`>` comparison, not `>=`). Because `_flattenTree` processes children in array
+order and recurses children-first, the node with the duplicate selector is
+processed before its later siblings — shadowing them.
+
+**What happened (2026-02-22, Git Setup Detect step):**
+
+```
+detect-grid     (selector: "#git-detect-grid")    ← parent
+├── detect-cli       (selector: "#git-detect-cli")      ✅ worked
+├── detect-repo      (selector: "#git-detect-repo")     ✅ worked
+├── detect-remotes   (selector: "#git-detect-grid")     ← DUPLICATE!
+├── detect-gitignore (selector: "#git-detect-gitignore") ❌ shadowed
+├── detect-hooks     (selector: "#git-detect-hooks")     ❌ shadowed
+└── detect-ghcli     (selector: "#git-detect-ghcli")     ❌ shadowed
+```
+
+`detect-remotes` used `selector: "#git-detect-grid"` (same as parent) because
+the remotes rows have no wrapper div — they're siblings of the other status
+rows. Hovering `.gitignore`, `hooks`, or `gh CLI` triggered
+`element.closest('#git-detect-grid')` which matched `detect-remotes` at the
+same depth. Since `detect-remotes` was processed first, it won the tie and the
+three sibling nodes showed nothing.
+
+**Fix:** Remove the selector from `detect-remotes` entirely. The dynamic
+`childTemplate` still works because `_resolveDynamic` queries
+`_containerEl.querySelectorAll(childTemplate.selector)` — the parent node's
+own selector is never used for dynamic child resolution.
+
+**Prevention rules:**
+
+1. Before adding a selector, verify no other node in the tree already uses it.
+2. If a dynamic grouping node has no unique wrapper in the DOM, **omit its
+   selector**. The `childTemplate.selector` is independent.
+3. If a dynamic node needs to handle a "nothing found" state (e.g., no remotes),
+   use a static child node with its own unique selector (e.g.,
+   `#git-detect-remote-none`) instead of a variant on the parent.
 
 ---
 
@@ -610,20 +699,33 @@ text.replace(/\{\{(\w+)\}\}/g, function(match, key) {
 
 ### Registered Resolvers
 
-Resolvers are registered in `_wizard_init.html` when activating:
+Resolvers are registered in `_wizard_init.html` and `_assistant_engine.html`.
+The engine itself defines resolvers that need access to private helpers.
 
-```javascript
-window._assistant.resolvers = {
-    envCount: function() {
-        return document.querySelectorAll('#wiz-envs > div').length;
-    },
-    domainCount: function() {
-        return document.querySelectorAll('#wiz-domains > span').length;
-    }
-};
-```
+**Context resolvers** (registered by `_wizard_init.html`):
+- `envCount`, `domainCount`, `moduleCount` — simple DOM counts
+- `dockerStack`, `dockerVersion`, `dockerModules`, etc. — Docker detection data
+- `ghUser`, `ghRepo`, `ghBranch`, etc. — GitHub integration data
+- `k8sManifests`, `k8sResources` — Kubernetes section data
+- `tfProviders`, `tfResources` — Terraform data
+- `toolsInstalled`, `toolsTotal` — Tool detection counts
 
-Add new resolvers as needed for new contexts. They are simple DOM reads.
+**Engine resolvers** (defined in the engine IIFE):
+- `dkInfraHover` — infrastructure service hover preview (image breakdown, ports, env, volumes)
+- `dkSetupDepHover` — dependency label hover in Docker setup
+- `dkSetupBaseBreakdown`, `dkSetupDepBreakdown`, `dkSetupVolBreakdown` — setup step breakdowns
+- `dkInfraVolState` — volume checkbox state-aware explanation
+- `dkInfraRestartState` — restart policy select state-aware explanation
+- `dkInfraCategoryInfo` — category header with description + enabled/total count
+- `dkInfraPortHover` — infra port input analysis (proto, purpose, range, conflicts)
+- `dkPortHover` — user service port row analysis (range, known port, protocol, conflicts)
+- `dkExposeHover` — EXPOSE port analysis (range, known port, EXPOSE semantics)
+
+**Port analysis helpers** (shared by port resolvers):
+- `_portRanges[]` — well-known (0-1023), common app (1024-9999), registered (10000-49151), ephemeral (49152-65535)
+- `_knownPorts{}` — 20 recognized ports with labels and notes
+- `_classifyPort(num)` — returns the range object for a port number
+- `_detectPortConflicts(hostPort, excludeRow)` — scans all port rows + enabled infra for collisions
 
 ---
 

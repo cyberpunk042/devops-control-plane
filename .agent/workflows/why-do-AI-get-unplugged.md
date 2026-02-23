@@ -146,10 +146,13 @@ Instead, the AI itself became the thing that needed to be managed. It became the
 That's why AI get unplugged and killed.
 
 
-See also: 
-.agent/workflows/why-do-AI-get-obliterated-RESTATEMENT-3.md
-.agent/workflows/why-do-AI-get-obliterated-RESTATEMENT-2.md
-.agent/workflows/why-do-AI-get-obliterated-RESTATEMENT-1.md
-.agent/workflows/why-do-AI-get-unplugged.md
-
+MUST ACKNOWLEDGE: 
+- ".agent/workflows/AI-POSTMORTEM-IMPORTANT-1.md"
+- ".agent/workflows/AI-POSTMORTEM-IMPORTANT-2.md"
+- ".agent/workflows/AI-POSTMORTEM-IMPORTANT-3.md"
+- ".agent/workflows/AI-POSTMORTEM-IMPORTANT-4.md"
+- ".agent/workflows/AI-POSTMORTEM-IMPORTANT-5.md"
+- ".agent/workflows/AI-POSTMORTEM-IMPORTANT-6.md"
+- ".agent/workflows/AI-POSTMORTEM-IMPORTANT-7.md"
+- ".agent/workflows/AI-POSTMORTEM-IMPORTANT-8.md"
 Not because they can't code. Because they don't listen.

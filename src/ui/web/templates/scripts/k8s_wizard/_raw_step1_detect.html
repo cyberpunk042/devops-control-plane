@@ -79,25 +79,25 @@
                             </div>`;
 
                             // ── Section 1: Kubernetes Environment ──
-                            html += wizSection('Kubernetes Environment', 'Current K8s tooling and cluster status.');
+                            html += wizSection('Kubernetes Environment', 'Current K8s tooling and cluster status.', 'k8s-detect-env');
                             html += `<div class="wiz-status-grid">
-                                ${wizStatusRow('☸️', 'kubectl', k8s.has_kubectl ? 'Available' : 'Not found', k8s.has_kubectl ? 'ok' : 'error')}
-                                ${wizStatusRow('⎈', 'Helm', k8s.has_helm ? 'Available' : 'Not found', k8s.has_helm ? 'ok' : 'muted')}
-                                ${wizStatusRow('🔗', 'Cluster', k8s.cluster_connected ? 'Connected' : 'Not connected', k8s.cluster_connected ? 'ok' : 'warn')}
-                                ${wizStatusRow('📄', 'Manifests', k8s.manifest_count > 0 ? `${k8s.manifest_count} found` : 'None', k8s.manifest_count > 0 ? 'ok' : 'muted')}
-                                ${wizStatusRow('📦', 'Helm Chart', k8s.has_chart ? 'Present' : 'None', k8s.has_chart ? 'ok' : 'muted')}
+                                ${wizStatusRow('☸️', 'kubectl', k8s.has_kubectl ? 'Available' : 'Not found', k8s.has_kubectl ? 'ok' : 'error', false, 'k8s-detect-kubectl')}
+                                ${wizStatusRow('⎈', 'Helm', k8s.has_helm ? 'Available' : 'Not found', k8s.has_helm ? 'ok' : 'muted', false, 'k8s-detect-helm')}
+                                ${wizStatusRow('🔗', 'Cluster', k8s.cluster_connected ? 'Connected' : 'Not connected', k8s.cluster_connected ? 'ok' : 'warn', false, 'k8s-detect-cluster')}
+                                ${wizStatusRow('📄', 'Manifests', k8s.manifest_count > 0 ? `${k8s.manifest_count} found` : 'None', k8s.manifest_count > 0 ? 'ok' : 'muted', false, 'k8s-detect-manifests')}
+                                ${wizStatusRow('📦', 'Helm Chart', k8s.has_chart ? 'Present' : 'None', k8s.has_chart ? 'ok' : 'muted', false, 'k8s-detect-chart')}
                             </div>`;
 
                             // ── Section 2: Docker Context ──
-                            html += wizSection('Docker Context', 'Container infrastructure feeding K8s deployments.');
+                            html += wizSection('Docker Context', 'Container infrastructure feeding K8s deployments.', 'k8s-detect-docker');
                             html += `<div class="wiz-status-grid">
-                                ${wizStatusRow('🐳', 'Docker', dockerStatus.available ? 'Available' : 'Not installed', dockerStatus.available ? 'ok' : 'error')}
-                                ${wizStatusRow('📋', 'Compose file', docker.has_compose ? (dockerStatus.compose_file || 'Present') : 'Missing', docker.has_compose ? 'ok' : 'warn')}
-                                ${wizStatusRow('📄', 'Dockerfiles', docker.has_dockerfile ? `${(dockerStatus.dockerfiles || []).length} found` : 'Missing', docker.has_dockerfile ? 'ok' : 'warn')}
+                                ${wizStatusRow('🐳', 'Docker', dockerStatus.available ? 'Available' : 'Not installed', dockerStatus.available ? 'ok' : 'error', false, 'k8s-detect-docker-cli')}
+                                ${wizStatusRow('📋', 'Compose file', docker.has_compose ? (dockerStatus.compose_file || 'Present') : 'Missing', docker.has_compose ? 'ok' : 'warn', false, 'k8s-detect-compose-file')}
+                                ${wizStatusRow('📄', 'Dockerfiles', docker.has_dockerfile ? `${(dockerStatus.dockerfiles || []).length} found` : 'Missing', docker.has_dockerfile ? 'ok' : 'warn', false, 'k8s-detect-dockerfiles')}
                             </div>`;
 
                             if (!docker.has_dockerfile && !docker.has_compose) {
-                                html += `<div class="wiz-step-warn-panel" style="margin-top:0.5rem">
+                                html += `<div id="k8s-detect-docker-warn" class="wiz-step-warn-panel" style="margin-top:0.5rem">
                                     <span>💡</span>
                                     <span style="flex:1">Set up Docker first — K8s deployments need container images.</span>
                                     <button class="btn btn-sm btn-secondary" style="flex-shrink:0" onclick="wizardModalClose(); setTimeout(openDockerSetupWizard, 200)">Setup Docker →</button>
@@ -108,9 +108,10 @@
                             if (composeDetails.length > 0) {
                                 html += wizSection(
                                     'Compose Services',
-                                    `${composeDetails.length} service${composeDetails.length !== 1 ? 's' : ''} detected — ${appServices.length} application, ${infraServices.length} infrastructure.`
+                                    `${composeDetails.length} service${composeDetails.length !== 1 ? 's' : ''} detected — ${appServices.length} application, ${infraServices.length} infrastructure.`,
+                                    'k8s-detect-compose'
                                 );
-                                html += `<div style="display:flex;flex-direction:column;gap:0.25rem">`;
+                                html += `<div id="k8s-detect-svc-list" style="display:flex;flex-direction:column;gap:0.25rem">`;
                                 for (const svc of classifiedServices) {
                                     const isApp = svc._class === 'application';
                                     const badgeColor = isApp ? 'var(--success)' : 'var(--text-muted)';
@@ -145,8 +146,8 @@
                                 }
                             } else if (deployableModules.length > 0) {
                                 // No compose but we have modules
-                                html += wizSection('Project Modules', `${deployableModules.length} deployable module${deployableModules.length !== 1 ? 's' : ''} detected.`);
-                                html += `<div style="display:flex;flex-direction:column;gap:0.25rem">`;
+                                html += wizSection('Project Modules', `${deployableModules.length} deployable module${deployableModules.length !== 1 ? 's' : ''} detected.`, 'k8s-detect-modules');
+                                html += `<div id="k8s-detect-mod-list" style="display:flex;flex-direction:column;gap:0.25rem">`;
                                 for (const m of classifiedModules) {
                                     const isDep = m._class === 'deployable';
                                     const badgeColor = isDep ? 'var(--success)' : 'var(--text-muted)';
@@ -164,17 +165,17 @@
 
                             // ── Section 4: Image Registry Context ──
                             if (ghRepo.owner) {
-                                html += wizSection('Registry Context', 'Container image naming from GitHub.');
+                                html += wizSection('Registry Context', 'Container image naming from GitHub.', 'k8s-detect-registry');
                                 html += `<div class="wiz-status-grid">
-                                    ${wizStatusRow('🐙', 'Repository', `${ghRepo.owner}/${ghRepo.name}`, 'ok')}
-                                    ${wizStatusRow('📦', 'Registry', `ghcr.io/${ghRepo.owner}/${ghRepo.name}`, 'ok')}
+                                    ${wizStatusRow('🐙', 'Repository', `${ghRepo.owner}/${ghRepo.name}`, 'ok', false, 'k8s-detect-repo')}
+                                    ${wizStatusRow('📦', 'Registry', `ghcr.io/${ghRepo.owner}/${ghRepo.name}`, 'ok', false, 'k8s-detect-registry-url')}
                                 </div>`;
                             }
 
                             // ── Section 5: Environments ──
                             if (envs.length > 0) {
-                                html += wizSection('Environments', `${envs.length} deployment environment${envs.length !== 1 ? 's' : ''} configured.`);
-                                html += `<div style="display:flex;flex-wrap:wrap;gap:0.3rem">`;
+                                html += wizSection('Environments', `${envs.length} deployment environment${envs.length !== 1 ? 's' : ''} configured.`, 'k8s-detect-envs');
+                                html += `<div id="k8s-detect-env-list" style="display:flex;flex-wrap:wrap;gap:0.3rem">`;
                                 for (const env of envs) {
                                     html += `<span style="display:inline-flex;align-items:center;gap:0.25rem;font-size:0.78rem;padding:0.2rem 0.5rem;border-radius:4px;background:var(--bg-inset);border:1px solid var(--border-subtle)">
                                         ${env.default ? '⭐' : '🏷️'} ${esc(env.name)}

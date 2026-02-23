@@ -109,10 +109,12 @@ Before making ANY change, answer these questions:
 8. **Modifying vault without understanding the session lifecycle** → The passphrase is held in RAM for auto-lock. See `src/admin/vault.py`.
 
 
-**** IMPORTANT MUST ALSO READ ".agent/workflows/why-do-AI-get-obliterated-RESTATEMENT-1.md" ****
-**** IMPORTANT MUST ALSO READ ".agent/workflows/why-do-AI-get-obliterated-RESTATEMENT-2.md" ****
-**** IMPORTANT MUST ALSO READ ".agent/workflows/why-do-AI-get-obliterated-RESTATEMENT-3.md" ****
-**** IMPORTANT MUST ALSO READ ".agent/workflows/why-do-AI-get-obliterated-RESTATEMENT-4.md" ****
-**** IMPORTANT MUST ALSO READ ".agent/workflows/why-do-AI-get-obliterated-RESTATEMENT-5.md" ****
-**** IMPORTANT MUST ALSO READ ".agent/workflows/why-do-AI-get-obliterated-RESTATEMENT-6.md" ****
-**** IMPORTANT MUST ALSO READ ".agent/workflows/why-do-AI-get-obliterated-RESTATEMENT-7.md" ****
+MUST ACKNOWLEDGE: 
+- ".agent/workflows/AI-POSTMORTEM-IMPORTANT-1.md"
+- ".agent/workflows/AI-POSTMORTEM-IMPORTANT-2.md"
+- ".agent/workflows/AI-POSTMORTEM-IMPORTANT-3.md"
+- ".agent/workflows/AI-POSTMORTEM-IMPORTANT-4.md"
+- ".agent/workflows/AI-POSTMORTEM-IMPORTANT-5.md"
+- ".agent/workflows/AI-POSTMORTEM-IMPORTANT-6.md"
+- ".agent/workflows/AI-POSTMORTEM-IMPORTANT-7.md"
+- ".agent/workflows/AI-POSTMORTEM-IMPORTANT-8.md"

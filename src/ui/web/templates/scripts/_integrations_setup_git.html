@@ -6,6 +6,20 @@
     // ── Git Setup Wizard ───────────────────────────────────────────────
 
     function openGitSetupWizard() {
+        // Register step-aware resolver for context header
+        if (window._assistant) {
+            window._assistant.resolvers.gitStepIntro = function() {
+                var body = document.getElementById('wiz-step-body');
+                if (!body) return '';
+                if (body.querySelector('#git-detect-banner, #git-detect-grid'))
+                    return 'This step scans your current Git setup — nothing changes until you reach Configure.';
+                if (body.querySelector('[id^="git-cfg-"]'))
+                    return 'Now you can act on what was detected. Remote changes are immediate; everything else queues for Review.';
+                if (body.querySelector('[id^="git-review-"], .wiz-section-header'))
+                    return 'Review all planned changes before applying. Nothing is written until you click Finish.';
+                return '';
+            };
+        }
         wizardModalOpen({
             title: '🔀 Git Setup',
             assistantContext: 'setup/git',

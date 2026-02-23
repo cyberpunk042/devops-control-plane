@@ -13,7 +13,9 @@
     "ports": [
       {
         "port": 5432,
-        "label": "PostgreSQL"
+        "label": "PostgreSQL",
+        "proto": "tcp",
+        "purpose": "wire"
       }
     ],
     "envFields": [
@@ -40,7 +42,8 @@
         "name": "pgdata",
         "mount": "/var/lib/postgresql/data"
       }
-    ]
+    ],
+    "description": "Advanced open-source relational database with strong ACID compliance, JSON support, full-text search, and extensions ecosystem. The most popular choice for modern web applications."
   },
   {
     "key": "mysql",
@@ -54,7 +57,9 @@
     "ports": [
       {
         "port": 3306,
-        "label": "MySQL"
+        "label": "MySQL",
+        "proto": "tcp",
+        "purpose": "wire"
       }
     ],
     "envFields": [
@@ -87,7 +92,8 @@
         "name": "mysqldata",
         "mount": "/var/lib/mysql"
       }
-    ]
+    ],
+    "description": "Widely-deployed open-source relational database. Fast reads, mature replication, and broad ORM/driver support across all major languages. Owned by Oracle."
   },
   {
     "key": "mariadb",
@@ -101,7 +107,9 @@
     "ports": [
       {
         "port": 3306,
-        "label": "MariaDB"
+        "label": "MariaDB",
+        "proto": "tcp",
+        "purpose": "wire"
       }
     ],
     "envFields": [
@@ -134,7 +142,8 @@
         "name": "mariadbdata",
         "mount": "/var/lib/mysql"
       }
-    ]
+    ],
+    "description": "Community-maintained fork of MySQL with additional storage engines, better performance defaults, and fully open-source governance. Drop-in MySQL replacement."
   },
   {
     "key": "mssql",
@@ -147,7 +156,9 @@
     "ports": [
       {
         "port": 1433,
-        "label": "SQL Server"
+        "label": "SQL Server",
+        "proto": "tcp",
+        "purpose": "wire"
       }
     ],
     "envFields": [
@@ -170,7 +181,8 @@
         "name": "mssqldata",
         "mount": "/var/opt/mssql"
       }
-    ]
+    ],
+    "description": "Microsoft SQL Server — enterprise-grade relational database with T-SQL, integrated analytics, and Windows/AD integration. Requires EULA acceptance."
   },
   {
     "key": "cockroachdb",
@@ -183,11 +195,15 @@
     "ports": [
       {
         "port": 26257,
-        "label": "SQL"
+        "label": "SQL",
+        "proto": "tcp",
+        "purpose": "wire"
       },
       {
         "port": 8080,
-        "label": "Admin UI"
+        "label": "Admin UI",
+        "proto": "tcp",
+        "purpose": "admin"
       }
     ],
     "envFields": [],
@@ -197,7 +213,8 @@
         "mount": "/cockroach/cockroach-data"
       }
     ],
-    "command": "start-single-node --insecure"
+    "command": "start-single-node --insecure",
+    "description": "Distributed SQL database designed for horizontal scaling and survivability. PostgreSQL-compatible wire protocol with automatic sharding and multi-region replication."
   },
   {
     "key": "mongo",
@@ -211,7 +228,9 @@
     "ports": [
       {
         "port": 27017,
-        "label": "MongoDB"
+        "label": "MongoDB",
+        "proto": "tcp",
+        "purpose": "wire"
       }
     ],
     "envFields": [
@@ -237,7 +256,8 @@
         "name": "mongodata",
         "mount": "/data/db"
       }
-    ]
+    ],
+    "description": "Document-oriented NoSQL database storing data as flexible JSON-like BSON documents. Excellent for rapid prototyping and schema-flexible workloads."
   },
   {
     "key": "cassandra",
@@ -250,7 +270,9 @@
     "ports": [
       {
         "port": 9042,
-        "label": "CQL"
+        "label": "CQL",
+        "proto": "tcp",
+        "purpose": "wire"
       }
     ],
     "envFields": [
@@ -265,7 +287,8 @@
         "name": "cassandradata",
         "mount": "/var/lib/cassandra"
       }
-    ]
+    ],
+    "description": "Wide-column distributed database built for massive write throughput and linear horizontal scaling. No single point of failure. Used by Netflix, Apple, and Discord."
   },
   {
     "key": "couchdb",
@@ -278,7 +301,9 @@
     "ports": [
       {
         "port": 5984,
-        "label": "HTTP API"
+        "label": "HTTP API",
+        "proto": "tcp",
+        "purpose": "http"
       }
     ],
     "envFields": [
@@ -300,7 +325,8 @@
         "name": "couchdbdata",
         "mount": "/opt/couchdb/data"
       }
-    ]
+    ],
+    "description": "Document database with built-in HTTP API and multi-master replication. Designed for offline-first and sync-heavy applications using CouchDB replication protocol."
   },
   {
     "key": "neo4j",
@@ -314,11 +340,15 @@
     "ports": [
       {
         "port": 7474,
-        "label": "Browser"
+        "label": "Browser",
+        "proto": "tcp",
+        "purpose": "http"
       },
       {
         "port": 7687,
-        "label": "Bolt"
+        "label": "Bolt",
+        "proto": "tcp",
+        "purpose": "wire"
       }
     ],
     "envFields": [
@@ -334,7 +364,8 @@
         "name": "neo4jdata",
         "mount": "/data"
       }
-    ]
+    ],
+    "description": "Native graph database for connected data — relationships are first-class citizens. Cypher query language for traversing social networks, knowledge graphs, and recommendations."
   },
   {
     "key": "arangodb",
@@ -347,7 +378,9 @@
     "ports": [
       {
         "port": 8529,
-        "label": "HTTP API"
+        "label": "HTTP API",
+        "proto": "tcp",
+        "purpose": "http"
       }
     ],
     "envFields": [
@@ -364,7 +397,8 @@
         "name": "arangodata",
         "mount": "/var/lib/arangodb3"
       }
-    ]
+    ],
+    "description": "Multi-model database combining document, graph, and key-value in one engine. Single query language (AQL) across all data models."
   },
   {
     "key": "dynamodb",
@@ -376,12 +410,15 @@
     "ports": [
       {
         "port": 8000,
-        "label": "DynamoDB"
+        "label": "DynamoDB",
+        "proto": "tcp",
+        "purpose": "http"
       }
     ],
     "envFields": [],
     "volumes": [],
-    "note": "Local dev emulator — no auth needed"
+    "note": "Local dev emulator — no auth needed",
+    "description": "Local emulator for AWS DynamoDB — key-value and document database. Develop and test DynamoDB-dependent code without AWS credentials or costs."
   },
   {
     "key": "influxdb",
@@ -394,7 +431,9 @@
     "ports": [
       {
         "port": 8086,
-        "label": "HTTP API"
+        "label": "HTTP API",
+        "proto": "tcp",
+        "purpose": "http"
       }
     ],
     "envFields": [
@@ -431,7 +470,8 @@
         "name": "influxdata",
         "mount": "/var/lib/influxdb2"
       }
-    ]
+    ],
+    "description": "Purpose-built time-series database optimized for high-ingest metrics, IoT sensor data, and real-time analytics. InfluxQL and Flux query languages."
   },
   {
     "key": "clickhouse",
@@ -444,11 +484,15 @@
     "ports": [
       {
         "port": 8123,
-        "label": "HTTP"
+        "label": "HTTP",
+        "proto": "tcp",
+        "purpose": "http"
       },
       {
         "port": 9000,
-        "label": "Native"
+        "label": "Native",
+        "proto": "tcp",
+        "purpose": "wire"
       }
     ],
     "envFields": [
@@ -474,7 +518,8 @@
         "name": "clickhousedata",
         "mount": "/var/lib/clickhouse"
       }
-    ]
+    ],
+    "description": "Column-oriented OLAP database for real-time analytical queries over billions of rows. Extremely fast aggregations and compression. Created by Yandex."
   },
   {
     "key": "timescaledb",
@@ -487,7 +532,9 @@
     "ports": [
       {
         "port": 5432,
-        "label": "PostgreSQL"
+        "label": "PostgreSQL",
+        "proto": "tcp",
+        "purpose": "wire"
       }
     ],
     "envFields": [
@@ -514,7 +561,8 @@
         "name": "timescaledata",
         "mount": "/var/lib/postgresql/data"
       }
-    ]
+    ],
+    "description": "PostgreSQL extension for time-series data — full SQL support with automatic partitioning (hypertables), continuous aggregates, and compression. Compatible with all PostgreSQL tools."
   },
   {
     "key": "surrealdb",
@@ -527,7 +575,9 @@
     "ports": [
       {
         "port": 8000,
-        "label": "HTTP"
+        "label": "HTTP",
+        "proto": "tcp",
+        "purpose": "http"
       }
     ],
     "envFields": [
@@ -549,7 +599,8 @@
         "mount": "/data"
       }
     ],
-    "command": "start --user root --pass changeme file:/data/srdb.db"
+    "command": "start --user root --pass changeme file:/data/srdb.db",
+    "description": "Multi-model cloud-native database combining relational, document, graph, and key-value paradigms with a single query language (SurrealQL). Real-time subscriptions built in."
   },
   {
     "key": "redis",
@@ -563,7 +614,9 @@
     "ports": [
       {
         "port": 6379,
-        "label": "Redis"
+        "label": "Redis",
+        "proto": "tcp",
+        "purpose": "wire"
       }
     ],
     "envFields": [],
@@ -573,7 +626,8 @@
         "mount": "/data"
       }
     ],
-    "note": "Add --requirepass &lt;pw&gt; to command for auth"
+    "note": "Add --requirepass &lt;pw&gt; to command for auth",
+    "description": "In-memory data store used as cache, message broker, and session store. Sub-millisecond latency with persistence options (RDB snapshots, AOF logs). The industry standard for caching."
   },
   {
     "key": "valkey",
@@ -587,7 +641,9 @@
     "ports": [
       {
         "port": 6379,
-        "label": "Valkey"
+        "label": "Valkey",
+        "proto": "tcp",
+        "purpose": "wire"
       }
     ],
     "envFields": [],
@@ -597,7 +653,8 @@
         "mount": "/data"
       }
     ],
-    "note": "Redis-compatible fork by Linux Foundation"
+    "note": "Redis-compatible fork by Linux Foundation",
+    "description": "Open-source fork of Redis maintained by the Linux Foundation after Redis license change. API-compatible — existing Redis clients and commands work unchanged."
   },
   {
     "key": "keydb",
@@ -610,11 +667,14 @@
     "ports": [
       {
         "port": 6379,
-        "label": "KeyDB"
+        "label": "KeyDB",
+        "proto": "tcp",
+        "purpose": "wire"
       }
     ],
     "envFields": [],
-    "volumes": []
+    "volumes": [],
+    "description": "Multi-threaded Redis-compatible database with higher throughput on multi-core systems. Active replication and MVCC support. Drop-in Redis replacement."
   },
   {
     "key": "memcached",
@@ -627,7 +687,9 @@
     "ports": [
       {
         "port": 11211,
-        "label": "Memcached"
+        "label": "Memcached",
+        "proto": "tcp",
+        "purpose": "wire"
       }
     ],
     "envFields": [
@@ -638,7 +700,8 @@
       }
     ],
     "volumes": [],
-    "note": "In-memory only — no persistence"
+    "note": "In-memory only — no persistence",
+    "description": "Simple, high-performance distributed memory cache. No persistence — purely in-memory. Best for ephemeral cache layers where simplicity matters more than features."
   },
   {
     "key": "dragonfly",
@@ -650,7 +713,9 @@
     "ports": [
       {
         "port": 6379,
-        "label": "Dragonfly"
+        "label": "Dragonfly",
+        "proto": "tcp",
+        "purpose": "wire"
       }
     ],
     "envFields": [],
@@ -660,7 +725,8 @@
         "mount": "/data"
       }
     ],
-    "note": "Redis-compatible, multi-threaded"
+    "note": "Redis-compatible, multi-threaded",
+    "description": "Modern Redis/Memcached-compatible cache with multi-threaded architecture. Handles millions of ops/sec on a single instance. Dramatically lower memory usage than Redis."
   },
   {
     "key": "etcd",
@@ -673,11 +739,15 @@
     "ports": [
       {
         "port": 2379,
-        "label": "Client"
+        "label": "Client",
+        "proto": "tcp",
+        "purpose": "http"
       },
       {
         "port": 2380,
-        "label": "Peer"
+        "label": "Peer",
+        "proto": "tcp",
+        "purpose": "peer"
       }
     ],
     "envFields": [
@@ -697,7 +767,8 @@
         "name": "etcddata",
         "mount": "/etcd-data"
       }
-    ]
+    ],
+    "description": "Distributed key-value store for configuration and service discovery. The coordination backbone of Kubernetes. Strong consistency via Raft consensus."
   },
   {
     "key": "rabbitmq",
@@ -711,11 +782,15 @@
     "ports": [
       {
         "port": 5672,
-        "label": "AMQP"
+        "label": "AMQP",
+        "proto": "tcp",
+        "purpose": "wire"
       },
       {
         "port": 15672,
-        "label": "Management UI"
+        "label": "Management UI",
+        "proto": "tcp",
+        "purpose": "admin"
       }
     ],
     "envFields": [
@@ -741,7 +816,8 @@
         "name": "rabbitmqdata",
         "mount": "/var/lib/rabbitmq"
       }
-    ]
+    ],
+    "description": "Feature-rich message broker implementing AMQP, MQTT, and STOMP protocols. Flexible routing, dead-letter exchanges, and built-in management UI. Mature and battle-tested."
   },
   {
     "key": "kafka",
@@ -755,7 +831,9 @@
     "ports": [
       {
         "port": 9092,
-        "label": "Broker"
+        "label": "Broker",
+        "proto": "tcp",
+        "purpose": "wire"
       }
     ],
     "envFields": [
@@ -796,7 +874,8 @@
         "mount": "/var/lib/kafka/data"
       }
     ],
-    "note": "KRaft mode — no ZooKeeper needed"
+    "note": "KRaft mode — no ZooKeeper needed",
+    "description": "Distributed event streaming platform for high-throughput, fault-tolerant pub/sub messaging. KRaft mode eliminates the ZooKeeper dependency. The backbone of event-driven architectures."
   },
   {
     "key": "nats",
@@ -810,11 +889,15 @@
     "ports": [
       {
         "port": 4222,
-        "label": "Client"
+        "label": "Client",
+        "proto": "tcp",
+        "purpose": "wire"
       },
       {
         "port": 8222,
-        "label": "Monitoring"
+        "label": "Monitoring",
+        "proto": "tcp",
+        "purpose": "admin"
       }
     ],
     "envFields": [],
@@ -823,7 +906,8 @@
         "name": "natsdata",
         "mount": "/data"
       }
-    ]
+    ],
+    "description": "Lightweight, high-performance messaging system with at-most-once and JetStream (at-least-once) delivery. Extremely low latency and simple to operate."
   },
   {
     "key": "mosquitto",
@@ -836,11 +920,15 @@
     "ports": [
       {
         "port": 1883,
-        "label": "MQTT"
+        "label": "MQTT",
+        "proto": "tcp",
+        "purpose": "wire"
       },
       {
         "port": 9001,
-        "label": "WebSocket"
+        "label": "WebSocket",
+        "proto": "tcp",
+        "purpose": "ws"
       }
     ],
     "envFields": [],
@@ -850,7 +938,8 @@
         "mount": "/mosquitto/data"
       }
     ],
-    "note": "Needs mosquitto.conf for listener config"
+    "note": "Needs mosquitto.conf for listener config",
+    "description": "Lightweight MQTT broker for IoT and publish/subscribe messaging. Low resource footprint — ideal for edge devices and sensor networks. Requires custom configuration file."
   },
   {
     "key": "redpanda",
@@ -863,15 +952,21 @@
     "ports": [
       {
         "port": 9092,
-        "label": "Kafka API"
+        "label": "Kafka API",
+        "proto": "tcp",
+        "purpose": "wire"
       },
       {
         "port": 8081,
-        "label": "Schema Registry"
+        "label": "Schema Registry",
+        "proto": "tcp",
+        "purpose": "http"
       },
       {
         "port": 8082,
-        "label": "Pandaproxy"
+        "label": "Pandaproxy",
+        "proto": "tcp",
+        "purpose": "http"
       }
     ],
     "envFields": [],
@@ -881,7 +976,8 @@
         "mount": "/var/lib/redpanda/data"
       }
     ],
-    "command": "redpanda start --smp 1 --memory 512M --overprovisioned --kafka-addr 0.0.0.0:9092"
+    "command": "redpanda start --smp 1 --memory 512M --overprovisioned --kafka-addr 0.0.0.0:9092",
+    "description": "Kafka-compatible streaming platform written in C++ — no JVM, no ZooKeeper. Lower latency and simpler operations than Kafka with full API compatibility."
   },
   {
     "key": "activemq",
@@ -894,11 +990,15 @@
     "ports": [
       {
         "port": 61616,
-        "label": "OpenWire"
+        "label": "OpenWire",
+        "proto": "tcp",
+        "purpose": "wire"
       },
       {
         "port": 8161,
-        "label": "Web Console"
+        "label": "Web Console",
+        "proto": "tcp",
+        "purpose": "admin"
       }
     ],
     "envFields": [
@@ -919,7 +1019,8 @@
         "name": "activemqdata",
         "mount": "/var/lib/artemis-instance"
       }
-    ]
+    ],
+    "description": "Apache ActiveMQ Artemis — high-performance, multi-protocol message broker supporting AMQP, MQTT, STOMP, OpenWire, and HornetQ. Enterprise-grade with journal persistence."
   },
   {
     "key": "celery",
@@ -944,7 +1045,8 @@
     ],
     "volumes": [],
     "command": "celery -A tasks worker --loglevel=info",
-    "note": "Requires a broker service (Redis/RabbitMQ)"
+    "note": "Requires a broker service (Redis/RabbitMQ)",
+    "description": "Python distributed task queue for async background processing. Not a standalone broker — requires Redis or RabbitMQ as the message transport layer."
   },
   {
     "key": "elasticsearch",
@@ -957,11 +1059,15 @@
     "ports": [
       {
         "port": 9200,
-        "label": "HTTP"
+        "label": "HTTP",
+        "proto": "tcp",
+        "purpose": "http"
       },
       {
         "port": 9300,
-        "label": "Transport"
+        "label": "Transport",
+        "proto": "tcp",
+        "purpose": "peer"
       }
     ],
     "envFields": [
@@ -992,7 +1098,8 @@
         "name": "esdata",
         "mount": "/usr/share/elasticsearch/data"
       }
-    ]
+    ],
+    "description": "Distributed search and analytics engine built on Apache Lucene. Full-text search, structured queries, aggregations, and machine learning features. The ELK stack core."
   },
   {
     "key": "opensearch",
@@ -1005,11 +1112,15 @@
     "ports": [
       {
         "port": 9200,
-        "label": "HTTP"
+        "label": "HTTP",
+        "proto": "tcp",
+        "purpose": "http"
       },
       {
         "port": 9600,
-        "label": "Performance"
+        "label": "Performance",
+        "proto": "tcp",
+        "purpose": "admin"
       }
     ],
     "envFields": [
@@ -1034,7 +1145,8 @@
         "name": "osdata",
         "mount": "/usr/share/opensearch/data"
       }
-    ]
+    ],
+    "description": "Community-driven fork of Elasticsearch (post-license change). Fully compatible APIs with additional security, alerting, and observability plugins. Apache 2.0 licensed."
   },
   {
     "key": "meilisearch",
@@ -1047,7 +1159,9 @@
     "ports": [
       {
         "port": 7700,
-        "label": "HTTP"
+        "label": "HTTP",
+        "proto": "tcp",
+        "purpose": "http"
       }
     ],
     "envFields": [
@@ -1068,7 +1182,8 @@
         "name": "meilidata",
         "mount": "/meili_data"
       }
-    ]
+    ],
+    "description": "Lightning-fast, typo-tolerant search engine designed for end-user facing search. Simple REST API, instant indexing, and excellent relevance out of the box."
   },
   {
     "key": "typesense",
@@ -1081,7 +1196,9 @@
     "ports": [
       {
         "port": 8108,
-        "label": "HTTP"
+        "label": "HTTP",
+        "proto": "tcp",
+        "purpose": "http"
       }
     ],
     "envFields": [
@@ -1103,7 +1220,8 @@
         "name": "typesensedata",
         "mount": "/data"
       }
-    ]
+    ],
+    "description": "Open-source search engine focused on developer experience — easy to set up, fast typo-tolerant search, and built-in faceting. A simpler Algolia alternative."
   },
   {
     "key": "solr",
@@ -1116,7 +1234,9 @@
     "ports": [
       {
         "port": 8983,
-        "label": "HTTP"
+        "label": "HTTP",
+        "proto": "tcp",
+        "purpose": "http"
       }
     ],
     "envFields": [
@@ -1131,7 +1251,8 @@
         "name": "solrdata",
         "mount": "/var/solr"
       }
-    ]
+    ],
+    "description": "Enterprise search platform built on Apache Lucene. Mature, feature-rich with faceted search, distributed indexing (SolrCloud), and extensive plugin ecosystem."
   },
   {
     "key": "nginx",
@@ -1145,16 +1266,21 @@
     "ports": [
       {
         "port": 80,
-        "label": "HTTP"
+        "label": "HTTP",
+        "proto": "tcp",
+        "purpose": "http"
       },
       {
         "port": 443,
-        "label": "HTTPS"
+        "label": "HTTPS",
+        "proto": "tcp",
+        "purpose": "http"
       }
     ],
     "envFields": [],
     "volumes": [],
-    "note": "Mount your nginx.conf via volumes"
+    "note": "Mount your nginx.conf via volumes",
+    "description": "High-performance HTTP server, reverse proxy, and load balancer. The most deployed web server worldwide. Requires mounting a custom nginx.conf configuration file."
   },
   {
     "key": "traefik",
@@ -1168,15 +1294,21 @@
     "ports": [
       {
         "port": 80,
-        "label": "HTTP"
+        "label": "HTTP",
+        "proto": "tcp",
+        "purpose": "http"
       },
       {
         "port": 443,
-        "label": "HTTPS"
+        "label": "HTTPS",
+        "proto": "tcp",
+        "purpose": "http"
       },
       {
         "port": 8080,
-        "label": "Dashboard"
+        "label": "Dashboard",
+        "proto": "tcp",
+        "purpose": "admin"
       }
     ],
     "envFields": [],
@@ -1187,7 +1319,8 @@
       }
     ],
     "command": "--api.insecure=true --providers.docker=true",
-    "note": "Auto-discovers Docker containers"
+    "note": "Auto-discovers Docker containers",
+    "description": "Cloud-native reverse proxy with automatic service discovery from Docker labels and Kubernetes Ingress. Dynamic configuration — no restarts needed when services change."
   },
   {
     "key": "caddy",
@@ -1201,11 +1334,15 @@
     "ports": [
       {
         "port": 80,
-        "label": "HTTP"
+        "label": "HTTP",
+        "proto": "tcp",
+        "purpose": "http"
       },
       {
         "port": 443,
-        "label": "HTTPS"
+        "label": "HTTPS",
+        "proto": "tcp",
+        "purpose": "http"
       }
     ],
     "envFields": [],
@@ -1219,7 +1356,8 @@
         "mount": "/config"
       }
     ],
-    "note": "Automatic HTTPS via Let's Encrypt"
+    "note": "Automatic HTTPS via Let's Encrypt",
+    "description": "Modern web server with automatic HTTPS via Let's Encrypt — zero configuration TLS. Simple Caddyfile syntax for reverse proxy, file serving, and load balancing."
   },
   {
     "key": "haproxy",
@@ -1233,20 +1371,27 @@
     "ports": [
       {
         "port": 80,
-        "label": "HTTP"
+        "label": "HTTP",
+        "proto": "tcp",
+        "purpose": "http"
       },
       {
         "port": 443,
-        "label": "HTTPS"
+        "label": "HTTPS",
+        "proto": "tcp",
+        "purpose": "http"
       },
       {
         "port": 8404,
-        "label": "Stats"
+        "label": "Stats",
+        "proto": "tcp",
+        "purpose": "admin"
       }
     ],
     "envFields": [],
     "volumes": [],
-    "note": "Mount your haproxy.cfg via volumes"
+    "note": "Mount your haproxy.cfg via volumes",
+    "description": "High-availability TCP/HTTP load balancer and proxy. Industry standard for mission-critical traffic routing with advanced health checking and connection management."
   },
   {
     "key": "envoy",
@@ -1259,16 +1404,21 @@
     "ports": [
       {
         "port": 10000,
-        "label": "Listener"
+        "label": "Listener",
+        "proto": "tcp",
+        "purpose": "http"
       },
       {
         "port": 9901,
-        "label": "Admin"
+        "label": "Admin",
+        "proto": "tcp",
+        "purpose": "admin"
       }
     ],
     "envFields": [],
     "volumes": [],
-    "note": "Mount envoy.yaml config via volumes"
+    "note": "Mount envoy.yaml config via volumes",
+    "description": "Cloud-native L7 proxy designed for service mesh architectures. Advanced load balancing, observability, and traffic management. The data plane for Istio."
   },
   {
     "key": "prometheus",
@@ -1281,7 +1431,9 @@
     "ports": [
       {
         "port": 9090,
-        "label": "HTTP"
+        "label": "HTTP",
+        "proto": "tcp",
+        "purpose": "http"
       }
     ],
     "envFields": [],
@@ -1291,7 +1443,8 @@
         "mount": "/prometheus"
       }
     ],
-    "note": "Mount prometheus.yml config via volumes"
+    "note": "Mount prometheus.yml config via volumes",
+    "description": "Pull-based metrics collection and alerting system. Time-series database with PromQL query language. The standard for Kubernetes and cloud-native monitoring."
   },
   {
     "key": "grafana",
@@ -1305,7 +1458,9 @@
     "ports": [
       {
         "port": 3000,
-        "label": "HTTP"
+        "label": "HTTP",
+        "proto": "tcp",
+        "purpose": "http"
       }
     ],
     "envFields": [
@@ -1332,7 +1487,8 @@
         "name": "grafanadata",
         "mount": "/var/lib/grafana"
       }
-    ]
+    ],
+    "description": "Visualization and dashboarding platform supporting Prometheus, Loki, Elasticsearch, and 50+ data sources. Build dashboards, set alerts, and explore metrics."
   },
   {
     "key": "jaeger",
@@ -1345,15 +1501,21 @@
     "ports": [
       {
         "port": 16686,
-        "label": "UI"
+        "label": "UI",
+        "proto": "tcp",
+        "purpose": "admin"
       },
       {
         "port": 4317,
-        "label": "OTLP gRPC"
+        "label": "OTLP gRPC",
+        "proto": "tcp",
+        "purpose": "grpc"
       },
       {
         "port": 4318,
-        "label": "OTLP HTTP"
+        "label": "OTLP HTTP",
+        "proto": "tcp",
+        "purpose": "http"
       }
     ],
     "envFields": [
@@ -1364,7 +1526,8 @@
       }
     ],
     "volumes": [],
-    "note": "All-in-one dev image — uses memory storage"
+    "note": "All-in-one dev image — uses memory storage",
+    "description": "Distributed tracing backend for monitoring microservice request flows. Visualize latency, find bottlenecks, and trace requests across service boundaries. OpenTelemetry-native."
   },
   {
     "key": "zipkin",
@@ -1377,12 +1540,15 @@
     "ports": [
       {
         "port": 9411,
-        "label": "HTTP"
+        "label": "HTTP",
+        "proto": "tcp",
+        "purpose": "http"
       }
     ],
     "envFields": [],
     "volumes": [],
-    "note": "In-memory storage by default"
+    "note": "In-memory storage by default",
+    "description": "Distributed tracing system for gathering timing data across microservices. Simpler than Jaeger with a clean web UI. Supports OpenTelemetry and B3 propagation."
   },
   {
     "key": "otel",
@@ -1395,20 +1561,27 @@
     "ports": [
       {
         "port": 4317,
-        "label": "OTLP gRPC"
+        "label": "OTLP gRPC",
+        "proto": "tcp",
+        "purpose": "grpc"
       },
       {
         "port": 4318,
-        "label": "OTLP HTTP"
+        "label": "OTLP HTTP",
+        "proto": "tcp",
+        "purpose": "http"
       },
       {
         "port": 8888,
-        "label": "Metrics"
+        "label": "Metrics",
+        "proto": "tcp",
+        "purpose": "admin"
       }
     ],
     "envFields": [],
     "volumes": [],
-    "note": "Mount otel-config.yaml via volumes"
+    "note": "Mount otel-config.yaml via volumes",
+    "description": "OpenTelemetry Collector — vendor-neutral telemetry pipeline that receives, processes, and exports traces, metrics, and logs. The standard telemetry gateway."
   },
   {
     "key": "uptimekuma",
@@ -1421,7 +1594,9 @@
     "ports": [
       {
         "port": 3001,
-        "label": "HTTP"
+        "label": "HTTP",
+        "proto": "tcp",
+        "purpose": "http"
       }
     ],
     "envFields": [],
@@ -1430,7 +1605,8 @@
         "name": "uptimekuma",
         "mount": "/app/data"
       }
-    ]
+    ],
+    "description": "Self-hosted uptime monitoring tool with a clean UI. Monitors HTTP, TCP, DNS, and Docker containers. Notifications via Slack, Discord, email, and 90+ integrations."
   },
   {
     "key": "loki",
@@ -1443,7 +1619,9 @@
     "ports": [
       {
         "port": 3100,
-        "label": "HTTP"
+        "label": "HTTP",
+        "proto": "tcp",
+        "purpose": "http"
       }
     ],
     "envFields": [],
@@ -1453,7 +1631,8 @@
         "mount": "/loki"
       }
     ],
-    "note": "Use with Grafana for log visualization"
+    "note": "Use with Grafana for log visualization",
+    "description": "Log aggregation system from Grafana Labs — designed to pair with Grafana. Indexes labels only (not full text), making it cost-efficient for high-volume logs."
   },
   {
     "key": "fluentd",
@@ -1467,12 +1646,15 @@
     "ports": [
       {
         "port": 24224,
-        "label": "Forward"
+        "label": "Forward",
+        "proto": "tcp",
+        "purpose": "wire"
       }
     ],
     "envFields": [],
     "volumes": [],
-    "note": "Mount fluent.conf via volumes"
+    "note": "Mount fluent.conf via volumes",
+    "description": "Unified logging layer that collects, transforms, and routes logs from multiple sources to multiple destinations. Extensive plugin ecosystem. CNCF graduated project."
   },
   {
     "key": "kibana",
@@ -1485,7 +1667,9 @@
     "ports": [
       {
         "port": 5601,
-        "label": "HTTP"
+        "label": "HTTP",
+        "proto": "tcp",
+        "purpose": "http"
       }
     ],
     "envFields": [
@@ -1497,7 +1681,8 @@
       }
     ],
     "volumes": [],
-    "note": "Requires Elasticsearch service"
+    "note": "Requires Elasticsearch service",
+    "description": "Visualization frontend for Elasticsearch — explore logs, create dashboards, and build search interfaces. Part of the Elastic (ELK) stack. Requires Elasticsearch."
   },
   {
     "key": "vector",
@@ -1510,16 +1695,21 @@
     "ports": [
       {
         "port": 8383,
-        "label": "API"
+        "label": "API",
+        "proto": "tcp",
+        "purpose": "http"
       },
       {
         "port": 8686,
-        "label": "GraphQL"
+        "label": "GraphQL",
+        "proto": "tcp",
+        "purpose": "http"
       }
     ],
     "envFields": [],
     "volumes": [],
-    "note": "Mount vector.toml config via volumes"
+    "note": "Mount vector.toml config via volumes",
+    "description": "High-performance observability data pipeline for logs, metrics, and traces. Written in Rust — very low resource usage. Replaces Logstash, Fluentd, or Filebeat."
   },
   {
     "key": "seq",
@@ -1531,11 +1721,15 @@
     "ports": [
       {
         "port": 5341,
-        "label": "Ingestion"
+        "label": "Ingestion",
+        "proto": "tcp",
+        "purpose": "http"
       },
       {
         "port": 80,
-        "label": "UI"
+        "label": "UI",
+        "proto": "tcp",
+        "purpose": "admin"
       }
     ],
     "envFields": [
@@ -1551,7 +1745,8 @@
         "name": "seqdata",
         "mount": "/data"
       }
-    ]
+    ],
+    "description": "Structured log server with a powerful query interface for .NET and JSON-based logs. Real-time search, dashboards, and alerting. Requires EULA acceptance."
   },
   {
     "key": "minio",
@@ -1564,11 +1759,15 @@
     "ports": [
       {
         "port": 9000,
-        "label": "API"
+        "label": "API",
+        "proto": "tcp",
+        "purpose": "http"
       },
       {
         "port": 9001,
-        "label": "Console"
+        "label": "Console",
+        "proto": "tcp",
+        "purpose": "admin"
       }
     ],
     "envFields": [
@@ -1592,7 +1791,8 @@
         "mount": "/data"
       }
     ],
-    "command": "server /data --console-address \":9001\""
+    "command": "server /data --console-address \":9001\"",
+    "description": "S3-compatible object storage server. Run AWS S3 APIs locally for development, testing, or production. High-performance distributed storage with erasure coding."
   },
   {
     "key": "seaweedfs",
@@ -1604,11 +1804,15 @@
     "ports": [
       {
         "port": 9333,
-        "label": "Master"
+        "label": "Master",
+        "proto": "tcp",
+        "purpose": "http"
       },
       {
         "port": 8080,
-        "label": "Volume"
+        "label": "Volume",
+        "proto": "tcp",
+        "purpose": "http"
       }
     ],
     "envFields": [],
@@ -1618,7 +1822,8 @@
         "mount": "/data"
       }
     ],
-    "command": "server -master.port=9333 -volume.port=8080 -dir=/data"
+    "command": "server -master.port=9333 -volume.port=8080 -dir=/data",
+    "description": "Distributed file system and object store optimized for billions of small files. S3-compatible API with fast lookups. Lighter weight than MinIO for large file counts."
   },
   {
     "key": "portainer",
@@ -1631,11 +1836,15 @@
     "ports": [
       {
         "port": 9443,
-        "label": "HTTPS"
+        "label": "HTTPS",
+        "proto": "tcp",
+        "purpose": "http"
       },
       {
         "port": 9000,
-        "label": "HTTP"
+        "label": "HTTP",
+        "proto": "tcp",
+        "purpose": "http"
       }
     ],
     "envFields": [],
@@ -1648,7 +1857,8 @@
         "name": "/var/run/docker.sock",
         "mount": "/var/run/docker.sock:ro"
       }
-    ]
+    ],
+    "description": "Container management UI for Docker and Kubernetes. Visual dashboard for managing containers, images, networks, and volumes without command-line tools."
   },
   {
     "key": "vault",
@@ -1661,7 +1871,9 @@
     "ports": [
       {
         "port": 8200,
-        "label": "HTTP"
+        "label": "HTTP",
+        "proto": "tcp",
+        "purpose": "http"
       }
     ],
     "envFields": [
@@ -1682,7 +1894,8 @@
         "mount": "/vault/file"
       }
     ],
-    "note": "Dev mode — single-server, in-memory"
+    "note": "Dev mode — single-server, in-memory",
+    "description": "Secrets management tool by HashiCorp — store, access, and rotate API keys, passwords, certificates, and encryption keys. Dev mode uses in-memory storage."
   },
   {
     "key": "consul",
@@ -1695,11 +1908,15 @@
     "ports": [
       {
         "port": 8500,
-        "label": "HTTP"
+        "label": "HTTP",
+        "proto": "tcp",
+        "purpose": "http"
       },
       {
         "port": 8600,
-        "label": "DNS"
+        "label": "DNS",
+        "proto": "tcp+udp",
+        "purpose": "wire"
       }
     ],
     "envFields": [],
@@ -1709,7 +1926,8 @@
         "mount": "/consul/data"
       }
     ],
-    "command": "agent -dev -client=0.0.0.0"
+    "command": "agent -dev -client=0.0.0.0",
+    "description": "Service discovery, configuration, and service mesh by HashiCorp. DNS and HTTP interfaces for service registration and health checking across distributed systems."
   },
   {
     "key": "gitea",
@@ -1722,11 +1940,15 @@
     "ports": [
       {
         "port": 3000,
-        "label": "HTTP"
+        "label": "HTTP",
+        "proto": "tcp",
+        "purpose": "http"
       },
       {
         "port": 2222,
-        "label": "SSH"
+        "label": "SSH",
+        "proto": "tcp",
+        "purpose": "ssh"
       }
     ],
     "envFields": [
@@ -1741,7 +1963,8 @@
         "name": "giteadata",
         "mount": "/data"
       }
-    ]
+    ],
+    "description": "Lightweight self-hosted Git service — a simpler alternative to GitLab. Code hosting, pull requests, issue tracking, and CI/CD webhooks with minimal resource usage."
   },
   {
     "key": "mailpit",
@@ -1753,16 +1976,21 @@
     "ports": [
       {
         "port": 8025,
-        "label": "Web UI"
+        "label": "Web UI",
+        "proto": "tcp",
+        "purpose": "admin"
       },
       {
         "port": 1025,
-        "label": "SMTP"
+        "label": "SMTP",
+        "proto": "tcp",
+        "purpose": "smtp"
       }
     ],
     "envFields": [],
     "volumes": [],
-    "note": "Catches all outgoing email — dev/test only"
+    "note": "Catches all outgoing email — dev/test only",
+    "description": "Email testing tool that captures all outgoing SMTP email in a web UI. Never accidentally send test emails to real addresses. Development and testing only."
   },
   {
     "key": "adminer",
@@ -1775,7 +2003,9 @@
     "ports": [
       {
         "port": 8080,
-        "label": "HTTP"
+        "label": "HTTP",
+        "proto": "tcp",
+        "purpose": "http"
       }
     ],
     "envFields": [
@@ -1786,7 +2016,8 @@
       }
     ],
     "volumes": [],
-    "note": "Universal database management UI"
+    "note": "Universal database management UI",
+    "description": "Single-file database management UI supporting PostgreSQL, MySQL, SQLite, MongoDB, and more. Lightweight alternative to phpMyAdmin with a cleaner interface."
   },
   {
     "key": "pgadmin",
@@ -1799,7 +2030,9 @@
     "ports": [
       {
         "port": 5050,
-        "label": "HTTP"
+        "label": "HTTP",
+        "proto": "tcp",
+        "purpose": "http"
       }
     ],
     "envFields": [
@@ -1822,7 +2055,8 @@
         "name": "pgadmindata",
         "mount": "/var/lib/pgadmin"
       }
-    ]
+    ],
+    "description": "Full-featured PostgreSQL administration and development platform. Visual query builder, server monitoring, backup/restore, and ERD diagrams."
   },
   {
     "key": "redisinsight",
@@ -1835,11 +2069,14 @@
     "ports": [
       {
         "port": 5540,
-        "label": "HTTP"
+        "label": "HTTP",
+        "proto": "tcp",
+        "purpose": "http"
       }
     ],
     "envFields": [],
     "volumes": [],
-    "note": "Connect to any Redis-compatible service"
+    "note": "Connect to any Redis-compatible service",
+    "description": "Official Redis GUI for browsing keys, running commands, profiling performance, and debugging. Connects to Redis, Valkey, KeyDB, and any Redis-compatible service."
   }
 ]
