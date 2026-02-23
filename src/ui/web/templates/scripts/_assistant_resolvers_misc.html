@@ -1,0 +1,419 @@
+<!-- Assistant Resolvers — Misc (Wizard, Integrations, GitHub, Pages, Terraform)
+     Smaller resolver groups and generic enrichers.
+     Depends on: _assistant_engine.html
+-->
+
+<script>
+(function() {
+    'use strict';
+
+    // ══════════════════════════════════════════════════════════════════
+    // ENRICHERS — Terraform dynamic child enrichment
+    // ══════════════════════════════════════════════════════════════════
+
+    // ── Terraform file enrichment (per-file analysis) ──────────────
+    window._assistant.enrichers['tf-section-files'] = function(el, extractedName) {
+        var typeSpan = el.querySelector('span[style*="text-muted"]');
+        var fileType = typeSpan ? typeSpan.textContent.trim() : '';
+
+        var tfFileTypeMap = {
+            'resource':  { icon: '📦', desc: 'declares infrastructure objects — the core of any Terraform config' },
+            'variable':  { icon: '📥', desc: 'input parameters — make configs reusable across environments' },
+            'output':    { icon: '📤', desc: 'exports values after apply — IPs, URLs, ARNs, connection strings' },
+            'provider':  { icon: '☁', desc: 'configures cloud API connections — credentials, region, features' },
+            'data':      { icon: '🔍', desc: 'reads existing infrastructure — lookup AMIs, VPCs, DNS zones without creating them' },
+            'module':    { icon: '📦', desc: 'imports reusable infrastructure packages from registry, Git, or local path' },
+            'backend':   { icon: '💾', desc: 'configures where Terraform state is stored and how it\'s locked' },
+            'locals':    { icon: '🏷️', desc: 'computed values used within the same module — reduce repetition' },
+            'terraform': { icon: '⚙️', desc: 'terraform block — version constraints, required providers, backend' },
+            'mixed':     { icon: '📄', desc: 'contains multiple block types — resources, variables, outputs, etc.' }
+        };
+
+        var typeInfo = tfFileTypeMap[fileType] || { icon: '📄', desc: 'Terraform configuration file' };
+
+        return {
+            expanded: '<div class="assistant-state-card state-info" style="margin-bottom:0.4rem">' +
+                '<div class="state-label">' + typeInfo.icon + ' ' + extractedName + (fileType ? ' <span style="font-size:0.7rem;opacity:0.7">(' + fileType + ')</span>' : '') + '</div>' +
+                '<div class="state-detail">' +
+                '<div style="font-size:0.7rem;color:var(--text-secondary);margin-top:0.1rem">' + typeInfo.desc + '</div>' +
+                '</div></div>'
+        };
+    };
+
+    // ── Terraform provider enrichment (per-provider analysis) ──────
+    window._assistant.enrichers['tf-section-providers'] = function(el, extractedName) {
+        var providerName = extractedName.toLowerCase().trim();
+        if (providerName.indexOf('/') !== -1) providerName = providerName.split('/').pop();
+
+        var tfProviderMap = {
+            'aws':          { icon: '🟧', label: 'Amazon Web Services', desc: '1000+ resource types — EC2, S3, RDS, Lambda, ECS, EKS, and more' },
+            'google':       { icon: '🔵', label: 'Google Cloud Platform', desc: 'Compute Engine, GKE, Cloud SQL, BigQuery, Cloud Functions' },
+            'azurerm':      { icon: '🔷', label: 'Microsoft Azure', desc: 'VMs, AKS, Cosmos DB, App Service, Azure Functions' },
+            'digitalocean': { icon: '🔵', label: 'DigitalOcean', desc: 'Droplets, DOKS (K8s), Spaces, Databases, App Platform' },
+            'kubernetes':   { icon: '☸️', label: 'Kubernetes', desc: 'manages K8s resources (Deployments, Services, ConfigMaps) via Terraform' },
+            'helm':         { icon: '⎈', label: 'Helm', desc: 'deploys Helm charts as Terraform resources — integrates with K8s provider' },
+            'cloudflare':   { icon: '🟠', label: 'Cloudflare', desc: 'DNS records, Workers, Tunnels, WAF rules, Page Rules' },
+            'github':       { icon: '🐙', label: 'GitHub', desc: 'repositories, teams, branch protection, Actions secrets' },
+            'gitlab':       { icon: '🦊', label: 'GitLab', desc: 'projects, groups, CI/CD variables, deploy tokens' },
+            'null':         { icon: '⬜', label: 'Null Provider', desc: 'placeholder resources for local-exec and remote-exec provisioners' },
+            'random':       { icon: '🎲', label: 'Random Provider', desc: 'generates random values — IDs, passwords, pet names, shuffles' },
+            'local':        { icon: '📁', label: 'Local Provider', desc: 'manages local files and directories via Terraform state' },
+            'tls':          { icon: '🔐', label: 'TLS Provider', desc: 'generates TLS certificates and private keys' },
+            'docker':       { icon: '🐳', label: 'Docker', desc: 'manages Docker containers, images, networks, and volumes' },
+            'vault':        { icon: '🔒', label: 'HashiCorp Vault', desc: 'manages secrets, auth backends, policies, and mounts' }
+        };
+
+        var provInfo = tfProviderMap[providerName] || { icon: '☁', label: providerName, desc: 'Terraform provider — see registry.terraform.io for documentation' };
+
+        return {
+            expanded: '<div class="assistant-state-card state-info" style="margin-bottom:0.4rem">' +
+                '<div class="state-label">' + provInfo.icon + ' ' + provInfo.label + '</div>' +
+                '<div class="state-detail">' +
+                '<div style="font-size:0.7rem;color:var(--text-secondary);margin-top:0.1rem">' + provInfo.desc + '</div>' +
+                '<div style="font-size:0.65rem;color:var(--text-muted);margin-top:0.15rem">Registry: registry.terraform.io/providers/hashicorp/' + providerName + '</div>' +
+                '</div></div>'
+        };
+    };
+
+    // ── Terraform module enrichment (per-module analysis) ──────────
+    window._assistant.enrichers['tf-section-modules'] = function(el, extractedName) {
+        var sourceEl = el.querySelector('code[style*="text-muted"]');
+        var moduleSource = sourceEl ? sourceEl.textContent.trim() : '';
+
+        var sourceType = 'unknown';
+        var sourceIcon = '📦';
+        var sourceDesc = 'Terraform module';
+        if (moduleSource.indexOf('registry.terraform.io') !== -1 || (!moduleSource.startsWith('./') && !moduleSource.startsWith('../') && !moduleSource.startsWith('git') && !moduleSource.startsWith('http') && moduleSource.indexOf('/') !== -1 && !moduleSource.startsWith('.'))) {
+            sourceType = 'registry';
+            sourceIcon = '📦';
+            sourceDesc = 'Terraform Registry module — official or community-maintained, versioned and documented';
+        } else if (moduleSource.startsWith('git::') || moduleSource.startsWith('github.com') || moduleSource.startsWith('git@')) {
+            sourceType = 'git';
+            sourceIcon = '🔗';
+            sourceDesc = 'Git-sourced module — version pinned via ?ref=tag, branch, or commit SHA';
+        } else if (moduleSource.startsWith('./') || moduleSource.startsWith('../')) {
+            sourceType = 'local';
+            sourceIcon = '📁';
+            sourceDesc = 'Local module — project-local reusable block, no network fetch needed';
+        } else if (moduleSource.startsWith('http://') || moduleSource.startsWith('https://')) {
+            sourceType = 'http';
+            sourceIcon = '🌐';
+            sourceDesc = 'HTTP-sourced module — downloaded from URL as archive';
+        } else if (moduleSource.startsWith('s3::') || moduleSource.startsWith('gcs::')) {
+            sourceType = 'cloud';
+            sourceIcon = '☁';
+            sourceDesc = 'Cloud storage module — downloaded from S3 bucket or GCS';
+        }
+
+        return {
+            expanded: '<div class="assistant-state-card state-info" style="margin-bottom:0.4rem">' +
+                '<div class="state-label">' + sourceIcon + ' ' + extractedName + ' <span style="font-size:0.7rem;opacity:0.7">(' + sourceType + ')</span></div>' +
+                '<div class="state-detail">' +
+                (moduleSource ? '<div style="font-size:0.68rem;color:var(--accent);margin-top:0.1rem"><code style="font-size:0.65rem">' + moduleSource + '</code></div>' : '') +
+                '<div style="font-size:0.7rem;color:var(--text-secondary);margin-top:0.15rem">' + sourceDesc + '</div>' +
+                '</div></div>'
+        };
+    };
+
+    // ══════════════════════════════════════════════════════════════════
+    // RESOLVERS — registered on window._assistant.resolvers
+    // ══════════════════════════════════════════════════════════════════
+
+
+    // ── Default resolvers for wizard contexts ─────────────────────
+
+    window._assistant.resolvers.envCount = function() {
+        var envs = document.querySelectorAll('#wiz-envs > div');
+        return envs ? envs.length : 0;
+    };
+
+
+    window._assistant.resolvers.domainCount = function() {
+        var domains = document.querySelectorAll('#wiz-domains > span');
+        return domains ? domains.length : 0;
+    };
+
+
+    window._assistant.resolvers.moduleCount = function() {
+        var mods = document.querySelectorAll('#wizard-modules-list > div');
+        return mods ? mods.length : 0;
+    };
+
+
+    window._assistant.resolvers.selectedStack = function() {
+        var select = document.getElementById('wiz-mod-stack');
+        if (!select || !select.value || select.value === '' || select.value === '__custom__') return '';
+
+        var stacks = (window._dcp && window._dcp.stacks) || [];
+        var stack = stacks.find(function(s) { return s.name === select.value; });
+        if (!stack) return '\n\n⚠ Stack "' + select.value + '" not found in definitions';
+
+        var lines = [];
+        lines.push('');
+        lines.push('━━━ ' + (stack.icon || '📁') + ' ' + stack.name + ' ━━━');
+        lines.push(stack.description);
+        if (stack.domain && stack.domain !== 'service') {
+            lines.push('Domain: ' + stack.domain);
+        }
+
+        if (stack.parent) {
+            var parent = stacks.find(function(s) { return s.name === stack.parent; });
+            lines.push('');
+            lines.push('↳ Based on ' + (parent ? (parent.icon || '') + ' ' : '') + stack.parent);
+
+            if (parent && parent.capabilities && stack.capabilities) {
+                var parentCaps = {};
+                parent.capabilities.forEach(function(c) { parentCaps[c] = true; });
+                var inherited = stack.capabilities.filter(function(c) { return parentCaps[c]; });
+                var added = stack.capabilities.filter(function(c) { return !parentCaps[c]; });
+
+                if (inherited.length > 0) {
+                    lines.push('  Inherited: ' + inherited.join(', '));
+                }
+                if (added.length > 0) {
+                    lines.push('  ✨ Added: ' + added.join(', '));
+                }
+            }
+        } else {
+            if (stack.capabilities && stack.capabilities.length > 0) {
+                lines.push('');
+                lines.push('Capabilities: ' + stack.capabilities.join(', '));
+            }
+        }
+
+        return lines.join('\n');
+    };
+
+
+    // ── Integrations step resolvers ──────────────────────────────
+
+    window._assistant.resolvers.toolsMissing = function() {
+        // Missing tool rows have IDs and are inside the tools container
+        var rows = document.querySelectorAll('#wiz-int-body [id^="wiz-int-tool-"]:not([style*="success"])');
+        // Better: count rows that contain the "Install" button (only missing tools have one)
+        var missing = document.querySelectorAll('#wiz-int-body [id^="wiz-int-tool-"] button');
+        return missing ? missing.length : 0;
+    };
+
+
+    window._assistant.resolvers.toolsInstalled = function() {
+        // Installed tool pills contain "✓" and have success-colored background
+        var pills = document.querySelectorAll('#wiz-int-body span[id^="wiz-int-tool-"][style*="success"]');
+        return pills ? pills.length : 0;
+    };
+
+
+    window._assistant.resolvers.toolsTotal = function() {
+        var all = document.querySelectorAll('#wiz-int-body [id^="wiz-int-tool-"]');
+        return all ? all.length : 0;
+    };
+
+
+    window._assistant.resolvers.filesDetected = function() {
+        // File pills with ● indicator (found files)
+        var pills = document.querySelectorAll('#wiz-int-files-section span[id^="wiz-int-file-"]');
+        var count = 0;
+        if (pills) {
+            pills.forEach(function(p) {
+                if (p.textContent.indexOf('●') !== -1) count++;
+            });
+        }
+        return count;
+    };
+
+
+    window._assistant.resolvers.filesTotal = function() {
+        var pills = document.querySelectorAll('#wiz-int-files-section span[id^="wiz-int-file-"]');
+        return pills ? pills.length : 0;
+    };
+
+
+    window._assistant.resolvers.integrationCount = function() {
+        var cards = document.querySelectorAll('[id^="wiz-int-wrap-"]');
+        return cards ? cards.length : 0;
+    };
+
+
+    // ── GitHub card resolvers ────────────────────────────────────
+
+    window._assistant.resolvers.ghUser = function() {
+        var pill = document.getElementById('wiz-gh-pill-user');
+        if (!pill) return '';
+        return pill.textContent.trim();  // e.g. "@cyberpunk042"
+    };
+
+
+    window._assistant.resolvers.ghRepo = function() {
+        var pill = document.getElementById('wiz-gh-pill-repo');
+        if (!pill) return '';
+        var text = pill.textContent.trim();
+        return text.indexOf('no repo') !== -1 ? '' : text;
+    };
+
+
+    window._assistant.resolvers.ghVis = function() {
+        var pill = document.getElementById('wiz-gh-pill-vis');
+        if (!pill) return '';
+        var text = pill.textContent.trim();
+        if (text.indexOf('private') !== -1) return 'private';
+        if (text.indexOf('public') !== -1) return 'public';
+        return '';
+    };
+
+
+    window._assistant.resolvers.ghBranch = function() {
+        var pill = document.getElementById('wiz-gh-pill-branch');
+        if (!pill) return '';
+        return pill.textContent.replace('🌿', '').trim();
+    };
+
+
+    window._assistant.resolvers.ghEnvTotal = function() {
+        var section = document.getElementById('wiz-gh-section-envs');
+        if (!section) return 0;
+        var rows = section.querySelectorAll('[style*="display:flex"][style*="align-items:center"]');
+        return rows ? rows.length : 0;
+    };
+
+
+    window._assistant.resolvers.ghEnvAligned = function() {
+        var section = document.getElementById('wiz-gh-section-envs');
+        if (!section) return 0;
+        var summary = section.querySelector('summary');
+        if (!summary) return 0;
+        var match = summary.textContent.match(/(\d+)\/\d+/);
+        return match ? parseInt(match[1], 10) : 0;
+    };
+
+
+    window._assistant.resolvers.ghEnvMissing = function() {
+        var total = window._assistant.resolvers.ghEnvTotal();
+        var aligned = window._assistant.resolvers.ghEnvAligned();
+        return total - aligned;
+    };
+
+
+    window._assistant.resolvers.ghWorkflows = function() {
+        var pill = document.getElementById('wiz-gh-pill-workflows');
+        if (!pill) return 0;
+        var match = pill.textContent.match(/(\d+)/);
+        return match ? parseInt(match[1], 10) : 0;
+    };
+
+
+    // ── Pages card resolvers ─────────────────────────────────────
+
+    window._assistant.resolvers.pagesSegments = function() {
+        var pill = document.getElementById('wiz-pages-pill-segments');
+        if (!pill) return 0;
+        var match = pill.textContent.match(/(\d+)/);
+        return match ? parseInt(match[1], 10) : 0;
+    };
+
+
+    window._assistant.resolvers.pagesFolders = function() {
+        var pill = document.getElementById('wiz-pages-pill-folders');
+        if (!pill) return 0;
+        var match = pill.textContent.match(/(\d+)/);
+        return match ? parseInt(match[1], 10) : 0;
+    };
+
+
+    window._assistant.resolvers.pagesBranch = function() {
+        var pill = document.getElementById('wiz-pages-pill-branch');
+        if (!pill) return '';
+        return pill.textContent.replace('🌿', '').trim();
+    };
+
+
+    window._assistant.resolvers.pagesBuildersAvail = function() {
+        var section = document.getElementById('wiz-pages-section-builders');
+        if (!section) return 0;
+        var pills = section.querySelectorAll('span');
+        var count = 0;
+        if (pills) {
+            pills.forEach(function(p) {
+                if (p.textContent.indexOf('✅') !== -1) count++;
+            });
+        }
+        return count;
+    };
+
+
+    window._assistant.resolvers.pagesBuildersTotal = function() {
+        var section = document.getElementById('wiz-pages-section-builders');
+        if (!section) return 0;
+        var summary = section.querySelector('summary');
+        if (!summary) return 0;
+        var match = summary.textContent.match(/(\d+)\/(\d+)/);
+        return match ? parseInt(match[2], 10) : 0;
+    };
+
+
+    window._assistant.resolvers.pagesUninit = function() {
+        var section = document.getElementById('wiz-pages-section-folders');
+        if (!section) return 0;
+        var rows = section.querySelectorAll('span');
+        var count = 0;
+        if (rows) {
+            rows.forEach(function(s) {
+                if (s.textContent.trim() === '⬜') count++;
+            });
+        }
+        return count;
+    };
+
+
+    // ── Terraform template variable resolvers ────────────────────
+
+    window._assistant.resolvers.tfResources = function() {
+        var strip = document.getElementById('wiz-tf-section-status');
+        if (!strip) return 0;
+        var pills = strip.querySelectorAll('span');
+        for (var i = 0; i < pills.length; i++) {
+            var match = pills[i].textContent.match(/(\d+)\s*resource/);
+            if (match) return parseInt(match[1], 10);
+        }
+        return 0;
+    };
+
+
+    window._assistant.resolvers.tfProviders = function() {
+        var strip = document.getElementById('wiz-tf-section-status');
+        if (!strip) return 0;
+        var pills = strip.querySelectorAll('span');
+        for (var i = 0; i < pills.length; i++) {
+            var match = pills[i].textContent.match(/(\d+)\s*provider/);
+            if (match) return parseInt(match[1], 10);
+        }
+        return 0;
+    };
+
+
+    // ── Terraform field value resolvers (for <select> elements) ──
+    window._assistant.resolvers.tfProviderValue = function() {
+        var el = document.getElementById('wiz-tf-provider');
+        return el ? el.value : '';
+    };
+
+    window._assistant.resolvers.tfBackendValue = function() {
+        var el = document.getElementById('wiz-tf-backend');
+        return el ? el.value : '';
+    };
+
+    window._assistant.resolvers.dnsMailValue = function() {
+        var el = document.getElementById('wiz-dns-mail');
+        return el ? el.value : '';
+    };
+
+    window._assistant.resolvers.ciStrategyValue = function() {
+        var el = document.getElementById('wiz-ci-compose-strategy');
+        return el ? el.value : '';
+    };
+
+    window._assistant.resolvers.ciDeployValue = function() {
+        var el = document.getElementById('wiz-ci-compose-deploy');
+        return el ? el.value : '';
+    };
+})();
+</script>

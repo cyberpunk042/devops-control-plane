@@ -1,0 +1,535 @@
+<!-- Assistant Resolvers — Kubernetes
+     All K8s-related resolvers and enrichers.
+     Depends on: _assistant_engine.html, _assistant_resolvers_shared.html
+-->
+
+<script>
+(function() {
+    'use strict';
+
+    var _s = window._assistant._shared;
+
+    // ══════════════════════════════════════════════════════════════════
+    // ENRICHERS — registered for _resolveDynamic child card enrichment
+    // ══════════════════════════════════════════════════════════════════
+
+    // ── K8s manifest enrichment (per-file analysis) ────────────────
+    window._assistant.enrichers['k8s-section-manifests'] = function(el, extractedName) {
+        var kindSpan = el.querySelector('span[style*="text-muted"]');
+        var kindText = kindSpan ? kindSpan.textContent.trim() : '';
+        var countMatch = kindText.match(/^(\d+)\s*·\s*(.+)$/);
+        var resCount = countMatch ? countMatch[1] : '?';
+        var kindList = countMatch ? countMatch[2].split(',').map(function(k) { return k.trim(); }) : [];
+
+        var kindMap = {
+            'Deployment': { icon: '🚀', desc: 'manages replicated pods with rolling updates' },
+            'StatefulSet': { icon: '🗄', desc: 'pods with stable identity and persistent storage' },
+            'DaemonSet': { icon: '📡', desc: 'runs one pod per node across the cluster' },
+            'Service': { icon: '🌐', desc: 'stable network endpoint for pods' },
+            'ConfigMap': { icon: '🔧', desc: 'key-value config injected as env vars or files' },
+            'Secret': { icon: '🔒', desc: 'base64-encoded sensitive data' },
+            'Ingress': { icon: '🌍', desc: 'HTTP routing rules for external traffic' },
+            'PersistentVolumeClaim': { icon: '📀', desc: 'requests durable storage for pods' },
+            'CronJob': { icon: '⏰', desc: 'scheduled pod execution' },
+            'Job': { icon: '⚡', desc: 'run-to-completion batch task' },
+            'HorizontalPodAutoscaler': { icon: '📈', desc: 'auto-scales replicas on metrics' },
+            'ServiceAccount': { icon: '🔑', desc: 'pod identity for RBAC permissions' },
+            'Role': { icon: '🛡', desc: 'namespace-scoped permission set' },
+            'ClusterRole': { icon: '🛡', desc: 'cluster-wide permission set' },
+            'RoleBinding': { icon: '🔗', desc: 'binds a Role to a ServiceAccount' },
+            'Namespace': { icon: '📂', desc: 'virtual cluster partition' },
+            'NetworkPolicy': { icon: '🔐', desc: 'pod-level network access rules' },
+            'PodDisruptionBudget': { icon: '🛟', desc: 'minimum availability during disruptions' }
+        };
+
+        var kindPills = '';
+        kindList.forEach(function(k) {
+            var info = kindMap[k] || { icon: '📦', desc: 'Kubernetes resource' };
+            kindPills += '<div style="display:flex;gap:0.3rem;align-items:center;margin-top:0.15rem">' +
+                '<span style="font-size:0.7rem;padding:0.1rem 0.35rem;border-radius:4px;background:color-mix(in srgb, var(--accent) 12%, transparent);color:var(--accent);font-weight:600">' + info.icon + ' ' + k + '</span>' +
+                '<span style="font-size:0.65rem;color:var(--text-muted)">' + info.desc + '</span>' +
+                '</div>';
+        });
+
+        return {
+            expanded: '<div class="assistant-state-card state-info" style="margin-bottom:0.4rem">' +
+                '<div class="state-label">📄 ' + extractedName + ' <span style="font-size:0.7rem;opacity:0.7">(' + resCount + ' resource' + (resCount !== '1' ? 's' : '') + ')</span></div>' +
+                '<div class="state-detail">' + kindPills + '</div>' +
+                '</div>'
+        };
+    };
+
+    // ── K8s Helm chart enrichment (per-chart analysis) ─────────────
+    window._assistant.enrichers['k8s-section-helm'] = function(el, extractedName) {
+        var chartVersion = '';
+        var versionEl = el.querySelector('code[style*="text-muted"]');
+        if (versionEl) chartVersion = versionEl.textContent.trim();
+
+        var chartMeta = [];
+        var metaSpansHelm = el.querySelectorAll('span[style*="text-muted"]');
+        metaSpansHelm.forEach(function(s) {
+            var txt = s.textContent.trim();
+            if (txt) chartMeta.push(txt);
+        });
+        var envValuesSpan = el.querySelector('span[style*="accent"]');
+        if (envValuesSpan) chartMeta.push(envValuesSpan.textContent.trim());
+
+        var chartMetaHtml = '';
+        chartMeta.forEach(function(m) {
+            chartMetaHtml += '<span style="font-size:0.65rem;padding:0.05rem 0.25rem;border-radius:3px;background:color-mix(in srgb, var(--text-muted) 8%, transparent);color:var(--text-muted);margin-right:0.2rem">' + m + '</span>';
+        });
+
+        return {
+            expanded: '<div class="assistant-state-card state-info" style="margin-bottom:0.4rem">' +
+                '<div class="state-label">⎈ ' + extractedName + (chartVersion ? ' <span style="font-size:0.7rem;opacity:0.7">v' + chartVersion + '</span>' : '') + '</div>' +
+                '<div class="state-detail">' +
+                (chartMetaHtml ? '<div style="display:flex;flex-wrap:wrap;gap:0.15rem;margin-top:0.15rem">' + chartMetaHtml + '</div>' : '') +
+                '<div style="font-size:0.68rem;color:var(--text-muted);margin-top:0.2rem">Helm chart bundles K8s resources into a reusable, configurable package. Install with: helm install ' + extractedName + ' ./' + extractedName + '</div>' +
+                '</div></div>'
+        };
+    };
+
+    // ── K8s Kustomize overlay enrichment (per-overlay) ─────────────
+    window._assistant.enrichers['k8s-section-kustomize'] = function(el, extractedName) {
+        var patchSpan = el.querySelector('span[style*="text-muted"]');
+        var patchText = patchSpan ? patchSpan.textContent.trim() : '';
+
+        return {
+            expanded: '<div class="assistant-state-card state-info" style="margin-bottom:0.4rem">' +
+                '<div class="state-label">📁 ' + extractedName + (patchText ? ' <span style="font-size:0.7rem;opacity:0.7">(' + patchText + ')</span>' : '') + '</div>' +
+                '<div class="state-detail">' +
+                '<div style="font-size:0.68rem;color:var(--text-muted);margin-top:0.1rem">Environment overlay — applies patches on top of base manifests for ' + extractedName + '-specific configuration.</div>' +
+                '<div style="font-size:0.68rem;color:var(--text-muted);margin-top:0.1rem">Apply: <code style="font-size:0.65rem">kubectl apply -k overlays/' + extractedName + '/</code></div>' +
+                '</div></div>'
+        };
+    };
+
+    // ── Skaffold profile enrichment (per-card from DOM) ────────────
+    window._assistant.enrichers['k8s-cfg-skf-profiles'] = function(el, extractedName) {
+        // Read activation command from accent-colored mono span
+        var activationEl = el.querySelector('[style*="font-family"][style*="accent"]');
+        var activation = activationEl ? activationEl.textContent.trim() : '';
+
+        // Read feature badges
+        var featureBadges = el.querySelectorAll('[style*="border-radius:3px"][style*="background"]');
+        var features = [];
+        featureBadges.forEach(function(b) {
+            var t = b.textContent.trim();
+            if (t) features.push(t);
+        });
+
+        // ── Interpret features into meaningful guidance ──
+        var insights = [];
+        var isLocal = extractedName.indexOf('local') !== -1 || activation.indexOf('dev') !== -1;
+        var isProduction = extractedName.indexOf('prod') !== -1;
+
+        features.forEach(function(f) {
+            var fl = f.toLowerCase();
+            if (fl.indexOf('no push') !== -1) {
+                insights.push('Images stay on your machine — no registry credentials needed, faster iteration cycles.');
+            } else if (fl.indexOf('push to registry') !== -1) {
+                insights.push('Images are pushed to the container registry — cluster nodes will pull them, so registry auth must be configured.');
+            } else if (fl.indexOf('no deploy') !== -1) {
+                insights.push('Build-only profile — images are built but not deployed. Useful for CI image-building stages.');
+            } else if (fl.indexOf('kubectl') !== -1) {
+                insights.push('Deploys with kubectl apply — straightforward but no rollback protection. Good for dev, consider Helm for production.');
+            } else if (fl.indexOf('helm') !== -1) {
+                insights.push('Deploys via Helm — versioned releases with rollback support. The production-grade deployment path.');
+            } else if (fl.indexOf('kustomize') !== -1) {
+                insights.push('Deploys via Kustomize overlays — patches base manifests per environment without templating.');
+            } else if (fl.indexOf('buildpacks') !== -1) {
+                insights.push('Uses Cloud Native Buildpacks — no Dockerfile needed, the buildpack auto-detects your runtime.');
+            } else if (fl.indexOf('docker') !== -1 && fl.indexOf('build') !== -1) {
+                insights.push('Builds with Docker — uses your Dockerfile directly. Most common and flexible build strategy.');
+            } else if (fl.indexOf('jib') !== -1) {
+                insights.push('Builds with Jib — Java-specific, creates optimized layers without a Docker daemon.');
+            } else if (fl.indexOf('sync') !== -1) {
+                insights.push('File sync enabled — code changes are hot-reloaded into the running container without a full rebuild.');
+            } else if (fl.indexOf('port-forward') !== -1) {
+                insights.push('Auto port-forwarding — Skaffold will forward container ports to localhost for easy local access.');
+            }
+        });
+
+        // Determine card color based on environment type
+        var cardStyle = isLocal ? 'state-success' : (isProduction ? 'state-warning' : 'state-info');
+
+        var profileHtml = '<div class="assistant-state-card ' + cardStyle + '" style="margin-bottom:0.4rem">';
+        profileHtml += '<div class="state-label">' + extractedName + '</div>';
+        profileHtml += '<div class="state-detail">';
+
+        if (isLocal) {
+            profileHtml += '<div class="state-intro">This profile is built for your dev workstation. It skips the registry round-trip and optimizes for fast feedback loops.</div>';
+        } else if (isProduction) {
+            profileHtml += '<div class="state-intro">Production profile — every setting here prioritizes safety and traceability over speed. Changes deploy through the full pipeline.</div>';
+        } else {
+            profileHtml += '<div class="state-intro">This profile targets the <strong>' + extractedName + '</strong> environment. It inherits the base pipeline and patches what\'s specific to this stage.</div>';
+        }
+
+        if (insights.length > 0) {
+            insights.forEach(function(insight) {
+                profileHtml += '<div class="state-insight">' + insight + '</div>';
+            });
+        }
+
+        profileHtml += '<div class="state-footer">Profiles are additive — they patch the base config, they don\'t replace it. What you set in the base pipeline above applies to every profile unless explicitly overridden.</div>';
+
+        profileHtml += '</div></div>';
+
+        var content;
+        if (isLocal) {
+            content = 'Local iteration — fast builds, no registry overhead.';
+        } else if (isProduction) {
+            content = 'Production-grade — every deploy is traceable and conflict-safe.';
+        } else {
+            content = 'Environment profile — inherits base pipeline with stage-specific overrides.';
+        }
+
+        return {
+            content: content,
+            expanded: profileHtml
+        };
+    };
+
+    // ══════════════════════════════════════════════════════════════════
+    // RESOLVERS — registered on window._assistant.resolvers
+    // ══════════════════════════════════════════════════════════════════
+
+
+    // ── K8s template variable resolvers ──────────────────────────
+
+    window._assistant.resolvers.k8sManifests = function() {
+        var section = document.getElementById('wiz-k8s-section-manifests');
+        if (!section) return 0;
+        var summary = section.querySelector('summary');
+        if (!summary) return 0;
+        var match = summary.textContent.match(/(\d+)\s*file/);
+        return match ? parseInt(match[1], 10) : 0;
+    };
+
+
+    window._assistant.resolvers.k8sResources = function() {
+        var strip = document.getElementById('wiz-k8s-section-status');
+        if (!strip) return 0;
+        var pills = strip.querySelectorAll('span');
+        for (var i = 0; i < pills.length; i++) {
+            var match = pills[i].textContent.match(/(\d+)\s*resource/);
+            if (match) return parseInt(match[1], 10);
+        }
+        return 0;
+    };
+
+
+    // ── K8s Configure — field-level resolvers ─────────────────────
+
+    // Generic: returns the value of the hovered input/select, or finds one inside a wrapper
+    window._assistant.resolvers.k8sFieldValue = function() {
+        var el = window._assistant._resolveElement;
+        if (!el) return '';
+        if (el.tagName === 'INPUT' || el.tagName === 'SELECT' || el.tagName === 'TEXTAREA') return el.value || '';
+        var input = el.querySelector('input, select, textarea');
+        return input ? (input.value || '') : '';
+    };
+
+
+    // Card-level: reads the workload kind for the service card being hovered
+    window._assistant.resolvers.k8sSvcCardKind = function() {
+        var el = window._assistant._resolveElement;
+        if (!el) return '';
+        var card = el.closest ? el.closest('[id^=\"k8s-svc-card-\"]') : null;
+        if (!card) return '';
+        var idx = card.id.replace('k8s-svc-card-', '');
+        var kindSel = document.getElementById('k8s-svc-kind-' + idx);
+        return kindSel ? kindSel.value : '';
+    };
+
+
+    // K8s dependency hover — rich per-infrastructure-service preview
+    window._assistant.resolvers.k8sDepHover = function() {
+        var el = window._assistant._resolveElement;
+        if (!el) return '';
+
+        // Walk up to find the label
+        var label = el.closest ? el.closest('label') : null;
+        if (!label) {
+            if (el.tagName === 'LABEL') label = el;
+            else if (el.parentElement && el.parentElement.tagName === 'LABEL') label = el.parentElement;
+        }
+        if (!label) return '';
+
+        var cb = label.querySelector('input[type="checkbox"]');
+        if (!cb) return '';
+        var svcName = cb.value;
+        if (!svcName) return '';
+
+        // Get infra data — compose-detected or catalog
+        var inf = (window._k8sInfraData && window._k8sInfraData.get(svcName)) || null;
+        var cat = (window._INFRA_CATALOG && window._INFRA_CATALOG[svcName]) || null;
+        var isChecked = cb.checked;
+
+        if (inf || cat) {
+            // ── Determine the K8s deployment decision for this infra service ──
+            var kindEl = document.getElementById('k8s-infra-kind-' + svcName);
+            var k8sKind = kindEl ? kindEl.value : 'StatefulSet';
+            var kindIcons = {
+                'StatefulSet': '🗄️', 'Deployment': '🚀', 'DaemonSet': '🌐',
+                'Managed': '☁️', 'Skip': '⏭️'
+            };
+            var kindIcon = kindIcons[k8sKind] || '📦';
+
+            // ── Image info ──
+            var image = inf ? (inf.image || '') : (cat && cat.images ? cat.images[0] : '');
+            var imgShort = image.split('/').pop().split(':')[0] || svcName;
+
+            // ── Port pills ──
+            var portPills = '';
+            var ports = inf ? (inf.ports || []) : (cat ? (cat.ports || []) : []);
+            if (ports.length > 0) {
+                portPills = '<div style="display:flex;gap:0.2rem;flex-wrap:wrap;margin-top:0.2rem">';
+                ports.forEach(function(p) {
+                    var pNum = p.container || p.port || '';
+                    var pLabel = p.label || p.protocol || 'tcp';
+                    portPills += '<span style="font-size:0.68rem;padding:0.08rem 0.3rem;border-radius:3px;background:color-mix(in srgb, var(--accent) 10%, transparent);color:var(--accent)">🔌 ' + pNum + ' (' + pLabel + ')</span>';
+                });
+                portPills += '</div>';
+            }
+
+            // ── Env pills ──
+            var envPills = '';
+            var envKeys = inf ? Object.keys(inf.environment || {}) : (cat && cat.envFields ? cat.envFields.map(function(e) { return e.key; }) : []);
+            if (envKeys.length > 0) {
+                envPills = '<div style="display:flex;gap:0.2rem;flex-wrap:wrap;margin-top:0.15rem">';
+                envKeys.forEach(function(k) {
+                    var icon = k.toLowerCase().indexOf('pass') > -1 || k.toLowerCase().indexOf('secret') > -1 ? '🔒' : '📋';
+                    envPills += '<span style="font-size:0.65rem;padding:0.06rem 0.25rem;border-radius:3px;background:color-mix(in srgb, var(--text-secondary) 8%, transparent);color:var(--text-secondary);font-family:var(--font-mono,monospace)">' + icon + ' ' + k + '</span>';
+                });
+                envPills += '</div>';
+            }
+
+            // ── Volume pills ──
+            var volPills = '';
+            var vols = inf ? (inf.volumes || []) : (cat && cat.volumes ? cat.volumes : []);
+            if (vols.length > 0) {
+                volPills = '<div style="display:flex;gap:0.2rem;flex-wrap:wrap;margin-top:0.15rem">';
+                vols.forEach(function(v) {
+                    var vStr = typeof v === 'string' ? v : (v.name + ' → ' + v.mount);
+                    volPills += '<span style="font-size:0.65rem;padding:0.06rem 0.25rem;border-radius:3px;background:color-mix(in srgb, var(--text-secondary) 8%, transparent);color:var(--text-secondary);font-family:var(--font-mono,monospace)">💾 ' + vStr + '</span>';
+                });
+                volPills += '</div>';
+            }
+
+            // ── K8s decision context ──
+            var k8sContext = '';
+            if (k8sKind === 'Managed') {
+                k8sContext = '<div style="font-size:0.65rem;color:var(--accent);margin-top:0.2rem;font-weight:600">' +
+                    '☁️ Managed externally — no K8s resources generated. Connection vars injected as Secrets into your pod.</div>';
+            } else if (k8sKind === 'Skip') {
+                k8sContext = '<div style="font-size:0.65rem;color:var(--warning);margin-top:0.2rem;font-weight:600">' +
+                    '⏭️ Skipped — this service won\'t be deployed. You\'ll need to provide connection details manually.</div>';
+            } else if (k8sKind === 'StatefulSet') {
+                k8sContext = '<div style="font-size:0.65rem;color:var(--success);margin-top:0.2rem">' +
+                    '🗄️ Deployed as <strong>StatefulSet</strong> — stable network identity + persistent storage. Pods restart on same PVC.</div>';
+            } else if (k8sKind === 'Deployment') {
+                k8sContext = '<div style="font-size:0.65rem;color:var(--success);margin-top:0.2rem">' +
+                    '🚀 Deployed as <strong>Deployment</strong> — stateless replica set with rolling updates.</div>';
+            } else if (k8sKind === 'DaemonSet') {
+                k8sContext = '<div style="font-size:0.65rem;color:var(--success);margin-top:0.2rem">' +
+                    '🌐 Deployed as <strong>DaemonSet</strong> — one pod per node.</div>';
+            }
+
+            // ── Status line ──
+            var statusLine = isChecked
+                ? '<div style="font-size:0.65rem;color:var(--success);margin-top:0.2rem;font-weight:600">✅ Selected — env vars from this service will be available for injection</div>'
+                : '<div style="font-size:0.65rem;color:var(--text-muted);margin-top:0.2rem;font-style:italic">☐ Not selected — check to add as dependency and unlock env var injection</div>';
+
+            // ── Category label ──
+            var catLabel = '';
+            if (cat) {
+                var catLabels = window._infraCategories || {};
+                catLabel = ' <span style="font-size:0.65rem;opacity:0.7">(' + (catLabels[cat.cat] || cat.cat || '') + ')</span>';
+            }
+
+            var cardClass = isChecked ? 'state-success' : 'state-info';
+
+            return '<div class="assistant-state-card ' + cardClass + '">' +
+                '<div class="state-label">' + kindIcon + ' ' + svcName + catLabel + '</div>' +
+                '<div class="state-detail">' +
+                '<div style="display:flex;align-items:center;gap:0.3rem;margin-bottom:0.15rem">' +
+                '<code style="font-size:0.68rem;background:var(--bg-primary);padding:1px 5px;border-radius:3px;color:var(--text-secondary)">' + imgShort + '</code>' +
+                '</div>' +
+                (cat && cat.description ? '<div style="font-size:0.72rem;margin-bottom:0.15rem">' + cat.description + '</div>' : '') +
+                portPills + envPills + volPills +
+                k8sContext +
+                (cat && cat.note ? '<div style="font-size:0.65rem;color:var(--text-muted);margin-top:0.15rem;font-style:italic">💡 ' + cat.note + '</div>' : '') +
+                statusLine +
+                '</div></div>';
+        }
+
+        // Unknown service — basic display
+        return '<div class="assistant-state-card ' + (isChecked ? 'state-success' : 'state-info') + '">' +
+            '<div class="state-label">🔗 ' + svcName + '</div>' +
+            '<div class="state-detail"><div style="font-size:0.72rem">Infrastructure service in your cluster. Adding it as a dependency makes its env vars available for injection into your pod.</div>' +
+            (isChecked
+                ? '<div style="font-size:0.65rem;color:var(--success);margin-top:0.15rem;font-weight:600">✅ Selected — env vars available for injection</div>'
+                : '<div style="font-size:0.65rem;color:var(--text-muted);margin-top:0.15rem;font-style:italic">☐ Not selected — check to add as dependency</div>') +
+            '</div></div>';
+    };
+
+
+    // K8s infra card — rich overview when hovering on an infra service card
+    window._assistant.resolvers.k8sInfraCardHover = function() {
+        var el = window._assistant._resolveElement;
+        if (!el) return '';
+
+        // Walk up to the infra card
+        var card = el.closest ? el.closest('.k8s-infra-card') : null;
+        if (!card) return '';
+
+        var svcName = card.getAttribute('data-infra-name');
+        if (!svcName) return '';
+
+        var inf = (window._k8sInfraData && window._k8sInfraData.get(svcName)) || null;
+        var cat = (window._INFRA_CATALOG && window._INFRA_CATALOG[svcName]) || null;
+
+        // ── Kind decision ──
+        var kindEl = document.getElementById('k8s-infra-kind-' + svcName);
+        var k8sKind = kindEl ? kindEl.value : 'StatefulSet';
+        var kindIcons = {
+            'StatefulSet': '🗄️', 'Deployment': '🚀', 'DaemonSet': '🌐',
+            'Managed': '☁️', 'Skip': '⏭️'
+        };
+        var kindIcon = kindIcons[k8sKind] || '📦';
+
+        // ── Image ──
+        var image = inf ? (inf.image || '') : (cat && cat.images ? cat.images[0] : '');
+        var imgShort = image.split('/').pop().split(':')[0] || svcName;
+
+        // ── Counts ──
+        var envKeys = inf ? Object.keys(inf.environment || {}) : (cat && cat.envFields ? cat.envFields : []);
+        var envCount = envKeys.length;
+        var ports = inf ? (inf.ports || []) : (cat ? (cat.ports || []) : []);
+        var vols = inf ? (inf.volumes || []) : (cat && cat.volumes ? cat.volumes : []);
+
+        // ── Port pills ──
+        var portPills = '';
+        if (ports.length > 0) {
+            portPills = '<div style="display:flex;gap:0.2rem;flex-wrap:wrap;margin-top:0.2rem">';
+            ports.forEach(function(p) {
+                var pNum = p.container || p.port || '';
+                var pLabel = p.label || p.protocol || 'tcp';
+                portPills += '<span style="font-size:0.68rem;padding:0.08rem 0.3rem;border-radius:3px;background:color-mix(in srgb, var(--accent) 10%, transparent);color:var(--accent)">🔌 ' + pNum + ' (' + pLabel + ')</span>';
+            });
+            portPills += '</div>';
+        }
+
+        // ── Category label ──
+        var catLabel = '';
+        var catDesc = '';
+        if (cat) {
+            var catLabels = window._infraCategories || {};
+            catLabel = ' <span style="font-size:0.65rem;opacity:0.7">(' + (catLabels[cat.cat] || cat.cat || '') + ')</span>';
+            catDesc = cat.description || '';
+        }
+
+        // ── K8s deployment decision — detailed guidance ──
+        var kindDetail = '';
+        if (k8sKind === 'StatefulSet') {
+            kindDetail = '<div class="assistant-state-card state-success" style="margin-top:0.3rem"><div class="state-label">🗄️ StatefulSet</div><div class="state-detail">' +
+                'Stable network identity (<code>' + svcName + '-0</code>, <code>' + svcName + '-1</code>) and persistent storage. ' +
+                'Each pod gets its own PVC that survives restarts and rescheduling.<br><br>' +
+                'Best for: databases, caches with persistence, any service that needs consistent identity or ordered startup.' +
+                '</div></div>';
+        } else if (k8sKind === 'Deployment') {
+            kindDetail = '<div class="assistant-state-card state-info" style="margin-top:0.3rem"><div class="state-label">🚀 Deployment</div><div class="state-detail">' +
+                'Stateless replica set with rolling updates. Pods are interchangeable — no stable hostname, no dedicated storage.<br><br>' +
+                'Usually wrong for databases. Use this only if the service is truly stateless (proxies, gateways, stateless workers).' +
+                '</div></div>';
+        } else if (k8sKind === 'DaemonSet') {
+            kindDetail = '<div class="assistant-state-card state-info" style="margin-top:0.3rem"><div class="state-label">🌐 DaemonSet</div><div class="state-detail">' +
+                'One pod per node — scales automatically as nodes join or leave. No replica count needed.<br><br>' +
+                'Use for: log collectors, monitoring agents, node-level services. Rarely appropriate for databases.' +
+                '</div></div>';
+        } else if (k8sKind === 'Managed') {
+            kindDetail = '<div class="assistant-state-card state-warning" style="margin-top:0.3rem"><div class="state-label">☁️ Managed Externally</div><div class="state-detail">' +
+                'No K8s resources will be generated for this service. Connection variables below are injected as K8s Secrets into dependent pods.<br><br>' +
+                'Use for: AWS RDS, GCP Cloud SQL, Azure Cosmos DB, managed Redis (ElastiCache, Memorystore), or any service hosted outside your cluster.' +
+                '</div></div>';
+        } else if (k8sKind === 'Skip') {
+            kindDetail = '<div class="assistant-state-card state-warning" style="margin-top:0.3rem"><div class="state-label">⏭️ Excluded</div><div class="state-detail">' +
+                'This service will not be deployed to Kubernetes at all. No manifests, no Secrets, no Service.<br><br>' +
+                'Choose this if the service is development-only (e.g. mailhog, adminer) or if you handle it outside this wizard entirely.' +
+                '</div></div>';
+        }
+
+        // ── Summary pills ──
+        var summaryLine = '<div style="display:flex;gap:0.4rem;flex-wrap:wrap;margin-top:0.15rem;font-size:0.68rem">';
+        summaryLine += '<span style="color:var(--text-secondary)">📦 <code>' + imgShort + '</code></span>';
+        if (ports.length > 0) summaryLine += '<span style="color:var(--text-muted)">🔌 ' + ports.length + ' port' + (ports.length !== 1 ? 's' : '') + '</span>';
+        if (envCount > 0) summaryLine += '<span style="color:var(--text-muted)">📋 ' + envCount + ' env var' + (envCount !== 1 ? 's' : '') + '</span>';
+        if (vols.length > 0) summaryLine += '<span style="color:var(--text-muted)">💾 ' + vols.length + ' volume' + (vols.length !== 1 ? 's' : '') + '</span>';
+        summaryLine += '</div>';
+
+        return '<div style="margin-bottom:0.3rem"><strong>' + kindIcon + ' ' + svcName + '</strong>' + catLabel + '</div>' +
+            (catDesc ? '<div style="font-size:0.72rem;margin-bottom:0.2rem">' + catDesc + '</div>' : '') +
+            summaryLine + portPills + kindDetail +
+            (cat && cat.note ? '<div style="font-size:0.65rem;color:var(--text-muted);margin-top:0.2rem;font-style:italic">💡 ' + cat.note + '</div>' : '');
+    };
+
+
+    // K8s infra kind — reads the kind selection for state-aware guidance
+    window._assistant.resolvers.k8sInfraKind = function() {
+        var el = window._assistant._resolveElement;
+        if (!el) return '';
+        var card = el.closest ? el.closest('.k8s-infra-card') : null;
+        if (!card) return '';
+        var svcName = card.getAttribute('data-infra-name');
+        if (!svcName) return '';
+        var kindEl = document.getElementById('k8s-infra-kind-' + svcName);
+        return kindEl ? kindEl.value : '';
+    };
+
+
+    // Row-level: reads the volume type select from the same volume row
+    window._assistant.resolvers.k8sVolRowType = function() {
+        var el = window._assistant._resolveElement;
+        if (!el) return '';
+        var row = el.closest ? el.closest('.k8s-vol-row') : null;
+        if (!row) return '';
+        var sel = row.querySelector('select[id^="k8s-svc-vol-type-"]');
+        return sel ? sel.value : '';
+    };
+
+
+    // K8s port — dynamic HTML using shared _classifyPort / _knownPorts
+    window._assistant.resolvers.k8sPortHover = function() {
+        var el = window._assistant._resolveElement;
+        if (!el) return '';
+        var input = (el.tagName === 'INPUT') ? el : el.querySelector('input[type=number]');
+        if (!input) return '';
+        var portNum = parseInt(input.value) || 0;
+        if (!portNum) {
+            return '<div class="assistant-state-card state-warning">' +
+                '<div class="state-label">🔌 No port</div>' +
+                '<div class="state-detail">Enter the port your application listens on inside the container. This drives the K8s Service targetPort, health probe endpoints, and ingress backend configuration.</div></div>';
+        }
+        var range = _s.classifyPort(portNum);
+        var known = _s.knownPorts[portNum];
+        var html = '<div class="assistant-state-card ' + range.state + '">';
+        html += '<div class="state-label">' + range.icon + ' Port ' + portNum + '</div>';
+        html += '<div class="state-detail">';
+        html += '<div style="font-size:0.72rem;margin-bottom:0.15rem"><strong>' + range.name + ' range</strong> (' + range.min + '–' + range.max + ') — ' + range.desc + '</div>';
+        if (known) {
+            html += '<div style="font-size:0.72rem;margin-bottom:0.15rem">🏷️ <strong>' + known.label + '</strong> — ' + known.note + '</div>';
+        }
+        html += '<div style="display:grid;grid-template-columns:auto 1fr;gap:0.2rem 0.5rem;margin:0.3rem 0;font-size:0.72rem">';
+        html += '<span style="font-weight:600;color:var(--text-secondary)">containerPort</span><span>pod spec — must match what the process binds to</span>';
+        html += '<span style="font-weight:600;color:var(--text-secondary)">targetPort</span><span>K8s Service routes traffic here</span>';
+        html += '<span style="font-weight:600;color:var(--text-secondary)">Probes</span><span>readiness and liveness checks use this port</span>';
+        html += '</div>';
+        if (portNum < 1024) {
+            html += '<div style="font-size:0.65rem;color:var(--warning);margin-top:0.1rem">⚠️ Ports below 1024 require root. Consider running on a high port (8080) and letting the K8s Service handle port mapping.</div>';
+        }
+        html += '</div></div>';
+        return html;
+    };
+})();
+</script>

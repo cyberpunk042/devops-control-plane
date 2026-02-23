@@ -1,0 +1,151 @@
+<!-- Assistant Resolvers — Shared Utilities
+     Cross-domain data tables and helper functions used by multiple resolver files.
+     Must be included AFTER _assistant_engine.html (needs window._assistant._shared).
+-->
+
+<script>
+(function() {
+    'use strict';
+
+    var _s = window._assistant._shared;
+
+    // ── Docker image knowledge map ──────────────────────────────────
+    // runtime name → { label, family, variantInfo: { variant → explanation } }
+    _s.dockerImageKnowledge = {
+        'python':           { label: 'Python',       family: 'python',  variantInfo: { 'slim': 'Debian-based minimal (~150MB) — good balance of compatibility and size', 'alpine': 'Alpine Linux (~50MB) — smallest, may need musl workarounds for some C extensions', 'bookworm': 'Full Debian Bookworm — all system libraries included, largest image', 'bullseye': 'Full Debian Bullseye — older stable Debian' } },
+        'golang':           { label: 'Go',           family: 'go',      variantInfo: { 'alpine': 'Alpine base (~250MB) — ideal for multi-stage builds where final image copies only the binary', 'bookworm': 'Full Debian — all build tools available', 'bullseye': 'Older Debian stable' } },
+        'node':             { label: 'Node.js',      family: 'node',    variantInfo: { 'alpine': 'Alpine base (~180MB) — smallest, works for most npm packages', 'slim': 'Debian slim (~200MB) — better native module compatibility', 'bookworm': 'Full Debian — all build tools for native addons', 'bullseye': 'Older Debian stable', 'lts': 'Long Term Support release' } },
+        'rust':             { label: 'Rust',         family: 'rust',    variantInfo: { 'slim': 'Debian slim — smaller image with Rust toolchain', 'alpine': 'Alpine base — smallest but may need musl target', 'bookworm': 'Full Debian' } },
+        'eclipse-temurin':  { label: 'Java (Temurin)', family: 'java', variantInfo: { 'jdk-alpine': 'Alpine + JDK — smallest Java runtime', 'jdk-jammy': 'Ubuntu Jammy + JDK', 'jre-alpine': 'Alpine + JRE only — no compiler, smallest runtime', 'jdk': 'Default JDK' } },
+        'ruby':             { label: 'Ruby',         family: 'ruby',    variantInfo: { 'slim': 'Debian slim — most common Ruby choice', 'alpine': 'Alpine — smallest but gem native extensions may need extra packages', 'bookworm': 'Full Debian' } },
+        'elixir':           { label: 'Elixir',       family: 'elixir',  variantInfo: { 'slim': 'Debian slim with Erlang/OTP', 'alpine': 'Alpine base' } },
+        'php':              { label: 'PHP',          family: 'php',     variantInfo: { 'cli': 'CLI only — no web server', 'fpm': 'FastCGI Process Manager — for nginx/Apache', 'apache': 'Built-in Apache — simplest for web apps', 'alpine': 'Alpine base' } },
+        'gcc':              { label: 'GCC (C/C++)',  family: 'c',       variantInfo: {} },
+        'swift':            { label: 'Swift',        family: 'swift',   variantInfo: { 'slim': 'Minimal Swift runtime', 'jammy': 'Ubuntu Jammy base' } },
+        'alpine':           { label: 'Alpine Linux', family: 'generic', variantInfo: {} },
+        'nginx':            { label: 'Nginx',        family: 'webserver', variantInfo: { 'alpine': 'Alpine base (~40MB) — smallest web server image', 'bookworm': 'Full Debian' } },
+        'postgres':         { label: 'PostgreSQL',   family: 'database', variantInfo: { 'alpine': 'Alpine base — smaller database image', 'bookworm': 'Full Debian with all extensions' } },
+        'mysql':            { label: 'MySQL',        family: 'database', variantInfo: {} },
+        'mongo':            { label: 'MongoDB',      family: 'database', variantInfo: {} },
+        'redis':            { label: 'Redis',        family: 'cache',   variantInfo: { 'alpine': 'Alpine base (~30MB) — most common Redis choice' } },
+        'mcr.microsoft.com/dotnet/sdk': { label: '.NET SDK', family: 'dotnet', variantInfo: { 'alpine': 'Alpine base', 'jammy': 'Ubuntu Jammy' } },
+        'mcr.microsoft.com/dotnet/aspnet': { label: '.NET ASP.NET Runtime', family: 'dotnet', variantInfo: { 'alpine': 'Alpine base — smallest runtime' } }
+    };
+
+    // ── Docker image parser ─────────────────────────────────────────
+    // Parse "python:3.12-slim" → { runtime, version, variant, label, family, variantExplain }
+    _s.parseDockerImage = function(imageStr) {
+        if (!imageStr) return null;
+        imageStr = imageStr.trim();
+
+        var colonIdx = imageStr.lastIndexOf(':');
+        var repo = colonIdx !== -1 ? imageStr.substring(0, colonIdx) : imageStr;
+        var tag = colonIdx !== -1 ? imageStr.substring(colonIdx + 1) : 'latest';
+
+        var version = tag;
+        var variant = '';
+        var dashIdx = tag.indexOf('-');
+        if (dashIdx !== -1) {
+            version = tag.substring(0, dashIdx);
+            variant = tag.substring(dashIdx + 1);
+        }
+
+        var knowledge = _s.dockerImageKnowledge[repo] || null;
+        var label = knowledge ? knowledge.label : repo;
+        var family = knowledge ? knowledge.family : 'unknown';
+
+        var variantExplain = '';
+        if (knowledge && variant && knowledge.variantInfo[variant]) {
+            variantExplain = knowledge.variantInfo[variant];
+        } else if (variant === 'slim') {
+            variantExplain = 'Minimal Debian-based image — smaller than full, more compatible than Alpine';
+        } else if (variant === 'alpine') {
+            variantExplain = 'Alpine Linux base — smallest image size, uses musl libc instead of glibc';
+        } else if (variant === 'latest' || !variant) {
+            variantExplain = 'Default variant — full image with all tools and libraries';
+        }
+
+        return {
+            raw: imageStr,
+            repo: repo,
+            tag: tag,
+            version: version,
+            variant: variant,
+            label: label,
+            family: family,
+            variantExplain: variantExplain
+        };
+    };
+
+    // ── Port classification ─────────────────────────────────────────
+    _s.portRanges = [
+        { min: 0,     max: 1023,  name: 'Well-known',  icon: '🔒', state: 'state-warning',
+          desc: 'IANA reserved range. Requires root/elevated privileges to bind. Your app should NOT use these unless it IS the canonical service (80=HTTP, 443=HTTPS).' },
+        { min: 1024,  max: 9999,  name: 'Common app',  icon: '✅', state: 'state-success',
+          desc: 'Standard application port range. Most frameworks default here — safe for development and production.' },
+        { min: 10000, max: 49151, name: 'Registered',  icon: 'ℹ️', state: 'state-info',
+          desc: 'IANA registered range. Typically used by specific services. Check for conflicts with known software.' },
+        { min: 49152, max: 65535, name: 'Ephemeral',   icon: '⚠️', state: 'state-warning',
+          desc: 'Dynamic/ephemeral port range. The OS uses these for outbound connections. Avoid binding services here — it can conflict with OS networking.' }
+    ];
+
+    _s.knownPorts = {
+        80:    { label: 'HTTP', note: 'Standard web traffic — typically handled by a reverse proxy (Nginx, Traefik), not your app directly.' },
+        443:   { label: 'HTTPS', note: 'Encrypted web traffic — requires TLS certificate. Usually terminated at a reverse proxy.' },
+        3000:  { label: 'Node.js / React / Grafana', note: 'Common default for Node.js frameworks (Express, Next.js), Create React App dev server, and Grafana.' },
+        3001:  { label: 'Alt Node.js / Uptime Kuma', note: 'Secondary Node.js port or Uptime Kuma monitoring.' },
+        4000:  { label: 'Phoenix (Elixir)', note: 'Default for Phoenix framework dev server.' },
+        5000:  { label: 'Flask / Docker Registry', note: 'Python Flask default dev port. Also used by Docker Registry.' },
+        5173:  { label: 'Vite dev server', note: 'Default for Vite (React/Vue/Svelte) development server.' },
+        8000:  { label: 'Django / FastAPI / Uvicorn', note: 'Common Python web framework port.' },
+        8080:  { label: 'Generic web / Spring / Tomcat', note: 'Very common HTTP alternate. Used by Java (Spring Boot, Tomcat), Go, and many proxies.' },
+        8443:  { label: 'HTTPS alternate', note: 'Non-privileged HTTPS. Common for Java app servers and development.' },
+        8888:  { label: 'Jupyter Notebook', note: 'Default for Jupyter Notebook/Lab servers.' },
+        9090:  { label: 'Prometheus', note: 'Default Prometheus server port.' },
+        1433:  { label: 'SQL Server (TDS)', note: 'Microsoft SQL Server — this is an infrastructure port, not an application port.' },
+        3306:  { label: 'MySQL / MariaDB', note: 'Database wire protocol — this should be an infrastructure service, not your app.' },
+        5432:  { label: 'PostgreSQL', note: 'Database wire protocol — this should be an infrastructure service, not your app.' },
+        6379:  { label: 'Redis', note: 'Cache/message broker — this should be an infrastructure service, not your app.' },
+        11211: { label: 'Memcached', note: 'Cache protocol — this should be an infrastructure service, not your app.' },
+        27017: { label: 'MongoDB', note: 'Database wire protocol — this should be an infrastructure service, not your app.' },
+        5672:  { label: 'RabbitMQ (AMQP)', note: 'Message broker — this should be an infrastructure service, not your app.' },
+        9092:  { label: 'Kafka', note: 'Message broker — this should be an infrastructure service, not your app.' }
+    };
+
+    _s.classifyPort = function(portNum) {
+        for (var i = 0; i < _s.portRanges.length; i++) {
+            if (portNum >= _s.portRanges[i].min && portNum <= _s.portRanges[i].max) return _s.portRanges[i];
+        }
+        return _s.portRanges[1];
+    };
+
+    _s.detectPortConflicts = function(hostPort, excludeRowEl) {
+        var conflicts = [];
+        var allRows = document.querySelectorAll('.dk-port-row');
+        allRows.forEach(function(row) {
+            if (row === excludeRowEl) return;
+            var hostInput = row.querySelector('input[type=number]:first-of-type');
+            if (hostInput && hostInput.value === String(hostPort)) {
+                var list = row.closest('[id^="dk-port-list-"]');
+                var svcId = list ? list.id.replace('dk-port-list-', '') : 'unknown';
+                conflicts.push(svcId);
+            }
+        });
+        if (window._infraOptions) {
+            window._infraOptions.forEach(function(inf) {
+                var toggle = document.getElementById('mf-dk-infra-' + inf.key);
+                if (!toggle || !toggle.checked) return;
+                inf.ports.forEach(function(p) {
+                    var portInput = document.getElementById('mf-dk-infra-port-' + inf.key + '-' + p.port);
+                    var currentPort = portInput ? parseInt(portInput.value) : p.port;
+                    if (currentPort === hostPort) {
+                        conflicts.push(inf.label || inf.key);
+                    }
+                });
+            });
+        }
+        return conflicts;
+    };
+
+})();
+</script>

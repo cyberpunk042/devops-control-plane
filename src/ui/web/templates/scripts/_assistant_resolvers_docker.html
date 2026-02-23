@@ -1,0 +1,1256 @@
+<!-- Assistant Resolvers — Docker
+     All Docker-related resolvers and enrichers.
+     Depends on: _assistant_engine.html, _assistant_resolvers_shared.html
+-->
+
+<script>
+(function() {
+    'use strict';
+
+    var _s = window._assistant._shared;
+
+    // ══════════════════════════════════════════════════════════════════
+    // ENRICHERS — registered for _resolveDynamic child card enrichment
+    // ══════════════════════════════════════════════════════════════════
+
+    // ── Dockerfile enrichment (per-file analysis) ───────────────────
+    window._assistant.enrichers['docker-section-dockerfiles'] = function(el, extractedName) {
+        // Base images: accent-colored spans (exclude stage/port text)
+        var baseSpans = el.querySelectorAll('span[style*="accent"]');
+        var bases = [];
+        baseSpans.forEach(function(s) {
+            var txt = s.textContent.trim();
+            if (txt.indexOf('AS ') !== 0 && txt.indexOf('-stage') === -1 && txt.indexOf('EXPOSE') === -1) {
+                bases.push(txt);
+            }
+        });
+
+        // Stages
+        var stageSpans = el.querySelectorAll('span[style*="text-muted"]');
+        var stages = [];
+        stageSpans.forEach(function(s) {
+            var txt = s.textContent.trim();
+            if (txt.indexOf('AS ') === 0) stages.push(txt.substring(3));
+        });
+
+        // Ports
+        var portSpan = el.querySelector('span[style*="text-muted"]');
+        var portMatch = portSpan ? portSpan.textContent.match(/EXPOSE\s+([\d, ]+)/) : null;
+        var ports = portMatch ? portMatch[1] : '';
+
+        // Build per-image breakdown cards
+        var imageCards = '';
+        bases.forEach(function(b) {
+            var p = _s.parseDockerImage(b);
+            if (!p) return;
+            imageCards += '<div style="display:flex;gap:0.3rem;flex-wrap:wrap;margin-top:0.25rem">' +
+                '<span style="font-size:0.7rem;padding:0.1rem 0.35rem;border-radius:4px;background:color-mix(in srgb, var(--accent) 12%, transparent);color:var(--accent);font-weight:600">🔧 ' + p.label + '</span>' +
+                '<span style="font-size:0.7rem;padding:0.1rem 0.35rem;border-radius:4px;background:color-mix(in srgb, var(--text-secondary) 10%, transparent);color:var(--text-secondary)">📌 ' + p.version + '</span>' +
+                (p.variant ? '<span style="font-size:0.7rem;padding:0.1rem 0.35rem;border-radius:4px;background:color-mix(in srgb, var(--success) 10%, transparent);color:var(--success)">📦 ' + p.variant + '</span>' : '') +
+                '</div>' +
+                (p.variantExplain ? '<div style="font-size:0.65rem;color:var(--text-muted);margin-top:0.15rem;padding-left:0.2rem">' + p.variantExplain + '</div>' : '');
+        });
+
+        var stageInfo = '';
+        if (stages.length > 0) {
+            stageInfo = '<div style="font-size:0.68rem;color:var(--accent);margin-top:0.2rem">⚡ ' + (stages.length + 1) + '-stage build (stages: ' + stages.join(', ') + ')</div>';
+        }
+
+        var portInfo = '';
+        if (ports) {
+            portInfo = '<div style="font-size:0.68rem;color:var(--text-muted);margin-top:0.1rem">🔌 EXPOSE ' + ports + '</div>';
+        }
+
+        return {
+            expanded: '<div class="assistant-state-card state-info" style="margin-bottom:0.4rem">' +
+                '<div class="state-label">📄 ' + extractedName + '</div>' +
+                '<div class="state-detail">' + imageCards + stageInfo + portInfo + '</div>' +
+                '</div>'
+        };
+    };
+
+    // ── Compose service enrichment (per-service analysis) ───────────
+    window._assistant.enrichers['docker-section-compose-svcs'] = function(el, extractedName) {
+        var imageEl = el.querySelector('code');
+        var image = imageEl ? imageEl.textContent.trim() : '?';
+
+        var parsed = null;
+        if (image !== '(build)' && image !== '?') {
+            parsed = _s.parseDockerImage(image);
+        }
+
+        // Determine role and card style
+        var role = 'application';
+        var cardStyle = 'state-success';
+        if (parsed) {
+            if (parsed.family === 'database') { role = 'database'; cardStyle = 'state-info'; }
+            else if (parsed.family === 'cache') { role = 'cache'; cardStyle = 'state-info'; }
+            else if (parsed.family === 'webserver') { role = 'proxy'; cardStyle = 'state-info'; }
+        }
+        if (image === '(build)') { role = 'application (builds from Dockerfile)'; }
+
+        // Volumes, deps, restart from muted spans
+        var mutedSpans = el.querySelectorAll('span[style*="text-muted"]');
+        var metaHtml = '';
+        mutedSpans.forEach(function(s) {
+            var txt = s.textContent.trim();
+            if (txt) metaHtml += '<span style="font-size:0.65rem;padding:0.05rem 0.25rem;border-radius:3px;background:color-mix(in srgb, var(--text-muted) 8%, transparent);color:var(--text-muted);margin-right:0.2rem">' + txt + '</span>';
+        });
+
+        // Image breakdown pills
+        var imagePills = '';
+        if (parsed) {
+            imagePills = '<div style="display:flex;gap:0.3rem;flex-wrap:wrap;margin-top:0.25rem">' +
+                '<span style="font-size:0.7rem;padding:0.1rem 0.35rem;border-radius:4px;background:color-mix(in srgb, var(--accent) 12%, transparent);color:var(--accent);font-weight:600">🔧 ' + parsed.label + '</span>' +
+                '<span style="font-size:0.7rem;padding:0.1rem 0.35rem;border-radius:4px;background:color-mix(in srgb, var(--text-secondary) 10%, transparent);color:var(--text-secondary)">📌 ' + parsed.version + '</span>' +
+                (parsed.variant ? '<span style="font-size:0.7rem;padding:0.1rem 0.35rem;border-radius:4px;background:color-mix(in srgb, var(--success) 10%, transparent);color:var(--success)">📦 ' + parsed.variant + '</span>' : '') +
+                '</div>' +
+                (parsed.variantExplain ? '<div style="font-size:0.65rem;color:var(--text-muted);margin-top:0.15rem;padding-left:0.2rem">' + parsed.variantExplain + '</div>' : '');
+        } else if (image === '(build)') {
+            imagePills = '<div style="font-size:0.68rem;color:var(--accent);margin-top:0.2rem">🔨 Builds from local Dockerfile — see Dockerfile Analysis for image details</div>';
+        }
+
+        return {
+            expanded: '<div class="assistant-state-card ' + cardStyle + '" style="margin-bottom:0.4rem">' +
+                '<div class="state-label">' + extractedName + ' <span style="font-size:0.7rem;opacity:0.7">(' + role + ')</span></div>' +
+                '<div class="state-detail">' + imagePills +
+                (metaHtml ? '<div style="margin-top:0.2rem">' + metaHtml + '</div>' : '') +
+                '</div></div>'
+        };
+    };
+
+    // ══════════════════════════════════════════════════════════════════
+    // RESOLVERS — registered on window._assistant.resolvers
+    // ══════════════════════════════════════════════════════════════════
+
+
+    // ── Docker card resolvers ────────────────────────────────────
+
+    window._assistant.resolvers.dockerDaemon = function() {
+        var pill = document.getElementById('wiz-docker-pill-daemon');
+        if (!pill) return '';
+        return pill.textContent.indexOf('✓') !== -1 ? '✓' : '✗';
+    };
+
+
+    window._assistant.resolvers.dockerVersion = function() {
+        var pill = document.getElementById('wiz-docker-pill-daemon');
+        if (!pill) return '';
+        var match = pill.textContent.match(/·\s*(.+)/);
+        return match ? match[1].trim() : '';
+    };
+
+
+    window._assistant.resolvers.dockerComposeCli = function() {
+        var pill = document.getElementById('wiz-docker-pill-compose-cli');
+        if (!pill) return '';
+        return pill.textContent.indexOf('✓') !== -1 ? '✓' : '○';
+    };
+
+
+    window._assistant.resolvers.dockerDockerfiles = function() {
+        var pill = document.getElementById('wiz-docker-pill-dockerfile');
+        if (!pill) return 0;
+        var match = pill.textContent.match(/(\d+)/);
+        return match ? parseInt(match[1], 10) : 0;
+    };
+
+
+    window._assistant.resolvers.dockerServices = function() {
+        var pill = document.getElementById('wiz-docker-pill-composefile');
+        if (!pill) return 0;
+        var match = pill.textContent.match(/(\d+)\s*svc/);
+        return match ? parseInt(match[1], 10) : 0;
+    };
+
+
+    window._assistant.resolvers.dockerIgnoreRules = function() {
+        var pill = document.getElementById('wiz-docker-pill-dockerignore');
+        if (!pill) return 0;
+        var match = pill.textContent.match(/(\d+)\s*rule/);
+        return match ? parseInt(match[1], 10) : 0;
+    };
+
+
+    window._assistant.resolvers.dockerModules = function() {
+        var pill = document.getElementById('wiz-docker-fullsetup-pill-modules');
+        if (!pill) return 0;
+        var match = pill.textContent.match(/(\d+)/);
+        return match ? parseInt(match[1], 10) : 0;
+    };
+
+
+    window._assistant.resolvers.dockerStack = function() {
+        var badge = document.getElementById('wiz-docker-stack-badge');
+        if (!badge) return '';
+        return badge.textContent.trim();
+    };
+
+
+    // Resolver: parsed base image from the genconfig form field
+    window._assistant.resolvers.dockerBaseRuntime = function() {
+        var input = document.getElementById('wiz-docker-base');
+        if (!input) return '';
+        var parsed = _s.parseDockerImage(input.value);
+        return parsed ? parsed.label : '';
+    };
+
+
+    window._assistant.resolvers.dockerBaseVersion = function() {
+        var input = document.getElementById('wiz-docker-base');
+        if (!input) return '';
+        var parsed = _s.parseDockerImage(input.value);
+        return parsed ? parsed.version : '';
+    };
+
+
+    window._assistant.resolvers.dockerBaseVariant = function() {
+        var input = document.getElementById('wiz-docker-base');
+        if (!input) return '';
+        var parsed = _s.parseDockerImage(input.value);
+        return parsed ? parsed.variant : '';
+    };
+
+
+    window._assistant.resolvers.dockerBaseVariantExplain = function() {
+        var input = document.getElementById('wiz-docker-base');
+        if (!input) return '';
+        var parsed = _s.parseDockerImage(input.value);
+        return parsed ? parsed.variantExplain : '';
+    };
+
+
+    // Composite resolver: full image breakdown as highlighted HTML state-cards
+    window._assistant.resolvers.dockerBaseBreakdown = function() {
+        var input = document.getElementById('wiz-docker-base');
+        if (!input || !input.value) return '<div class="assistant-state-card state-warning"><div class="state-label">No base image configured</div></div>';
+        var p = _s.parseDockerImage(input.value);
+        if (!p) return '<div class="assistant-state-card state-warning"><div class="state-label">Could not parse image</div></div>';
+        return '<div class="assistant-state-card state-info" style="margin-bottom:0.4rem">' +
+            '<div class="state-label">🔧 Runtime · ' + p.label + '</div>' +
+            '<div class="state-detail">Image repository: <code>' + p.repo + '</code><br>' +
+            'The ' + p.label + ' runtime provides the interpreter, compiler, or server binary pre-installed in your container.</div>' +
+            '</div>' +
+            '<div class="assistant-state-card state-info" style="margin-bottom:0.4rem">' +
+            '<div class="state-label">📌 Version · ' + p.version + '</div>' +
+            '<div class="state-detail">Pinned to <strong>' + p.version + '</strong> — ensures reproducible builds across environments. ' +
+            'Security patches arrive within this version line automatically on rebuild.</div>' +
+            '</div>' +
+            '<div class="assistant-state-card ' + (p.variant ? 'state-success' : 'state-warning') + '">' +
+            '<div class="state-label">📦 Variant · ' + (p.variant || 'default') + '</div>' +
+            '<div class="state-detail">' + (p.variantExplain || 'Default variant — full image with all tools and libraries.') + '</div>' +
+            '</div>';
+    };
+
+
+    // ── Dockerfile analysis resolver ────────────────────────────
+    // Returns HTML state-cards per Dockerfile with image breakdown
+
+    window._assistant.resolvers.dockerfileAnalysis = function() {
+        var section = document.getElementById('wiz-docker-section-dockerfiles');
+        if (!section) return '<div class="assistant-state-card state-warning"><div class="state-label">No Dockerfiles detected</div></div>';
+        var rows = section.querySelectorAll('div[style*="border-bottom"]');
+        if (!rows || rows.length === 0) return '<div class="assistant-state-card state-warning"><div class="state-label">No Dockerfiles detected</div></div>';
+        var html = '';
+        rows.forEach(function(row) {
+            var codeEl = row.querySelector('code');
+            var path = codeEl ? codeEl.textContent.trim() : '?';
+
+            // Base images are accent-colored spans
+            var baseSpans = row.querySelectorAll('span[style*="accent"]');
+            var bases = [];
+            baseSpans.forEach(function(s) {
+                var txt = s.textContent.trim();
+                if (txt.indexOf('AS ') !== 0 && txt.indexOf('-stage') === -1 && txt.indexOf('EXPOSE') === -1) {
+                    bases.push(txt);
+                }
+            });
+
+            // Stages
+            var stageSpans = row.querySelectorAll('span[style*="text-muted"]');
+            var stages = [];
+            stageSpans.forEach(function(s) {
+                var txt = s.textContent.trim();
+                if (txt.indexOf('AS ') === 0) stages.push(txt.substring(3));
+            });
+
+            // Ports
+            var portSpan = row.querySelector('span[style*="text-muted"]');
+            var portMatch = portSpan ? portSpan.textContent.match(/EXPOSE\s+([\d, ]+)/) : null;
+            var ports = portMatch ? portMatch[1] : '';
+
+            // Build per-image breakdown cards
+            var imageCards = '';
+            bases.forEach(function(b) {
+                var p = _s.parseDockerImage(b);
+                if (!p) return;
+                imageCards += '<div style="display:flex;gap:0.3rem;flex-wrap:wrap;margin-top:0.25rem">' +
+                    '<span style="font-size:0.7rem;padding:0.1rem 0.35rem;border-radius:4px;background:color-mix(in srgb, var(--accent) 12%, transparent);color:var(--accent);font-weight:600">🔧 ' + p.label + '</span>' +
+                    '<span style="font-size:0.7rem;padding:0.1rem 0.35rem;border-radius:4px;background:color-mix(in srgb, var(--text-secondary) 10%, transparent);color:var(--text-secondary)">📌 ' + p.version + '</span>' +
+                    (p.variant ? '<span style="font-size:0.7rem;padding:0.1rem 0.35rem;border-radius:4px;background:color-mix(in srgb, var(--success) 10%, transparent);color:var(--success)">📦 ' + p.variant + '</span>' : '') +
+                    '</div>' +
+                    (p.variantExplain ? '<div style="font-size:0.65rem;color:var(--text-muted);margin-top:0.15rem;padding-left:0.2rem">' + p.variantExplain + '</div>' : '');
+            });
+
+            // Stage info
+            var stageInfo = '';
+            if (stages.length > 0) {
+                stageInfo = '<div style="font-size:0.68rem;color:var(--accent);margin-top:0.2rem">⚡ ' + (stages.length + 1) + '-stage build (stages: ' + stages.join(', ') + ')</div>';
+            }
+
+            // Port info
+            var portInfo = '';
+            if (ports) {
+                portInfo = '<div style="font-size:0.68rem;color:var(--text-muted);margin-top:0.1rem">🔌 EXPOSE ' + ports + '</div>';
+            }
+
+            html += '<div class="assistant-state-card state-info" style="margin-bottom:0.4rem">' +
+                '<div class="state-label">📄 ' + path + '</div>' +
+                '<div class="state-detail">' + imageCards + stageInfo + portInfo + '</div>' +
+                '</div>';
+        });
+        return html;
+    };
+
+
+    // ── Compose service topology resolver ───────────────────────
+    // Returns HTML state-cards per service with image breakdown and role classification
+
+    window._assistant.resolvers.dockerSvcAnalysis = function() {
+        var section = document.getElementById('wiz-docker-section-compose-svcs');
+        if (!section) return '<div class="assistant-state-card state-warning"><div class="state-label">No compose services detected</div></div>';
+        var rows = section.querySelectorAll('div[style*="border-bottom"]');
+        if (!rows || rows.length === 0) return '<div class="assistant-state-card state-warning"><div class="state-label">No compose services detected</div></div>';
+
+        var services = [];
+        var html = '';
+
+        rows.forEach(function(row) {
+            var nameEl = row.querySelector('strong');
+            var imageEl = row.querySelector('code');
+            var name = nameEl ? nameEl.textContent.trim() : '?';
+            var image = imageEl ? imageEl.textContent.trim() : '?';
+
+            var parsed = null;
+            if (image !== '(build)' && image !== '?') {
+                parsed = _s.parseDockerImage(image);
+            }
+
+            // Determine role and card style
+            var role = 'application';
+            var cardStyle = 'state-success';
+            if (parsed) {
+                if (parsed.family === 'database') { role = 'database'; cardStyle = 'state-info'; }
+                else if (parsed.family === 'cache') { role = 'cache'; cardStyle = 'state-info'; }
+                else if (parsed.family === 'webserver') { role = 'proxy'; cardStyle = 'state-info'; }
+            }
+            if (image === '(build)') { role = 'application (builds from Dockerfile)'; }
+
+            services.push({ name: name, role: role, parsed: parsed });
+
+            // Volumes, deps, restart from muted spans
+            var mutedSpans = row.querySelectorAll('span[style*="text-muted"]');
+            var metaHtml = '';
+            mutedSpans.forEach(function(s) {
+                var txt = s.textContent.trim();
+                if (txt) metaHtml += '<span style="font-size:0.65rem;padding:0.05rem 0.25rem;border-radius:3px;background:color-mix(in srgb, var(--text-muted) 8%, transparent);color:var(--text-muted);margin-right:0.2rem">' + txt + '</span>';
+            });
+
+            // Image breakdown pills
+            var imagePills = '';
+            if (parsed) {
+                imagePills = '<div style="display:flex;gap:0.3rem;flex-wrap:wrap;margin-top:0.25rem">' +
+                    '<span style="font-size:0.7rem;padding:0.1rem 0.35rem;border-radius:4px;background:color-mix(in srgb, var(--accent) 12%, transparent);color:var(--accent);font-weight:600">🔧 ' + parsed.label + '</span>' +
+                    '<span style="font-size:0.7rem;padding:0.1rem 0.35rem;border-radius:4px;background:color-mix(in srgb, var(--text-secondary) 10%, transparent);color:var(--text-secondary)">📌 ' + parsed.version + '</span>' +
+                    (parsed.variant ? '<span style="font-size:0.7rem;padding:0.1rem 0.35rem;border-radius:4px;background:color-mix(in srgb, var(--success) 10%, transparent);color:var(--success)">📦 ' + parsed.variant + '</span>' : '') +
+                    '</div>' +
+                    (parsed.variantExplain ? '<div style="font-size:0.65rem;color:var(--text-muted);margin-top:0.15rem;padding-left:0.2rem">' + parsed.variantExplain + '</div>' : '');
+            } else if (image === '(build)') {
+                imagePills = '<div style="font-size:0.68rem;color:var(--accent);margin-top:0.2rem">🔨 Builds from local Dockerfile — see Dockerfile Analysis above for image details</div>';
+            }
+
+            html += '<div class="assistant-state-card ' + cardStyle + '" style="margin-bottom:0.4rem">' +
+                '<div class="state-label">' + name + ' <span style="font-size:0.7rem;opacity:0.7">(' + role + ')</span></div>' +
+                '<div class="state-detail">' + imagePills +
+                (metaHtml ? '<div style="margin-top:0.2rem">' + metaHtml + '</div>' : '') +
+                '</div></div>';
+        });
+
+        // Topology summary card
+        var hasDb = services.some(function(s) { return s.role === 'database'; });
+        var hasCache = services.some(function(s) { return s.role === 'cache'; });
+        var topology = '';
+        if (services.length === 1) topology = 'Single service';
+        else if (hasDb && hasCache) topology = 'Full stack (app + database + cache)';
+        else if (hasDb) topology = 'App + Database';
+        else topology = 'Multi-service (' + services.length + ' services)';
+
+        return '<div class="assistant-state-card state-success" style="margin-bottom:0.5rem">' +
+            '<div class="state-label">🗺 Topology · ' + topology + '</div>' +
+            '<div class="state-detail">' + services.length + ' service(s) detected</div>' +
+            '</div>' + html;
+    };
+
+
+    // ── Docker Setup wizard — base image breakdown resolver ──────
+    // Finds the closest mf-dk-img-* select in the active Docker Setup modal,
+    // parses the selected image, and returns pill-style state cards matching
+    // the main wizard's breakdown format.
+
+    window._assistant.resolvers.dkSetupBaseBreakdown = function() {
+        // Find all image selects in the Docker Setup modal
+        var selects = document.querySelectorAll('[id^="mf-dk-img-"], #mf-dk-manual-img');
+        if (!selects || selects.length === 0) return '';
+
+        // For now, pick the first visible select (covers single-module and manual)
+        // TODO: when multi-module hover tracking lands, use the hovered card's select
+        var sel = null;
+        for (var i = 0; i < selects.length; i++) {
+            if (selects[i].offsetParent !== null) { sel = selects[i]; break; }
+        }
+        if (!sel) sel = selects[0];
+
+        // Get the actual value — for image selects, selected option's value is the image string
+        var val = sel.value;
+        if (val === '__custom') {
+            // Custom input is a sibling text input
+            var customInput = sel.parentElement && sel.parentElement.querySelector('input[type="text"]');
+            if (customInput && customInput.value.trim()) val = customInput.value.trim();
+            else return '<div class="assistant-state-card state-info"><div class="state-label">✏️ Custom Image</div><div class="state-detail">Enter any image from Docker Hub or a private registry. Pin the tag for reproducible builds.</div></div>';
+        }
+
+        if (!val) return '';
+        var p = _s.parseDockerImage(val);
+        if (!p) return '<div class="assistant-state-card state-warning"><div class="state-label">Could not parse image: ' + val + '</div></div>';
+
+        // Build pill-style breakdown
+        var html = '<div style="display:flex;gap:0.3rem;flex-wrap:wrap;margin-bottom:0.3rem">' +
+            '<span style="font-size:0.72rem;padding:0.12rem 0.4rem;border-radius:4px;background:color-mix(in srgb, var(--accent) 12%, transparent);color:var(--accent);font-weight:600">🔧 ' + p.label + '</span>' +
+            '<span style="font-size:0.72rem;padding:0.12rem 0.4rem;border-radius:4px;background:color-mix(in srgb, var(--text-secondary) 10%, transparent);color:var(--text-secondary)">📌 ' + p.version + '</span>' +
+            (p.variant ? '<span style="font-size:0.72rem;padding:0.12rem 0.4rem;border-radius:4px;background:color-mix(in srgb, var(--success) 10%, transparent);color:var(--success)">📦 ' + p.variant + '</span>' : '') +
+            '</div>';
+        if (p.variantExplain) {
+            html += '<div style="font-size:0.68rem;color:var(--text-muted);margin-bottom:0.3rem">' + p.variantExplain + '</div>';
+        }
+
+        // Try to find the EXPOSE port from the same card
+        var svcId = sel.id.replace('mf-dk-img-', '').replace('mf-dk-manual-img', 'manual');
+        var exposeInput = document.getElementById('mf-dk-expose-' + svcId) || document.getElementById('mf-dk-manual-expose');
+        if (exposeInput && exposeInput.value) {
+            html += '<div style="font-size:0.68rem;color:var(--text-muted)">🔌 EXPOSE ' + exposeInput.value + '</div>';
+        }
+
+        return html;
+    };
+
+
+    // ── Docker Setup wizard — volume row breakdown resolver ─────
+    // Reads the source and destination from the hovered volume row's inputs
+    // and explains what kind of mount this is.
+
+    window._assistant.resolvers.dkSetupVolBreakdown = function() {
+        // Find all volume rows in the Docker Setup modal
+        var rows = document.querySelectorAll('.dk-vol-row');
+        if (!rows || rows.length === 0) return '';
+
+        var html = '';
+        rows.forEach(function(row, idx) {
+            var srcInput = row.querySelector('input[id^="dk-vol-src-"]');
+            var dstInput = row.querySelector('input[id^="dk-vol-mount-"]');
+            var modeSelect = row.querySelector('select[id^="dk-vol-mode-"]');
+
+            var src = srcInput ? srcInput.value.trim() : '';
+            var dst = dstInput ? dstInput.value.trim() : '';
+            var mode = modeSelect ? modeSelect.value : 'rw';
+
+            if (!src && !dst) return;
+
+            // Detect mount type
+            var mountType = 'named';
+            var mountIcon = '📦';
+            var mountExplain = '';
+
+            if (src.startsWith('./') || src.startsWith('../')) {
+                mountType = 'bind-relative';
+                mountIcon = '📂';
+                mountExplain = 'Bind mount (relative path) — maps a host directory relative to the compose file into the container. Changes are shared live between host and container.';
+            } else if (src.startsWith('/')) {
+                mountType = 'bind-absolute';
+                mountIcon = '📂';
+                mountExplain = 'Bind mount (absolute path) — maps a specific host directory. Less portable across machines but useful for system-level paths like sockets.';
+            } else if (src) {
+                mountIcon = '💾';
+                mountExplain = 'Named volume — Docker manages the storage location. Data persists across container restarts and rebuilds. Recommended for databases and persistent state.';
+            }
+
+            // Build pill row
+            html += '<div class="assistant-state-card state-info" style="margin-bottom:0.3rem">' +
+                '<div class="state-label">' + mountIcon + ' Volume ' + (idx + 1) + '</div>' +
+                '<div class="state-detail">' +
+                '<div style="display:flex;gap:0.3rem;flex-wrap:wrap;margin-bottom:0.2rem">' +
+                (src ? '<span style="font-size:0.72rem;padding:0.12rem 0.4rem;border-radius:4px;background:color-mix(in srgb, var(--accent) 12%, transparent);color:var(--accent);font-weight:600;font-family:var(--font-mono,monospace)">' + src + '</span>' : '') +
+                '<span style="font-size:0.72rem;padding:0.12rem 0.25rem;color:var(--text-muted);font-weight:600">→</span>' +
+                (dst ? '<span style="font-size:0.72rem;padding:0.12rem 0.4rem;border-radius:4px;background:color-mix(in srgb, var(--text-secondary) 10%, transparent);color:var(--text-secondary);font-family:var(--font-mono,monospace)">' + dst + '</span>' : '<span style="font-size:0.72rem;color:var(--text-muted);font-style:italic">no destination set</span>') +
+                '<span style="font-size:0.68rem;padding:0.1rem 0.3rem;border-radius:4px;background:color-mix(in srgb, ' + (mode === 'ro' ? 'var(--warning)' : 'var(--success)') + ' 10%, transparent);color:' + (mode === 'ro' ? 'var(--warning)' : 'var(--success)') + '">' + (mode === 'ro' ? '🔒 read-only' : '📝 read-write') + '</span>' +
+                '</div>' +
+                (mountExplain ? '<div style="font-size:0.68rem;color:var(--text-muted)">' + mountExplain + '</div>' : '') +
+                '</div></div>';
+        });
+
+        return html;
+    };
+
+
+    // ── Docker Setup wizard — depends-on breakdown resolver ─────
+    // Finds all checked dependency checkboxes in the closest service card,
+    // looks up each in _infraOptions, and renders explanation cards.
+
+    window._assistant.resolvers.dkSetupDepBreakdown = function() {
+        // Find all dependency wrappers
+        var depWraps = document.querySelectorAll('[id^="dk-mod-deps-wrap-"]');
+        if (!depWraps || depWraps.length === 0) return '';
+
+        // Collect all checked deps across visible wrappers
+        var html = '';
+        var infraMap = {};
+        if (window._infraOptions) {
+            window._infraOptions.forEach(function(inf) { infraMap[inf.key] = inf; });
+        }
+
+        depWraps.forEach(function(wrap) {
+            var checked = wrap.querySelectorAll('input[type="checkbox"]:checked');
+            if (!checked || checked.length === 0) return;
+
+            checked.forEach(function(cb) {
+                var svcName = cb.value;
+                var inf = infraMap[svcName];
+
+                if (inf) {
+                    // Infrastructure service — rich description
+                    var portPills = '';
+                    if (inf.ports && inf.ports.length > 0) {
+                        portPills = '<div style="display:flex;gap:0.2rem;flex-wrap:wrap;margin-top:0.15rem">';
+                        inf.ports.forEach(function(p) {
+                            portPills += '<span style="font-size:0.68rem;padding:0.08rem 0.3rem;border-radius:3px;background:color-mix(in srgb, var(--accent) 10%, transparent);color:var(--accent)">🔌 ' + p.port + ' (' + p.label + ')</span>';
+                        });
+                        portPills += '</div>';
+                    }
+
+                    var envCount = inf.envFields ? inf.envFields.length : 0;
+                    var volCount = inf.volumes ? inf.volumes.length : 0;
+                    var metaPills = '';
+                    if (envCount > 0 || volCount > 0) {
+                        metaPills = '<div style="display:flex;gap:0.2rem;flex-wrap:wrap;margin-top:0.15rem">';
+                        if (envCount > 0) metaPills += '<span style="font-size:0.68rem;padding:0.08rem 0.3rem;border-radius:3px;background:color-mix(in srgb, var(--text-secondary) 8%, transparent);color:var(--text-secondary)">🔐 ' + envCount + ' env var' + (envCount > 1 ? 's' : '') + '</span>';
+                        if (volCount > 0) metaPills += '<span style="font-size:0.68rem;padding:0.08rem 0.3rem;border-radius:3px;background:color-mix(in srgb, var(--text-secondary) 8%, transparent);color:var(--text-secondary)">💾 ' + volCount + ' volume' + (volCount > 1 ? 's' : '') + '</span>';
+                        metaPills += '</div>';
+                    }
+
+                    html += '<div class="assistant-state-card state-success" style="margin-bottom:0.3rem">' +
+                        '<div class="state-label">✅ ' + (inf.label || svcName) + '</div>' +
+                        '<div class="state-detail">' +
+                        (inf.description ? '<div style="font-size:0.72rem;margin-bottom:0.15rem">' + inf.description + '</div>' : '') +
+                        portPills + metaPills +
+                        (inf.note ? '<div style="font-size:0.65rem;color:var(--text-muted);margin-top:0.15rem;font-style:italic">💡 ' + inf.note + '</div>' : '') +
+                        '</div></div>';
+                } else {
+                    // App service dependency — simpler card
+                    var displayName = (window._dkSvcNames && window._dkSvcNames[svcName]) || svcName;
+                    html += '<div class="assistant-state-card state-info" style="margin-bottom:0.3rem">' +
+                        '<div class="state-label">🔗 ' + displayName + '</div>' +
+                        '<div class="state-detail" style="font-size:0.72rem">Application service — this container will start after <strong>' + displayName + '</strong> is healthy or started. Use <code>depends_on</code> with <code>condition: service_healthy</code> for reliable ordering.</div>' +
+                        '</div>';
+                }
+            });
+        });
+
+        if (!html) return '';
+        return html;
+    };
+
+
+    // ── Docker Setup wizard — single dependency hover preview ───
+    // Uses the currently hovered element to find which dep label is
+    // being hovered and renders a preview card for that service.
+
+    window._assistant.resolvers.dkSetupDepHover = function() {
+        var el = window._assistant._resolveElement;
+        if (!el) return '';
+
+        // Walk up to find the label, or try the element itself
+        var label = el.closest ? el.closest('label') : null;
+        if (!label) {
+            // Maybe el IS the label or we're on the checkbox/span inside it
+            if (el.tagName === 'LABEL') label = el;
+            else if (el.parentElement && el.parentElement.tagName === 'LABEL') label = el.parentElement;
+        }
+        if (!label) return '';
+
+        // Get the checkbox inside this label
+        var cb = label.querySelector('input[type="checkbox"]');
+        if (!cb) return '';
+        var svcName = cb.value;
+        if (!svcName) return '';
+
+        // Build infra map
+        var infraMap = {};
+        if (window._infraOptions) {
+            window._infraOptions.forEach(function(inf) { infraMap[inf.key] = inf; });
+        }
+        // Also check _infraCategories for category label
+        var catMap = window._infraCategories || {};
+
+        var inf = infraMap[svcName];
+        if (inf) {
+            // Infrastructure service — rich preview
+            var catLabel = catMap[inf.cat] || inf.cat;
+            var isChecked = cb.checked;
+
+            var portPills = '';
+            if (inf.ports && inf.ports.length > 0) {
+                portPills = '<div style="display:flex;gap:0.2rem;flex-wrap:wrap;margin-top:0.2rem">';
+                inf.ports.forEach(function(p) {
+                    portPills += '<span style="font-size:0.68rem;padding:0.08rem 0.3rem;border-radius:3px;background:color-mix(in srgb, var(--accent) 10%, transparent);color:var(--accent)">🔌 ' + p.port + ' (' + p.label + ')</span>';
+                });
+                portPills += '</div>';
+            }
+
+            var envPills = '';
+            if (inf.envFields && inf.envFields.length > 0) {
+                envPills = '<div style="display:flex;gap:0.2rem;flex-wrap:wrap;margin-top:0.15rem">';
+                inf.envFields.forEach(function(ef) {
+                    var icon = ef.type === 'password' ? '🔒' : '📋';
+                    envPills += '<span style="font-size:0.65rem;padding:0.06rem 0.25rem;border-radius:3px;background:color-mix(in srgb, var(--text-secondary) 8%, transparent);color:var(--text-secondary);font-family:var(--font-mono,monospace)">' + icon + ' ' + ef.key + '</span>';
+                });
+                envPills += '</div>';
+            }
+
+            var volPills = '';
+            if (inf.volumes && inf.volumes.length > 0) {
+                volPills = '<div style="display:flex;gap:0.2rem;flex-wrap:wrap;margin-top:0.15rem">';
+                inf.volumes.forEach(function(v) {
+                    volPills += '<span style="font-size:0.65rem;padding:0.06rem 0.25rem;border-radius:3px;background:color-mix(in srgb, var(--text-secondary) 8%, transparent);color:var(--text-secondary);font-family:var(--font-mono,monospace)">💾 ' + v.name + ' → ' + v.mount + '</span>';
+                });
+                volPills += '</div>';
+            }
+
+            var statusLine = isChecked
+                ? '<div style="font-size:0.65rem;color:var(--success);margin-top:0.2rem;font-weight:600">✅ Selected as dependency — will start before this service</div>'
+                : '<div style="font-size:0.65rem;color:var(--text-muted);margin-top:0.2rem;font-style:italic">☐ Not selected — check to add as a dependency</div>';
+
+            return '<div class="assistant-state-card ' + (isChecked ? 'state-success' : 'state-info') + '">' +
+                '<div class="state-label">' + (inf.label || svcName) + ' <span style="font-size:0.65rem;opacity:0.7">(' + catLabel + ')</span></div>' +
+                '<div class="state-detail">' +
+                (inf.description ? '<div style="font-size:0.72rem;margin-bottom:0.15rem">' + inf.description + '</div>' : '') +
+                portPills + envPills + volPills +
+                (inf.note ? '<div style="font-size:0.65rem;color:var(--text-muted);margin-top:0.15rem;font-style:italic">💡 ' + inf.note + '</div>' : '') +
+                statusLine +
+                '</div></div>';
+        } else {
+            // App service dependency
+            var displayName = (window._dkSvcNames && window._dkSvcNames[svcName]) || svcName;
+            var isChecked2 = cb.checked;
+            return '<div class="assistant-state-card ' + (isChecked2 ? 'state-success' : 'state-info') + '">' +
+                '<div class="state-label">🔗 ' + displayName + '</div>' +
+                '<div class="state-detail"><div style="font-size:0.72rem">Application service in your compose stack. Adding it as a dependency ensures it starts before this container.</div>' +
+                (isChecked2
+                    ? '<div style="font-size:0.65rem;color:var(--success);margin-top:0.15rem;font-weight:600">✅ Selected — Compose will wait for this service</div>'
+                    : '<div style="font-size:0.65rem;color:var(--text-muted);margin-top:0.15rem;font-style:italic">☐ Not selected — check to add as a dependency</div>') +
+                '</div></div>';
+        }
+    };
+
+
+    // ── Docker Setup wizard — infrastructure service hover ──────
+    // Shows a detailed preview of the infra service being hovered.
+    // Works on both the label row (toggle) and the expanded config panel.
+
+    window._assistant.resolvers.dkInfraHover = function() {
+        var el = window._assistant._resolveElement;
+        if (!el) return '';
+
+        // Find the infra key from the hovered element
+        var infraKey = null;
+
+        // 1. Try data-infra-key on the element or an ancestor checkbox
+        var toggle = el.closest ? el.closest('.dk-infra-toggle') || el.querySelector && el.querySelector('.dk-infra-toggle') : null;
+        if (!toggle && el.matches && el.matches('.dk-infra-toggle')) toggle = el;
+        if (!toggle) {
+            // Walk up to find a label containing the toggle
+            var label = el.closest ? el.closest('label') : null;
+            if (label) toggle = label.querySelector('.dk-infra-toggle');
+        }
+        if (toggle && toggle.dataset && toggle.dataset.infraKey) {
+            infraKey = toggle.dataset.infraKey;
+        }
+
+        // 2. Try config panel id
+        if (!infraKey) {
+            var cfgPanel = el.closest ? el.closest('[id^="dk-infra-cfg-"]') : null;
+            if (cfgPanel) {
+                infraKey = cfgPanel.id.replace('dk-infra-cfg-', '');
+            }
+        }
+
+        // 3. Try any infra-related input id
+        if (!infraKey && el.id) {
+            var m = el.id.match(/mf-dk-infra-(?:img|port|vol|cmd|restart|imgcustom)-([a-z0-9]+)/);
+            if (m) infraKey = m[1];
+        }
+
+        if (!infraKey) return '';
+
+        // Look up the service
+        var inf = null;
+        if (window._infraOptions) {
+            for (var i = 0; i < window._infraOptions.length; i++) {
+                if (window._infraOptions[i].key === infraKey) { inf = window._infraOptions[i]; break; }
+            }
+        }
+        if (!inf) return '';
+
+        var catMap = window._infraCategories || {};
+        var catLabel = catMap[inf.cat] || inf.cat;
+        var isEnabled = false;
+        var toggleEl = document.getElementById('mf-dk-infra-' + infraKey);
+        if (toggleEl) isEnabled = toggleEl.checked;
+
+        var html = '';
+
+        // Status banner
+        html += '<div class="assistant-state-card ' + (isEnabled ? 'state-success' : 'state-info') + '">' +
+            '<div class="state-label">' + (inf.label || infraKey) + ' <span style="font-size:0.65rem;opacity:0.7">(' + catLabel + ')</span></div>' +
+            '<div class="state-detail">';
+
+        // Description
+        if (inf.description) {
+            html += '<div style="font-size:0.72rem;margin-bottom:0.2rem">' + inf.description + '</div>';
+        }
+
+        // Current image (if enabled and selected)
+        if (isEnabled) {
+            var imgSel = document.getElementById('mf-dk-infra-img-' + infraKey);
+            var imgVal = imgSel ? imgSel.value : '';
+            if (imgVal === '__custom') {
+                var customInput = document.getElementById('mf-dk-infra-imgcustom-' + infraKey);
+                imgVal = customInput ? customInput.value.trim() : '';
+            }
+            if (imgVal) {
+                var parsed = _s.parseDockerImage(imgVal);
+                html += '<div style="display:flex;gap:0.2rem;flex-wrap:wrap;margin-bottom:0.15rem">' +
+                    '<span style="font-size:0.68rem;padding:0.08rem 0.3rem;border-radius:3px;background:color-mix(in srgb, var(--accent) 12%, transparent);color:var(--accent);font-weight:600">🐳 ' + parsed.repo + '</span>' +
+                    (parsed.version ? '<span style="font-size:0.68rem;padding:0.08rem 0.3rem;border-radius:3px;background:color-mix(in srgb, var(--success) 10%, transparent);color:var(--success)">📌 ' + parsed.version + '</span>' : '') +
+                    (parsed.variant ? '<span style="font-size:0.68rem;padding:0.08rem 0.3rem;border-radius:3px;background:color-mix(in srgb, var(--warning) 10%, transparent);color:var(--warning)">📦 ' + parsed.variant + '</span>' : '') +
+                    '</div>';
+            }
+        }
+
+        // Ports
+        if (inf.ports && inf.ports.length > 0) {
+            html += '<div style="display:flex;gap:0.2rem;flex-wrap:wrap;margin-top:0.15rem">';
+            inf.ports.forEach(function(p) {
+                // Check current port value if enabled
+                var currentPort = p.port;
+                if (isEnabled) {
+                    var portInput = document.getElementById('mf-dk-infra-port-' + infraKey + '-' + p.port);
+                    if (portInput) currentPort = portInput.value || p.port;
+                }
+                // Purpose-aware coloring
+                var purposeColors = {
+                    wire:  { bg: 'var(--accent)',         icon: '🔌' },
+                    http:  { bg: 'var(--success)',        icon: '🌐' },
+                    admin: { bg: 'var(--warning)',        icon: '⚙️' },
+                    grpc:  { bg: 'var(--info, #60a5fa)',  icon: '⚡' },
+                    peer:  { bg: 'var(--text-secondary)', icon: '🔗' },
+                    ws:    { bg: 'var(--info, #60a5fa)',  icon: '🔄' },
+                    ssh:   { bg: 'var(--text-secondary)', icon: '🔑' },
+                    smtp:  { bg: 'var(--text-secondary)', icon: '✉️' }
+                };
+                var pc = purposeColors[p.purpose] || purposeColors.wire;
+                var protoTag = p.proto && p.proto !== 'tcp' ? '/' + p.proto : '';
+                html += '<span style="font-size:0.68rem;padding:0.08rem 0.3rem;border-radius:3px;background:color-mix(in srgb, ' + pc.bg + ' 10%, transparent);color:' + pc.bg + '">' + pc.icon + ' ' + currentPort + protoTag + ' (' + p.label + ')</span>';
+            });
+            html += '</div>';
+        }
+
+        // Env vars
+        if (inf.envFields && inf.envFields.length > 0) {
+            html += '<div style="display:flex;gap:0.2rem;flex-wrap:wrap;margin-top:0.15rem">';
+            inf.envFields.forEach(function(ef) {
+                var icon = ef.type === 'password' ? '🔒' : (ef.required ? '⚠️' : '📋');
+                html += '<span style="font-size:0.65rem;padding:0.06rem 0.25rem;border-radius:3px;background:color-mix(in srgb, var(--text-secondary) 8%, transparent);color:var(--text-secondary);font-family:var(--font-mono,monospace)">' + icon + ' ' + ef.key + '</span>';
+            });
+            html += '</div>';
+        }
+
+        // Volumes
+        if (inf.volumes && inf.volumes.length > 0) {
+            html += '<div style="display:flex;gap:0.2rem;flex-wrap:wrap;margin-top:0.15rem">';
+            inf.volumes.forEach(function(v) {
+                html += '<span style="font-size:0.65rem;padding:0.06rem 0.25rem;border-radius:3px;background:color-mix(in srgb, var(--text-secondary) 8%, transparent);color:var(--text-secondary);font-family:var(--font-mono,monospace)">💾 ' + v.name + ' → ' + v.mount + '</span>';
+            });
+            html += '</div>';
+        }
+
+        // Command
+        if (inf.command) {
+            html += '<div style="margin-top:0.15rem"><span style="font-size:0.65rem;padding:0.06rem 0.25rem;border-radius:3px;background:color-mix(in srgb, var(--text-secondary) 8%, transparent);color:var(--text-secondary);font-family:var(--font-mono,monospace)">⚙️ ' + inf.command + '</span></div>';
+        }
+
+        // Note
+        if (inf.note) {
+            html += '<div style="font-size:0.65rem;color:var(--text-muted);margin-top:0.15rem;font-style:italic">💡 ' + inf.note + '</div>';
+        }
+
+        // Status
+        html += '<div style="font-size:0.65rem;margin-top:0.2rem;font-weight:600;color:' + (isEnabled ? 'var(--success)' : 'var(--text-muted)') + '">' +
+            (isEnabled ? '✅ Enabled — will be added to docker-compose.yml' : '☐ Not enabled — check to include in your compose stack') +
+            '</div>';
+
+        html += '</div></div>';
+        return html;
+    };
+
+
+    // ── Docker Setup wizard — infra volume state-aware ─────────
+    // Shows which volume is hovered and whether it's included or excluded.
+
+    window._assistant.resolvers.dkInfraVolState = function() {
+        var el = window._assistant._resolveElement;
+        if (!el) return '';
+
+        // Find the checkbox — it could be the element itself or nearby
+        var cb = null;
+        if (el.matches && el.matches('[id^="mf-dk-infra-vol-"]')) cb = el;
+        if (!cb) {
+            var label = el.closest ? el.closest('label') : null;
+            if (label) cb = label.querySelector('[id^="mf-dk-infra-vol-"]');
+        }
+        if (!cb) return '';
+
+        var isChecked = cb.checked;
+        var volId = cb.id; // mf-dk-infra-vol-postgres-pgdata
+        // Extract key and vol name from ID
+        var parts = volId.replace('mf-dk-infra-vol-', '').split('-');
+        var infraKey = parts[0];
+        var volSanitized = parts.slice(1).join('-');
+
+        // Look up the actual volume data
+        var inf = null;
+        if (window._infraOptions) {
+            for (var i = 0; i < window._infraOptions.length; i++) {
+                if (window._infraOptions[i].key === infraKey) { inf = window._infraOptions[i]; break; }
+            }
+        }
+
+        var volName = volSanitized;
+        var mount = '';
+        if (inf && inf.volumes) {
+            for (var v = 0; v < inf.volumes.length; v++) {
+                var sanitized = inf.volumes[v].name.replace(/[^a-zA-Z0-9]/g, '_');
+                if (sanitized === volSanitized) {
+                    volName = inf.volumes[v].name;
+                    mount = inf.volumes[v].mount;
+                    break;
+                }
+            }
+        }
+
+        var stateClass = isChecked ? 'state-success' : 'state-warning';
+        return '<div class="assistant-state-card ' + stateClass + '">' +
+            '<div class="state-label">💾 ' + volName + (mount ? ' → ' + mount : '') + '</div>' +
+            '<div class="state-detail">' +
+            (isChecked
+                ? '<div style="font-size:0.72rem">✅ <strong>Included</strong> — this named volume will be created in <code>docker-compose.yml</code>. Data persists across container restarts and rebuilds.</div>'
+                : '<div style="font-size:0.72rem">⚠️ <strong>Excluded</strong> — data at <code>' + mount + '</code> will live only inside the container and be <strong>lost</strong> when the container stops.</div>') +
+            (inf ? '<div style="font-size:0.65rem;color:var(--text-muted);margin-top:0.15rem">Service: ' + (inf.label || infraKey) + '</div>' : '') +
+            '</div></div>';
+    };
+
+
+    // ── Docker Setup wizard — infra restart policy state-aware ─
+    // Shows which restart policy is currently selected with explanation.
+
+    window._assistant.resolvers.dkInfraRestartState = function() {
+        var el = window._assistant._resolveElement;
+        if (!el) return '';
+
+        // Find the select — it could be the element itself
+        var sel = null;
+        if (el.matches && el.matches('[id^="mf-dk-infra-restart-"]')) sel = el;
+        if (!sel && el.closest) sel = el.closest('[id^="mf-dk-infra-restart-"]');
+        if (!sel) return '';
+
+        var value = sel.value;
+        var infraKey = sel.id.replace('mf-dk-infra-restart-', '');
+        var inf = null;
+        if (window._infraOptions) {
+            for (var i = 0; i < window._infraOptions.length; i++) {
+                if (window._infraOptions[i].key === infraKey) { inf = window._infraOptions[i]; break; }
+            }
+        }
+
+        var policies = {
+            'unless-stopped': { icon: '✅', state: 'state-success', title: 'unless-stopped (recommended)', desc: 'Restarts automatically after crashes, host reboots, and Docker daemon restarts — but stays stopped if you manually stop it. Best default for infrastructure services.' },
+            'always': { icon: '🔄', state: 'state-success', title: 'always', desc: 'Restarts no matter what — even after manual stop or Docker daemon restart. Use when the service must never be down, even if you accidentally stopped it.' },
+            'on-failure': { icon: '⚡', state: 'state-info', title: 'on-failure', desc: 'Restarts only on non-zero exit codes (crashes). Does NOT restart on clean shutdown or host reboot. Good for worker processes that should retry on failure but not run permanently.' },
+            'no': { icon: '⏹️', state: 'state-warning', title: 'no', desc: 'Never auto-restarts. The container runs once and stays stopped after exit. Only use for one-shot tasks, migrations, or debugging.' }
+        };
+
+        var policy = policies[value] || { icon: '❓', state: 'state-info', title: value, desc: 'Custom restart policy.' };
+
+        return '<div class="assistant-state-card ' + policy.state + '">' +
+            '<div class="state-label">' + policy.icon + ' Restart: ' + policy.title + '</div>' +
+            '<div class="state-detail"><div style="font-size:0.72rem">' + policy.desc + '</div>' +
+            (inf ? '<div style="font-size:0.65rem;color:var(--text-muted);margin-top:0.15rem">Service: ' + (inf.label || infraKey) + '</div>' : '') +
+            '</div></div>';
+    };
+
+
+    // ── Docker Setup wizard — infra category info ──────────────
+    // Shows category-specific description when hovering a category header.
+
+    window._assistant.resolvers.dkInfraCategoryInfo = function() {
+        var el = window._assistant._resolveElement;
+        if (!el) return '';
+
+        // Find the <details> element
+        var details = null;
+        if (el.tagName === 'DETAILS') details = el;
+        else if (el.closest) details = el.closest('details');
+        if (!details) return '';
+
+        // Read the summary text to identify the category
+        var summary = details.querySelector('summary');
+        if (!summary) return '';
+        var summaryText = summary.textContent.trim();
+
+        // Match against known categories
+        var catMap = window._infraCategories || {};
+        var matchedCat = null;
+        var matchedLabel = '';
+        var catKeys = Object.keys(catMap);
+        for (var i = 0; i < catKeys.length; i++) {
+            // Category labels include emoji + text + optional count span
+            if (summaryText.indexOf(catMap[catKeys[i]].replace(/^\s+/, '')) === 0 ||
+                summaryText.startsWith(catMap[catKeys[i]])) {
+                matchedCat = catKeys[i];
+                matchedLabel = catMap[catKeys[i]];
+                break;
+            }
+        }
+
+        if (!matchedCat) return '';
+
+        // Count services in this category and how many are enabled
+        var total = 0;
+        var enabled = 0;
+        if (window._infraOptions) {
+            window._infraOptions.forEach(function(inf) {
+                if (inf.cat === matchedCat) {
+                    total++;
+                    var toggle = document.getElementById('mf-dk-infra-' + inf.key);
+                    if (toggle && toggle.checked) enabled++;
+                }
+            });
+        }
+
+        // Category-specific descriptions
+        var catDescriptions = {
+            'db-rel': 'Relational databases store structured data in tables with rows and columns. Use SQL to query, join, and transact. Essential for most web applications — user accounts, orders, content, and anything that needs ACID guarantees.',
+            'db-nosql': 'NoSQL and time-series databases handle unstructured, semi-structured, or time-stamped data. Choose these when your data doesn\'t fit neatly into tables — documents (MongoDB), wide columns (Cassandra), or metrics over time (InfluxDB, TimescaleDB).',
+            'cache': 'In-memory caches dramatically reduce database load and API latency. Put frequently accessed data (sessions, API responses, computed results) in Redis or Memcached for sub-millisecond reads instead of hitting disk.',
+            'mq': 'Message brokers decouple services by routing messages between producers and consumers. Use for async processing (background jobs), event-driven architectures, and reliable delivery when services communicate without blocking each other.',
+            'search': 'Full-text search and analytics engines index large datasets for fast, fuzzy, faceted queries. Use when your app needs search bars, log analytics, or real-time dashboards that SQL LIKE queries can\'t handle efficiently.',
+            'proxy': 'Reverse proxies sit in front of your services, handling TLS termination, load balancing, rate limiting, and routing. In Docker, they auto-discover services and route traffic based on labels or config — no manual Nginx reloads.',
+            'monitor': 'Monitoring and observability tools collect metrics, traces, and health data from your services. Use to detect problems before users do — CPU spikes, memory leaks, slow endpoints, error rate increases.',
+            'log': 'Centralized logging aggregates stdout/stderr from all containers into a searchable, queryable system. Essential when debugging across multiple services — instead of docker logs on each container.',
+            'storage': 'Object storage provides S3-compatible APIs for files, backups, and media. Use MinIO for local development that mirrors production S3 workflows, or SeaweedFS for distributed file storage.',
+            'devops': 'DevOps utilities support your development workflow — CI runners, container registries, secret management, and automation tools that run alongside your application stack.'
+        };
+
+        var desc = catDescriptions[matchedCat] || '';
+        var statusText = enabled > 0
+            ? enabled + ' of ' + total + ' services enabled'
+            : total + ' services available — none enabled yet';
+        var stateClass = enabled > 0 ? 'state-success' : 'state-info';
+
+        return '<div class="assistant-state-card ' + stateClass + '">' +
+            '<div class="state-label">' + matchedLabel + '</div>' +
+            '<div class="state-detail">' +
+            (desc ? '<div style="font-size:0.72rem;margin-bottom:0.15rem">' + desc + '</div>' : '') +
+            '<div style="font-size:0.65rem;color:' + (enabled > 0 ? 'var(--success)' : 'var(--text-muted)') + ';font-weight:600">' + statusText + '</div>' +
+            '</div></div>';
+    };
+
+
+    // ── User service port row resolver ────────────────────────────
+    // Shows protocol, range analysis, known port info, and conflicts.
+
+    window._assistant.resolvers.dkPortHover = function() {
+        var el = window._assistant._resolveElement;
+        if (!el) return '';
+
+        // Find the port row
+        var row = el.closest ? el.closest('.dk-port-row') : null;
+        if (!row) {
+            // Proximity: find closest port row wrapper
+            var wrapper = el.closest ? el.closest('[id^="dk-port-list-"]') : null;
+            if (wrapper) row = wrapper.querySelector('.dk-port-row');
+        }
+        if (!row) return '';
+
+        var hostInput = row.querySelector('input[type=number]:first-of-type');
+        var containerInput = row.querySelector('input[type=number]:nth-of-type(2)');
+        var protoSelect = row.querySelector('select');
+        if (!hostInput) return '';
+
+        var hostPort = parseInt(hostInput.value) || 0;
+        var containerPort = parseInt(containerInput ? containerInput.value : 0) || hostPort;
+        var proto = protoSelect ? protoSelect.value : 'tcp';
+
+        if (!hostPort && !containerPort) {
+            return '<div class="assistant-state-card state-info">' +
+                '<div class="state-label">🔌 Empty Port Row</div>' +
+                '<div class="state-detail"><div style="font-size:0.72rem">Enter a host port and container port to create a mapping. The host port is what you\'ll use on your machine; the container port is what the app listens on inside Docker.</div></div></div>';
+        }
+
+        var range = _s.classifyPort(hostPort);
+        var known = _s.knownPorts[containerPort] || _s.knownPorts[hostPort];
+        var conflicts = _s.detectPortConflicts(hostPort, row);
+
+        // Protocol explanation
+        var protoDesc = proto === 'udp'
+            ? '<div style="font-size:0.72rem;margin-bottom:0.15rem"><strong>UDP</strong> — connectionless, no handshake. Use for DNS, streaming, game servers, and real-time protocols where speed matters more than reliability.</div>'
+            : '<div style="font-size:0.72rem;margin-bottom:0.15rem"><strong>TCP</strong> — reliable, ordered delivery with connection handshake. Default for HTTP, databases, APIs, and most applications.</div>';
+
+        // Build card
+        var stateClass = conflicts.length > 0 ? 'state-warning' : range.state;
+        var html = '<div class="assistant-state-card ' + stateClass + '">';
+        html += '<div class="state-label">' + range.icon + ' Port ' + hostPort + (hostPort !== containerPort ? ' → ' + containerPort : '') + '/' + proto + '</div>';
+        html += '<div class="state-detail">';
+
+        // Range info
+        html += '<div style="font-size:0.72rem;margin-bottom:0.15rem"><strong>' + range.name + ' range</strong> (' + range.min + '–' + range.max + ') — ' + range.desc + '</div>';
+
+        // Protocol
+        html += protoDesc;
+
+        // Known port
+        if (known) {
+            html += '<div style="font-size:0.72rem;margin-bottom:0.15rem">🏷️ <strong>' + known.label + '</strong> — ' + known.note + '</div>';
+        }
+
+        // Conflicts
+        if (conflicts.length > 0) {
+            html += '<div style="font-size:0.72rem;color:var(--warning);font-weight:600">⚠️ Conflict: host port ' + hostPort + ' is also used by: ' + conflicts.join(', ') + '</div>';
+        }
+
+        // Host ≠ container note
+        if (hostPort !== containerPort) {
+            html += '<div style="font-size:0.65rem;color:var(--text-muted);margin-top:0.1rem">Remapped: <code>localhost:' + hostPort + '</code> reaches port ' + containerPort + ' inside the container.</div>';
+        }
+
+        html += '</div></div>';
+        return html;
+    };
+
+
+    // ── EXPOSE port resolver ─────────────────────────────────────
+    // Analyzes the EXPOSE port value for Dockerfile settings.
+
+    window._assistant.resolvers.dkExposeHover = function() {
+        var el = window._assistant._resolveElement;
+        if (!el) return '';
+
+        // Find the EXPOSE input — either the element itself or nearby
+        var input = null;
+        if (el.id && el.id.match(/mf-dk-expose-|mf-dk-manual-expose/)) {
+            input = el;
+        } else if (el.closest) {
+            input = el.closest('[id^="mf-dk-expose-"]') || el.closest('#mf-dk-manual-expose');
+        }
+        if (!input) {
+            // Proximity: check siblings
+            var parent = el.parentElement;
+            if (parent) {
+                input = parent.querySelector('[id^="mf-dk-expose-"]') || parent.querySelector('#mf-dk-manual-expose');
+            }
+        }
+        if (!input) return '';
+
+        var portNum = parseInt(input.value) || 0;
+        if (!portNum) {
+            return '<div class="assistant-state-card state-info">' +
+                '<div class="state-label">🔌 EXPOSE Port</div>' +
+                '<div class="state-detail"><div style="font-size:0.72rem">No port set. EXPOSE is optional but recommended — it documents which port your application listens on inside the container.</div>' +
+                '<div style="font-size:0.72rem;margin-top:0.1rem">Without EXPOSE, the container works fine but other developers and tools (like Traefik auto-discovery) won\'t know which port to forward to.</div></div></div>';
+        }
+
+        var range = _s.classifyPort(portNum);
+        var known = _s.knownPorts[portNum];
+
+        var stateClass = range.state;
+        var html = '<div class="assistant-state-card ' + stateClass + '">';
+        html += '<div class="state-label">' + range.icon + ' EXPOSE ' + portNum + '</div>';
+        html += '<div class="state-detail">';
+
+        // EXPOSE semantics
+        html += '<div style="font-size:0.72rem;margin-bottom:0.15rem">EXPOSE is <strong>documentation only</strong> — it tells Docker, tooling, and other developers that this container listens on port ' + portNum + '. The actual host binding happens in docker-compose.yml port mappings.</div>';
+
+        // Range
+        html += '<div style="font-size:0.72rem;margin-bottom:0.15rem"><strong>' + range.name + ' range</strong> (' + range.min + '–' + range.max + ') — ';
+        if (portNum < 1024) {
+            html += 'Inside the container this works fine (running as root). But binding this same port on the <em>host</em> requires elevated privileges.</div>';
+        } else if (portNum >= 49152) {
+            html += 'This is in the ephemeral range. Consider using a lower port (1024–49151) to avoid conflicts with OS-assigned ports.</div>';
+        } else {
+            html += range.desc + '</div>';
+        }
+
+        // Known port
+        if (known) {
+            html += '<div style="font-size:0.72rem;margin-bottom:0.15rem">🏷️ <strong>' + known.label + '</strong> — ' + known.note + '</div>';
+        }
+
+        html += '</div></div>';
+        return html;
+    };
+
+
+    // ── Infrastructure port resolver ─────────────────────────────
+    // Shows protocol, purpose, range, and conflict info for infra service ports.
+
+    window._assistant.resolvers.dkInfraPortHover = function() {
+        var el = window._assistant._resolveElement;
+        if (!el) return '';
+
+        // Find the port input — either the element itself or nearby
+        var input = null;
+        if (el.id && el.id.indexOf('mf-dk-infra-port-') === 0) {
+            input = el;
+        } else if (el.closest) {
+            input = el.closest('[id^="mf-dk-infra-port-"]');
+        }
+        if (!input) {
+            // Proximity: check siblings in the same label
+            var label = el.closest ? el.closest('label') : (el.parentElement && el.parentElement.tagName === 'LABEL' ? el.parentElement : null);
+            if (label) input = label.querySelector('[id^="mf-dk-infra-port-"]');
+        }
+        if (!input || !input.id) return '';
+
+        // Parse ID: mf-dk-infra-port-{infraKey}-{defaultPort}
+        var idParts = input.id.replace('mf-dk-infra-port-', '');
+        var lastDash = idParts.lastIndexOf('-');
+        if (lastDash < 0) return '';
+        var infraKey = idParts.substring(0, lastDash);
+        var defaultPort = parseInt(idParts.substring(lastDash + 1));
+        var currentPort = parseInt(input.value) || defaultPort;
+
+        // Look up the service
+        var inf = null;
+        if (window._infraOptions) {
+            for (var i = 0; i < window._infraOptions.length; i++) {
+                if (window._infraOptions[i].key === infraKey) { inf = window._infraOptions[i]; break; }
+            }
+        }
+
+        // Find the specific port entry with enriched data
+        var portData = null;
+        if (inf && inf.ports) {
+            for (var j = 0; j < inf.ports.length; j++) {
+                if (inf.ports[j].port === defaultPort) { portData = inf.ports[j]; break; }
+            }
+        }
+
+        var proto = portData ? portData.proto : 'tcp';
+        var purpose = portData ? portData.purpose : 'wire';
+        var portLabel = portData ? portData.label : 'Port';
+
+        // Purpose descriptions
+        var purposeInfo = {
+            wire:  { icon: '🔌', color: 'var(--accent)',         title: 'Wire Protocol',     desc: 'Native binary client protocol. Applications and client libraries connect here using the service\u2019s dedicated protocol (not HTTP).' },
+            http:  { icon: '🌐', color: 'var(--success)',        title: 'HTTP API',          desc: 'REST or HTTP-based API. Reachable from browsers, curl, and standard HTTP clients.' },
+            admin: { icon: '⚙️', color: 'var(--warning)',        title: 'Admin / Management', desc: 'Management UI or monitoring endpoint. Usually a web dashboard for configuration and status.' },
+            grpc:  { icon: '⚡', color: 'var(--info, #60a5fa)',  title: 'gRPC Endpoint',     desc: 'High-performance gRPC interface. Used for telemetry ingestion (OTLP) and inter-service communication.' },
+            peer:  { icon: '🔗', color: 'var(--text-secondary)', title: 'Peer / Cluster',    desc: 'Node-to-node communication for clustering. Only needed if running multiple instances for high availability.' },
+            ws:    { icon: '🔄', color: 'var(--info, #60a5fa)',  title: 'WebSocket',         desc: 'WebSocket transport. Used for browser clients that need persistent connections (e.g., MQTT over WS).' },
+            ssh:   { icon: '🔑', color: 'var(--text-secondary)', title: 'SSH',               desc: 'Secure shell access. Used for Git SSH operations.' },
+            smtp:  { icon: '✉️', color: 'var(--text-secondary)', title: 'SMTP',              desc: 'Mail transfer protocol. Applications send emails here for capture and inspection.' }
+        };
+
+        var pi = purposeInfo[purpose] || purposeInfo.wire;
+        var range = _s.classifyPort(currentPort);
+        var known = _s.knownPorts[currentPort];
+        var isModified = currentPort !== defaultPort;
+
+        // Conflict detection — check other enabled infra services
+        var conflicts = [];
+        if (window._infraOptions) {
+            window._infraOptions.forEach(function(other) {
+                if (other.key === infraKey) return; // skip self
+                var toggle = document.getElementById('mf-dk-infra-' + other.key);
+                if (!toggle || !toggle.checked) return;
+                other.ports.forEach(function(op) {
+                    var opInput = document.getElementById('mf-dk-infra-port-' + other.key + '-' + op.port);
+                    var opPort = opInput ? parseInt(opInput.value) : op.port;
+                    if (opPort === currentPort) {
+                        conflicts.push(other.label || other.key);
+                    }
+                });
+            });
+        }
+        // Also check user service port rows
+        var allRows = document.querySelectorAll('.dk-port-row');
+        allRows.forEach(function(row) {
+            var hostInput = row.querySelector('input[type=number]:first-of-type');
+            if (hostInput && parseInt(hostInput.value) === currentPort) {
+                var list = row.closest('[id^="dk-port-list-"]');
+                var svcId = list ? list.id.replace('dk-port-list-', '') : 'app service';
+                conflicts.push(svcId);
+            }
+        });
+
+        // Build card
+        var stateClass = conflicts.length > 0 ? 'state-warning' : range.state;
+        var html = '<div class="assistant-state-card ' + stateClass + '">';
+        html += '<div class="state-label">' + pi.icon + ' ' + portLabel + ' · ' + currentPort;
+        if (proto !== 'tcp') html += '/' + proto;
+        html += '</div>';
+        html += '<div class="state-detail">';
+
+        // Purpose
+        html += '<div style="font-size:0.72rem;margin-bottom:0.15rem"><strong>' + pi.title + '</strong> — ' + pi.desc + '</div>';
+
+        // Protocol
+        if (proto === 'tcp+udp') {
+            html += '<div style="font-size:0.72rem;margin-bottom:0.15rem"><strong>TCP + UDP</strong> — this port accepts both protocols. TCP for reliable queries, UDP for fast lookups (common for DNS interfaces).</div>';
+        } else if (proto === 'udp') {
+            html += '<div style="font-size:0.72rem;margin-bottom:0.15rem"><strong>UDP</strong> — connectionless protocol. No handshake overhead, but no delivery guarantee. Standard for DNS, streaming, and real-time data.</div>';
+        } else {
+            html += '<div style="font-size:0.72rem;margin-bottom:0.15rem"><strong>TCP</strong> — reliable, ordered delivery. Standard for ' + (purpose === 'wire' ? 'database and service client protocols.' : purpose === 'http' ? 'HTTP APIs and web interfaces.' : purpose === 'grpc' ? 'gRPC streaming and RPC calls.' : 'this type of service.') + '</div>';
+        }
+
+        // Range
+        html += '<div style="font-size:0.72rem;margin-bottom:0.15rem">' + range.icon + ' <strong>' + range.name + ' range</strong> (' + range.min + '–' + range.max + ')</div>';
+
+        // Modified from default
+        if (isModified) {
+            html += '<div style="font-size:0.72rem;margin-bottom:0.15rem;color:var(--warning)">✏️ Modified from default <code>' + defaultPort + '</code> → <code>' + currentPort + '</code>. The container still listens on ' + defaultPort + ' internally.</div>';
+        }
+
+        // Conflicts
+        if (conflicts.length > 0) {
+            html += '<div style="font-size:0.72rem;color:var(--warning);font-weight:600">⚠️ Conflict: port ' + currentPort + ' is also used by: ' + conflicts.join(', ') + '</div>';
+        }
+
+        // Service context
+        if (inf) {
+            html += '<div style="font-size:0.65rem;color:var(--text-muted);margin-top:0.1rem">Service: ' + (inf.label || infraKey) + '</div>';
+        }
+
+        html += '</div></div>';
+        return html;
+    };
+})();
+</script>
