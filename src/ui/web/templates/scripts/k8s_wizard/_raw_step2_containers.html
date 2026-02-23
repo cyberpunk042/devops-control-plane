@@ -39,17 +39,17 @@
                             return `<div class="k8s-init-row" data-j="${j}" style="padding:0.35rem;border:1px solid var(--border-subtle);border-radius:4px;background:var(--bg-secondary)">
                                 <div style="display:flex;align-items:center;gap:0.3rem;margin-bottom:0.2rem">
                                     <span style="font-size:0.68rem;color:var(--accent);font-weight:600">⏳ ${j + 1}.</span>
-                                    <input type="text" id="k8s-svc-init-name-${i}-${j}" class="modal-form-input" value="${name}" placeholder="init-container" style="font-size:0.72rem;padding:0.15rem 0.3rem;flex:1">
+                                    <input type="text" id="k8s-svc-init-name-${i}-${j}" class="modal-form-input k8s-init-field-name" value="${name}" placeholder="init-container" style="font-size:0.72rem;padding:0.15rem 0.3rem;flex:1">
                                     <button type="button" onclick="window._k8sRemoveInit(${i},this)" style="background:none;border:none;cursor:pointer;font-size:0.78rem;color:var(--text-muted);padding:0 4px" title="Remove">✕</button>
                                 </div>
                                 <div style="display:grid;grid-template-columns:1fr 2fr;gap:0.3rem;font-size:0.72rem">
                                     <div>
                                         ${_lbl('Image')}
-                                        <input type="text" id="k8s-svc-init-img-${i}-${j}" class="modal-form-input" value="${image}" placeholder="busybox:1.36" style="font-size:0.72rem;padding:0.15rem 0.3rem">
+                                        <input type="text" id="k8s-svc-init-img-${i}-${j}" class="modal-form-input k8s-init-field-image" value="${image}" placeholder="busybox:1.36" style="font-size:0.72rem;padding:0.15rem 0.3rem">
                                     </div>
                                     <div>
                                         ${_lbl('Command')}
-                                        <input type="text" id="k8s-svc-init-cmd-${i}-${j}" class="modal-form-input" value="${command}" placeholder="sh -c &quot;...&quot;" style="font-size:0.72rem;padding:0.15rem 0.3rem">
+                                        <input type="text" id="k8s-svc-init-cmd-${i}-${j}" class="modal-form-input k8s-init-field-command" value="${command}" placeholder="sh -c &quot;...&quot;" style="font-size:0.72rem;padding:0.15rem 0.3rem">
                                     </div>
                                 </div>
                             </div>`;
@@ -124,22 +124,22 @@
                             return `<div class="k8s-sc-row" data-j="${j}" style="padding:0.35rem;border:1px solid var(--border-subtle);border-radius:4px;background:var(--bg-secondary)">
                                 <div style="display:flex;align-items:center;gap:0.3rem;margin-bottom:0.2rem">
                                     <span style="font-size:0.68rem;color:var(--accent);font-weight:600">📎 ${j + 1}.</span>
-                                    <input type="text" id="k8s-svc-sc-name-${i}-${j}" class="modal-form-input" value="${name}" placeholder="sidecar" style="font-size:0.72rem;padding:0.15rem 0.3rem;flex:1">
+                                    <input type="text" id="k8s-svc-sc-name-${i}-${j}" class="modal-form-input k8s-sc-field-name" value="${name}" placeholder="sidecar" style="font-size:0.72rem;padding:0.15rem 0.3rem;flex:1">
                                     <button type="button" onclick="window._k8sRemoveSidecar(${i},this)" style="background:none;border:none;cursor:pointer;font-size:0.78rem;color:var(--text-muted);padding:0 4px" title="Remove">✕</button>
                                 </div>
                                 <div style="display:grid;grid-template-columns:1fr 2fr;gap:0.3rem;font-size:0.72rem">
                                     <div>
                                         ${_lbl('Image')}
-                                        <input type="text" id="k8s-svc-sc-img-${i}-${j}" class="modal-form-input" value="${image}" placeholder="image:tag" style="font-size:0.72rem;padding:0.15rem 0.3rem">
+                                        <input type="text" id="k8s-svc-sc-img-${i}-${j}" class="modal-form-input k8s-sc-field-image" value="${image}" placeholder="image:tag" style="font-size:0.72rem;padding:0.15rem 0.3rem">
                                     </div>
                                     <div>
                                         ${_lbl('Command (optional)')}
-                                        <input type="text" id="k8s-svc-sc-cmd-${i}-${j}" class="modal-form-input" value="${command || ''}" placeholder="" style="font-size:0.72rem;padding:0.15rem 0.3rem">
+                                        <input type="text" id="k8s-svc-sc-cmd-${i}-${j}" class="modal-form-input k8s-sc-field-command" value="${command || ''}" placeholder="" style="font-size:0.72rem;padding:0.15rem 0.3rem">
                                     </div>
                                 </div>
                                 <div style="display:flex;align-items:center;gap:0.6rem;margin-top:0.25rem;font-size:0.66rem">
                                     <label style="display:inline-flex;align-items:center;gap:0.2rem;cursor:pointer;color:var(--text-secondary)">
-                                        <input type="checkbox" id="k8s-svc-sc-native-${i}-${j}"${nativeChecked} style="accent-color:var(--accent)"> Native sidecar
+                                        <input type="checkbox" id="k8s-svc-sc-native-${i}-${j}" class="k8s-sc-field-native"${nativeChecked} style="accent-color:var(--accent)"> Native sidecar
                                         <span style="font-size:0.58rem;color:var(--text-muted)">(K8s ≥ 1.28)</span>
                                     </label>
                                 </div>
@@ -345,7 +345,7 @@
                             const resources = comp.resources;
                             const volumes = comp.volumes || [];
 
-                            let h = '<div id="k8s-companion-row-' + s + '" style="border:1px solid var(--border-subtle);border-radius:6px;padding:0.45rem 0.5rem;background:var(--bg-secondary)">';
+                            let h = '<div id="k8s-companion-row-' + s + '" class="k8s-comp-row" style="border:1px solid var(--border-subtle);border-radius:6px;padding:0.45rem 0.5rem;background:var(--bg-secondary)">';
 
                             // ── Header row ──
                             h += '<div style="display:flex;align-items:center;gap:0.4rem;font-size:0.78rem;margin-bottom:0.2rem">'
@@ -354,7 +354,7 @@
                                 + '<code style="font-size:0.72rem;background:var(--bg-primary);padding:1px 5px;border-radius:3px;color:var(--text-secondary)">' + imgShort + '</code>'
                                 + (comp.port ? '<code style="font-size:0.72rem;color:var(--text-muted)">:' + esc(comp.port) + '</code>' : '')
                                 + '<span style="flex:1"></span>'
-                                + '<button type="button" onclick="window._k8sSplitBack(' + s + ',' + t + ')"'
+                                + '<button type="button" class="k8s-comp-field-splitback" onclick="window._k8sSplitBack(' + s + ',' + t + ')"'
                                 + ' style="font-size:0.74rem;color:var(--accent);background:none;border:1px solid var(--border-subtle);border-radius:4px;padding:0.15rem 0.4rem;cursor:pointer"'
                                 + '>⤴ Split back</button>'
                                 + '</div>';
@@ -362,15 +362,15 @@
                             // ── Image & Port (editable) ──
                             h += '<div style="display:grid;grid-template-columns:2fr 1fr;gap:0.3rem;margin-bottom:0.3rem">'
                                 + '<div><label style="display:block;font-size:0.72rem;color:var(--text-muted);margin-bottom:1px">Image</label>'
-                                + '<input type="text" id="k8s-comp-img-' + t + '-' + s + '" class="modal-form-input" value="' + eImg + '" style="font-size:0.78rem;padding:0.2rem 0.3rem"></div>'
+                                + '<input type="text" id="k8s-comp-img-' + t + '-' + s + '" class="modal-form-input k8s-comp-field-image" value="' + eImg + '" style="font-size:0.78rem;padding:0.2rem 0.3rem"></div>'
                                 + '<div><label style="display:block;font-size:0.72rem;color:var(--text-muted);margin-bottom:1px">Port</label>'
-                                + '<input type="text" id="k8s-comp-port-' + t + '-' + s + '" class="modal-form-input" value="' + esc(comp.port || '') + '" placeholder="optional" style="font-size:0.78rem;padding:0.2rem 0.3rem"></div>'
+                                + '<input type="text" id="k8s-comp-port-' + t + '-' + s + '" class="modal-form-input k8s-comp-field-port" value="' + esc(comp.port || '') + '" placeholder="optional" style="font-size:0.78rem;padding:0.2rem 0.3rem"></div>'
                                 + '</div>';
 
                             // ── Startup Dependency ──
                             h += '<div style="margin-bottom:0.3rem">'
                                 + '<label style="display:block;font-size:0.72rem;color:var(--text-muted);margin-bottom:1px">⏳ Startup dependency (wait-for init container)</label>'
-                                + '<select id="k8s-comp-dep-' + t + '-' + s + '" class="modal-form-select" style="font-size:0.76rem;padding:0.2rem 0.3rem">'
+                                + '<select id="k8s-comp-dep-' + t + '-' + s + '" class="modal-form-select k8s-comp-field-dep" style="font-size:0.76rem;padding:0.2rem 0.3rem">'
                                 + window._k8sCompDepOptions(t, s)
                                 + '</select>'
                                 + '<div style="font-size:0.68rem;color:var(--text-muted);margin-top:2px">Generates a wait-for init container targeting the infra service via K8s DNS.</div>'
@@ -407,7 +407,7 @@
                                 + '▸ Resource Limits'
                                 + '</summary>'
                                 + '<div style="margin-top:0.2rem;padding:0.3rem 0.4rem;background:var(--bg-primary);border-radius:4px;border:1px solid var(--border-subtle)">'
-                                + '<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:0.3rem;font-size:0.76rem">'
+                                + '<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:0.3rem;font-size:0.76rem" class="k8s-comp-field-resources">'
                                 + '<div><label style="display:block;font-size:0.72rem;color:var(--text-muted);margin-bottom:1px">CPU Req</label>'
                                 + '<input type="text" id="k8s-comp-cpureq-' + t + '-' + s + '" class="modal-form-input" value="' + esc(res.cpuReq || '') + '" placeholder="100m" style="font-size:0.76rem;padding:0.15rem 0.25rem"></div>'
                                 + '<div><label style="display:block;font-size:0.72rem;color:var(--text-muted);margin-bottom:1px">CPU Lim</label>'
@@ -428,13 +428,13 @@
 
                             // Sub-section: Host pod volumes (live-populated)
                             h += '<div style="font-size:0.72rem;font-weight:600;color:var(--text-muted);margin-bottom:0.15rem">📁 Host pod volumes</div>'
-                                + '<div id="k8s-comp-hostvols-' + t + '-' + s + '" style="margin-bottom:0.3rem">'
+                                + '<div id="k8s-comp-hostvols-' + t + '-' + s + '" class="k8s-comp-field-hostvols" style="margin-bottom:0.3rem">'
                                 + '<div style="font-size:0.72rem;color:var(--text-muted);font-style:italic">Open this section to detect host volumes…</div>'
                                 + '</div>';
 
                             // Sub-section: Companion's own volumes (from source + added)
                             h += '<div style="font-size:0.72rem;font-weight:600;color:var(--text-muted);margin-bottom:0.15rem">📦 Companion-own volumes</div>'
-                                + '<div id="k8s-comp-vol-list-' + t + '-' + s + '" style="display:flex;flex-direction:column;gap:0.2rem">';
+                                + '<div id="k8s-comp-vol-list-' + t + '-' + s + '" class="k8s-comp-field-ownvols" style="display:flex;flex-direction:column;gap:0.2rem">';
 
                             if (volumes.length > 0) {
                                 volumes.forEach((vol, j) => {

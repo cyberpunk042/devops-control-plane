@@ -5218,6 +5218,88 @@ select option {
     color: hsla(210, 60%, 60%, 1);
 }
 
+/* ── State card inner elements ───────────────────────────────────── */
+
+.assistant-state-card .state-intro {
+    margin-bottom: 0.4rem;
+    line-height: 1.55;
+}
+
+.assistant-state-card .state-insight {
+    font-size: 0.74rem;
+    margin: 0.2rem 0;
+    padding: 0.2rem 0 0.2rem 0.5rem;
+    border-left: 2px solid hsla(210, 40%, 50%, 0.2);
+    color: var(--text-secondary);
+    line-height: 1.5;
+}
+
+.assistant-state-card.state-success .state-insight {
+    border-left-color: hsla(140, 50%, 50%, 0.3);
+}
+
+.assistant-state-card.state-warning .state-insight {
+    border-left-color: hsla(40, 70%, 50%, 0.3);
+}
+
+.assistant-state-card.state-error .state-insight {
+    border-left-color: hsla(0, 60%, 50%, 0.3);
+}
+
+.assistant-state-card .state-detail code {
+    font-size: 0.72rem;
+    background: var(--bg-primary);
+    padding: 1px 5px;
+    border-radius: 3px;
+    border: 1px solid var(--border-subtle);
+    font-family: var(--font-mono, monospace);
+}
+
+.assistant-state-card .state-footer {
+    margin-top: 0.4rem;
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    line-height: 1.45;
+    opacity: 0.85;
+}
+
+/* Key-value definition grid inside state cards */
+.assistant-state-card .state-grid {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 0.2rem 0.5rem;
+    margin: 0.3rem 0;
+    font-size: 0.75rem;
+    white-space: normal;
+}
+
+/* Label/key in a state grid or inline context */
+.assistant-state-card .state-key {
+    font-weight: 600;
+    color: var(--text-secondary);
+}
+
+/* Descriptive text block inside state cards */
+.assistant-state-card .state-text {
+    margin: 0.3rem 0;
+    font-size: 0.75rem;
+    white-space: normal;
+    line-height: 1.5;
+}
+
+/* Same but with extra top margin (used after a grid) */
+.assistant-state-card .state-text-spaced {
+    margin-top: 0.3rem;
+    font-size: 0.75rem;
+    white-space: normal;
+    line-height: 1.5;
+}
+
+/* Force normal wrapping for long content */
+.assistant-state-card .state-wrap {
+    white-space: normal;
+}
+
 /* ── Active target: the hovered/focused leaf node ────────────────── */
 /* This is the visual focal point — it pops out from the parent chain */
 

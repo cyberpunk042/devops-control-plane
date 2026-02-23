@@ -15,7 +15,7 @@
                             const infraKindDefault = savedInfra?.kind || _classifyWorkloadKind(svc);
                             const infraKindHintText = _kindHint(infraKindDefault, svc);
 
-                            let h = '<div data-infra-name="' + eName + '" style="border:1px solid var(--border-subtle);border-radius:8px;background:var(--bg-inset);padding:0.5rem 0.6rem">'
+                            let h = '<div data-infra-name="' + eName + '" class="k8s-infra-card" style="border:1px solid var(--border-subtle);border-radius:8px;background:var(--bg-inset);padding:0.5rem 0.6rem">'
                                 + '<div style="display:flex;align-items:center;gap:0.5rem;font-size:0.82rem;margin-bottom:0.3rem">'
                                 + '<span style="font-size:1rem" id="k8s-infra-icon-' + eName + '">' + _kindIcon(infraKindDefault) + '</span>'
                                 + '<strong>' + eName + '</strong>'
@@ -28,7 +28,7 @@
                                 + ' title="Remove ' + eName + '">✕</button>'
                                 + '</div>'
                                 + '<div style="display:flex;align-items:center;gap:0.4rem;font-size:0.74rem;margin-bottom:0.15rem">'
-                                + '<select id="k8s-infra-kind-' + eName + '" class="modal-form-select"'
+                                + '<select id="k8s-infra-kind-' + eName + '" class="modal-form-select k8s-infra-field-kind"'
                                 + ' style="font-size:0.68rem;padding:0.1rem 0.3rem;min-width:130px;color:var(--success);font-weight:600"'
                                 + ' onchange="'
                                 +   'var ic=document.getElementById(\'k8s-infra-icon-' + eName + '\');'
@@ -79,12 +79,12 @@
                                 + '<div style="display:flex;align-items:center;gap:0.3rem;margin-bottom:0.2rem">'
                                 + '<span style="font-size:0.68rem;color:var(--text-muted);font-weight:600">Provider / Notes</span>'
                                 + '</div>'
-                                + '<input type="text" id="k8s-infra-provider-' + eName + '" class="modal-form-input"'
+                                + '<input type="text" id="k8s-infra-provider-' + eName + '" class="modal-form-input k8s-infra-field-provider"'
                                 + ' style="font-size:0.72rem;padding:0.2rem 0.4rem;width:100%"'
                                 + ' placeholder="e.g. AWS RDS PostgreSQL, GCP Cloud SQL, etc.">'
                                 + '</div>';
 
-                            h += '<div style="font-size:0.72rem;color:var(--accent);font-weight:600;margin-bottom:0.25rem">▸ '
+                            h += '<div class="k8s-infra-field-env" style="font-size:0.72rem;color:var(--accent);font-weight:600;margin-bottom:0.25rem">▸ '
                                 + '<span id="k8s-infra-envlabel-' + eName + '">' + (isInfraManaged ? 'Connection Environment Variables' : 'Environment Variables') + '</span>'
                                 + '</div>';
                             if (infraEnvKeys.length > 0) {
@@ -121,7 +121,7 @@
                                 : infraVols.map(v => window._classifyVolume(v)).filter(cl => cl.classification === 'named' || cl.classification === 'data-bind');
                             const showVolSec = infraKindDefault !== 'Managed' ? 'block' : 'none';
 
-                            h += '<div id="k8s-infra-vol-section-' + eName + '" style="display:' + showVolSec + ';margin-top:0.5rem;padding-top:0.4rem;border-top:1px solid var(--border-subtle)">';
+                            h += '<div id="k8s-infra-vol-section-' + eName + '" class="k8s-infra-field-volumes" style="display:' + showVolSec + ';margin-top:0.5rem;padding-top:0.4rem;border-top:1px solid var(--border-subtle)">';
                             h += '<details' + (classifiedVols.length > 0 ? ' open' : '') + '>';
                             h += '<summary style="cursor:pointer;font-size:0.72rem;color:var(--accent);font-weight:600;user-select:none;display:flex;align-items:center;gap:0.3rem">'
                                 + '▸ Persistent Storage'
@@ -166,7 +166,7 @@
                         }
                         html += `</div>`;
                         html += `<div style="margin-top:0.4rem;display:flex;gap:0.4rem;align-items:center">`;
-                        html += `<select id="k8s-infra-add-select" class="modal-form-select"
+                        html += `<select id="k8s-infra-add-select" class="modal-form-select k8s-field-infra-add"
                             style="font-size:0.74rem;padding:0.3rem 0.5rem;flex:1;max-width:320px"
                             onchange="if(this.value)window._k8sAddInfra(this.value);this.value=''">
                             <option value="">+ Add infrastructure service…</option>
@@ -177,13 +177,13 @@
                         // ── Section C: Cluster Settings ───────────────────
                         // ═══════════════════════════════════════════════════
 
-                        html += wizSection('Cluster Settings', 'Common settings for all K8s resources.');
+                        html += wizSection('Cluster Settings', 'Common settings for all K8s resources.', 'k8s-cluster-settings');
                         html += wizFormGrid([
-                            { name: 'k8s-namespace', label: 'Namespace', value: _savedState?.namespace || data.namespace || defaultNamespace, hint: 'Target K8s namespace for all resources' },
-                            { name: 'k8s-output-dir', label: 'Output Directory', value: _savedState?.output_dir || 'k8s/', hint: 'Where manifest files will be written' },
+                            { name: 'k8s-namespace', label: 'Namespace', value: _savedState?.namespace || data.namespace || defaultNamespace, hint: 'Target K8s namespace for all resources', cls: 'k8s-field-namespace' },
+                            { name: 'k8s-output-dir', label: 'Output Directory', value: _savedState?.output_dir || 'k8s/', hint: 'Where manifest files will be written', cls: 'k8s-field-outputdir' },
                         ]);
                         html += wizFormGrid([
-                            { name: 'k8s-ingress', label: 'Generate Ingress manifest', type: 'checkbox', value: _savedState?.ingress ?? false, fullWidth: true },
+                            { name: 'k8s-ingress', label: 'Generate Ingress manifest', type: 'checkbox', value: _savedState?.ingress ?? false, fullWidth: true, cls: 'k8s-field-ingress' },
                             // ConfigMap checkbox removed — ConfigMaps/Secrets auto-generated per service from envVars
                         ]);
 
@@ -192,7 +192,7 @@
                         const _skfChecked = (_savedState?.skaffold ?? true);
                         const _helmEnabled = (_savedState?.helm_chart ?? false);
                         html += `
-                        <div id="k8s-skaffold-panel" style="margin-top:0.6rem;padding:0.7rem 0.8rem;border:1px solid var(--border-subtle);border-radius:8px;background:var(--bg-inset)">
+                        <div id="k8s-skaffold-panel" class="k8s-field-skaffold" style="margin-top:0.6rem;padding:0.7rem 0.8rem;border:1px solid var(--border-subtle);border-radius:8px;background:var(--bg-inset)">
                             <div style="display:flex;align-items:flex-start;gap:0.5rem">
                                 <input type="checkbox" id="k8s-skaffold-toggle"${_skfChecked ? ' checked' : ''}
                                        style="margin-top:3px;accent-color:var(--accent);cursor:pointer"
@@ -218,7 +218,7 @@
                                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.4rem">
                                     <div>
                                         <label style="font-size:0.72rem;font-weight:600;color:var(--text-muted);display:block;margin-bottom:2px">Deploy Method</label>
-                                        <select id="k8s-skaffold-deploy" class="modal-form-select" style="font-size:0.74rem;padding:0.25rem 0.4rem;width:100%">
+                                        <select id="k8s-skaffold-deploy" class="modal-form-select k8s-field-skf-deploy" style="font-size:0.74rem;padding:0.25rem 0.4rem;width:100%">
                                             <option value="kustomize"${(_skfSaved.deploy_method||'kustomize')==='kustomize'?' selected':''}>kustomize (overlays)</option>
                                             <option value="kubectl"${_skfSaved.deploy_method==='kubectl'?' selected':''}>kubectl (raw manifests)</option>
                                             <option value="helm" id="k8s-skaffold-deploy-helm"${_skfSaved.deploy_method==='helm'?' selected':''}${!_helmEnabled?' disabled':''}>helm (chart)${!_helmEnabled?' — enable Helm below':''}</option>
@@ -226,7 +226,7 @@
                                     </div>
                                     <div>
                                         <label style="font-size:0.72rem;font-weight:600;color:var(--text-muted);display:block;margin-bottom:2px">Tag Policy</label>
-                                        <select id="k8s-skaffold-tag" class="modal-form-select" style="font-size:0.74rem;padding:0.25rem 0.4rem;width:100%">
+                                        <select id="k8s-skaffold-tag" class="modal-form-select k8s-field-skf-tag" style="font-size:0.74rem;padding:0.25rem 0.4rem;width:100%">
                                             <option value="gitCommit"${(_skfSaved.tag_policy||'gitCommit')==='gitCommit'?' selected':''}>gitCommit (SHA/tag)</option>
                                             <option value="sha256"${_skfSaved.tag_policy==='sha256'?' selected':''}>sha256 (content hash)</option>
                                             <option value="dateTime"${_skfSaved.tag_policy==='dateTime'?' selected':''}>dateTime (timestamp)</option>
@@ -239,7 +239,7 @@
                                 <!-- Row 2: Profiles — per-profile config cards -->
                                 <div style="margin-top:0.5rem">
                                     <label style="font-size:0.72rem;font-weight:600;color:var(--text-muted);display:block;margin-bottom:4px">Profiles</label>
-                                    <div id="k8s-skaffold-profiles" style="display:flex;flex-direction:column;gap:0.3rem">
+                                    <div id="k8s-skaffold-profiles" class="k8s-field-skf-profiles" style="display:flex;flex-direction:column;gap:0.3rem">
                                     </div>
                                     <div style="display:flex;gap:0.3rem;margin-top:0.35rem">
                                         <input id="k8s-skaffold-profile-input" class="modal-form-input" type="text"
@@ -253,27 +253,27 @@
                                 </div>
 
                                 <!-- Row 3: Global toggles -->
-                                <div style="margin-top:0.4rem;display:flex;flex-wrap:wrap;gap:0.6rem 1rem">
-                                    <label style="display:inline-flex;align-items:center;gap:0.3rem;font-size:0.74rem;cursor:pointer">
+                                <div class="k8s-field-skf-toggles" style="margin-top:0.4rem;display:flex;flex-wrap:wrap;gap:0.6rem 1rem">
+                                    <label class="k8s-field-skf-portfwd" style="display:inline-flex;align-items:center;gap:0.3rem;font-size:0.74rem;cursor:pointer">
                                         <input type="checkbox" id="k8s-skaffold-portfwd"${(_skfSaved.port_forward ?? true) ? ' checked' : ''}
                                             style="accent-color:var(--accent)"> Port forwarding
                                     </label>
-                                    <label style="display:inline-flex;align-items:center;gap:0.3rem;font-size:0.74rem;cursor:pointer">
+                                    <label class="k8s-field-skf-sync" style="display:inline-flex;align-items:center;gap:0.3rem;font-size:0.74rem;cursor:pointer">
                                         <input type="checkbox" id="k8s-skaffold-sync"${(_skfSaved.file_sync ?? false) ? ' checked' : ''}
                                             style="accent-color:var(--accent)"> File sync (hot reload)
                                     </label>
-                                    <label style="display:inline-flex;align-items:center;gap:0.3rem;font-size:0.74rem;cursor:pointer">
+                                    <label class="k8s-field-skf-ssa" style="display:inline-flex;align-items:center;gap:0.3rem;font-size:0.74rem;cursor:pointer">
                                         <input type="checkbox" id="k8s-skaffold-ssa"${(_skfSaved.server_side_apply ?? false) ? ' checked' : ''}
                                             style="accent-color:var(--accent)"> Server-side apply
                                     </label>
-                                    <label style="display:inline-flex;align-items:center;gap:0.3rem;font-size:0.74rem;cursor:pointer">
+                                    <label class="k8s-field-skf-verify" style="display:inline-flex;align-items:center;gap:0.3rem;font-size:0.74rem;cursor:pointer">
                                         <input type="checkbox" id="k8s-skaffold-verify"${(_skfSaved.post_deploy_verify ?? true) ? ' checked' : ''}
                                             style="accent-color:var(--accent)"> Post-deploy verify
                                     </label>
                                 </div>
 
                                 <!-- Row 4: Lifecycle hooks (collapsible) -->
-                                <details style="margin-top:0.4rem">
+                                <details class="k8s-field-skf-hooks" style="margin-top:0.4rem">
                                     <summary style="font-size:0.72rem;font-weight:600;color:var(--text-muted);cursor:pointer;user-select:none">
                                         ▸ Lifecycle hooks
                                     </summary>
@@ -296,7 +296,7 @@
                             </div>
                         </div>
 
-                        <div id="k8s-helm-chart-panel" style="margin-top:0.5rem;padding:0.7rem 0.8rem;border:1px solid var(--border-subtle);border-radius:8px;background:var(--bg-inset)">
+                        <div id="k8s-helm-chart-panel" class="k8s-field-helm" style="margin-top:0.5rem;padding:0.7rem 0.8rem;border:1px solid var(--border-subtle);border-radius:8px;background:var(--bg-inset)">
                             <div style="display:flex;align-items:flex-start;gap:0.5rem">
                                 <input type="checkbox" id="k8s-helm-chart-toggle"${(_savedState?.helm_chart ?? false) ? ' checked' : ''}
                                        style="margin-top:3px;accent-color:var(--accent);cursor:pointer"
@@ -319,13 +319,13 @@
                                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.4rem">
                                     <div>
                                         <label style="font-size:0.72rem;font-weight:600;color:var(--text-muted);display:block;margin-bottom:2px">Chart Name</label>
-                                        <input id="k8s-helm-chart-name" class="modal-form-input" type="text"
+                                        <input id="k8s-helm-chart-name" class="modal-form-input k8s-field-helm-name" type="text"
                                             style="font-size:0.74rem;padding:0.25rem 0.4rem;width:100%"
                                             value="${esc(_savedState?.helm_config?.chart_name || '')}" placeholder="my-app">
                                     </div>
                                     <div>
                                         <label style="font-size:0.72rem;font-weight:600;color:var(--text-muted);display:block;margin-bottom:2px">Chart Directory</label>
-                                        <input id="k8s-helm-chart-dir" class="modal-form-input" type="text"
+                                        <input id="k8s-helm-chart-dir" class="modal-form-input k8s-field-helm-dir" type="text"
                                             style="font-size:0.74rem;padding:0.25rem 0.4rem;width:100%"
                                             value="${esc(_savedState?.helm_config?.chart_dir || 'charts/')}" placeholder="charts/">
                                     </div>
@@ -333,29 +333,29 @@
                                 <div style="display:grid;grid-template-columns:1fr 1fr 2fr;gap:0.4rem;margin-top:0.4rem">
                                     <div>
                                         <label style="font-size:0.72rem;font-weight:600;color:var(--text-muted);display:block;margin-bottom:2px">Chart Version</label>
-                                        <input id="k8s-helm-chart-version" class="modal-form-input" type="text"
+                                        <input id="k8s-helm-chart-version" class="modal-form-input k8s-field-helm-version" type="text"
                                             style="font-size:0.74rem;padding:0.25rem 0.4rem;width:100%"
                                             value="${esc(_savedState?.helm_config?.chart_version || '0.1.0')}" placeholder="0.1.0">
                                     </div>
                                     <div>
                                         <label style="font-size:0.72rem;font-weight:600;color:var(--text-muted);display:block;margin-bottom:2px">App Version</label>
-                                        <input id="k8s-helm-app-version" class="modal-form-input" type="text"
+                                        <input id="k8s-helm-app-version" class="modal-form-input k8s-field-helm-appver" type="text"
                                             style="font-size:0.74rem;padding:0.25rem 0.4rem;width:100%"
                                             value="${esc(_savedState?.helm_config?.app_version || '1.0.0')}" placeholder="1.0.0">
                                     </div>
                                     <div>
                                         <label style="font-size:0.72rem;font-weight:600;color:var(--text-muted);display:block;margin-bottom:2px">Description</label>
-                                        <input id="k8s-helm-chart-desc" class="modal-form-input" type="text"
+                                        <input id="k8s-helm-chart-desc" class="modal-form-input k8s-field-helm-desc" type="text"
                                             style="font-size:0.74rem;padding:0.25rem 0.4rem;width:100%"
                                             value="${esc(_savedState?.helm_config?.description || '')}" placeholder="A Helm chart for my application">
                                     </div>
                                 </div>
                                 <div style="margin-top:0.4rem;display:flex;gap:1rem">
-                                    <label style="display:inline-flex;align-items:center;gap:0.3rem;font-size:0.74rem;cursor:pointer">
+                                    <label class="k8s-field-helm-envvals" style="display:inline-flex;align-items:center;gap:0.3rem;font-size:0.74rem;cursor:pointer">
                                         <input type="checkbox" id="k8s-helm-env-values"${(_savedState?.helm_config?.env_values ?? true) ? ' checked' : ''}
                                             style="accent-color:var(--accent)"> Per-env values files
                                     </label>
-                                    <label style="display:inline-flex;align-items:center;gap:0.3rem;font-size:0.74rem;cursor:pointer">
+                                    <label class="k8s-field-helm-ignore" style="display:inline-flex;align-items:center;gap:0.3rem;font-size:0.74rem;cursor:pointer">
                                         <input type="checkbox" id="k8s-helm-helmignore"${(_savedState?.helm_config?.helmignore ?? true) ? ' checked' : ''}
                                             style="accent-color:var(--accent)"> Generate .helmignore
                                     </label>

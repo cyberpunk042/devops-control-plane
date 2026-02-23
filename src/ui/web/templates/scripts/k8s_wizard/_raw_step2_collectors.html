@@ -589,7 +589,7 @@
                         data.skaffold = skaffoldChk ? skaffoldChk.checked : true;
                         if (data.skaffold) {
                             const deployMethod = (document.getElementById('k8s-skaffold-deploy') || {}).value || 'kustomize';
-                            const profiles = (window._skfProfiles || ['dev-from-local', 'dev', 'staging', 'prod']).slice();
+                            const profiles = (window._skfProfiles || ['dev-from-local', 'local']).slice();
                             const preDeploy = ((document.getElementById('k8s-skaffold-pre-deploy') || {}).value || '').split('\n').map(s => s.trim()).filter(Boolean);
                             const postDeploy = ((document.getElementById('k8s-skaffold-post-deploy') || {}).value || '').split('\n').map(s => s.trim()).filter(Boolean);
 

@@ -495,14 +495,14 @@
                                         </div>
 
                                         <!-- ─── 5. Dependencies (hidden for Job/CronJob) ─── -->
-                                        <div id="k8s-svc-deps-wrap-${i}">
+                                        <div id="k8s-svc-deps-wrap-${i}" class="k8s-field-deps">
                                         <div style="margin-top:0.3rem;padding:0.2rem 0">
                                             <span style="font-size:0.68rem;color:var(--text-muted);font-weight:600">Depends on</span>
                                             <div style="display:flex;flex-wrap:wrap;gap:0.25rem;margin-top:0.15rem">
                                                 ${infraSvcs.length > 0 ? infraSvcs.map(inf => {
                                                     const savedDeps = saved?.dependencies || svc.depends_on || [];
                                                     const checked = savedDeps.includes(inf.name) ? ' checked' : '';
-                                                    return `<label style="display:inline-flex;align-items:center;gap:0.2rem;font-size:0.7rem;cursor:pointer">
+                                                    return `<label class="k8s-dep-label" style="display:inline-flex;align-items:center;gap:0.2rem;font-size:0.7rem;cursor:pointer">
                                                         <input type="checkbox" class="k8s-dep-${i}" value="${esc(inf.name)}" style="accent-color:var(--accent)"${checked} onchange="window._refreshEnvSelects(${i})"> ${esc(inf.name)}
                                                     </label>`;
                                                 }).join('') : '<span style="font-size:0.7rem;color:var(--text-muted)">—</span>'}
@@ -580,7 +580,7 @@
                                             <div style="margin-top:0.3rem;padding:0.45rem 0.5rem;background:var(--bg-primary);border-radius:6px;border:1px solid var(--border-subtle)" class="k8s-field-mesh">
                                                 <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.3rem">
                                                     <label style="display:inline-flex;align-items:center;gap:0.25rem;cursor:pointer;font-size:0.78rem;color:var(--text-secondary)">
-                                                        <input type="checkbox" id="k8s-svc-mesh-enable-${i}" style="accent-color:var(--accent)"
+                                                        <input type="checkbox" id="k8s-svc-mesh-enable-${i}" class="k8s-mesh-field-enable" style="accent-color:var(--accent)"
                                                             onchange="document.getElementById('k8s-svc-mesh-cfg-'+${i}).style.display=this.checked?'block':'none'"> Enable sidecar injection
                                                     </label>
                                                     <span class="k8s-field-mesh-provider"><select id="k8s-svc-mesh-provider-${i}" class="modal-form-select"
@@ -604,7 +604,7 @@
                                                     </div>
 
                                                     <div style="font-size:0.78rem;color:var(--text-muted);font-weight:600;margin-bottom:0.2rem">Proxy Resources</div>
-                                                    <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:0.3rem;font-size:0.72rem">
+                                                    <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:0.3rem;font-size:0.72rem" class="k8s-mesh-field-resources">
                                                         <div>${_lbl('CPU Request')}<input type="text" id="k8s-svc-mesh-cpureq-${i}" class="modal-form-input" value="100m" style="font-size:0.78rem;padding:0.18rem 0.3rem"></div>
                                                         <div>${_lbl('CPU Limit')}<input type="text" id="k8s-svc-mesh-cpulim-${i}" class="modal-form-input" value="500m" style="font-size:0.78rem;padding:0.18rem 0.3rem"></div>
                                                         <div>${_lbl('Mem Request')}<input type="text" id="k8s-svc-mesh-memreq-${i}" class="modal-form-input" value="128Mi" style="font-size:0.78rem;padding:0.18rem 0.3rem"></div>
@@ -614,7 +614,7 @@
                                                     <!-- Advanced -->
                                                     <details style="margin-top:0.25rem">
                                                         <summary style="cursor:pointer;font-size:0.74rem;color:var(--text-muted);user-select:none">▸ Advanced</summary>
-                                                        <div style="margin-top:0.2rem;display:grid;grid-template-columns:1fr 1fr 1fr;gap:0.3rem;font-size:0.72rem">
+                                                        <div style="margin-top:0.2rem;display:grid;grid-template-columns:1fr 1fr 1fr;gap:0.3rem;font-size:0.72rem" class="k8s-mesh-field-advanced">
                                                             <div>${_lbl('Exclude inbound ports')}<input type="text" id="k8s-svc-mesh-exin-${i}" class="modal-form-input" placeholder="e.g. 8080,9090" style="font-size:0.78rem;padding:0.18rem 0.3rem"></div>
                                                             <div>${_lbl('Exclude outbound ports')}<input type="text" id="k8s-svc-mesh-exout-${i}" class="modal-form-input" placeholder="e.g. 3306" style="font-size:0.78rem;padding:0.18rem 0.3rem"></div>
                                                             <div>${_lbl('Log level')}<select id="k8s-svc-mesh-log-${i}" class="modal-form-select" style="font-size:0.78rem;padding:0.18rem 0.3rem">
@@ -630,14 +630,14 @@
                                         </details>
 
                                         <!-- ─── 6. Companion Containers (from "Move into pod") ─── -->
-                                        <div id="k8s-svc-companions-${i}" style="display:none;margin-top:0.35rem;padding:0.4rem;background:color-mix(in srgb, var(--accent) 4%, transparent);border-radius:6px;border:1px dashed var(--border-subtle)">
+                                        <div id="k8s-svc-companions-${i}" class="k8s-field-companions" style="display:none;margin-top:0.35rem;padding:0.4rem;background:color-mix(in srgb, var(--accent) 4%, transparent);border-radius:6px;border:1px dashed var(--border-subtle)">
                                             <div style="font-size:0.74rem;color:var(--accent);font-weight:600;margin-bottom:0.2rem">📦 Companion Containers (same pod)</div>
                                             <div id="k8s-svc-companion-list-${i}" style="display:flex;flex-direction:column;gap:0.2rem"></div>
                                         </div>
 
                                         <!-- ─── Move into pod action ─── -->
                                         <div style="margin-top:0.25rem;text-align:right">
-                                            <select id="k8s-svc-moveto-${i}" class="modal-form-select"
+                                            <select id="k8s-svc-moveto-${i}" class="modal-form-select k8s-field-moveto"
                                                 style="font-size:0.76rem;padding:0.2rem 0.4rem;min-width:180px;color:var(--accent);border-color:var(--border-subtle)"
                                                 onchange="if(this.value){window._k8sMoveIntoPod(${i},parseInt(this.value));this.value=''}"
                                             >
@@ -694,14 +694,14 @@
                                         </div>
 
                                         <!-- ─── Companion Containers ─── -->
-                                        <div id="k8s-svc-companions-${i}" style="display:none;margin-top:0.35rem;padding:0.4rem;background:color-mix(in srgb, var(--accent) 4%, transparent);border-radius:6px;border:1px dashed var(--border-subtle)">
+                                        <div id="k8s-svc-companions-${i}" class="k8s-field-companions" style="display:none;margin-top:0.35rem;padding:0.4rem;background:color-mix(in srgb, var(--accent) 4%, transparent);border-radius:6px;border:1px dashed var(--border-subtle)">
                                             <div style="font-size:0.74rem;color:var(--accent);font-weight:600;margin-bottom:0.2rem">📦 Companion Containers (same pod)</div>
                                             <div id="k8s-svc-companion-list-${i}" style="display:flex;flex-direction:column;gap:0.2rem"></div>
                                         </div>
 
                                         <!-- ─── Move into pod action ─── -->
                                         <div style="margin-top:0.25rem;text-align:right">
-                                            <select id="k8s-svc-moveto-${i}" class="modal-form-select"
+                                            <select id="k8s-svc-moveto-${i}" class="modal-form-select k8s-field-moveto"
                                                 style="font-size:0.76rem;padding:0.2rem 0.4rem;min-width:180px;color:var(--accent);border-color:var(--border-subtle)"
                                                 onchange="if(this.value){window._k8sMoveIntoPod(${i},parseInt(this.value));this.value=''}"
                                             >

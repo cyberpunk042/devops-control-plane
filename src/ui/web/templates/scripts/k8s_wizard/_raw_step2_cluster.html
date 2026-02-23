@@ -372,6 +372,51 @@
                             else hide('k8s-svc-mesh-warn-' + i);
                         };
 
+                        // ── Sync dep checkboxes across all app service cards ──
+                        // Called when infra services are added/removed dynamically
+                        window._k8sSyncDepCheckbox = (action, infraName) => {
+                            const svcCount = hasCompose ? appSvcs.length : deployableModules.length;
+                            for (let si = 0; si < svcCount; si++) {
+                                const wrap = document.getElementById('k8s-svc-deps-wrap-' + si);
+                                if (!wrap) continue;
+                                // Find the flex container that holds checkbox labels (or the "—" placeholder)
+                                const flexDiv = wrap.querySelector('div[style*="flex-wrap"]');
+                                if (!flexDiv) continue;
+
+                                if (action === 'add') {
+                                    // Remove the "—" placeholder if present
+                                    const placeholder = flexDiv.querySelector('span');
+                                    if (placeholder && placeholder.textContent.trim() === '—') {
+                                        placeholder.remove();
+                                    }
+                                    // Don't add duplicate
+                                    const existing = flexDiv.querySelector('input[value="' + infraName + '"]');
+                                    if (existing) continue;
+                                    // Create new checkbox label
+                                    const label = document.createElement('label');
+                                    label.className = 'k8s-dep-label';
+                                    label.style.cssText = 'display:inline-flex;align-items:center;gap:0.2rem;font-size:0.7rem;cursor:pointer';
+                                    label.innerHTML = '<input type="checkbox" class="k8s-dep-' + si + '" value="' + esc(infraName) + '" style="accent-color:var(--accent)" onchange="window._refreshEnvSelects(' + si + ')"> ' + esc(infraName);
+                                    flexDiv.appendChild(label);
+                                } else if (action === 'remove') {
+                                    const cb = flexDiv.querySelector('input[value="' + infraName + '"]');
+                                    if (cb) {
+                                        // Uncheck first to trigger env select cleanup
+                                        if (cb.checked) {
+                                            cb.checked = false;
+                                            window._refreshEnvSelects(si);
+                                        }
+                                        const parentLabel = cb.closest('label');
+                                        if (parentLabel) parentLabel.remove();
+                                    }
+                                    // If no more checkboxes, show "—" placeholder
+                                    if (flexDiv.querySelectorAll('input[type="checkbox"]').length === 0) {
+                                        flexDiv.innerHTML = '<span style="font-size:0.7rem;color:var(--text-muted)">—</span>';
+                                    }
+                                }
+                            }
+                        };
+
                         // ── Remove infra card ──
                         window._k8sRemoveInfra = (name) => {
                             const list = document.getElementById('k8s-infra-list');
@@ -384,6 +429,8 @@
                             window._k8sActiveInfra.delete(name);
                             delete (window._k8sSvcNames || {})['infra-' + name];
                             window._k8sUpdateInfraAddSelect();
+                            // Remove dep checkbox from all app service cards
+                            window._k8sSyncDepCheckbox('remove', name);
                             // Re-evaluate env collisions (infra env vars removed)
                             window._wizValidation.recheck('k8s');
                         };
@@ -443,6 +490,8 @@
                             window._infraEnvMap = window._infraEnvMap || {};
                             window._infraEnvMap[svc.name] = Object.keys(svc.environment || {});
                             window._k8sUpdateInfraAddSelect();
+                            // Add dep checkbox to all app service cards
+                            window._k8sSyncDepCheckbox('add', svc.name);
                             // Re-evaluate env collisions (new infra env vars added)
                             window._wizValidation.recheck('k8s');
                         };
@@ -747,13 +796,13 @@
                         // Detect profile flavor by pattern (matches backend logic)
                         const _resolveProfileDesc = (name) => {
                             if (name.includes('local')) return { ...(_profilePatterns.local) };
-                            if (name === 'dev') return { ...(_profilePatterns.dev) };
+                            if (['dev', 'development'].includes(name)) return { ...(_profilePatterns.dev) };
                             if (['staging', 'qa', 'preprod', 'pre-prod'].includes(name)) return { ...(_profilePatterns.staging) };
                             if (['prod', 'production'].includes(name)) return { ...(_profilePatterns.prod) };
                             return null; // generic / custom
                         };
 
-                        window._skfProfiles = (_savedState?.skaffold_config?.profiles || ['dev-from-local', 'dev', 'staging', 'prod']).slice();
+                        window._skfProfiles = (_savedState?.skaffold_config?.profiles || ['dev-from-local', 'local'].concat(envs.map(e => e.name))).slice();
 
                         window._skfRenderProfiles = () => {
                             const c = document.getElementById('k8s-skaffold-profiles');
@@ -803,13 +852,15 @@
                             window._skfProfiles.push(name);
                             inp.value = '';
                             window._skfRenderProfiles();
+                            if (window._assistant) window._assistant.refresh();
                         };
                         window._skfRemoveProfile = (i) => {
                             window._skfProfiles.splice(i, 1);
                             window._skfRenderProfiles();
+                            if (window._assistant) window._assistant.refresh();
                         };
                         // Render initial profiles after DOM is populated
-                        setTimeout(() => window._skfRenderProfiles(), 0);
+                        setTimeout(() => { window._skfRenderProfiles(); if (window._assistant) window._assistant.refresh(); }, 0);
                     },
                     collect: (data) => {
                         const mode = data._configMode || 'manual';
