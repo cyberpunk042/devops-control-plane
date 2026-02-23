@@ -124,7 +124,7 @@
                                         ? svc.image.split('/').pop().split(':')[0]
                                         : (svc.build ? 'builds locally' : '—');
 
-                                    html += `<div style="display:flex;align-items:center;gap:0.5rem;font-size:0.82rem;padding:0.3rem 0.5rem;border-radius:6px;background:var(--bg-inset)">
+                                    html += `<div class="k8s-detect-svc-row" style="display:flex;align-items:center;gap:0.5rem;font-size:0.82rem;padding:0.3rem 0.5rem;border-radius:6px;background:var(--bg-inset)">
                                         <span style="width:18px;text-align:center">${badgeIcon}</span>
                                         <strong style="min-width:80px">${esc(svc.name)}</strong>
                                         <code style="font-size:0.72rem;background:var(--bg-primary);padding:1px 5px;border-radius:3px;color:var(--text-secondary)">${esc(imgStr)}</code>

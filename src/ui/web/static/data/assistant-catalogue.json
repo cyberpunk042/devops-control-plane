@@ -6582,7 +6582,7 @@
         "context": "setup/k8s",
         "title": "Kubernetes Setup",
         "icon": "☸️",
-        "content": "Three steps — scan your project's K8s readiness, configure workloads and infrastructure per service, then review and generate manifests.\n\nThis wizard bridges your Docker containers into Kubernetes — turning Compose services into Deployments, StatefulSets, and Jobs with proper resource limits, health probes, and networking.",
+        "content": "Your Kubernetes deployment pipeline — from project scan to production-ready manifests.",
         "children": [
             {
                 "id": "k8s-detect-env",
@@ -6649,17 +6649,17 @@
                         "variants": [
                             {
                                 "when": {
-                                    "textContains": "Connected"
-                                },
-                                "content": "A live cluster is reachable — you can validate manifests, inspect running workloads, and deploy directly.",
-                                "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">✅ Connected</div><div class=\"state-detail\">kubectl can reach your cluster. This could be a local cluster (minikube, kind, Docker Desktop) or a remote one (EKS, GKE, AKS).\n\nWith a live connection, the Review step can:\n• <strong>Dry-run apply</strong> — validate manifests against the actual API server\n• <strong>Show running workloads</strong> — see what's already deployed\n• <strong>Deploy directly</strong> — apply generated manifests to the cluster</div></div>"
-                            },
-                            {
-                                "when": {
                                     "textContains": "Not connected"
                                 },
                                 "content": "No cluster connection — manifests can still be generated, but validation and deployment happen elsewhere.",
                                 "expanded": "<div class=\"assistant-state-card state-warning\"><div class=\"state-label\">⚠️ Not Connected</div><div class=\"state-detail\">kubectl can't reach a cluster. This is fine for manifest generation — the wizard creates valid YAML regardless.\n\nCommon reasons:\n• No kubeconfig file (~/.kube/config)\n• Cluster is down or unreachable\n• Context points to a deleted cluster\n\nYou can deploy the generated manifests later from a machine with cluster access, or through a CI/CD pipeline.</div></div>"
+                            },
+                            {
+                                "when": {
+                                    "textContains": "Connected"
+                                },
+                                "content": "A live cluster is reachable — you can validate manifests, inspect running workloads, and deploy directly.",
+                                "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">✅ Connected</div><div class=\"state-detail\">kubectl can reach your cluster. This could be a local cluster (minikube, kind, Docker Desktop) or a remote one (EKS, GKE, AKS).\n\nWith a live connection, the Review step can:\n• <strong>Dry-run apply</strong> — validate manifests against the actual API server\n• <strong>Show running workloads</strong> — see what's already deployed\n• <strong>Deploy directly</strong> — apply generated manifests to the cluster</div></div>"
                             }
                         ],
                         "children": []
@@ -6806,6 +6806,31 @@
                         "selector": "#k8s-detect-svc-list",
                         "content": "Each row shows a detected Compose service — its image, ports, environment variables, volumes, and healthcheck. The small icons on the right tell you what configuration the service already carries from Compose.",
                         "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">📋 Reading the Service Rows</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"display:grid;grid-template-columns:auto 1fr;gap:0.2rem 0.5rem;margin:0.3rem 0;font-size:0.75rem\"><span style=\"font-weight:600;color:var(--text-secondary)\">🔧 N</span><span>number of environment variables defined</span><span style=\"font-weight:600;color:var(--text-secondary)\">💾 N</span><span>number of volume mounts</span><span style=\"font-weight:600;color:var(--text-secondary)\">❤️</span><span>has a healthcheck — will be converted to K8s liveness/readiness probes</span></div><div style=\"margin-top:0.3rem;font-size:0.75rem\">In the next step, each application service gets its own configuration panel with resource limits, probes, and scaling options.</div></div></div>",
+                        "dynamic": true,
+                        "childTemplate": {
+                            "title": "🚀 {{name}}",
+                            "content": "Compose service {{name}} — hover for classification details and what happens in the Configure step.",
+                            "selector": "#k8s-detect-svc-list .k8s-detect-svc-row",
+                            "nameSelector": "strong",
+                            "variants": [
+                                {
+                                    "when": {
+                                        "textContains": "infrastructure"
+                                    },
+                                    "title": "🗄️ {{name}}",
+                                    "content": "Infrastructure service {{name}} — a backing dependency (database, cache, queue). In the Configure step, choose: self-hosted StatefulSet, managed cloud service, or skip.",
+                                    "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🗄️ Infrastructure Service</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"margin:0.3rem 0;font-size:0.75rem\">This service was classified as <strong>infrastructure</strong> — it's a backing dependency your application services connect to.</div><div style=\"display:grid;grid-template-columns:auto 1fr;gap:0.25rem 0.5rem;margin:0.3rem 0;font-size:0.75rem\"><span style=\"font-weight:600;color:var(--text-secondary)\">StatefulSet</span><span>self-hosted in-cluster — persistent storage, stable network identity</span><span style=\"font-weight:600;color:var(--text-secondary)\">Managed</span><span>cloud-managed service (RDS, Cloud SQL, ElastiCache) — no pods to manage</span><span style=\"font-weight:600;color:var(--text-secondary)\">Skip</span><span>exclude from K8s manifests — handled externally or not needed</span></div><div style=\"margin-top:0.3rem;font-size:0.75rem\">In production, managed services are generally preferred for databases and caches — less operational burden, automated backups, and built-in HA.</div></div></div>"
+                                },
+                                {
+                                    "when": {
+                                        "textContains": "application"
+                                    },
+                                    "title": "🚀 {{name}}",
+                                    "content": "Application service {{name}} — your code. Becomes a K8s Deployment with replicas, health probes, resource limits, and optional HPA autoscaling.",
+                                    "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">🚀 Application Service</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"margin:0.3rem 0;font-size:0.75rem\">This service was classified as <strong>application</strong> — your code that runs as a K8s Deployment.</div><div style=\"display:grid;grid-template-columns:auto 1fr;gap:0.25rem 0.5rem;margin:0.3rem 0;font-size:0.75rem\"><span style=\"font-weight:600;color:var(--text-secondary)\">Deployment</span><span>manages replicated pods with rolling updates and rollbacks</span><span style=\"font-weight:600;color:var(--text-secondary)\">Probes</span><span>liveness + readiness checks keep traffic away from unhealthy pods</span><span style=\"font-weight:600;color:var(--text-secondary)\">Resources</span><span>CPU/memory requests and limits prevent noisy-neighbor issues</span><span style=\"font-weight:600;color:var(--text-secondary)\">HPA</span><span>auto-scale replicas based on CPU, memory, or custom metrics</span></div><div style=\"margin-top:0.3rem;font-size:0.75rem\">The Configure step lets you tune all of these per service.</div></div></div>"
+                                }
+                            ]
+                        },
                         "children": []
                     }
                 ]
@@ -6873,6 +6898,374 @@
                         "children": []
                     }
                 ]
+            },
+            {
+                "id": "k8s-cfg-app-svcs",
+                "title": "Application Deployments",
+                "icon": "🚀",
+                "selector": "#k8s-app-svc-list",
+                "separator": true,
+                "content": "Your application services — each one becomes a K8s workload. Hover any field for guidance on what it does and what to watch out for.",
+                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🚀 Configure → Review → Generate</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"margin:0.3rem 0;font-size:0.75rem\">Each service card produces a set of K8s resources:</div><div style=\"display:grid;grid-template-columns:auto 1fr;gap:0.2rem 0.5rem;margin:0.3rem 0;font-size:0.75rem\"><span style=\"font-weight:600;color:var(--text-secondary)\">Deployment</span><span>pod template + replica management + rolling update strategy</span><span style=\"font-weight:600;color:var(--text-secondary)\">Service</span><span>stable DNS name + load balancing across replicas</span><span style=\"font-weight:600;color:var(--text-secondary)\">ConfigMap</span><span>non-secret environment variables</span><span style=\"font-weight:600;color:var(--text-secondary)\">Secret</span><span>sensitive values injected at deploy time</span></div><div style=\"margin-top:0.3rem;font-size:0.75rem\">Unchecked services are excluded entirely — no resources generated.</div></div></div>",
+                "children": [
+                    {
+                        "id": "k8s-cfg-svc-card",
+                        "title": "Service Card",
+                        "icon": "📦",
+                        "selector": "[id^=k8s-svc-card-]",
+                        "content": "Everything in this card shapes one workload. The kind on the right is the most important choice — it changes what options appear below.",
+                        "variants": [
+                            {
+                                "when": {
+                                    "resolver": "k8sSvcCardKind",
+                                    "equals": "Skip"
+                                },
+                                "content": "Excluded — this service won't generate any K8s manifest. If other services depend_on it, make sure it's available another way (managed cloud service, external endpoint).",
+                                "expanded": "<div class=\"assistant-state-card state-warning\"><div class=\"state-label\">⏭️ Skipped</div><div class=\"state-detail\">No Deployment, Service, ConfigMap, or Secret will be generated for this service. It won't appear in the Review step.\n\nIf another service references this one (via depends_on or env vars), you'll need to provide the connection details manually — K8s won't manage it.</div></div>"
+                            },
+                            {
+                                "when": {
+                                    "resolver": "k8sSvcCardKind",
+                                    "equals": "Deployment"
+                                },
+                                "content": "Deploying as a K8s Deployment — replicated stateless pods with rolling updates. The most common choice for application code (APIs, web servers, workers).",
+                                "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">🚀 Deployment</div><div class=\"state-detail\">Deployments manage identical, interchangeable pods:\n\n• <strong>Rolling updates</strong> — new pods come up before old ones go down\n• <strong>Replicas</strong> — scale horizontally for HA and throughput\n• <strong>HPA</strong> — auto-scale based on CPU, memory, or custom metrics\n• <strong>Rollback</strong> — one command reverts to the previous revision\n\nPods have no stable identity or persistent storage. If your service writes to disk, consider StatefulSet instead.</div></div>"
+                            },
+                            {
+                                "when": {
+                                    "resolver": "k8sSvcCardKind",
+                                    "equals": "StatefulSet"
+                                },
+                                "content": "StatefulSet — each pod gets a stable hostname and its own persistent volume. Good for services that write to disk or need peer discovery.",
+                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🗄️ StatefulSet</div><div class=\"state-detail\">Unlike Deployments, StatefulSet pods are not interchangeable:\n\n• <strong>Stable identity</strong> — pod-0, pod-1, pod-2 persist across restarts\n• <strong>Per-pod storage</strong> — each pod gets its own PVC via volumeClaimTemplates\n• <strong>Ordered operations</strong> — pods start/stop in sequence (unless Parallel)\n• <strong>Headless Service</strong> — DNS like <code>svc-0.svc-headless.ns</code>\n\nHeavier to operate than Deployments. Use only when stable identity or per-pod storage is genuinely needed.</div></div>"
+                            },
+                            {
+                                "when": {
+                                    "resolver": "k8sSvcCardKind",
+                                    "equals": "DaemonSet"
+                                },
+                                "content": "DaemonSet — one pod on every node in the cluster. No replica count — K8s automatically places pods as nodes come and go.",
+                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🌐 DaemonSet</div><div class=\"state-detail\">DaemonSets guarantee exactly one pod per node:\n\n• <strong>No replicas</strong> — pod count equals node count\n• <strong>Node selectors</strong> — restrict to specific nodes if needed\n• <strong>Tolerations</strong> — run on tainted nodes (control-plane, GPU)\n• <strong>Host access</strong> — optional host network, PID, IPC sharing\n\nTypical uses: log collectors, monitoring agents, network plugins, storage drivers.</div></div>"
+                            },
+                            {
+                                "when": {
+                                    "resolver": "k8sSvcCardKind",
+                                    "equals": "Job"
+                                },
+                                "content": "A run-to-completion Job — runs once, exits, and K8s reports success or failure. No service, no replicas, no probes.",
+                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">⚡ Job</div><div class=\"state-detail\">Jobs run a container to completion:\n\n• <strong>Backoff limit</strong> — how many times to retry on failure\n• <strong>Completions</strong> — how many successful runs are needed\n• <strong>Parallelism</strong> — how many pods run simultaneously\n• <strong>TTL</strong> — auto-cleanup after the job finishes\n\nNo Service, no health probes, no replicas. The container runs its command and exits.</div></div>"
+                            },
+                            {
+                                "when": {
+                                    "resolver": "k8sSvcCardKind",
+                                    "equals": "CronJob"
+                                },
+                                "content": "CronJob — wraps a Job in a cron schedule. Kubernetes creates a fresh Job each time the schedule fires.",
+                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">⏰ CronJob</div><div class=\"state-detail\">CronJobs schedule recurring work:\n\n• <strong>Schedule</strong> — standard cron syntax (minute hour day month weekday)\n• <strong>Concurrency</strong> — Allow, Forbid (skip if running), Replace (kill + restart)\n• <strong>Suspend</strong> — pause scheduling without deleting the CronJob\n• <strong>History</strong> — how many successful/failed jobs to keep\n\nEach trigger creates a new Job pod. Long-running CronJobs with Forbid concurrency skip missed runs.</div></div>"
+                            }
+                        ],
+                        "children": [
+                            {
+                                "id": "k8s-cfg-svc-img",
+                                "title": "Container Image",
+                                "icon": "📦",
+                                "selector": ".k8s-field-img",
+                                "content": "Must be pullable by your cluster nodes — local Docker images won't work. Use a registry your nodes can reach (GHCR, DockerHub, ECR, private registry).",
+                                "variants": [
+                                    {
+                                        "when": {
+                                            "resolver": "k8sFieldValue",
+                                            "contains": "ghcr.io"
+                                        },
+                                        "content": "GitHub Container Registry — aligned with your repo. GitHub Actions pushes here automatically. If the image is private, your cluster needs an imagePullSecret.",
+                                        "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">📦 ghcr.io</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"margin:0.3rem 0;font-size:0.75rem\">GitHub Container Registry images are tied to your repository. Advantages:</div><div style=\"display:grid;grid-template-columns:auto 1fr;gap:0.2rem 0.5rem;margin:0.3rem 0;font-size:0.75rem\"><span style=\"font-weight:600;color:var(--text-secondary)\">Auth</span><span>permissions follow repository access — no separate creds</span><span style=\"font-weight:600;color:var(--text-secondary)\">CI/CD</span><span>GitHub Actions can push with <code>GITHUB_TOKEN</code> — no secrets needed</span><span style=\"font-weight:600;color:var(--text-secondary)\">Cost</span><span>free for public repos</span></div><div style=\"margin-top:0.3rem;font-size:0.75rem\">For private images, create an imagePullSecret in each namespace where this service runs.</div></div></div>"
+                                    },
+                                    {
+                                        "when": {
+                                            "resolver": "k8sFieldValue",
+                                            "contains": ":latest"
+                                        },
+                                        "content": "Using :latest tag — convenient for development, risky for production. K8s can't tell if the image changed. Pin to a commit SHA or semver tag for reproducible deployments.",
+                                        "expanded": "<div class=\"assistant-state-card state-warning\"><div class=\"state-label\">⚠️ :latest tag</div><div class=\"state-detail\">The :latest tag is a moving target — two deploys with the same manifest can run different code.\n\n• <strong>imagePullPolicy: Always</strong> forces K8s to check the registry every time (slow)\n• <strong>Rollbacks</strong> don't work — reverting the Deployment still pulls :latest\n• <strong>Debugging</strong> is harder — which version is actually running?\n\nFor production, use: <code>image:v1.2.3</code> or <code>image:abc1234</code></div></div>"
+                                    },
+                                    {
+                                        "when": {
+                                            "resolver": "k8sFieldValue",
+                                            "contains": "localhost"
+                                        },
+                                        "content": "Local image reference — K8s nodes pull from registries, not your local Docker daemon. Push to a registry (ghcr.io, Docker Hub) before deploying.",
+                                        "expanded": "<div class=\"assistant-state-card state-error\"><div class=\"state-label\">❌ Local reference</div><div class=\"state-detail\">Kubernetes nodes pull images from container registries over the network. An image on your local Docker daemon is invisible to the cluster.\n\nTo fix: push the image to a registry, then update this field to the registry path.\n\nException: if using minikube with <code>eval $(minikube docker-env)</code>, local images work — but only on that single node.</div></div>"
+                                    },
+                                    {
+                                        "when": {
+                                            "resolver": "k8sFieldValue",
+                                            "equals": ""
+                                        },
+                                        "content": "No image specified — this field is required. K8s needs an image reference to create the container. It was probably auto-detected from your Compose file.",
+                                        "expanded": "<div class=\"assistant-state-card state-error\"><div class=\"state-label\">❌ Missing image</div><div class=\"state-detail\">Every K8s container spec needs an <code>image</code> field. Without it, the pod can't start.\n\nExpected format: <code>registry/owner/name:tag</code>\nExample: <code>ghcr.io/myorg/api:v1.0.0</code></div></div>"
+                                    }
+                                ],
+                                "children": []
+                            },
+                            {
+                                "id": "k8s-cfg-svc-port",
+                                "title": "Port",
+                                "icon": "🔌",
+                                "selector": ".k8s-field-port",
+                                "content": "The port your app binds to inside the container. Gets wired into the Service targetPort, probe endpoints, and ingress rules.",
+                                "variants": [],
+                                "children": [],
+                                "expanded": "{{k8sPortHover}}"
+                            },
+                            {
+                                "id": "k8s-cfg-svc-replicas",
+                                "title": "Replicas",
+                                "icon": "📊",
+                                "selector": ".k8s-field-replicas",
+                                "content": "Pod count — the tension between availability and cost. Hidden for DaemonSet (node count) and Job/CronJob (one-shot).",
+                                "variants": [
+                                    {
+                                        "when": {
+                                            "resolver": "k8sFieldValue",
+                                            "equals": "0"
+                                        },
+                                        "content": "Zero replicas — the Deployment exists but no pods run. Useful for KEDA event-driven scaling or intentionally scaled-down environments.",
+                                        "expanded": "<div class=\"assistant-state-card state-warning\"><div class=\"state-label\">⚠️ 0 replicas</div><div class=\"state-detail\">The manifest is created, but no pods are scheduled. The Deployment sits idle until manually scaled up or an autoscaler (KEDA, HPA with custom metrics) kicks in.\n\nCommon uses:\n• Staging environments scaled to zero when unused\n• Event-driven workloads that scale from zero on demand\n• Services disabled but not deleted</div></div>"
+                                    },
+                                    {
+                                        "when": {
+                                            "resolver": "k8sFieldValue",
+                                            "equals": "1"
+                                        },
+                                        "content": "Single replica — no high availability. If this pod crashes, is evicted, or gets rescheduled, there's a gap in service. Rolling updates cause brief downtime. Fine for dev, risky for prod.",
+                                        "expanded": "<div class=\"assistant-state-card state-warning\"><div class=\"state-label\">⚠️ 1 replica</div><div class=\"state-detail\">With one pod, any disruption causes downtime:\n\n• <strong>Rolling update</strong> — old pod dies before new pod is ready (unless maxSurge > 0)\n• <strong>Node failure</strong> — pod reschedules to another node, but there's a gap\n• <strong>Eviction</strong> — resource pressure can kill your only pod\n\nFor production, use at least 2 replicas. For development, 1 is fine — saves resources.</div></div>"
+                                    },
+                                    {
+                                        "when": {
+                                            "resolver": "k8sFieldValue",
+                                            "equals": "2"
+                                        },
+                                        "content": "Two replicas — basic high availability. During rolling updates, one pod serves traffic while the other rolls. Covers single-node failure.",
+                                        "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">✅ 2 replicas</div><div class=\"state-detail\">The minimum for high availability:\n\n• <strong>Rolling updates</strong> work — one pod serves while the other is replaced\n• <strong>Node failure</strong> — if one pod dies, the other still handles traffic\n• <strong>Pod Disruption Budget</strong> — set minAvailable: 1 to prevent both being evicted\n\nFor services with heavy traffic or strict SLAs, consider 3+ replicas.</div></div>"
+                                    },
+                                    {
+                                        "when": {
+                                            "resolver": "k8sFieldValue",
+                                            "equals": "3"
+                                        },
+                                        "content": "Three replicas — solid for production. Handles rolling updates, node failures, and zone failures with headroom. Consider adding an HPA to auto-scale based on load."
+                                    }
+                                ],
+                                "children": []
+                            },
+                            {
+                                "id": "k8s-cfg-svc-type",
+                                "title": "Service Type",
+                                "icon": "🌐",
+                                "selector": ".k8s-field-svctype",
+                                "content": "Controls who can reach this service — the network boundary decision.<div class=\"assistant-state-card state-info\" style=\"margin-top:0.4rem\"><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"display:grid;grid-template-columns:auto 1fr;gap:0.25rem 0.5rem;font-size:0.75rem\"><span style=\"font-weight:600;color:var(--success)\">🌐 ClusterIP</span><span>Internal only. Other pods reach it via DNS. For external access, use Ingress. <em>The default — most secure, most common.</em></span><span style=\"font-weight:600;color:var(--info)\">🔌 NodePort</span><span>Exposed on every node's IP at a static port (30000-32767). No cloud LB needed. <em>Bare-metal clusters, local dev.</em></span><span style=\"font-weight:600;color:var(--warning)\">☁️ LoadBalancer</span><span>Provisions a cloud load balancer (ELB, NLB). Each one costs ~$18/month. <em>Use sparingly — prefer Ingress + ClusterIP.</em></span></div></div></div>",
+                                "variants": [
+                                    {
+                                        "when": {
+                                            "resolver": "k8sFieldValue",
+                                            "equals": "ClusterIP"
+                                        },
+                                        "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">🌐 ClusterIP</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"margin:0.3rem 0;font-size:0.75rem\">The default and most secure option. Traffic stays inside the cluster.</div><div style=\"display:grid;grid-template-columns:auto 1fr;gap:0.2rem 0.5rem;margin:0.3rem 0;font-size:0.75rem\"><span style=\"font-weight:600;color:var(--text-secondary)\">DNS</span><span><code>svc-name.namespace.svc.cluster.local</code></span><span style=\"font-weight:600;color:var(--text-secondary)\">External access</span><span>via Ingress, Gateway API, or port-forward for debugging</span><span style=\"font-weight:600;color:var(--text-secondary)\">Cost</span><span>no cloud resources provisioned</span></div></div></div>"
+                                    },
+                                    {
+                                        "when": {
+                                            "resolver": "k8sFieldValue",
+                                            "equals": "NodePort"
+                                        },
+                                        "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🌐 NodePort</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"margin:0.3rem 0;font-size:0.75rem\">NodePort allocates a port on every node (30000-32767). Access via <code>node-ip:port</code>.</div><div style=\"display:grid;grid-template-columns:auto 1fr;gap:0.2rem 0.5rem;margin:0.3rem 0;font-size:0.75rem\"><span style=\"font-weight:600;color:var(--text-secondary)\">Access</span><span><code>any-node-ip:30000+</code></span><span style=\"font-weight:600;color:var(--text-secondary)\">Firewall</span><span>requires opening the NodePort range on all nodes</span><span style=\"font-weight:600;color:var(--text-secondary)\">No HA</span><span>if the node dies, that IP is gone — no automatic failover</span></div><div style=\"margin-top:0.3rem;font-size:0.75rem\">For production, prefer LoadBalancer or Ingress + ClusterIP.</div></div></div>"
+                                    },
+                                    {
+                                        "when": {
+                                            "resolver": "k8sFieldValue",
+                                            "equals": "LoadBalancer"
+                                        },
+                                        "expanded": "<div class=\"assistant-state-card state-warning\"><div class=\"state-label\">🌐 LoadBalancer</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"margin:0.3rem 0;font-size:0.75rem\">Each LoadBalancer service provisions a cloud resource:</div><div style=\"display:grid;grid-template-columns:auto 1fr;gap:0.2rem 0.5rem;margin:0.3rem 0;font-size:0.75rem\"><span style=\"font-weight:600;color:var(--text-secondary)\">AWS</span><span>ELB/NLB — ~$18/month per LB</span><span style=\"font-weight:600;color:var(--text-secondary)\">GCP</span><span>Network LB — ~$18/month per rule</span><span style=\"font-weight:600;color:var(--text-secondary)\">Azure</span><span>Standard LB — ~$18/month + rules</span></div><div style=\"margin-top:0.3rem;font-size:0.75rem\">5 services × $18 = $90/month just for load balancers. An Ingress Controller (nginx, traefik) behind a single LoadBalancer routes all services via path/host rules.</div></div></div>"
+                                    }
+                                ],
+                                "children": []
+                            },
+                            {
+                                "id": "k8s-cfg-svc-strategy",
+                                "title": "Update Strategy",
+                                "icon": "🔄",
+                                "selector": ".k8s-field-strategy",
+                                "content": "How K8s replaces old pods with new ones during a deploy.<div class=\"assistant-state-card state-info\" style=\"margin-top:0.4rem\"><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"display:grid;grid-template-columns:auto 1fr;gap:0.25rem 0.5rem;font-size:0.75rem\"><span style=\"font-weight:600;color:var(--success)\">🔄 RollingUpdate</span><span>New pods come up before old pods go down. Both versions run briefly in parallel. <em>Zero-downtime deploys — the default for most services.</em></span><span style=\"font-weight:600;color:var(--warning)\">⚠️ Recreate</span><span>All old pods are killed before new ones start. Causes downtime but guarantees only one version runs at a time. <em>Schema migrations, singleton processes, ReadWriteOnce PVCs.</em></span></div></div></div>",
+                                "variants": [
+                                    {
+                                        "when": {
+                                            "resolver": "k8sFieldValue",
+                                            "equals": "RollingUpdate"
+                                        },
+                                        "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">🔄 RollingUpdate</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"margin:0.3rem 0;font-size:0.75rem\">Pods are replaced incrementally. At any point during the rollout, both old and new versions may be running simultaneously.</div><div style=\"display:grid;grid-template-columns:auto 1fr;gap:0.2rem 0.5rem;margin:0.3rem 0;font-size:0.75rem\"><span style=\"font-weight:600;color:var(--text-secondary)\">Max Surge</span><span>how many extra pods can exist above the desired count during rollout</span><span style=\"font-weight:600;color:var(--text-secondary)\">Max Unavailable</span><span>how many pods can be down during rollout</span><span style=\"font-weight:600;color:var(--text-secondary)\">Readiness Probe</span><span>new pods must pass readiness before old pods are terminated</span></div><div style=\"margin-top:0.3rem;font-size:0.75rem\">If your app can't handle two versions running at once (schema migrations, breaking API changes), use Recreate instead.</div></div></div>"
+                                    },
+                                    {
+                                        "when": {
+                                            "resolver": "k8sFieldValue",
+                                            "equals": "Recreate"
+                                        },
+                                        "expanded": "<div class=\"assistant-state-card state-warning\"><div class=\"state-label\">⚠️ Recreate</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"margin:0.3rem 0;font-size:0.75rem\">All existing pods are terminated before new ones are created. The service is unavailable during the gap.</div><div style=\"display:grid;grid-template-columns:auto 1fr;gap:0.2rem 0.5rem;margin:0.3rem 0;font-size:0.75rem\"><span style=\"font-weight:600;color:var(--text-secondary)\">Downtime</span><span>depends on pod startup time — could be seconds to minutes</span><span style=\"font-weight:600;color:var(--text-secondary)\">Use when</span><span>ReadWriteOnce PVCs (can't mount on two nodes), breaking schema changes, singleton processes</span><span style=\"font-weight:600;color:var(--text-secondary)\">Max Surge / Unavail</span><span>hidden — not applicable with Recreate</span></div></div></div>"
+                                    }
+                                ],
+                                "children": []
+                            },
+                            {
+                                "id": "k8s-cfg-svc-maxsurge",
+                                "title": "Max Surge",
+                                "icon": "📈",
+                                "selector": ".k8s-field-maxsurge",
+                                "content": "Extra pods during rollout — speed vs resource cost. Combined with Max Unavailable, controls how aggressive the rollout is.",
+                                "variants": [
+                                    {
+                                        "when": {
+                                            "resolver": "k8sFieldValue",
+                                            "equals": "1"
+                                        },
+                                        "content": "Max Surge 1 — one extra pod at a time. Conservative — uses minimal extra resources but rollouts are slower with many replicas.",
+                                        "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">📈 +1 pod</div><div class=\"state-detail\">During rollout, K8s creates 1 extra pod (replicas + 1 total). Once the new pod passes readiness, an old pod is terminated. Then the next new pod starts.\n\nWith 3 replicas: 4 pods exist briefly during each step. If your cluster is tight on resources, this is the safest choice.</div></div>"
+                                    },
+                                    {
+                                        "when": {
+                                            "resolver": "k8sFieldValue",
+                                            "contains": "%"
+                                        },
+                                        "content": "Percentage-based surge — scales with replica count. 25% of 4 replicas = 1 extra pod. 25% of 12 replicas = 3 extra pods.",
+                                        "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">📈 Percentage surge</div><div class=\"state-detail\">K8s rounds up: 25% of 3 replicas = ceil(0.75) = 1 extra pod.\n\nPercentage-based surge scales better than fixed numbers for services with many replicas or HPA-managed scaling.</div></div>"
+                                    },
+                                    {
+                                        "when": {
+                                            "resolver": "k8sFieldValue",
+                                            "not": ""
+                                        },
+                                        "content": "Extra pods created above the desired count during rollout. Higher values = faster rollouts but more resource consumption during the transition.",
+                                        "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">📈 Max Surge</div><div class=\"state-detail\">Accepts an integer (e.g. 2) or a percentage (e.g. 25%).\n\n• <strong>Integer</strong> — fixed number of extra pods regardless of replica count\n• <strong>Percentage</strong> — scales with replicas, rounded up\n\nCombined with Max Unavailable, this controls how aggressively K8s rolls out changes. Both cannot be 0 at the same time.</div></div>"
+                                    }
+                                ],
+                                "children": []
+                            },
+                            {
+                                "id": "k8s-cfg-svc-maxunavail",
+                                "title": "Max Unavailable",
+                                "icon": "📉",
+                                "selector": ".k8s-field-maxunavail",
+                                "content": "Pods allowed to be down during rollout — availability vs speed. Both this and Max Surge can't be zero at the same time.",
+                                "variants": [
+                                    {
+                                        "when": {
+                                            "resolver": "k8sFieldValue",
+                                            "equals": "0"
+                                        },
+                                        "content": "Max Unavailable 0 — no pod goes down until a new pod is ready. Maximum availability but requires Max Surge > 0 (both can't be zero).",
+                                        "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">📉 Zero downtime</div><div class=\"state-detail\">No existing pod is terminated until a new pod passes its readiness probe. This guarantees the desired replica count is always met during rollout.\n\nRequires Max Surge ≥ 1 — K8s needs room to create the new pod before it can retire the old one.\n\nBest for: production services where you can't afford any capacity loss.</div></div>"
+                                    },
+                                    {
+                                        "when": {
+                                            "resolver": "k8sFieldValue",
+                                            "equals": "1"
+                                        },
+                                        "content": "Max Unavailable 1 — one pod can be down at a time. Balanced — maintains most capacity while allowing rollout progress.",
+                                        "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">📉 -1 pod</div><div class=\"state-detail\">During rollout, K8s can terminate 1 old pod before a new one is ready. With 3 replicas, at least 2 are serving traffic at all times.\n\nCombined with Max Surge 1: at most 4 pods exist and at least 2 serve — the default K8s behavior.</div></div>"
+                                    },
+                                    {
+                                        "when": {
+                                            "resolver": "k8sFieldValue",
+                                            "contains": "%"
+                                        },
+                                        "content": "Percentage-based unavailability — scales with replica count. 25% of 4 replicas = 1 pod can be down.",
+                                        "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">📉 Percentage</div><div class=\"state-detail\">K8s rounds down: 25% of 3 replicas = floor(0.75) = 0 pods can be down (effectively zero-downtime).\n\nPercentage-based unavailability scales better for services managed by HPA where replica count changes dynamically.</div></div>"
+                                    },
+                                    {
+                                        "when": {
+                                            "resolver": "k8sFieldValue",
+                                            "not": ""
+                                        },
+                                        "content": "Pods that can be unavailable during rollout. Higher values = faster rollouts but reduced capacity during the transition."
+                                    }
+                                ],
+                                "children": []
+                            },
+                            {
+                                "id": "k8s-cfg-svc-kind",
+                                "title": "Workload Kind",
+                                "icon": "📋",
+                                "selector": "[id^=k8s-svc-kind-]",
+                                "content": "The most consequential choice per service — everything below changes based on this.<div class=\"assistant-state-card state-info\" style=\"margin-top:0.4rem\"><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"display:grid;grid-template-columns:auto 1fr;gap:0.25rem 0.5rem;font-size:0.75rem\"><span style=\"font-weight:600;color:var(--success)\">🚀 Deployment</span><span>Stateless. Pods are interchangeable, support rolling updates and autoscaling. <em>Web servers, APIs, workers.</em></span><span style=\"font-weight:600;color:var(--info)\">🗄️ StatefulSet</span><span>Stable identity. Each pod gets a sticky name (app-0, app-1), its own PVC, and ordered startup. <em>Databases, caches with persistence.</em></span><span style=\"font-weight:600;color:var(--info)\">🌐 DaemonSet</span><span>One pod per node. No replica count. Auto-scales with cluster size. <em>Log collectors, monitoring agents, network plugins.</em></span><span style=\"font-weight:600;color:var(--info)\">⚡ Job</span><span>Runs to completion, then stops. <em>Migrations, imports, batch processing.</em></span><span style=\"font-weight:600;color:var(--info)\">⏰ CronJob</span><span>Scheduled Job on a cron pattern. <em>Backups, reports, periodic cleanup.</em></span><span style=\"font-weight:600;color:var(--warning)\">⏭️ Skip</span><span>No K8s resource generated for this service.</span></div></div></div>",
+                                "variants": [
+                                    {
+                                        "when": {
+                                            "resolver": "k8sFieldValue",
+                                            "equals": "Deployment"
+                                        },
+                                        "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">🚀 Deployment selected</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"margin:0.3rem 0;font-size:0.75rem\">Best for: APIs, web servers, workers, microservices — anything that doesn't write to local disk.</div><div style=\"display:grid;grid-template-columns:auto 1fr;gap:0.2rem 0.5rem;margin:0.3rem 0;font-size:0.75rem\"><span style=\"font-weight:600;color:var(--text-secondary)\">Replicas</span><span>horizontal scaling — more pods, more throughput</span><span style=\"font-weight:600;color:var(--text-secondary)\">Rolling Update</span><span>zero-downtime deploys — new pods before old pods die</span><span style=\"font-weight:600;color:var(--text-secondary)\">HPA</span><span>auto-scale on CPU, memory, or custom metrics</span><span style=\"font-weight:600;color:var(--text-secondary)\">Probes</span><span>readiness + liveness keep traffic away from unhealthy pods</span></div></div></div>"
+                                    },
+                                    {
+                                        "when": {
+                                            "resolver": "k8sFieldValue",
+                                            "equals": "StatefulSet"
+                                        },
+                                        "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🗄️ StatefulSet selected</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"margin:0.3rem 0;font-size:0.75rem\">Each pod gets a stable hostname and its own PVC. A Headless Service enables DNS-based discovery.</div><div style=\"display:grid;grid-template-columns:auto 1fr;gap:0.2rem 0.5rem;margin:0.3rem 0;font-size:0.75rem\"><span style=\"font-weight:600;color:var(--text-secondary)\">Identity</span><span>pod-0, pod-1, pod-2 — survives restarts and rescheduling</span><span style=\"font-weight:600;color:var(--text-secondary)\">Storage</span><span>volumeClaimTemplates create a PVC per pod</span><span style=\"font-weight:600;color:var(--text-secondary)\">Ordering</span><span>OrderedReady = sequential start/stop; Parallel = all at once</span><span style=\"font-weight:600;color:var(--text-secondary)\">Headless DNS</span><span><code>pod-0.svc-headless.namespace</code></span></div></div></div>"
+                                    },
+                                    {
+                                        "when": {
+                                            "resolver": "k8sFieldValue",
+                                            "equals": "DaemonSet"
+                                        },
+                                        "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🌐 DaemonSet selected</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"margin:0.3rem 0;font-size:0.75rem\">Replicas, HPA, and scaling options are hidden — pod count equals node count.</div><div style=\"display:grid;grid-template-columns:auto 1fr;gap:0.2rem 0.5rem;margin:0.3rem 0;font-size:0.75rem\"><span style=\"font-weight:600;color:var(--text-secondary)\">Node Selector</span><span>restrict to specific nodes by label</span><span style=\"font-weight:600;color:var(--text-secondary)\">Tolerations</span><span>run on tainted nodes (control-plane, NoSchedule)</span><span style=\"font-weight:600;color:var(--text-secondary)\">Host Access</span><span>share the node's network, PID, or IPC namespace</span></div><div style=\"margin-top:0.3rem;font-size:0.75rem\">Typical uses: Fluentd, Datadog agent, Cilium, node-problem-detector.</div></div></div>"
+                                    },
+                                    {
+                                        "when": {
+                                            "resolver": "k8sFieldValue",
+                                            "equals": "Job"
+                                        },
+                                        "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">⚡ Job selected</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"margin:0.3rem 0;font-size:0.75rem\">A Job creates one or more pods that run a command and exit. No K8s Service is created.</div><div style=\"display:grid;grid-template-columns:auto 1fr;gap:0.2rem 0.5rem;margin:0.3rem 0;font-size:0.75rem\"><span style=\"font-weight:600;color:var(--text-secondary)\">Completions</span><span>how many successful pod runs are needed</span><span style=\"font-weight:600;color:var(--text-secondary)\">Parallelism</span><span>how many pods run at once</span><span style=\"font-weight:600;color:var(--text-secondary)\">Backoff Limit</span><span>retries before marking the Job as failed</span><span style=\"font-weight:600;color:var(--text-secondary)\">TTL</span><span>seconds before finished Job is auto-deleted</span></div></div></div>"
+                                    },
+                                    {
+                                        "when": {
+                                            "resolver": "k8sFieldValue",
+                                            "equals": "CronJob"
+                                        },
+                                        "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">⏰ CronJob selected</div><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"margin:0.3rem 0;font-size:0.75rem\">Wraps a Job spec in a cron schedule. Kubernetes creates a new Job each time.</div><div style=\"display:grid;grid-template-columns:auto 1fr;gap:0.2rem 0.5rem;margin:0.3rem 0;font-size:0.75rem\"><span style=\"font-weight:600;color:var(--text-secondary)\">Schedule</span><span>standard cron: <code>*/5 * * * *</code> = every 5 minutes</span><span style=\"font-weight:600;color:var(--text-secondary)\">Forbid</span><span>skip this run if the previous one is still going</span><span style=\"font-weight:600;color:var(--text-secondary)\">Replace</span><span>kill the running job and start a new one</span><span style=\"font-weight:600;color:var(--text-secondary)\">Deadline</span><span>skip the run if it can't start within N seconds</span></div></div></div>"
+                                    },
+                                    {
+                                        "when": {
+                                            "resolver": "k8sFieldValue",
+                                            "equals": "Skip"
+                                        },
+                                        "expanded": "<div class=\"assistant-state-card state-warning\"><div class=\"state-label\">⏭️ Skipped</div><div class=\"state-detail\">This service won't produce any manifest. If another service has a dependency on it (depends_on, env vars pointing to it), that reference will be orphaned.\n\nUse Skip for services you'll handle outside K8s — managed databases, external APIs, or services already running elsewhere.</div></div>"
+                                    }
+                                ],
+                                "children": []
+                            }
+                        ]
+                    }
+                ]
+            }
+        ],
+        "variants": [
+            {
+                "when": {
+                    "hasSelector": "#k8s-detect-env"
+                },
+                "content": "Scanning what you've got — tools, cluster access, and running services. Everything here is read-only. The wizard uses this snapshot to shape the Configure step.",
+                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">👁️ Detect — read-only scan</div><div class=\"state-detail\">Nothing changes in this step. The wizard is reading your local environment to understand:\n\n• <strong>Tooling</strong> — kubectl, Helm, kubeconfig\n• <strong>Cluster</strong> — is one reachable? what context is active?\n• <strong>Services</strong> — what Docker Compose services exist to migrate?\n\nProceed to Configure when you're ready to shape the workloads.</div></div>"
+            },
+            {
+                "when": {
+                    "hasSelector": "#k8s-app-svc-list"
+                },
+                "content": "This is where you shape each workload. Every choice here — kind, image, ports, strategy, resources — flows directly into the manifests generated in Review.",
+                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">⚙️ Configure — shape your workloads</div><div class=\"state-detail\">Each card represents a service from your Compose file. Hover any field for specific guidance.\n\n• <strong>Workload Kind</strong> — the most consequential choice per service\n• <strong>Primary settings</strong> — image, port, replicas, service type\n• <strong>Advanced sections</strong> — strategy, resources, probes, env vars\n\nChanges aren't applied yet — they feed the Review step's manifest generation.</div></div>"
+            },
+            {
+                "when": {
+                    "hasSelector": ".wiz-review-item"
+                },
+                "content": "Everything the wizard will generate — Deployments, Services, ConfigMaps, Secrets, PVCs, and optional extras. Review before writing.",
+                "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">✅ Review — ready to generate</div><div class=\"state-detail\">Every resource listed here becomes a manifest file in your output directory.\n\n• <strong>Deployments / StatefulSets / Jobs</strong> — workload manifests\n• <strong>Services</strong> — ClusterIP, NodePort, or LoadBalancer\n• <strong>ConfigMaps & Secrets</strong> — per-service environment variables\n• <strong>PVCs</strong> — persistent storage claims\n• <strong>Optional</strong> — Ingress, Skaffold pipeline, Helm chart\n\nHit Finish to write all files.</div></div>"
             }
         ]
     }

@@ -2,15 +2,6 @@
 description: 
 ---
 
-**** IMPORTANT MUST ALSO READ ".agent/workflows/why-do-AI-get-obliterated-RESTATEMENT-1.md" ****
-**** IMPORTANT MUST ALSO READ ".agent/workflows/why-do-AI-get-obliterated-RESTATEMENT-2.md" ****
-**** IMPORTANT MUST ALSO READ ".agent/workflows/why-do-AI-get-obliterated-RESTATEMENT-3.md" ****
-**** IMPORTANT MUST ALSO READ ".agent/workflows/why-do-AI-get-obliterated-RESTATEMENT-4.md" ****
-**** IMPORTANT MUST ALSO READ ".agent/workflows/why-do-AI-get-obliterated-RESTATEMENT-5.md" ****
-**** IMPORTANT MUST ALSO READ ".agent/workflows/why-do-AI-get-obliterated-RESTATEMENT-6.md" ****
-**** IMPORTANT MUST ALSO READ ".agent/workflows/why-do-AI-get-obliterated-RESTATEMENT-7.md" ****
-
-
 ## Part 14: The Contract
 
 This document represents a CONTRACT between the AI and the user.
@@ -69,11 +60,14 @@ Failure to follow it is a violation of the user's trust and authority.*
 
 
 MUST ACKNOWLEDGE: 
-- ".agent/workflows/AI-POSTMORTEM-IMPORTANT-1.md"
-- ".agent/workflows/AI-POSTMORTEM-IMPORTANT-2.md"
-- ".agent/workflows/AI-POSTMORTEM-IMPORTANT-3.md"
-- ".agent/workflows/AI-POSTMORTEM-IMPORTANT-4.md"
-- ".agent/workflows/AI-POSTMORTEM-IMPORTANT-5.md"
-- ".agent/workflows/AI-POSTMORTEM-IMPORTANT-6.md"
-- ".agent/workflows/AI-POSTMORTEM-IMPORTANT-7.md"
-- ".agent/workflows/AI-POSTMORTEM-IMPORTANT-8.md"
+- ".agent/workflows/failures/AI-POSTMORTEM-IMPORTANT-1.md"
+- ".agent/workflows/failures/AI-POSTMORTEM-IMPORTANT-2.md"
+- ".agent/workflows/failures/AI-POSTMORTEM-IMPORTANT-3.md"
+- ".agent/workflows/failures/AI-POSTMORTEM-IMPORTANT-4.md"
+- ".agent/workflows/failures/AI-POSTMORTEM-IMPORTANT-5.md"
+- ".agent/workflows/failures/AI-POSTMORTEM-IMPORTANT-6.md"
+- ".agent/workflows/failures/AI-POSTMORTEM-IMPORTANT-7.md"
+- ".agent/workflows/failures/AI-POSTMORTEM-IMPORTANT-8.md"
+- ".agent/workflows/failures/AI-POSTMORTEM-IMPORTANT-9.md"
+- ".agent/workflows/failures/AI-POSTMORTEM-IMPORTANT-10.md"
+- ".agent/workflows/failures/AI-POSTMORTEM-IMPORTANT-11.md"

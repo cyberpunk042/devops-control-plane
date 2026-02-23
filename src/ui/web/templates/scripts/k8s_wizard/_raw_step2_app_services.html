@@ -86,13 +86,13 @@
                                         <!-- ─── Primary settings row (shared: image always visible) ─── -->
                                         <div style="display:grid;grid-template-columns:3fr 1fr 1fr 1fr;gap:0.4rem;align-items:start">
                                             <div><span class="k8s-field-img">${_lbl('Container Image')}${_inp(`k8s-svc-img-${i}`, effImage, 'ghcr.io/user/app:latest')}</span></div>
-                                            <div id="k8s-svc-port-wrap-${i}">${_lbl('Port')}${_num(`k8s-svc-port-${i}`, effPort)}</div>
-                                            <div id="k8s-svc-replicas-wrap-${i}">${_lbl('Replicas')}${_num(`k8s-svc-replicas-${i}`, effReplicas)}</div>
-                                            <div id="k8s-svc-svctype-wrap-${i}">${_lbl('Service Type')}${_sel(`k8s-svc-type-${i}`, [
+                                            <div id="k8s-svc-port-wrap-${i}"><span class="k8s-field-port">${_lbl('Port')}${_num(`k8s-svc-port-${i}`, effPort)}</span></div>
+                                            <div id="k8s-svc-replicas-wrap-${i}"><span class="k8s-field-replicas">${_lbl('Replicas')}${_num(`k8s-svc-replicas-${i}`, effReplicas)}</span></div>
+                                            <div id="k8s-svc-svctype-wrap-${i}"><span class="k8s-field-svctype">${_lbl('Service Type')}${_sel(`k8s-svc-type-${i}`, [
                                                 {v:'ClusterIP', l:'ClusterIP'},
                                                 {v:'NodePort', l:'NodePort'},
                                                 {v:'LoadBalancer', l:'LoadBalancer'}
-                                            ], effSvcType)}</div>
+                                            ], effSvcType)}</span></div>
                                         </div>
 
                                         <!-- ── Deployment/StatefulSet/DaemonSet-only sections ── -->
@@ -100,21 +100,21 @@
                                         <!-- ─── Update Strategy ─── -->
                                         <div style="display:flex;align-items:end;gap:0.4rem;margin-top:0.35rem;flex-wrap:wrap">
                                             <div style="min-width:140px">
-                                                ${_lbl('Update Strategy')}
+                                                <span class="k8s-field-strategy">${_lbl('Update Strategy')}
                                                 <select id="k8s-svc-strategy-${i}" class="modal-form-select" style="font-size:0.76rem;padding:0.2rem 0.3rem;width:100%"
                                                     onchange="var r=document.getElementById('k8s-svc-rolling-${i}');var h=document.getElementById('k8s-svc-strat-hint-${i}');if(r)r.style.display=this.value==='RollingUpdate'?'flex':'none';if(h)h.style.display=this.value==='Recreate'?'block':'none'">
                                                     <option value="RollingUpdate"${effStrategy === 'RollingUpdate' ? ' selected' : ''}>RollingUpdate</option>
                                                     <option value="Recreate"${effStrategy === 'Recreate' ? ' selected' : ''}>Recreate</option>
-                                                </select>
+                                                </select></span>
                                             </div>
                                             <div id="k8s-svc-rolling-${i}" style="display:${effStrategy === 'RollingUpdate' ? 'flex' : 'none'};align-items:end;gap:0.4rem">
                                                 <div style="min-width:80px">
-                                                    ${_lbl('Max Surge')}
-                                                    ${_inp(`k8s-svc-maxsurge-${i}`, effMaxSurge, '1')}
+                                                    <span class="k8s-field-maxsurge">${_lbl('Max Surge')}
+                                                    ${_inp(`k8s-svc-maxsurge-${i}`, effMaxSurge, '1')}</span>
                                                 </div>
                                                 <div style="min-width:80px">
-                                                    ${_lbl('Max Unavailable')}
-                                                    ${_inp(`k8s-svc-maxunavail-${i}`, effMaxUnavail, '1')}
+                                                    <span class="k8s-field-maxunavail">${_lbl('Max Unavailable')}
+                                                    ${_inp(`k8s-svc-maxunavail-${i}`, effMaxUnavail, '1')}</span>
                                                 </div>
                                             </div>
                                             <div id="k8s-svc-strat-hint-${i}" style="display:${defaultStrategy === 'Recreate' ? 'block' : 'none'};font-size:0.62rem;color:var(--text-muted);font-style:italic;padding-bottom:0.1rem">

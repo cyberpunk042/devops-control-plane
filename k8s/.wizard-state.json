@@ -1,40 +1,6 @@
 {
   "_services": [
     {
-      "name": "cli",
-      "kind": "Deployment",
-      "image": "ghcr.io/cyberpunk042/devops-control-plane-cli:latest",
-      "envVars": [],
-      "resources": null,
-      "companions": [],
-      "dependencies": [],
-      "port": "8000",
-      "replicas": "2",
-      "serviceType": "ClusterIP",
-      "strategy": "RollingUpdate",
-      "maxSurge": "1",
-      "maxUnavailable": "1",
-      "readinessProbe": {
-        "type": "http",
-        "initialDelaySeconds": 5,
-        "periodSeconds": 5,
-        "path": "/health",
-        "port": 8000,
-        "extra": 3
-      },
-      "livenessProbe": {
-        "type": "http",
-        "initialDelaySeconds": 10,
-        "periodSeconds": 15,
-        "path": "/health",
-        "port": 8000,
-        "extra": 3
-      },
-      "volumes": [],
-      "initContainers": [],
-      "sidecars": []
-    },
-    {
       "name": "web",
       "kind": "Deployment",
       "image": "ghcr.io/cyberpunk042/devops-control-plane-web:latest",
@@ -159,6 +125,6 @@
   },
   "helm_chart": false,
   "helm_config": null,
-  "_savedAt": "2026-02-20T20:23:38.863354+00:00",
+  "_savedAt": "2026-02-23T16:16:30.962092+00:00",
   "_version": 1
 }

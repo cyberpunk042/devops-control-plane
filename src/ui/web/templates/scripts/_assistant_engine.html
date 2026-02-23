@@ -19,6 +19,7 @@
     let _enabled = true;          // panel visibility toggle
     let _hoverDebounce = null;    // debounce timer for hover
     let _dwellTimer = null;       // hover dwell — clears stale focus after 300ms
+    let _stickyDwellTimer = null;  // sticky dwell — delays sticky update to ignore transient crossings
     let _listeners = {};          // attached event listener refs
 
     // ── Catalogue Loading ──────────────────────────────────────────
@@ -586,6 +587,9 @@
                 syntheticNode.variants = tpl.variants;
                 syntheticNode = _resolveVariant(syntheticNode, el);
                 // Re-apply {{name}} interpolation to variant content
+                if (syntheticNode.title) {
+                    syntheticNode.title = syntheticNode.title.replace(/\{\{name\}\}/g, extractedName);
+                }
                 if (syntheticNode.content) {
                     syntheticNode.content = syntheticNode.content.replace(/\{\{name\}\}/g, extractedName);
                 }
@@ -764,6 +768,9 @@
 
         _panelEl.innerHTML = '';
 
+        // Resolve variants on the root node (step-aware header content)
+        var resolved = _containerEl ? _resolveVariant(_currentCtx, _containerEl) : _currentCtx;
+
         const inner = document.createElement('div');
         inner.className = 'assistant-panel-inner';
 
@@ -771,11 +778,11 @@
         header.className = 'assistant-context-header';
         header.innerHTML =
             '<div class="assistant-context-title">' +
-                (_currentCtx.icon ? _currentCtx.icon + ' ' : '') +
-                _currentCtx.title +
+                (resolved.icon ? resolved.icon + ' ' : '') +
+                resolved.title +
             '</div>' +
             '<div class="assistant-context-content">' +
-                _resolve(_currentCtx.content) +
+                _resolve(resolved.content) +
             '</div>';
 
         inner.appendChild(header);
@@ -798,15 +805,21 @@
         }
 
         // Save current path as sticky (survives mouse-to-panel trips).
-        // Ancestor guard: only update sticky if the new hover is at the same
-        // depth or deeper. This prevents a brief border-crossing on the way
-        // to the panel from clobbering a deep target with its parent.
+        // Dwell guard: only commit sticky after 200ms on the same target.
+        // This prevents a quick crossing through a wide element (e.g. Container
+        // Image occupying 3fr) from overwriting a deliberately-hovered target.
         if (_hoverPath) {
-            var newDepth = _hoverPath.chain ? _hoverPath.chain.length : 0;
-            var stickyDepth = _stickyPath && _stickyPath.chain ? _stickyPath.chain.length : -1;
-            if (newDepth >= stickyDepth) {
-                _stickyPath = _hoverPath;
+            var candidateId = _hoverPath.target.id;
+            var currentStickyId = _stickyPath ? _stickyPath.target.id : null;
+            if (candidateId !== currentStickyId) {
+                // New hover target — start dwell timer for sticky update
+                clearTimeout(_stickyDwellTimer);
+                var pendingPath = _hoverPath;
+                _stickyDwellTimer = setTimeout(function() {
+                    _stickyPath = pendingPath;
+                }, 200);
             }
+            // If same target, sticky is already correct (or pending)
         }
 
         _panelEl.classList.remove('entry-state');
@@ -1004,11 +1017,21 @@
     function _onMouseLeave(e) {
         if (!_enabled) return;
 
-        // Don't clear hover if mouse moved to the assistant panel or its gap
+        // Mouse moved to the assistant panel or its gap — revert to sticky.
+        // Clear the hover debounce too: without this, a pending 50ms debounce
+        // callback from the last mouseover (e.g. crossing Container Image)
+        // would fire AFTER this handler and overwrite the sticky revert.
         var layout = _containerEl && _containerEl.closest('.assistant-layout');
-        if (layout && e.relatedTarget && (layout === e.relatedTarget || layout.contains(e.relatedTarget))) return;
+        if (layout && e.relatedTarget && (layout === e.relatedTarget || layout.contains(e.relatedTarget))) {
+            clearTimeout(_hoverDebounce);
+            clearTimeout(_stickyDwellTimer);
+            _hoverPath = null;
+            _renderInteractionPath();
+            return;
+        }
 
         clearTimeout(_hoverDebounce);
+        clearTimeout(_stickyDwellTimer);
         _hoverPath = null;
         _stickyPath = null;
         _renderInteractionPath();
@@ -1023,6 +1046,7 @@
         if (layout && e.relatedTarget && layout.contains(e.relatedTarget)) return;
 
         clearTimeout(_hoverDebounce);
+        clearTimeout(_stickyDwellTimer);
         _hoverPath = null;
         _stickyPath = null;
         _renderInteractionPath();
@@ -1662,6 +1686,61 @@
             if (match) return parseInt(match[1], 10);
         }
         return 0;
+    };
+
+    // ── K8s Configure — field-level resolvers ─────────────────────
+
+    // Generic: returns the value of the hovered input/select, or finds one inside a wrapper
+    window._assistant.resolvers.k8sFieldValue = function() {
+        var el = window._assistant._resolveElement;
+        if (!el) return '';
+        if (el.tagName === 'INPUT' || el.tagName === 'SELECT' || el.tagName === 'TEXTAREA') return el.value || '';
+        var input = el.querySelector('input, select, textarea');
+        return input ? (input.value || '') : '';
+    };
+
+    // Card-level: reads the workload kind for the service card being hovered
+    window._assistant.resolvers.k8sSvcCardKind = function() {
+        var el = window._assistant._resolveElement;
+        if (!el) return '';
+        var card = el.closest ? el.closest('[id^=\"k8s-svc-card-\"]') : null;
+        if (!card) return '';
+        var idx = card.id.replace('k8s-svc-card-', '');
+        var kindSel = document.getElementById('k8s-svc-kind-' + idx);
+        return kindSel ? kindSel.value : '';
+    };
+
+    // K8s port — dynamic HTML using shared _classifyPort / _knownPorts
+    window._assistant.resolvers.k8sPortHover = function() {
+        var el = window._assistant._resolveElement;
+        if (!el) return '';
+        var input = (el.tagName === 'INPUT') ? el : el.querySelector('input[type=number]');
+        if (!input) return '';
+        var portNum = parseInt(input.value) || 0;
+        if (!portNum) {
+            return '<div class="assistant-state-card state-warning">' +
+                '<div class="state-label">🔌 No port</div>' +
+                '<div class="state-detail">Enter the port your application listens on inside the container. This drives the K8s Service targetPort, health probe endpoints, and ingress backend configuration.</div></div>';
+        }
+        var range = _classifyPort(portNum);
+        var known = _knownPorts[portNum];
+        var html = '<div class="assistant-state-card ' + range.state + '">';
+        html += '<div class="state-label">' + range.icon + ' Port ' + portNum + '</div>';
+        html += '<div class="state-detail">';
+        html += '<div style="font-size:0.72rem;margin-bottom:0.15rem"><strong>' + range.name + ' range</strong> (' + range.min + '–' + range.max + ') — ' + range.desc + '</div>';
+        if (known) {
+            html += '<div style="font-size:0.72rem;margin-bottom:0.15rem">🏷️ <strong>' + known.label + '</strong> — ' + known.note + '</div>';
+        }
+        html += '<div style="display:grid;grid-template-columns:auto 1fr;gap:0.2rem 0.5rem;margin:0.3rem 0;font-size:0.72rem">';
+        html += '<span style="font-weight:600;color:var(--text-secondary)">containerPort</span><span>pod spec — must match what the process binds to</span>';
+        html += '<span style="font-weight:600;color:var(--text-secondary)">targetPort</span><span>K8s Service routes traffic here</span>';
+        html += '<span style="font-weight:600;color:var(--text-secondary)">Probes</span><span>readiness and liveness checks use this port</span>';
+        html += '</div>';
+        if (portNum < 1024) {
+            html += '<div style="font-size:0.65rem;color:var(--warning);margin-top:0.1rem">⚠️ Ports below 1024 require root. Consider running on a high port (8080) and letting the K8s Service handle port mapping.</div>';
+        }
+        html += '</div></div>';
+        return html;
     };
 
     // ── Terraform template variable resolvers ────────────────────
