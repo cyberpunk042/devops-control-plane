@@ -13,3 +13,13 @@ Even if the change require refactor or even possibly breaking changes we need to
 Lets not forget about domain, scope and good principle and design pattern.
 In our case CLI (root & console) <---> TUI(console & terminal UI) <---> WEB (admin panel & extreme observability & operability and experience.)
 Sometimes data need to be transformed, remapped at certain layer. that is okay we just stay logical
+
+
+_________
+
+
+YOU MUST RESPECT THE RULES OF THIS PROJECT
+.agent/rules/main.md
+.agent/rules/meanings.md
+.agent/rules/no-abstraction.md
+.agent/rules/assistant.md

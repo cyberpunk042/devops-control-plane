@@ -62,7 +62,7 @@
                                         <code style="font-size:0.72rem;background:var(--bg-primary);padding:1px 5px;border-radius:3px;color:var(--text-secondary)">${esc(svc.image ? svc.image.split('/').pop().split(':')[0] : 'local build')}</code>
                                         <span style="flex:1"></span>
                                         ${portVal ? `<code style="font-size:0.68rem;color:var(--text-muted)">:${portVal}</code>` : ''}
-                                        <select id="k8s-svc-kind-${i}" class="modal-form-select"
+                                        <span class="k8s-field-kind"><select id="k8s-svc-kind-${i}" class="modal-form-select"
                                             style="font-size:0.68rem;padding:0.1rem 0.3rem;min-width:110px;color:var(--success);font-weight:600;border-color:transparent;background:transparent"
                                             onclick="event.stopPropagation()" onmousedown="event.stopPropagation()"
                                             onchange="var ic=document.getElementById('k8s-svc-icon-'+${i});var hn=document.getElementById('k8s-svc-kind-hint-'+${i});if(ic)ic.textContent={'Deployment':'🚀','StatefulSet':'🗄️','DaemonSet':'🌐','Job':'⚡','CronJob':'⏰','Skip':'⏭️'}[this.value]||'📦';if(hn)hn.textContent='';window._k8sToggleKindPanels(${i},this.value)">
@@ -72,7 +72,7 @@
                                             <option value="Job"${effKind === 'Job' ? ' selected' : ''}>Job</option>
                                             <option value="CronJob"${effKind === 'CronJob' ? ' selected' : ''}>CronJob</option>
                                             <option value="Skip"${effKind === 'Skip' ? ' selected' : ''}>Skip</option>
-                                        </select>
+                                        </select></span>
                                     </label>
                                     ${(!saved && svc._kindHint) ? `<div id="k8s-svc-kind-hint-${i}" style="font-size:0.62rem;color:var(--text-muted);padding:0 0.6rem 0.2rem;font-style:italic">${svc._kindHint}</div>` : `<div id="k8s-svc-kind-hint-${i}" style="font-size:0.62rem;color:var(--text-muted);padding:0 0.6rem 0.2rem;font-style:italic"></div>`}
                                     <!-- Skip banner (hidden by default) -->
@@ -128,24 +128,24 @@
 
                                         <!-- ── Job/CronJob-only sections (hidden by default) ── -->
                                         <div id="k8s-svc-job-sections-${i}" style="display:none">
-                                            <div style="margin-top:0.35rem;padding:0.4rem;background:var(--bg-primary);border-radius:6px;border:1px solid var(--border-subtle)">
+                                            <div style="margin-top:0.35rem;padding:0.4rem;background:var(--bg-primary);border-radius:6px;border:1px solid var(--border-subtle)" class="k8s-field-job-cfg">
                                                 <div style="font-size:0.68rem;color:var(--accent);font-weight:600;margin-bottom:0.3rem">⚡ Job Configuration</div>
                                                 <div style="display:grid;grid-template-columns:3fr 2fr 1fr;gap:0.4rem;align-items:start">
-                                                    <div>${_lbl('Command')}${_inp(`k8s-svc-job-cmd-${i}`, '', '/bin/sh -c "…"')}</div>
-                                                    <div>${_lbl('Args (optional)')}${_inp(`k8s-svc-job-args-${i}`, '', 'arg1 arg2 …')}</div>
-                                                    <div>${_lbl('Restart Policy')}${_sel(`k8s-svc-job-restart-${i}`, [
+                                                    <div><span class="k8s-field-job-cmd">${_lbl('Command')}${_inp(`k8s-svc-job-cmd-${i}`, '', '/bin/sh -c "…"')}</span></div>
+                                                    <div><span class="k8s-field-job-args">${_lbl('Args (optional)')}${_inp(`k8s-svc-job-args-${i}`, '', 'arg1 arg2 …')}</span></div>
+                                                    <div><span class="k8s-field-job-restart">${_lbl('Restart Policy')}${_sel(`k8s-svc-job-restart-${i}`, [
                                                         {v:'Never', l:'Never'},
                                                         {v:'OnFailure', l:'OnFailure'},
-                                                    ], 'Never')}</div>
+                                                    ], 'Never')}</span></div>
                                                 </div>
                                                 <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:0.4rem;margin-top:0.3rem;align-items:start">
-                                                    <div>${_lbl('Backoff Limit')}${_num(`k8s-svc-job-backoff-${i}`, 3)}</div>
-                                                    <div>${_lbl('Completions')}${_num(`k8s-svc-job-completions-${i}`, 1)}</div>
-                                                    <div>${_lbl('Parallelism')}${_num(`k8s-svc-job-parallelism-${i}`, 1)}</div>
-                                                    <div>${_lbl('Timeout (s)')}${_num(`k8s-svc-job-timeout-${i}`, 600)}</div>
+                                                    <div><span class="k8s-field-job-backoff">${_lbl('Backoff Limit')}${_num(`k8s-svc-job-backoff-${i}`, 3)}</span></div>
+                                                    <div><span class="k8s-field-job-completions">${_lbl('Completions')}${_num(`k8s-svc-job-completions-${i}`, 1)}</span></div>
+                                                    <div><span class="k8s-field-job-parallelism">${_lbl('Parallelism')}${_num(`k8s-svc-job-parallelism-${i}`, 1)}</span></div>
+                                                    <div><span class="k8s-field-job-timeout">${_lbl('Timeout (s)')}${_num(`k8s-svc-job-timeout-${i}`, 600)}</span></div>
                                                 </div>
                                                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.4rem;margin-top:0.3rem;align-items:start">
-                                                    <div>${_lbl('TTL After Finished (s)')}${_num(`k8s-svc-job-ttl-${i}`, 3600)}</div>
+                                                    <div><span class="k8s-field-job-ttl">${_lbl('TTL After Finished (s)')}${_num(`k8s-svc-job-ttl-${i}`, 3600)}</span></div>
                                                     <div style="font-size:0.6rem;color:var(--text-muted);font-style:italic;padding-top:1.2rem">TTL = auto-cleanup delay after completion</div>
                                                 </div>
                                             </div>
@@ -153,18 +153,18 @@
 
                                         <!-- ── CronJob-only sections (hidden by default) ── -->
                                         <div id="k8s-svc-cron-sections-${i}" style="display:none">
-                                            <div style="margin-top:0.35rem;padding:0.4rem;background:var(--bg-primary);border-radius:6px;border:1px solid var(--border-subtle)">
+                                            <div style="margin-top:0.35rem;padding:0.4rem;background:var(--bg-primary);border-radius:6px;border:1px solid var(--border-subtle)" class="k8s-field-cron-cfg">
                                                 <div style="font-size:0.68rem;color:var(--accent);font-weight:600;margin-bottom:0.3rem">⏰ CronJob Schedule</div>
                                                 <div style="display:grid;grid-template-columns:2fr 2fr 1fr;gap:0.4rem;align-items:start">
-                                                    <div>
+                                                    <div><span class="k8s-field-cron-schedule">
                                                         ${_lbl('Schedule (cron)')}${_inp(`k8s-svc-cron-schedule-${i}`, '*/5 * * * *', '*/5 * * * *')}
                                                         <div id="k8s-svc-cron-preview-${i}" style="font-size:0.58rem;color:var(--text-muted);margin-top:2px">Every 5 minutes</div>
-                                                    </div>
-                                                    <div>${_lbl('Concurrency Policy')}${_sel(`k8s-svc-cron-concurrency-${i}`, [
+                                                    </span></div>
+                                                    <div><span class="k8s-field-cron-concurrency">${_lbl('Concurrency Policy')}${_sel(`k8s-svc-cron-concurrency-${i}`, [
                                                         {v:'Allow', l:'Allow (overlap OK)'},
                                                         {v:'Forbid', l:'Forbid (skip if running)'},
                                                         {v:'Replace', l:'Replace (kill + restart)'},
-                                                    ], 'Forbid')}</div>
+                                                    ], 'Forbid')}</span></div>
                                                     <div>
                                                         <label style="display:inline-flex;align-items:center;gap:0.3rem;font-size:0.72rem;cursor:pointer;margin-top:1rem">
                                                             <input type="checkbox" id="k8s-svc-cron-suspend-${i}" style="accent-color:var(--accent)"> Suspend
@@ -172,9 +172,9 @@
                                                     </div>
                                                 </div>
                                                 <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:0.4rem;margin-top:0.3rem;align-items:start">
-                                                    <div>${_lbl('Keep Successful')}${_num(`k8s-svc-cron-success-${i}`, 3)}</div>
-                                                    <div>${_lbl('Keep Failed')}${_num(`k8s-svc-cron-failed-${i}`, 1)}</div>
-                                                    <div>${_lbl('Deadline (s)')}${_num(`k8s-svc-cron-deadline-${i}`, 300)}</div>
+                                                    <div><span class="k8s-field-cron-history">${_lbl('Keep Successful')}${_num(`k8s-svc-cron-success-${i}`, 3)}</span></div>
+                                                    <div><span class="k8s-field-cron-history">${_lbl('Keep Failed')}${_num(`k8s-svc-cron-failed-${i}`, 1)}</span></div>
+                                                    <div><span class="k8s-field-cron-deadline">${_lbl('Deadline (s)')}${_num(`k8s-svc-cron-deadline-${i}`, 300)}</span></div>
                                                 </div>
                                                 <div style="font-size:0.58rem;color:var(--text-muted);font-style:italic;margin-top:2px">Deadline = skip this run if missed by this many seconds</div>
                                             </div>
@@ -182,10 +182,10 @@
 
                                         <!-- ── DaemonSet-only sections (hidden by default) ── -->
                                         <div id="k8s-svc-daemon-sections-${i}" style="display:none">
-                                            <div style="margin-top:0.35rem;padding:0.4rem;background:var(--bg-primary);border-radius:6px;border:1px solid var(--border-subtle)">
+                                            <div style="margin-top:0.35rem;padding:0.4rem;background:var(--bg-primary);border-radius:6px;border:1px solid var(--border-subtle)" class="k8s-field-ds-cfg">
                                                 <div style="font-size:0.68rem;color:var(--accent);font-weight:600;margin-bottom:0.3rem">🌐 DaemonSet Configuration</div>
 
-                                                <!-- Update Strategy -->
+                                                <span class="k8s-field-ds-strategy">
                                                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.4rem;align-items:start">
                                                     <div>
                                                         ${_lbl('Update Strategy')}
@@ -201,16 +201,18 @@
                                                     </div>
                                                 </div>
                                                 <div style="font-size:0.58rem;color:var(--text-muted);font-style:italic;margin-top:2px">OnDelete = manual pod-by-pod control (delete pod to trigger update)</div>
+                                                </span>
 
-                                                <!-- Node Selection -->
+                                                <span class="k8s-field-ds-nodeselector">
                                                 <div style="margin-top:0.4rem">
                                                     <div style="font-size:0.68rem;color:var(--text-muted);font-weight:600;margin-bottom:0.2rem">🎯 Node Selection</div>
                                                     <div>${_lbl('Node Selector')}</div>
                                                     ${_inp(`k8s-svc-ds-nodeselector-${i}`, '', 'key=value, key=value')}
                                                     <div style="font-size:0.56rem;color:var(--text-muted);font-style:italic;margin-top:1px">Leave empty to run on all nodes</div>
                                                 </div>
+                                                </span>
 
-                                                <!-- Tolerations -->
+                                                <span class="k8s-field-ds-tolerations">
                                                 <div style="margin-top:0.35rem">
                                                     <div style="font-size:0.68rem;color:var(--text-muted);font-weight:600;margin-bottom:0.2rem">🔓 Tolerations</div>
                                                     <div style="display:flex;flex-direction:column;gap:0.2rem">
@@ -222,8 +224,9 @@
                                                         </label>
                                                     </div>
                                                 </div>
+                                                </span>
 
-                                                <!-- Host Access -->
+                                                <span class="k8s-field-ds-hostaccess">
                                                 <div style="margin-top:0.35rem">
                                                     <div style="font-size:0.68rem;color:var(--text-muted);font-weight:600;margin-bottom:0.2rem">🔌 Host Access</div>
                                                     <div style="display:flex;flex-wrap:wrap;gap:0.4rem 1rem">
@@ -239,55 +242,56 @@
                                                     </div>
                                                     <div style="font-size:0.56rem;color:var(--text-muted);font-style:italic;margin-top:2px">Host access = pod shares the node's namespace (common for monitoring agents)</div>
                                                 </div>
+                                                </span>
                                             </div>
                                         </div>
 
                                         <!-- ── StatefulSet-only sections (hidden by default) ── -->
                                         <div id="k8s-svc-statefulset-sections-${i}" style="display:none">
-                                            <div style="margin-top:0.35rem;padding:0.4rem;background:var(--bg-primary);border-radius:6px;border:1px solid var(--border-subtle)">
+                                            <div style="margin-top:0.35rem;padding:0.4rem;background:var(--bg-primary);border-radius:6px;border:1px solid var(--border-subtle)" class="k8s-field-ss-cfg">
                                                 <div style="font-size:0.68rem;color:var(--accent);font-weight:600;margin-bottom:0.3rem">🗄️ StatefulSet Configuration</div>
 
                                                 <!-- Headless Service + ClusterIP -->
                                                 <div style="display:grid;grid-template-columns:2fr 1fr 1fr;gap:0.4rem;align-items:start">
-                                                    <div>
+                                                    <div><span class="k8s-field-ss-headless">
                                                         ${_lbl('Headless Service Name')}
                                                         ${_inp(`k8s-svc-ss-headless-${i}`, `${svc.name}-headless`, `${svc.name}-headless`)}
-                                                    </div>
-                                                    <div>
+                                                    </span></div>
+                                                    <div><span class="k8s-field-ss-podmgmt">
                                                         ${_lbl('Pod Management')}
                                                         ${_sel(`k8s-svc-ss-podmgmt-${i}`, [
                                                             {v:'OrderedReady', l:'OrderedReady'},
                                                             {v:'Parallel', l:'Parallel'},
                                                         ], 'OrderedReady')}
-                                                    </div>
-                                                    <div style="padding-top:1rem">
+                                                    </span></div>
+                                                    <div style="padding-top:1rem"><span class="k8s-field-ss-clusterip">
                                                         <label style="display:inline-flex;align-items:center;gap:0.3rem;font-size:0.72rem;cursor:pointer">
                                                             <input type="checkbox" id="k8s-svc-ss-clusterip-${i}" style="accent-color:var(--accent)"> Also create ClusterIP
                                                         </label>
-                                                    </div>
+                                                    </span></div>
                                                 </div>
                                                 <div style="font-size:0.56rem;color:var(--text-muted);font-style:italic;margin-top:1px">Headless Service enables stable DNS: <code>${svc.name}-0.${svc.name}-headless</code></div>
 
                                                 <!-- Update Strategy -->
                                                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.4rem;margin-top:0.35rem;align-items:start">
-                                                    <div>
+                                                    <div><span class="k8s-field-ss-strategy">
                                                         ${_lbl('Update Strategy')}
                                                         <select id="k8s-svc-ss-strategy-${i}" class="modal-form-select" style="font-size:0.76rem;padding:0.2rem 0.3rem;width:100%"
                                                             onchange="var w=document.getElementById('k8s-svc-ss-partition-wrap-${i}');if(w)w.style.display=this.value==='RollingUpdate'?'block':'none'">
                                                             <option value="RollingUpdate" selected>RollingUpdate</option>
                                                             <option value="OnDelete">OnDelete</option>
                                                         </select>
-                                                    </div>
-                                                    <div id="k8s-svc-ss-partition-wrap-${i}">
+                                                    </span></div>
+                                                    <div id="k8s-svc-ss-partition-wrap-${i}"><span class="k8s-field-ss-partition">
                                                         ${_lbl('Partition')}
                                                         ${_num(`k8s-svc-ss-partition-${i}`, 0)}
                                                         <div style="font-size:0.54rem;color:var(--text-muted);font-style:italic">Ordinal ≥ partition gets updated; lower ordinals stay on old version</div>
-                                                    </div>
+                                                    </span></div>
                                                 </div>
                                             </div>
 
                                             <!-- volumeClaimTemplates section -->
-                                            <div style="margin-top:0.35rem;padding:0.4rem;background:var(--bg-primary);border-radius:6px;border:1px solid var(--border-subtle)">
+                                            <div style="margin-top:0.35rem;padding:0.4rem;background:var(--bg-primary);border-radius:6px;border:1px solid var(--border-subtle)" class="k8s-field-ss-storage">
                                                 <div style="font-size:0.68rem;color:var(--accent);font-weight:600;margin-bottom:0.3rem;display:flex;align-items:center;gap:0.3rem">
                                                     💾 Persistent Storage (volumeClaimTemplates)
                                                     ${volCount > 0 ? `<span style="font-size:0.6rem;background:var(--bg-secondary);color:var(--text-secondary);padding:1px 5px;border-radius:3px">${volCount} from Compose</span>` : ''}
@@ -329,7 +333,7 @@
                                                 ${hasComposeRes ? '<span style="font-size:0.6rem;background:var(--bg-primary);color:var(--text-secondary);padding:1px 5px;border-radius:3px">from Compose</span>' : ''}
                                                 <span id="k8s-svc-qos-${i}" style="margin-left:auto">${_qosHint(compCpuReq, compCpuLim, compMemReq, compMemLim)}</span>
                                             </summary>
-                                            <div style="margin-top:0.3rem;padding:0.4rem;background:var(--bg-primary);border-radius:6px;border:1px solid var(--border-subtle)">
+                                            <div style="margin-top:0.3rem;padding:0.4rem;background:var(--bg-primary);border-radius:6px;border:1px solid var(--border-subtle)" class="k8s-field-resources">
                                                 <div style="display:grid;grid-template-columns:auto 1fr 1fr;gap:0.3rem 0.5rem;align-items:center;font-size:0.74rem">
                                                     <!-- Header row -->
                                                     <div></div>
@@ -337,12 +341,12 @@
                                                     <div style="font-weight:600;color:var(--text-secondary);font-size:0.66rem;text-transform:uppercase;letter-spacing:0.04em">Limit <span style="font-size:0.58rem;opacity:0.7">(hard ceiling)</span></div>
                                                     <!-- CPU row -->
                                                     <div style="font-weight:600;color:var(--text-secondary);font-size:0.72rem">CPU</div>
-                                                    <div>${_inp(`k8s-svc-cpu-req-${i}`, effCpuReq, '100m')}</div>
-                                                    <div>${_inp(`k8s-svc-cpu-lim-${i}`, effCpuLim, '500m')}</div>
+                                                    <div><span class="k8s-field-cpu-req">${_inp(`k8s-svc-cpu-req-${i}`, effCpuReq, '100m')}</span></div>
+                                                    <div><span class="k8s-field-cpu-lim">${_inp(`k8s-svc-cpu-lim-${i}`, effCpuLim, '500m')}</span></div>
                                                     <!-- Memory row -->
                                                     <div style="font-weight:600;color:var(--text-secondary);font-size:0.72rem">Memory</div>
-                                                    <div>${_inp(`k8s-svc-mem-req-${i}`, effMemReq, '128Mi')}</div>
-                                                    <div>${_inp(`k8s-svc-mem-lim-${i}`, effMemLim, '256Mi')}</div>
+                                                    <div><span class="k8s-field-mem-req">${_inp(`k8s-svc-mem-req-${i}`, effMemReq, '128Mi')}</span></div>
+                                                    <div><span class="k8s-field-mem-lim">${_inp(`k8s-svc-mem-lim-${i}`, effMemLim, '256Mi')}</span></div>
                                                 </div>
                                                 <!-- Live QoS class + guidance -->
                                                 <div style="display:flex;align-items:center;gap:0.5rem;margin-top:0.35rem;padding-top:0.3rem;border-top:1px solid var(--border-subtle)">
@@ -362,7 +366,7 @@
                                                 ${hc ? '<span style="font-size:0.6rem;background:var(--bg-primary);color:var(--text-secondary);padding:1px 5px;border-radius:3px">from Compose</span>' : ''}
                                                 <span style="margin-left:auto;font-size:0.6rem;color:var(--text-muted)">recommended</span>
                                             </summary>
-                                            <div style="margin-top:0.3rem;padding:0.4rem;background:var(--bg-primary);border-radius:6px;border:1px solid var(--border-subtle)">
+                                            <div style="margin-top:0.3rem;padding:0.4rem;background:var(--bg-primary);border-radius:6px;border:1px solid var(--border-subtle)" class="k8s-field-probes">
                                                 ${(() => {
                                                     const parsed = _parseComposeProbe(hc, portVal);
                                                     const prd = _parseDur(hc && hc.interval);
@@ -397,7 +401,7 @@
                                                 ▸ Environment Variables
                                                 ${envKeys.length > 0 ? `<span style="font-size:0.72rem;background:var(--bg-primary);color:var(--text-secondary);padding:1px 5px;border-radius:3px">${envKeys.length} from Compose</span>` : ''}
                                             </summary>
-                                            <div style="margin-top:0.3rem;padding:0.4rem;background:var(--bg-primary);border-radius:6px;border:1px solid var(--border-subtle)">
+                                            <div style="margin-top:0.3rem;padding:0.4rem;background:var(--bg-primary);border-radius:6px;border:1px solid var(--border-subtle)" class="k8s-field-envvars">
                                                 ${isMultiEnv ? `<div style="font-size:0.78rem;color:var(--warning);background:color-mix(in srgb, var(--warning) 8%, transparent);padding:0.3rem 0.4rem;border-radius:4px;margin-bottom:0.35rem;display:flex;align-items:center;gap:0.3rem">
                                                     <span>📌</span>
                                                     <span>Multi-env project: values shown are defaults. Use <strong>Variable | Secret</strong> for values that differ across environments.</span>
@@ -455,7 +459,7 @@
                                                 ▸ Volume Mounts
                                                 ${volCount > 0 ? `<span style="font-size:0.6rem;background:var(--bg-primary);color:var(--text-secondary);padding:1px 5px;border-radius:3px">${volCount} from Compose</span>` : ''}
                                             </summary>
-                                            <div style="margin-top:0.3rem;padding:0.45rem 0.5rem;background:var(--bg-primary);border-radius:6px;border:1px solid var(--border-subtle)">
+                                            <div style="margin-top:0.3rem;padding:0.45rem 0.5rem;background:var(--bg-primary);border-radius:6px;border:1px solid var(--border-subtle)" class="k8s-field-volumes">
 
 
                                                 <div style="font-size:0.68rem;color:var(--text-muted);font-weight:600;margin-bottom:0.25rem;display:flex;align-items:center;gap:0.3rem">
@@ -513,7 +517,7 @@
                                                 ▸ Init Containers
                                                 <span id="k8s-svc-init-count-${i}" style="font-size:0.68rem;background:var(--bg-primary);color:var(--text-secondary);padding:1px 5px;border-radius:3px">0</span>
                                             </summary>
-                                            <div style="margin-top:0.3rem;padding:0.45rem 0.5rem;background:var(--bg-primary);border-radius:6px;border:1px solid var(--border-subtle)">
+                                            <div style="margin-top:0.3rem;padding:0.45rem 0.5rem;background:var(--bg-primary);border-radius:6px;border:1px solid var(--border-subtle)" class="k8s-field-init">
                                                 <div style="font-size:0.72rem;color:var(--text-muted);font-style:italic;margin-bottom:0.25rem">Init containers run to completion before the main container starts — useful for DB migrations, permission fixes, or waiting for dependencies.</div>
 
                                                 <!-- Presets -->
@@ -542,7 +546,7 @@
                                                 ▸ Sidecar Containers
                                                 <span id="k8s-svc-sc-count-${i}" style="font-size:0.68rem;background:var(--bg-primary);color:var(--text-secondary);padding:1px 5px;border-radius:3px">0</span>
                                             </summary>
-                                            <div style="margin-top:0.3rem;padding:0.45rem 0.5rem;background:var(--bg-primary);border-radius:6px;border:1px solid var(--border-subtle)">
+                                            <div style="margin-top:0.3rem;padding:0.45rem 0.5rem;background:var(--bg-primary);border-radius:6px;border:1px solid var(--border-subtle)" class="k8s-field-sidecar">
                                                 <div style="font-size:0.72rem;color:var(--text-muted);font-style:italic;margin-bottom:0.25rem">Sidecar containers run alongside the main container — for log forwarding, auth proxies, metrics exporters, etc.</div>
 
                                                 <!-- Presets -->
@@ -573,19 +577,19 @@
                                             <summary style="cursor:pointer;font-size:0.72rem;color:var(--accent);user-select:none;padding:0.15rem 0;display:flex;align-items:center;gap:0.4rem">
                                                 ▸ Service Mesh
                                             </summary>
-                                            <div style="margin-top:0.3rem;padding:0.45rem 0.5rem;background:var(--bg-primary);border-radius:6px;border:1px solid var(--border-subtle)">
+                                            <div style="margin-top:0.3rem;padding:0.45rem 0.5rem;background:var(--bg-primary);border-radius:6px;border:1px solid var(--border-subtle)" class="k8s-field-mesh">
                                                 <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.3rem">
                                                     <label style="display:inline-flex;align-items:center;gap:0.25rem;cursor:pointer;font-size:0.78rem;color:var(--text-secondary)">
                                                         <input type="checkbox" id="k8s-svc-mesh-enable-${i}" style="accent-color:var(--accent)"
                                                             onchange="document.getElementById('k8s-svc-mesh-cfg-'+${i}).style.display=this.checked?'block':'none'"> Enable sidecar injection
                                                     </label>
-                                                    <select id="k8s-svc-mesh-provider-${i}" class="modal-form-select"
+                                                    <span class="k8s-field-mesh-provider"><select id="k8s-svc-mesh-provider-${i}" class="modal-form-select"
                                                         style="font-size:0.74rem;padding:0.15rem 0.3rem;min-width:90px;color:var(--success);font-weight:600;border-color:transparent;background:transparent">
                                                         <option value="istio" selected>Istio</option>
                                                         <option value="linkerd">Linkerd</option>
                                                         <option value="consul">Consul</option>
                                                         <option value="kuma">Kuma</option>
-                                                    </select>
+                                                    </select></span>
                                                 </div>
 
                                                 <!-- Mesh config (shown when enabled) -->

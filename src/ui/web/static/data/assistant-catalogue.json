@@ -7192,7 +7192,7 @@
                                 "id": "k8s-cfg-svc-kind",
                                 "title": "Workload Kind",
                                 "icon": "📋",
-                                "selector": "[id^=k8s-svc-kind-]",
+                                "selector": ".k8s-field-kind",
                                 "content": "The most consequential choice per service — everything below changes based on this.<div class=\"assistant-state-card state-info\" style=\"margin-top:0.4rem\"><div class=\"state-detail\" style=\"white-space:normal\"><div style=\"display:grid;grid-template-columns:auto 1fr;gap:0.25rem 0.5rem;font-size:0.75rem\"><span style=\"font-weight:600;color:var(--success)\">🚀 Deployment</span><span>Stateless. Pods are interchangeable, support rolling updates and autoscaling. <em>Web servers, APIs, workers.</em></span><span style=\"font-weight:600;color:var(--info)\">🗄️ StatefulSet</span><span>Stable identity. Each pod gets a sticky name (app-0, app-1), its own PVC, and ordered startup. <em>Databases, caches with persistence.</em></span><span style=\"font-weight:600;color:var(--info)\">🌐 DaemonSet</span><span>One pod per node. No replica count. Auto-scales with cluster size. <em>Log collectors, monitoring agents, network plugins.</em></span><span style=\"font-weight:600;color:var(--info)\">⚡ Job</span><span>Runs to completion, then stops. <em>Migrations, imports, batch processing.</em></span><span style=\"font-weight:600;color:var(--info)\">⏰ CronJob</span><span>Scheduled Job on a cron pattern. <em>Backups, reports, periodic cleanup.</em></span><span style=\"font-weight:600;color:var(--warning)\">⏭️ Skip</span><span>No K8s resource generated for this service.</span></div></div></div>",
                                 "variants": [
                                     {
@@ -7238,6 +7238,1065 @@
                                         "expanded": "<div class=\"assistant-state-card state-warning\"><div class=\"state-label\">⏭️ Skipped</div><div class=\"state-detail\">This service won't produce any manifest. If another service has a dependency on it (depends_on, env vars pointing to it), that reference will be orphaned.\n\nUse Skip for services you'll handle outside K8s — managed databases, external APIs, or services already running elsewhere.</div></div>"
                                     }
                                 ],
+                                "children": []
+                            },
+                            {
+                                "id": "k8s-cfg-job",
+                                "title": "Job Configuration",
+                                "icon": "⚡",
+                                "selector": ".k8s-field-job-cfg",
+                                "content": "Jobs are <strong>fire-and-forget</strong> — the container runs, does its work, and exits.<div class=\"assistant-state-card state-info\" style=\"margin-top:0.4rem\"><div class=\"state-detail\">No Service, no replicas, no probes. The settings below control what happens when things go wrong (retries, timeouts) and how many units of work to process.</div></div>",
+                                "children": [
+                                    {
+                                        "id": "k8s-cfg-job-cmd",
+                                        "title": "Command",
+                                        "icon": "⌨️",
+                                        "selector": ".k8s-field-job-cmd",
+                                        "content": "This overrides the container's <strong>ENTRYPOINT</strong>. If your image already has a proper entrypoint, leave this empty and use Args instead.<div class=\"assistant-state-card state-info\" style=\"margin-top:0.4rem\"><div class=\"state-detail\">For shell commands, use <code>/bin/sh -c \"your-command\"</code> — otherwise Kubernetes passes each word as a separate exec argument, which breaks pipes and redirects.</div></div>",
+                                        "children": []
+                                    },
+                                    {
+                                        "id": "k8s-cfg-job-args",
+                                        "title": "Arguments",
+                                        "icon": "📝",
+                                        "selector": ".k8s-field-job-args",
+                                        "content": "Passed to the Command — or to the container's default entrypoint if Command is empty.<div class=\"assistant-state-card state-info\" style=\"margin-top:0.4rem\"><div class=\"state-detail\">Space-separated. If your command is <code>/bin/sh -c</code>, your actual script goes here as a single quoted argument.</div></div>",
+                                        "children": []
+                                    },
+                                    {
+                                        "id": "k8s-cfg-job-restart",
+                                        "title": "Restart Policy",
+                                        "icon": "🔄",
+                                        "selector": ".k8s-field-job-restart",
+                                        "content": "Controls how Kubernetes handles container failures.<div class=\"assistant-state-card state-info\" style=\"margin-top:0.4rem\"><div class=\"state-detail\"><strong>Never</strong> — each failure creates a brand-new pod (clean slate).<br><strong>OnFailure</strong> — retries in the same pod (preserves local state).</div></div><span class=\"assistant-tip\">Choose based on whether your task can resume from partial progress.</span>",
+                                        "variants": [
+                                            {
+                                                "when": {
+                                                    "resolver": "k8sFieldValue",
+                                                    "equals": "Never"
+                                                },
+                                                "content": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🔄 Never — fresh pod each attempt</div><div class=\"state-detail\">Each failure spawns a brand-new pod. Old pod stays around (for logs) until the Job is cleaned up. This means each retry gets a clean filesystem, potentially a different node, and a new set of volume mounts. Good for idempotent tasks where leftover state could cause problems.</div></div>The Backoff Limit controls how many new pods Kubernetes will create before giving up."
+                                            },
+                                            {
+                                                "when": {
+                                                    "resolver": "k8sFieldValue",
+                                                    "equals": "OnFailure"
+                                                },
+                                                "content": "<div class=\"assistant-state-card state-warning\"><div class=\"state-label\">🔄 OnFailure — retry in the same pod</div><div class=\"state-detail\">The container restarts inside the same pod — same node, same volumes, same emptyDir contents. Useful when your task writes partial progress to disk and can resume. But be careful: if the failure is caused by a bad node or resource starvation, retrying in the same place won't help.</div></div>Combined with Backoff Limit, this controls how many in-place retries happen before the Job fails."
+                                            }
+                                        ],
+                                        "children": []
+                                    },
+                                    {
+                                        "id": "k8s-cfg-job-backoff",
+                                        "title": "Backoff Limit",
+                                        "icon": "🔁",
+                                        "selector": ".k8s-field-job-backoff",
+                                        "content": "Total retries before Kubernetes marks the Job as <strong>Failed</strong>.<div class=\"assistant-state-card state-info\" style=\"margin-top:0.4rem\"><div class=\"state-detail\">Each retry uses exponential backoff (<code>10s → 20s → 40s…</code>). Set to <code>0</code> for no retries — succeed or fail on the first attempt.</div></div><span class=\"assistant-tip\">Combined with Restart Policy, this is your safety net against infinite retry loops.</span>",
+                                        "children": []
+                                    },
+                                    {
+                                        "id": "k8s-cfg-job-completions",
+                                        "title": "Completions",
+                                        "icon": "✅",
+                                        "selector": ".k8s-field-job-completions",
+                                        "content": "How many successful pod runs before the Job is <strong>done</strong>.<div class=\"assistant-state-card state-info\" style=\"margin-top:0.4rem\"><div class=\"state-detail\"><code>1</code> = simple run-once task.<br>Higher = work-queue pattern where each pod processes one item.</div></div><span class=\"assistant-tip\">Works hand-in-hand with Parallelism to control throughput.</span>",
+                                        "children": []
+                                    },
+                                    {
+                                        "id": "k8s-cfg-job-parallelism",
+                                        "title": "Parallelism",
+                                        "icon": "⚡",
+                                        "selector": ".k8s-field-job-parallelism",
+                                        "content": "How many pods run <strong>simultaneously</strong>.<div class=\"assistant-state-card state-info\" style=\"margin-top:0.4rem\"><div class=\"state-detail\">Example: <code>Completions=10</code> + <code>Parallelism=3</code> → 3 pods at a time until all 10 are done.</div></div><span class=\"assistant-tip\">Setting this higher than Completions has no effect — can't have more workers than work items.</span>",
+                                        "children": []
+                                    },
+                                    {
+                                        "id": "k8s-cfg-job-timeout",
+                                        "title": "Timeout",
+                                        "icon": "⏱️",
+                                        "selector": ".k8s-field-job-timeout",
+                                        "content": "The hard ceiling on total Job duration (<code>activeDeadlineSeconds</code>).<div class=\"assistant-state-card state-warning\" style=\"margin-top:0.4rem\"><div class=\"state-detail\">If the Job is still running after this many seconds — including all retries — Kubernetes <strong>kills it</strong>. Protects against stuck processes that never exit.</div></div><span class=\"assistant-tip\">Set generously: if your Job normally takes 5 min, use 600s to give it breathing room.</span>",
+                                        "children": []
+                                    },
+                                    {
+                                        "id": "k8s-cfg-job-ttl",
+                                        "title": "TTL After Finished",
+                                        "icon": "🧹",
+                                        "selector": ".k8s-field-job-ttl",
+                                        "content": "Auto-cleanup timer — Kubernetes deletes the Job and its pods after this many seconds.<div class=\"assistant-state-card state-info\" style=\"margin-top:0.4rem\"><div class=\"state-detail\"><code>0</code> = immediate cleanup (no debug window).<br><code>3600</code> = keep logs for 1 hour.</div></div><span class=\"assistant-tip\">Without this, completed Jobs pile up forever in your namespace.</span>",
+                                        "children": []
+                                    }
+                                ]
+                            },
+                            {
+                                "id": "k8s-cfg-cron",
+                                "title": "CronJob Schedule",
+                                "icon": "⏰",
+                                "selector": ".k8s-field-cron-cfg",
+                                "content": "A CronJob wraps a Job in a <strong>schedule</strong> — Kubernetes creates a fresh Job each time it fires.<div class=\"assistant-state-card state-info\" style=\"margin-top:0.4rem\"><div class=\"state-detail\">The Job Configuration above controls <em>what</em> runs. The settings here control <em>when</em> and <em>how often</em>.</div></div>",
+                                "children": [
+                                    {
+                                        "id": "k8s-cfg-cron-schedule",
+                                        "title": "Schedule",
+                                        "icon": "📅",
+                                        "selector": ".k8s-field-cron-schedule",
+                                        "content": "Standard cron format: <code>minute hour day month weekday</code><div class=\"assistant-state-card state-info\" style=\"margin-top:0.4rem\"><div class=\"state-detail\" style=\"display:grid;grid-template-columns:auto 1fr;gap:0.2rem 0.5rem;font-size:0.75rem\"><code>*/5 * * * *</code><span>every 5 minutes</span><code>0 */6 * * *</code><span>every 6 hours</span><code>0 2 * * *</code><span>daily at 2 AM</span><code>0 0 * * 0</code><span>weekly on Sunday</span></div></div><span class=\"assistant-tip\">Timezone is the cluster's — for a specific TZ, handle it in your Job logic.</span>",
+                                        "children": []
+                                    },
+                                    {
+                                        "id": "k8s-cfg-cron-concurrency",
+                                        "title": "Concurrency",
+                                        "icon": "🔀",
+                                        "selector": ".k8s-field-cron-concurrency",
+                                        "content": "What happens when a new schedule fires while the previous Job is <strong>still running</strong>.<div class=\"assistant-state-card state-info\" style=\"margin-top:0.4rem\"><div class=\"state-detail\"><strong>Forbid</strong> — skip the new run (safest).<br><strong>Replace</strong> — kill old, start new.<br><strong>Allow</strong> — both run simultaneously.</div></div><span class=\"assistant-tip\">Most workloads want Forbid to avoid data corruption.</span>",
+                                        "variants": [
+                                            {
+                                                "when": {
+                                                    "resolver": "k8sFieldValue",
+                                                    "equals": "Forbid"
+                                                },
+                                                "content": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🔀 Forbid — skip if still running</div><div class=\"state-detail\">If the previous Job is still running when the cron fires, this run is simply skipped. No overlap, no race conditions. The safest choice for database backups, report generation, or anything that touches shared state.</div></div>If your Job regularly overruns its schedule, you'll see missed runs. Consider increasing the schedule interval or optimizing the Job."
+                                            },
+                                            {
+                                                "when": {
+                                                    "resolver": "k8sFieldValue",
+                                                    "equals": "Replace"
+                                                },
+                                                "content": "<div class=\"assistant-state-card state-warning\"><div class=\"state-label\">🔀 Replace — kill and restart</div><div class=\"state-detail\">The currently running Job is terminated and a new one starts. Data from the killed Job is lost. Use this when freshness matters more than completion — e.g., a cache warmer or status check where old results are irrelevant.</div></div>Be careful with Jobs that write to databases or external systems — partial writes from the killed Job won't be rolled back."
+                                            },
+                                            {
+                                                "when": {
+                                                    "resolver": "k8sFieldValue",
+                                                    "equals": "Allow"
+                                                },
+                                                "content": "<div class=\"assistant-state-card state-warning\"><div class=\"state-label\">⚠️ Allow — overlap permitted</div><div class=\"state-detail\">Multiple Job instances can run simultaneously. If your Job takes longer than the schedule interval, you'll get pileups. This is only safe for purely idempotent, stateless tasks that don't compete for resources.</div></div>Watch out: if 50 schedules fire while the cluster is down and you have no Starting Deadline set, Kubernetes will launch all 50 at once."
+                                            }
+                                        ],
+                                        "children": []
+                                    },
+                                    {
+                                        "id": "k8s-cfg-cron-history",
+                                        "title": "History Limits",
+                                        "icon": "📚",
+                                        "selector": ".k8s-field-cron-history",
+                                        "content": "How many completed Job objects to keep around — successful and failed counts are <strong>separate</strong>.<div class=\"assistant-state-card state-info\" style=\"margin-top:0.4rem\"><div class=\"state-detail\">Keeping a few of each helps with debugging — you can check logs from the last failed run. Set too high and you'll accumulate thousands of Job resources.</div></div><span class=\"assistant-tip\">The TTL on the Job handles pod cleanup; this handles the Job <em>resource</em> itself.</span>",
+                                        "children": []
+                                    },
+                                    {
+                                        "id": "k8s-cfg-cron-deadline",
+                                        "title": "Starting Deadline",
+                                        "icon": "⏰",
+                                        "selector": ".k8s-field-cron-deadline",
+                                        "content": "If the Job can't start within this window, <strong>skip it</strong> instead of running late.<div class=\"assistant-state-card state-warning\" style=\"margin-top:0.4rem\"><div class=\"state-detail\">Without a deadline, Kubernetes counts missed schedules and can fire <strong>100+ Jobs at once</strong> when the cluster comes back online.</div></div><span class=\"assistant-tip\">If a backup missed its 2 AM window by 5 min, <code>300s</code> is a good cutoff.</span>",
+                                        "children": []
+                                    }
+                                ]
+                            },
+                            {
+                                "id": "k8s-cfg-ds",
+                                "title": "DaemonSet Configuration",
+                                "icon": "🌐",
+                                "selector": ".k8s-field-ds-cfg",
+                                "content": "DaemonSets run <strong>one pod per node</strong> — you don't set a replica count.<div class=\"assistant-state-card state-info\" style=\"margin-top:0.4rem\"><div class=\"state-detail\">As nodes join or leave the cluster, pods are added or removed automatically. The settings below control how updates roll out and which nodes are eligible.</div></div>",
+                                "children": [
+                                    {
+                                        "id": "k8s-cfg-ds-strategy",
+                                        "title": "Update Strategy",
+                                        "icon": "🔄",
+                                        "selector": ".k8s-field-ds-strategy",
+                                        "content": "How pods are replaced when you update the DaemonSet spec.<div class=\"assistant-state-card state-info\" style=\"margin-top:0.4rem\"><div class=\"state-detail\"><strong>RollingUpdate</strong> — replaces pods node-by-node. Max Unavailable controls the pace.<br><strong>OnDelete</strong> — nothing updates until you manually delete each pod.</div></div><span class=\"assistant-tip\">Select a strategy to see detailed guidance.</span>",
+                                        "variants": [
+                                            {
+                                                "when": {
+                                                    "resolver": "k8sFieldValue",
+                                                    "contains": "Rolling"
+                                                },
+                                                "content": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🔄 RollingUpdate — automatic node-by-node</div><div class=\"state-detail\">Kubernetes replaces the old pod with the new one on each node, one at a time. Max Unavailable sets how many nodes can be without the DaemonSet pod simultaneously during the rollout.</div></div>Set Max Unavailable to 1 for safest rollouts. On large clusters (100+ nodes), increase it to avoid hour-long rollouts. You can use a percentage too (e.g. \"25%\")."
+                                            },
+                                            {
+                                                "when": {
+                                                    "resolver": "k8sFieldValue",
+                                                    "equals": "OnDelete"
+                                                },
+                                                "content": "<div class=\"assistant-state-card state-warning\"><div class=\"state-label\">🔄 OnDelete — manual pod-by-pod control</div><div class=\"state-detail\">Nothing updates automatically. The old pod runs until you explicitly <code>kubectl delete pod</code> it — then Kubernetes creates a new one with the updated spec. This gives you full control over which nodes get updated and when.</div></div>Use this for critical infrastructure DaemonSets (CNI, storage drivers) where you want to update one node at a time and verify before moving on."
+                                            }
+                                        ],
+                                        "children": []
+                                    },
+                                    {
+                                        "id": "k8s-cfg-ds-nodeselector",
+                                        "title": "Node Selector",
+                                        "icon": "🎯",
+                                        "selector": ".k8s-field-ds-nodeselector",
+                                        "content": "Restricts which nodes get a DaemonSet pod — without a selector, <strong>every node</strong> runs one.<div class=\"assistant-state-card state-info\" style=\"margin-top:0.4rem\"><div class=\"state-detail\">Use label pairs like <code>role=worker</code> or <code>disk=ssd</code> to target specific node groups. Label nodes with:<br><code>kubectl label node &lt;name&gt; key=value</code></div></div><span class=\"assistant-tip\">Run GPU monitoring only on GPU nodes, or Fluentd only on workers.</span>",
+                                        "children": []
+                                    },
+                                    {
+                                        "id": "k8s-cfg-ds-tolerations",
+                                        "title": "Tolerations",
+                                        "icon": "🔓",
+                                        "selector": ".k8s-field-ds-tolerations",
+                                        "content": "Nodes can have <strong>taints</strong> that repel pods — control-plane nodes are tainted by default.<div class=\"assistant-state-card state-info\" style=\"margin-top:0.4rem\"><div class=\"state-detail\">Checking these boxes adds tolerations that let your DaemonSet ignore those taints and run on those nodes anyway.</div></div><span class=\"assistant-tip\">Monitoring agents (Datadog, node-exporter) almost always want both — they need to observe every node.</span>",
+                                        "variants": [
+                                            {
+                                                "when": {
+                                                    "hasSelector": "input:checked"
+                                                },
+                                                "content": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🔓 Tolerations active</div><div class=\"state-detail\">Your DaemonSet will be allowed onto tainted nodes matching these tolerations. For monitoring agents, this is exactly what you want — they need to observe every node including control-plane.</div></div>If you're running a regular application (not infrastructure), think twice about tolerating control-plane taints. Those nodes are meant to be reserved for cluster management."
+                                            }
+                                        ],
+                                        "children": []
+                                    },
+                                    {
+                                        "id": "k8s-cfg-ds-hostaccess",
+                                        "title": "Host Access",
+                                        "icon": "🔌",
+                                        "selector": ".k8s-field-ds-hostaccess",
+                                        "content": "These break the pod's <strong>isolation boundary</strong> — sharing the node's actual namespaces.<div class=\"assistant-state-card state-warning\" style=\"margin-top:0.4rem\"><div class=\"state-detail\"><strong>Host Network</strong> — pod uses the node's IP directly.<br><strong>Host PID</strong> — pod sees all processes on the node.<br><strong>Host IPC</strong> — pod shares inter-process communication.</div></div><span class=\"assistant-tip\">Only for CNI plugins, node monitoring, or log collectors. This is a security-sensitive decision.</span>",
+                                        "variants": [
+                                            {
+                                                "when": {
+                                                    "hasSelector": "input:checked"
+                                                },
+                                                "content": "<div class=\"assistant-state-card state-warning\"><div class=\"state-label\">⚠️ Host namespace sharing enabled</div><div class=\"state-detail\">This pod will break out of its container isolation. It can see the host's network interfaces, processes, or IPC resources depending on which options are checked. This is a significant security surface — make sure this is an infrastructure component (CNI, monitoring, logging) and not a regular application.</div></div>Pod Security Admission (PSA) in <code>restricted</code> mode will block pods with host access. You may need <code>privileged</code> or <code>baseline</code> namespace labels."
+                                            }
+                                        ],
+                                        "children": []
+                                    }
+                                ]
+                            },
+                            {
+                                "id": "k8s-cfg-ss",
+                                "title": "StatefulSet Configuration",
+                                "icon": "🗄️",
+                                "selector": ".k8s-field-ss-cfg",
+                                "content": "This is where StatefulSets diverge from Deployments — every setting here exists because <strong>pods have identity</strong>.<div class=\"assistant-state-card state-info\" style=\"margin-top:0.4rem\"><div class=\"state-detail\">The Headless Service is the foundation. Everything else builds on stable DNS names and persistent ordinals.</div></div>",
+                                "children": [
+                                    {
+                                        "id": "k8s-cfg-ss-headless",
+                                        "title": "Headless Service",
+                                        "icon": "🔗",
+                                        "selector": ".k8s-field-ss-headless",
+                                        "content": "This isn't optional — Kubernetes <strong>requires</strong> a Headless Service for StatefulSets.<div class=\"assistant-state-card state-info\" style=\"margin-top:0.4rem\"><div class=\"state-detail\">Each pod gets a stable DNS name like:<br><code>pod-0.svc-headless.namespace</code><br>Without it, pods can't find each other — replication, leader election, and cluster formation all break.</div></div><span class=\"assistant-tip\">The name you choose here becomes part of every pod's FQDN.</span>",
+                                        "children": []
+                                    },
+                                    {
+                                        "id": "k8s-cfg-ss-podmgmt",
+                                        "title": "Pod Management",
+                                        "icon": "📊",
+                                        "selector": ".k8s-field-ss-podmgmt",
+                                        "content": "Controls the <strong>startup and shutdown order</strong> of pods.<div class=\"assistant-state-card state-info\" style=\"margin-top:0.4rem\"><div class=\"state-detail\"><strong>OrderedReady</strong> — pod-0 before pod-1 before pod-2 (sequential).<br><strong>Parallel</strong> — all pods at once (faster, less safe).</div></div><span class=\"assistant-tip\">Select a policy to see when each is the right choice.</span>",
+                                        "variants": [
+                                            {
+                                                "when": {
+                                                    "resolver": "k8sFieldValue",
+                                                    "equals": "OrderedReady"
+                                                },
+                                                "content": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">📊 OrderedReady — sequential startup</div><div class=\"state-detail\">Pod-0 must be Running and Ready before pod-1 is created, pod-1 before pod-2, and so on. Shutdown happens in reverse. This guarantees the leader/primary is always the first up and last down.</div></div>This is the right choice for PostgreSQL, MySQL, etcd, ZooKeeper, or any system where one node must initialize before others can join. Slower to scale, but safe."
+                                            },
+                                            {
+                                                "when": {
+                                                    "resolver": "k8sFieldValue",
+                                                    "equals": "Parallel"
+                                                },
+                                                "content": "<div class=\"assistant-state-card state-warning\"><div class=\"state-label\">📊 Parallel — all pods at once</div><div class=\"state-detail\">All pods launch simultaneously, no ordering guarantees. Faster scaling, but your application must handle its own coordination — if pod-2 starts before pod-0, it needs to be able to wait or self-configure.</div></div>Use this for stateful apps that handle peer discovery dynamically (like Cassandra with seed nodes configured externally, or Redis Cluster with manual join). Most databases want OrderedReady instead."
+                                            }
+                                        ],
+                                        "children": []
+                                    },
+                                    {
+                                        "id": "k8s-cfg-ss-clusterip",
+                                        "title": "ClusterIP Service",
+                                        "icon": "🌐",
+                                        "selector": ".k8s-field-ss-clusterip",
+                                        "content": "The Headless Service gives per-pod DNS — but clients may not care <em>which</em> pod they reach.<div class=\"assistant-state-card state-info\" style=\"margin-top:0.4rem\"><div class=\"state-detail\">Checking this adds a regular ClusterIP Service that <strong>load-balances</strong> across all pods, giving clients a single stable endpoint.</div></div><span class=\"assistant-tip\">Check the box to see how the dual-service pattern works.</span>",
+                                        "variants": [
+                                            {
+                                                "when": {
+                                                    "hasSelector": "input:checked"
+                                                },
+                                                "content": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🌐 ClusterIP Service will be created</div><div class=\"state-detail\">You'll get two Services: the Headless Service (for per-pod DNS) and a regular ClusterIP Service (for load-balanced access). Clients that don't care about specific replicas can use the ClusterIP endpoint.</div></div>This is common for web frontends backed by a StatefulSet — the frontend connects to the ClusterIP, while the StatefulSet pods use the Headless DNS for internal replication."
+                                            }
+                                        ],
+                                        "children": []
+                                    },
+                                    {
+                                        "id": "k8s-cfg-ss-strategy",
+                                        "title": "Update Strategy",
+                                        "icon": "🔄",
+                                        "selector": ".k8s-field-ss-strategy",
+                                        "content": "How pod updates are rolled out across the StatefulSet.<div class=\"assistant-state-card state-info\" style=\"margin-top:0.4rem\"><div class=\"state-detail\"><strong>RollingUpdate</strong> — highest ordinal first (pod-2 → pod-1 → pod-0). Use with Partition for canary rollouts.<br><strong>OnDelete</strong> — nothing updates until you manually delete a pod.</div></div><span class=\"assistant-tip\">Select a strategy to see detailed guidance and how Partition interacts.</span>",
+                                        "variants": [
+                                            {
+                                                "when": {
+                                                    "resolver": "k8sFieldValue",
+                                                    "contains": "Rolling"
+                                                },
+                                                "content": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🔄 RollingUpdate — ordinal-based rollout</div><div class=\"state-detail\">Updates roll from highest ordinal to lowest: pod-2 first, then pod-1, then pod-0 (the primary). Each pod must be Ready before the next one is updated. Use the Partition field below to control exactly how far the rollout goes.</div></div>This natural ordering means you always update replicas before the primary — the safest pattern for databases with leader/follower architectures."
+                                            },
+                                            {
+                                                "when": {
+                                                    "resolver": "k8sFieldValue",
+                                                    "equals": "OnDelete"
+                                                },
+                                                "content": "<div class=\"assistant-state-card state-warning\"><div class=\"state-label\">🔄 OnDelete — fully manual control</div><div class=\"state-detail\">No pod updates until you explicitly delete each one. When you delete pod-2, Kubernetes recreates it with the new spec. Pod-0 and pod-1 keep running the old version until you delete them too.</div></div>This is the safest strategy for production databases where you want to drain connections, take backups, and verify replication health before touching each replica. The Partition field has no effect in this mode."
+                                            }
+                                        ],
+                                        "children": []
+                                    },
+                                    {
+                                        "id": "k8s-cfg-ss-partition",
+                                        "title": "Partition",
+                                        "icon": "✂️",
+                                        "selector": ".k8s-field-ss-partition",
+                                        "content": "A <strong>safety fence</strong> for canary deployments.<div class=\"assistant-state-card state-info\" style=\"margin-top:0.4rem\"><div class=\"state-detail\">Set to <code>2</code> → only pod-2, pod-3, etc. get the new version. Pod-0 and pod-1 stay on the old one.<br>Set to <code>0</code> → update everything.</div></div><span class=\"assistant-tip\">Workflow: push update → watch high-ordinal pods → lower partition to 0 when confident.</span>",
+                                        "children": []
+                                    }
+                                ]
+                            },
+                            {
+                                "id": "k8s-cfg-ss-storage",
+                                "title": "Persistent Storage",
+                                "icon": "💾",
+                                "selector": ".k8s-field-ss-storage",
+                                "content": "Each pod gets its own <strong>PersistentVolumeClaim</strong> that survives restarts, rescheduling, even deletion.<div class=\"assistant-state-card state-info\" style=\"margin-top:0.4rem\"><div class=\"state-detail\">PVC names follow the pattern:<br><code>name-podname-ordinal</code> (e.g. <code>data-myapp-0</code>)</div></div><div class=\"assistant-state-card state-warning\" style=\"margin-top:0.3rem\"><div class=\"state-detail\">Deleting the StatefulSet does <strong>NOT</strong> delete PVCs — clean them up manually with <code>kubectl delete pvc</code>.</div></div>",
+                                "children": []
+                            },
+                            {
+                                "id": "k8s-cfg-resources",
+                                "title": "Resource Limits",
+                                "icon": "📊",
+                                "selector": ".k8s-field-resources",
+                                "content": "Resources shape <strong>how much</strong> of the node your pod can use — and what happens when it tries to use more.<div class=\"assistant-state-card state-info\" style=\"margin-top:0.4rem\"><div class=\"state-detail\"><strong>Request</strong> = guaranteed minimum. The scheduler uses this to place pods on nodes with enough capacity.<br><strong>Limit</strong> = hard ceiling. CPU over-limit → throttled. Memory over-limit → <strong>OOM-killed</strong>.</div></div><span class=\"assistant-tip\">The combination of these four values determines your pod's QoS class — shown live below the grid.</span>",
+                                "children": [
+                                    {
+                                        "id": "k8s-cfg-cpu-req",
+                                        "title": "CPU Request",
+                                        "icon": "⚙️",
+                                        "selector": ".k8s-field-cpu-req",
+                                        "content": "The <strong>guaranteed minimum</strong> CPU for this container — the scheduler won't place the pod on a node that can't provide this.<div class=\"assistant-state-card state-info\" style=\"margin-top:0.4rem\"><div class=\"state-detail\"><code>100m</code> = 100 millicores = 10% of one CPU core.<br><code>1</code> = one full core.<br><code>500m</code> = half a core.</div></div><span class=\"assistant-tip\">Start low and increase based on actual usage — <code>kubectl top pods</code> shows real consumption.</span>",
+                                        "variants": [
+                                            {
+                                                "when": {
+                                                    "resolver": "k8sFieldValue",
+                                                    "equals": ""
+                                                },
+                                                "content": "No CPU request — the scheduler treats this pod as needing <strong>zero CPU</strong> for placement.<div class=\"assistant-state-card state-warning\" style=\"margin-top:0.4rem\"><div class=\"state-detail\">Without a request, the pod can be placed on an already-saturated node. Under pressure, it's the first to get throttled because it \"asked for nothing.\"</div></div><span class=\"assistant-tip\">Even <code>50m</code> gives the scheduler something to work with.</span>"
+                                            }
+                                        ],
+                                        "children": []
+                                    },
+                                    {
+                                        "id": "k8s-cfg-cpu-lim",
+                                        "title": "CPU Limit",
+                                        "icon": "⚙️",
+                                        "selector": ".k8s-field-cpu-lim",
+                                        "content": "The <strong>hard ceiling</strong> on CPU — if the container tries to exceed this, it gets <strong>throttled</strong> (not killed).<div class=\"assistant-state-card state-info\" style=\"margin-top:0.4rem\"><div class=\"state-detail\">CFS (Completely Fair Scheduler) enforces this via CPU quota. The container isn't killed — it just waits for its next time slice. Latency-sensitive services notice this as response time spikes.</div></div><span class=\"assistant-tip\">For Guaranteed QoS, set this equal to CPU Request.</span>",
+                                        "variants": [
+                                            {
+                                                "when": {
+                                                    "resolver": "k8sFieldValue",
+                                                    "equals": ""
+                                                },
+                                                "content": "No CPU limit — the container can use <strong>all available CPU</strong> on the node.<div class=\"assistant-state-card state-info\" style=\"margin-top:0.4rem\"><div class=\"state-detail\">Some teams intentionally leave CPU unlimited and rely on requests for scheduling. This lets pods burst during traffic spikes without artificial throttling.</div></div><span class=\"assistant-tip\">Without a limit, QoS will be Burstable (at best) — never Guaranteed.</span>"
+                                            }
+                                        ],
+                                        "children": []
+                                    },
+                                    {
+                                        "id": "k8s-cfg-mem-req",
+                                        "title": "Memory Request",
+                                        "icon": "🧠",
+                                        "selector": ".k8s-field-mem-req",
+                                        "content": "The <strong>guaranteed minimum</strong> memory — affects scheduling and the pod's OOM priority score.<div class=\"assistant-state-card state-info\" style=\"margin-top:0.4rem\"><div class=\"state-detail\"><code>128Mi</code> = 128 mebibytes.<br><code>1Gi</code> = 1 gibibyte.<br>The scheduler reserves this on the node — even if the container isn't using it yet.</div></div><span class=\"assistant-tip\">Under node memory pressure, pods using more than their request are killed first.</span>",
+                                        "variants": [
+                                            {
+                                                "when": {
+                                                    "resolver": "k8sFieldValue",
+                                                    "equals": ""
+                                                },
+                                                "content": "No memory request — the pod's OOM score will be <strong>maximum</strong>, making it the first to die under pressure.<div class=\"assistant-state-card state-warning\" style=\"margin-top:0.4rem\"><div class=\"state-detail\">Without a memory request, the kubelet considers this pod expendable. When the node runs low on memory, this pod is killed before pods that declared their needs.</div></div><span class=\"assistant-tip\">Even a conservative value like <code>64Mi</code> signals intent to the scheduler.</span>"
+                                            }
+                                        ],
+                                        "children": []
+                                    },
+                                    {
+                                        "id": "k8s-cfg-mem-lim",
+                                        "title": "Memory Limit",
+                                        "icon": "🧠",
+                                        "selector": ".k8s-field-mem-lim",
+                                        "content": "The <strong>hard ceiling</strong> on memory — if the container exceeds this, it gets <strong>OOM-killed</strong> instantly.<div class=\"assistant-state-card state-warning\" style=\"margin-top:0.4rem\"><div class=\"state-detail\">Unlike CPU throttling, memory over-limit is <strong>fatal</strong>. The container is terminated immediately with no graceful shutdown. The kubelet records an OOMKilled event and restarts the container per the restart policy.</div></div><span class=\"assistant-tip\">Set this at least 1.5–2× your expected working set. Memory leaks hit this wall hard.</span>",
+                                        "variants": [
+                                            {
+                                                "when": {
+                                                    "resolver": "k8sFieldValue",
+                                                    "equals": ""
+                                                },
+                                                "content": "No memory limit — the container can allocate <strong>unbounded memory</strong> until it exhausts the node.<div class=\"assistant-state-card state-warning\" style=\"margin-top:0.4rem\"><div class=\"state-detail\">A memory leak in this container can starve every other pod on the same node. The kubelet will eventually OOM-kill something — but it might not be this pod.</div></div><span class=\"assistant-tip\">Always set a memory limit. This is the single most important resource constraint.</span>"
+                                            }
+                                        ],
+                                        "children": []
+                                    }
+                                ]
+                            },
+                            {
+                                "id": "k8s-cfg-envvars",
+                                "title": "Environment Variables",
+                                "icon": "🔐",
+                                "selector": ".k8s-field-envvars",
+                                "content": "Each variable becomes either a <strong>ConfigMap</strong> entry or a <strong>Secret</strong> entry in your generated manifests.<div class=\"assistant-state-card state-info\" style=\"margin-top:0.4rem\"><div class=\"state-detail\"><strong>📋 Hardcoded</strong> → value goes into a ConfigMap. Visible in source control and <code>kubectl get configmap -o yaml</code>.<br><strong>🔄 Variable</strong> → substituted at deploy time from your vault's <code>.env</code> export. Value stays outside the manifest.<br><strong>🔒 Secret</strong> → stored in a K8s Secret resource. Base64-encoded (not encrypted) — RBAC controls who can read it.</div></div><span class=\"assistant-tip\">Keys matching common secret patterns (PASSWORD, API_KEY, TOKEN) are auto-detected and set to 🔒 Secret.</span>",
+                                "children": []
+                            },
+                            {
+                                "id": "k8s-cfg-probes",
+                                "title": "Health Checks",
+                                "icon": "🩺",
+                                "selector": ".k8s-field-probes",
+                                "content": "Probes tell Kubernetes whether your container is <strong>alive</strong> and <strong>ready for traffic</strong> — without them, K8s is flying blind.<div class=\"assistant-state-card state-info\" style=\"margin-top:0.4rem\"><div class=\"state-detail\"><strong>Readiness</strong> — gates traffic. A failing readiness probe removes the pod from the Service endpoints. No traffic reaches it until it passes again.<br><strong>Liveness</strong> — triggers restarts. A failing liveness probe tells the kubelet the container is stuck. It restarts it per the restart policy.</div></div><span class=\"assistant-tip\">Both probes are independent. A pod can be alive but not ready (warming up), or ready but about to die (memory leak). Configure them separately.</span>",
+                                "children": [
+                                    {
+                                        "id": "k8s-cfg-probe-readiness",
+                                        "title": "Readiness Probe",
+                                        "icon": "✅",
+                                        "selector": "[id^=k8s-svc-rdy-]",
+                                        "content": "Controls whether this pod receives <strong>traffic from the Service</strong>. Fails = pod removed from endpoints.",
+                                        "variants": [
+                                            {
+                                                "when": {
+                                                    "resolver": "k8sFieldValue",
+                                                    "equals": "http"
+                                                },
+                                                "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">🌐 HTTP GET selected</div><div class=\"state-detail\">Kubernetes sends a GET request to the <strong>Path</strong> on the specified <strong>Port</strong> every <strong>Period</strong> seconds. A 200–399 response is a pass — anything else is a failure.<br><br>Best for web servers and APIs that expose a health endpoint. The endpoint should be lightweight — don't query the database or do heavy computation in your health check.</div></div>"
+                                            },
+                                            {
+                                                "when": {
+                                                    "resolver": "k8sFieldValue",
+                                                    "equals": "tcp"
+                                                },
+                                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🔌 TCP Socket selected</div><div class=\"state-detail\">Kubernetes attempts a TCP connection to the specified <strong>Port</strong>. If the connection succeeds, the probe passes. No data is sent.<br><br>Best for databases, message queues, and services that don't speak HTTP — PostgreSQL, Redis, RabbitMQ, custom TCP services.</div></div>"
+                                            },
+                                            {
+                                                "when": {
+                                                    "resolver": "k8sFieldValue",
+                                                    "equals": "exec"
+                                                },
+                                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">⌨️ Exec selected</div><div class=\"state-detail\">Kubernetes runs the <strong>Command</strong> inside the container. Exit code 0 = pass, anything else = failure.<br><br>Most flexible but most expensive — it forks a process every probe interval. Use for services with custom health check scripts like <code>pg_isready -U postgres</code> or <code>redis-cli ping</code>.</div></div>"
+                                            }
+                                        ],
+                                        "children": []
+                                    },
+                                    {
+                                        "id": "k8s-cfg-probe-liveness",
+                                        "title": "Liveness Probe",
+                                        "icon": "💓",
+                                        "selector": "[id^=k8s-svc-liv-]",
+                                        "content": "Detects <strong>stuck containers</strong> — if this probe fails, the kubelet <strong>restarts</strong> the container.<div class=\"assistant-state-card state-warning\" style=\"margin-top:0.4rem\"><div class=\"state-detail\">Too aggressive = restart loops. If your app takes 30s to start, set <code>Delay</code> ≥ 30 so the liveness check doesn't kill it during startup.<br><br><strong>Failures</strong> = how many consecutive failures before restart. Default 3 is safe for most workloads.</div></div>",
+                                        "variants": [
+                                            {
+                                                "when": {
+                                                    "resolver": "k8sFieldValue",
+                                                    "equals": "http"
+                                                },
+                                                "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">🌐 HTTP GET selected</div><div class=\"state-detail\">Kubernetes GETs the <strong>Path</strong> on the <strong>Port</strong> every <strong>Period</strong> seconds. Non-2xx/3xx after <strong>Failures</strong> consecutive misses → container restart.<br><br>For liveness, use a different endpoint than readiness (e.g. <code>/livez</code> vs <code>/readyz</code>). Liveness should check the process itself — not downstream dependencies.</div></div>"
+                                            },
+                                            {
+                                                "when": {
+                                                    "resolver": "k8sFieldValue",
+                                                    "equals": "tcp"
+                                                },
+                                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🔌 TCP Socket selected</div><div class=\"state-detail\">TCP connect to the specified <strong>Port</strong>. If the port stops responding, the container is considered dead and gets restarted.<br><br>Good safety net for databases — if the process crashes or stops accepting connections, this catches it.</div></div>"
+                                            },
+                                            {
+                                                "when": {
+                                                    "resolver": "k8sFieldValue",
+                                                    "equals": "exec"
+                                                },
+                                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">⌨️ Exec selected</div><div class=\"state-detail\">Runs the <strong>Command</strong> inside the container. Non-zero exit → failure count increments. After <strong>Failures</strong> consecutive misses → container restart.<br><br>Use for deep health checks — e.g. <code>pg_isready</code>, <code>redis-cli ping</code>, or a custom script that checks internal state.</div></div>"
+                                            }
+                                        ],
+                                        "children": []
+                                    },
+                                    {
+                                        "id": "k8s-cfg-probe-path",
+                                        "title": "Probe Path",
+                                        "icon": "🔗",
+                                        "selector": ".k8s-field-probe-path",
+                                        "content": "The HTTP endpoint Kubernetes hits for each probe check. Should return <strong>200–399</strong> when healthy.<div class=\"assistant-state-card state-info\" style=\"margin-top:0.4rem\"><div class=\"state-detail\">Use a dedicated health endpoint, not your main route. A good health endpoint is:<br>• <strong>Lightweight</strong> — no DB queries, no heavy computation<br>• <strong>Fast</strong> — responds in <100ms<br>• <strong>Internal-only</strong> — not exposed to end users<br><br>Common choices: <code>/health</code>, <code>/healthz</code>, <code>/readyz</code>, <code>/livez</code></div></div>",
+                                        "children": []
+                                    },
+                                    {
+                                        "id": "k8s-cfg-probe-port",
+                                        "title": "Probe Port",
+                                        "icon": "🔌",
+                                        "selector": ".k8s-field-probe-port",
+                                        "content": "The container port Kubernetes connects to for health checks. Must match the port your app actually listens on.<div class=\"assistant-state-card state-info\" style=\"margin-top:0.4rem\"><div class=\"state-detail\">This is the <strong>container port</strong>, not the Service port. If your app listens on 8080 inside the container, set this to 8080 — regardless of what the Service exposes.<br><br>Some apps expose a separate management port (e.g. 8081) for health checks. Use that if available — it keeps health traffic off the main port.</div></div>",
+                                        "children": []
+                                    },
+                                    {
+                                        "id": "k8s-cfg-probe-cmd",
+                                        "title": "Probe Command",
+                                        "icon": "⌨️",
+                                        "selector": ".k8s-field-probe-cmd",
+                                        "content": "The command Kubernetes runs <strong>inside the container</strong> for exec probes. Exit code 0 = healthy, anything else = failure.<div class=\"assistant-state-card state-info\" style=\"margin-top:0.4rem\"><div class=\"state-detail\">The command must exist in your container image. Common examples:<br>• <code>pg_isready -U postgres</code> — PostgreSQL<br>• <code>redis-cli ping</code> — Redis<br>• <code>mysqladmin ping -h localhost</code> — MySQL<br>• <code>mongo --eval \"db.runCommand('ping')\"</code> — MongoDB<br><br>⚠️ Each probe forks a process. Keep the command fast and avoid shell pipes when possible.</div></div>",
+                                        "children": []
+                                    },
+                                    {
+                                        "id": "k8s-cfg-probe-delay",
+                                        "title": "Initial Delay",
+                                        "icon": "⏱️",
+                                        "selector": ".k8s-field-probe-delay",
+                                        "content": "Seconds to wait after the container starts before the first probe check. Gives your app time to boot.<div class=\"assistant-state-card state-info\" style=\"margin-top:0.4rem\"><div class=\"state-detail\"><strong>Readiness</strong> — set to your app's typical boot time (e.g. 5s for a Go API, 15–30s for a Java app with Spring Boot).<br><br><strong>Liveness</strong> — set <em>longer</em> than readiness. If liveness fires before the app is up, Kubernetes kills and restarts it in a loop. A safe starting point: <code>2× readiness delay</code>.<br><br>Too low = restart loops during startup. Too high = delayed traffic routing after deploy.</div></div>",
+                                        "children": []
+                                    },
+                                    {
+                                        "id": "k8s-cfg-probe-period",
+                                        "title": "Probe Period",
+                                        "icon": "🔁",
+                                        "selector": ".k8s-field-probe-period",
+                                        "content": "Seconds between each probe check. Controls how quickly Kubernetes detects failures.<div class=\"assistant-state-card state-info\" style=\"margin-top:0.4rem\"><div class=\"state-detail\"><strong>Readiness</strong> — shorter period (5–10s) means faster traffic routing when a pod recovers.<br><br><strong>Liveness</strong> — can be longer (10–30s) since you don't want false positives triggering restarts. The total detection time is <code>period × failureThreshold</code>.<br><br>Lower period = faster detection but more kubelet overhead. For most workloads, 10s is a good default.</div></div>",
+                                        "children": []
+                                    },
+                                    {
+                                        "id": "k8s-cfg-probe-extra",
+                                        "title": "Timeout / Failures",
+                                        "icon": "🎯",
+                                        "selector": ".k8s-field-probe-extra",
+                                        "content": "For <strong>readiness</strong>: timeout in seconds — how long to wait for a probe response before marking it as failed.<br>For <strong>liveness</strong>: failure threshold — how many consecutive failures before the container is restarted.<div class=\"assistant-state-card state-info\" style=\"margin-top:0.4rem\"><div class=\"state-detail\"><strong>Timeout</strong> — if your health endpoint sometimes takes 2s under load, set timeout to 3. Default 1s is aggressive for apps with heavy health checks.<br><br><strong>Failures</strong> — the number of misses before action. Default 3 means 3 × period seconds of failure before restart. Higher = more tolerant of transient blips.</div></div>",
+                                        "children": []
+                                    }
+                                ]
+                            },
+                            {
+                                "id": "k8s-cfg-volumes",
+                                "title": "Volume Mounts",
+                                "icon": "💾",
+                                "selector": ".k8s-field-volumes",
+                                "content": "Maps storage into your container — each row becomes a <code>volume</code> + <code>volumeMount</code> in the pod spec.<span class=\"assistant-tip\">Compose named volumes become PVC (dynamic) by default. Source-code bind mounts are auto-skipped — they're baked into the image at build time.</span>",
+                                "children": [
+                                    {
+                                        "id": "k8s-cfg-vol-type",
+                                        "title": "Volume Type",
+                                        "icon": "📦",
+                                        "selector": "[id^=k8s-svc-vol-type-]",
+                                        "content": "Determines how storage is provisioned and what lifecycle it follows.",
+                                        "variants": [
+                                            {
+                                                "when": {
+                                                    "resolver": "k8sFieldValue",
+                                                    "equals": "pvc-dynamic"
+                                                },
+                                                "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">💾 PVC (dynamic) selected</div><div class=\"state-detail\">The StorageClass provisions a new disk automatically when the pod starts. Data persists across restarts and rescheduling.<br><br>This is the <strong>recommended default</strong> for any data that needs to survive pod restarts — databases, uploads, logs, caches with warm-up cost.</div></div>"
+                                            },
+                                            {
+                                                "when": {
+                                                    "resolver": "k8sFieldValue",
+                                                    "equals": "pvc-static"
+                                                },
+                                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">💾 PVC (static) selected</div><div class=\"state-detail\">Binds to a <strong>pre-existing PersistentVolume</strong> in the cluster. You provide the PV Name — Kubernetes doesn't create the disk, it just claims it.<br><br>Use for pre-provisioned NFS shares, existing disks, or storage managed outside K8s. Requires the PV to exist before the pod starts.</div></div>"
+                                            },
+                                            {
+                                                "when": {
+                                                    "resolver": "k8sFieldValue",
+                                                    "equals": "emptyDir"
+                                                },
+                                                "expanded": "<div class=\"assistant-state-card state-warning\"><div class=\"state-label\">📂 emptyDir selected</div><div class=\"state-detail\">Ephemeral scratch space — created when the pod starts, <strong>deleted when the pod dies</strong>. Data does not survive restarts or rescheduling.<br><br>Use for: temp files, download caches, shared data between containers in the same pod (sidecar pattern). Not for anything you need to keep.</div></div>"
+                                            },
+                                            {
+                                                "when": {
+                                                    "resolver": "k8sFieldValue",
+                                                    "equals": "configMap"
+                                                },
+                                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">📄 ConfigMap selected</div><div class=\"state-detail\">Mounts a ConfigMap's data as <strong>files</strong> inside the container. Each key becomes a filename, each value becomes the file content.<br><br>Use for: <code>nginx.conf</code>, <code>settings.json</code>, <code>my-app.properties</code>. Changes to the ConfigMap are reflected in the pod (with a delay) — no restart needed.</div></div>"
+                                            },
+                                            {
+                                                "when": {
+                                                    "resolver": "k8sFieldValue",
+                                                    "equals": "secret"
+                                                },
+                                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🔐 Secret selected</div><div class=\"state-detail\">Mounts a Secret's data as <strong>files</strong> inside the container. Stored as tmpfs in memory — never written to disk on the node.<br><br>Use for: TLS certificates (<code>tls.crt</code>, <code>tls.key</code>), SSH keys, license files, or any binary secret data that needs to be a file rather than an environment variable.</div></div>"
+                                            },
+                                            {
+                                                "when": {
+                                                    "resolver": "k8sFieldValue",
+                                                    "equals": "hostPath"
+                                                },
+                                                "expanded": "<div class=\"assistant-state-card state-warning\"><div class=\"state-label\">⚠️ hostPath selected</div><div class=\"state-detail\">Mounts a directory from the <strong>host node's filesystem</strong> directly into the pod. The pod is now tied to that specific node.<br><br><strong>Not recommended for production.</strong> Breaks portability, bypasses storage policies, and creates security risks. Use only for node-level agents (log collectors, monitoring) or development clusters.</div></div>"
+                                            }
+                                        ],
+                                        "children": []
+                                    },
+                                    {
+                                        "id": "k8s-cfg-vol-access",
+                                        "title": "Access Mode",
+                                        "icon": "🔓",
+                                        "selector": "[id^=k8s-svc-vol-access-]",
+                                        "content": "Controls how many nodes can mount this volume simultaneously.",
+                                        "variants": [
+                                            {
+                                                "when": {
+                                                    "resolver": "k8sFieldValue",
+                                                    "equals": "ReadWriteOnce"
+                                                },
+                                                "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">🔓 ReadWriteOnce (RWO)</div><div class=\"state-detail\">The volume can be mounted as <strong>read-write by a single node</strong>. Multiple pods on the same node can share it, but pods on different nodes cannot.<br><br>This is the <strong>most common and most compatible</strong> mode — all storage providers support it. Use for databases, single-instance apps, anything with one writer.</div></div>"
+                                            },
+                                            {
+                                                "when": {
+                                                    "resolver": "k8sFieldValue",
+                                                    "equals": "ReadWriteMany"
+                                                },
+                                                "expanded": "<div class=\"assistant-state-card state-warning\"><div class=\"state-label\">🔓 ReadWriteMany (RWX)</div><div class=\"state-detail\">The volume can be mounted as <strong>read-write by multiple nodes</strong> simultaneously. All pods can read and write.<br><br><strong>Not all storage providers support this.</strong> NFS-based provisioners (nfs-client, EFS, Azure Files) support it. Block storage (EBS, GCE PD, Longhorn) typically does not. Check your StorageClass.</div></div>"
+                                            },
+                                            {
+                                                "when": {
+                                                    "resolver": "k8sFieldValue",
+                                                    "equals": "ReadOnlyMany"
+                                                },
+                                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🔓 ReadOnlyMany (ROX)</div><div class=\"state-detail\">The volume can be mounted as <strong>read-only by multiple nodes</strong>. No pod can write to it.<br><br>Use for shared static assets, reference data, or configuration distributed across many pods. The volume must be pre-populated before pods mount it.</div></div>"
+                                            }
+                                        ],
+                                        "children": []
+                                    },
+                                    {
+                                        "id": "k8s-cfg-vol-sc",
+                                        "title": "Storage Class",
+                                        "icon": "🏗️",
+                                        "selector": ".k8s-vol-sc-select",
+                                        "content": "Determines <strong>what kind of disk</strong> gets provisioned for this PVC. Choose based on your cluster provider and performance needs.",
+                                        "variants": [
+                                            {
+                                                "when": {
+                                                    "resolver": "k8sFieldValue",
+                                                    "equals": ""
+                                                },
+                                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🏗️ Cluster default</div><div class=\"state-detail\">No explicit StorageClass — Kubernetes uses whatever is marked as <code>default</code> in the cluster. On most managed clusters this is a reasonable general-purpose option.<br><br>Run <code>kubectl get sc</code> to see what's available and which one is default.</div></div>"
+                                            },
+                                            {
+                                                "when": {
+                                                    "resolver": "k8sFieldValue",
+                                                    "equals": "longhorn"
+                                                },
+                                                "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">🐂 Longhorn</div><div class=\"state-detail\">Distributed block storage for bare-metal/self-hosted clusters. Provisioner: <code>driver.longhorn.io</code><br><br><strong>Replicated</strong> across nodes (configurable replica count), supports snapshots, backup to S3, and live volume expansion. The best option for self-hosted clusters that need HA storage.</div></div>"
+                                            },
+                                            {
+                                                "when": {
+                                                    "resolver": "k8sFieldValue",
+                                                    "equals": "local-path"
+                                                },
+                                                "expanded": "<div class=\"assistant-state-card state-warning\"><div class=\"state-label\">📁 local-path</div><div class=\"state-detail\">Local node disk provisioner — default in K3s and Rancher clusters. Provisioner: <code>rancher.io/local-path</code><br><br>Fast and simple, but <strong>no replication</strong>. If the node dies, the data is gone. Only supports ReadWriteOnce. Use for development or data you can afford to lose.</div></div>"
+                                            },
+                                            {
+                                                "when": {
+                                                    "resolver": "k8sFieldValue",
+                                                    "equals": "nfs-client"
+                                                },
+                                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">📁 nfs-client</div><div class=\"state-detail\">NFS external provisioner — creates subdirectories on an existing NFS server. Provisioner: <code>cluster.local/nfs-subdir-external</code><br><br>Supports <strong>ReadWriteMany</strong> — multiple pods on different nodes can share the same volume. Slower than block storage but great for shared configuration or media assets.</div></div>"
+                                            },
+                                            {
+                                                "when": {
+                                                    "resolver": "k8sFieldValue",
+                                                    "equals": "openebs-hostpath"
+                                                },
+                                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">📁 openebs-hostpath</div><div class=\"state-detail\">OpenEBS local PV provisioner. Provisioner: <code>openebs.io/local</code><br><br>Similar to local-path but with better lifecycle management, monitoring, and optional Mayastor backend for replication. A good step up from local-path on self-hosted clusters.</div></div>"
+                                            },
+                                            {
+                                                "when": {
+                                                    "resolver": "k8sFieldValue",
+                                                    "equals": "rook-ceph-block"
+                                                },
+                                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">📁 rook-ceph-block</div><div class=\"state-detail\">Ceph block storage managed by Rook. Provisioner: <code>rook-ceph.rbd.csi.ceph.com</code><br><br>Enterprise-grade distributed storage with replication, snapshots, and cloning. Complex to deploy and operate — requires dedicated OSDs (storage daemons) and monitors. Overkill for small clusters.</div></div>"
+                                            },
+                                            {
+                                                "when": {
+                                                    "resolver": "k8sFieldValue",
+                                                    "equals": "gp3"
+                                                },
+                                                "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">☁️ AWS gp3</div><div class=\"state-detail\">General-purpose SSD on AWS EBS. Provisioner: <code>ebs.csi.aws.com</code><br><br><strong>Recommended for most AWS workloads.</strong> 3000 IOPS and 125 MB/s baseline included — no burst credits to worry about. Cheaper than gp2 for the same performance. IOPS and throughput can be provisioned independently.</div></div>"
+                                            },
+                                            {
+                                                "when": {
+                                                    "resolver": "k8sFieldValue",
+                                                    "equals": "gp2"
+                                                },
+                                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">☁️ AWS gp2</div><div class=\"state-detail\">Legacy general-purpose SSD on AWS EBS. Provisioner: <code>kubernetes.io/aws-ebs</code><br><br>Burst IOPS scales with volume size (3 IOPS/GB, max 16000). Smaller volumes can run out of burst credits under sustained load. Prefer <strong>gp3</strong> for new workloads — it's cheaper and more predictable.</div></div>"
+                                            },
+                                            {
+                                                "when": {
+                                                    "resolver": "k8sFieldValue",
+                                                    "equals": "io1"
+                                                },
+                                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">☁️ AWS io1</div><div class=\"state-detail\">Provisioned IOPS SSD on AWS EBS. Provisioner: <code>ebs.csi.aws.com</code><br><br>Guaranteed I/O performance up to 64000 IOPS. Use for databases that need consistent, high-throughput storage — high-traffic PostgreSQL, MySQL, Cassandra. Expensive — only use when gp3's 3000 IOPS baseline isn't enough.</div></div>"
+                                            },
+                                            {
+                                                "when": {
+                                                    "resolver": "k8sFieldValue",
+                                                    "equals": "efs-sc"
+                                                },
+                                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">☁️ AWS EFS</div><div class=\"state-detail\">Elastic File System — managed NFS on AWS. Provisioner: <code>efs.csi.aws.com</code><br><br>Supports <strong>ReadWriteMany</strong> — multiple pods across multiple nodes can share the same volume. Unlimited size (pay per GB stored). Slower than EBS for random I/O. Use for shared assets, config, or media.</div></div>"
+                                            },
+                                            {
+                                                "when": {
+                                                    "resolver": "k8sFieldValue",
+                                                    "equals": "standard-rwo"
+                                                },
+                                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">☁️ GKE standard-rwo</div><div class=\"state-detail\">Standard persistent disk on Google Cloud. Provisioner: <code>pd.csi.storage.gke.io</code><br><br>HDD-backed — cheapest option on GKE. Adequate for low-IOPS workloads like batch processing, log storage, or development environments.</div></div>"
+                                            },
+                                            {
+                                                "when": {
+                                                    "resolver": "k8sFieldValue",
+                                                    "equals": "premium-rwo"
+                                                },
+                                                "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">☁️ GKE premium-rwo</div><div class=\"state-detail\">SSD persistent disk on Google Cloud. Provisioner: <code>pd.csi.storage.gke.io</code><br><br>Higher IOPS and lower latency than standard. <strong>Recommended for databases</strong> and latency-sensitive workloads on GKE.</div></div>"
+                                            },
+                                            {
+                                                "when": {
+                                                    "resolver": "k8sFieldValue",
+                                                    "equals": "managed-csi"
+                                                },
+                                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">☁️ Azure managed-csi</div><div class=\"state-detail\">Azure managed disk (Standard LRS). Provisioner: <code>disk.csi.azure.com</code><br><br>Locally-redundant storage — data replicated 3× within a single datacenter. General-purpose workloads at a reasonable price point.</div></div>"
+                                            },
+                                            {
+                                                "when": {
+                                                    "resolver": "k8sFieldValue",
+                                                    "equals": "managed-csi-premium"
+                                                },
+                                                "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">☁️ Azure managed-csi-premium</div><div class=\"state-detail\">Premium SSD managed disk on Azure. Provisioner: <code>disk.csi.azure.com</code><br><br>Low-latency, high-throughput SSD. <strong>Recommended for databases and production workloads</strong> on AKS. Provisioned IOPS scale with disk size.</div></div>"
+                                            },
+                                            {
+                                                "when": {
+                                                    "resolver": "k8sFieldValue",
+                                                    "equals": "azurefile-csi"
+                                                },
+                                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">☁️ Azure File Share</div><div class=\"state-detail\">Azure File Share via SMB/NFS. Provisioner: <code>file.csi.azure.com</code><br><br>Supports <strong>ReadWriteMany</strong> — multiple pods across nodes can share the same volume. Use for shared configuration, media assets, or workloads that need concurrent file access.</div></div>"
+                                            },
+                                            {
+                                                "when": {
+                                                    "resolver": "k8sFieldValue",
+                                                    "equals": "do-block-storage"
+                                                },
+                                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">☁️ DigitalOcean Block Storage</div><div class=\"state-detail\">Block storage volume on DigitalOcean. Provisioner: <code>dobs.csi.digitalocean.com</code><br><br>The only storage option on DOKS. SSD-backed, supports ReadWriteOnce. Simple and reliable — it just works.</div></div>"
+                                            },
+                                            {
+                                                "when": {
+                                                    "resolver": "k8sFieldValue",
+                                                    "equals": "_custom"
+                                                },
+                                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">✏️ Custom Storage Class</div><div class=\"state-detail\">Type the name of a StorageClass that exists in your cluster but isn't in this list. Run <code>kubectl get sc</code> to see available classes.<br><br>Make sure the class exists before deploying — a missing StorageClass will leave the PVC in Pending state indefinitely.</div></div>"
+                                            }
+                                        ],
+                                        "children": []
+                                    },
+                                    {
+                                        "id": "k8s-cfg-vol-medium",
+                                        "title": "emptyDir Medium",
+                                        "icon": "💿",
+                                        "selector": "[id^=k8s-svc-vol-medium-]",
+                                        "content": "Controls the backing storage for this ephemeral volume.",
+                                        "variants": [
+                                            {
+                                                "when": {
+                                                    "resolver": "k8sFieldValue",
+                                                    "equals": ""
+                                                },
+                                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">💿 Disk (default)</div><div class=\"state-detail\">Uses the node's local disk — whatever the kubelet's root filesystem is (usually ext4 on SSD or HDD). Slower than Memory but doesn't count against the container's memory limit.<br><br>Good for: temp files, build caches, download staging areas.</div></div>"
+                                            },
+                                            {
+                                                "when": {
+                                                    "resolver": "k8sFieldValue",
+                                                    "equals": "Memory"
+                                                },
+                                                "expanded": "<div class=\"assistant-state-card state-warning\"><div class=\"state-label\">🧠 Memory (tmpfs)</div><div class=\"state-detail\">Backed by RAM — extremely fast but <strong>counts against the container's memory limit</strong>. If your emptyDir + container usage exceeds the memory limit, the pod gets OOM-killed.<br><br>Use for: high-speed scratch space, shared IPC buffers between containers. Always set a Size Limit to avoid unbounded memory consumption.</div></div>"
+                                            }
+                                        ],
+                                        "children": []
+                                    },
+                                    {
+                                        "id": "k8s-cfg-vol-hosttype",
+                                        "title": "hostPath Type",
+                                        "icon": "📁",
+                                        "selector": "[id^=k8s-svc-vol-hosttype-]",
+                                        "content": "Validation rule for the host path before mounting.",
+                                        "variants": [
+                                            {
+                                                "when": {
+                                                    "resolver": "k8sFieldValue",
+                                                    "equals": "DirectoryOrCreate"
+                                                },
+                                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">📁 DirectoryOrCreate</div><div class=\"state-detail\">If the path doesn't exist on the host, Kubernetes creates it as an empty directory (owned by kubelet, mode 0755). Safest option — the pod won't fail if the directory is missing.<br><br>Most common choice for log directories, cache paths, or any directory-based mount.</div></div>"
+                                            },
+                                            {
+                                                "when": {
+                                                    "resolver": "k8sFieldValue",
+                                                    "equals": "Directory"
+                                                },
+                                                "expanded": "<div class=\"assistant-state-card state-warning\"><div class=\"state-label\">📁 Directory</div><div class=\"state-detail\">The path <strong>must already exist</strong> as a directory on every node where this pod runs. If it doesn't exist, the pod fails to start.<br><br>Use when you need to guarantee the directory was set up by an admin or provisioning script before the pod is scheduled.</div></div>"
+                                            },
+                                            {
+                                                "when": {
+                                                    "resolver": "k8sFieldValue",
+                                                    "equals": "FileOrCreate"
+                                                },
+                                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">📄 FileOrCreate</div><div class=\"state-detail\">If the path doesn't exist, Kubernetes creates it as an empty file (mode 0644). Use for mounting a specific file (e.g. a socket, a config file) rather than a directory.</div></div>"
+                                            },
+                                            {
+                                                "when": {
+                                                    "resolver": "k8sFieldValue",
+                                                    "equals": "File"
+                                                },
+                                                "expanded": "<div class=\"assistant-state-card state-warning\"><div class=\"state-label\">📄 File</div><div class=\"state-detail\">The path <strong>must already exist</strong> as a file on every node. If missing, the pod fails to start. Use for pre-existing sockets, device files, or node-level config files you know are provisioned.</div></div>"
+                                            }
+                                        ],
+                                        "children": []
+                                    },
+                                    {
+                                        "id": "k8s-cfg-vol-lh-locality",
+                                        "title": "Longhorn Data Locality",
+                                        "icon": "🐂",
+                                        "selector": "[id^=k8s-vol-lh-locality-]",
+                                        "content": "Controls where Longhorn places data replicas relative to the pod.",
+                                        "variants": [
+                                            {
+                                                "when": {
+                                                    "resolver": "k8sFieldValue",
+                                                    "equals": "best-effort"
+                                                },
+                                                "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">🐂 Best-effort</div><div class=\"state-detail\">Longhorn <strong>tries</strong> to keep at least one replica on the same node as the pod. If the pod moves, Longhorn rebuilds a local replica in the background.<br><br><strong>Recommended default.</strong> Best balance of performance and resilience — local reads when possible, no hard failure if the local replica can't be maintained.</div></div>"
+                                            },
+                                            {
+                                                "when": {
+                                                    "resolver": "k8sFieldValue",
+                                                    "equals": "strict"
+                                                },
+                                                "expanded": "<div class=\"assistant-state-card state-warning\"><div class=\"state-label\">🐂 Strict</div><div class=\"state-detail\">Longhorn <strong>guarantees</strong> a replica on the same node as the pod. If it can't maintain local data, the volume becomes degraded and may block the pod.<br><br>Use for latency-critical workloads where network reads are unacceptable. Risk: if the node fills up or fails, the pod can't reschedule until data locality is restored.</div></div>"
+                                            },
+                                            {
+                                                "when": {
+                                                    "resolver": "k8sFieldValue",
+                                                    "equals": "disabled"
+                                                },
+                                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🐂 Disabled</div><div class=\"state-detail\">No data locality constraint — replicas are placed wherever Longhorn finds space. All reads go over the network to whichever replica responds first.<br><br>Use when storage capacity distribution matters more than read latency. Good for batch workloads or large clusters with uneven disk sizes.</div></div>"
+                                            }
+                                        ],
+                                        "children": []
+                                    },
+                                    {
+                                        "id": "k8s-cfg-vol-source",
+                                        "title": "Volume Source",
+                                        "icon": "📂",
+                                        "selector": ".k8s-field-vol-source",
+                                        "content": "The name or reference for this volume — what this means depends on the volume type selected above.",
+                                        "variants": [
+                                            {
+                                                "when": {
+                                                    "resolver": "k8sVolRowType",
+                                                    "equals": "pvc-dynamic"
+                                                },
+                                                "title": "PVC Name",
+                                                "icon": "💾",
+                                                "content": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">💾 PVC Name (dynamic provisioning)</div><div class=\"state-detail\">This becomes the <code>PersistentVolumeClaim</code> name in your manifest. The cluster's StorageClass provisioner creates the actual volume automatically when the PVC is bound.<br><br><strong>Naming rules:</strong> lowercase, hyphens only, no dots, max 253 chars. Must be unique within the namespace. <br><br>Good names: <code>my-app-data</code>, <code>postgres-db</code>, <code>uploads-store</code><br>Bad names: <code>My_Data.vol</code>, <code>data</code> (too generic)</div></div>"
+                                            },
+                                            {
+                                                "when": {
+                                                    "resolver": "k8sVolRowType",
+                                                    "equals": "pvc-static"
+                                                },
+                                                "title": "PVC Name",
+                                                "icon": "💾",
+                                                "content": "<div class=\"assistant-state-card state-warning\"><div class=\"state-label\">💾 PVC Name (static binding)</div><div class=\"state-detail\">This must match an <strong>existing PVC</strong> in the target namespace. No new PVC is created — the manifest references this name directly.<br><br>Use <code>kubectl get pvc -n &lt;namespace&gt;</code> to list available PVCs. If the PVC doesn't exist at deploy time, the pod will be stuck in <code>Pending</code>.<br><br>⚠️ Static PVCs can't be resized through the wizard. Manage them via <code>kubectl</code> directly.</div></div>"
+                                            },
+                                            {
+                                                "when": {
+                                                    "resolver": "k8sVolRowType",
+                                                    "equals": "configMap"
+                                                },
+                                                "title": "ConfigMap Name",
+                                                "icon": "📄",
+                                                "content": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">📄 ConfigMap Name</div><div class=\"state-detail\">The name of the <code>ConfigMap</code> resource to mount. Each key in the ConfigMap becomes a file in the mount directory.<br><br>The ConfigMap must exist in the same namespace as the pod. If it doesn't exist at deploy time, the pod won't start (unless you mark the volume as optional).<br><br><strong>Common patterns:</strong><br>• <code>nginx-config</code> → mounts <code>nginx.conf</code> into <code>/etc/nginx</code><br>• <code>app-settings</code> → mounts <code>settings.json</code> into <code>/app/config</code><br>• <code>prometheus-rules</code> → mounts rule files into <code>/etc/prometheus/rules</code></div></div>"
+                                            },
+                                            {
+                                                "when": {
+                                                    "resolver": "k8sVolRowType",
+                                                    "equals": "secret"
+                                                },
+                                                "title": "Secret Name",
+                                                "icon": "🔐",
+                                                "content": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🔐 Secret Name</div><div class=\"state-detail\">The name of the <code>Secret</code> resource to mount as files. Each key in the Secret becomes a file with the decoded (not base64) value as content.<br><br>The Secret must exist in the same namespace. If missing, the pod won't start.<br><br><strong>Common patterns:</strong><br>• <code>tls-certs</code> → mounts <code>tls.crt</code> + <code>tls.key</code> into <code>/etc/tls</code><br>• <code>ssh-keys</code> → mounts <code>id_rsa</code> into <code>/root/.ssh</code><br>• <code>ca-bundle</code> → mounts <code>ca.crt</code> for custom CA trust<br><br>Files are mounted with mode 0644 by default. For sensitive keys like SSH, set <code>defaultMode: 0400</code> in the manifest.</div></div>"
+                                            },
+                                            {
+                                                "when": {
+                                                    "resolver": "k8sVolRowType",
+                                                    "equals": "hostPath"
+                                                },
+                                                "title": "Host Path",
+                                                "icon": "⚠️",
+                                                "content": "<div class=\"assistant-state-card state-warning\"><div class=\"state-label\">⚠️ Host Path</div><div class=\"state-detail\">The <strong>absolute path on the host node</strong> to mount into the container. This ties the pod to a specific node's filesystem.<br><br><strong>Common uses:</strong><br>• <code>/var/log</code> → node-level log access for DaemonSet collectors<br>• <code>/var/run/docker.sock</code> → Docker socket (security risk)<br>• <code>/dev</code> → device access for hardware plugins<br><br>⚠️ <strong>Security risks:</strong> pods can read/write the host filesystem. Avoid in production. PodSecurityPolicies or OPA can restrict this. Not portable across nodes.</div></div>"
+                                            }
+                                        ],
+                                        "children": []
+                                    },
+                                    {
+                                        "id": "k8s-cfg-vol-mount",
+                                        "title": "Mount Path",
+                                        "icon": "📁",
+                                        "selector": ".k8s-field-vol-mount",
+                                        "content": "The absolute path <strong>inside the container</strong> where the volume is mounted.",
+                                        "variants": [
+                                            {
+                                                "when": {
+                                                    "resolver": "k8sVolRowType",
+                                                    "equals": "pvc-dynamic"
+                                                },
+                                                "content": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">📁 Mount Path — PVC volume</div><div class=\"state-detail\">Where persistent data lives inside the container. This directory gets a dedicated disk provisioned by the StorageClass.<br><br><strong>Common paths by workload:</strong><br>• PostgreSQL: <code>/var/lib/postgresql/data</code><br>• MySQL: <code>/var/lib/mysql</code><br>• Redis: <code>/data</code><br>• MongoDB: <code>/data/db</code><br>• App uploads: <code>/app/uploads</code> or <code>/var/www/uploads</code><br><br>⚠️ Don't mount at <code>/app</code> — it would hide your application code. Mount at a subdirectory instead.</div></div>"
+                                            },
+                                            {
+                                                "when": {
+                                                    "resolver": "k8sVolRowType",
+                                                    "equals": "pvc-static"
+                                                },
+                                                "content": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">📁 Mount Path — static PVC</div><div class=\"state-detail\">Where the pre-existing volume is mounted inside the container. Same rules as dynamic PVC mount paths.<br><br>Make sure the existing PV's data layout matches what your app expects at this path. If migrating from another volume, verify directory structure first.</div></div>"
+                                            },
+                                            {
+                                                "when": {
+                                                    "resolver": "k8sVolRowType",
+                                                    "equals": "emptyDir"
+                                                },
+                                                "content": "<div class=\"assistant-state-card state-warning\"><div class=\"state-label\">📁 Mount Path — emptyDir (ephemeral)</div><div class=\"state-detail\">Scratch space that starts empty and is <strong>deleted when the pod is removed or rescheduled</strong>.<br><br><strong>Good for:</strong><br>• <code>/tmp</code> — temporary processing files<br>• <code>/var/cache</code> — build caches, downloaded assets<br>• <code>/shared</code> — data exchange between init and main containers<br><br>⚠️ Don't put anything here you can't afford to lose. Pod restart = data gone.</div></div>"
+                                            },
+                                            {
+                                                "when": {
+                                                    "resolver": "k8sVolRowType",
+                                                    "equals": "configMap"
+                                                },
+                                                "content": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">📁 Mount Path — ConfigMap files</div><div class=\"state-detail\">Directory where ConfigMap keys appear as files. Each key becomes a filename, each value becomes the file content.<br><br><strong>Common paths:</strong><br>• <code>/etc/nginx</code> — nginx configuration<br>• <code>/etc/config</code> — generic app config<br>• <code>/app/config</code> — application config directory<br><br>⚠️ Mounting here <strong>replaces the entire directory</strong>. If the directory has existing files (e.g. from the image), they're hidden. Use <code>subPath</code> in the manifest to mount a single file without hiding siblings.</div></div>"
+                                            },
+                                            {
+                                                "when": {
+                                                    "resolver": "k8sVolRowType",
+                                                    "equals": "secret"
+                                                },
+                                                "content": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">📁 Mount Path — Secret files</div><div class=\"state-detail\">Directory where Secret keys appear as decoded files. Sensitive data (certs, keys, passwords) is written here in plaintext — protect with filesystem permissions.<br><br><strong>Common paths:</strong><br>• <code>/etc/tls</code> — TLS certificate + key pair<br>• <code>/etc/ssl/certs</code> — CA certificates<br>• <code>/root/.ssh</code> — SSH keys<br>• <code>/etc/secrets</code> — generic secret files<br><br>Files default to mode 0644. For keys that need restricted access, set <code>defaultMode: 0400</code> in the volume spec.</div></div>"
+                                            },
+                                            {
+                                                "when": {
+                                                    "resolver": "k8sVolRowType",
+                                                    "equals": "hostPath"
+                                                },
+                                                "content": "<div class=\"assistant-state-card state-warning\"><div class=\"state-label\">📁 Mount Path — hostPath</div><div class=\"state-detail\">Where the host's directory/file appears inside the container. The <em>Host Path</em> field (left side) is the source on the node, this is the destination in the container.<br><br><strong>Common mappings:</strong><br>• <code>/var/log</code> → <code>/host/log</code> (log collector access)<br>• <code>/var/run/docker.sock</code> → <code>/var/run/docker.sock</code> (same path)<br><br>⚠️ The container can read/write the host filesystem through this mount. Use <code>readOnly: true</code> unless writes are required.</div></div>"
+                                            }
+                                        ],
+                                        "children": []
+                                    },
+                                    {
+                                        "id": "k8s-cfg-vol-size",
+                                        "title": "PVC Size",
+                                        "icon": "📏",
+                                        "selector": ".k8s-field-vol-size",
+                                        "content": "Storage request size for the PersistentVolumeClaim. Uses Kubernetes resource quantities.<div class=\"assistant-state-card state-info\" style=\"margin-top:0.4rem\"><div class=\"state-detail\">Common values: <code>1Gi</code>, <code>5Gi</code>, <code>10Gi</code>, <code>50Gi</code>, <code>100Gi</code><br><br>Units: <code>Ki</code> (kibibyte), <code>Mi</code> (mebibyte), <code>Gi</code> (gibibyte), <code>Ti</code> (tebibyte)<br><br>⚠️ <strong>Shrinking a PVC is not supported</strong> in most storage classes. Start smaller and expand later. Many providers support online volume expansion if the StorageClass has <code>allowVolumeExpansion: true</code>.</div></div>",
+                                        "children": []
+                                    },
+                                    {
+                                        "id": "k8s-cfg-vol-pvname",
+                                        "title": "PV Name",
+                                        "icon": "🔗",
+                                        "selector": ".k8s-field-vol-pvname",
+                                        "content": "Binds the PVC to a specific pre-existing PersistentVolume by name.<div class=\"assistant-state-card state-warning\" style=\"margin-top:0.4rem\"><div class=\"state-detail\">The PV must already exist in the cluster before the pod is created. The PVC's storage request and access mode must match the PV's capacity and access modes.<br><br>Use for: pre-provisioned NFS shares, manually created disks, or migrating data from an existing volume. Leave empty for dynamic provisioning.</div></div>",
+                                        "children": []
+                                    },
+                                    {
+                                        "id": "k8s-cfg-vol-sizelimit",
+                                        "title": "emptyDir Size Limit",
+                                        "icon": "📏",
+                                        "selector": ".k8s-field-vol-sizelimit",
+                                        "content": "Optional maximum size for the emptyDir volume. When exceeded, the pod is evicted.<div class=\"assistant-state-card state-info\" style=\"margin-top:0.4rem\"><div class=\"state-detail\">If set, kubelet monitors usage and evicts the pod when the limit is exceeded. This protects the node from a runaway container filling up disk.<br><br>For <strong>Memory</strong> medium, this counts against the container's memory limit. A 512Mi tmpfs + 256Mi app memory = 768Mi total RAM used.<br><br>Leave empty for no limit (default) — the volume can grow until the node's ephemeral storage is full.</div></div>",
+                                        "children": []
+                                    },
+                                    {
+                                        "id": "k8s-cfg-vol-cmkey",
+                                        "title": "ConfigMap Key",
+                                        "icon": "🔑",
+                                        "selector": ".k8s-field-vol-cmkey",
+                                        "content": "Mount a <strong>single key</strong> from the ConfigMap as a file instead of the entire ConfigMap.<div class=\"assistant-state-card state-info\" style=\"margin-top:0.4rem\"><div class=\"state-detail\"><strong>Empty (default)</strong> → mounts ALL keys as files in the mount path. Each key becomes a filename, each value becomes the file content.<br><br><strong>Specific key</strong> → mounts only that key. The mount path + key become the full file path. For example:<br>ConfigMap: <code>nginx-config</code>, Key: <code>nginx.conf</code>, Mount: <code>/etc/nginx</code><br>→ file at <code>/etc/nginx/nginx.conf</code><br><br>Use a key when your ConfigMap has multiple entries but you only need one file mounted.</div></div>",
+                                        "children": []
+                                    },
+                                    {
+                                        "id": "k8s-cfg-vol-seckey",
+                                        "title": "Secret Key",
+                                        "icon": "🔑",
+                                        "selector": ".k8s-field-vol-seckey",
+                                        "content": "Mount a <strong>single key</strong> from the Secret as a file instead of the entire Secret.<div class=\"assistant-state-card state-info\" style=\"margin-top:0.4rem\"><div class=\"state-detail\"><strong>Empty (default)</strong> → mounts ALL keys as files. Each key becomes a filename with the decoded value as content.<br><br><strong>Specific key</strong> → mounts only that key. Common patterns:<br>• <code>tls.crt</code> + <code>tls.key</code> — TLS certificate pair<br>• <code>ca.crt</code> — CA certificate bundle<br>• <code>id_rsa</code> — SSH private key<br>• <code>.dockerconfigjson</code> — Docker registry credentials<br><br>Files mounted from Secrets are automatically set to mode 0644. Use <code>defaultMode</code> in the manifest if you need stricter permissions.</div></div>",
+                                        "children": []
+                                    },
+                                    {
+                                        "id": "k8s-cfg-vol-lh-replicas",
+                                        "title": "Longhorn Replicas",
+                                        "icon": "🐂",
+                                        "selector": ".k8s-field-vol-lh-replicas",
+                                        "content": "Number of data replicas Longhorn maintains across nodes for this volume.<div class=\"assistant-state-card state-info\" style=\"margin-top:0.4rem\"><div class=\"state-detail\"><strong>1</strong> — no redundancy. If the node dies, data is lost. Only use for ephemeral or easily-recreatable data.<br><strong>2</strong> — survives one node failure. Good balance of safety and storage cost.<br><strong>3 (default)</strong> — survives two simultaneous node failures. Recommended for production databases and critical data.<br><br>More replicas = more disk usage (3 replicas of a 10Gi volume = 30Gi consumed across the cluster) and slightly higher write latency. Reads are served from the local replica when data locality is enabled.</div></div>",
+                                        "children": []
+                                    }
+                                ]
+                            },
+                            {
+                                "id": "k8s-cfg-mesh",
+                                "title": "Service Mesh",
+                                "icon": "🕸️",
+                                "selector": ".k8s-field-mesh",
+                                "content": "Injects a sidecar proxy into the pod for traffic management, mTLS, and observability.<div class=\"assistant-state-card state-info\" style=\"margin-top:0.4rem\"><div class=\"state-detail\">When enabled, the mesh control plane injects a proxy container (Envoy, linkerd-proxy, etc.) alongside your app. This proxy intercepts all network traffic and provides:<br>• <strong>mTLS</strong> — automatic encryption between services, zero-trust networking<br>• <strong>Observability</strong> — request metrics, tracing, and access logs without code changes<br>• <strong>Traffic management</strong> — retries, timeouts, circuit breaking, canary deployments<br><br>Only annotations are added to your manifest — the proxy itself is injected by the mesh's webhook.</div></div>",
+                                "children": [
+                                    {
+                                        "id": "k8s-cfg-mesh-provider",
+                                        "title": "Mesh Provider",
+                                        "icon": "🔧",
+                                        "selector": ".k8s-field-mesh-provider",
+                                        "content": "Which service mesh implementation to use.",
+                                        "variants": [
+                                            {
+                                                "when": {
+                                                    "resolver": "k8sFieldValue",
+                                                    "equals": "istio"
+                                                },
+                                                "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">🔷 Istio selected</div><div class=\"state-detail\">The most feature-rich mesh. Envoy-based sidecar with powerful traffic management, security policies, and telemetry.<br><br><strong>Pros:</strong> industry standard, massive ecosystem, VirtualService/DestinationRule for fine-grained routing<br><strong>Cons:</strong> heavy resource footprint (~128Mi+ per sidecar), complex configuration, slower to adopt<br><br>Best for: large teams, complex routing needs, organizations already invested in the Istio ecosystem.</div></div>"
+                                            },
+                                            {
+                                                "when": {
+                                                    "resolver": "k8sFieldValue",
+                                                    "equals": "linkerd"
+                                                },
+                                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🔗 Linkerd selected</div><div class=\"state-detail\">Lightweight, Rust-based proxy. Simpler than Istio with lower resource overhead.<br><br><strong>Pros:</strong> fast, low memory (~20Mi per sidecar), easy to install, automatic mTLS out of the box<br><strong>Cons:</strong> fewer traffic management features, smaller ecosystem<br><br>Best for: small-to-medium clusters, teams that want mTLS and observability without Istio's complexity.</div></div>"
+                                            },
+                                            {
+                                                "when": {
+                                                    "resolver": "k8sFieldValue",
+                                                    "equals": "consul"
+                                                },
+                                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🟢 Consul Connect selected</div><div class=\"state-detail\">HashiCorp's service mesh. Envoy-based with deep integration into the HashiCorp ecosystem (Vault, Nomad, Terraform).<br><br><strong>Pros:</strong> multi-platform (K8s + VMs + bare metal), built-in service discovery, Vault integration for cert management<br><strong>Cons:</strong> heavier ops overhead, requires Consul servers<br><br>Best for: hybrid environments, teams already using HashiCorp tools.</div></div>"
+                                            },
+                                            {
+                                                "when": {
+                                                    "resolver": "k8sFieldValue",
+                                                    "equals": "kuma"
+                                                },
+                                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🐻 Kuma selected</div><div class=\"state-detail\">CNCF-graduated mesh by Kong. Envoy-based with multi-zone and multi-mesh support.<br><br><strong>Pros:</strong> simple UX, multi-zone federation, supports both K8s and Universal (VM) mode<br><strong>Cons:</strong> smaller community than Istio, fewer third-party integrations<br><br>Best for: teams wanting Envoy power with simpler operations, multi-cluster setups.</div></div>"
+                                            }
+                                        ],
+                                        "children": []
+                                    }
+                                ]
+                            },
+                            {
+                                "id": "k8s-cfg-init",
+                                "title": "Init Containers",
+                                "icon": "⏳",
+                                "selector": ".k8s-field-init",
+                                "content": "Init containers run <strong>to completion</strong> before the main container starts. They execute sequentially — each must succeed before the next begins.<div class=\"assistant-state-card state-info\" style=\"margin-top:0.4rem\"><div class=\"state-detail\"><strong>Wait for TCP</strong> — blocks until a dependency port is accepting connections (e.g. wait for Postgres on port 5432)<br><strong>Wait for HTTP</strong> — blocks until an HTTP endpoint returns 200 (e.g. wait for an API to be ready)<br><strong>Run migrations</strong> — executes database migrations before the app starts<br><strong>Fix permissions</strong> — <code>chown</code>/<code>chmod</code> on mounted volumes before the non-root main container reads them<br><strong>Custom</strong> — any one-off setup task with your own image and command</div></div><span class=\"assistant-tip\">Init containers share the pod's volumes. Use them to pre-populate data, wait for dependencies, or fix filesystem permissions.</span>",
+                                "children": []
+                            },
+                            {
+                                "id": "k8s-cfg-sidecar",
+                                "title": "Sidecar Containers",
+                                "icon": "🚗",
+                                "selector": ".k8s-field-sidecar",
+                                "content": "Sidecar containers run <strong>alongside</strong> the main container for the entire pod lifecycle. They share the pod's network and volumes.<div class=\"assistant-state-card state-info\" style=\"margin-top:0.4rem\"><div class=\"state-detail\"><strong>Log forwarder</strong> — tails log files from a shared volume and ships them to your logging stack (Fluentd, Filebeat)<br><strong>Config reloader</strong> — watches ConfigMaps/Secrets and hot-reloads the main container when config changes<br><strong>Metrics exporter</strong> — exposes Prometheus metrics for apps that don't natively support it<br><strong>Auth proxy</strong> — OAuth2 proxy or mTLS termination in front of your app<br><strong>Cloud SQL Proxy</strong> — secure connection to GCP Cloud SQL without exposing credentials<br><strong>Vault agent</strong> — auto-renews Vault tokens and injects secrets as files</div></div><span class=\"assistant-tip\">Each sidecar adds to the pod's resource footprint. Set resource limits on sidecars to prevent them from starving the main container.</span>",
                                 "children": []
                             }
                         ]

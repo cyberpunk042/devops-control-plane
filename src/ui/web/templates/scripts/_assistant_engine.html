@@ -654,23 +654,28 @@
                     // 3. Field-group proximity: the element shares a wrapper div
                     //    with the selector target. This handles hovering a <label>
                     //    that's a sibling of <input id="wiz-name">.
-                    //    Skip for ID selectors — they already uniquely target
-                    //    elements and proximity would false-positive on siblings
-                    //    in the same flex row.
-                    //    Uses querySelectorAll to check ALL matches, not just the
-                    //    first — critical for class selectors with multiple instances.
-                    if (!matched && node.selector.charAt(0) !== '#') {
+                    //    Skip for ID and class selectors — class selectors are
+                    //    already matched by closest/querySelector in steps 2/2.5,
+                    //    and proximity can false-positive when the ancestor div
+                    //    is a large container (e.g. a service card).
+                    //    Limit the walk to 2 levels to avoid matching the entire
+                    //    card container via a distant ancestor div.
+                    if (!matched && node.selector.charAt(0) !== '#' && node.selector.charAt(0) !== '.') {
                         const targets = _containerEl.querySelectorAll(node.selector);
                         for (let t = 0; t < targets.length; t++) {
                             const targetEl = targets[t];
-                            if (targetEl.parentElement) {
-                                const wrapper = targetEl.parentElement.closest('div');
-                                if (wrapper && wrapper !== _containerEl &&
-                                    (wrapper === element || wrapper.contains(element))) {
-                                    matched = true;
-                                    proximateTarget = targetEl;
-                                    break;
-                                }
+                            // Walk up at most 2 levels from targetEl to find a nearby div
+                            var walk = targetEl.parentElement;
+                            var wrapper = null;
+                            for (var w = 0; w < 2 && walk && walk !== _containerEl; w++) {
+                                if (walk.tagName === 'DIV') { wrapper = walk; break; }
+                                walk = walk.parentElement;
+                            }
+                            if (wrapper && wrapper !== _containerEl &&
+                                (wrapper === element || wrapper.contains(element))) {
+                                matched = true;
+                                proximateTarget = targetEl;
+                                break;
                             }
                         }
                     }
@@ -1708,6 +1713,16 @@
         var idx = card.id.replace('k8s-svc-card-', '');
         var kindSel = document.getElementById('k8s-svc-kind-' + idx);
         return kindSel ? kindSel.value : '';
+    };
+
+    // Row-level: reads the volume type select from the same volume row
+    window._assistant.resolvers.k8sVolRowType = function() {
+        var el = window._assistant._resolveElement;
+        if (!el) return '';
+        var row = el.closest ? el.closest('.k8s-vol-row') : null;
+        if (!row) return '';
+        var sel = row.querySelector('select[id^="k8s-svc-vol-type-"]');
+        return sel ? sel.value : '';
     };
 
     // K8s port — dynamic HTML using shared _classifyPort / _knownPorts

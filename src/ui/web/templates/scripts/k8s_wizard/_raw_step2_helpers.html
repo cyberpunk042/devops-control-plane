@@ -116,24 +116,24 @@
                                 </div>
                                 <div id="${prefix}-cfg">
                                     <div style="display:flex;gap:0.35rem;margin-bottom:0.2rem;flex-wrap:wrap">
-                                        <div id="${prefix}-path-w" style="display:${probeType === 'http' ? 'block' : 'none'};min-width:130px;flex:2">
+                                        <div id="${prefix}-path-w" style="display:${probeType === 'http' ? 'block' : 'none'};min-width:130px;flex:2" class="k8s-field-probe-path">
                                             ${_lbl('Path')}${_inp(`${prefix}-path`, path, '/health')}
                                         </div>
-                                        <div id="${prefix}-port-w" style="display:${probeType !== 'exec' ? 'block' : 'none'};min-width:65px;flex:1">
+                                        <div id="${prefix}-port-w" style="display:${probeType !== 'exec' ? 'block' : 'none'};min-width:65px;flex:1" class="k8s-field-probe-port">
                                             ${_lbl('Port')}${_num(`${prefix}-port`, port)}
                                         </div>
-                                        <div id="${prefix}-cmd-w" style="display:${probeType === 'exec' ? 'block' : 'none'};flex:1;min-width:180px">
+                                        <div id="${prefix}-cmd-w" style="display:${probeType === 'exec' ? 'block' : 'none'};flex:1;min-width:180px" class="k8s-field-probe-cmd">
                                             ${_lbl('Command')}${_inp(`${prefix}-cmd`, command, 'pg_isready -U postgres')}
                                         </div>
                                     </div>
                                     <div style="display:flex;gap:0.35rem;flex-wrap:wrap">
-                                        <div style="min-width:55px">
+                                        <div style="min-width:55px" class="k8s-field-probe-delay">
                                             ${_lbl('Delay', 's')}${_num(`${prefix}-delay`, delay)}
                                         </div>
-                                        <div style="min-width:55px">
+                                        <div style="min-width:55px" class="k8s-field-probe-period">
                                             ${_lbl('Period', 's')}${_num(`${prefix}-period`, period)}
                                         </div>
-                                        <div style="min-width:55px">
+                                        <div style="min-width:55px" class="k8s-field-probe-extra">
                                             ${_lbl(extraLabel)}${_num(`${prefix}-extra`, extra)}
                                         </div>
                                     </div>
