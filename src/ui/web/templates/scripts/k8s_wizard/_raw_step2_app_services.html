@@ -55,13 +55,13 @@
                                 html += `<div style="border:1px solid var(--border-subtle);border-radius:8px;background:var(--bg-inset);overflow:hidden" id="k8s-svc-card-${i}">
                                     <label style="display:flex;align-items:center;gap:0.5rem;padding:0.5rem 0.6rem;cursor:pointer;font-size:0.82rem"
                                         onmouseover="this.parentElement.style.borderColor='var(--accent)'" onmouseout="this.parentElement.style.borderColor='var(--border-subtle)'">
-                                        <input type="checkbox" id="k8s-svc-chk-${i}" checked style="accent-color:var(--accent)"
+                                        <input type="checkbox" id="k8s-svc-chk-${i}" checked class="wiz-check"
                                             onchange="document.getElementById('k8s-svc-cfg-${i}').style.display=this.checked?'block':'none'">
                                         <span style="font-size:1rem" id="k8s-svc-icon-${i}">${_kindIcon(effKind)}</span>
                                         <strong>${esc(svc.name)}</strong>
-                                        <code style="font-size:0.72rem;background:var(--bg-primary);padding:1px 5px;border-radius:3px;color:var(--text-secondary)">${esc(svc.image ? svc.image.split('/').pop().split(':')[0] : 'local build')}</code>
+                                        <code class="wiz-badge">${esc(svc.image ? svc.image.split('/').pop().split(':')[0] : 'local build')}</code>
                                         <span style="flex:1"></span>
-                                        ${portVal ? `<code style="font-size:0.68rem;color:var(--text-muted)">:${portVal}</code>` : ''}
+                                        ${portVal ? `<code class="wiz-note">:${portVal}</code>` : ''}
                                         <span class="k8s-field-kind"><select id="k8s-svc-kind-${i}" class="modal-form-select"
                                             style="font-size:0.68rem;padding:0.1rem 0.3rem;min-width:110px;color:var(--success);font-weight:600;border-color:transparent;background:transparent"
                                             onclick="event.stopPropagation()" onmousedown="event.stopPropagation()"
@@ -101,7 +101,7 @@
                                         <div style="display:flex;align-items:end;gap:0.4rem;margin-top:0.35rem;flex-wrap:wrap">
                                             <div style="min-width:140px">
                                                 <span class="k8s-field-strategy">${_lbl('Update Strategy')}
-                                                <select id="k8s-svc-strategy-${i}" class="modal-form-select" style="font-size:0.76rem;padding:0.2rem 0.3rem;width:100%"
+                                                <select id="k8s-svc-strategy-${i}" class="modal-form-select wiz-input-full"
                                                     onchange="var r=document.getElementById('k8s-svc-rolling-${i}');var h=document.getElementById('k8s-svc-strat-hint-${i}');if(r)r.style.display=this.value==='RollingUpdate'?'flex':'none';if(h)h.style.display=this.value==='Recreate'?'block':'none'">
                                                     <option value="RollingUpdate"${effStrategy === 'RollingUpdate' ? ' selected' : ''}>RollingUpdate</option>
                                                     <option value="Recreate"${effStrategy === 'Recreate' ? ' selected' : ''}>Recreate</option>
@@ -128,8 +128,8 @@
 
                                         <!-- ── Job/CronJob-only sections (hidden by default) ── -->
                                         <div id="k8s-svc-job-sections-${i}" style="display:none">
-                                            <div style="margin-top:0.35rem;padding:0.4rem;background:var(--bg-primary);border-radius:6px;border:1px solid var(--border-subtle)" class="k8s-field-job-cfg">
-                                                <div style="font-size:0.68rem;color:var(--accent);font-weight:600;margin-bottom:0.3rem">⚡ Job Configuration</div>
+                                            <div class="wiz-section k8s-field-job-cfg">
+                                                <div class="wiz-label-accent">⚡ Job Configuration</div>
                                                 <div style="display:grid;grid-template-columns:3fr 2fr 1fr;gap:0.4rem;align-items:start">
                                                     <div><span class="k8s-field-job-cmd">${_lbl('Command')}${_inp(`k8s-svc-job-cmd-${i}`, '', '/bin/sh -c "…"')}</span></div>
                                                     <div><span class="k8s-field-job-args">${_lbl('Args (optional)')}${_inp(`k8s-svc-job-args-${i}`, '', 'arg1 arg2 …')}</span></div>
@@ -153,8 +153,8 @@
 
                                         <!-- ── CronJob-only sections (hidden by default) ── -->
                                         <div id="k8s-svc-cron-sections-${i}" style="display:none">
-                                            <div style="margin-top:0.35rem;padding:0.4rem;background:var(--bg-primary);border-radius:6px;border:1px solid var(--border-subtle)" class="k8s-field-cron-cfg">
-                                                <div style="font-size:0.68rem;color:var(--accent);font-weight:600;margin-bottom:0.3rem">⏰ CronJob Schedule</div>
+                                            <div class="wiz-section k8s-field-cron-cfg">
+                                                <div class="wiz-label-accent">⏰ CronJob Schedule</div>
                                                 <div style="display:grid;grid-template-columns:2fr 2fr 1fr;gap:0.4rem;align-items:start">
                                                     <div><span class="k8s-field-cron-schedule">
                                                         ${_lbl('Schedule (cron)')}${_inp(`k8s-svc-cron-schedule-${i}`, '*/5 * * * *', '*/5 * * * *')}
@@ -167,7 +167,7 @@
                                                     ], 'Forbid')}</span></div>
                                                     <div>
                                                         <label style="display:inline-flex;align-items:center;gap:0.3rem;font-size:0.72rem;cursor:pointer;margin-top:1rem">
-                                                            <input type="checkbox" id="k8s-svc-cron-suspend-${i}" style="accent-color:var(--accent)"> Suspend
+                                                            <input type="checkbox" id="k8s-svc-cron-suspend-${i}" class="wiz-check"> Suspend
                                                         </label>
                                                     </div>
                                                 </div>
@@ -182,14 +182,14 @@
 
                                         <!-- ── DaemonSet-only sections (hidden by default) ── -->
                                         <div id="k8s-svc-daemon-sections-${i}" style="display:none">
-                                            <div style="margin-top:0.35rem;padding:0.4rem;background:var(--bg-primary);border-radius:6px;border:1px solid var(--border-subtle)" class="k8s-field-ds-cfg">
-                                                <div style="font-size:0.68rem;color:var(--accent);font-weight:600;margin-bottom:0.3rem">🌐 DaemonSet Configuration</div>
+                                            <div class="wiz-section k8s-field-ds-cfg">
+                                                <div class="wiz-label-accent">🌐 DaemonSet Configuration</div>
 
                                                 <span class="k8s-field-ds-strategy">
                                                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.4rem;align-items:start">
                                                     <div>
                                                         ${_lbl('Update Strategy')}
-                                                        <select id="k8s-svc-ds-strategy-${i}" class="modal-form-select" style="font-size:0.76rem;padding:0.2rem 0.3rem;width:100%"
+                                                        <select id="k8s-svc-ds-strategy-${i}" class="modal-form-select wiz-input-full"
                                                             onchange="var w=document.getElementById('k8s-svc-ds-maxunavail-wrap-${i}');if(w)w.style.display=this.value==='RollingUpdate'?'block':'none'">
                                                             <option value="RollingUpdate" selected>RollingUpdate</option>
                                                             <option value="OnDelete">OnDelete</option>
@@ -205,7 +205,7 @@
 
                                                 <span class="k8s-field-ds-nodeselector">
                                                 <div style="margin-top:0.4rem">
-                                                    <div style="font-size:0.68rem;color:var(--text-muted);font-weight:600;margin-bottom:0.2rem">🎯 Node Selection</div>
+                                                    <div class="wiz-label">🎯 Node Selection</div>
                                                     <div>${_lbl('Node Selector')}</div>
                                                     ${_inp(`k8s-svc-ds-nodeselector-${i}`, '', 'key=value, key=value')}
                                                     <div style="font-size:0.56rem;color:var(--text-muted);font-style:italic;margin-top:1px">Leave empty to run on all nodes</div>
@@ -214,13 +214,13 @@
 
                                                 <span class="k8s-field-ds-tolerations">
                                                 <div style="margin-top:0.35rem">
-                                                    <div style="font-size:0.68rem;color:var(--text-muted);font-weight:600;margin-bottom:0.2rem">🔓 Tolerations</div>
-                                                    <div style="display:flex;flex-direction:column;gap:0.2rem">
-                                                        <label style="display:inline-flex;align-items:center;gap:0.3rem;font-size:0.72rem;cursor:pointer">
-                                                            <input type="checkbox" id="k8s-svc-ds-tol-cp-${i}" style="accent-color:var(--accent)"> Run on control-plane nodes
+                                                    <div class="wiz-label">🔓 Tolerations</div>
+                                                    <div class="wiz-vstack">
+                                                        <label class="wiz-toggle">
+                                                            <input type="checkbox" id="k8s-svc-ds-tol-cp-${i}" class="wiz-check"> Run on control-plane nodes
                                                         </label>
-                                                        <label style="display:inline-flex;align-items:center;gap:0.3rem;font-size:0.72rem;cursor:pointer">
-                                                            <input type="checkbox" id="k8s-svc-ds-tol-nosched-${i}" style="accent-color:var(--accent)"> Run on nodes with NoSchedule taints
+                                                        <label class="wiz-toggle">
+                                                            <input type="checkbox" id="k8s-svc-ds-tol-nosched-${i}" class="wiz-check"> Run on nodes with NoSchedule taints
                                                         </label>
                                                     </div>
                                                 </div>
@@ -228,16 +228,16 @@
 
                                                 <span class="k8s-field-ds-hostaccess">
                                                 <div style="margin-top:0.35rem">
-                                                    <div style="font-size:0.68rem;color:var(--text-muted);font-weight:600;margin-bottom:0.2rem">🔌 Host Access</div>
+                                                    <div class="wiz-label">🔌 Host Access</div>
                                                     <div style="display:flex;flex-wrap:wrap;gap:0.4rem 1rem">
-                                                        <label style="display:inline-flex;align-items:center;gap:0.3rem;font-size:0.72rem;cursor:pointer">
-                                                            <input type="checkbox" id="k8s-svc-ds-hostnet-${i}" style="accent-color:var(--accent)"> Host Network
+                                                        <label class="wiz-toggle">
+                                                            <input type="checkbox" id="k8s-svc-ds-hostnet-${i}" class="wiz-check"> Host Network
                                                         </label>
-                                                        <label style="display:inline-flex;align-items:center;gap:0.3rem;font-size:0.72rem;cursor:pointer">
-                                                            <input type="checkbox" id="k8s-svc-ds-hostpid-${i}" style="accent-color:var(--accent)"> Host PID
+                                                        <label class="wiz-toggle">
+                                                            <input type="checkbox" id="k8s-svc-ds-hostpid-${i}" class="wiz-check"> Host PID
                                                         </label>
-                                                        <label style="display:inline-flex;align-items:center;gap:0.3rem;font-size:0.72rem;cursor:pointer">
-                                                            <input type="checkbox" id="k8s-svc-ds-hostipc-${i}" style="accent-color:var(--accent)"> Host IPC
+                                                        <label class="wiz-toggle">
+                                                            <input type="checkbox" id="k8s-svc-ds-hostipc-${i}" class="wiz-check"> Host IPC
                                                         </label>
                                                     </div>
                                                     <div style="font-size:0.56rem;color:var(--text-muted);font-style:italic;margin-top:2px">Host access = pod shares the node's namespace (common for monitoring agents)</div>
@@ -248,8 +248,8 @@
 
                                         <!-- ── StatefulSet-only sections (hidden by default) ── -->
                                         <div id="k8s-svc-statefulset-sections-${i}" style="display:none">
-                                            <div style="margin-top:0.35rem;padding:0.4rem;background:var(--bg-primary);border-radius:6px;border:1px solid var(--border-subtle)" class="k8s-field-ss-cfg">
-                                                <div style="font-size:0.68rem;color:var(--accent);font-weight:600;margin-bottom:0.3rem">🗄️ StatefulSet Configuration</div>
+                                            <div class="wiz-section k8s-field-ss-cfg">
+                                                <div class="wiz-label-accent">🗄️ StatefulSet Configuration</div>
 
                                                 <!-- Headless Service + ClusterIP -->
                                                 <div style="display:grid;grid-template-columns:2fr 1fr 1fr;gap:0.4rem;align-items:start">
@@ -265,8 +265,8 @@
                                                         ], 'OrderedReady')}
                                                     </span></div>
                                                     <div style="padding-top:1rem"><span class="k8s-field-ss-clusterip">
-                                                        <label style="display:inline-flex;align-items:center;gap:0.3rem;font-size:0.72rem;cursor:pointer">
-                                                            <input type="checkbox" id="k8s-svc-ss-clusterip-${i}" style="accent-color:var(--accent)"> Also create ClusterIP
+                                                        <label class="wiz-toggle">
+                                                            <input type="checkbox" id="k8s-svc-ss-clusterip-${i}" class="wiz-check"> Also create ClusterIP
                                                         </label>
                                                     </span></div>
                                                 </div>
@@ -276,7 +276,7 @@
                                                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.4rem;margin-top:0.35rem;align-items:start">
                                                     <div><span class="k8s-field-ss-strategy">
                                                         ${_lbl('Update Strategy')}
-                                                        <select id="k8s-svc-ss-strategy-${i}" class="modal-form-select" style="font-size:0.76rem;padding:0.2rem 0.3rem;width:100%"
+                                                        <select id="k8s-svc-ss-strategy-${i}" class="modal-form-select wiz-input-full"
                                                             onchange="var w=document.getElementById('k8s-svc-ss-partition-wrap-${i}');if(w)w.style.display=this.value==='RollingUpdate'?'block':'none'">
                                                             <option value="RollingUpdate" selected>RollingUpdate</option>
                                                             <option value="OnDelete">OnDelete</option>
@@ -291,22 +291,22 @@
                                             </div>
 
                                             <!-- volumeClaimTemplates section -->
-                                            <div style="margin-top:0.35rem;padding:0.4rem;background:var(--bg-primary);border-radius:6px;border:1px solid var(--border-subtle)" class="k8s-field-ss-storage">
+                                            <div class="wiz-section k8s-field-ss-storage">
                                                 <div style="font-size:0.68rem;color:var(--accent);font-weight:600;margin-bottom:0.3rem;display:flex;align-items:center;gap:0.3rem">
                                                     💾 Persistent Storage (volumeClaimTemplates)
                                                     ${volCount > 0 ? `<span style="font-size:0.6rem;background:var(--bg-secondary);color:var(--text-secondary);padding:1px 5px;border-radius:3px">${volCount} from Compose</span>` : ''}
                                                 </div>
                                                 <div style="font-size:0.56rem;color:var(--text-muted);font-style:italic;margin-bottom:0.3rem">Each pod gets its own PVC: <code>data-${svc.name}-0</code>, <code>data-${svc.name}-1</code>, …</div>
 
-                                                <div id="k8s-svc-vct-list-${i}" style="display:flex;flex-direction:column;gap:0.3rem">
+                                                <div id="k8s-svc-vct-list-${i}" class="wiz-vstack-md">
                                                     ${(() => {
                                                         const vols = svc.volumes || [];
                                                         const namedVols = vols.map(v => window._classifyVolume(v)).filter(cl => cl.classification === 'named');
-                                                        if (namedVols.length === 0) return '<div style="font-size:0.68rem;color:var(--text-muted);font-style:italic">No named volumes detected — click "+ Add volume claim template" below</div>';
+                                                        if (namedVols.length === 0) return '<div class="wiz-hint-italic">No named volumes detected — click "+ Add volume claim template" below</div>';
                                                         return namedVols.map((cl, j) => {
                                                             return `<div class="k8s-vct-row" style="padding:0.3rem;border:1px solid var(--border-subtle);border-radius:4px;background:var(--bg-secondary)">
                                                                 <div style="display:grid;grid-template-columns:auto 1fr 2fr 1fr 1fr 1fr;gap:0.3rem;align-items:center;font-size:0.72rem">
-                                                                    <label><input type="checkbox" id="k8s-svc-vct-chk-${i}-${j}" checked style="accent-color:var(--accent)"></label>
+                                                                    <label><input type="checkbox" id="k8s-svc-vct-chk-${i}-${j}" checked class="wiz-check"></label>
                                                                     <div>${_lbl('Name')}${_inp(`k8s-svc-vct-name-${i}-${j}`, cl.name, 'data')}</div>
                                                                     <div>${_lbl('Mount Path')}${_inp(`k8s-svc-vct-mount-${i}-${j}`, cl.mountPath, '/var/lib/data')}</div>
                                                                     <div>${_lbl('Size')}${_inp(`k8s-svc-vct-size-${i}-${j}`, '10Gi', '10Gi')}</div>
@@ -328,12 +328,12 @@
 
                                         <!-- ─── 1. Resource Limits ─── -->
                                         <details style="margin-top:0.4rem">
-                                            <summary style="cursor:pointer;font-size:0.72rem;color:var(--accent);user-select:none;padding:0.15rem 0;display:flex;align-items:center;gap:0.4rem">
+                                            <summary class="wiz-action">
                                                 ▸ Resource Limits
-                                                ${hasComposeRes ? '<span style="font-size:0.6rem;background:var(--bg-primary);color:var(--text-secondary);padding:1px 5px;border-radius:3px">from Compose</span>' : ''}
+                                                ${hasComposeRes ? '<span class="wiz-badge-sm">from Compose</span>' : ''}
                                                 <span id="k8s-svc-qos-${i}" style="margin-left:auto">${_qosHint(compCpuReq, compCpuLim, compMemReq, compMemLim)}</span>
                                             </summary>
-                                            <div style="margin-top:0.3rem;padding:0.4rem;background:var(--bg-primary);border-radius:6px;border:1px solid var(--border-subtle)" class="k8s-field-resources">
+                                            <div class="wiz-section k8s-field-resources">
                                                 <div style="display:grid;grid-template-columns:auto 1fr 1fr;gap:0.3rem 0.5rem;align-items:center;font-size:0.74rem">
                                                     <!-- Header row -->
                                                     <div></div>
@@ -350,7 +350,7 @@
                                                 </div>
                                                 <!-- Live QoS class + guidance -->
                                                 <div style="display:flex;align-items:center;gap:0.5rem;margin-top:0.35rem;padding-top:0.3rem;border-top:1px solid var(--border-subtle)">
-                                                    <span style="font-size:0.66rem;color:var(--text-muted)">QoS class →</span>
+                                                    <span class="wiz-note">QoS class →</span>
                                                     <span id="k8s-svc-qos-live-${i}">${_qosHint(effCpuReq, effCpuLim, effMemReq, effMemLim)}</span>
                                                     <span style="flex:1"></span>
                                                     <span style="font-size:0.6rem;color:var(--text-muted);font-style:italic">Empty = omit from manifest (K8s node defaults apply)</span>
@@ -361,12 +361,12 @@
                                         <!-- ─── 2. Health Checks (hidden for Job/CronJob) ─── -->
                                         <div id="k8s-svc-probes-wrap-${i}">
                                         <details style="margin-top:0.3rem">
-                                            <summary style="cursor:pointer;font-size:0.72rem;color:var(--accent);user-select:none;padding:0.15rem 0;display:flex;align-items:center;gap:0.4rem">
+                                            <summary class="wiz-action">
                                                 ▸ Health Checks
-                                                ${hc ? '<span style="font-size:0.6rem;background:var(--bg-primary);color:var(--text-secondary);padding:1px 5px;border-radius:3px">from Compose</span>' : ''}
+                                                ${hc ? '<span class="wiz-badge-sm">from Compose</span>' : ''}
                                                 <span style="margin-left:auto;font-size:0.6rem;color:var(--text-muted)">recommended</span>
                                             </summary>
-                                            <div style="margin-top:0.3rem;padding:0.4rem;background:var(--bg-primary);border-radius:6px;border:1px solid var(--border-subtle)" class="k8s-field-probes">
+                                            <div class="wiz-section k8s-field-probes">
                                                 ${(() => {
                                                     const parsed = _parseComposeProbe(hc, portVal);
                                                     const prd = _parseDur(hc && hc.interval);
@@ -397,23 +397,23 @@
 
                                         <!-- ─── 3. Environment Variables ─── -->
                                         <details style="margin-top:0.3rem">
-                                            <summary style="cursor:pointer;font-size:0.72rem;color:var(--accent);user-select:none;padding:0.15rem 0;display:flex;align-items:center;gap:0.4rem">
+                                            <summary class="wiz-action">
                                                 ▸ Environment Variables
                                                 ${envKeys.length > 0 ? `<span style="font-size:0.72rem;background:var(--bg-primary);color:var(--text-secondary);padding:1px 5px;border-radius:3px">${envKeys.length} from Compose</span>` : ''}
                                             </summary>
-                                            <div style="margin-top:0.3rem;padding:0.4rem;background:var(--bg-primary);border-radius:6px;border:1px solid var(--border-subtle)" class="k8s-field-envvars">
+                                            <div class="wiz-section k8s-field-envvars">
                                                 ${isMultiEnv ? `<div style="font-size:0.78rem;color:var(--warning);background:color-mix(in srgb, var(--warning) 8%, transparent);padding:0.3rem 0.4rem;border-radius:4px;margin-bottom:0.35rem;display:flex;align-items:center;gap:0.3rem">
                                                     <span>📌</span>
                                                     <span>Multi-env project: values shown are defaults. Use <strong>Variable | Secret</strong> for values that differ across environments.</span>
                                                 </div>` : ''}
                                                 ${envKeys.length > 0 ? `<div style="display:grid;grid-template-columns:2fr 2fr 1.5fr 1.2fr auto;gap:0.25rem;margin-bottom:0.2rem;padding:0 0.25rem">
-                                                    <span style="font-size:0.78rem;color:var(--text-muted);font-weight:600">Key</span>
-                                                    <span style="font-size:0.78rem;color:var(--text-muted);font-weight:600">Value</span>
-                                                    <span style="font-size:0.78rem;color:var(--text-muted);font-weight:600">Var / Secret</span>
-                                                    <span style="font-size:0.78rem;color:var(--text-muted);font-weight:600">Injection</span>
+                                                    <span class="wiz-group-header">Key</span>
+                                                    <span class="wiz-group-header">Value</span>
+                                                    <span class="wiz-group-header">Var / Secret</span>
+                                                    <span class="wiz-group-header">Injection</span>
                                                     <span></span>
                                                 </div>` : ''}
-                                                <div id="k8s-svc-env-list-${i}" style="display:flex;flex-direction:column;gap:0.2rem">
+                                                <div id="k8s-svc-env-list-${i}" class="wiz-vstack">
                                                     ${(() => {
                                                         // Use saved env vars when available, otherwise compose detection
                                                         if (saved?.envVars) {
@@ -428,7 +428,7 @@
                                                     })()}
                                                 </div>
                                                 <button type="button" onclick="_addEnvVar(${i})"
-                                                    style="margin-top:0.3rem;font-size:0.66rem;color:var(--accent);background:none;border:1px dashed var(--border-subtle);border-radius:4px;padding:0.2rem 0.5rem;cursor:pointer;width:100%">
+                                                    class="wiz-add-btn">
                                                     + Add variable
                                                 </button>
                                                 <div id="k8s-svc-env-summary-${i}" style="font-size:0.6rem;color:var(--text-muted);margin-top:0.25rem;padding-top:0.2rem;border-top:1px solid var(--border-subtle)">
@@ -455,11 +455,11 @@
                                         <!-- ─── 4. Volume Mounts (hidden for Job/CronJob) ─── -->
                                         <div id="k8s-svc-vols-wrap-${i}">
                                         <details style="margin-top:0.3rem">
-                                            <summary style="cursor:pointer;font-size:0.72rem;color:var(--accent);user-select:none;padding:0.15rem 0;display:flex;align-items:center;gap:0.4rem">
+                                            <summary class="wiz-action">
                                                 ▸ Volume Mounts
-                                                ${volCount > 0 ? `<span style="font-size:0.6rem;background:var(--bg-primary);color:var(--text-secondary);padding:1px 5px;border-radius:3px">${volCount} from Compose</span>` : ''}
+                                                ${volCount > 0 ? `<span class="wiz-badge-sm">${volCount} from Compose</span>` : ''}
                                             </summary>
-                                            <div style="margin-top:0.3rem;padding:0.45rem 0.5rem;background:var(--bg-primary);border-radius:6px;border:1px solid var(--border-subtle)" class="k8s-field-volumes">
+                                            <div class="wiz-section-lg k8s-field-volumes">
 
 
                                                 <div style="font-size:0.68rem;color:var(--text-muted);font-weight:600;margin-bottom:0.25rem;display:flex;align-items:center;gap:0.3rem">
@@ -471,14 +471,14 @@
                                                     ${(() => {
                                                         // Use saved volumes when available, otherwise compose detection
                                                         if (saved?.volumes) {
-                                                            if (saved.volumes.length === 0) return '<div style="font-size:0.68rem;color:var(--text-muted);font-style:italic">No volumes configured — click \'+ Add volume\' below</div>';
+                                                            if (saved.volumes.length === 0) return '<div class="wiz-hint-italic">No volumes configured — click \'+ Add volume\' below</div>';
                                                             return saved.volumes.map((vol, j) => {
                                                                 const cl = window._savedVolToClassification(vol);
                                                                 return window._volRowHtml(i, j, cl);
                                                             }).join('');
                                                         }
                                                         const vols = svc.volumes || [];
-                                                        if (vols.length === 0) return '<div style="font-size:0.68rem;color:var(--text-muted);font-style:italic">No volumes detected — click "+ Add volume" below</div>';
+                                                        if (vols.length === 0) return '<div class="wiz-hint-italic">No volumes detected — click "+ Add volume" below</div>';
                                                         return vols.map((v, j) => {
                                                             const cl = window._classifyVolume(v);
                                                             return window._volRowHtml(i, j, cl);
@@ -503,7 +503,7 @@
                                                     const savedDeps = saved?.dependencies || svc.depends_on || [];
                                                     const checked = savedDeps.includes(inf.name) ? ' checked' : '';
                                                     return `<label class="k8s-dep-label" style="display:inline-flex;align-items:center;gap:0.2rem;font-size:0.7rem;cursor:pointer">
-                                                        <input type="checkbox" class="k8s-dep-${i}" value="${esc(inf.name)}" style="accent-color:var(--accent)"${checked} onchange="window._refreshEnvSelects(${i})"> ${esc(inf.name)}
+                                                        <input type="checkbox" class="k8s-dep-${i}" value="${esc(inf.name)}" class="wiz-check"${checked} onchange="window._refreshEnvSelects(${i})"> ${esc(inf.name)}
                                                     </label>`;
                                                 }).join('') : '<span style="font-size:0.7rem;color:var(--text-muted)">—</span>'}
                                             </div>
@@ -513,74 +513,74 @@
                                         <!-- ─── 7. Init Containers (hidden for Job/CronJob) ─── -->
                                         <div id="k8s-svc-init-wrap-${i}">
                                         <details style="margin-top:0.3rem">
-                                            <summary style="cursor:pointer;font-size:0.72rem;color:var(--accent);user-select:none;padding:0.15rem 0;display:flex;align-items:center;gap:0.4rem">
+                                            <summary class="wiz-action">
                                                 ▸ Init Containers
-                                                <span id="k8s-svc-init-count-${i}" style="font-size:0.68rem;background:var(--bg-primary);color:var(--text-secondary);padding:1px 5px;border-radius:3px">0</span>
+                                                <span id="k8s-svc-init-count-${i}" class="wiz-badge-sm">0</span>
                                             </summary>
-                                            <div style="margin-top:0.3rem;padding:0.45rem 0.5rem;background:var(--bg-primary);border-radius:6px;border:1px solid var(--border-subtle)" class="k8s-field-init">
+                                            <div class="wiz-section-lg k8s-field-init">
                                                 <div style="font-size:0.72rem;color:var(--text-muted);font-style:italic;margin-bottom:0.25rem">Init containers run to completion before the main container starts — useful for DB migrations, permission fixes, or waiting for dependencies.</div>
 
                                                 <!-- Presets -->
                                                 <div style="display:flex;flex-wrap:wrap;gap:0.25rem;margin-bottom:0.3rem">
-                                                    <button type="button" class="k8s-init-preset" style="font-size:0.74rem;padding:0.2rem 0.5rem;cursor:pointer;background:var(--bg-secondary);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-secondary)"
+                                                    <button type="button" class="k8s-init-preset wiz-select"
                                                         onclick="window._k8sAddInitPreset(${i},'wait-tcp')">⏳ Wait for TCP</button>
-                                                    <button type="button" class="k8s-init-preset" style="font-size:0.74rem;padding:0.2rem 0.5rem;cursor:pointer;background:var(--bg-secondary);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-secondary)"
+                                                    <button type="button" class="k8s-init-preset wiz-select"
                                                         onclick="window._k8sAddInitPreset(${i},'wait-http')">🌐 Wait for HTTP</button>
-                                                    <button type="button" class="k8s-init-preset" style="font-size:0.74rem;padding:0.2rem 0.5rem;cursor:pointer;background:var(--bg-secondary);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-secondary)"
+                                                    <button type="button" class="k8s-init-preset wiz-select"
                                                         onclick="window._k8sAddInitPreset(${i},'migrations')">🔄 Run migrations</button>
-                                                    <button type="button" class="k8s-init-preset" style="font-size:0.74rem;padding:0.2rem 0.5rem;cursor:pointer;background:var(--bg-secondary);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-secondary)"
+                                                    <button type="button" class="k8s-init-preset wiz-select"
                                                         onclick="window._k8sAddInitPreset(${i},'fix-perms')">🔧 Fix permissions</button>
-                                                    <button type="button" class="k8s-init-preset" style="font-size:0.74rem;padding:0.2rem 0.5rem;cursor:pointer;background:var(--bg-secondary);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-secondary)"
+                                                    <button type="button" class="k8s-init-preset wiz-select"
                                                         onclick="window._k8sAddInitPreset(${i},'custom')">📝 Custom</button>
                                                 </div>
 
                                                 <!-- Init container rows -->
-                                                <div id="k8s-svc-init-list-${i}" style="display:flex;flex-direction:column;gap:0.3rem"></div>
+                                                <div id="k8s-svc-init-list-${i}" class="wiz-vstack-md"></div>
                                             </div>
                                         </details>
                                         </div>
 
                                         <!-- ─── 8. Sidecar Containers ─── -->
                                         <details style="margin-top:0.3rem">
-                                            <summary style="cursor:pointer;font-size:0.72rem;color:var(--accent);user-select:none;padding:0.15rem 0;display:flex;align-items:center;gap:0.4rem">
+                                            <summary class="wiz-action">
                                                 ▸ Sidecar Containers
-                                                <span id="k8s-svc-sc-count-${i}" style="font-size:0.68rem;background:var(--bg-primary);color:var(--text-secondary);padding:1px 5px;border-radius:3px">0</span>
+                                                <span id="k8s-svc-sc-count-${i}" class="wiz-badge-sm">0</span>
                                             </summary>
-                                            <div style="margin-top:0.3rem;padding:0.45rem 0.5rem;background:var(--bg-primary);border-radius:6px;border:1px solid var(--border-subtle)" class="k8s-field-sidecar">
+                                            <div class="wiz-section-lg k8s-field-sidecar">
                                                 <div style="font-size:0.72rem;color:var(--text-muted);font-style:italic;margin-bottom:0.25rem">Sidecar containers run alongside the main container — for log forwarding, auth proxies, metrics exporters, etc.</div>
 
                                                 <!-- Presets -->
                                                 <div style="display:flex;flex-wrap:wrap;gap:0.25rem;margin-bottom:0.3rem">
-                                                    <button type="button" style="font-size:0.74rem;padding:0.2rem 0.5rem;cursor:pointer;background:var(--bg-secondary);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-secondary)"
+                                                    <button type="button" class="wiz-select"
                                                         onclick="window._k8sAddSidecarPreset(${i},'log-fwd')">📋 Log forwarder</button>
-                                                    <button type="button" style="font-size:0.74rem;padding:0.2rem 0.5rem;cursor:pointer;background:var(--bg-secondary);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-secondary)"
+                                                    <button type="button" class="wiz-select"
                                                         onclick="window._k8sAddSidecarPreset(${i},'cfg-reload')">🔄 Config reloader</button>
-                                                    <button type="button" style="font-size:0.74rem;padding:0.2rem 0.5rem;cursor:pointer;background:var(--bg-secondary);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-secondary)"
+                                                    <button type="button" class="wiz-select"
                                                         onclick="window._k8sAddSidecarPreset(${i},'metrics')">📊 Metrics exporter</button>
-                                                    <button type="button" style="font-size:0.74rem;padding:0.2rem 0.5rem;cursor:pointer;background:var(--bg-secondary);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-secondary)"
+                                                    <button type="button" class="wiz-select"
                                                         onclick="window._k8sAddSidecarPreset(${i},'auth-proxy')">🔐 Auth proxy</button>
-                                                    <button type="button" style="font-size:0.74rem;padding:0.2rem 0.5rem;cursor:pointer;background:var(--bg-secondary);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-secondary)"
+                                                    <button type="button" class="wiz-select"
                                                         onclick="window._k8sAddSidecarPreset(${i},'cloudsql')">☁️ Cloud SQL Proxy</button>
-                                                    <button type="button" style="font-size:0.74rem;padding:0.2rem 0.5rem;cursor:pointer;background:var(--bg-secondary);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-secondary)"
+                                                    <button type="button" class="wiz-select"
                                                         onclick="window._k8sAddSidecarPreset(${i},'vault')">🔒 Vault agent</button>
-                                                    <button type="button" style="font-size:0.74rem;padding:0.2rem 0.5rem;cursor:pointer;background:var(--bg-secondary);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-secondary)"
+                                                    <button type="button" class="wiz-select"
                                                         onclick="window._k8sAddSidecarPreset(${i},'custom')">📝 Custom</button>
                                                 </div>
 
                                                 <!-- Sidecar rows -->
-                                                <div id="k8s-svc-sc-list-${i}" style="display:flex;flex-direction:column;gap:0.3rem"></div>
+                                                <div id="k8s-svc-sc-list-${i}" class="wiz-vstack-md"></div>
                                             </div>
                                         </details>
 
                                         <!-- ─── 9. Service Mesh ─── -->
                                         <details style="margin-top:0.3rem">
-                                            <summary style="cursor:pointer;font-size:0.72rem;color:var(--accent);user-select:none;padding:0.15rem 0;display:flex;align-items:center;gap:0.4rem">
+                                            <summary class="wiz-action">
                                                 ▸ Service Mesh
                                             </summary>
-                                            <div style="margin-top:0.3rem;padding:0.45rem 0.5rem;background:var(--bg-primary);border-radius:6px;border:1px solid var(--border-subtle)" class="k8s-field-mesh">
+                                            <div class="wiz-section-lg k8s-field-mesh">
                                                 <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.3rem">
                                                     <label style="display:inline-flex;align-items:center;gap:0.25rem;cursor:pointer;font-size:0.78rem;color:var(--text-secondary)">
-                                                        <input type="checkbox" id="k8s-svc-mesh-enable-${i}" class="k8s-mesh-field-enable" style="accent-color:var(--accent)"
+                                                        <input type="checkbox" id="k8s-svc-mesh-enable-${i}" class="k8s-mesh-field-enable wiz-check"
                                                             onchange="document.getElementById('k8s-svc-mesh-cfg-'+${i}).style.display=this.checked?'block':'none'"> Enable sidecar injection
                                                     </label>
                                                     <span class="k8s-field-mesh-provider"><select id="k8s-svc-mesh-provider-${i}" class="modal-form-select"
@@ -605,19 +605,19 @@
 
                                                     <div style="font-size:0.78rem;color:var(--text-muted);font-weight:600;margin-bottom:0.2rem">Proxy Resources</div>
                                                     <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:0.3rem;font-size:0.72rem" class="k8s-mesh-field-resources">
-                                                        <div>${_lbl('CPU Request')}<input type="text" id="k8s-svc-mesh-cpureq-${i}" class="modal-form-input" value="100m" style="font-size:0.78rem;padding:0.18rem 0.3rem"></div>
-                                                        <div>${_lbl('CPU Limit')}<input type="text" id="k8s-svc-mesh-cpulim-${i}" class="modal-form-input" value="500m" style="font-size:0.78rem;padding:0.18rem 0.3rem"></div>
-                                                        <div>${_lbl('Mem Request')}<input type="text" id="k8s-svc-mesh-memreq-${i}" class="modal-form-input" value="128Mi" style="font-size:0.78rem;padding:0.18rem 0.3rem"></div>
-                                                        <div>${_lbl('Mem Limit')}<input type="text" id="k8s-svc-mesh-memlim-${i}" class="modal-form-input" value="256Mi" style="font-size:0.78rem;padding:0.18rem 0.3rem"></div>
+                                                        <div>${_lbl('CPU Request')}<input type="text" id="k8s-svc-mesh-cpureq-${i}" class="modal-form-input" value="100m" class="wiz-input"></div>
+                                                        <div>${_lbl('CPU Limit')}<input type="text" id="k8s-svc-mesh-cpulim-${i}" class="modal-form-input" value="500m" class="wiz-input"></div>
+                                                        <div>${_lbl('Mem Request')}<input type="text" id="k8s-svc-mesh-memreq-${i}" class="modal-form-input" value="128Mi" class="wiz-input"></div>
+                                                        <div>${_lbl('Mem Limit')}<input type="text" id="k8s-svc-mesh-memlim-${i}" class="modal-form-input" value="256Mi" class="wiz-input"></div>
                                                     </div>
 
                                                     <!-- Advanced -->
                                                     <details style="margin-top:0.25rem">
                                                         <summary style="cursor:pointer;font-size:0.74rem;color:var(--text-muted);user-select:none">▸ Advanced</summary>
                                                         <div style="margin-top:0.2rem;display:grid;grid-template-columns:1fr 1fr 1fr;gap:0.3rem;font-size:0.72rem" class="k8s-mesh-field-advanced">
-                                                            <div>${_lbl('Exclude inbound ports')}<input type="text" id="k8s-svc-mesh-exin-${i}" class="modal-form-input" placeholder="e.g. 8080,9090" style="font-size:0.78rem;padding:0.18rem 0.3rem"></div>
-                                                            <div>${_lbl('Exclude outbound ports')}<input type="text" id="k8s-svc-mesh-exout-${i}" class="modal-form-input" placeholder="e.g. 3306" style="font-size:0.78rem;padding:0.18rem 0.3rem"></div>
-                                                            <div>${_lbl('Log level')}<select id="k8s-svc-mesh-log-${i}" class="modal-form-select" style="font-size:0.78rem;padding:0.18rem 0.3rem">
+                                                            <div>${_lbl('Exclude inbound ports')}<input type="text" id="k8s-svc-mesh-exin-${i}" class="modal-form-input" placeholder="e.g. 8080,9090" class="wiz-input"></div>
+                                                            <div>${_lbl('Exclude outbound ports')}<input type="text" id="k8s-svc-mesh-exout-${i}" class="modal-form-input" placeholder="e.g. 3306" class="wiz-input"></div>
+                                                            <div>${_lbl('Log level')}<select id="k8s-svc-mesh-log-${i}" class="modal-form-select wiz-input">
                                                                 <option value="warning" selected>warning</option>
                                                                 <option value="info">info</option>
                                                                 <option value="debug">debug</option>
@@ -632,7 +632,7 @@
                                         <!-- ─── 6. Companion Containers (from "Move into pod") ─── -->
                                         <div id="k8s-svc-companions-${i}" class="k8s-field-companions" style="display:none;margin-top:0.35rem;padding:0.4rem;background:color-mix(in srgb, var(--accent) 4%, transparent);border-radius:6px;border:1px dashed var(--border-subtle)">
                                             <div style="font-size:0.74rem;color:var(--accent);font-weight:600;margin-bottom:0.2rem">📦 Companion Containers (same pod)</div>
-                                            <div id="k8s-svc-companion-list-${i}" style="display:flex;flex-direction:column;gap:0.2rem"></div>
+                                            <div id="k8s-svc-companion-list-${i}" class="wiz-vstack"></div>
                                         </div>
 
                                         <!-- ─── Move into pod action ─── -->
@@ -663,11 +663,11 @@
                                 html += `<div style="border:1px solid var(--border-subtle);border-radius:8px;background:var(--bg-inset);overflow:hidden" id="k8s-svc-card-${i}">
                                     <label style="display:flex;align-items:center;gap:0.5rem;padding:0.5rem 0.6rem;cursor:pointer;font-size:0.82rem"
                                         onmouseover="this.parentElement.style.borderColor='var(--accent)'" onmouseout="this.parentElement.style.borderColor='var(--border-subtle)'">
-                                        <input type="checkbox" id="k8s-svc-chk-${i}" ${i === 0 ? 'checked' : ''} style="accent-color:var(--accent)"
+                                        <input type="checkbox" id="k8s-svc-chk-${i}" ${i === 0 ? 'checked' : ''} class="wiz-check"
                                             onchange="document.getElementById('k8s-svc-cfg-${i}').style.display=this.checked?'block':'none'">
                                         <span style="font-size:1rem" id="k8s-svc-icon-${i}">🚀</span>
                                         <strong>${esc(m.name)}</strong>
-                                        <code style="font-size:0.72rem;background:var(--bg-primary);padding:1px 5px;border-radius:3px;color:var(--text-secondary)">${esc(m.stack || '?')}</code>
+                                        <code class="wiz-badge">${esc(m.stack || '?')}</code>
                                         <span style="flex:1;color:var(--text-muted);font-size:0.72rem">${esc(m.path || '')}</span>
                                         <select id="k8s-svc-kind-${i}" class="modal-form-select"
                                             style="font-size:0.68rem;padding:0.1rem 0.3rem;min-width:110px;color:var(--success);font-weight:600;border-color:transparent;background:transparent"
@@ -696,7 +696,7 @@
                                         <!-- ─── Companion Containers ─── -->
                                         <div id="k8s-svc-companions-${i}" class="k8s-field-companions" style="display:none;margin-top:0.35rem;padding:0.4rem;background:color-mix(in srgb, var(--accent) 4%, transparent);border-radius:6px;border:1px dashed var(--border-subtle)">
                                             <div style="font-size:0.74rem;color:var(--accent);font-weight:600;margin-bottom:0.2rem">📦 Companion Containers (same pod)</div>
-                                            <div id="k8s-svc-companion-list-${i}" style="display:flex;flex-direction:column;gap:0.2rem"></div>
+                                            <div id="k8s-svc-companion-list-${i}" class="wiz-vstack"></div>
                                         </div>
 
                                         <!-- ─── Move into pod action ─── -->

@@ -396,7 +396,7 @@
                                     const label = document.createElement('label');
                                     label.className = 'k8s-dep-label';
                                     label.style.cssText = 'display:inline-flex;align-items:center;gap:0.2rem;font-size:0.7rem;cursor:pointer';
-                                    label.innerHTML = '<input type="checkbox" class="k8s-dep-' + si + '" value="' + esc(infraName) + '" style="accent-color:var(--accent)" onchange="window._refreshEnvSelects(' + si + ')"> ' + esc(infraName);
+                                    label.innerHTML = '<input type="checkbox" class="k8s-dep-' + si + '" value="' + esc(infraName) + '" class="wiz-check" onchange="window._refreshEnvSelects(' + si + ')"> ' + esc(infraName);
                                     flexDiv.appendChild(label);
                                 } else if (action === 'remove') {
                                     const cb = flexDiv.querySelector('input[value="' + infraName + '"]');
@@ -824,7 +824,7 @@
                                         + `<div style="margin-top:3px;color:var(--text-muted);font-size:0.68rem">`
                                         + `<span style="color:var(--accent);font-family:var(--font-mono,monospace)">${esc(desc.activation)}</span>`
                                         + `<span style="margin:0 0.3rem">→</span>`
-                                        + feats.map(f => `<span style="display:inline-block;margin:1px 2px;padding:0 4px;border-radius:3px;background:var(--bg-primary);border:1px solid var(--border-subtle)">${esc(f)}</span>`).join('')
+                                        + feats.map(f => `<span class="wiz-tag">${esc(f)}</span>`).join('')
                                         + `</div>`
                                         + `</div>`;
                                 } else {
@@ -837,8 +837,8 @@
                                         + `<div style="margin-top:3px;color:var(--text-muted);font-size:0.68rem">`
                                         + `<span style="color:var(--accent);font-family:var(--font-mono,monospace)">skaffold run</span>`
                                         + `<span style="margin:0 0.3rem">→</span>`
-                                        + `<span style="display:inline-block;margin:1px 2px;padding:0 4px;border-radius:3px;background:var(--bg-primary);border:1px solid var(--border-subtle)">Push to registry</span>`
-                                        + `<span style="display:inline-block;margin:1px 2px;padding:0 4px;border-radius:3px;background:var(--bg-primary);border:1px solid var(--border-subtle)">Namespace: ${esc(p)}</span>`
+                                        + `<span class="wiz-tag">Push to registry</span>`
+                                        + `<span class="wiz-tag">Namespace: ${esc(p)}</span>`
                                         + `</div>`
                                         + `</div>`;
                                 }

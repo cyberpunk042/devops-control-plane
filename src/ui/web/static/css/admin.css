@@ -5300,6 +5300,220 @@ select option {
     white-space: normal;
 }
 
+/* ═══════════════════════════════════════════════════════════════════════
+   K8s Wizard — Field and layout classes
+   Replaces 250+ inline styles across _raw_step2_*.html files.
+   All scoped inside .wiz-content or .modal-form to avoid leaking.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* ── Inputs ──────────────────────────────────────────────────────────── */
+
+/* Standard text/number input (compact) */
+.wiz-input {
+    font-size: 0.76rem;
+    padding: 0.15rem 0.25rem;
+}
+
+/* Standard text input full-width */
+.wiz-input-full {
+    font-size: 0.74rem;
+    padding: 0.25rem 0.4rem;
+    width: 100%;
+}
+
+/* Styled select dropdown */
+.wiz-select {
+    font-size: 0.74rem;
+    padding: 0.2rem 0.5rem;
+    cursor: pointer;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-subtle);
+    border-radius: 4px;
+    color: var(--text-secondary);
+}
+
+/* Checkbox/radio accent color */
+.wiz-check {
+    accent-color: var(--accent);
+}
+
+/* ── Labels ──────────────────────────────────────────────────────────── */
+
+/* Standard field label (muted, bold) */
+.wiz-label {
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    display: block;
+    margin-bottom: 2px;
+}
+
+/* Accent-colored section label */
+.wiz-label-accent {
+    font-size: 0.68rem;
+    color: var(--accent);
+    font-weight: 600;
+    margin-bottom: 0.3rem;
+}
+
+/* Group header (large muted bold) */
+.wiz-group-header {
+    font-size: 0.78rem;
+    color: var(--text-muted);
+    font-weight: 600;
+}
+
+/* ── Hints / Help text ──────────────────────────────────────────────── */
+
+/* Tiny hint below a field */
+.wiz-hint {
+    display: block;
+    font-size: 0.64rem;
+    color: var(--text-muted);
+    margin-bottom: 1px;
+}
+
+/* Slightly larger field description */
+.wiz-hint-md {
+    display: block;
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    margin-bottom: 1px;
+}
+
+/* Italic state hint */
+.wiz-hint-italic {
+    font-size: 0.68rem;
+    color: var(--text-muted);
+    font-style: italic;
+}
+
+/* Tiny supplementary note */
+.wiz-note {
+    font-size: 0.66rem;
+    color: var(--text-muted);
+}
+
+/* ── Action links ────────────────────────────────────────────────────── */
+
+/* Accent-colored clickable action with icon */
+.wiz-action {
+    cursor: pointer;
+    font-size: 0.72rem;
+    color: var(--accent);
+    user-select: none;
+    padding: 0.15rem 0;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+/* Inline toggle link (smaller) */
+.wiz-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    font-size: 0.72rem;
+    cursor: pointer;
+}
+
+/* Dashed "add" button */
+.wiz-add-btn {
+    margin-top: 0.3rem;
+    font-size: 0.66rem;
+    color: var(--accent);
+    background: none;
+    border: 1px dashed var(--border-subtle);
+    border-radius: 4px;
+    padding: 0.2rem 0.5rem;
+    cursor: pointer;
+    width: 100%;
+}
+
+/* Minimal icon button (delete, etc.) */
+.wiz-icon-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 0.78rem;
+    color: var(--text-muted);
+    padding: 0 2px;
+}
+
+/* ── Sections / Containers ───────────────────────────────────────────── */
+
+/* Inset card section with border */
+.wiz-section {
+    margin-top: 0.35rem;
+    padding: 0.4rem;
+    background: var(--bg-primary);
+    border-radius: 6px;
+    border: 1px solid var(--border-subtle);
+}
+
+/* Same but slightly more padded */
+.wiz-section-lg {
+    margin-top: 0.3rem;
+    padding: 0.45rem 0.5rem;
+    background: var(--bg-primary);
+    border-radius: 6px;
+    border: 1px solid var(--border-subtle);
+}
+
+/* ── Badges / Tags ───────────────────────────────────────────────────── */
+
+/* Inline code-like badge */
+.wiz-badge {
+    font-size: 0.72rem;
+    background: var(--bg-primary);
+    padding: 1px 5px;
+    border-radius: 3px;
+    color: var(--text-secondary);
+}
+
+/* Smaller badge variant */
+.wiz-badge-sm {
+    font-size: 0.68rem;
+    background: var(--bg-primary);
+    color: var(--text-secondary);
+    padding: 1px 5px;
+    border-radius: 3px;
+}
+
+/* Bordered tag pill */
+.wiz-tag {
+    display: inline-block;
+    margin: 1px 2px;
+    padding: 0 4px;
+    border-radius: 3px;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-subtle);
+}
+
+/* ── Layout utilities ────────────────────────────────────────────────── */
+
+/* Vertical stack with tight gap */
+.wiz-vstack {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+}
+
+/* Vertical stack with medium gap */
+.wiz-vstack-md {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+}
+
+/* Horizontal row with centered items */
+.wiz-row {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    margin-bottom: 0.2rem;
+}
+
 /* ── Active target: the hovered/focused leaf node ────────────────── */
 /* This is the visual focal point — it pops out from the parent chain */
 

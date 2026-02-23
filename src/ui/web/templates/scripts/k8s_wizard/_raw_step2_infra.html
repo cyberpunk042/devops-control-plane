@@ -19,9 +19,9 @@
                                 + '<div style="display:flex;align-items:center;gap:0.5rem;font-size:0.82rem;margin-bottom:0.3rem">'
                                 + '<span style="font-size:1rem" id="k8s-infra-icon-' + eName + '">' + _kindIcon(infraKindDefault) + '</span>'
                                 + '<strong>' + eName + '</strong>'
-                                + '<code style="font-size:0.72rem;background:var(--bg-primary);padding:1px 5px;border-radius:3px;color:var(--text-secondary)">' + esc(imgShort) + '</code>'
-                                + (portStr ? '<code style="font-size:0.68rem;color:var(--text-muted)">' + esc(portStr) + '</code>' : '')
-                                + (volCount > 0 ? '<span style="font-size:0.66rem;color:var(--text-muted)" title="' + volCount + ' volumes">💾' + volCount + '</span>' : '')
+                                + '<code class="wiz-badge">' + esc(imgShort) + '</code>'
+                                + (portStr ? '<code class="wiz-note">' + esc(portStr) + '</code>' : '')
+                                + (volCount > 0 ? '<span class="wiz-note" title="' + volCount + ' volumes">💾' + volCount + '</span>' : '')
                                 + '<span style="flex:1"></span>'
                                 + '<button type="button" onclick="window._k8sRemoveInfra(\'' + eName + '\')"'
                                 + ' style="background:none;border:none;cursor:pointer;font-size:0.88rem;color:var(--text-muted);padding:0 4px;line-height:1"'
@@ -76,7 +76,7 @@
                                 + '<div style="font-size:0.72rem;color:var(--accent)">ℹ️ This service will be managed <strong>outside</strong> Kubernetes.</div>'
                                 + '<div style="font-size:0.64rem;color:var(--text-muted)">No K8s resources will be generated. Connection vars below will be injected into dependent services as Secrets.</div>'
                                 + '</div>'
-                                + '<div style="display:flex;align-items:center;gap:0.3rem;margin-bottom:0.2rem">'
+                                + '<div class="wiz-row">'
                                 + '<span style="font-size:0.68rem;color:var(--text-muted);font-weight:600">Provider / Notes</span>'
                                 + '</div>'
                                 + '<input type="text" id="k8s-infra-provider-' + eName + '" class="modal-form-input k8s-infra-field-provider"'
@@ -89,14 +89,14 @@
                                 + '</div>';
                             if (infraEnvKeys.length > 0) {
                                 h += '<div style="display:grid;grid-template-columns:2fr 2fr 1.5fr 1.2fr auto;gap:0.25rem;margin-bottom:0.2rem;padding:0 0.25rem">'
-                                    + '<span style="font-size:0.78rem;color:var(--text-muted);font-weight:600">Key</span>'
-                                    + '<span style="font-size:0.78rem;color:var(--text-muted);font-weight:600">Value</span>'
-                                    + '<span style="font-size:0.78rem;color:var(--text-muted);font-weight:600">Var / Secret</span>'
-                                    + '<span style="font-size:0.78rem;color:var(--text-muted);font-weight:600">Injection</span>'
+                                    + '<span class="wiz-group-header">Key</span>'
+                                    + '<span class="wiz-group-header">Value</span>'
+                                    + '<span class="wiz-group-header">Var / Secret</span>'
+                                    + '<span class="wiz-group-header">Injection</span>'
                                     + '<span></span>'
                                     + '</div>';
                             }
-                            h += '<div id="k8s-svc-env-list-' + infraId + '" style="display:flex;flex-direction:column;gap:0.2rem">';
+                            h += '<div id="k8s-svc-env-list-' + infraId + '" class="wiz-vstack">';
                             if (savedInfra?.envVars) {
                                 savedInfra.envVars.forEach((ev, j) => {
                                     h += _envRowHtml(infraId, j, ev.key, ev.value || '', ev.type || 'hardcoded', ev.varName || '', infraId);
@@ -109,7 +109,7 @@
                             }
                             h += '</div>';
                             h += '<button type="button" onclick="_addEnvVar(\'' + infraId + '\')"'
-                                + ' style="margin-top:0.3rem;font-size:0.66rem;color:var(--accent);background:none;border:1px dashed var(--border-subtle);border-radius:4px;padding:0.2rem 0.5rem;cursor:pointer;width:100%">'
+                                + ' class="wiz-add-btn">'
                                 + '+ Add variable'
                                 + '</button>';
 
@@ -129,17 +129,17 @@
                                 + '<span id="k8s-svc-vol-summary-' + infraId + '" style="margin-left:auto;font-size:0.6rem;color:var(--text-muted);font-weight:400"></span>'
                                 + '</summary>';
                             h += '<div style="margin-top:0.25rem;padding:0.3rem;background:var(--bg-primary);border-radius:6px;border:1px solid var(--border-subtle)">';
-                            h += '<div id="k8s-svc-vol-list-' + infraId + '" style="display:flex;flex-direction:column;gap:0.3rem">';
+                            h += '<div id="k8s-svc-vol-list-' + infraId + '" class="wiz-vstack-md">';
                             if (classifiedVols.length > 0) {
                                 classifiedVols.forEach((cl, j) => {
                                     h += window._volRowHtml(infraId, j, cl);
                                 });
                             } else {
-                                h += '<div style="font-size:0.68rem;color:var(--text-muted);font-style:italic">No named volumes detected — click "+ Add volume" below</div>';
+                                h += '<div class="wiz-hint-italic">No named volumes detected — click "+ Add volume" below</div>';
                             }
                             h += '</div>';
                             h += '<button type="button" onclick="window._addVolRow(\'' + infraId + '\')"'
-                                + ' style="margin-top:0.3rem;font-size:0.66rem;color:var(--accent);background:none;border:1px dashed var(--border-subtle);border-radius:4px;padding:0.2rem 0.5rem;cursor:pointer;width:100%">'
+                                + ' class="wiz-add-btn">'
                                 + '+ Add volume'
                                 + '</button>';
                             h += '</div>';
@@ -217,16 +217,16 @@
                                 <!-- Row 1: Deploy Method + Tag Policy -->
                                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.4rem">
                                     <div>
-                                        <label style="font-size:0.72rem;font-weight:600;color:var(--text-muted);display:block;margin-bottom:2px">Deploy Method</label>
-                                        <select id="k8s-skaffold-deploy" class="modal-form-select k8s-field-skf-deploy" style="font-size:0.74rem;padding:0.25rem 0.4rem;width:100%">
+                                        <label class="wiz-label">Deploy Method</label>
+                                        <select id="k8s-skaffold-deploy" class="modal-form-select k8s-field-skf-deploy wiz-input-full">
                                             <option value="kustomize"${(_skfSaved.deploy_method||'kustomize')==='kustomize'?' selected':''}>kustomize (overlays)</option>
                                             <option value="kubectl"${_skfSaved.deploy_method==='kubectl'?' selected':''}>kubectl (raw manifests)</option>
                                             <option value="helm" id="k8s-skaffold-deploy-helm"${_skfSaved.deploy_method==='helm'?' selected':''}${!_helmEnabled?' disabled':''}>helm (chart)${!_helmEnabled?' — enable Helm below':''}</option>
                                         </select>
                                     </div>
                                     <div>
-                                        <label style="font-size:0.72rem;font-weight:600;color:var(--text-muted);display:block;margin-bottom:2px">Tag Policy</label>
-                                        <select id="k8s-skaffold-tag" class="modal-form-select k8s-field-skf-tag" style="font-size:0.74rem;padding:0.25rem 0.4rem;width:100%">
+                                        <label class="wiz-label">Tag Policy</label>
+                                        <select id="k8s-skaffold-tag" class="modal-form-select k8s-field-skf-tag wiz-input-full">
                                             <option value="gitCommit"${(_skfSaved.tag_policy||'gitCommit')==='gitCommit'?' selected':''}>gitCommit (SHA/tag)</option>
                                             <option value="sha256"${_skfSaved.tag_policy==='sha256'?' selected':''}>sha256 (content hash)</option>
                                             <option value="dateTime"${_skfSaved.tag_policy==='dateTime'?' selected':''}>dateTime (timestamp)</option>
@@ -239,7 +239,7 @@
                                 <!-- Row 2: Profiles — per-profile config cards -->
                                 <div style="margin-top:0.5rem">
                                     <label style="font-size:0.72rem;font-weight:600;color:var(--text-muted);display:block;margin-bottom:4px">Profiles</label>
-                                    <div id="k8s-skaffold-profiles" class="k8s-field-skf-profiles" style="display:flex;flex-direction:column;gap:0.3rem">
+                                    <div id="k8s-skaffold-profiles" class="k8s-field-skf-profiles wiz-vstack-md">
                                     </div>
                                     <div style="display:flex;gap:0.3rem;margin-top:0.35rem">
                                         <input id="k8s-skaffold-profile-input" class="modal-form-input" type="text"
@@ -254,21 +254,21 @@
 
                                 <!-- Row 3: Global toggles -->
                                 <div class="k8s-field-skf-toggles" style="margin-top:0.4rem;display:flex;flex-wrap:wrap;gap:0.6rem 1rem">
-                                    <label class="k8s-field-skf-portfwd" style="display:inline-flex;align-items:center;gap:0.3rem;font-size:0.74rem;cursor:pointer">
+                                    <label class="k8s-field-skf-portfwd wiz-toggle">
                                         <input type="checkbox" id="k8s-skaffold-portfwd"${(_skfSaved.port_forward ?? true) ? ' checked' : ''}
-                                            style="accent-color:var(--accent)"> Port forwarding
+                                            class="wiz-check"> Port forwarding
                                     </label>
-                                    <label class="k8s-field-skf-sync" style="display:inline-flex;align-items:center;gap:0.3rem;font-size:0.74rem;cursor:pointer">
+                                    <label class="k8s-field-skf-sync wiz-toggle">
                                         <input type="checkbox" id="k8s-skaffold-sync"${(_skfSaved.file_sync ?? false) ? ' checked' : ''}
-                                            style="accent-color:var(--accent)"> File sync (hot reload)
+                                            class="wiz-check"> File sync (hot reload)
                                     </label>
-                                    <label class="k8s-field-skf-ssa" style="display:inline-flex;align-items:center;gap:0.3rem;font-size:0.74rem;cursor:pointer">
+                                    <label class="k8s-field-skf-ssa wiz-toggle">
                                         <input type="checkbox" id="k8s-skaffold-ssa"${(_skfSaved.server_side_apply ?? false) ? ' checked' : ''}
-                                            style="accent-color:var(--accent)"> Server-side apply
+                                            class="wiz-check"> Server-side apply
                                     </label>
-                                    <label class="k8s-field-skf-verify" style="display:inline-flex;align-items:center;gap:0.3rem;font-size:0.74rem;cursor:pointer">
+                                    <label class="k8s-field-skf-verify wiz-toggle">
                                         <input type="checkbox" id="k8s-skaffold-verify"${(_skfSaved.post_deploy_verify ?? true) ? ' checked' : ''}
-                                            style="accent-color:var(--accent)"> Post-deploy verify
+                                            class="wiz-check"> Post-deploy verify
                                     </label>
                                 </div>
 
@@ -318,46 +318,46 @@
                             <div id="k8s-helm-cfg" style="display:${(_savedState?.helm_chart ?? false) ? 'block' : 'none'};margin-top:0.5rem;padding:0.5rem;background:var(--bg-primary);border-radius:6px;border:1px solid var(--border-subtle)">
                                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.4rem">
                                     <div>
-                                        <label style="font-size:0.72rem;font-weight:600;color:var(--text-muted);display:block;margin-bottom:2px">Chart Name</label>
+                                        <label class="wiz-label">Chart Name</label>
                                         <input id="k8s-helm-chart-name" class="modal-form-input k8s-field-helm-name" type="text"
-                                            style="font-size:0.74rem;padding:0.25rem 0.4rem;width:100%"
+                                            class="wiz-input-full"
                                             value="${esc(_savedState?.helm_config?.chart_name || '')}" placeholder="my-app">
                                     </div>
                                     <div>
-                                        <label style="font-size:0.72rem;font-weight:600;color:var(--text-muted);display:block;margin-bottom:2px">Chart Directory</label>
+                                        <label class="wiz-label">Chart Directory</label>
                                         <input id="k8s-helm-chart-dir" class="modal-form-input k8s-field-helm-dir" type="text"
-                                            style="font-size:0.74rem;padding:0.25rem 0.4rem;width:100%"
+                                            class="wiz-input-full"
                                             value="${esc(_savedState?.helm_config?.chart_dir || 'charts/')}" placeholder="charts/">
                                     </div>
                                 </div>
                                 <div style="display:grid;grid-template-columns:1fr 1fr 2fr;gap:0.4rem;margin-top:0.4rem">
                                     <div>
-                                        <label style="font-size:0.72rem;font-weight:600;color:var(--text-muted);display:block;margin-bottom:2px">Chart Version</label>
+                                        <label class="wiz-label">Chart Version</label>
                                         <input id="k8s-helm-chart-version" class="modal-form-input k8s-field-helm-version" type="text"
-                                            style="font-size:0.74rem;padding:0.25rem 0.4rem;width:100%"
+                                            class="wiz-input-full"
                                             value="${esc(_savedState?.helm_config?.chart_version || '0.1.0')}" placeholder="0.1.0">
                                     </div>
                                     <div>
-                                        <label style="font-size:0.72rem;font-weight:600;color:var(--text-muted);display:block;margin-bottom:2px">App Version</label>
+                                        <label class="wiz-label">App Version</label>
                                         <input id="k8s-helm-app-version" class="modal-form-input k8s-field-helm-appver" type="text"
-                                            style="font-size:0.74rem;padding:0.25rem 0.4rem;width:100%"
+                                            class="wiz-input-full"
                                             value="${esc(_savedState?.helm_config?.app_version || '1.0.0')}" placeholder="1.0.0">
                                     </div>
                                     <div>
-                                        <label style="font-size:0.72rem;font-weight:600;color:var(--text-muted);display:block;margin-bottom:2px">Description</label>
+                                        <label class="wiz-label">Description</label>
                                         <input id="k8s-helm-chart-desc" class="modal-form-input k8s-field-helm-desc" type="text"
-                                            style="font-size:0.74rem;padding:0.25rem 0.4rem;width:100%"
+                                            class="wiz-input-full"
                                             value="${esc(_savedState?.helm_config?.description || '')}" placeholder="A Helm chart for my application">
                                     </div>
                                 </div>
                                 <div style="margin-top:0.4rem;display:flex;gap:1rem">
-                                    <label class="k8s-field-helm-envvals" style="display:inline-flex;align-items:center;gap:0.3rem;font-size:0.74rem;cursor:pointer">
+                                    <label class="k8s-field-helm-envvals wiz-toggle">
                                         <input type="checkbox" id="k8s-helm-env-values"${(_savedState?.helm_config?.env_values ?? true) ? ' checked' : ''}
-                                            style="accent-color:var(--accent)"> Per-env values files
+                                            class="wiz-check"> Per-env values files
                                     </label>
-                                    <label class="k8s-field-helm-ignore" style="display:inline-flex;align-items:center;gap:0.3rem;font-size:0.74rem;cursor:pointer">
+                                    <label class="k8s-field-helm-ignore wiz-toggle">
                                         <input type="checkbox" id="k8s-helm-helmignore"${(_savedState?.helm_config?.helmignore ?? true) ? ' checked' : ''}
-                                            style="accent-color:var(--accent)"> Generate .helmignore
+                                            class="wiz-check"> Generate .helmignore
                                     </label>
                                 </div>
                             </div>

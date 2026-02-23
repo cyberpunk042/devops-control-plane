@@ -33,9 +33,9 @@
 
                         // ── Mini label/input helpers (same pattern as Docker wizard) ──
                         const _lbl = (txt, sub) => `<label style="display:block;font-size:0.7rem;color:var(--text-muted);margin-bottom:2px">${txt}${sub ? ` <span style="font-size:0.62rem;opacity:0.7">(${sub})</span>` : ''}</label>`;
-                        const _inp = (id, val, ph) => `<input type="text" id="${id}" class="modal-form-input" value="${esc(val || '')}" placeholder="${ph || ''}" style="font-size:0.76rem;padding:0.2rem 0.3rem">`;
+                        const _inp = (id, val, ph) => `<input type="text" id="${id}" class="modal-form-input" value="${esc(val || '')}" placeholder="${ph || ''}" class="wiz-input">`;
                         const _num = (id, val) => `<input type="number" id="${id}" class="modal-form-input" value="${val}" style="font-size:0.76rem;padding:0.2rem 0.3rem;width:80px">`;
-                        const _sel = (id, opts, selected) => `<select id="${id}" class="modal-form-select" style="font-size:0.76rem;padding:0.2rem 0.3rem">${opts.map(o => `<option value="${o.v}"${o.v === selected ? ' selected' : ''}>${o.l}</option>`).join('')}</select>`;
+                        const _sel = (id, opts, selected) => `<select id="${id}" class="modal-form-select wiz-input">${opts.map(o => `<option value="${o.v}"${o.v === selected ? ' selected' : ''}>${o.l}</option>`).join('')}</select>`;
                         const _ta = (id, val, ph, rows) => `<textarea id="${id}" class="modal-form-input" rows="${rows || 2}" placeholder="${ph || ''}" style="font-size:0.72rem;padding:0.2rem 0.3rem;font-family:var(--font-mono,monospace);resize:vertical;min-height:38px">${esc(val || '')}</textarea>`;
 
                         // ── Resource quantity validation helper ──
@@ -107,7 +107,7 @@
                                             onchange="${enableOnchange}">
                                         <span style="font-weight:600;font-size:0.72rem;color:var(--text-primary)">${label}</span>
                                     </label>
-                                    <select id="${prefix}-type" class="modal-form-select" style="font-size:0.72rem;padding:0.15rem 0.25rem"
+                                    <select id="${prefix}-type" class="modal-form-select wiz-input"
                                         onchange="${typeOnchange}">
                                         <option value="http"${probeType === 'http' ? ' selected' : ''}>HTTP GET</option>
                                         <option value="tcp"${probeType === 'tcp' ? ' selected' : ''}>TCP Socket</option>

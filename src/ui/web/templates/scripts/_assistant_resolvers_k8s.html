@@ -110,13 +110,17 @@
         var activationEl = el.querySelector('[style*="font-family"][style*="accent"]');
         var activation = activationEl ? activationEl.textContent.trim() : '';
 
-        // Read feature badges
-        var featureBadges = el.querySelectorAll('[style*="border-radius:3px"][style*="background"]');
+        // Read feature badges — originally styled inline, now use .wiz-tag class
+        var featureBadges = el.querySelectorAll('.wiz-tag');
         var features = [];
         featureBadges.forEach(function(b) {
             var t = b.textContent.trim();
             if (t) features.push(t);
         });
+
+        // Read label from the muted span after the profile name
+        var labelEl = el.querySelector('[style*="font-weight:400"][style*="text-muted"]');
+        var label = labelEl ? labelEl.textContent.replace(/^—\s*/, '').trim() : '';
 
         // ── Interpret features into meaningful guidance ──
         var insights = [];
@@ -129,32 +133,29 @@
                 insights.push('Images stay on your machine — no registry credentials needed, faster iteration cycles.');
             } else if (fl.indexOf('push to registry') !== -1) {
                 insights.push('Images are pushed to the container registry — cluster nodes will pull them, so registry auth must be configured.');
-            } else if (fl.indexOf('no deploy') !== -1) {
-                insights.push('Build-only profile — images are built but not deployed. Useful for CI image-building stages.');
-            } else if (fl.indexOf('kubectl') !== -1) {
-                insights.push('Deploys with kubectl apply — straightforward but no rollback protection. Good for dev, consider Helm for production.');
-            } else if (fl.indexOf('helm') !== -1) {
-                insights.push('Deploys via Helm — versioned releases with rollback support. The production-grade deployment path.');
-            } else if (fl.indexOf('kustomize') !== -1) {
-                insights.push('Deploys via Kustomize overlays — patches base manifests per environment without templating.');
-            } else if (fl.indexOf('buildpacks') !== -1) {
-                insights.push('Uses Cloud Native Buildpacks — no Dockerfile needed, the buildpack auto-detects your runtime.');
-            } else if (fl.indexOf('docker') !== -1 && fl.indexOf('build') !== -1) {
-                insights.push('Builds with Docker — uses your Dockerfile directly. Most common and flexible build strategy.');
-            } else if (fl.indexOf('jib') !== -1) {
-                insights.push('Builds with Jib — Java-specific, creates optimized layers without a Docker daemon.');
-            } else if (fl.indexOf('sync') !== -1) {
-                insights.push('File sync enabled — code changes are hot-reloaded into the running container without a full rebuild.');
-            } else if (fl.indexOf('port-forward') !== -1) {
-                insights.push('Auto port-forwarding — Skaffold will forward container ports to localhost for easy local access.');
+            } else if (fl.indexOf('sha256') !== -1) {
+                insights.push('Content-addressable tags mean unchanged images won\'t redeploy — saves time during iteration.');
+            } else if (fl.indexOf('gitcommit') !== -1) {
+                insights.push('Tags are pinned to Git SHAs — every deployment is traceable back to the exact commit.');
+            } else if (fl.indexOf('envsubst') !== -1) {
+                insights.push('Environment variables are injected before deploy — your local .env values flow into manifests without committing secrets.');
+            } else if (fl.indexOf('port forward') !== -1) {
+                insights.push('Services are accessible directly on localhost — no ingress or LoadBalancer needed for local testing.');
+            } else if (fl.indexOf('file sync') !== -1 || fl.indexOf('hot reload') !== -1) {
+                insights.push('Code changes sync into running containers without rebuilds — edit, save, see the result.');
+            } else if (fl.indexOf('server-side apply') !== -1) {
+                insights.push('Kubernetes detects field conflicts before applying — safer than client-side apply in shared clusters.');
+            } else if (fl.indexOf('kustomize overlay') !== -1) {
+                insights.push('Patches from the overlay directory are merged on top of the base — environment-specific resource limits, replicas, and configs.');
+            } else if (fl.indexOf('namespace') !== -1) {
+                insights.push('Resources are scoped to a dedicated namespace — keeps this environment isolated from others on the same cluster.');
             }
         });
 
-        // Determine card color based on environment type
-        var cardStyle = isLocal ? 'state-success' : (isProduction ? 'state-warning' : 'state-info');
-
-        var profileHtml = '<div class="assistant-state-card ' + cardStyle + '" style="margin-bottom:0.4rem">';
-        profileHtml += '<div class="state-label">' + extractedName + '</div>';
+        // Build interpreted expanded card
+        var stateClass = isLocal ? 'state-success' : (isProduction ? 'state-warning' : 'state-info');
+        var profileHtml = '<div class="assistant-state-card ' + stateClass + '">';
+        profileHtml += '<div class="state-label">📋 ' + extractedName + (label ? ' — ' + label : '') + '</div>';
         profileHtml += '<div class="state-detail">';
 
         if (isLocal) {
@@ -172,12 +173,12 @@
         }
 
         profileHtml += '<div class="state-footer">Profiles are additive — they patch the base config, they don\'t replace it. What you set in the base pipeline above applies to every profile unless explicitly overridden.</div>';
-
         profileHtml += '</div></div>';
 
+        // Content line: assistant feel, not restating
         var content;
         if (isLocal) {
-            content = 'Local iteration — fast builds, no registry overhead.';
+            content = 'Optimized for your workstation — fast feedback, no registry, local-only.';
         } else if (isProduction) {
             content = 'Production-grade — every deploy is traceable and conflict-safe.';
         } else {

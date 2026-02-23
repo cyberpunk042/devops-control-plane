@@ -127,12 +127,12 @@
                                     html += `<div class="k8s-detect-svc-row" style="display:flex;align-items:center;gap:0.5rem;font-size:0.82rem;padding:0.3rem 0.5rem;border-radius:6px;background:var(--bg-inset)">
                                         <span style="width:18px;text-align:center">${badgeIcon}</span>
                                         <strong style="min-width:80px">${esc(svc.name)}</strong>
-                                        <code style="font-size:0.72rem;background:var(--bg-primary);padding:1px 5px;border-radius:3px;color:var(--text-secondary)">${esc(imgStr)}</code>
-                                        ${portStr ? `<code style="font-size:0.68rem;color:var(--text-muted)">${esc(portStr)}</code>` : ''}
+                                        <code class="wiz-badge">${esc(imgStr)}</code>
+                                        ${portStr ? `<code class="wiz-note">${esc(portStr)}</code>` : ''}
                                         <span style="flex:1"></span>
-                                        ${Object.keys(svc.environment || {}).length > 0 ? `<span style="font-size:0.66rem;color:var(--text-muted)" title="${Object.keys(svc.environment).length} env vars">🔧${Object.keys(svc.environment).length}</span>` : ''}
-                                        ${svc.volumes.length > 0 ? `<span style="font-size:0.66rem;color:var(--text-muted)" title="${svc.volumes.length} volumes">💾${svc.volumes.length}</span>` : ''}
-                                        ${svc.healthcheck ? '<span style="font-size:0.66rem;color:var(--text-muted)" title="Has healthcheck">❤️</span>' : ''}
+                                        ${Object.keys(svc.environment || {}).length > 0 ? `<span class="wiz-note" title="${Object.keys(svc.environment).length} env vars">🔧${Object.keys(svc.environment).length}</span>` : ''}
+                                        ${svc.volumes.length > 0 ? `<span class="wiz-note" title="${svc.volumes.length} volumes">💾${svc.volumes.length}</span>` : ''}
+                                        ${svc.healthcheck ? '<span class="wiz-note" title="Has healthcheck">❤️</span>' : ''}
                                         <span style="font-size:0.68rem;color:${badgeColor}">${badgeLabel}</span>
                                     </div>`;
                                 }
@@ -155,7 +155,7 @@
                                     html += `<div style="display:flex;align-items:center;gap:0.5rem;font-size:0.82rem;padding:0.3rem 0.5rem;border-radius:6px;background:var(--bg-inset)">
                                         <span style="width:18px;text-align:center">${badgeIcon}</span>
                                         <strong style="min-width:80px">${esc(m.name)}</strong>
-                                        <code style="font-size:0.72rem;background:var(--bg-primary);padding:1px 5px;border-radius:3px;color:var(--text-secondary)">${esc(m.stack || '?')}</code>
+                                        <code class="wiz-badge">${esc(m.stack || '?')}</code>
                                         <span style="flex:1;color:var(--text-muted);font-size:0.72rem">${esc(m.path || '')}</span>
                                         <span style="font-size:0.68rem;color:${badgeColor}">${m._class}</span>
                                     </div>`;
