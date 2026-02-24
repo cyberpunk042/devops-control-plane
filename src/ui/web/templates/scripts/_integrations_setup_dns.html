@@ -51,6 +51,16 @@
             custom:     'Custom MX',
         };
 
+        // Register assistant resolvers for select inputs
+        if (window._assistant) {
+            window._assistant.resolvers['dns-provider-value'] = () => document.getElementById('mf-dns-wiz-provider')?.value || 'manual';
+            window._assistant.resolvers['dns-mail-value'] = () => document.getElementById('mf-dns-wiz-mail')?.value || 'none';
+            window._assistant.resolvers['dns-cdn-value'] = () => document.getElementById('mf-dns-wiz-cdn')?.value || 'none';
+            window._assistant.resolvers['dns-ssl-value'] = () => document.getElementById('mf-dns-wiz-ssl')?.value || 'managed';
+            window._assistant.resolvers['dns-ingress-value'] = () => document.getElementById('mf-dns-wiz-ingress')?.value || 'nginx';
+            window._assistant.resolvers['dns-proxy-value'] = () => document.getElementById('mf-dns-wiz-proxy')?.value || 'nginx';
+        }
+
         wizardModalOpen({
             title: '🌐 DNS & CDN Setup',
             assistantContext: 'setup/dns',
@@ -113,21 +123,21 @@
 
                             // DNS status
                             html += wizSection('DNS & CDN Detection', 'Current domain, CDN, and SSL configuration.');
-                            html += '<div class="wiz-status-grid">';
-                            html += wizStatusRow('📁', 'DNS directory', dns.dns_files?.length > 0 ? `${dns.dns_files.length} file(s)` : 'Not found', dns.dns_files?.length > 0 ? 'ok' : 'muted');
-                            html += wizStatusRow('⚡', 'CDN providers', dns.cdn_providers?.length > 0 ? dns.cdn_providers.map(p => p.name || p).join(', ') : 'None detected', dns.cdn_providers?.length > 0 ? 'ok' : 'muted');
-                            html += wizStatusRow('🔗', 'Domains', domains.length > 0 ? domains.join(', ') : 'None found', domains.length > 0 ? 'ok' : 'muted');
-                            html += wizStatusRow('🔒', 'SSL certificates', dns.ssl_certs?.length > 0 ? `${dns.ssl_certs.length} found` : 'None', dns.ssl_certs?.length > 0 ? 'ok' : 'muted');
-                            html += wizStatusRow('📄', 'CNAME file', dns.dns_files?.includes('CNAME') ? 'Found' : 'Not found', dns.dns_files?.includes('CNAME') ? 'ok' : 'muted');
+                            html += '<div class="wiz-status-grid" id="dns-detect-grid">';
+                            html += wizStatusRow('📁', 'DNS directory', dns.dns_files?.length > 0 ? `${dns.dns_files.length} file(s)` : 'Not found', dns.dns_files?.length > 0 ? 'ok' : 'muted', false, 'dns-detect-dir');
+                            html += wizStatusRow('⚡', 'CDN providers', dns.cdn_providers?.length > 0 ? dns.cdn_providers.map(p => p.name || p).join(', ') : 'None detected', dns.cdn_providers?.length > 0 ? 'ok' : 'muted', false, 'dns-detect-cdn');
+                            html += wizStatusRow('🔗', 'Domains', domains.length > 0 ? domains.join(', ') : 'None found', domains.length > 0 ? 'ok' : 'muted', false, 'dns-detect-domains');
+                            html += wizStatusRow('🔒', 'SSL certificates', dns.ssl_certs?.length > 0 ? `${dns.ssl_certs.length} found` : 'None', dns.ssl_certs?.length > 0 ? 'ok' : 'muted', false, 'dns-detect-ssl');
+                            html += wizStatusRow('📄', 'CNAME file', dns.dns_files?.includes('CNAME') ? 'Found' : 'Not found', dns.dns_files?.includes('CNAME') ? 'ok' : 'muted', false, 'dns-detect-cname');
                             html += '</div>';
 
                             // Cross-domain context
                             html += wizSection('Cross-Domain Context', 'Other integrations that affect DNS & CDN configuration.');
-                            html += '<div class="wiz-status-grid">';
-                            html += wizStatusRow('☸️', 'Kubernetes', data._hasK8s ? 'Detected — Ingress + cert-manager available' : 'Not detected', data._hasK8s ? 'ok' : 'muted');
-                            html += wizStatusRow('🏗️', 'Terraform', data._hasTerraform ? `Detected${data._tfProvider ? ' (' + data._tfProvider + ')' : ''} — DNS/CDN resources available` : 'Not detected', data._hasTerraform ? 'ok' : 'muted');
-                            html += wizStatusRow('🐳', 'Docker', data._hasDocker ? 'Detected — reverse proxy available' : 'Not detected', data._hasDocker ? 'ok' : 'muted');
-                            html += wizStatusRow('📄', 'Pages', data._hasPages ? 'Detected — custom domain available' : 'Not detected', data._hasPages ? 'ok' : 'muted');
+                            html += '<div class="wiz-status-grid" id="dns-detect-crossdomain">';
+                            html += wizStatusRow('☸️', 'Kubernetes', data._hasK8s ? 'Detected — Ingress + cert-manager available' : 'Not detected', data._hasK8s ? 'ok' : 'muted', false, 'dns-detect-k8s');
+                            html += wizStatusRow('🏗️', 'Terraform', data._hasTerraform ? `Detected${data._tfProvider ? ' (' + data._tfProvider + ')' : ''} — DNS/CDN resources available` : 'Not detected', data._hasTerraform ? 'ok' : 'muted', false, 'dns-detect-terraform');
+                            html += wizStatusRow('🐳', 'Docker', data._hasDocker ? 'Detected — reverse proxy available' : 'Not detected', data._hasDocker ? 'ok' : 'muted', false, 'dns-detect-docker');
+                            html += wizStatusRow('📄', 'Pages', data._hasPages ? 'Detected — custom domain available' : 'Not detected', data._hasPages ? 'ok' : 'muted', false, 'dns-detect-pages');
                             html += '</div>';
 
                             el.innerHTML = html;
@@ -213,6 +223,12 @@
                             </div>`;
 
                         el.innerHTML = html;
+
+                        // Wire assistant refresh on select changes
+                        const provSel = document.getElementById('mf-dns-wiz-provider');
+                        const mailSel = document.getElementById('mf-dns-wiz-mail');
+                        if (provSel && window._assistant) provSel.addEventListener('change', () => window._assistant.refresh());
+                        if (mailSel && window._assistant) mailSel.addEventListener('change', () => window._assistant.refresh());
                     },
                     collect: (data) => {
                         data._domain = mfVal('dns-wiz-domain') || '';
@@ -287,6 +303,12 @@
                         }
 
                         el.innerHTML = html;
+
+                        // Wire assistant refresh on select changes
+                        ['mf-dns-wiz-cdn', 'mf-dns-wiz-ssl', 'mf-dns-wiz-ingress'].forEach(id => {
+                            const sel = document.getElementById(id);
+                            if (sel && window._assistant) sel.addEventListener('change', () => window._assistant.refresh());
+                        });
                     },
                     collect: (data) => {
                         data._cdnProvider = mfVal('dns-wiz-cdn') || 'none';
@@ -304,7 +326,7 @@
                 {
                     id: 'routing', title: 'Routing',
                     render: (data, el) => {
-                        let html = '';
+                        let html = '<div id="dns-routing-wrapper">';
                         const domain = data._domain || 'example.com';
                         const subs = data._subdomains || [];
                         const allHosts = [domain, ...subs.map(s => s.includes('.') ? s : `${s}.${domain}`)];
@@ -341,6 +363,7 @@
                                         { value: 'nginx', label: 'Nginx' },
                                         { value: 'caddy', label: 'Caddy (automatic HTTPS)' },
                                         { value: 'traefik', label: 'Traefik' },
+                                        { value: 'cloudflared', label: 'Cloudflare Tunnel (cloudflared)' },
                                       ],
                                       hint: 'Generates config in cdn/ directory' },
                                     { name: 'dns-wiz-upstream', label: 'Upstream', type: 'text',
@@ -400,7 +423,12 @@
                                 </div>`;
                         }
 
+                        html += '</div>';
                         el.innerHTML = html;
+
+                        // Wire assistant refresh on proxy select change
+                        const proxySel = document.getElementById('mf-dns-wiz-proxy');
+                        if (proxySel && window._assistant) proxySel.addEventListener('change', () => window._assistant.refresh());
                     },
                     collect: (data) => {
                         // K8s routes
@@ -475,6 +503,7 @@
                         if (data._hasDocker && !data._hasK8s && data._proxy) {
                             const proxyFile = data._proxy === 'nginx' ? 'cdn/nginx.conf'
                                 : data._proxy === 'caddy' ? 'cdn/Caddyfile'
+                                : data._proxy === 'cloudflared' ? 'cdn/cloudflared.yml'
                                 : 'cdn/traefik.yml';
                             // Only add if not already in CDN files
                             if (!files.some(f => f.path === proxyFile)) {

@@ -9243,5 +9243,950 @@
                 "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">✅ Review — ready to generate</div><div class=\"state-detail\">Every resource listed here becomes a manifest file in your output directory.\n\n• <strong>Deployments / StatefulSets / Jobs</strong> — workload manifests\n• <strong>Services</strong> — ClusterIP, NodePort, or LoadBalancer\n• <strong>ConfigMaps & Secrets</strong> — per-service environment variables\n• <strong>PVCs</strong> — persistent storage claims\n• <strong>Optional</strong> — Ingress, Skaffold pipeline, Helm chart\n\nHit Finish to write all files.</div></div>"
             }
         ]
+    },
+    {
+        "context": "setup/terraform",
+        "title": "Terraform Setup",
+        "icon": "🏗️",
+        "content": "Infrastructure as Code — define your cloud resources declaratively so they're versioned, reproducible, and auditable. This wizard walks you from detection through generation.",
+        "variants": [
+            {
+                "when": {
+                    "hasSelector": "#tf-detect-grid"
+                },
+                "content": "Taking stock of what's already here — existing providers, resources, backend configuration. Everything on this step is read-only. The wizard uses what it finds to pre-fill the steps ahead.",
+                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🔍 Detection — read-only scan</div><div class=\"state-detail\">The scan checks several layers:\n\n• <strong>CLI & init</strong> — is Terraform installed and has <code>terraform init</code> been run?\n• <strong>Files</strong> — .tf files classified by purpose (resource, variable, output, data)\n• <strong>Providers & backend</strong> — which cloud APIs and where state lives\n• <strong>Cross-domain</strong> — K8s, Docker, CI/CD integrations that enable extra resource types\n\nNothing is changed here. Proceed to Cloud Setup when you're ready to configure.</div></div>"
+            },
+            {
+                "when": {
+                    "hasSelector": "#mf-tf-provider"
+                },
+                "content": "Three foundational choices — your cloud provider determines the API surface, the region formats, and the service names downstream. The backend decides how state is shared across your team.",
+                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">☁️ Cloud Setup — provider, backend, identity</div><div class=\"state-detail\">Everything in the next steps depends on what you pick here:\n\n• <strong>Provider</strong> — sets the Terraform provider block and determines which resource types are available (EKS vs GKE vs AKS, etc.)\n• <strong>Region</strong> — your primary deployment region. Per-environment overrides come in the Environments step.\n• <strong>Project name</strong> — used in bucket names, resource tags, and naming conventions\n• <strong>Backend</strong> — local is fine for solo work, remote is mandatory for teams (locking prevents concurrent applies)\n\nIf detection found an existing provider or backend, those values are pre-filled.</div></div>"
+            },
+            {
+                "when": {
+                    "hasSelector": "#mf-tf-k8s"
+                },
+                "content": "Pick the cloud resources this project needs. Full IaC resources get complete Terraform definitions — scaffolds give you a commented starting point to customize.",
+                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">📦 Resources — what to provision</div><div class=\"state-detail\">Two categories of resources:\n\n• <strong>Full IaC</strong> — K8s cluster, container registry, networking. These generate complete, production-ready Terraform resource blocks.\n• <strong>Scaffold</strong> — database, object storage. These generate commented resource blocks you'll customize with your specific instance sizes, engine versions, and access policies.\n\nResources that depend on each other are linked. Enabling K8s automatically includes networking. The registry connects to your Docker integration if active.</div></div>"
+            },
+            {
+                "when": {
+                    "hasSelector": "#tf-env-list"
+                },
+                "content": "Each environment becomes a Terraform workspace with its own state file and variable overrides. What you defined in project.yml is pre-loaded here.",
+                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🗂️ Environments — workspaces & variables</div><div class=\"state-detail\">Terraform workspaces isolate state per environment — staging <code>apply</code> can't accidentally touch production resources.\n\nEach workspace gets:\n• Its own <code>.tfvars</code> file for environment-specific values (region overrides, instance sizes, replica counts)\n• Isolated state — <code>terraform workspace select staging</code> then <code>apply</code>\n\nIf your project.yml defines environments, they're already loaded. You can add or remove environments here without affecting the others.</div></div>"
+            },
+            {
+                "when": {
+                    "hasSelector": ".wiz-review-item"
+                },
+                "content": "Everything the wizard will generate — Terraform files, variable definitions, and workspace configs. Review before writing.",
+                "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">✅ Review — ready to generate</div><div class=\"state-detail\">Each file listed here will be created in your <code>terraform/</code> directory:\n\n• <strong>main.tf</strong> — provider block, backend config, and resource definitions\n• <strong>variables.tf</strong> — input variable declarations with types and defaults\n• <strong>outputs.tf</strong> — values exported after apply (cluster endpoint, registry URL, etc.)\n• <strong>.gitignore</strong> — excludes state files, plan outputs, and .terraform/\n• <strong>.tfvars</strong> — one per environment with variable overrides\n\nIf existing .tf files were detected, you'll need to explicitly opt in to overwrite.</div></div>"
+            }
+        ],
+        "children": [
+            {
+                "id": "tf-detect-grid",
+                "title": "Environment Scan",
+                "selector": "#tf-detect-grid",
+                "content": "What the scan found in your project — each row feeds into the decisions ahead.",
+                "children": [
+                    {
+                        "id": "tf-detect-cli",
+                        "title": "Terraform CLI",
+                        "selector": "#tf-detect-cli",
+                        "content": "The CLI is the engine — <code>plan</code>, <code>apply</code>, <code>destroy</code> all run through it. Without it, generated files are still valid HCL, but you can't execute them from this machine.",
+                        "variants": [
+                            {
+                                "when": {
+                                    "textContains": "Not installed"
+                                },
+                                "content": "Terraform isn't on this machine. The wizard can still generate valid .tf files, but you won't be able to <code>plan</code> or <code>apply</code> locally until you install it.",
+                                "expanded": "<div class=\"assistant-state-card state-warning\"><div class=\"state-label\">⚠️ CLI not found</div><div class=\"state-detail\">The generated files are still valid — you can commit them and run <code>terraform apply</code> from CI/CD or another machine.\n\nTo install locally:\n• <strong>macOS</strong> — <code>brew install terraform</code>\n• <strong>Linux</strong> — <code>apt install terraform</code> or download from HashiCorp\n• <strong>asdf</strong> — <code>asdf plugin add terraform && asdf install terraform latest</code>\n\nVersion 1.5+ is recommended for modern provider lock files.</div></div>"
+                            },
+                            {
+                                "when": {
+                                    "textContains": "v"
+                                },
+                                "content": "CLI is available — you'll be able to <code>init</code>, <code>plan</code>, and <code>apply</code> directly from this machine after the wizard generates your files."
+                            }
+                        ]
+                    },
+                    {
+                        "id": "tf-detect-root",
+                        "title": "Configuration Root",
+                        "selector": "#tf-detect-root",
+                        "content": "The directory where Terraform looks for .tf files. If one exists, the wizard knows where to write generated files.",
+                        "variants": [
+                            {
+                                "when": {
+                                    "textContains": "No .tf files"
+                                },
+                                "content": "No existing Terraform directory — the wizard will create <code>terraform/</code> from scratch. A clean start means no merge conflicts with existing configuration."
+                            },
+                            {
+                                "when": {
+                                    "textContains": "/"
+                                },
+                                "content": "An existing configuration root was found. The wizard will target this directory — check the Review step to see which files will be created or overwritten."
+                            }
+                        ]
+                    },
+                    {
+                        "id": "tf-detect-files",
+                        "title": "TF Files",
+                        "selector": "#tf-detect-files",
+                        "content": "Terraform files are classified by purpose — resource definitions, variable declarations, outputs, data sources. The breakdown tells you how much infrastructure is already codified.",
+                        "variants": [
+                            {
+                                "when": {
+                                    "textContains": "None"
+                                },
+                                "content": "No .tf files yet — you're starting fresh. The wizard will generate the full file structure based on your choices in the next steps."
+                            }
+                        ]
+                    },
+                    {
+                        "id": "tf-detect-providers",
+                        "title": "Providers",
+                        "selector": "#tf-detect-providers",
+                        "content": "Providers are Terraform's plugins for cloud APIs — each one unlocks a set of resource types. The detected providers pre-fill the Cloud Setup step.",
+                        "variants": [
+                            {
+                                "when": {
+                                    "textContains": "None detected"
+                                },
+                                "content": "No provider blocks found — you'll choose your cloud platform in the next step. The wizard supports AWS, GCP, Azure, and DigitalOcean out of the box."
+                            },
+                            {
+                                "when": {
+                                    "textContains": "aws"
+                                },
+                                "content": "AWS provider detected — the wizard will pre-select Amazon Web Services and default to AWS-specific service names (EKS, ECR, S3, RDS) in the Resources step."
+                            },
+                            {
+                                "when": {
+                                    "textContains": "google"
+                                },
+                                "content": "Google Cloud provider detected — GCP-specific services (GKE, GAR, Cloud SQL, GCS) will be used in the Resources step."
+                            },
+                            {
+                                "when": {
+                                    "textContains": "azurerm"
+                                },
+                                "content": "Azure provider detected — Azure-specific services (AKS, ACR, Azure DB, Blob Storage) will be used in the Resources step."
+                            }
+                        ]
+                    },
+                    {
+                        "id": "tf-detect-resources",
+                        "title": "Resources",
+                        "selector": "#tf-detect-resources",
+                        "content": "Existing resource definitions in your .tf files — these tell the wizard what infrastructure you've already codified so it doesn't duplicate work.",
+                        "variants": [
+                            {
+                                "when": {
+                                    "textContains": "None"
+                                },
+                                "content": "No resources defined yet. The Resources step will let you pick what to provision — from managed K8s clusters to container registries and databases."
+                            }
+                        ]
+                    },
+                    {
+                        "id": "tf-detect-modules",
+                        "title": "Modules",
+                        "selector": "#tf-detect-modules",
+                        "content": "Modules are reusable Terraform components — think of them as functions for infrastructure. They package common patterns (VPC + subnets + security groups) into a single call."
+                    },
+                    {
+                        "id": "tf-detect-backend",
+                        "title": "State Backend",
+                        "selector": "#tf-detect-backend",
+                        "content": "Where Terraform tracks what it's managing. The state file maps your .tf definitions to real cloud resources — lose it and Terraform forgets everything it created.",
+                        "variants": [
+                            {
+                                "when": {
+                                    "textContains": "Not configured"
+                                },
+                                "content": "No backend configured — state defaults to a local file. That works solo, but for team collaboration you'll want remote state with locking. The Cloud Setup step lets you choose.",
+                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">💾 State management matters</div><div class=\"state-detail\">Without a remote backend:\n• Only one person can run <code>apply</code> at a time (no locking)\n• State lives on your disk — if it's lost, Terraform can't track existing resources\n• <code>terraform import</code> can recover, but it's tedious\n\nRemote backends (S3, GCS, Azure Blob) solve all three. The wizard can configure one in the next step.</div></div>"
+                            }
+                        ]
+                    },
+                    {
+                        "id": "tf-detect-init",
+                        "title": "Initialized",
+                        "selector": "#tf-detect-init",
+                        "content": "Whether <code>terraform init</code> has been run — this downloads provider plugins and sets up the backend. You'll need to run it again after the wizard generates new files.",
+                        "variants": [
+                            {
+                                "when": {
+                                    "textContains": "No"
+                                },
+                                "content": "Not initialized yet — after the wizard generates your files, run <code>terraform init</code> to download providers and configure the backend. It's the first command in every Terraform workflow."
+                            },
+                            {
+                                "when": {
+                                    "textContains": "Yes"
+                                },
+                                "content": "Already initialized — the <code>.terraform/</code> directory exists with cached providers. After the wizard updates your config, run <code>terraform init -upgrade</code> to sync any new providers."
+                            }
+                        ]
+                    }
+                ]
+            },
+            {
+                "id": "tf-detect-crossdomain",
+                "title": "Cross-Domain Integrations",
+                "selector": "#tf-detect-crossdomain",
+                "content": "Other integrations active in your project that unlock additional Terraform resource types. K8s means you can provision a managed cluster, Docker means a container registry.",
+                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🔗 How integrations connect to Terraform</div><div class=\"state-detail\">Cross-domain detection links your project's existing integrations to Terraform resource options:\n\n• <strong>☸️ Kubernetes</strong> → enables managed cluster provisioning (EKS/GKE/AKS) in the Resources step\n• <strong>🐳 Docker</strong> → enables container registry provisioning (ECR/GAR/ACR) in the Resources step\n• <strong>🔄 CI/CD</strong> → your pipeline can run <code>terraform plan</code> on PRs and <code>apply</code> on merge\n\nThese aren't requirements — you can provision any resource regardless. But when they're present, the wizard knows the full picture.</div></div>"
+            },
+            {
+                "id": "tf-cfg-provider",
+                "title": "Cloud Provider",
+                "selector": "#mf-tf-provider",
+                "content": "This choice ripples through everything — the provider sets which resource types exist, which region codes are valid, and what service names appear in the Resources step.",
+                "variants": [
+                    {
+                        "when": {
+                            "resolver": "tf-provider-value",
+                            "equals": "aws"
+                        },
+                        "content": "AWS selected — resources will use EKS for clusters, ECR for container images, S3 for storage, and RDS for databases. Region codes follow the <code>us-east-1</code> format.",
+                        "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">☁️ Amazon Web Services</div><div class=\"state-detail\">AWS is the most widely supported Terraform provider — nearly every AWS service has a corresponding resource type.\n\n• <strong>Compute</strong> — EKS (managed K8s), EC2, Lambda\n• <strong>Storage</strong> — S3 buckets, EBS volumes, EFS\n• <strong>Database</strong> — RDS (Postgres, MySQL), DynamoDB, ElastiCache\n• <strong>Networking</strong> — VPC, subnets, security groups, ALB\n\nThe S3 backend with DynamoDB locking is the gold standard for team state management on AWS.</div></div>"
+                    },
+                    {
+                        "when": {
+                            "resolver": "tf-provider-value",
+                            "equals": "gcp"
+                        },
+                        "content": "GCP selected — resources will use GKE for clusters, Artifact Registry for images, GCS for storage, and Cloud SQL for databases. Region codes follow the <code>us-central1</code> format.",
+                        "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">☁️ Google Cloud Platform</div><div class=\"state-detail\">GCP's Terraform provider covers the full Google Cloud surface.\n\n• <strong>Compute</strong> — GKE (managed K8s), Compute Engine, Cloud Run\n• <strong>Storage</strong> — GCS buckets, Persistent Disk\n• <strong>Database</strong> — Cloud SQL (Postgres, MySQL), Firestore, Bigtable\n• <strong>Networking</strong> — VPC Network, subnets, firewall rules, Cloud Load Balancing\n\nGCS backend has built-in locking — no extra DynamoDB-style table needed.</div></div>"
+                    },
+                    {
+                        "when": {
+                            "resolver": "tf-provider-value",
+                            "equals": "azure"
+                        },
+                        "content": "Azure selected — resources will use AKS for clusters, ACR for images, Blob Storage, and Azure Database. Region codes follow the <code>eastus</code> format.",
+                        "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">☁️ Microsoft Azure</div><div class=\"state-detail\">The AzureRM provider covers Azure's resource management APIs.\n\n• <strong>Compute</strong> — AKS (managed K8s), Virtual Machines, Container Apps\n• <strong>Storage</strong> — Blob Storage, Managed Disks, Azure Files\n• <strong>Database</strong> — Azure Database for PostgreSQL/MySQL, Cosmos DB\n• <strong>Networking</strong> — VNet, subnets, NSGs, Application Gateway\n\nAzure Blob backend uses lease-based locking — built into the storage account, no extra resources needed.</div></div>"
+                    },
+                    {
+                        "when": {
+                            "resolver": "tf-provider-value",
+                            "equals": "digitalocean"
+                        },
+                        "content": "DigitalOcean selected — a simpler set of managed services. DOKS for clusters, DOCR for images, Spaces for storage, and Managed Databases.",
+                        "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🌊 DigitalOcean</div><div class=\"state-detail\">DigitalOcean's Terraform provider is leaner than the hyperscalers — fewer resource types, but simpler to configure.\n\n• <strong>Compute</strong> — DOKS (managed K8s), Droplets, App Platform\n• <strong>Storage</strong> — Spaces (S3-compatible), Volumes\n• <strong>Database</strong> — Managed PostgreSQL, MySQL, Redis, MongoDB\n• <strong>Networking</strong> — VPC, Load Balancers, Firewalls\n\nFor state backend, DigitalOcean Spaces supports the S3 backend protocol — use that with a Spaces bucket.</div></div>"
+                    },
+                    {
+                        "when": {
+                            "resolver": "tf-provider-value",
+                            "equals": "custom"
+                        },
+                        "content": "Custom provider — you'll configure the provider block manually in the generated .tf files. The wizard will use generic resource names but the file structure stays the same."
+                    }
+                ]
+            },
+            {
+                "id": "tf-cfg-region",
+                "title": "Region",
+                "selector": "#mf-tf-region",
+                "content": "Your primary deployment region — where resources are created by default. This auto-updates when you switch providers, but you can override it.",
+                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🌍 Region strategy</div><div class=\"state-detail\">This is the <strong>default</strong> region. In the Environments step, you can set per-environment overrides — staging in a cheaper region, production closer to your users.\n\nCommon patterns:\n• <strong>Single region</strong> — everything in one region, simplest to manage\n• <strong>Multi-region</strong> — different environments in different regions for cost or latency\n• <strong>DR</strong> — primary + failover region for high availability\n\nThe region affects pricing, latency, and which services are available. Not all services are in all regions.</div></div>"
+            },
+            {
+                "id": "tf-cfg-project-name",
+                "title": "Project Name",
+                "selector": "#mf-tf-project-name",
+                "content": "This name flows into resource tags, state bucket names, and naming conventions. If detection found your project directory, it's pre-filled — but you can change it.",
+                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">📁 Where this name appears</div><div class=\"state-detail\">The project name is used as a prefix or tag in generated Terraform resources:\n\n• <strong>State bucket</strong> — <code>{project}-tfstate</code>\n• <strong>Resource tags</strong> — <code>Project = {name}</code> on every resource\n• <strong>Naming conventions</strong> — cluster names, VPC names, registry names all derive from it\n\nKeep it short, lowercase, and hyphenated. Avoid special characters — cloud providers have naming restrictions on buckets and resources.</div></div>"
+            },
+            {
+                "id": "tf-cfg-backend",
+                "title": "State Backend",
+                "selector": "#mf-tf-backend",
+                "content": "How Terraform shares state across your team. Local is fine when you're the only one running <code>apply</code> — remote is essential the moment anyone else touches the infrastructure.",
+                "variants": [
+                    {
+                        "when": {
+                            "resolver": "tf-backend-value",
+                            "equals": "local"
+                        },
+                        "content": "Local state — the <code>terraform.tfstate</code> file lives on your disk. Quick to set up, but only one person can run <code>apply</code> at a time and there's no locking.",
+                        "expanded": "<div class=\"assistant-state-card state-warning\"><div class=\"state-label\">💻 Local state — solo only</div><div class=\"state-detail\">With local state:\n• State file lives at <code>terraform/terraform.tfstate</code>\n• No locking — if two people run <code>apply</code> simultaneously, state corrupts\n• No sharing — teammates can't see or manage the same resources\n• Loss risk — if the file is deleted, Terraform can't track existing resources\n\nGood for: personal projects, experiments, learning.\nSwitch to remote when: anyone else needs to run <code>apply</code>, or you want CI/CD to manage infrastructure.</div></div>"
+                    },
+                    {
+                        "when": {
+                            "resolver": "tf-backend-value",
+                            "equals": "s3"
+                        },
+                        "content": "S3 backend with DynamoDB locking — the most battle-tested remote backend. Versioned state with automatic locking prevents concurrent applies.",
+                        "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">☁️ S3 + DynamoDB — team-ready</div><div class=\"state-detail\">The S3 backend stores state in a versioned bucket and uses DynamoDB for lock coordination:\n\n• <strong>Versioning</strong> — every <code>apply</code> saves a new state version. Roll back by restoring a previous version.\n• <strong>Locking</strong> — DynamoDB table prevents two <code>apply</code> runs from overlapping\n• <strong>Encryption</strong> — state can be encrypted at rest via S3 SSE\n\nYou'll need an S3 bucket and DynamoDB table created before <code>terraform init</code>. The wizard can generate a bootstrap script for these.</div></div>"
+                    },
+                    {
+                        "when": {
+                            "resolver": "tf-backend-value",
+                            "equals": "gcs"
+                        },
+                        "content": "GCS backend — Google Cloud Storage with built-in locking. No extra table needed — the bucket handles everything.",
+                        "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">☁️ GCS — built-in locking</div><div class=\"state-detail\">GCS backend is simpler than S3 — locking is built into the storage object, no DynamoDB equivalent needed.\n\n• <strong>Versioning</strong> — enable bucket versioning for state rollback\n• <strong>Locking</strong> — atomic operations on the state object prevent concurrent applies\n• <strong>IAM</strong> — service account permissions control who can read/write state\n\nCreate the GCS bucket before running <code>terraform init</code>. The bucket name must be globally unique.</div></div>"
+                    },
+                    {
+                        "when": {
+                            "resolver": "tf-backend-value",
+                            "equals": "azurerm"
+                        },
+                        "content": "Azure Blob backend — lease-based locking built into the storage account. No additional resources needed beyond the container.",
+                        "expanded": "<div class=\"assistant-state-card state-success\"><div class=\"state-label\">☁️ Azure Blob — lease locking</div><div class=\"state-detail\">Azure Blob backend uses container leases for locking — the simplest remote backend to set up on Azure.\n\n• <strong>Locking</strong> — Blob lease prevents concurrent <code>apply</code> runs\n• <strong>Versioning</strong> — enable blob versioning for state rollback history\n• <strong>RBAC</strong> — Azure AD controls who can access the state container\n\nYou'll need a storage account and container created before <code>terraform init</code>. The container name is typically <code>tfstate</code>.</div></div>"
+                    }
+                ]
+            },
+            {
+                "id": "tf-cfg-state-bucket",
+                "title": "State Bucket",
+                "selector": "#mf-tf-state-bucket",
+                "content": "The bucket or container name for remote state. The placeholder suggests a name derived from your project — but it must be globally unique on most cloud providers.",
+                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🪣 Naming your state bucket</div><div class=\"state-detail\">Cloud storage naming rules:\n\n• <strong>Globally unique</strong> — S3 and GCS bucket names are unique across all accounts worldwide\n• <strong>Lowercase + hyphens</strong> — no underscores, no uppercase, no dots (dots break HTTPS)\n• <strong>3–63 characters</strong> — most providers enforce this range\n\nCommon pattern: <code>{project}-{env}-tfstate</code> or <code>{org}-{project}-tfstate</code>.\n\nThe bucket must exist <em>before</em> you run <code>terraform init</code>. If it doesn't, init will fail. Create it manually or use a bootstrap script.</div></div>"
+            },
+            {
+                "id": "tf-res-k8s",
+                "title": "Kubernetes Cluster",
+                "selector": "#mf-tf-k8s",
+                "content": "A fully managed K8s cluster — the biggest resource this wizard provisions. Enabling this automatically includes networking since every cluster needs a VPC.",
+                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">☸️ Managed Kubernetes — full IaC</div><div class=\"state-detail\">This generates a complete cluster definition — not a scaffold. The Terraform resource includes:\n\n• <strong>Cluster control plane</strong> — managed by your cloud provider (EKS/GKE/AKS/DOKS)\n• <strong>Worker node pool</strong> — configurable count, instance type, and K8s version\n• <strong>IAM / RBAC</strong> — service account and role bindings for the cluster\n• <strong>Networking</strong> — VPC, subnets, and security groups auto-included\n\nIf your K8s integration is active, the wizard cross-references your existing manifests with the cluster config. The cluster becomes the deployment target for those manifests.</div></div>",
+                "children": [
+                    {
+                        "id": "tf-res-node-count",
+                        "title": "Worker Nodes",
+                        "selector": "#mf-tf-node-count",
+                        "content": "How many worker nodes in the default pool. More nodes = more capacity but higher cost. You can always scale this later with <code>terraform apply</code> after changing the variable.",
+                        "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">📊 Sizing your cluster</div><div class=\"state-detail\">Node count is a tradeoff:\n\n• <strong>2 nodes</strong> — minimum for high availability. If one node fails, workloads reschedule to the other.\n• <strong>3 nodes</strong> — production standard. Tolerates a node failure while maintaining headroom.\n• <strong>5+ nodes</strong> — for heavier workloads or many microservices.\n\nStart small and scale up. Terraform makes this a one-line change — update the variable, <code>plan</code>, <code>apply</code>. The cluster scales without downtime.</div></div>"
+                    },
+                    {
+                        "id": "tf-res-node-size",
+                        "title": "Instance Type",
+                        "selector": "#mf-tf-node-size",
+                        "content": "The machine size for each worker node — determines CPU, memory, and cost per node. The default is a general-purpose instance suitable for most workloads.",
+                        "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">💻 Instance type tradeoffs</div><div class=\"state-detail\">Common sizing patterns:\n\n• <strong>General purpose</strong> (t3.medium / e2-medium) — balanced CPU and memory, good default\n• <strong>Compute-optimized</strong> (c5.large / c2-standard) — CPU-heavy workloads, build servers\n• <strong>Memory-optimized</strong> (r5.large / n2-highmem) — databases, caching, in-memory processing\n\nThe total cluster capacity = node count × instance size. Fewer large nodes vs. many small nodes is a cost and scheduling tradeoff. Larger nodes pack workloads more efficiently but risk more blast radius per failure.</div></div>"
+                    },
+                    {
+                        "id": "tf-res-k8s-version",
+                        "title": "K8s Version",
+                        "selector": "#mf-tf-k8s-version",
+                        "content": "The Kubernetes version for the cluster control plane and node pools. Managed providers typically support the last 3–4 minor versions and auto-upgrade patch releases.",
+                        "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🔄 Version strategy</div><div class=\"state-detail\">Version considerations:\n\n• <strong>Latest stable</strong> (1.29+) — newest features and security patches. Some providers lag by a minor version.\n• <strong>n-1 strategy</strong> — run one version behind latest for stability. Widely recommended for production.\n• <strong>API deprecations</strong> — newer versions remove old APIs. Check your manifests against the target version.\n\nManaged providers handle patch upgrades automatically. Minor version upgrades (1.28 → 1.29) require explicit action and should be tested first.</div></div>"
+                    }
+                ]
+            },
+            {
+                "id": "tf-res-registry",
+                "title": "Container Registry",
+                "selector": "#mf-tf-registry",
+                "content": "A private image registry for your container builds. If Docker integration is active, this is where your CI/CD pipeline pushes images that the K8s cluster pulls from.",
+                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">📦 Private registry — full IaC</div><div class=\"state-detail\">The registry resource generates:\n\n• <strong>Registry instance</strong> — ECR, GAR, ACR, or DOCR depending on your provider\n• <strong>IAM / auth</strong> — permissions for CI/CD to push and K8s nodes to pull\n• <strong>Lifecycle policies</strong> — optional rules to clean up old images (saves storage costs)\n\nIf you're running K8s, the registry connects naturally — your Deployment manifests reference images from this registry. The auth is handled via IAM roles, not manual docker login.</div></div>"
+            },
+            {
+                "id": "tf-res-networking",
+                "title": "Networking",
+                "selector": "#mf-tf-networking",
+                "content": "Virtual network infrastructure — VPC, subnets, security groups, route tables. If K8s is enabled, this is automatically included since clusters need isolated networking.",
+                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🌐 Network foundation — full IaC</div><div class=\"state-detail\">The networking resource generates:\n\n• <strong>VPC / VNet</strong> — isolated virtual network for all your resources\n• <strong>Subnets</strong> — public (load balancers, NAT) and private (databases, K8s nodes)\n• <strong>Security groups / NSGs</strong> — firewall rules for ingress and egress\n• <strong>Route tables</strong> — traffic routing between subnets and internet gateway\n\nThis is the foundation for everything else. K8s nodes, databases, and registries all live inside this network. Without it, resources would be on the default VPC — not recommended for production.</div></div>"
+            },
+            {
+                "id": "tf-res-database",
+                "title": "Database",
+                "selector": "#mf-tf-database",
+                "content": "A managed database instance — but as a scaffold, not a complete definition. You'll customize the engine, version, instance size, and access policies in the generated .tf file.",
+                "expanded": "<div class=\"assistant-state-card state-warning\"><div class=\"state-label\">🗄️ Database — scaffold only</div><div class=\"state-detail\">Unlike K8s and networking, the database resource is generated as a <strong>commented block</strong> you'll customize:\n\n• <strong>Engine</strong> — PostgreSQL, MySQL, MariaDB (you choose)\n• <strong>Instance size</strong> — depends on your workload and budget\n• <strong>Storage</strong> — size, type (SSD/magnetic), auto-scaling\n• <strong>Access</strong> — which subnets can reach the database, TLS requirements\n\nWhy scaffold? Database configuration is too project-specific to auto-generate. The wizard gives you a valid starting structure with every option documented in comments.</div></div>"
+            },
+            {
+                "id": "tf-res-storage",
+                "title": "Object Storage",
+                "selector": "#mf-tf-storage",
+                "content": "An object storage bucket for assets, uploads, or backups. Like database, this is a scaffold — the generated block is commented with configuration options for you to customize.",
+                "expanded": "<div class=\"assistant-state-card state-warning\"><div class=\"state-label\">💾 Object Storage — scaffold only</div><div class=\"state-detail\">The scaffold generates a commented resource block covering:\n\n• <strong>Bucket name</strong> — derived from project name, must be globally unique\n• <strong>Versioning</strong> — keep previous versions of objects for rollback\n• <strong>Lifecycle rules</strong> — auto-archive or delete old objects to save cost\n• <strong>Access control</strong> — public vs private, CORS rules for web access\n• <strong>Encryption</strong> — server-side encryption at rest\n\nThis is separate from your state bucket — this is for application data. If you're hosting a web app, this might store user uploads, media assets, or database backups.</div></div>"
+            },
+            {
+                "id": "tf-env-list",
+                "title": "Workspace List",
+                "selector": "#tf-env-list",
+                "content": "Each row here becomes a Terraform workspace with its own isolated state file. Workspaces prevent one environment's <code>apply</code> from touching another's resources.",
+                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🗂️ How workspaces work</div><div class=\"state-detail\">Every workspace listed here gets:\n\n• <strong>Isolated state</strong> — <code>terraform workspace select staging</code> switches context. Staging and production resources never overlap in the state file.\n• <strong>Its own .tfvars</strong> — <code>terraform/staging.tfvars</code> holds environment-specific variable values (instance sizes, replica counts, feature flags)\n• <strong>Region override</strong> — leave empty to inherit the default from Cloud Setup, or specify a different region per environment\n\nIf your <code>project.yml</code> defines environments, they're pre-loaded here. You can add more or remove ones you don't need.\n\nThe workflow becomes:\n<code>terraform workspace select staging</code>\n<code>terraform apply -var-file=staging.tfvars</code></div></div>"
+            },
+            {
+                "id": "tf-env-new-name",
+                "title": "Add Workspace",
+                "selector": "#tf-env-new-name",
+                "content": "Add a new workspace — the name becomes both the Terraform workspace name and the <code>.tfvars</code> filename. Keep it short, lowercase, no spaces.",
+                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">➕ Common workspace patterns</div><div class=\"state-detail\">Typical workspace setups:\n\n• <strong>staging + production</strong> — the default. Test in staging, promote to production.\n• <strong>dev + staging + production</strong> — add a dev environment for daily iteration before staging.\n• <strong>per-branch</strong> — dynamic environments for feature branches. More advanced, usually managed by CI/CD.\n\nThe workspace name is used in:\n• State file path: <code>terraform.tfstate.d/{name}/</code>\n• Variable file: <code>terraform/{name}.tfvars</code>\n• Resource tags: <code>Environment = {name}</code>\n\nAvoid renaming later — it means migrating state between workspaces.</div></div>"
+            }
+        ]
+    },
+    {
+        "context": "setup/dns",
+        "title": "DNS & CDN Setup",
+        "icon": "🌐",
+        "content": "Domain routing, CDN caching, SSL certificates, and email deliverability — the layer between your users and your infrastructure.",
+        "variants": [
+            {
+                "when": {
+                    "hasSelector": "#dns-detect-grid"
+                },
+                "content": "Scanning what's already configured — existing domains, CDN providers, SSL certificates, and how other integrations connect to your DNS story."
+            },
+            {
+                "when": {
+                    "hasSelector": "#mf-dns-wiz-domain"
+                },
+                "content": "Your domain identity — the primary domain, subdomains for APIs and docs, which DNS provider manages the zone, and email deliverability records that keep you out of spam folders."
+            },
+            {
+                "when": {
+                    "hasSelector": "#mf-dns-wiz-cdn"
+                },
+                "content": "How traffic reaches your application — CDN for edge caching and DDoS protection, SSL strategy for HTTPS, and if K8s is active, which ingress controller routes external traffic to your services."
+            },
+            {
+                "when": {
+                    "hasSelector": "#dns-routing-wrapper"
+                },
+                "content": "Mapping hostnames to destinations — the actual routing rules that connect domain names to services, containers, or static sites depending on your stack."
+            },
+            {
+                "when": {
+                    "hasSelector": "#dns-wiz-overwrite"
+                },
+                "content": "Everything the wizard will generate — zone files, CDN configs, ingress manifests, and Terraform resources. Review before generating."
+            }
+        ],
+        "children": [
+            {
+                "id": "dns-detect-grid",
+                "title": "DNS Detection",
+                "selector": "#dns-detect-grid",
+                "content": "What the scanner found in your project's DNS configuration — existing files, domains, CDN providers, and certificates.",
+                "children": [
+                    {
+                        "id": "dns-detect-dir",
+                        "title": "DNS Directory",
+                        "selector": "#dns-detect-dir",
+                        "content": "Looking for an existing <code>dns/</code> directory with zone files, record configs, or documentation. If found, the wizard will build on top of what's already there.",
+                        "variants": [
+                            {
+                                "when": {
+                                    "textContains": "file(s)"
+                                },
+                                "content": "Existing DNS files found — the wizard will read these for domain and record context. You can choose to overwrite or preserve them in the Review step.",
+                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">📁 Existing DNS configuration</div><div class=\"state-detail\">Your project already has DNS files. The wizard uses these to:\n\n• <strong>Pre-fill domains</strong> — detected domain names carry forward to the Domain step\n• <strong>Identify records</strong> — existing A, CNAME, MX records inform what's already configured\n• <strong>Avoid conflicts</strong> — the Review step lets you choose whether to overwrite existing files\n\nIf you've hand-crafted zone files, the wizard respects that — it won't silently replace them unless you explicitly allow it.</div></div>"
+                            },
+                            {
+                                "when": {
+                                    "textContains": "Not found"
+                                },
+                                "content": "No DNS directory yet — the wizard will create <code>dns/</code> with zone files, a machine-readable <code>records.json</code>, and documentation."
+                            }
+                        ]
+                    },
+                    {
+                        "id": "dns-detect-cdn",
+                        "title": "CDN Providers",
+                        "selector": "#dns-detect-cdn",
+                        "content": "Checking for CDN configuration files — Cloudflare, CloudFront, nginx proxy configs, Caddyfile, or similar.",
+                        "variants": [
+                            {
+                                "when": {
+                                    "textContains": "None detected"
+                                },
+                                "content": "No CDN configuration found. Not required — but without one, every request hits your origin server directly. The CDN & SSL step lets you add one."
+                            }
+                        ]
+                    },
+                    {
+                        "id": "dns-detect-domains",
+                        "title": "Domains",
+                        "selector": "#dns-detect-domains",
+                        "content": "Your project's domain names — detected from CNAME files, zone files, or project configuration. The primary domain becomes the anchor for everything in this wizard.",
+                        "variants": [
+                            {
+                                "when": {
+                                    "textContains": "None found"
+                                },
+                                "content": "No domains detected yet. You'll enter your domain manually in the next step — it becomes the foundation for DNS records, SSL certificates, and routing rules."
+                            }
+                        ]
+                    },
+                    {
+                        "id": "dns-detect-ssl",
+                        "title": "SSL Certificates",
+                        "selector": "#dns-detect-ssl",
+                        "content": "Looking for existing SSL certificates or cert-manager configurations. If present, the wizard can skip certificate provisioning or configure renewals.",
+                        "variants": [
+                            {
+                                "when": {
+                                    "textContains": "None"
+                                },
+                                "content": "No SSL certificates found. The CDN & SSL step will help you choose a strategy — managed, Let's Encrypt, cert-manager, or bring your own."
+                            }
+                        ]
+                    },
+                    {
+                        "id": "dns-detect-cname",
+                        "title": "CNAME File",
+                        "selector": "#dns-detect-cname",
+                        "content": "A CNAME file tells GitHub Pages which custom domain to serve. It's a single line — just your domain name.",
+                        "variants": [
+                            {
+                                "when": {
+                                    "textContains": "Found"
+                                },
+                                "content": "CNAME file exists — GitHub Pages is already configured for a custom domain. The Routing step will show this and let you update it if your domain changes."
+                            },
+                            {
+                                "when": {
+                                    "textContains": "Not found"
+                                },
+                                "content": "No CNAME file. If you're using GitHub Pages for a static site, the Routing step can generate one with your chosen domain."
+                            }
+                        ]
+                    }
+                ]
+            },
+            {
+                "id": "dns-detect-crossdomain",
+                "title": "Cross-Domain Context",
+                "selector": "#dns-detect-crossdomain",
+                "content": "Other integrations that shape how DNS & CDN configuration works. Each one unlocks different routing options and file generation in later steps.",
+                "children": [
+                    {
+                        "id": "dns-detect-k8s",
+                        "title": "Kubernetes",
+                        "selector": "#dns-detect-k8s",
+                        "content": "K8s detection determines whether the Routing step offers Ingress rule mapping — hostnames to services with automatic TLS.",
+                        "variants": [
+                            {
+                                "when": {
+                                    "textContains": "Detected"
+                                },
+                                "content": "K8s is active — the Routing step will let you map hostnames to services with Ingress rules. The CDN step will offer cert-manager for automatic Let's Encrypt certificates.",
+                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">☸️ K8s unlocks Ingress routing</div><div class=\"state-detail\">With Kubernetes detected, the wizard can generate:\n\n• <strong>Ingress resource</strong> — <code>k8s/ingress.yaml</code> with host rules, TLS, and path routing\n• <strong>cert-manager</strong> — ClusterIssuer + Certificate CRDs for automatic Let's Encrypt\n• <strong>Ingress controller</strong> — nginx-ingress, Traefik, or ALB Ingress choice in CDN step\n\nThe Routing step becomes a visual host→service mapper. Each domain and subdomain maps to a K8s service name and port.</div></div>"
+                            },
+                            {
+                                "when": {
+                                    "textContains": "Not detected"
+                                },
+                                "content": "No K8s found — Ingress routing won't appear. If you're running containers, Docker reverse proxy options will show instead."
+                            }
+                        ]
+                    },
+                    {
+                        "id": "dns-detect-terraform",
+                        "title": "Terraform",
+                        "selector": "#dns-detect-terraform",
+                        "content": "Terraform integration means DNS zones, CDN distributions, and SSL certificates can be provisioned as Infrastructure as Code — version-controlled, reproducible, and team-friendly.",
+                        "variants": [
+                            {
+                                "when": {
+                                    "textContains": "Detected"
+                                },
+                                "content": "Terraform is active — the Routing step will offer IaC generation for DNS zones, CDN distributions, and SSL certificates as Terraform resources.",
+                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🏗️ DNS/CDN as Infrastructure as Code</div><div class=\"state-detail\">With Terraform detected, the Routing step can generate:\n\n• <strong><code>terraform/dns.tf</code></strong> — DNS zone + record resources managed by Terraform\n• <strong><code>terraform/cdn.tf</code></strong> — CDN distribution resource (CloudFront, Cloud CDN, Azure CDN)\n• <strong><code>terraform/ssl.tf</code></strong> — SSL certificate resource (ACM, managed cert)\n\nThis means your DNS becomes version-controlled — changes go through <code>plan</code>/<code>apply</code> instead of clicking in a console. rollbacks are one <code>git revert</code> away.</div></div>"
+                            },
+                            {
+                                "when": {
+                                    "textContains": "Not detected"
+                                },
+                                "content": "No Terraform found — DNS records will be generated as standalone zone files and JSON. You can still manage them manually or import into Terraform later."
+                            }
+                        ]
+                    },
+                    {
+                        "id": "dns-detect-docker",
+                        "title": "Docker",
+                        "selector": "#dns-detect-docker",
+                        "content": "Docker integration enables reverse proxy configuration — Nginx, Caddy, or Traefik as containerized proxies for SSL termination and traffic routing.",
+                        "variants": [
+                            {
+                                "when": {
+                                    "textContains": "Detected"
+                                },
+                                "content": "Docker is active — if no K8s is present, the Routing step will offer reverse proxy configuration for SSL termination and upstream routing to your containers.",
+                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🐳 Docker reverse proxy</div><div class=\"state-detail\">With Docker but no K8s, the wizard generates reverse proxy configs:\n\n• <strong>Nginx</strong> — generates <code>cdn/nginx.conf</code> with upstream, SSL, and caching directives\n• <strong>Caddy</strong> — generates <code>cdn/Caddyfile</code> with automatic HTTPS (zero-config SSL)\n• <strong>Traefik</strong> — generates <code>cdn/traefik.yml</code> with Let's Encrypt and service discovery\n\nThe proxy sits in front of your application containers, handling SSL termination so your app doesn't need to know about certificates.</div></div>"
+                            },
+                            {
+                                "when": {
+                                    "textContains": "Not detected"
+                                },
+                                "content": "No Docker found — reverse proxy options won't appear in the Routing step. DNS records and zone files are still generated."
+                            }
+                        ]
+                    },
+                    {
+                        "id": "dns-detect-pages",
+                        "title": "Pages",
+                        "selector": "#dns-detect-pages",
+                        "content": "GitHub Pages integration means a custom domain can be linked to your static site with a CNAME file and the right DNS records.",
+                        "variants": [
+                            {
+                                "when": {
+                                    "textContains": "Detected"
+                                },
+                                "content": "Pages detected — the Routing step will offer CNAME file generation for your custom domain on GitHub Pages, plus the DNS A/CNAME records needed to point there.",
+                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">📄 GitHub Pages custom domain</div><div class=\"state-detail\">For GitHub Pages with a custom domain, you need:\n\n• <strong>CNAME file</strong> — a single line with your domain, placed in the repo root\n• <strong>DNS records</strong> — A records pointing to GitHub's IPs, or a CNAME to <code>your-org.github.io</code>\n• <strong>HTTPS</strong> — GitHub provides free SSL for custom domains automatically\n\nThe wizard generates both the CNAME file and the DNS records. GitHub handles the SSL certificate provisioning after DNS propagates (usually 24–48 hours).</div></div>"
+                            },
+                            {
+                                "when": {
+                                    "textContains": "Not detected"
+                                },
+                                "content": "No Pages integration found — CNAME file generation won't appear in the Routing step. If you add Pages later, re-run this wizard."
+                            }
+                        ]
+                    }
+                ]
+            },
+            {
+                "id": "dns-domain",
+                "title": "Primary Domain",
+                "selector": "#mf-dns-wiz-domain",
+                "content": "The root domain — everything cascades from here. DNS records, SSL certificates, subdomain routing, and email deliverability all anchor to this value.",
+                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🔗 What your domain becomes</div><div class=\"state-detail\">This single value flows through the entire wizard:\n\n• <strong>Zone file</strong> — <code>dns/{domain}.zone</code> with SOA, NS, and your records\n• <strong>SSL certificate</strong> — the Common Name or SAN on your TLS cert\n• <strong>Subdomains</strong> — <code>api.{domain}</code>, <code>docs.{domain}</code> derive from this\n• <strong>Email</strong> — MX, SPF, DMARC records all reference this domain\n• <strong>Routing</strong> — Ingress rules, proxy configs, and CNAME files all point here\n\nIf the scanner detected a domain from your project files, it's pre-filled. Change it if you're switching domains — the wizard regenerates everything.</div></div>"
+            },
+            {
+                "id": "dns-subdomains-list",
+                "title": "Subdomains",
+                "selector": "#dns-wiz-subdomains-list",
+                "content": "Additional hostnames under your domain — for APIs, documentation, assets, or environment-specific endpoints. Each one gets its own DNS record and routing rule.",
+                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🌐 Common subdomain patterns</div><div class=\"state-detail\">Typical setups:\n\n• <strong>api</strong> — your backend API endpoint, separate from the frontend\n• <strong>docs</strong> — documentation site, often a different stack (Docusaurus, GitBook)\n• <strong>cdn / assets</strong> — static files served from a CDN, offloads your origin\n• <strong>staging</strong> — pre-production environment on a subdomain instead of a separate domain\n• <strong>admin</strong> — internal tools, often behind VPN or IP restriction\n\nEach subdomain added here appears in the Routing step, where you'll map it to a service, container, or static target.</div></div>"
+            },
+            {
+                "id": "dns-sub-input",
+                "title": "Add Subdomain",
+                "selector": "#dns-wiz-sub-input",
+                "content": "Type just the subdomain prefix — not the full hostname. <code>api</code> becomes <code>api.yourdomain.com</code> automatically."
+            },
+            {
+                "id": "dns-provider",
+                "title": "DNS Provider",
+                "selector": "#mf-dns-wiz-provider",
+                "content": "Where your DNS zone is hosted — determines whether records can be managed automatically or need manual updates.",
+                "variants": [
+                    {
+                        "when": {
+                            "resolver": "dns-provider-value",
+                            "equals": "cloudflare"
+                        },
+                        "content": "Cloudflare is more than DNS — it's also a proxy and CDN. Records propagate almost instantly. If Terraform is active, the Cloudflare provider can manage records as code.",
+                        "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">⚡ Cloudflare — DNS + CDN in one</div><div class=\"state-detail\">Cloudflare is unique among DNS providers:\n\n• <strong>Proxied records</strong> — orange cloud ☁️ means traffic flows through Cloudflare's edge, adding DDoS protection and caching for free\n• <strong>Instant propagation</strong> — changes take effect in under 5 seconds, not the usual 24–48 hours\n• <strong>API-first</strong> — fully automatable via Terraform or API. No console clicking.\n• <strong>Free SSL</strong> — Universal SSL on all proxied domains, zero configuration\n\nIn the CDN step, selecting Cloudflare as CDN too means your DNS and CDN are unified — one provider, one dashboard, one set of Terraform resources.</div></div>"
+                    },
+                    {
+                        "when": {
+                            "resolver": "dns-provider-value",
+                            "equals": "route53"
+                        },
+                        "content": "Route 53 integrates tightly with AWS — ELB alias records, health checks, latency-based routing. If Terraform is active, the <code>aws_route53_zone</code> resource manages your zone as code.",
+                        "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🟠 AWS Route 53</div><div class=\"state-detail\">Route 53 advantages in an AWS ecosystem:\n\n• <strong>Alias records</strong> — point to ELB, CloudFront, S3 without hardcoding IPs\n• <strong>Health checks</strong> — failover routing when endpoints go unhealthy\n• <strong>Latency routing</strong> — direct users to the nearest AWS region\n• <strong>Private zones</strong> — internal DNS for VPC resources\n\nCost: $0.50/month per hosted zone + $0.40 per million queries. Well within budget for most projects.</div></div>"
+                    },
+                    {
+                        "when": {
+                            "resolver": "dns-provider-value",
+                            "equals": "clouddns"
+                        },
+                        "content": "Google Cloud DNS — fast, reliable, integrates with GKE load balancers. If Terraform is active, the <code>google_dns_managed_zone</code> resource manages your zone as code."
+                    },
+                    {
+                        "when": {
+                            "resolver": "dns-provider-value",
+                            "equals": "azuredns"
+                        },
+                        "content": "Azure DNS — integrates with Azure Front Door, App Gateway, and AKS load balancers. If Terraform is active, the <code>azurerm_dns_zone</code> resource manages your zone as code."
+                    },
+                    {
+                        "when": {
+                            "resolver": "dns-provider-value",
+                            "equals": "manual"
+                        },
+                        "content": "Manual mode — the wizard generates a zone file and records.json that you'll apply to your DNS provider yourself. Good for providers without API access or for air-gapped environments.",
+                        "expanded": "<div class=\"assistant-state-card state-warning\"><div class=\"state-label\">📋 Manual DNS management</div><div class=\"state-detail\">With manual mode, the wizard generates:\n\n• <strong><code>dns/{domain}.zone</code></strong> — standard BIND zone file, compatible with most providers\n• <strong><code>dns/records.json</code></strong> — machine-readable record list for scripting or import\n• <strong><code>dns/README.md</code></strong> — step-by-step instructions for applying records\n\nYou'll need to create these records in your provider's dashboard or CLI. This means no auto-updates when your infrastructure changes — any IP or endpoint change requires manual record updates.</div></div>"
+                    }
+                ]
+            },
+            {
+                "id": "dns-mail",
+                "title": "Mail Provider",
+                "selector": "#mf-dns-wiz-mail",
+                "content": "MX records tell the internet where to deliver email for your domain. Without them, mail to <code>you@yourdomain.com</code> bounces.",
+                "variants": [
+                    {
+                        "when": {
+                            "resolver": "dns-mail-value",
+                            "equals": "none"
+                        },
+                        "content": "No email for this domain — no MX records generated. Good for domains used purely for web applications or APIs where you don't need to receive mail."
+                    },
+                    {
+                        "when": {
+                            "resolver": "dns-mail-value",
+                            "equals": "google"
+                        },
+                        "content": "Google Workspace — generates MX records pointing to <code>aspmx.l.google.com</code> and the priority-stepped backup servers. Enable SPF and DMARC below for full deliverability.",
+                        "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">📧 Google Workspace MX records</div><div class=\"state-detail\">The wizard generates the standard Google MX priority chain:\n\n• <code>aspmx.l.google.com</code> — priority 1\n• <code>alt1.aspmx.l.google.com</code> — priority 5\n• <code>alt2.aspmx.l.google.com</code> — priority 5\n• <code>alt3.aspmx.l.google.com</code> — priority 10\n• <code>alt4.aspmx.l.google.com</code> — priority 10\n\nSPF and DMARC are strongly recommended with Google Workspace — without them, your outgoing mail may land in recipients' spam folders.</div></div>"
+                    },
+                    {
+                        "when": {
+                            "resolver": "dns-mail-value",
+                            "equals": "protonmail"
+                        },
+                        "content": "ProtonMail — generates MX records pointing to <code>mail.protonmail.ch</code> and <code>mailsec.protonmail.ch</code>. ProtonMail includes built-in encryption, but SPF/DMARC are still essential for deliverability."
+                    },
+                    {
+                        "when": {
+                            "resolver": "dns-mail-value",
+                            "equals": "custom"
+                        },
+                        "content": "Custom MX — generates placeholder MX records you'll fill in with your provider's values. Check your mail provider's documentation for the correct hostnames and priorities."
+                    }
+                ]
+            },
+            {
+                "id": "dns-spf",
+                "title": "SPF Record",
+                "selector": "#dns-wiz-spf",
+                "content": "SPF (Sender Policy Framework) tells receiving mail servers which IPs are authorized to send email from your domain. Without it, anyone can forge emails as you.",
+                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🛡️ Why SPF matters</div><div class=\"state-detail\">An SPF record is a DNS TXT record that lists authorized senders:\n\n<code>v=spf1 include:_spf.google.com ~all</code>\n\nWhat this does:\n• <strong>Authorized</strong> — only Google's servers can send as your domain\n• <strong>~all (soft fail)</strong> — other senders get flagged but not rejected outright\n• <strong>-all (hard fail)</strong> — other senders are rejected completely\n\nWithout SPF, your domain is open to spoofing — attackers can send phishing emails that appear to come from you. Most mail providers require SPF for good deliverability scores.</div></div>"
+            },
+            {
+                "id": "dns-dmarc",
+                "title": "DMARC Record",
+                "selector": "#dns-wiz-dmarc",
+                "content": "DMARC builds on SPF and DKIM — it tells receivers what to do with emails that fail authentication and where to send reports about abuse.",
+                "expanded": "<div class=\"assistant-state-card state-warning\"><div class=\"state-label\">📊 DMARC — the enforcement layer</div><div class=\"state-detail\">A DMARC record is a DNS TXT record at <code>_dmarc.{domain}</code>:\n\n<code>v=DMARC1; p=quarantine; rua=mailto:dmarc@{domain}</code>\n\nThe <strong>policy</strong> levels:\n• <strong>none</strong> — monitor only, don't act on failures (good for starting out)\n• <strong>quarantine</strong> — send failing emails to spam\n• <strong>reject</strong> — block failing emails entirely\n\nThe <strong>rua</strong> field receives aggregate reports showing who's sending email as your domain — legitimate or not. Start with <code>p=none</code> to monitor, then tighten to <code>quarantine</code> or <code>reject</code> once you're confident.</div></div>"
+            },
+            {
+                "id": "dns-cdn",
+                "title": "CDN Provider",
+                "selector": "#mf-dns-wiz-cdn",
+                "content": "A CDN caches your content at edge locations worldwide — users hit the nearest edge instead of your origin server. Also provides DDoS protection and SSL termination.",
+                "variants": [
+                    {
+                        "when": {
+                            "resolver": "dns-cdn-value",
+                            "equals": "none"
+                        },
+                        "content": "No CDN — every request goes directly to your origin. Fine for internal tools or low-traffic projects, but your server bears the full load and latency depends on user distance.",
+                        "expanded": "<div class=\"assistant-state-card state-warning\"><div class=\"state-label\">⚠️ Direct-to-origin tradeoffs</div><div class=\"state-detail\">Without a CDN:\n\n• <strong>Latency</strong> — users in Europe hitting a US server add 100-200ms per request\n• <strong>Load</strong> — every static asset (CSS, JS, images) hits your origin\n• <strong>DDoS</strong> — no edge-level protection, attacks hit your infrastructure directly\n• <strong>SSL</strong> — you manage certificate provisioning and renewal yourself\n\nIf your traffic is low and users are geographically close to your server, this is acceptable. For anything public-facing, consider even a basic CDN.</div></div>"
+                    },
+                    {
+                        "when": {
+                            "resolver": "dns-cdn-value",
+                            "equals": "cloudflare"
+                        },
+                        "content": "Cloudflare's CDN is built into their DNS proxy — traffic flows through their edge automatically. If you selected Cloudflare as DNS too, this is zero additional configuration.",
+                        "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">⚡ Cloudflare CDN — unified with DNS</div><div class=\"state-detail\">Cloudflare as both DNS and CDN means:\n\n• <strong>No separate CNAME</strong> — proxied DNS records (☁️) automatically cache at the edge\n• <strong>Free SSL</strong> — Universal SSL on all proxied domains, no certificate management\n• <strong>Page Rules</strong> — cache everything, redirect patterns, header overrides\n• <strong>DDoS protection</strong> — automatic L3/L4/L7 mitigation at the edge\n• <strong>Workers</strong> — edge compute if you need request transformation\n\nThe wizard doesn't need to generate a separate CDN config file — Cloudflare is configured via their dashboard or Terraform provider.</div></div>"
+                    },
+                    {
+                        "when": {
+                            "resolver": "dns-cdn-value",
+                            "equals": "cloudfront"
+                        },
+                        "content": "AWS CloudFront — tight integration with S3, ELB, and ACM certificates. If Terraform is active, the distribution becomes an IaC resource alongside your other AWS infrastructure.",
+                        "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🟠 AWS CloudFront</div><div class=\"state-detail\">CloudFront in an AWS ecosystem:\n\n• <strong>Origin types</strong> — S3 buckets, ELB/ALB, custom origins (any HTTP endpoint)\n• <strong>ACM integration</strong> — free SSL certificates from AWS Certificate Manager\n• <strong>Lambda@Edge</strong> — run code at 200+ edge locations for request/response transformation\n• <strong>Cache behaviors</strong> — different caching rules per URL path pattern\n\nCost is usage-based: ~$0.085/GB for the first 10TB. The first 1TB/month is included in AWS free tier.</div></div>"
+                    },
+                    {
+                        "when": {
+                            "resolver": "dns-cdn-value",
+                            "equals": "cloudcdn"
+                        },
+                        "content": "Google Cloud CDN — integrates with Cloud Load Balancing and GCS. Caches static content at Google's edge locations. If Terraform is active, the CDN configuration is an IaC resource."
+                    },
+                    {
+                        "when": {
+                            "resolver": "dns-cdn-value",
+                            "equals": "azurecdn"
+                        },
+                        "content": "Azure CDN / Front Door — integrates with Azure Storage, App Service, and managed certificates. Front Door adds WAF and intelligent routing on top of CDN caching."
+                    },
+                    {
+                        "when": {
+                            "resolver": "dns-cdn-value",
+                            "equals": "nginx"
+                        },
+                        "content": "Nginx as a reverse proxy and edge cache — you run it yourself, full control over caching rules, headers, and SSL. The wizard generates an nginx.conf with your domain and upstream configuration.",
+                        "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🔧 Self-hosted Nginx</div><div class=\"state-detail\">Nginx as your CDN layer means:\n\n• <strong>Full control</strong> — you define exactly what gets cached, for how long, and where\n• <strong>SSL termination</strong> — handles HTTPS before forwarding to your app over HTTP\n• <strong>Upstream flexibility</strong> — proxy to localhost, Docker containers, or remote servers\n• <strong>No vendor lock-in</strong> — runs anywhere, from a $5 VPS to bare metal\n\nThe tradeoff: you manage the server, updates, and certificate renewals. No global edge network — users hit your single server location unless you deploy multiple instances.</div></div>"
+                    },
+                    {
+                        "when": {
+                            "resolver": "dns-cdn-value",
+                            "equals": "caddy"
+                        },
+                        "content": "Caddy — automatic HTTPS out of the box. It obtains and renews Let's Encrypt certificates with zero configuration. The wizard generates a Caddyfile with your domain and upstream.",
+                        "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🔒 Caddy — automatic everything</div><div class=\"state-detail\">Caddy's philosophy is convention over configuration:\n\n• <strong>Auto HTTPS</strong> — obtains Let's Encrypt certs automatically, no certbot needed\n• <strong>Auto renewal</strong> — certificates renew before expiry with no cron jobs\n• <strong>Simple config</strong> — a Caddyfile is often 3-5 lines for a basic reverse proxy\n• <strong>HTTP/3</strong> — supported out of the box\n\nThe tradeoff vs Nginx: less community knowledge, fewer plugins, slightly higher memory usage. But for most reverse proxy use cases, the simplicity wins.</div></div>"
+                    }
+                ]
+            },
+            {
+                "id": "dns-ssl",
+                "title": "SSL Strategy",
+                "selector": "#mf-dns-wiz-ssl",
+                "content": "How HTTPS certificates are obtained and renewed. The right strategy depends on your CDN, hosting, and how much automation you want.",
+                "variants": [
+                    {
+                        "when": {
+                            "resolver": "dns-ssl-value",
+                            "equals": "managed"
+                        },
+                        "content": "Provider-managed SSL — your CDN or cloud provider handles certificate provisioning and renewal. Zero maintenance, but tied to that provider.",
+                        "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🔒 Managed SSL</div><div class=\"state-detail\">Who manages it depends on your CDN/provider:\n\n• <strong>Cloudflare</strong> — Universal SSL, free, automatic, covers *.domain + domain\n• <strong>AWS</strong> — ACM certificates, free, auto-renewing, only for AWS services\n• <strong>GCP</strong> — Google-managed certs for Cloud Load Balancing\n• <strong>Azure</strong> — Front Door managed certificates\n\nThe tradeoff: you can't use these certificates outside their ecosystem. If you move providers, you'll need a new certificate strategy.</div></div>"
+                    },
+                    {
+                        "when": {
+                            "resolver": "dns-ssl-value",
+                            "equals": "letsencrypt"
+                        },
+                        "content": "Let's Encrypt — free, automated certificates via ACME protocol. 90-day validity with auto-renewal. Works everywhere, vendor-neutral.",
+                        "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🆓 Let's Encrypt</div><div class=\"state-detail\">The de facto free SSL solution:\n\n• <strong>ACME protocol</strong> — automated certificate issuance and renewal\n• <strong>90-day certs</strong> — short validity forces automation (which is good)\n• <strong>Rate limits</strong> — 50 certs per domain per week, rarely a problem\n• <strong>Wildcard support</strong> — <code>*.domain.com</code> via DNS-01 challenge\n\nTooling: <code>certbot</code> for standalone servers, cert-manager for K8s, Caddy has it built in. The wizard configures renewal based on your stack.</div></div>"
+                    },
+                    {
+                        "when": {
+                            "resolver": "dns-ssl-value",
+                            "equals": "certmanager"
+                        },
+                        "content": "cert-manager in your K8s cluster — watches Ingress resources, automatically provisions Let's Encrypt certificates and stores them as K8s Secrets. The full automation loop.",
+                        "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">☸️ cert-manager — K8s-native SSL</div><div class=\"state-detail\">cert-manager closes the automation loop:\n\n1. You annotate your Ingress with <code>cert-manager.io/cluster-issuer</code>\n2. cert-manager creates a Certificate CRD\n3. It solves the ACME challenge (HTTP-01 or DNS-01)\n4. It stores the cert as a K8s Secret\n5. The Ingress controller picks up the Secret for TLS\n6. cert-manager renews before expiry\n\nThe wizard generates a ClusterIssuer (Let's Encrypt) and a Certificate resource that covers your domain and subdomains.</div></div>"
+                    },
+                    {
+                        "when": {
+                            "resolver": "dns-ssl-value",
+                            "equals": "manual"
+                        },
+                        "content": "Bring your own certificates — you're responsible for obtaining, installing, and renewing SSL certs. Use this for EV certificates, internal CAs, or air-gapped environments.",
+                        "expanded": "<div class=\"assistant-state-card state-warning\"><div class=\"state-label\">📋 Manual certificate management</div><div class=\"state-detail\">Manual SSL means you handle:\n\n• <strong>Obtaining</strong> — purchase from a CA, or generate from an internal PKI\n• <strong>Installing</strong> — place cert + key on your server or in a K8s Secret\n• <strong>Renewing</strong> — track expiry dates, repeat the process before they lapse\n• <strong>Monitoring</strong> — set up alerts for certificates nearing expiry\n\nCommon reasons for manual: EV (Extended Validation) certificates that show your company name, internal CAs for corporate networks, or compliance requirements that mandate specific CAs.</div></div>"
+                    }
+                ]
+            },
+            {
+                "id": "dns-ingress",
+                "title": "Ingress Controller",
+                "selector": "#mf-dns-wiz-ingress",
+                "content": "The ingress controller is the K8s component that reads Ingress resources and configures the actual load balancer — the gateway between the internet and your cluster.",
+                "variants": [
+                    {
+                        "when": {
+                            "resolver": "dns-ingress-value",
+                            "equals": "nginx"
+                        },
+                        "content": "nginx-ingress — the most widely used controller. Battle-tested, extensive annotation support, good defaults. The community project, not the NGINX Inc commercial version.",
+                        "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🔧 nginx-ingress controller</div><div class=\"state-detail\">nginx-ingress advantages:\n\n• <strong>Community standard</strong> — most K8s tutorials and examples assume nginx-ingress\n• <strong>Annotations</strong> — rich set for rate limiting, rewrites, CORS, auth, websockets\n• <strong>ConfigMap</strong> — global defaults for all Ingress resources\n• <strong>cert-manager</strong> — first-class integration, annotations trigger cert provisioning\n\nThe wizard generates an Ingress resource with nginx-class annotations. If cert-manager is enabled, it adds the issuer annotation for automatic SSL.</div></div>"
+                    },
+                    {
+                        "when": {
+                            "resolver": "dns-ingress-value",
+                            "equals": "traefik"
+                        },
+                        "content": "Traefik — auto-discovers services, built-in Let's Encrypt, middleware chains for auth and rate limiting. More opinionated than nginx, less manual configuration.",
+                        "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🔀 Traefik ingress</div><div class=\"state-detail\">Traefik's approach:\n\n• <strong>Auto-discovery</strong> — reads K8s Ingress and IngressRoute CRDs automatically\n• <strong>Built-in ACME</strong> — can provision Let's Encrypt without cert-manager\n• <strong>Middleware</strong> — chains of auth, rate-limit, retry, circuit-breaker as K8s resources\n• <strong>Dashboard</strong> — built-in web UI showing routes and services\n\nIf you're already using Traefik in a Docker Compose setup, keeping it for K8s means familiar configuration patterns.</div></div>"
+                    },
+                    {
+                        "when": {
+                            "resolver": "dns-ingress-value",
+                            "equals": "alb"
+                        },
+                        "content": "AWS ALB Ingress — provisions an actual Application Load Balancer per Ingress resource. Deep AWS integration but costs per ALB (~$22/month minimum plus usage).",
+                        "expanded": "<div class=\"assistant-state-card state-warning\"><div class=\"state-label\">🟠 AWS ALB Ingress Controller</div><div class=\"state-detail\">ALB Ingress is AWS-native:\n\n• <strong>Real ALB</strong> — each Ingress creates an AWS Application Load Balancer\n• <strong>Target groups</strong> — routes directly to pod IPs (IP mode) or NodePort\n• <strong>WAF integration</strong> — attach AWS WAF rules at the load balancer level\n• <strong>ACM certificates</strong> — uses AWS Certificate Manager, not cert-manager\n\nThe cost tradeoff: ~$22/month per ALB + $0.008/LCU-hour. Multiple Ingress resources = multiple ALBs = multiplied cost. Consider using a single ALB with path-based routing.</div></div>"
+                    }
+                ]
+            },
+            {
+                "id": "dns-certmanager",
+                "title": "cert-manager",
+                "selector": "#dns-wiz-certmanager",
+                "content": "cert-manager automates SSL certificate lifecycle in K8s — provision, store, renew. Once installed, you'll never manually renew a certificate again.",
+                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🔄 cert-manager — set it and forget it</div><div class=\"state-detail\">What the wizard generates when cert-manager is enabled:\n\n• <strong><code>k8s/cert-manager/cluster-issuer.yaml</code></strong> — a ClusterIssuer pointing at Let's Encrypt (staging or production)\n• <strong><code>k8s/cert-manager/certificate.yaml</code></strong> — a Certificate CRD listing your domain and subdomains\n\nThe automation flow:\n1. cert-manager watches for Certificate resources\n2. It contacts Let's Encrypt via ACME\n3. It solves the challenge (HTTP-01 through your Ingress, or DNS-01 through your DNS provider)\n4. It stores the certificate as a K8s Secret\n5. Your Ingress references that Secret for TLS\n6. 30 days before expiry, cert-manager renews automatically\n\nNo cron jobs, no certbot, no expiry surprises.</div></div>"
+            },
+            {
+                "id": "dns-k8s-routes",
+                "title": "Ingress Routes",
+                "selector": "#dns-wiz-k8s-routes",
+                "content": "Each row maps a hostname to a Kubernetes Service — the Ingress controller uses these to route incoming traffic to the right pods inside your cluster.",
+                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">☸️ How Ingress routing works</div><div class=\"state-detail\">The flow when a request arrives:\n\n1. DNS resolves <code>api.yourdomain.com</code> to your load balancer IP\n2. The Ingress controller receives the request\n3. It matches the <code>Host</code> header against Ingress rules\n4. It forwards to the matching Service + port\n5. The Service load-balances across healthy pods\n\nThe <strong>service name</strong> must match an actual K8s Service in your namespace. The <strong>port</strong> is the Service port (not the container port — the Service maps between them).\n\nIf you add subdomains in Step 2, they appear here automatically as new routing rows.</div></div>"
+            },
+            {
+                "id": "dns-proxy",
+                "title": "Reverse Proxy",
+                "selector": "#mf-dns-wiz-proxy",
+                "content": "The gateway between the internet and your Docker containers — handles SSL termination, request routing, and optionally caching.",
+                "variants": [
+                    {
+                        "when": {
+                            "resolver": "dns-proxy-value",
+                            "equals": "nginx"
+                        },
+                        "content": "Nginx — you define every directive. The wizard generates an <code>nginx.conf</code> with your domain, upstream, and reverse proxy headers. SSL and caching are your responsibility to configure.",
+                        "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🔧 What the generated nginx.conf contains</div><div class=\"state-detail\">The wizard creates a minimal but correct reverse proxy config:\n\n• <strong>server_name</strong> — your domain + subdomains\n• <strong>proxy_pass</strong> — forwards to your upstream URL\n• <strong>Headers</strong> — X-Real-IP, X-Forwarded-For, X-Forwarded-Proto for correct client detection\n\nWhat you'll still need to add:\n• <code>listen 443 ssl</code> block with certificate paths\n• Cache directives if you want nginx to cache responses\n• Rate limiting, gzip, or security headers\n\nThe config lives at <code>cdn/nginx.conf</code> — mount it into your nginx container or copy to your server.</div></div>"
+                    },
+                    {
+                        "when": {
+                            "resolver": "dns-proxy-value",
+                            "equals": "caddy"
+                        },
+                        "content": "Caddy handles SSL automatically — it obtains and renews Let's Encrypt certificates the moment it sees your domain in the Caddyfile. No certbot, no cron, no certificate paths to manage.",
+                        "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🔒 What the generated Caddyfile looks like</div><div class=\"state-detail\">For each domain and subdomain, the Caddyfile gets a block:\n\n<code>yourdomain.com {\n    reverse_proxy http://app:3000\n}</code>\n\nThat's the entire config. Caddy handles:\n• HTTPS redirect (80 → 443)\n• Let's Encrypt certificate provisioning\n• Certificate renewal before expiry\n• HTTP/2 and HTTP/3\n\nThe Caddyfile lives at <code>cdn/Caddyfile</code>. In Docker Compose, mount it at <code>/etc/caddy/Caddyfile</code>.</div></div>"
+                    },
+                    {
+                        "when": {
+                            "resolver": "dns-proxy-value",
+                            "equals": "traefik"
+                        },
+                        "content": "Traefik discovers services dynamically — in Docker, it reads container labels to build routing rules. The wizard generates a static config with your domain and Let's Encrypt resolver.",
+                        "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🔀 What the generated traefik.yml contains</div><div class=\"state-detail\">The wizard creates a Traefik dynamic config:\n\n• <strong>Router</strong> — matches <code>Host(`yourdomain.com`)</code>\n• <strong>Service</strong> — load balances to your upstream URL\n• <strong>TLS</strong> — uses the <code>letsencrypt</code> cert resolver\n\nIn production, you'd typically switch to Docker provider labels:\n<code>traefik.http.routers.app.rule=Host(`yourdomain.com`)</code>\n\nThe static config lives at <code>cdn/traefik.yml</code>. Mount it or point Traefik's <code>--providers.file.filename</code> flag at it.</div></div>"
+                    },
+                    {
+                        "when": {
+                            "resolver": "dns-proxy-value",
+                            "equals": "cloudflared"
+                        },
+                        "content": "Cloudflare Tunnel — a fundamentally different model. No ports are exposed. No public IP needed. Your app connects outbound to Cloudflare's edge, and traffic flows back through that tunnel.",
+                        "expanded": "<div class=\"assistant-state-card state-warning\"><div class=\"state-label\">🚇 Cloudflare Tunnel — zero exposed ports</div><div class=\"state-detail\">Unlike nginx/caddy/traefik, cloudflared doesn't listen on port 80/443. Instead:\n\n1. <code>cloudflared</code> opens an outbound connection to Cloudflare's edge\n2. Cloudflare receives traffic for your domain on their network\n3. Traffic flows through the tunnel to your local service\n4. Your firewall can block ALL inbound traffic — nothing is exposed\n\nThe wizard generates <code>cdn/cloudflared.yml</code> with ingress rules mapping each hostname to your upstream. You'll need to:\n\n• <strong>Create a tunnel</strong>: <code>cloudflared tunnel create my-tunnel</code>\n• <strong>Replace the placeholder</strong> tunnel ID in the config\n• <strong>Run</strong>: <code>cloudflared tunnel run --config cdn/cloudflared.yml</code>\n\nRequires Cloudflare as your DNS provider — the tunnel is linked to your Cloudflare zone. SSL is handled by Cloudflare's edge, not your server.\n\nBest for: home labs, NAT'd environments, zero-trust architectures, or anywhere you can't open firewall ports.</div></div>"
+                    }
+                ]
+            },
+            {
+                "id": "dns-upstream",
+                "title": "Upstream URL",
+                "selector": "#mf-dns-wiz-upstream",
+                "content": "Where the proxy sends traffic after SSL termination — typically a Docker service name and port. In Docker Compose, service names resolve automatically inside the network.",
+                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🔗 Docker networking and upstreams</div><div class=\"state-detail\">Inside a Docker Compose network, service names are DNS hostnames:\n\n• <code>http://app:3000</code> — the <code>app</code> service on port 3000\n• <code>http://api:8080</code> — the <code>api</code> service on port 8080\n• <code>http://localhost:3000</code> — only works if the proxy runs on the host, not in a container\n\nThe port here is the <strong>container port</strong> (what the app listens on inside the container), not the published port. If your app listens on 3000 internally, use 3000 — even if you publish it as 80 externally.</div></div>"
+            },
+            {
+                "id": "dns-pages-cname",
+                "title": "Pages Custom Domain",
+                "selector": "#dns-wiz-pages-cname",
+                "content": "This creates a CNAME file in your repo root — one line, just your domain. GitHub reads it to know which custom domain your Pages site should serve.",
+                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">📄 What happens after you generate this</div><div class=\"state-detail\">After the CNAME file is committed and DNS records propagate:\n\n1. GitHub detects the CNAME file in your repo\n2. It provisions a free Let's Encrypt certificate for your domain\n3. Your site starts responding at <code>https://yourdomain.com</code>\n4. <code>your-org.github.io/repo</code> redirects to your custom domain\n\nDNS propagation typically takes 24–48 hours. During that window, the site continues to work at the <code>.github.io</code> URL.\n\nThe wizard also generates the matching DNS records (A records for GitHub's IPs, or a CNAME to <code>.github.io</code>) in your zone file.</div></div>"
+            },
+            {
+                "id": "dns-tf-dns",
+                "title": "Terraform DNS Zone",
+                "selector": "#dns-wiz-tf-dns",
+                "content": "Your DNS zone and all its records as Terraform resources — create, update, and delete records through <code>terraform apply</code> instead of clicking in a console.",
+                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🏗️ What dns.tf contains</div><div class=\"state-detail\">The generated Terraform file creates:\n\n• <strong>Zone resource</strong> — the managed DNS zone for your domain\n• <strong>A/CNAME records</strong> — for your domain and subdomains\n• <strong>MX records</strong> — if you configured a mail provider\n• <strong>TXT records</strong> — SPF and DMARC if enabled\n\nEvery record gets a <code>ttl</code> argument. Changes are planned before applied — you see exactly what will change before it happens. Rollbacks are one <code>git revert</code> + <code>terraform apply</code> away.</div></div>"
+            },
+            {
+                "id": "dns-tf-cdn",
+                "title": "Terraform CDN",
+                "selector": "#dns-wiz-tf-cdn",
+                "content": "Your CDN distribution as a Terraform resource — cache behaviors, origins, and edge configuration tracked in version control alongside your DNS.",
+                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🏗️ What cdn.tf contains</div><div class=\"state-detail\">Depends on your cloud provider:\n\n• <strong>AWS</strong> — <code>aws_cloudfront_distribution</code> with origin, cache behavior, viewer certificate\n• <strong>GCP</strong> — <code>google_compute_backend_bucket</code> + <code>google_compute_url_map</code>\n• <strong>Azure</strong> — <code>azurerm_cdn_profile</code> + <code>azurerm_cdn_endpoint</code>\n\nThe CDN resource references your DNS zone — they're linked in the Terraform dependency graph. Changing the domain in one place propagates to the other.</div></div>"
+            },
+            {
+                "id": "dns-tf-ssl",
+                "title": "Terraform SSL",
+                "selector": "#dns-wiz-tf-ssl",
+                "content": "Certificate provisioning as code — the cert is requested, validated, and stored through Terraform. Renewals depend on your provider's managed certificate lifecycle.",
+                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🏗️ What ssl.tf contains</div><div class=\"state-detail\">Depends on your cloud provider:\n\n• <strong>AWS</strong> — <code>aws_acm_certificate</code> + <code>aws_acm_certificate_validation</code> with DNS validation records\n• <strong>GCP</strong> — <code>google_compute_managed_ssl_certificate</code>\n• <strong>Azure</strong> — managed certificate through Front Door or App Gateway\n\nDNS validation is automatic — Terraform creates the validation CNAME record in your zone, waits for validation, and links the certificate to your CDN distribution. The whole chain is one <code>terraform apply</code>.</div></div>"
+            }
+        ]
     }
 ]

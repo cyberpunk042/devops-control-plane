@@ -51,6 +51,18 @@
             azurerm: 'Azure Blob container — built-in locking via lease.',
         };
 
+        // Register assistant resolvers for live select values
+        if (window._assistant) {
+            window._assistant.resolvers['tf-provider-value'] = function() {
+                var el = document.getElementById('mf-tf-provider');
+                return el ? el.value : '';
+            };
+            window._assistant.resolvers['tf-backend-value'] = function() {
+                var el = document.getElementById('mf-tf-backend');
+                return el ? el.value : '';
+            };
+        }
+
         wizardModalOpen({
             title: '🏗️ Terraform Setup',
             assistantContext: 'setup/terraform',
@@ -102,17 +114,17 @@
 
                             // ── Build detection HTML ──
                             let html = wizSection('Terraform Environment', 'Current Infrastructure as Code configuration.');
-                            html += '<div class="wiz-status-grid">';
+                            html += '<div class="wiz-status-grid" id="tf-detect-grid">';
 
                             // CLI
                             html += wizStatusRow('🔧', 'Terraform CLI',
                                 cli.available ? ('v' + (cli.version || '').split(' ')[0]) : 'Not installed',
-                                cli.available ? 'ok' : 'error');
+                                cli.available ? 'ok' : 'error', false, 'tf-detect-cli');
 
                             // TF Root
                             html += wizStatusRow('📁', 'Configuration Root',
                                 tf.root || 'No .tf files found',
-                                tf.root ? 'ok' : 'muted');
+                                tf.root ? 'ok' : 'muted', false, 'tf-detect-root');
 
                             // Files — classified breakdown
                             if (files.length > 0) {
@@ -122,9 +134,9 @@
                                     '<span style="display:inline-block;padding:1px 6px;border-radius:3px;background:var(--bg-card);border:1px solid var(--border-subtle);font-size:0.72rem;margin:1px">' +
                                     esc(c + '×' + t) + '</span>'
                                 ).join(' ');
-                                html += wizStatusRow('📄', 'Files (' + files.length + ')', chips, 'ok', true);
+                                html += wizStatusRow('📄', 'Files (' + files.length + ')', chips, 'ok', true, 'tf-detect-files');
                             } else {
-                                html += wizStatusRow('📄', 'TF Files', 'None found', 'muted');
+                                html += wizStatusRow('📄', 'TF Files', 'None found', 'muted', false, 'tf-detect-files');
                             }
 
                             // Providers
@@ -134,9 +146,9 @@
                                     return '<span style="display:inline-block;padding:2px 8px;border-radius:4px;background:rgba(100,180,255,0.1);border:1px solid rgba(100,180,255,0.2);font-size:0.75rem;font-weight:600;margin:1px;color:var(--accent)">' +
                                         esc(name) + '</span>';
                                 }).join(' ');
-                                html += wizStatusRow('☁️', 'Providers', chips, 'ok', true);
+                                html += wizStatusRow('☁️', 'Providers', chips, 'ok', true, 'tf-detect-providers');
                             } else {
-                                html += wizStatusRow('☁️', 'Providers', 'None detected', 'muted');
+                                html += wizStatusRow('☁️', 'Providers', 'None detected', 'muted', false, 'tf-detect-providers');
                             }
 
                             // Resources
@@ -147,30 +159,30 @@
                                     .map(([t, c]) => c + '×' + t).join(', ');
                                 const more = Object.keys(typeGroups).length > 4 ? ', …' : '';
                                 html += wizStatusRow('📦', 'Resources (' + resources.length + ')',
-                                    summary + more, 'ok');
+                                    summary + more, 'ok', false, 'tf-detect-resources');
                             } else {
-                                html += wizStatusRow('📦', 'Resources', 'None', 'muted');
+                                html += wizStatusRow('📦', 'Resources', 'None', 'muted', false, 'tf-detect-resources');
                             }
 
                             // Modules
                             if (modules.length > 0) {
                                 const modNames = modules.map(m => esc(m.name || String(m))).join(', ');
-                                html += wizStatusRow('📚', 'Modules (' + modules.length + ')', modNames, 'ok');
+                                html += wizStatusRow('📚', 'Modules (' + modules.length + ')', modNames, 'ok', false, 'tf-detect-modules');
                             }
 
                             // Backend
                             if (backend) {
                                 const bType = typeof backend === 'string' ? backend : (backend.type || 'unknown');
                                 html += wizStatusRow('💾', 'State Backend',
-                                    '<span style="font-weight:600;color:var(--accent)">' + esc(bType) + '</span>', 'ok', true);
+                                    '<span style="font-weight:600;color:var(--accent)">' + esc(bType) + '</span>', 'ok', true, 'tf-detect-backend');
                             } else {
-                                html += wizStatusRow('💾', 'State Backend', 'Not configured', 'muted');
+                                html += wizStatusRow('💾', 'State Backend', 'Not configured', 'muted', false, 'tf-detect-backend');
                             }
 
                             // Initialized
                             html += wizStatusRow('⚙️', 'Initialized',
                                 tf.initialized ? 'Yes (.terraform/ exists)' : 'No',
-                                tf.initialized ? 'ok' : 'muted');
+                                tf.initialized ? 'ok' : 'muted', false, 'tf-detect-init');
 
                             html += '</div>';
 
@@ -185,7 +197,7 @@
                                 xdHints.push({ icon: '🔄', text: 'CI/CD detected — pipeline can trigger plan/apply', color: 'var(--info, #60a0ff)' });
 
                             if (xdHints.length > 0) {
-                                html += '<div style="margin-top:var(--space-md);padding:0.6rem 0.8rem;border-radius:8px;background:rgba(100,180,255,0.05);border:1px solid rgba(100,180,255,0.12)">';
+                                html += '<div id="tf-detect-crossdomain" style="margin-top:var(--space-md);padding:0.6rem 0.8rem;border-radius:8px;background:rgba(100,180,255,0.05);border:1px solid rgba(100,180,255,0.12)">';
                                 html += '<div style="font-size:0.78rem;font-weight:700;color:var(--text-secondary);margin-bottom:6px;letter-spacing:0.02em">🔗 Cross-Domain Integrations</div>';
                                 xdHints.forEach(h => {
                                     html += '<div style="display:flex;align-items:center;gap:6px;font-size:0.76rem;padding:3px 0">' +
@@ -250,10 +262,7 @@
                                 { name: 'tf-region', label: 'Region', value: detectedRegion, hint: 'Primary deployment region — auto-updates with provider' },
                             ]) +
 
-                            // Provider context hint
-                            '<div id="tf-provider-hint" style="margin:-0.2rem 0 var(--space-md);padding:0.35rem 0.6rem;border-radius:4px;font-size:0.74rem;color:var(--text-muted);background:rgba(100,180,255,0.04);border:1px solid rgba(100,180,255,0.08)">' +
-                                esc(_tfProviderLabels[detectedProvider] || '') +
-                            '</div>' +
+
 
                             wizSection('Project Identity', 'Used for resource naming, state bucket, and tags.') +
                             wizFormGrid([
@@ -286,10 +295,9 @@
                                 ]) +
                             '</div>';
 
-                        // Wire provider → region + hint update
+                        // Wire provider → region update + assistant refresh
                         const provSel = document.getElementById('mf-tf-provider');
                         const regionEl = document.getElementById('mf-tf-region');
-                        const provHint = document.getElementById('tf-provider-hint');
                         if (provSel) {
                             provSel.addEventListener('change', () => {
                                 if (regionEl) {
@@ -297,7 +305,7 @@
                                     if (isDefault || !regionEl.value)
                                         regionEl.value = _tfRegionDefaults[provSel.value] || '';
                                 }
-                                if (provHint) provHint.textContent = _tfProviderLabels[provSel.value] || '';
+                                if (window._assistant) window._assistant.refresh();
                             });
                         }
 
@@ -310,6 +318,7 @@
                                 const v = backendSel.value;
                                 if (backendHint) backendHint.textContent = _tfBackendHints[v] || '';
                                 if (extraDiv) extraDiv.style.display = v !== 'local' ? 'block' : 'none';
+                                if (window._assistant) window._assistant.refresh();
                             });
                         }
                     },
