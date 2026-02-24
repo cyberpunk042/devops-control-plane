@@ -212,6 +212,7 @@ def audit_install_tool():
         tool=body.get("tool", ""),
         cli=body.get("cli", ""),
         sudo_password=body.get("sudo_password", ""),
+        override_command=body.get("override_command"),
     )
 
     # On successful install, bust server-side caches so status re-detects
@@ -225,8 +226,83 @@ def audit_install_tool():
         except Exception as exc:
             current_app.logger.warning("Failed to bust cache after install: %s", exc)
 
-    status = 200 if result.get("ok") or result.get("needs_sudo") else 400
+    status = 200 if result.get("ok") or result.get("needs_sudo") or result.get("missing_dependency") or result.get("remediation") else 400
     return jsonify(result), status
+
+
+@audit_bp.route("/audit/remediate", methods=["POST"])
+def audit_remediate():
+    """Execute a remediation action with streaming output (SSE)."""
+    import json as _json
+    import subprocess as _sp
+
+    from flask import Response, stream_with_context
+
+    body = request.get_json(silent=True) or {}
+    cmd = body.get("override_command")
+    tool = body.get("tool", "")
+    sudo_password = body.get("sudo_password", "")
+
+    if not cmd:
+        return jsonify({"ok": False, "error": "No command provided"}), 400
+
+    # Wrap with sudo if password provided
+    if sudo_password:
+        if isinstance(cmd, list):
+            cmd = ["sudo", "-S"] + cmd
+        else:
+            cmd = f"sudo -S {cmd}"
+
+    def generate():
+        try:
+            proc = _sp.Popen(
+                cmd,
+                stdin=_sp.PIPE if sudo_password else None,
+                stdout=_sp.PIPE,
+                stderr=_sp.STDOUT,
+                text=True,
+                bufsize=1,
+            )
+            if sudo_password:
+                proc.stdin.write(sudo_password + "\n")
+                proc.stdin.flush()
+                proc.stdin.close()
+            for line in proc.stdout:
+                yield f"data: {_json.dumps({'line': line.rstrip()})}\n\n"
+            proc.wait()
+
+            ok = proc.returncode == 0
+            yield f"data: {_json.dumps({'done': True, 'ok': ok, 'exit_code': proc.returncode})}\n\n"
+
+            # Bust caches on success
+            if ok:
+                try:
+                    root = Path(current_app.config["PROJECT_ROOT"])
+                    devops_cache.invalidate_scope(root, "integrations")
+                    devops_cache.invalidate_scope(root, "devops")
+                    devops_cache.invalidate(root, "wiz:detect")
+                except Exception:
+                    pass
+        except Exception as exc:
+            yield f"data: {_json.dumps({'done': True, 'ok': False, 'error': str(exc)})}\n\n"
+
+    return Response(
+        stream_with_context(generate()),
+        mimetype="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+@audit_bp.route("/audit/check-deps", methods=["POST"])
+def audit_check_deps():
+    """Check if system packages are installed."""
+    from src.core.services.tool_install import check_system_deps
+
+    body = request.get_json(silent=True) or {}
+    packages = body.get("packages", [])
+    if not packages:
+        return jsonify({"missing": [], "installed": []}), 200
+    result = check_system_deps(packages)
+    return jsonify(result), 200
 
 
 @audit_bp.route("/tools/status")

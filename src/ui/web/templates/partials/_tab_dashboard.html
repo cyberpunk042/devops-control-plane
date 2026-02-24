@@ -2,102 +2,80 @@
 <div id="tab-dashboard" class="tab-content active">
     <header class="tab-header">
         <h1>📊 Dashboard</h1>
-        <p class="subtitle">Project overview and recent activity</p>
+        <p class="subtitle">Solution readiness at a glance</p>
     </header>
 
-    <!-- Status cards -->
-    <div class="card-grid">
-        <div class="card">
-            <div class="card-header">
-                <span class="card-title">Project</span>
-            </div>
-            <div class="card-value" id="project-name">—</div>
-            <div class="card-subtitle" id="project-desc"></div>
-        </div>
-        <div class="card">
-            <div class="card-header">
-                <span class="card-title">Modules</span>
-            </div>
-            <div class="card-value" id="module-count">—</div>
-            <div class="card-subtitle" id="module-summary"></div>
-        </div>
-        <div class="card">
-            <div class="card-header">
-                <span class="card-title">Last Operation</span>
-            </div>
-            <div class="card-value" id="last-op-name">—</div>
-            <div class="card-subtitle" id="last-op-detail"></div>
-        </div>
-        <div class="card">
-            <div class="card-header">
-                <span class="card-title">Environments</span>
-            </div>
-            <div class="card-value" id="env-count">—</div>
-            <div class="card-subtitle" id="env-list"></div>
-        </div>
-    </div>
+    <div class="assistant-layout">
+        <!-- ── Main content column ─────────────────────────────── -->
+        <div class="dash-main">
 
-    <!-- ── Setup Progress ─────────────────────────────────────── -->
-    <section class="section" style="margin-top:var(--space-lg)" id="setup-progress-section">
-        <div class="card" style="padding:var(--space-lg)">
-            <div class="card-header" style="margin-bottom:var(--space-md)">
-                <span class="card-title">🚀 Setup Progress</span>
-                <span class="status-badge" id="setup-progress-badge">—</span>
-            </div>
-            <div id="setup-progress-content">
+            <!-- 1. Project Pulse — compact identity bar ────────── -->
+            <div id="project-pulse" class="dash-pulse">
                 <span class="spinner"></span>
             </div>
-        </div>
-    </section>
 
-    <!-- ── Project Health Score ──────────────────────────────────── -->
-    <section class="section" style="margin-top:var(--space-lg)">
-        <div class="card" id="health-score-card" style="padding:var(--space-lg)">
-            <div class="card-header" style="margin-bottom:var(--space-md)">
-                <span class="card-title">📊 Project Health</span>
-                <div style="display:flex;align-items:center;gap:0.4rem">
-                    <span class="card-age" data-cache-key="health-score" style="font-size:0.64rem;color:var(--text-muted)"></span>
-                    <button class="btn-icon" onclick="cardRefresh('health-score','health-score-badge','health-score-detail',loadHealthScore)" title="Refresh" style="font-size:0.7rem;cursor:pointer;background:none;border:none;color:var(--text-muted);padding:0">🔄</button>
-                    <span class="status-badge" id="health-score-badge">—</span>
+            <!-- 2 + 3. Two-column grid: Toolchain + Integrations ── -->
+            <div class="dash-grid-2">
+
+                <!-- 2. Toolchain Status ────────────────────────── -->
+                <div class="card" id="tools-status-section">
+                    <div class="card-header">
+                        <span class="card-title">🔧 Toolchain Status</span>
+                        <div style="display:flex;align-items:center;gap:0.4rem">
+                            <span class="card-age" data-cache-key="tools-status" style="font-size:0.64rem;color:var(--text-muted)"></span>
+                            <button class="btn-icon" onclick="cardRefresh('tools-status','tools-status-badge','tools-status-content',loadToolsStatus)" title="Refresh" style="font-size:0.7rem;cursor:pointer;background:none;border:none;color:var(--text-muted);padding:0">🔄</button>
+                            <span class="status-badge" id="tools-status-badge">—</span>
+                        </div>
+                    </div>
+                    <div id="tools-status-content">
+                        <span class="spinner"></span>
+                    </div>
+                </div>
+
+                <!-- 3. Integration Progress ────────────────────── -->
+                <div class="card" id="setup-progress-section">
+                    <div class="card-header">
+                        <span class="card-title">🚀 Integration Progress</span>
+                        <span class="status-badge" id="setup-progress-badge">—</span>
+                    </div>
+                    <div id="setup-progress-content">
+                        <span class="spinner"></span>
+                    </div>
                 </div>
             </div>
-            <div id="health-score-detail">
-                <span class="spinner"></span>
-            </div>
-        </div>
-    </section>
 
-    <!-- Modules -->
-    <section class="section">
-        <div class="section-header">
-            <h2 class="section-title">Modules</h2>
-            <button class="btn btn-secondary btn-sm" onclick="runDetect()">
-                🔍 Re-Detect
-            </button>
-        </div>
-        <p class="section-description">
-            Your project's components. Each module is matched to a <strong>stack</strong> that defines what commands it
-            supports.
-        </p>
-        <div class="module-list" id="module-list">
-            <div class="module-item" style="justify-content:center;color:var(--text-muted)">
-                <span class="spinner"></span>&nbsp; Loading...
-            </div>
-        </div>
-    </section>
+            <!-- 4 + 5. Two-column grid: Grade + Attention ──────── -->
+            <div class="dash-grid-2">
 
-    <!-- Recent Activity -->
-    <section class="section">
-        <div class="section-header">
-            <h2 class="section-title">Recent Activity</h2>
-        </div>
-        <p class="section-description">
-            Operations executed from the CLI or this dashboard.
-        </p>
-        <div class="activity-list" id="activity-list">
-            <div class="activity-item" style="color:var(--text-muted)">
-                <span class="spinner"></span>&nbsp; Loading...
+                <!-- 4. Project Grade ───────────────────────────── -->
+                <div class="card" id="project-grade-section">
+                    <div class="card-header">
+                        <span class="card-title">📊 Project Grade</span>
+                        <div style="display:flex;align-items:center;gap:0.4rem">
+                            <span class="card-age" data-cache-key="health-score" style="font-size:0.64rem;color:var(--text-muted)"></span>
+                            <button class="btn-icon" onclick="cardRefresh('health-score','project-grade-badge','project-grade-content',loadProjectGrade)" title="Refresh" style="font-size:0.7rem;cursor:pointer;background:none;border:none;color:var(--text-muted);padding:0">🔄</button>
+                            <span class="status-badge" id="project-grade-badge">—</span>
+                        </div>
+                    </div>
+                    <div id="project-grade-content">
+                        <span class="spinner"></span>
+                    </div>
+                </div>
+
+                <!-- 5. Attention Required ──────────────────────── -->
+                <div class="card" id="attention-section">
+                    <div class="card-header">
+                        <span class="card-title">⚠️ Attention Required</span>
+                        <span class="status-badge" id="attention-badge">—</span>
+                    </div>
+                    <div id="attention-content">
+                        <span class="spinner"></span>
+                    </div>
+                </div>
             </div>
         </div>
-    </section>
+
+        <!-- ── Assistant panel (right column) ──────────────────── -->
+        <div id="dash-assistant-panel" class="assistant-panel disabled"></div>
+    </div>
 </div>

@@ -5,44 +5,103 @@
     let environmentList = [];
     let capabilityData = {};
 
+    // ── 1. Project Pulse ──────────────────────────────────────────────
+
+    async function loadProjectPulse() {
+        const el = document.getElementById('project-pulse');
+        if (!el) return;
+
+        try {
+            // Fetch status + health in parallel
+            const [statusData, healthData] = await Promise.all([
+                (async () => {
+                    const c = cardCached('dash-status');
+                    if (c) return c;
+                    const d = await api('/status');
+                    cardStore('dash-status', d);
+                    return d;
+                })(),
+                (async () => {
+                    const c = cardCached('dash-health');
+                    if (c) return c;
+                    try {
+                        const d = await api('/health');
+                        cardStore('dash-health', d);
+                        return d;
+                    } catch (_) { return { status: 'unknown' }; }
+                })(),
+            ]);
+
+            // Populate shared data (used by Commands tab)
+            if (statusData.project?.repository) updateGhMenu(statusData.project.repository);
+            moduleList = statusData.modules || [];
+            environmentList = statusData.environments || [];
+            populateEnvSelect(environmentList);
+
+            const projectName = statusData.project?.name || '—';
+            const moduleCount = moduleList.length;
+            const envCount = environmentList.length;
+            const healthStatus = healthData.status || 'unknown';
+
+            const healthColors = {
+                healthy: 'var(--success)', degraded: 'var(--warning)',
+                unhealthy: 'var(--error)', unknown: 'var(--text-muted)',
+            };
+            const healthLabels = {
+                healthy: '● Healthy', degraded: '● Degraded',
+                unhealthy: '● Unhealthy', unknown: '● Unknown',
+            };
+
+            // Last operation
+            const op = statusData.state?.last_operation || {};
+            let lastOpHtml = '';
+            if (op.automation) {
+                const opIcon = op.status === 'ok' ? '✓' : op.status === 'failed' ? '✗' : '⊘';
+                const opColor = op.status === 'ok' ? 'var(--success)' : op.status === 'failed' ? 'var(--error)' : 'var(--text-muted)';
+                lastOpHtml = `
+                    <span style="width:1px;height:16px;background:var(--border-subtle)"></span>
+                    <span style="color:${opColor};font-size:0.78rem">${opIcon} ${esc(op.automation)} ${op.actions_succeeded}/${op.actions_total}</span>`;
+            }
+
+            // Repo link
+            let repoHtml = '';
+            if (statusData.project?.repository) {
+                const repoUrl = statusData.project.repository.startsWith('http')
+                    ? statusData.project.repository
+                    : `https://${statusData.project.repository}`;
+                repoHtml = `<a href="${repoUrl}" target="_blank" rel="noopener" style="color:var(--text-muted);font-size:0.72rem;text-decoration:none;opacity:0.7" title="${esc(statusData.project.repository)}">↗</a>`;
+            }
+
+            el.innerHTML = `
+                <div style="font-size:1.05rem;font-weight:700;letter-spacing:-0.02em">${esc(projectName)}</div>
+                ${repoHtml}
+                <span style="width:1px;height:16px;background:var(--border-subtle)"></span>
+                <span style="font-size:0.78rem;color:var(--text-secondary)">📦 ${moduleCount} modules</span>
+                <span style="font-size:0.78rem;color:var(--text-secondary)">🌍 ${envCount} envs</span>
+                ${lastOpHtml}
+                <span style="margin-left:auto;font-weight:600;font-size:0.82rem;color:${healthColors[healthStatus]}">${healthLabels[healthStatus]}</span>
+            `;
+        } catch (e) {
+            console.error('Failed to load project pulse:', e);
+            el.innerHTML = '<span style="color:var(--text-muted);font-size:0.82rem">Could not load project info</span>';
+        }
+    }
+
+    /**
+     * Lightweight status fetch — populates moduleList/environmentList
+     * for the Commands tab. No DOM rendering.
+     */
     async function loadStatus() {
         try {
-            showRefreshBar();
             const cached = cardCached('dash-status');
             const data = cached || await api('/status');
             if (!cached) cardStore('dash-status', data);
-
-            document.getElementById('project-name').textContent = data.project.name || '—';
-            document.getElementById('project-desc').textContent = data.project.description || '';
-            if (data.project.repository) updateGhMenu(data.project.repository);
-
+            if (data.project?.repository) updateGhMenu(data.project.repository);
             moduleList = data.modules || [];
-            document.getElementById('module-count').textContent = moduleList.length;
-            const domains = [...new Set(moduleList.map(m => m.domain))];
-            document.getElementById('module-summary').textContent = domains.join(', ');
-
-            const op = data.state?.last_operation || {};
-            if (op.automation) {
-                document.getElementById('last-op-name').textContent = op.automation;
-                const badge = op.status === 'ok' ? '✓' : op.status === 'failed' ? '✗' : '⊘';
-                document.getElementById('last-op-detail').textContent =
-                    `${badge} ${op.actions_succeeded}/${op.actions_total} succeeded`;
-            } else {
-                document.getElementById('last-op-name').textContent = '—';
-                document.getElementById('last-op-detail').textContent = 'No operations yet';
-            }
-
             environmentList = data.environments || [];
-            document.getElementById('env-count').textContent = environmentList.length;
-            document.getElementById('env-list').textContent = environmentList.map(e => e.name).join(', ');
-
             populateEnvSelect(environmentList);
-            renderModules(moduleList, data.state?.modules || {});
-
         } catch (e) {
             console.error('Failed to load status:', e);
-        } finally {
-            hideRefreshBar();
         }
     }
 
@@ -57,226 +116,138 @@
         if (current) sel.value = current;
     }
 
-    function renderModules(modules, moduleStates) {
-        const container = document.getElementById('module-list');
-        if (!modules.length) {
-            container.innerHTML = `<div class="module-item" style="justify-content:center;color:var(--text-muted)">
-            No modules found — click <strong>Re-Detect</strong> above to scan your project.
-        </div>`;
-            return;
-        }
+    // ── 2. Toolchain Status ───────────────────────────────────────────
 
-        // Stack icons from the data layer (defined in stacks/*/stack.yml)
-        const _dcpStacks = (window._dcp && window._dcp.stacks) || [];
-        function _stackIcon(name) {
-            var s = _dcpStacks.find(function(s) { return s.name === name; });
-            return s && s.icon ? s.icon : '📁';
-        }
+    async function loadToolsStatus() {
+        const badge = document.getElementById('tools-status-badge');
+        const content = document.getElementById('tools-status-content');
+        if (!badge || !content) return;
 
-        // Find which capabilities each module supports
-        const moduleCaps = {};
-        for (const [capName, capInfo] of Object.entries(capabilityData)) {
-            for (const m of capInfo.modules) {
-                if (!moduleCaps[m.module]) moduleCaps[m.module] = [];
-                moduleCaps[m.module].push(capName);
-            }
-        }
-
-        container.innerHTML = modules.map(m => {
-            const icon = _stackIcon(m.stack);
-            const state = moduleStates[m.name] || {};
-            const lastStatus = state.last_action_status || '';
-            const statusClass = lastStatus === 'ok' ? 'ok' : lastStatus === 'failed' ? 'failed' : '';
-            const statusBadge = statusClass
-                ? `<span class="status-badge ${statusClass}" style="font-size:0.7rem;padding:2px 8px;"><span class="status-dot"></span>${esc(lastStatus)}</span>`
-                : '';
-
-            const caps = moduleCaps[m.name] || [];
-            const capsHtml = caps.length > 0
-                ? `<div class="module-caps">${caps.map(c => `<span class="module-cap-tag">${esc(c)}</span>`).join('')}</div>`
-                : `<div class="module-caps"><span class="module-cap-tag" style="opacity:0.4">no capabilities</span></div>`;
-
-            return `<div class="module-item">
-            <div class="module-icon">${icon}</div>
-            <div class="module-info">
-                <div class="module-name">${esc(m.name)} ${statusBadge}</div>
-                <div class="module-meta">
-                    <span title="Stack">${esc(m.stack)}</span>
-                    <span title="Domain">${esc(m.domain)}</span>
-                    <span title="Path">${esc(m.path)}</span>
-                </div>
-                ${capsHtml}
-            </div>
-        </div>`;
-        }).join('');
-    }
-
-    async function loadHealth() {
         try {
-            const cached = cardCached('dash-health');
-            const data = cached || await api('/health');            
-            if (!cached) cardStore('dash-health', data);
-            const badge = document.getElementById('health-badge');
-            const statusMap = {
-                'healthy': ['ok', 'Healthy'],
-                'degraded': ['degraded', 'Degraded'],
-                'unhealthy': ['unhealthy', 'Unhealthy'],
+            const cached = cardCached('tools-status');
+            const data = cached || await api('/tools/status');
+            if (!cached) cardStore('tools-status', data);
+
+            const tools = data.tools || [];
+            const available = data.available || 0;
+            const total = data.total || 0;
+            const missingCount = data.missing_count || 0;
+
+            // Badge
+            if (missingCount === 0) {
+                badge.className = 'status-badge ok';
+                badge.innerHTML = '<span class="status-dot"></span>All found';
+            } else {
+                badge.className = 'status-badge degraded';
+                badge.innerHTML = `<span class="status-dot"></span>${missingCount} missing`;
+            }
+
+            // Group by category
+            const categoryOrder = ['runtime', 'vcs', 'container', 'infra', 'quality', 'security', 'network', 'system'];
+            const categoryLabels = {
+                runtime:   '⚡ Runtimes',
+                vcs:       '🔀 Version Control',
+                container: '🐳 Containers & Orchestration',
+                infra:     '🏗️ Infrastructure',
+                quality:   '🔧 Quality & Testing',
+                security:  '🛡️ Security',
+                network:   '🌐 Network & DNS',
+                system:    '⚙️ System Utilities',
             };
-            const [cls, label] = statusMap[data.status] || ['', data.status];
-            badge.className = `status-badge ${cls}`;
-            badge.innerHTML = `<span class="status-dot"></span><span>${label}</span>`;
-        } catch (e) {
-            console.error('Failed to load health:', e);
-        }
-    }
 
-    async function loadAudit() {
-        try {
-            const cached = cardCached('dash-audit');
-            const data = cached || await api('/audit?n=10');
-            if (!cached) cardStore('dash-audit', data);
-            const container = document.getElementById('activity-list');
-
-            if (!data.entries || !data.entries.length) {
-                container.innerHTML = `<div class="activity-item" style="color:var(--text-muted)">
-                No activity yet. Run a command from the <strong>Commands</strong> tab to see results here.
-            </div>`;
-                return;
+            const grouped = {};
+            for (const t of tools) {
+                const cat = t.category || 'system';
+                if (!grouped[cat]) grouped[cat] = [];
+                grouped[cat].push(t);
             }
 
-            container.innerHTML = data.entries.reverse().map(entry => {
-                const statusClass = entry.status === 'ok' ? 'ok' : entry.status === 'failed' ? 'failed' : 'partial';
-                const time = new Date(entry.timestamp).toLocaleString();
-                const modules = (entry.modules_affected || []).join(', ');
+            let html = `<div style="font-size:0.72rem;color:var(--text-muted);margin-bottom:var(--space-md)">${available}/${total} tools detected on this system</div>`;
 
-                return `<div class="activity-item">
-                <span class="activity-time">${time}</span>
-                <span class="activity-action">
-                    <span class="status-badge ${statusClass}" style="font-size:0.7rem;padding:2px 8px;">
-                        <span class="status-dot"></span>${esc(entry.status)}
-                    </span>
-                </span>
-                <span class="activity-detail">
-                    <strong>${esc(entry.automation)}</strong> → ${esc(modules || 'all modules')} · ${entry.actions_succeeded}/${entry.actions_total} succeeded
-                </span>
-            </div>`;
-            }).join('');
+            for (const cat of categoryOrder) {
+                const items = grouped[cat];
+                if (!items || items.length === 0) continue;
+
+                const catLabel = categoryLabels[cat] || cat;
+                const catAvailable = items.filter(t => t.available).length;
+                const catTotal = items.length;
+                const allGood = catAvailable === catTotal;
+
+                if (allGood) {
+                    // Collapsed — all present, expandable to see list
+                    html += `<details style="margin-bottom:4px;border-radius:var(--radius-sm);border:1px solid var(--border-subtle)">
+                        <summary style="display:flex;align-items:center;gap:0.5rem;padding:0.3rem 0.6rem;cursor:pointer;list-style:none">
+                            <span style="font-size:0.82rem">✅</span>
+                            <span style="font-size:0.78rem;font-weight:500;color:var(--text-primary);flex:1">${catLabel}</span>
+                            <span style="font-size:0.68rem;color:var(--success);font-weight:600">${catAvailable}/${catTotal}</span>
+                            <span class="tool-cat-chevron" style="font-size:0.6rem;color:var(--text-muted);transition:transform 0.15s ease">▸</span>
+                        </summary>
+                        <div style="padding:0.35rem 0.6rem;display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:4px;border-top:1px solid var(--border-subtle)">
+                            ${items.map(t => `<div data-tool-id="${esc(t.id)}" style="display:flex;align-items:center;gap:0.4rem;font-size:0.75rem">
+                                <span style="width:18px;text-align:center">✅</span>
+                                <span style="color:var(--text-secondary);font-weight:500">${esc(t.label)}</span>
+                                <span style="font-family:var(--font-mono);font-size:0.62rem;color:var(--text-muted)">${esc(t.cli)}</span>
+                            </div>`).join('')}
+                        </div>
+                    </details>`;
+                } else {
+                    // Expanded — show details for categories with missing tools
+                    html += `<div style="margin-bottom:var(--space-sm);border:1px solid hsla(38,92%,55%,0.15);border-radius:var(--radius-sm);overflow:hidden">`;
+                    html += `<div style="display:flex;align-items:center;gap:0.5rem;padding:0.3rem 0.6rem;background:var(--warning-bg)">
+                        <span style="font-size:0.82rem">⚠️</span>
+                        <span style="font-size:0.78rem;font-weight:500;color:var(--text-primary);flex:1">${catLabel}</span>
+                        <span style="font-size:0.68rem;color:var(--warning);font-weight:600">${catAvailable}/${catTotal}</span>
+                    </div>`;
+                    html += `<div style="padding:0.35rem 0.6rem;display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:4px">`;
+                    for (const t of items) {
+                        const icon = t.available ? '✅' : '❌';
+                        const nameColor = t.available ? 'var(--text-secondary)' : 'var(--text-primary)';
+
+                        let actionHtml = '';
+                        if (!t.available) {
+                            actionHtml = `<button class="btn btn-sm btn-secondary" onclick="installTool('${esc(t.id)}','${esc(t.cli)}')" style="font-size:0.62rem;padding:1px 6px;margin-left:auto">Install</button>`;
+                        }
+
+                        html += `<div data-tool-id="${esc(t.id)}" style="display:flex;align-items:center;gap:0.4rem;font-size:0.75rem">
+                            <span style="width:18px;text-align:center">${icon}</span>
+                            <span style="color:${nameColor};font-weight:500">${esc(t.label)}</span>
+                            <span style="font-family:var(--font-mono);font-size:0.62rem;color:var(--text-muted)">${esc(t.cli)}</span>
+                            ${actionHtml}
+                        </div>`;
+                    }
+                    html += `</div></div>`;
+                }
+            }
+
+            content.innerHTML = html;
 
         } catch (e) {
-            console.error('Failed to load audit:', e);
-        }
-    }
-
-    async function runDetect() {
-        try {
-            toast('Scanning for modules...', 'success');
-            await api('/detect', { method: 'POST' });
-            toast('Module detection complete!', 'success');
-            await loadStatus();
-        } catch (e) {
-            toast(e.message, 'error');
-        }
-    }
-
-    // ── Project Health Score Widget ────────────────────────────────────
-
-    async function loadHealthScore() {
-        const badge = document.getElementById('health-score-badge');
-        const detail = document.getElementById('health-score-detail');
-        const cached = cardCached('health-score');
-        const data = cached || await api('/metrics/health').catch(e => ({ _err: e }));
-        if (data._err) {
+            console.warn('Tools status load failed:', e);
             badge.className = 'status-badge failed';
             badge.innerHTML = '<span class="status-dot"></span>Error';
-            detail.innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(data._err.message)}</p>`;
-            return;
+            content.innerHTML = '<p style="color:var(--text-muted);font-size:0.82rem">Could not load tool status.</p>';
         }
-        if (!cached) cardStore('health-score', data);
-
-        const score = data.score || 0;
-        const grade = data.grade || '?';
-        const probes = data.probes || {};
-        const recs = data.recommendations || [];
-
-        // Grade color
-        const gradeColors = { A: '#22c55e', B: '#84cc16', C: '#eab308', D: '#f97316', F: '#ef4444' };
-        const gradeColor = gradeColors[grade] || 'var(--text-muted)';
-
-        // Badge
-        badge.className = 'status-badge ' + (score >= 75 ? 'ok' : score >= 50 ? 'degraded' : 'failed');
-        badge.innerHTML = `<span class="status-dot"></span>${grade} (${score})`;
-
-        // Probe labels
-        const probeLabels = {
-            git: '🌿 Git',
-            docker: '🐳 Docker',
-            ci: '🔄 CI/CD',
-            packages: '📦 Packages',
-            env: '⚙️ Environment',
-            quality: '🔧 Quality',
-            structure: '🏗️ Structure',
-        };
-
-        let html = `<div style="display:flex;gap:var(--space-xl);flex-wrap:wrap;align-items:flex-start">`;
-
-        // ── Score circle ──
-        const circumference = 2 * Math.PI * 54;
-        const offset = circumference - (score / 100) * circumference;
-        html += `<div style="flex-shrink:0;text-align:center">
-            <svg width="130" height="130" viewBox="0 0 120 120">
-                <circle cx="60" cy="60" r="54" fill="none" stroke="var(--border-subtle)" stroke-width="8"></circle>
-                <circle cx="60" cy="60" r="54" fill="none" stroke="${gradeColor}" stroke-width="8"
-                    stroke-dasharray="${circumference}" stroke-dashoffset="${offset}"
-                    stroke-linecap="round" transform="rotate(-90 60 60)"
-                    style="transition:stroke-dashoffset 0.8s ease"></circle>
-                <text x="60" y="52" text-anchor="middle" fill="${gradeColor}" font-size="32" font-weight="800">${grade}</text>
-                <text x="60" y="72" text-anchor="middle" fill="var(--text-secondary)" font-size="13">${score}/100</text>
-            </svg>
-        </div>`;
-
-        // ── Probe bars ──
-        html += `<div style="flex:1;min-width:220px">`;
-        html += `<div style="font-size:0.82rem;font-weight:600;color:var(--text-primary);margin-bottom:var(--space-sm)">Domain Scores</div>`;
-
-        const probeOrder = ['git', 'docker', 'ci', 'packages', 'env', 'quality', 'structure'];
-        probeOrder.forEach(key => {
-            const probe = probes[key];
-            if (!probe) return;
-            const pScore = probe.score || 0;
-            const pColor = pScore >= 75 ? '#22c55e' : pScore >= 50 ? '#eab308' : '#ef4444';
-            const label = probeLabels[key] || key;
-            html += `<div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.35rem;font-size:0.72rem">
-                <span style="min-width:90px;color:var(--text-secondary)">${label}</span>
-                <div style="flex:1;height:6px;background:var(--border-subtle);border-radius:3px;overflow:hidden">
-                    <div style="width:${pScore}%;height:100%;background:${pColor};border-radius:3px;transition:width 0.6s ease"></div>
-                </div>
-                <span style="min-width:28px;text-align:right;font-family:var(--font-mono);font-weight:600;color:${pColor}">${pScore}</span>
-            </div>`;
-        });
-        html += `</div>`;
-
-        html += `</div>`; // close flex row
-
-        // ── Recommendations ──
-        if (recs.length) {
-            html += `<div style="margin-top:var(--space-md);border-top:1px solid var(--border-subtle);padding-top:var(--space-md)">
-                <div style="font-size:0.78rem;font-weight:600;color:var(--text-primary);margin-bottom:var(--space-xs)">💡 Recommendations</div>`;
-            recs.slice(0, 5).forEach((r, i) => {
-                html += `<div style="font-size:0.72rem;color:var(--text-secondary);padding:0.2rem 0;display:flex;gap:0.4rem">
-                    <span style="color:var(--accent);font-weight:600">${i + 1}.</span>
-                    <span>${esc(r)}</span>
-                </div>`;
-            });
-            if (recs.length > 5) {
-                html += `<div style="font-size:0.68rem;color:var(--text-muted);margin-top:0.2rem">…and ${recs.length - 5} more</div>`;
-            }
-            html += `</div>`;
-        }
-
-        detail.innerHTML = html;
     }
 
-    // ── Setup Progress Widget ─────────────────────────────────────────
+    async function installTool(toolId, cli) {
+        const cached = cardCached('tools-status');
+        const tool = cached ? (cached.tools || []).find(t => t.id === toolId) : null;
+        const toolLabel = (tool && tool.label) || toolId;
+        const needsSudo = tool ? !!tool.needs_sudo : false;
+
+        _showOpsModal({
+            type: 'install',
+            toolId: toolId,
+            toolLabel: toolLabel,
+            needsSudo: needsSudo,
+            onSuccess: function() {
+                cardStore('tools-status', null);
+                loadToolsStatus();
+            },
+        });
+    }
+
+    // ── 3. Integration Progress (Setup Progress — unchanged) ──────────
 
     async function loadSetupProgress() {
         const badge = document.getElementById('setup-progress-badge');
@@ -289,11 +260,9 @@
             if (!cached) cardStore('project-status', data);
             const { integrations, suggested_next } = data;
 
-            // Use in-memory cached prefs (no API call if already fetched)
             let prefs = {};
             try { prefs = await _fetchDevopsPrefs(); } catch (_) {}
 
-            // Integration items
             const integrationMeta = {
                 git:       { icon: '🔀', label: 'Git Repository', wizKey: 'git' },
                 docker:    { icon: '🐳', label: 'Docker',         wizKey: 'docker' },
@@ -309,22 +278,18 @@
             const statusLabels = { ready: 'Ready', partial: 'Partial', missing: 'Not set up' };
             const statusColors = { ready: 'var(--success)', partial: 'var(--warning)', missing: 'var(--text-muted)' };
 
-            // Filter to visible integrations only
             const order = ['git', 'docker', 'github', 'cicd', 'k8s', 'terraform', 'pages', 'dns'];
             const visible = order.filter(k => prefs[k] !== 'hidden' && prefs['int:' + k] !== 'hidden');
 
-            // Recalculate progress from visible integrations
             const visibleComplete = visible.filter(k => (integrations[k] || {}).status === 'ready').length;
             const visibleTotal = visible.length;
             const pct = visibleTotal > 0 ? Math.round((visibleComplete / visibleTotal) * 100) : 100;
 
-            // Pick suggestion: backend's if visible, else first visible incomplete
             let suggestion = suggested_next;
             if (suggestion && (prefs[suggestion] === 'hidden' || prefs['int:' + suggestion] === 'hidden')) {
                 suggestion = visible.find(k => (integrations[k] || {}).status !== 'ready') || null;
             }
 
-            // Progress badge
             if (pct >= 100) {
                 badge.className = 'status-badge ok';
                 badge.innerHTML = '<span class="status-dot"></span>Complete';
@@ -335,11 +300,10 @@
 
             let html = '';
 
-            // Progress bar
             const barColor = pct >= 80 ? 'var(--success)' : pct >= 50 ? 'var(--warning)' : 'var(--accent)';
             html += `<div style="margin-bottom:var(--space-lg)">
                 <div style="display:flex;justify-content:space-between;font-size:0.72rem;color:var(--text-muted);margin-bottom:4px">
-                    <span>Setup progress</span>
+                    <span>Integration progress</span>
                     <span>${pct}%</span>
                 </div>
                 <div style="height:6px;background:var(--border-subtle);border-radius:3px;overflow:hidden">
@@ -347,16 +311,14 @@
                 </div>
             </div>`;
 
-            // Integration list (visible only)
             html += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:8px">';
-
             for (const key of visible) {
                 const meta = integrationMeta[key];
                 const info = integrations[key] || {};
                 const st = info.status || 'missing';
                 const isSuggested = key === suggestion;
 
-                html += `<div style="
+                html += `<div data-int-id="${key}" style="
                     display:flex;align-items:center;gap:0.6rem;
                     padding:0.5rem 0.75rem;border-radius:var(--radius-sm);
                     border:1px solid ${isSuggested ? 'var(--accent)' : 'var(--border-subtle)'};
@@ -376,10 +338,8 @@
                     }
                 </div>`;
             }
-
             html += '</div>';
 
-            // Suggested next hint
             if (suggestion && integrationMeta[suggestion]) {
                 const next = integrationMeta[suggestion];
                 html += `<div style="
@@ -396,7 +356,6 @@
                 </div>`;
             }
 
-            // All complete message
             if (pct >= 100) {
                 html += `<div style="
                     margin-top:var(--space-md);padding:var(--space-md);
@@ -411,8 +370,196 @@
 
         } catch (e) {
             console.warn('Setup progress load failed:', e);
-            content.innerHTML = `<p style="color:var(--text-muted);font-size:0.82rem">Could not load setup status.</p>`;
+            content.innerHTML = `<p style="color:var(--text-muted);font-size:0.82rem">Could not load integration status.</p>`;
         }
+    }
+
+    // ── 4. Project Grade (simplified health) ──────────────────────────
+
+    async function loadProjectGrade() {
+        const badge = document.getElementById('project-grade-badge');
+        const content = document.getElementById('project-grade-content');
+        if (!badge || !content) return;
+
+        try {
+            const cached = cardCached('health-score');
+            const data = cached || await api('/metrics/health').catch(e => ({ _err: e }));
+            if (data._err) {
+                badge.className = 'status-badge failed';
+                badge.innerHTML = '<span class="status-dot"></span>Error';
+                content.innerHTML = `<p style="color:var(--error);font-size:0.82rem">${esc(data._err.message)}</p>`;
+                return;
+            }
+            if (!cached) cardStore('health-score', data);
+
+            const score = data.score || 0;
+            const grade = data.grade || '?';
+            const probes = data.probes || {};
+            const probeCount = Object.keys(probes).length;
+
+            const gradeColors = { A: '#22c55e', B: '#84cc16', C: '#eab308', D: '#f97316', F: '#ef4444' };
+            const gradeColor = gradeColors[grade] || 'var(--text-muted)';
+
+            badge.className = 'status-badge ' + (score >= 75 ? 'ok' : score >= 50 ? 'degraded' : 'failed');
+            badge.innerHTML = `<span class="status-dot"></span>${grade} (${score})`;
+
+            const circumference = 2 * Math.PI * 54;
+            const offset = circumference - (score / 100) * circumference;
+
+            const headline = score >= 75 ? 'Your project looks healthy'
+                           : score >= 50 ? 'Room for improvement'
+                           : 'Needs attention';
+
+            content.innerHTML = `<div style="display:flex;align-items:center;gap:var(--space-xl)">
+                <div style="flex-shrink:0;text-align:center">
+                    <svg width="100" height="100" viewBox="0 0 120 120">
+                        <circle cx="60" cy="60" r="54" fill="none" stroke="var(--border-subtle)" stroke-width="8"></circle>
+                        <circle cx="60" cy="60" r="54" fill="none" stroke="${gradeColor}" stroke-width="8"
+                            stroke-dasharray="${circumference}" stroke-dashoffset="${offset}"
+                            stroke-linecap="round" transform="rotate(-90 60 60)"
+                            style="transition:stroke-dashoffset 0.8s ease"></circle>
+                        <text x="60" y="52" text-anchor="middle" fill="${gradeColor}" font-size="32" font-weight="800">${grade}</text>
+                        <text x="60" y="72" text-anchor="middle" fill="var(--text-secondary)" font-size="13">${score}/100</text>
+                    </svg>
+                </div>
+                <div style="flex:1">
+                    <div style="font-size:0.88rem;font-weight:600;color:var(--text-primary);margin-bottom:var(--space-xs)">
+                        ${headline}
+                    </div>
+                    <div style="font-size:0.78rem;color:var(--text-secondary);margin-bottom:var(--space-md)">
+                        Score based on ${probeCount} domain probes — git, docker, CI, packages, environment, quality, and structure.
+                    </div>
+                    <button class="btn btn-sm btn-secondary" onclick="switchTab('audit')" style="font-size:0.72rem">
+                        View full report in Audit →
+                    </button>
+                </div>
+            </div>`;
+
+        } catch (e) {
+            console.warn('Project grade load failed:', e);
+            badge.className = 'status-badge';
+            badge.innerHTML = '—';
+            content.innerHTML = '<p style="color:var(--text-muted);font-size:0.82rem">Could not load project health.</p>';
+        }
+    }
+
+    // ── 5. Attention Required ──────────────────────────────────────────
+
+    async function loadAttentionItems() {
+        const badge = document.getElementById('attention-badge');
+        const content = document.getElementById('attention-content');
+        if (!badge || !content) return;
+
+        const items = [];
+
+        // a) Missing tools with install recipes
+        const toolsData = cardCached('tools-status');
+        if (toolsData) {
+            const installable = (toolsData.tools || []).filter(t => !t.available && t.has_recipe);
+            if (installable.length > 0) {
+                items.push({
+                    icon: '🔧',
+                    text: `${installable.length} tool${installable.length > 1 ? 's' : ''} can be auto-installed`,
+                    detail: installable.map(t => t.label).slice(0, 4).join(', ') + (installable.length > 4 ? '…' : ''),
+                    cta: "document.getElementById('tools-status-section').scrollIntoView({behavior:'smooth'})",
+                    ctaLabel: 'See above ↑',
+                });
+            }
+        }
+
+        // b) Incomplete integrations
+        const projectData = cardCached('project-status');
+        if (projectData) {
+            let prefs = {};
+            try { prefs = await _fetchDevopsPrefs(); } catch (_) {}
+            const integrations = projectData.integrations || {};
+            const order = ['git', 'docker', 'github', 'cicd', 'k8s', 'terraform', 'pages', 'dns'];
+            const incomplete = order.filter(k =>
+                prefs[k] !== 'hidden' && prefs['int:' + k] !== 'hidden' &&
+                (integrations[k] || {}).status !== 'ready'
+            );
+            if (incomplete.length > 0) {
+                items.push({
+                    icon: '🚀',
+                    text: `${incomplete.length} integration${incomplete.length > 1 ? 's' : ''} not yet configured`,
+                    detail: incomplete.slice(0, 4).join(', ') + (incomplete.length > 4 ? '…' : ''),
+                    cta: "switchTab('wizard')",
+                    ctaLabel: 'Setup Wizard →',
+                });
+            }
+        }
+
+        // c) Last operation failed
+        const statusData = cardCached('dash-status');
+        if (statusData) {
+            const op = statusData.state?.last_operation || {};
+            if (op.automation && op.status === 'failed') {
+                items.push({
+                    icon: '💥',
+                    text: `Last operation "${op.automation}" failed`,
+                    detail: `${op.actions_failed} of ${op.actions_total} actions failed`,
+                    cta: "switchTab('debugging/audit')",
+                    ctaLabel: 'View in Debugging →',
+                });
+            }
+        }
+
+        // d) Pending audit snapshots
+        try {
+            const pendingData = await api('/audits/pending');
+            const pending = pendingData.pending || [];
+            if (pending.length > 0) {
+                items.push({
+                    icon: '📋',
+                    text: `${pending.length} audit snapshot${pending.length > 1 ? 's' : ''} pending review`,
+                    detail: 'Unsaved analysis results',
+                    cta: "switchTab('audit')",
+                    ctaLabel: 'Review in Audit →',
+                });
+            }
+        } catch (_) {}
+
+        // Render
+        if (items.length === 0) {
+            badge.className = 'status-badge ok';
+            badge.innerHTML = '<span class="status-dot"></span>All clear';
+            content.innerHTML = `<div style="text-align:center;padding:var(--space-md);color:var(--success);font-size:0.82rem">
+                ✅ Nothing needs your attention right now.
+            </div>`;
+            return;
+        }
+
+        badge.className = 'status-badge degraded';
+        badge.innerHTML = `<span class="status-dot"></span>${items.length} item${items.length > 1 ? 's' : ''}`;
+
+        let html = '';
+        for (const item of items) {
+            html += `<div style="
+                display:flex;align-items:center;gap:0.6rem;
+                padding:0.5rem 0.75rem;margin-bottom:6px;border-radius:var(--radius-sm);
+                border:1px solid var(--border-subtle);
+                transition:all 0.15s ease;
+            ">
+                <span style="font-size:1rem;width:24px;text-align:center">${item.icon}</span>
+                <div style="flex:1;min-width:0">
+                    <div style="font-size:0.82rem;font-weight:500;color:var(--text-primary)">${esc(item.text)}</div>
+                    <div style="font-size:0.68rem;color:var(--text-muted)">${esc(item.detail)}</div>
+                </div>
+                <button class="btn btn-sm btn-secondary" onclick="${item.cta}" style="font-size:0.68rem;padding:2px 8px;flex-shrink:0">${esc(item.ctaLabel)}</button>
+            </div>`;
+        }
+
+        content.innerHTML = html;
+    }
+
+    // ── Assistant Panel Activation ─────────────────────────────────────
+
+    function activateDashboardAssistant() {
+        if (!window._assistant) return;
+        const container = document.querySelector('.dash-main');
+        const panel = document.getElementById('dash-assistant-panel');
+        if (!container || !panel) return;
+        window._assistant.activate('dashboard', container, panel);
     }
 
 </script>

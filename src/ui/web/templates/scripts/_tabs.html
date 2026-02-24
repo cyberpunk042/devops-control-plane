@@ -53,13 +53,17 @@
         // Load data for the tab
         if (tabId === 'dashboard') {
             if (!_dashLoaded) {
-                loadStatus();
-                loadHealthScore();
+                loadProjectPulse();
+                loadToolsStatus();
                 loadSetupProgress();
+                loadProjectGrade();
+                Promise.resolve().then(() => loadAttentionItems());
                 _dashLoaded = true;
             }
         } else if (tabId === 'commands') {
-            if (!capabilitiesLoaded) loadCapabilities();
+            // Commands moved into Debugging — redirect
+            switchTab('debugging/commands');
+            return;
         } else if (tabId === 'wizard') {
             if (subStep) {
                 const stepIdx = wizardSteps.findIndex(s => s.id === subStep);
@@ -73,7 +77,7 @@
             }
             loadSecretsTab();
         } else if (tabId === 'debugging') {
-            loadDebugTab();
+            loadDebugTab(subStep);
         } else if (tabId === 'integrations') {
             loadIntegrationsTab();
         } else if (tabId === 'devops') {

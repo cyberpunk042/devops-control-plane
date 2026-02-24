@@ -42,14 +42,21 @@
         }
 
         // Show/hide panels
-        ['audit', 'state', 'health', 'config', 'traces'].forEach(m => {
+        ['audit', 'state', 'health', 'config', 'commands', 'traces'].forEach(m => {
             const el = document.getElementById(`debug-${m}`);
             if (el) el.style.display = m === mode ? '' : 'none';
         });
 
+        // Update URL hash to reflect sub-tab
+        const newHash = `#debugging/${mode}`;
+        if (location.hash !== newHash) {
+            history.replaceState(null, '', newHash);
+        }
+
         if (mode === 'state') loadDebugState();
         if (mode === 'health') loadDebugHealth();
         if (mode === 'config') loadDebugConfig();
+        if (mode === 'commands') { if (!capabilitiesLoaded) loadCapabilities(); }
         if (mode === 'traces') loadDebugTraces();
     }
 
@@ -116,8 +123,34 @@
         }
     }
 
-    async function loadDebugTab() {
-        loadDebugAuditScans();
+    async function loadDebugTab(subMode) {
+        const validModes = ['audit', 'state', 'health', 'config', 'commands', 'traces'];
+        const mode = (subMode && validModes.includes(subMode)) ? subMode : 'audit';
+
+        // Activate the correct sub-tab button
+        debugCurrentMode = mode;
+        document.querySelectorAll('#tab-debugging .debug-modes > .content-mode').forEach(b => b.classList.remove('active'));
+        const modeLabels = { audit: '📋 Audit Log', state: '📦 State', health: '❤️ Health', config: '⚙️ Config', commands: '⚡ Commands', traces: '📝 Traces' };
+        document.querySelectorAll('#tab-debugging .debug-modes > .content-mode').forEach(b => {
+            if (b.textContent.trim() === (modeLabels[mode] || '').trim()) b.classList.add('active');
+        });
+
+        // Show/hide panels
+        validModes.forEach(m => {
+            const el = document.getElementById(`debug-${m}`);
+            if (el) el.style.display = m === mode ? '' : 'none';
+        });
+
+        // Update hash
+        history.replaceState(null, '', `#debugging/${mode}`);
+
+        // Load data for the active mode
+        if (mode === 'audit') loadDebugAuditScans();
+        else if (mode === 'state') loadDebugState();
+        else if (mode === 'health') loadDebugHealth();
+        else if (mode === 'config') loadDebugConfig();
+        else if (mode === 'commands') { if (!capabilitiesLoaded) loadCapabilities(); }
+        else if (mode === 'traces') loadDebugTraces();
     }
 
     // ── Audit Scan Activity ───────────────────────────────────────────

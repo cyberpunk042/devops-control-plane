@@ -217,7 +217,6 @@
             const target = module ? module : 'all modules';
             showResults(`${capability} → ${target}`, report, false);
             toast(`${capability}: ${report.succeeded}/${report.total} succeeded`, 'success');
-            loadAudit();
         } catch (e) {
             toast(e.message, 'error');
         } finally {

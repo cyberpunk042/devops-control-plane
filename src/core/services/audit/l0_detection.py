@@ -51,8 +51,8 @@ _TOOLS: list[dict[str, str]] = [
     {"id": "pip-audit",      "cli": "pip-audit",        "label": "pip-audit",       "category": "security",  "install_type": "pip"},
     {"id": "bandit",         "cli": "bandit",           "label": "Bandit",          "category": "security",  "install_type": "pip"},
     {"id": "safety",         "cli": "safety",           "label": "Safety",          "category": "security",  "install_type": "pip"},
-    {"id": "cargo-outdated", "cli": "cargo-outdated",   "label": "cargo-outdated",  "category": "security",  "install_type": "none"},
-    {"id": "cargo-audit",    "cli": "cargo-audit",      "label": "cargo-audit",     "category": "security",  "install_type": "none"},
+    {"id": "cargo-outdated", "cli": "cargo-outdated",   "label": "cargo-outdated",  "category": "security",  "install_type": "cargo"},
+    {"id": "cargo-audit",    "cli": "cargo-audit",      "label": "cargo-audit",     "category": "security",  "install_type": "cargo"},
     # ── Network & DNS ──────────────────────────────────────────
     {"id": "dig",            "cli": "dig",              "label": "dig",             "category": "network",   "install_type": "sudo"},
     {"id": "openssl",        "cli": "openssl",          "label": "OpenSSL",         "category": "network",   "install_type": "sudo"},

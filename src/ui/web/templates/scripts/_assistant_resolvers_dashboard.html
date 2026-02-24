@@ -1,0 +1,143 @@
+<!-- Assistant Resolvers — Dashboard
+     Enrichers for dashboard dynamic children (tools, integrations).
+     Reads DOM state only — all content lives in assistant-catalogue.json.
+     Depends on: _assistant_engine.html
+-->
+
+<script>
+(function() {
+    'use strict';
+
+    // ══════════════════════════════════════════════════════════════════
+    // ENRICHER — Dashboard tool rows (dynamic children of dash-tools)
+    // ══════════════════════════════════════════════════════════════════
+    //
+    // Reads: data-tool-id, ✅/❌ icon, category header, Install button
+    // Returns: title adjustment, state-aware expanded prefix
+    // Content comes from catalogue childTemplate variants (textContains).
+
+    window._assistant.enrichers['dash-tools'] = function(el, extractedName) {
+        // Read tool metadata from DOM
+        var spans = el.querySelectorAll('span');
+        var toolLabel = '';
+        var toolCli = '';
+        var isAvailable = false;
+
+        for (var i = 0; i < spans.length; i++) {
+            var s = spans[i];
+            // Label: font-weight:500
+            if (s.style.fontWeight === '500' || (s.style.fontWeight && parseInt(s.style.fontWeight) >= 500)) {
+                toolLabel = s.textContent.trim();
+            }
+            // CLI: monospace font
+            if (s.style.fontFamily && s.style.fontFamily.indexOf('mono') !== -1) {
+                toolCli = s.textContent.trim();
+            }
+            // Status: icon text
+            if (s.textContent.trim() === '✅') isAvailable = true;
+        }
+
+        // Detect install method from DOM
+        var hasInstallBtn = !!el.querySelector('button');
+        var isManual = !hasInstallBtn && !isAvailable;
+
+        // Walk up to find category header
+        var category = '';
+        var parent = el.parentElement;
+        if (parent) {
+            var catParent = parent.parentElement;
+            if (catParent) {
+                var catHeader = catParent.querySelector('span[style*="font-weight:500"]');
+                if (catHeader) category = catHeader.textContent.trim();
+            }
+        }
+
+        // Build title: "Label · cli"
+        var title = toolLabel;
+        if (toolCli && toolCli !== toolLabel.toLowerCase()) {
+            title += ' · ' + toolCli;
+        }
+
+        // State-aware expanded prefix
+        var stateHtml = '';
+        if (isAvailable) {
+            stateHtml = '<div class="assistant-state-card state-ok" style="margin-bottom:0.4rem">' +
+                '<div class="state-label">✅ Installed on this system</div></div>';
+        } else if (hasInstallBtn) {
+            stateHtml = '<div class="assistant-state-card state-warning" style="margin-bottom:0.4rem">' +
+                '<div class="state-label">❌ Not found</div>' +
+                '<div class="state-detail">Auto-install available — click the Install button on the tool row.</div></div>';
+        } else {
+            stateHtml = '<div class="assistant-state-card state-warning" style="margin-bottom:0.4rem">' +
+                '<div class="state-label">❌ Not found</div>' +
+                '<div class="state-detail">Manual install required — no automated recipe available.</div></div>';
+        }
+
+        return {
+            title: title,
+            expanded: stateHtml
+        };
+    };
+
+
+    // ══════════════════════════════════════════════════════════════════
+    // ENRICHER — Dashboard integration rows (dynamic children of dash-integrations)
+    // ══════════════════════════════════════════════════════════════════
+    //
+    // Reads: data-int-id, status text (Ready/Partial/Not set up), suggested highlight
+    // Returns: state-aware expanded prefix
+    // Content comes from catalogue childTemplate variants (textContains).
+
+    window._assistant.enrichers['dash-integrations'] = function(el, extractedName) {
+        // Read integration status from DOM
+        var spans = el.querySelectorAll('span');
+        var label = '';
+        var status = '';
+
+        for (var i = 0; i < spans.length; i++) {
+            var s = spans[i];
+            // Label: font-weight:500
+            if (s.style.fontWeight === '500' || (s.style.fontWeight && parseInt(s.style.fontWeight) >= 500)) {
+                label = s.textContent.trim();
+            }
+            // Status: font-weight:600 (Ready, Partial, Not set up)
+            if (s.style.fontWeight === '600' || (s.style.fontWeight && parseInt(s.style.fontWeight) >= 600)) {
+                status = s.textContent.trim();
+            }
+        }
+
+        // Detect suggested (accent border/background)
+        var isSuggested = el.style.borderColor && el.style.borderColor.indexOf('accent') !== -1;
+        if (!isSuggested) {
+            isSuggested = el.getAttribute('style') && el.getAttribute('style').indexOf('accent') !== -1;
+        }
+
+        // State-aware expanded prefix
+        var stateHtml = '';
+        if (status === 'Ready') {
+            stateHtml = '<div class="assistant-state-card state-ok" style="margin-bottom:0.4rem">' +
+                '<div class="state-label">✅ Configured and detected</div></div>';
+        } else if (status === 'Partial') {
+            stateHtml = '<div class="assistant-state-card state-warning" style="margin-bottom:0.4rem">' +
+                '<div class="state-label">🔶 Partially configured</div>' +
+                '<div class="state-detail">Some pieces are in place but the integration isn\'t fully ready. Open the setup wizard to see what\'s missing.</div></div>';
+        } else {
+            stateHtml = '<div class="assistant-state-card state-warning" style="margin-bottom:0.4rem">' +
+                '<div class="state-label">⬜ Not yet set up</div>' +
+                '<div class="state-detail">Nothing detected for this integration. Click Setup to start the configuration wizard.</div></div>';
+        }
+
+        if (isSuggested) {
+            stateHtml += '<div class="assistant-state-card state-info" style="margin-bottom:0.4rem">' +
+                '<div class="state-label">💡 Suggested next step</div>' +
+                '<div class="state-detail">The control plane recommends setting this up next based on your current progress.</div></div>';
+        }
+
+        return {
+            title: label,
+            expanded: stateHtml
+        };
+    };
+
+})();
+</script>

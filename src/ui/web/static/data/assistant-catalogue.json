@@ -10188,5 +10188,1035 @@
                 "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🏗️ What ssl.tf contains</div><div class=\"state-detail\">Depends on your cloud provider:\n\n• <strong>AWS</strong> — <code>aws_acm_certificate</code> + <code>aws_acm_certificate_validation</code> with DNS validation records\n• <strong>GCP</strong> — <code>google_compute_managed_ssl_certificate</code>\n• <strong>Azure</strong> — managed certificate through Front Door or App Gateway\n\nDNS validation is automatic — Terraform creates the validation CNAME record in your zone, waits for validation, and links the certificate to your CDN distribution. The whole chain is one <code>terraform apply</code>.</div></div>"
             }
         ]
+    },
+    {
+        "context": "setup/cicd",
+        "title": "CI/CD Pipeline Setup",
+        "icon": "⚡",
+        "content": "Automated testing, building, and deployment — the pipeline that runs every time you push code, catch regressions before they reach production, and deploy with confidence.",
+        "variants": [
+            {
+                "when": {
+                    "hasSelector": "#ci-detect-grid"
+                },
+                "content": "Scanning your project for CI/CD signals — existing workflow files, Docker and Kubernetes presence, detected stacks, and environment variables that should flow into the pipeline."
+            },
+            {
+                "when": {
+                    "hasSelector": "#mf-ci-test"
+                },
+                "content": "The pipeline steps — what runs on every push. Test, lint, type-check, coverage. Each step becomes a job in the workflow with proper dependency ordering."
+            },
+            {
+                "when": {
+                    "hasSelector": "#mf-ci-docker"
+                },
+                "content": "Build and deploy phase — container images, registry push, and Kubernetes deployment. These steps only run after all quality checks pass."
+            },
+            {
+                "when": {
+                    "hasSelector": "#ci-env-list"
+                },
+                "content": "Environments define where your code ships — each with its own secrets, variable overrides, and approval gates. Staging runs automatically, production waits for human sign-off."
+            },
+            {
+                "when": {
+                    "hasSelector": "#mf-ci-overwrite"
+                },
+                "content": "Review the pipeline before generating — every checkbox, trigger, and environment becomes a job or step in the final <code>.github/workflows/ci.yml</code>."
+            }
+        ],
+        "children": [
+            {
+                "id": "ci-detect-grid",
+                "title": "CI/CD Detection",
+                "selector": "#ci-detect-grid",
+                "content": "What the scan found in your project — existing CI configuration, container readiness, orchestration manifests, and language stacks that determine which test jobs to generate.",
+                "children": [
+                    {
+                        "id": "ci-detect-provider",
+                        "title": "CI Provider",
+                        "selector": "#ci-detect-provider",
+                        "content": "Which CI/CD platform your project uses. The wizard currently generates GitHub Actions workflows — the provider detection tells you if there's existing configuration to build on.",
+                        "variants": [
+                            {
+                                "when": {
+                                    "textContains": "github"
+                                },
+                                "content": "GitHub Actions detected — your repo already has workflow infrastructure. The wizard reads existing triggers and jobs so it can extend rather than duplicate.",
+                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">⚡ Building on existing workflows</div><div class=\"state-detail\">The wizard generates <code>.github/workflows/ci.yml</code>. If files already exist in <code>.github/workflows/</code>:\n\n• The wizard creates a <strong>separate</strong> ci.yml — it won't modify your existing workflows\n• If a ci.yml already exists, the Review step offers an overwrite toggle\n• Existing workflow secrets and environment configs are preserved\n\nYou can run multiple workflow files side by side — GitHub Actions processes every <code>.yml</code> in the workflows directory independently.</div></div>"
+                            },
+                            {
+                                "when": {
+                                    "textContains": "Not configured"
+                                },
+                                "content": "No CI provider detected yet — the wizard will create your first pipeline from scratch. GitHub Actions is the target platform, triggered by your repo hosting on GitHub.",
+                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🚀 Starting from zero</div><div class=\"state-detail\">The wizard will create <code>.github/workflows/ci.yml</code> — a complete pipeline file. What it includes depends on what's detected in your project:\n\n• <strong>Stacks</strong> → language-specific test/lint/typecheck jobs\n• <strong>Docker</strong> → container build + optional registry push\n• <strong>Kubernetes</strong> → deployment step with environment promotion\n• <strong>Environment vars</strong> → pre-filled from Compose, .env files, and vault\n\nAfter generation, commit and push — the pipeline runs on the next push or PR.</div></div>"
+                            }
+                        ]
+                    },
+                    {
+                        "id": "ci-detect-workflows",
+                        "title": "Workflow Files",
+                        "selector": "#ci-detect-workflows",
+                        "content": "How many workflow files exist in <code>.github/workflows/</code>. Each file is an independent pipeline — you can have separate workflows for CI, deployment, releases, and scheduled jobs.",
+                        "variants": [
+                            {
+                                "when": {
+                                    "textContains": "0"
+                                },
+                                "content": "No workflow files yet — the wizard will create your first one. This is the clean-slate scenario where every pipeline decision is yours to make."
+                            },
+                            {
+                                "when": {
+                                    "textContains": "1"
+                                },
+                                "content": "One existing workflow found. The wizard generates a separate <code>ci.yml</code> — it won't interfere with your existing workflow unless you explicitly overwrite."
+                            }
+                        ]
+                    },
+                    {
+                        "id": "ci-detect-docker",
+                        "title": "Docker Detection",
+                        "selector": "#ci-detect-docker",
+                        "content": "Whether a Dockerfile exists in your project — this unlocks the container build step in the pipeline.",
+                        "variants": [
+                            {
+                                "when": {
+                                    "textContains": "Dockerfile found"
+                                },
+                                "content": "Dockerfile found — the Build & Deploy step will offer container image building, multi-stage caching, and registry push. Build args can be injected from pipeline secrets.",
+                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🐳 What Docker unlocks in the pipeline</div><div class=\"state-detail\">With a Dockerfile detected, the wizard can generate:\n\n• <strong>Build step</strong> — <code>docker build</code> with BuildKit layer caching\n• <strong>Push step</strong> — push to GHCR, Docker Hub, ECR, or any registry\n• <strong>Build args</strong> — injected from secrets or env vars\n• <strong>Image tagging</strong> — <code>sha-abc1234</code>, <code>latest</code>, or semantic version\n\nIf Kubernetes is also detected, the K8s deploy step references the built image — the pipeline chains build → push → deploy automatically.</div></div>"
+                            },
+                            {
+                                "when": {
+                                    "textContains": "Not detected"
+                                },
+                                "content": "No Dockerfile — the pipeline will focus on test, lint, and type-checking without a container build step. You can add Docker later and regenerate.",
+                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">📦 Test-only pipeline</div><div class=\"state-detail\">Without Docker, the generated pipeline runs quality checks only:\n\n• Install dependencies\n• Run tests\n• Run linter\n• Run type checker\n• Upload coverage (optional)\n\nThis is perfectly valid for libraries, CLI tools, or projects that deploy without containers. If you add a Dockerfile later, re-run the wizard to add build + deploy steps.</div></div>"
+                            }
+                        ]
+                    },
+                    {
+                        "id": "ci-detect-k8s",
+                        "title": "Kubernetes Detection",
+                        "selector": "#ci-detect-k8s",
+                        "content": "Whether Kubernetes manifests, Skaffold, or Helm charts exist — this unlocks the deploy step and environment promotion chain in the pipeline.",
+                        "variants": [
+                            {
+                                "when": {
+                                    "textContains": "Manifests found"
+                                },
+                                "content": "K8s manifests detected — the pipeline can deploy after build. The wizard supports kubectl apply, skaffold run, and helm upgrade as deploy methods, with per-environment kubeconfig secrets.",
+                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">☸️ What Kubernetes unlocks in the pipeline</div><div class=\"state-detail\">With K8s detected, the Build & Deploy step offers:\n\n• <strong>Deploy method</strong> — <code>kubectl apply</code>, <code>skaffold run</code>, or <code>helm upgrade --install</code>\n• <strong>Per-environment deployment</strong> — staging auto-deploys, production requires approval\n• <strong>Kubeconfig injection</strong> — each environment uses a different GitHub Actions secret for cluster access\n• <strong>Namespace targeting</strong> — deploy to the correct namespace per environment\n\nThe Environments step (Step 4) lets you configure the promotion chain — secrets, variable overrides, and approval gates per environment.</div></div>"
+                            },
+                            {
+                                "when": {
+                                    "textContains": "Not detected"
+                                },
+                                "content": "No K8s manifests — the pipeline won't include a deployment step. You can still build Docker images and push to a registry without deploying to a cluster."
+                            }
+                        ]
+                    },
+                    {
+                        "id": "ci-detect-env",
+                        "title": "Environment Detection",
+                        "selector": "#ci-detect-env",
+                        "content": "Environment variables detected from <code>.env</code> files, <code>.env.example</code>, and Docker Compose service definitions. These pre-fill the Pipeline step's env var table.",
+                        "variants": [
+                            {
+                                "when": {
+                                    "textContains": "vars"
+                                },
+                                "content": "Environment variables found — the wizard will pre-fill the Pipeline step with these. Each var is classified as hardcoded, variable (per-env override), or secret based on its name pattern.",
+                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">⚙️ How env vars flow through the pipeline</div><div class=\"state-detail\">Detected variables are classified automatically:\n\n• <strong>Hardcoded</strong> — same value everywhere (e.g. <code>CI=true</code>, <code>NODE_ENV=test</code>). Written directly into the workflow YAML.\n• <strong>Variable</strong> — different per environment (e.g. <code>NODE_ENV</code>, <code>LOG_LEVEL</code>). Set as GitHub environment variables with per-env overrides.\n• <strong>Secret</strong> — contains tokens or passwords (detected by name pattern). Stored in GitHub Actions secrets, never in the YAML file.\n\nYou can reclassify any variable in the Pipeline step — the wizard's classification is a starting point based on naming conventions.</div></div>"
+                            },
+                            {
+                                "when": {
+                                    "textContains": "No .env"
+                                },
+                                "content": "No .env files detected. You can still add variables manually in the Pipeline step — the wizard provides a row editor for custom env vars and secrets."
+                            }
+                        ]
+                    }
+                ]
+            },
+            {
+                "id": "ci-detect-stacks",
+                "title": "Detected Stacks",
+                "selector": "#ci-detect-stacks",
+                "content": "Language stacks found in the project — each one shapes the generated pipeline. Python gets pytest, Node gets npm test, Go gets go test, Rust gets cargo test. Multiple stacks generate parallel jobs.",
+                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">📦 How stacks shape the pipeline</div><div class=\"state-detail\">Each detected stack tells the wizard which tools to use:\n\n• <strong>Python</strong> → <code>pip install</code>, <code>pytest</code>, <code>ruff</code>/<code>flake8</code>, <code>mypy</code>\n• <strong>Node</strong> → <code>npm ci</code>, <code>npm test</code>, <code>eslint</code>, <code>tsc</code>\n• <strong>Go</strong> → <code>go test ./...</code>, <code>golangci-lint</code>, <code>go vet</code>\n• <strong>Rust</strong> → <code>cargo test</code>, <code>cargo clippy</code>, <code>cargo fmt --check</code>\n\nWith multiple stacks, the wizard generates a test matrix — each stack runs in its own parallel job. If no stacks are detected, you configure custom commands in Step 2.</div></div>"
+            },
+            {
+                "id": "ci-detect-docker-hint",
+                "title": "Docker Prerequisite",
+                "selector": "#ci-detect-docker-hint",
+                "content": "Docker isn't set up yet — without a Dockerfile, the pipeline runs tests only. Setting up Docker first unlocks container builds, registry push, and image-based deployment.",
+                "expanded": "<div class=\"assistant-state-card state-warning\"><div class=\"state-label\">🐳 Why Docker matters for CI/CD</div><div class=\"state-detail\">A Dockerfile is the bridge between test and deploy:\n\n1. <strong>Without Docker</strong> — the pipeline runs: install → test → lint → done\n2. <strong>With Docker</strong> — the pipeline runs: install → test → lint → build image → push to registry → deploy\n\nThe Docker Setup wizard creates a Dockerfile with proper multi-stage builds and layer caching — optimized for CI where build time directly impacts feedback speed.\n\nYou can come back to this CI wizard after setting up Docker to get the full pipeline.</div></div>"
+            },
+            {
+                "id": "ci-pipeline-stack-info",
+                "title": "Detected Stacks",
+                "selector": "#ci-pipeline-stack-info",
+                "content": "The scan found your project's languages and frameworks — each stack gets its own test job in the pipeline with the right runner, package manager, and toolchain.",
+                "variants": [
+                    {
+                        "when": {
+                            "textContains": "No stacks"
+                        },
+                        "content": "No languages or frameworks were detected — the pipeline will use a single generic test job. You'll configure the exact commands in the Custom Commands section below.",
+                        "expanded": "<div class=\"assistant-state-card state-warning\"><div class=\"state-label\">⚠️ Why no stacks?</div><div class=\"state-detail\">The scan looks for dependency files to identify stacks:\n\n• <code>requirements.txt</code>, <code>pyproject.toml</code> → Python\n• <code>package.json</code> → Node/JavaScript\n• <code>go.mod</code> → Go\n• <code>Cargo.toml</code> → Rust\n\nIf your project uses a different structure, the pipeline falls back to a generic job. The Custom Commands section below lets you specify exactly what to install, test, and lint.</div></div>"
+                    },
+                    {
+                        "when": {
+                            "textContains": "per detected stack"
+                        },
+                        "content": "Each stack generates its own parallel test job on the GitHub Actions runner. Different stacks can use different language versions, install commands, and test frameworks.",
+                        "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🧩 How multi-stack pipelines work</div><div class=\"state-detail\">Each detected stack becomes a separate job in the workflow:\n\n• <strong>Python</strong> → <code>pip install</code>, <code>pytest</code>, <code>ruff</code>\n• <strong>Node</strong> → <code>npm ci</code>, <code>npm test</code>, <code>eslint</code>\n• <strong>Go</strong> → <code>go test</code>, <code>golangci-lint</code>\n• <strong>Rust</strong> → <code>cargo test</code>, <code>clippy</code>\n\nJobs run in parallel — a Python failure won't block the Node job from reporting its own results. The pipeline only passes when all stack jobs succeed.</div></div>"
+                    }
+                ]
+            },
+            {
+                "id": "ci-test",
+                "title": "Run Tests",
+                "selector": "#mf-ci-test",
+                "content": "The foundation of the pipeline — install dependencies, run the test suite, fail on any error. Without this, the pipeline is just a build step with no quality assurance.",
+                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🧪 What the test step generates</div><div class=\"state-detail\">For each detected stack, the pipeline:\n\n1. Sets up the language runtime (e.g. <code>actions/setup-python@v5</code>)\n2. Caches dependencies (pip cache, node_modules, etc.)\n3. Installs from the lock file\n4. Runs the test suite with the appropriate runner\n\nThe test step is the first quality gate — if tests fail, the pipeline stops before linting, building, or deploying. There's no point linting code that doesn't work.\n\nIf coverage upload is enabled below, the test step also generates a coverage report.</div></div>"
+            },
+            {
+                "id": "ci-lint",
+                "title": "Run Linting",
+                "selector": "#mf-ci-lint",
+                "content": "Catches what tests can't — unused imports, formatting violations, suspicious patterns, common anti-patterns. Runs as a separate step so you see both test AND lint results even if one fails.",
+                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🔍 What linting catches</div><div class=\"state-detail\">Linting is static analysis focused on code quality:\n\n• <strong>Style</strong> — indentation, line length, naming conventions\n• <strong>Bugs</strong> — unused variables, unreachable code, missing returns\n• <strong>Security</strong> — eval() usage, SQL injection patterns, hardcoded secrets\n\nPer-stack tools:\n• Python → <code>ruff</code> (fast, replaces flake8 + isort + pyupgrade)\n• Node → <code>eslint</code>\n• Go → <code>golangci-lint</code>\n• Rust → <code>clippy</code>\n\nLinting runs in parallel with tests — a lint failure won't block test results. Together with type checking below, they form a comprehensive static analysis layer.</div></div>"
+            },
+            {
+                "id": "ci-typecheck",
+                "title": "Type Checking",
+                "selector": "#mf-ci-typecheck",
+                "content": "Static type analysis — catches mismatched function signatures, wrong argument types, and missing return values before they become runtime errors. Most useful for typed languages (TypeScript, Python with type hints, Go).",
+                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🔬 What type checking catches that tests don't</div><div class=\"state-detail\">Tests verify behavior — type checking verifies contracts:\n\n• <strong>Wrong argument types</strong> — passing a string where a number is expected\n• <strong>Missing attributes</strong> — accessing <code>.name</code> on an object that doesn't have it\n• <strong>Incompatible returns</strong> — returning None when the caller expects a dict\n• <strong>Import errors</strong> — using a module that doesn't exist\n\nPer-stack tools:\n• Python → <code>mypy</code> (requires type hints in your code)\n• TypeScript → <code>tsc --noEmit</code> (built into the language)\n• Go → type checking is built into <code>go build</code>\n\nDisable this if your codebase doesn't use type annotations — it will just produce noise.</div></div>"
+            },
+            {
+                "id": "ci-coverage-tool",
+                "title": "Coverage Tool",
+                "selector": "#mf-ci-coverage-tool",
+                "content": "Which service receives your coverage reports — the tool determines the upload action added to the pipeline and the secret token needed.",
+                "variants": [
+                    {
+                        "when": {
+                            "resolver": "ci-coverage-tool-value",
+                            "equals": "codecov"
+                        },
+                        "content": "Codecov — the most widely used coverage service. Auto-detects report formats, posts PR comments with line-by-line diffs, and tracks coverage trends over time. Requires a CODECOV_TOKEN secret.",
+                        "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">📊 Codecov integration</div><div class=\"state-detail\">The pipeline adds:\n\n<code>- uses: codecov/codecov-action@v4\n  with:\n    token: ${{ secrets.CODECOV_TOKEN }}</code>\n\nCodecov auto-detects coverage report formats (XML, LCOV, JSON). It posts a PR comment showing:\n• Overall coverage percentage\n• Line-by-line coverage diff\n• Coverage trend graph\n\nGet your token at <code>codecov.io</code> → your repo → Settings → Upload Token. Add it as a secret in the Environments step (Step 4).</div></div>"
+                    },
+                    {
+                        "when": {
+                            "resolver": "ci-coverage-tool-value",
+                            "equals": "coveralls"
+                        },
+                        "content": "Coveralls — simpler interface, strong GitHub integration. Shows coverage badges and PR status checks. Requires a COVERALLS_TOKEN secret.",
+                        "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">📊 Coveralls integration</div><div class=\"state-detail\">The pipeline adds:\n\n<code>- uses: coverallsapp/github-action@v2\n  with:\n    github-token: ${{ secrets.COVERALLS_TOKEN }}</code>\n\nCoveralls provides:\n• Coverage percentage badges for your README\n• PR status checks (pass/fail based on coverage threshold)\n• Per-file coverage breakdown\n\nGet your token at <code>coveralls.io</code> → your repo → Settings. Add it as a secret in the Environments step (Step 4).</div></div>"
+                    }
+                ]
+            },
+            {
+                "id": "ci-trigger",
+                "title": "Pipeline Trigger",
+                "selector": "#mf-ci-trigger",
+                "content": "The event that starts the pipeline — determines when your code gets validated. Most teams use push + pull request to catch issues both during development and at the code review gate.",
+                "variants": [
+                    {
+                        "when": {
+                            "resolver": "ci-trigger-value",
+                            "equals": "push-pr"
+                        },
+                        "content": "Push + Pull Request — the pipeline runs twice: once when you push (fast feedback), and once on the PR (gate for merge). This catches issues at both stages but consumes more CI minutes.",
+                        "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🔀 When push-pr fires</div><div class=\"state-detail\">Two separate workflow runs:\n\n• <strong>Push event</strong> — runs on every push to the filtered branches. You see results immediately in the commit status.\n• <strong>Pull request event</strong> — runs when a PR is opened, synchronized (new commits pushed), or reopened. The PR shows a merge check.\n\nWith <code>cancel-in-progress</code> enabled, rapid pushes cancel previous runs — you only pay for the latest.</div></div>"
+                    },
+                    {
+                        "when": {
+                            "resolver": "ci-trigger-value",
+                            "equals": "push"
+                        },
+                        "content": "Push only — the pipeline runs on every push to matching branches. PRs won't show a separate check, but push results appear on the commit. Simpler, fewer CI minutes.",
+                        "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">📌 Push-only tradeoff</div><div class=\"state-detail\">Pros:\n• Fewer CI minutes (no duplicate PR runs)\n• Faster feedback loop\n\nCons:\n• PRs don't show a merge status check\n• Reviewers can't see CI results on the PR page\n\nBest for: solo projects, small teams, or repos where PRs are optional.</div></div>"
+                    },
+                    {
+                        "when": {
+                            "resolver": "ci-trigger-value",
+                            "equals": "pr"
+                        },
+                        "content": "Pull Request only — the pipeline runs as a merge gate. No CI on direct pushes. Enforces the PR workflow — nothing merges without passing checks.",
+                        "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🚪 PR as a gate</div><div class=\"state-detail\">This pattern works with branch protection rules:\n\n1. Developer pushes to a feature branch (no CI runs)\n2. Developer opens a PR against <code>main</code>\n3. CI runs on the PR\n4. Branch protection requires the CI check to pass before merge\n\nBest for: teams that enforce PR reviews, where direct pushes to main are blocked.</div></div>"
+                    },
+                    {
+                        "when": {
+                            "resolver": "ci-trigger-value",
+                            "equals": "manual"
+                        },
+                        "content": "Manual only (workflow_dispatch) — the pipeline never runs automatically. You trigger it from the GitHub Actions UI or API. Used for release workflows, one-off deployments, or maintenance tasks.",
+                        "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">👆 Manual dispatch</div><div class=\"state-detail\">The workflow gets a \"Run workflow\" button in the GitHub Actions tab. You can also trigger via API:\n\n<code>gh workflow run ci.yml --ref main</code>\n\nUseful for:\n• Release pipelines (deploy when ready, not on every push)\n• Database migrations\n• Infrastructure changes that need human oversight\n\nCan be combined with <code>workflow_dispatch</code> inputs for parameterized runs.</div></div>"
+                    }
+                ]
+            },
+            {
+                "id": "ci-branch",
+                "title": "Branch Filter",
+                "selector": "#mf-ci-branch",
+                "content": "Which branches trigger the pipeline — comma-separated. Only pushes or PRs targeting these branches will start a run. Feature branches are excluded by default.",
+                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🌿 Branch filter patterns</div><div class=\"state-detail\">Common patterns:\n\n• <code>main</code> — only the main branch\n• <code>main, develop</code> — main + integration branch\n• <code>main, release/*</code> — main + release branches (wildcards supported)\n\nFeature branches (<code>feat/...</code>, <code>fix/...</code>) typically run only through PR triggers — they don't need push triggers on main.</div></div>"
+            },
+            {
+                "id": "ci-coverage",
+                "title": "Coverage Upload",
+                "selector": "#mf-ci-coverage",
+                "content": "Upload test coverage reports to a tracking service — see which lines your tests exercise and track coverage trends over time. Requires a token stored as a GitHub secret.",
+                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">📊 How coverage works in CI</div><div class=\"state-detail\">The pipeline flow:\n\n1. Tests run with a coverage flag (e.g. <code>pytest --cov</code>, <code>jest --coverage</code>)\n2. A coverage report is generated (XML, LCOV, or JSON)\n3. The CI step uploads the report to your coverage service\n4. The service calculates coverage % and posts a comment on your PR\n\n<strong>Codecov</strong> — the most common. Requires a <code>CODECOV_TOKEN</code> secret.\n<strong>Coveralls</strong> — alternative with similar features. Requires a <code>COVERALLS_TOKEN</code> secret.\n\nThe token goes in the Environments step as a GitHub Actions secret.</div></div>"
+            },
+            {
+                "id": "ci-cancel-in-progress",
+                "title": "Concurrency Control",
+                "selector": "#mf-ci-cancel-in-progress",
+                "content": "When enabled, a new push cancels any in-progress run for the same branch. Without this, rapid pushes queue up and waste CI minutes on stale commits.",
+                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🔄 How concurrency groups work</div><div class=\"state-detail\">GitHub Actions uses a concurrency key — typically <code>ci-${{ github.ref }}</code>:\n\n• Push to <code>main</code> → concurrency key <code>ci-refs/heads/main</code>\n• Push again 30 seconds later → the first run is cancelled, only the latest runs\n\nThis means:\n• You always get results for the latest code\n• You don't pay for runs on commits that are already superseded\n• PR checks always reflect the latest PR state\n\nDisabling this is useful for release branches where you want every commit validated.</div></div>"
+            },
+            {
+                "id": "ci-envvars-list",
+                "title": "Environment Variables",
+                "selector": "#ci-env-vars-list",
+                "content": "Global env vars injected into all pipeline jobs. Pre-filled from Docker Compose, .env files, and vault. Each variable is classified as hardcoded (same everywhere), variable (per-env override), or secret (encrypted).",
+                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🔑 The three injection types</div><div class=\"state-detail\">How each type ends up in the workflow YAML:\n\n• <strong>📋 Hardcoded</strong> → written directly in the <code>env:</code> block. Visible in the YAML file. Use for non-sensitive, environment-independent values like <code>CI=true</code>.\n\n• <strong>🔄 Variable</strong> → set as GitHub environment variables. Each environment (staging, production) can override the value. Use for <code>NODE_ENV</code>, <code>LOG_LEVEL</code>, <code>API_URL</code>.\n\n• <strong>🔒 Secret</strong> → stored in GitHub Actions secrets, referenced as <code>${{ secrets.NAME }}</code>. Never logged, never visible in the YAML. Use for tokens, passwords, API keys.\n\nSecrets and variables are configured per-environment in the next step.</div></div>"
+            },
+            {
+                "id": "ci-env-row",
+                "title": "Environment Variable",
+                "selector": ".ci-env-row",
+                "content": "Each row is a variable that enters the pipeline. The type selector on the right is the key decision — it determines how this value travels through environments and whether it's visible in the workflow file.",
+                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🏷️ The three injection types</div><div class=\"state-detail\">The type you choose here has real consequences:\n\n• <strong>📋 Hardcoded</strong> — value written directly in the YAML. Same in every environment. Use for: <code>CI=true</code>, <code>DOCKER_BUILDKIT=1</code>, <code>PYTHONUNBUFFERED=1</code>.\n\n• <strong>🔄 Variable</strong> — value differs per environment. In Step 4, you'll set <code>NODE_ENV=staging</code> for staging and <code>NODE_ENV=production</code> for production. Referenced as <code>${{ vars.NAME }}</code> in the workflow.\n\n• <strong>🔒 Secret</strong> — encrypted in GitHub, never logged, never visible in the YAML. Referenced as <code>${{ secrets.NAME }}</code>. Use for tokens, passwords, API keys.\n\nThe auto-classifier detects common patterns — keys with \"password\", \"token\", or \"secret\" in the name are automatically classified as secrets. Environment-dependent keys like <code>NODE_ENV</code> become variables when multiple environments are configured.</div></div>"
+            },
+            {
+                "id": "ci-env-add-var",
+                "title": "Add Variable",
+                "selector": "#ci-env-add-var",
+                "content": "Add a variable that wasn't auto-detected — custom app config, feature flags, or third-party service keys. The new row defaults to hardcoded; change the type selector to make it a variable or secret."
+            },
+            {
+                "id": "ci-custom-commands",
+                "title": "Custom Commands",
+                "selector": "#ci-custom-commands",
+                "content": "No stacks were detected, so the pipeline needs explicit commands for each quality gate. These defaults assume a Python project — adjust them to match your actual toolchain.",
+                "expanded": "<div class=\"assistant-state-card state-warning\"><div class=\"state-label\">⚙️ Why custom commands?</div><div class=\"state-detail\">When stacks are detected (Python, Node, Go, Rust), the wizard generates the right commands automatically — <code>pytest</code> for Python tests, <code>npm test</code> for Node, etc.\n\nWithout detected stacks, you must specify:\n• <strong>Install</strong> — how to install dependencies\n• <strong>Test</strong> — how to run the test suite\n• <strong>Lint</strong> — how to run the linter\n• <strong>Type-check</strong> — how to run the type checker\n\nThese commands run as-is in the GitHub Actions workflow. Make sure they work locally first — <code>pip install -e \".[dev]\" && pytest</code> should succeed on a clean checkout.</div></div>",
+                "children": [
+                    {
+                        "id": "ci-custom-python-ver",
+                        "title": "Python Version",
+                        "selector": "#mf-ci-python-ver",
+                        "content": "The Python version installed on the GitHub Actions runner via <code>actions/setup-python</code>. Must match what your project supports — check <code>pyproject.toml</code> or <code>setup.py</code> for the minimum version.",
+                        "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🐍 Version considerations</div><div class=\"state-detail\">Common choices:\n\n• <code>3.12</code> — latest stable, best performance, newest syntax\n• <code>3.11</code> — widely deployed, good compatibility\n• <code>3.10</code> — minimum for match statements\n\nIf your <code>pyproject.toml</code> says <code>requires-python = \">=3.10\"</code>, test on 3.10 to catch any accidental use of newer syntax.\n\nFor matrix testing across multiple versions, the wizard generates separate jobs per version.</div></div>"
+                    },
+                    {
+                        "id": "ci-custom-install",
+                        "title": "Install Command",
+                        "selector": "#mf-ci-install-cmd",
+                        "content": "How dependencies are installed on the CI runner. The default assumes an editable pip install with dev extras — adjust if you use <code>requirements.txt</code>, <code>poetry</code>, or <code>pipenv</code>.",
+                        "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">📦 Install patterns</div><div class=\"state-detail\">Common patterns:\n\n• <code>pip install -e \".[dev]\"</code> — editable install with dev dependencies from pyproject.toml\n• <code>pip install -r requirements.txt</code> — traditional requirements file\n• <code>poetry install</code> — Poetry lock file\n• <code>pip install -r requirements.txt -r requirements-dev.txt</code> — split requirements\n\nThe install step runs before test, lint, and type-check — all three share the same installed environment. If the install fails, all quality gates fail.</div></div>"
+                    },
+                    {
+                        "id": "ci-custom-test",
+                        "title": "Test Command",
+                        "selector": "#mf-ci-test-cmd",
+                        "content": "The command that determines pass or fail — a non-zero exit code fails the pipeline. This is the single most important command in the entire workflow.",
+                        "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🧪 Test command tips</div><div class=\"state-detail\">The command runs in the repo root:\n\n• <code>python -m pytest tests/ -v --tb=short</code> — verbose output, short tracebacks\n• <code>python -m pytest tests/ --cov=src --cov-report=xml</code> — with coverage report (if coverage upload is enabled above)\n• <code>python -m pytest tests/ -x</code> — stop on first failure (faster feedback)\n\nThe <code>-m pytest</code> form is preferred over bare <code>pytest</code> because it works without pytest being on PATH — it runs through the Python module system.</div></div>"
+                    },
+                    {
+                        "id": "ci-custom-lint",
+                        "title": "Lint Command",
+                        "selector": "#mf-ci-lint-cmd",
+                        "content": "The linting command — <code>ruff</code> is the modern choice for Python (fast, replaces flake8 + isort + pyupgrade in one tool). Adjust the target directory to match your source layout.",
+                        "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🔍 Linter options</div><div class=\"state-detail\">Common Python linters:\n\n• <code>ruff check src/</code> — modern, extremely fast, replaces 5+ tools\n• <code>flake8 src/</code> — traditional, widely used\n• <code>pylint src/</code> — comprehensive but opinionated\n• <code>black --check src/</code> — formatting only (fails if not formatted)\n\nYou can chain: <code>ruff check src/ && black --check src/</code>\n\nMake sure the linter is in your dev dependencies — the install command above must install it.</div></div>"
+                    },
+                    {
+                        "id": "ci-custom-typecheck",
+                        "title": "Type-check Command",
+                        "selector": "#mf-ci-typecheck-cmd",
+                        "content": "Static type analysis — only useful if your code has type annotations. Without them, mypy will either pass silently or flag everything. The <code>--ignore-missing-imports</code> flag suppresses errors from untyped dependencies.",
+                        "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🔬 Type checker tips</div><div class=\"state-detail\">Common configurations:\n\n• <code>mypy src/ --ignore-missing-imports</code> — basic, ignores untyped third-party libs\n• <code>mypy src/ --strict</code> — catches everything, requires comprehensive annotations\n• <code>pyright src/</code> — alternative checker, faster, different strictness model\n\nIf your codebase has minimal type hints, start with <code>--ignore-missing-imports</code> and gradually add annotations.\n\nDisable the type-check checkbox above if annotations aren't part of your workflow yet.</div></div>"
+                    }
+                ]
+            },
+            {
+                "id": "ci-docker-build",
+                "title": "Docker Build",
+                "selector": "#mf-ci-docker",
+                "content": "Add a Docker build step to the pipeline — builds your Dockerfile after tests pass. Optionally pushes the image to a container registry for deployment.",
+                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🐳 What the Docker step generates</div><div class=\"state-detail\">The pipeline gets a <code>build</code> job that runs after quality checks:\n\n<code>- uses: docker/setup-buildx-action@v3\n- uses: docker/build-push-action@v5\n  with:\n    context: .\n    push: ${{ needs.push }}\n    tags: ${{ env.IMAGE }}:${{ github.sha }}</code>\n\nBuildKit layer caching is enabled by default — subsequent builds reuse unchanged layers, cutting build time significantly.\n\nBuild args from this step are injected as <code>build-args:</code> in the workflow.</div></div>"
+            },
+            {
+                "id": "ci-docker-push",
+                "title": "Push to Registry",
+                "selector": "#mf-ci-docker-push",
+                "content": "When enabled, the built image is pushed to the registry URL below after a successful build. Without this, the image is built and discarded — useful for validating the Dockerfile works in CI without storing the result."
+            },
+            {
+                "id": "ci-docker-registry",
+                "title": "Registry URL",
+                "selector": "#mf-ci-docker-registry",
+                "content": "Where the built image is pushed — GHCR, Docker Hub, ECR, or any OCI-compatible registry. Leave empty to build without pushing (local CI caching only).",
+                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">📦 Common registries</div><div class=\"state-detail\">• <code>ghcr.io/your-org</code> — GitHub Container Registry. Free for public repos, uses your GitHub token for auth.\n• <code>docker.io/your-user</code> — Docker Hub. Requires <code>DOCKER_USERNAME</code> + <code>DOCKER_PASSWORD</code> secrets.\n• <code>123456789.dkr.ecr.us-east-1.amazonaws.com</code> — AWS ECR. Requires AWS credentials.\n• <code>gcr.io/your-project</code> — Google Container Registry. Requires GCP service account key.\n\nGHCR is the simplest — it uses the built-in <code>GITHUB_TOKEN</code> with no extra secrets needed.</div></div>"
+            },
+            {
+                "id": "ci-docker-image",
+                "title": "Image Name",
+                "selector": "#mf-ci-docker-image",
+                "content": "The image name without the registry prefix or tag. The full reference is assembled as <code>registry/image:tag</code> — the tag is automatically set to the Git SHA for traceability back to the exact commit."
+            },
+            {
+                "id": "ci-docker-build-args",
+                "title": "Build Arguments",
+                "selector": "#ci-docker-args-list",
+                "content": "Docker build arguments injected at build time — they match ARG declarations in your Dockerfile. Use them for build-time configuration like version numbers, build targets, or feature flags.",
+                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🔧 Build args vs env vars</div><div class=\"state-detail\">Build arguments are different from environment variables:\n\n• <strong>Build args</strong> — available only during <code>docker build</code>. Set with <code>ARG</code> in Dockerfile. Used for: version pinning, conditional builds, base image selection.\n• <strong>Env vars</strong> — available at container runtime. Set with <code>ENV</code> in Dockerfile or in Step 2.\n\nBuild args are injected in the workflow as:\n<code>build-args: |\n  ARG_NAME=value</code>\n\nThey do NOT carry into the final image unless explicitly copied with <code>ENV MY_VAR=$MY_ARG</code> in the Dockerfile.</div></div>"
+            },
+            {
+                "id": "ci-k8s-deploy",
+                "title": "Kubernetes Deploy",
+                "selector": "#mf-ci-k8s",
+                "content": "Add a deploy step that applies manifests to your cluster after a successful build. Each environment gets its own deploy job with namespace targeting and kubeconfig injection.",
+                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">☸️ The deploy chain</div><div class=\"state-detail\">With K8s deploy enabled, the pipeline becomes:\n\ntest → lint → build → push → <strong>deploy-staging</strong> → (approval) → <strong>deploy-production</strong>\n\nEach deploy job:\n1. Loads the kubeconfig from a GitHub Actions secret\n2. Sets the target namespace\n3. Applies manifests using your chosen method\n4. Verifies the rollout succeeds\n\nThe deploy jobs are configured per-environment in the next step (Step 4).</div></div>"
+            },
+            {
+                "id": "ci-k8s-method",
+                "title": "Deploy Method",
+                "selector": "#mf-ci-k8s-method",
+                "content": "How manifests are applied to the cluster — each method has different assumptions about your manifest structure and deployment workflow.",
+                "variants": [
+                    {
+                        "when": {
+                            "resolver": "ci-k8s-method-value",
+                            "equals": "kubectl"
+                        },
+                        "content": "kubectl apply — applies raw YAML manifests directly. The simplest method. Your manifests must be complete and ready to apply without templating.",
+                        "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🔧 kubectl apply details</div><div class=\"state-detail\">The pipeline runs:\n\n<code>kubectl apply -f k8s/ -n $NAMESPACE</code>\n\n• Applies all YAML files in the manifest directory\n• Resources are created or updated declaratively\n• No templating — values must be hardcoded or use <code>envsubst</code>\n\nBest for: small projects with a few manifests, or when you manage templating externally (kustomize, ytt).</div></div>"
+                    },
+                    {
+                        "when": {
+                            "resolver": "ci-k8s-method-value",
+                            "equals": "skaffold"
+                        },
+                        "content": "skaffold run — builds, pushes, and deploys in one command. Uses your <code>skaffold.yaml</code> to coordinate the entire pipeline. Profiles let you customize per environment.",
+                        "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🔧 skaffold run details</div><div class=\"state-detail\">The pipeline runs:\n\n<code>skaffold run -p $PROFILE --filename skaffold.yaml</code>\n\n• Skaffold handles image building, tagging, pushing, and deploying\n• Profiles customize behavior per environment (staging vs production)\n• Tag policies can use git SHA, datetime, or custom templates\n\nBest for: projects already using Skaffold for local dev. The CI pipeline mirrors your local workflow.</div></div>"
+                    },
+                    {
+                        "when": {
+                            "resolver": "ci-k8s-method-value",
+                            "equals": "helm"
+                        },
+                        "content": "helm upgrade --install — deploys using Helm charts with per-environment values files. Supports rollbacks, release history, and templated manifests.",
+                        "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🔧 helm upgrade details</div><div class=\"state-detail\">The pipeline runs:\n\n<code>helm upgrade --install $RELEASE $CHART -f values-$ENV.yaml -n $NAMESPACE</code>\n\n• <strong>Release name</strong> — identifies this deployment in Helm's release history\n• <strong>Values file</strong> — per-environment overrides (image tag, replicas, resources)\n• <strong>Rollback</strong> — <code>helm rollback $RELEASE</code> if the deploy fails\n\nThe Environments step lets you set per-environment values files. Each environment can have different replica counts, resource limits, and feature flags.</div></div>"
+                    }
+                ]
+            },
+            {
+                "id": "ci-k8s-namespace",
+                "title": "Namespace",
+                "selector": "#mf-ci-k8s-namespace",
+                "content": "The default K8s namespace for deployment — each environment can override this in Step 4. Leave empty for the cluster default. Environments typically use their own namespaces (staging, production) for isolation."
+            },
+            {
+                "id": "ci-k8s-manifest-dir",
+                "title": "Manifest Directory",
+                "selector": "#mf-ci-k8s-manifest-dir",
+                "content": "Where kubectl looks for YAML manifests to apply — relative to the repo root. All <code>.yaml</code> and <code>.yml</code> files in this directory are applied recursively with <code>kubectl apply -f</code>."
+            },
+            {
+                "id": "ci-helm-chart",
+                "title": "Helm Chart Path",
+                "selector": "#mf-ci-helm-chart",
+                "content": "Path to the Helm chart directory — contains <code>Chart.yaml</code>, <code>templates/</code>, and <code>values.yaml</code>. Can also be a chart reference for remote charts (e.g. <code>bitnami/nginx</code>)."
+            },
+            {
+                "id": "ci-helm-release",
+                "title": "Helm Release Name",
+                "selector": "#mf-ci-helm-release",
+                "content": "The release name identifies this deployment in Helm's history. Use it to track revisions, roll back, and manage multiple deployments of the same chart in different namespaces."
+            },
+            {
+                "id": "ci-skaffold-file",
+                "title": "Skaffold File",
+                "selector": "#mf-ci-skaffold-file",
+                "content": "Path to your <code>skaffold.yaml</code> configuration. Skaffold uses this to discover build artifacts, deployment manifests, and profile definitions for per-environment customization."
+            },
+            {
+                "id": "ci-env-summary",
+                "title": "Environment Summary",
+                "selector": "#ci-env-summary",
+                "content": "The summary of what flows from Step 2 into each environment — hardcoded vars stay the same everywhere, variable vars get per-env overrides, and secrets are pre-seeded from the Pipeline step's classification.",
+                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">📊 How Step 2 feeds Step 4</div><div class=\"state-detail\">The three categories from the Pipeline step flow differently into environments:\n\n• <strong>📋 Hardcoded</strong> — copied identically to every environment. No override possible. Written directly in the workflow YAML.\n• <strong>🔄 Variable</strong> — each environment card below has inputs to set per-env values. Empty means the default from Step 2 is used.\n• <strong>🔒 Secret</strong> — pre-added as badges in each environment's secrets section. You can add more or remove per environment.\n\nChanging classifications requires going back to Step 2 — the type selector (hardcoded/variable/secret) is there.</div></div>"
+            },
+            {
+                "id": "ci-env-list",
+                "title": "Environment Cards",
+                "selector": "#ci-env-list",
+                "content": "Each card is a deployment target with its own configuration. They map 1:1 to GitHub Actions environments — each with isolated secrets, variable values, and optional approval gates.",
+                "children": [
+                    {
+                        "id": "ci-env-card",
+                        "title": "Environment Card",
+                        "selector": ".ci-env-card",
+                        "content": "A single deployment target — branch, namespace, secrets, and variable overrides. Changes here only affect this specific environment.",
+                        "children": [
+                            {
+                                "id": "ci-env-branch-field",
+                                "title": "Deploy Branch",
+                                "selector": ".ci-env-branch",
+                                "content": "Which Git branch triggers deployment to this environment. Typically <code>main</code> for both staging and production — the difference is the approval gate, not the branch.",
+                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🌿 Branch → environment mapping</div><div class=\"state-detail\">Common patterns:\n\n• <strong>Same branch for all envs</strong> — <code>main</code> everywhere. Staging deploys automatically, production waits for approval. This is the GitOps standard.\n• <strong>Branch per env</strong> — <code>develop</code> → staging, <code>main</code> → production. Merging to main is the deploy trigger.\n• <strong>Release branches</strong> — <code>release/*</code> → production. Feature branches go through staging first.\n\nThe branch here filters the workflow trigger — only pushes/PRs to this branch will deploy to this environment.</div></div>"
+                            },
+                            {
+                                "id": "ci-env-approval-field",
+                                "title": "Approval Gate",
+                                "selector": ".ci-env-approval",
+                                "content": "When checked, the deploy job for this environment pauses and waits for manual approval in the GitHub Actions UI. Reviewers defined in the repo's environment settings can approve or reject.",
+                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🚪 How approval gates work</div><div class=\"state-detail\">GitHub Actions environments support required reviewers:\n\n1. The pipeline reaches the deploy job for this environment\n2. GitHub pauses execution and notifies the configured reviewers\n3. A reviewer clicks \"Approve\" or \"Reject\" in the Actions UI\n4. On approval, deployment proceeds; on rejection, the workflow fails\n\n<strong>Best practice:</strong>\n• Staging → no approval (fast iteration)\n• Production → require approval (human gate before users see changes)\n• Canary → optional (depends on your rollout strategy)\n\nReviewers are configured in GitHub repo settings → Environments → Protection rules.</div></div>"
+                            },
+                            {
+                                "id": "ci-env-namespace-field",
+                                "title": "K8s Namespace",
+                                "selector": ".ci-env-ns",
+                                "content": "The Kubernetes namespace where manifests are applied for this environment. Namespaces provide isolation — each environment gets its own pods, services, and secrets within the same cluster.",
+                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">☸️ Namespace isolation</div><div class=\"state-detail\">Each namespace is a logical boundary in the cluster:\n\n• <code>staging</code> — runs the latest code, may have fewer replicas\n• <code>production</code> — the live environment, full resources\n• <code>canary</code> — a small slice of production traffic for testing\n\nNamespaces isolate:\n• <strong>Resources</strong> — pods, services, configmaps\n• <strong>RBAC</strong> — who can access what\n• <strong>Resource quotas</strong> — CPU/memory limits per namespace\n\nThe pipeline runs <code>kubectl apply -n $NAMESPACE</code> to target the correct namespace.</div></div>"
+                            },
+                            {
+                                "id": "ci-env-kubeconfig-field",
+                                "title": "Kubeconfig Secret",
+                                "selector": ".ci-env-kube",
+                                "content": "The GitHub Actions secret name containing the kubeconfig for this environment's cluster. Each environment should use a different kubeconfig to limit blast radius — a staging credential shouldn't access production.",
+                                "expanded": "<div class=\"assistant-state-card state-warning\"><div class=\"state-label\">🔐 Kubeconfig security</div><div class=\"state-detail\">The kubeconfig contains cluster credentials — treat it as a top-level secret:\n\n• <strong>Per-environment secrets</strong> — <code>KUBE_CONFIG_STAGING</code> and <code>KUBE_CONFIG_PRODUCTION</code> should point to different clusters or different service accounts.\n• <strong>Least privilege</strong> — the service account in the kubeconfig should only have permissions for the target namespace.\n• <strong>Rotation</strong> — rotate kubeconfigs periodically. GitHub Actions secrets can be updated without changing the workflow.\n\nTo create the secret:\n1. Base64-encode your kubeconfig: <code>cat kubeconfig | base64</code>\n2. Add it as a GitHub Actions secret with the name specified here.\n3. The pipeline decodes it and writes it to <code>~/.kube/config</code> before deploying.</div></div>"
+                            },
+                            {
+                                "id": "ci-env-overrides-section",
+                                "title": "Variable Overrides",
+                                "selector": ".ci-env-overrides",
+                                "content": "Per-environment values for variables marked as 'variable' in Step 2. Each environment can set a different value — empty inputs fall back to the default defined in the Pipeline step.",
+                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🔄 How overrides work in the workflow</div><div class=\"state-detail\">Variables classified as 'variable' in Step 2 become GitHub environment variables:\n\n• <code>NODE_ENV=staging</code> in the staging environment\n• <code>NODE_ENV=production</code> in the production environment\n\nIn the generated workflow YAML, these are referenced as:\n<code>${{ vars.NODE_ENV }}</code>\n\nGitHub environment variables are set in repo settings → Environments → Variables. The wizard generates the workflow to reference them — you still need to set the actual values in GitHub's UI.\n\nLeave empty here if the default from Step 2 is fine for this environment.</div></div>"
+                            },
+                            {
+                                "id": "ci-env-secrets-section",
+                                "title": "Secrets",
+                                "selector": ".ci-env-secrets",
+                                "content": "Per-environment secrets — tokens, passwords, and API keys that differ between environments. Secrets are stored in GitHub Actions and never appear in the workflow YAML file.",
+                                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-label\">🔒 Secret sources in the picker</div><div class=\"state-detail\">The dropdown categorizes available secrets:\n\n• <strong>🔒 Vault Secrets</strong> — keys already in your project vault. Selecting one means it exists and can be injected.\n• <strong>🔑 Vault Variables</strong> — non-secret vault keys that you want to treat as secrets in CI.\n• <strong>📦 Suggested</strong> — stack-aware suggestions based on detected languages and Docker/K8s usage.\n• <strong>✏️ Custom</strong> — type any secret name manually.\n\nThe ⚠️ warning badge means the key doesn't exist in your vault yet — the wizard offers to create it on execution.\n\nSecrets are referenced in workflows as <code>${{ secrets.NAME }}</code> — GitHub never logs them.</div></div>"
+                            }
+                        ]
+                    }
+                ]
+            },
+            {
+                "id": "ci-env-add-row",
+                "title": "Add Environment",
+                "selector": "#ci-env-add-row",
+                "content": "Add custom environments beyond the defaults. Common additions: <code>dev</code> for feature testing, <code>canary</code> for progressive rollout, <code>qa</code> for dedicated testing, or <code>preview</code> for PR preview deployments."
+            }
+        ]
+    },
+    {
+        "context": "wizard/review",
+        "title": "Review & Save",
+        "icon": "✅",
+        "content": "The finish line — everything you've configured across the last 5 steps is summarized here. Nothing has been written to disk yet. When you click Finish, the control plane writes your project.yml and applies your integration preferences.\n\nTake a moment to scan each section. If something looks off, use the step indicators above to jump back and fix it — your changes are preserved.",
+        "children": [
+            {
+                "id": "review-project",
+                "title": "Project Identity",
+                "icon": "📋",
+                "content": "Your project's core identity — the name, description, and repository that follow it everywhere.",
+                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-detail\" class=\"state-wrap\"><div class=\"state-text\">These three values propagate across every generated config:</div><div class=\"state-grid\"><span class=\"state-key\">Name</span><span>Docker image tags, Helm chart names, CI workflow identifiers, folder structures</span><span class=\"state-key\">Description</span><span>README headers, package.json/pyproject.toml metadata, GitHub repo description</span><span class=\"state-key\">Repository</span><span>CI/CD webhook targets, GitHub integration, Docker registry paths</span></div><div class=\"state-text\">If the name shows '(not set)' or the repository is '—', go back to Step 1 to fill them in. Changing them later is possible but ripples through all generated configs.</div></div></div>",
+                "children": []
+            },
+            {
+                "id": "review-domains",
+                "title": "Domains",
+                "icon": "🏷️",
+                "content": "Logical groupings for your codebase. Each module you defined in Step 2 belongs to one of these.",
+                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-detail\" class=\"state-wrap\"><div class=\"state-text\">Domains organize your dashboard, reports, and automation scopes. If none are listed here, it's fine — the control plane can work without them. But once you have 5+ modules, domains help keep things navigable.</div><div class=\"state-text\">Common patterns: <code>library</code> for shared code, <code>services</code> for APIs and workers, <code>ops</code> for DevOps tooling, <code>docs</code> for documentation sites.</div><div class=\"state-text\">💡 You can add or reorganize domains anytime from Step 1.</div></div></div>",
+                "children": []
+            },
+            {
+                "id": "review-environments",
+                "title": "Environments",
+                "icon": "🌍",
+                "content": "Your deployment targets — each one gets its own encrypted .env file, its own set of secrets, and its own GitHub deployment environment.",
+                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-detail\" class=\"state-wrap\"><div class=\"state-text\">The environment count matters for your operational topology:</div><div class=\"state-grid\"><span class=\"state-key\">1 environment</span><span>Simple setup — single .env file, repo-level GitHub secrets</span><span class=\"state-key\">2+ environments</span><span>Multi-env mode — separate .env.{name} files, environment-scoped GitHub secrets, CI/CD matrix deploys</span></div><div class=\"state-text\">If you see the ⭐ badge, that's your default environment — the one used when no explicit environment is specified.</div><div class=\"state-text\">💡 Missing an environment? Jump back to Step 1 to add it. Each new environment triggers vault and GitHub setup in Step 3.</div></div></div>",
+                "children": []
+            },
+            {
+                "id": "review-modules",
+                "title": "Modules",
+                "icon": "📦",
+                "content": "The building blocks of your project — directories with their own stack, purpose, and automation scope.",
+                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-detail\" class=\"state-wrap\"><div class=\"state-text\">Each module listed here has three key attributes:</div><div class=\"state-grid\"><span class=\"state-key\">Name</span><span>How automation references this module (commands, CI jobs, Docker services)</span><span class=\"state-key\">Path</span><span>Where the source lives relative to your project root</span><span class=\"state-key\">Stack</span><span>The detected or assigned technology (python, node, go, etc.) — drives which commands and Dockerfiles are generated</span></div><div class=\"state-text\">If no modules are listed, it means you either skipped Step 2 or haven't run Auto-Detect yet. The control plane still works, but commands, CI pipelines, and Docker configs won't have anything to target.</div><div class=\"state-text\">💡 You can always come back to Step 2 and run Auto-Detect — it scans your project structure and proposes modules based on what it finds.</div></div></div>",
+                "children": []
+            },
+            {
+                "id": "review-content",
+                "title": "Content Folders",
+                "icon": "📁",
+                "content": "Folders managed by the Content tab — where you browse, preview, upload, encrypt, and back up files.",
+                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-detail\" class=\"state-wrap\"><div class=\"state-text\">Selected folders appear in the 📁 Content tab with full file management capabilities. If this shows 'Using default detection', no folders were explicitly configured — the Content tab will use its own scanning logic to find relevant directories.</div><div class=\"state-text\">The Content tab also has an 🗂 Explore All mode that lets you browse outside configured folders, so this isn't a hard boundary.</div><div class=\"state-text\">💡 Go back to Step 4 to change which folders are managed. Infrastructure directories (backups, releases, archives) are auto-managed and don't need to be selected.</div></div></div>",
+                "children": []
+            },
+            {
+                "id": "review-integrations",
+                "title": "Integrations",
+                "icon": "🔌",
+                "content": "Which DevOps integrations are active (✓) and which are hidden (✗). These control what appears in the Integrations and DevOps tabs.",
+                "expanded": "<div class=\"assistant-state-card state-info\"><div class=\"state-detail\" class=\"state-wrap\"><div class=\"state-text\">Integration preferences determine which cards and setup wizards are visible in the admin panel:</div><div class=\"state-grid\"><span class=\"state-key\">✓ Active</span><span>The integration appears in the UI. If the required tool is detected, it shows as available; if not, it shows setup instructions.</span><span class=\"state-key\">✗ Hidden</span><span>The integration is suppressed from the UI entirely. Useful for tools you don't use — reduces noise.</span><span class=\"state-key\">Using defaults</span><span>No preferences set — the control plane auto-detects which integrations are relevant based on your environment.</span></div><div class=\"state-text\">Hiding an integration doesn't delete any generated configs — it just removes the UI card. You can always re-enable it later.</div><div class=\"state-text\">💡 Jump back to Step 5 to toggle integrations on/off or to run the setup wizards (Git, Docker, K8s, CI/CD, etc.).</div></div></div>",
+                "children": []
+            }
+        ]
+    },
+    {
+        "context": "dashboard",
+        "title": "Dashboard",
+        "icon": "📊",
+        "content": "Your solution at a glance — what's ready, what's missing, and what needs your attention.\n\nEach card answers a different question about your project's readiness. Hover over any card to learn more.",
+        "children": [
+            {
+                "id": "dash-pulse",
+                "title": "Project Pulse",
+                "icon": "📦",
+                "selector": "#project-pulse",
+                "content": "Quick identity check — your project name, module count, environments, and overall system health.",
+                "expanded": "The health indicator reflects your server runtime status. If the last operation failed, you'll see it here too.\n\nThis bar gives you instant context without scrolling — if something is off, you'll know immediately.",
+                "variants": [
+                    {
+                        "when": {
+                            "textContains": "● Healthy"
+                        },
+                        "content": "Everything is running normally — server is responsive and all runtime checks passed.",
+                        "expanded": "Healthy means the web server, background processes, and filesystem access are all working. This is the runtime health of the control plane itself — not your project's code quality (that's the Grade card below).\n\nThe module count and environment count reflect what's defined in your project configuration."
+                    },
+                    {
+                        "when": {
+                            "textContains": "● Degraded"
+                        },
+                        "content": "The control plane is running but something is off — check the health endpoint for specifics.",
+                        "expanded": "Degraded usually means a non-critical subsystem is failing — maybe a background watcher, a cache directory, or a network check. The core functionality works but at reduced capability.\n\n💡 Check the server console output or the /health API endpoint for specific probe failures."
+                    },
+                    {
+                        "when": {
+                            "textContains": "● Unhealthy"
+                        },
+                        "content": "Something is wrong with the control plane runtime — critical systems are failing.",
+                        "expanded": "Unhealthy means one or more critical probes failed. This might affect your ability to run operations, save configurations, or access certain features.\n\n💡 Check the server console for error messages. Common causes: filesystem permissions, missing Python dependencies, or corrupted state files."
+                    },
+                    {
+                        "when": {
+                            "textContains": "● Unknown"
+                        },
+                        "content": "Health status couldn't be determined — the health endpoint didn't respond.",
+                        "expanded": "Unknown usually means the /health endpoint timed out or returned an unexpected response. The control plane is running (you can see this page), but the health subsystem isn't reporting.\n\n💡 This can happen on first boot before all subsystems initialize. If it persists, check the server logs."
+                    }
+                ],
+                "children": []
+            },
+            {
+                "id": "dash-tools",
+                "title": "Toolchain Status",
+                "icon": "🔧",
+                "selector": "#tools-status-section",
+                "content": "Are the right tools installed on this machine? Categories with all tools present collapse to a single line. Categories with gaps expand to show what's missing.",
+                "expanded": "Think of this as your workstation readiness check. Each tool is probed by checking PATH and common install locations.\n\nTools with an Install button can be auto-installed via the control plane's recipe system. Tools marked 'manual' don't have an automated install path — you'll need to install them yourself.\n\n💡 Missing tools don't necessarily block you. If you're not using Kubernetes, missing kubectl won't matter. But if you try to set up K8s integration with kubectl missing, the wizard will tell you.",
+                "dynamic": true,
+                "childTemplate": {
+                    "selector": "[data-tool-id]",
+                    "nameSelector": "span[style*='font-weight:500']",
+                    "title": "{{name}}",
+                    "content": "System tool detected on this machine.",
+                    "variants": [
+                        {
+                            "when": {
+                                "textContains": "python"
+                            },
+                            "content": "The control plane itself runs on Python — this is the host runtime.",
+                            "expanded": "Beyond running this tool, Python drives your linting (Ruff), formatting (Black), testing (pytest), and security scanning (Bandit, pip-audit, Safety).\n\nIf missing, none of those quality tools will work either — they're all Python packages."
+                        },
+                        {
+                            "when": {
+                                "textContains": "pip"
+                            },
+                            "content": "Python's package installer — how Ruff, pytest, Black, and other quality tools get on your machine.",
+                            "expanded": "pip installs from PyPI. Most quality and security tools in this control plane are pip-installable.\n\nIf pip is missing but Python is present, you likely have a system-managed Python that restricts direct package installs. Consider using pipx or a virtual environment."
+                        },
+                        {
+                            "when": {
+                                "textContains": "node"
+                            },
+                            "content": "JavaScript runtime — needed if any of your modules use a Node.js stack.",
+                            "expanded": "Node.js powers the npm ecosystem. If your project has a package.json, you'll need this for install, build, lint, and test operations.\n\nEven if your backend is Python, you might need Node for frontend assets, Docusaurus documentation sites, or Prettier formatting."
+                        },
+                        {
+                            "when": {
+                                "textContains": "npx"
+                            },
+                            "content": "Runs npm packages without installing them globally — used for one-off scaffolding commands.",
+                            "expanded": "The control plane uses npx for things like create-docusaurus, create-vite, and other scaffolding tools.\n\nIt ships with npm 5.2+, so if npm is present, npx should be too."
+                        },
+                        {
+                            "when": {
+                                "textContains": "npm"
+                            },
+                            "content": "Node's package manager — installs dependencies from package.json.",
+                            "expanded": "npm resolves your dependency tree, manages node_modules, and runs scripts defined in package.json (build, test, lint).\n\nESLint and Prettier in the Quality category below are npm packages — they need this to install."
+                        },
+                        {
+                            "when": {
+                                "textContains": "go"
+                            },
+                            "content": "Go compiler and toolchain — needed if any module uses a Go stack.",
+                            "expanded": "Go compiles to single static binaries, popular for CLI tools and microservices.\n\nMany DevOps tools are written in Go (kubectl, Helm, Terraform, Trivy). Even if your project isn't Go, having the compiler lets you build those from source if needed."
+                        },
+                        {
+                            "when": {
+                                "textContains": "cargo"
+                            },
+                            "content": "Rust's build system and package manager — manages dependencies and compilation.",
+                            "expanded": "Cargo handles the entire Rust workflow: dependency resolution, compilation, testing, and publishing.\n\ncargo-audit and cargo-outdated in the Security category depend on this."
+                        },
+                        {
+                            "when": {
+                                "textContains": "rustc"
+                            },
+                            "content": "The Rust compiler — compiles .rs source files into native binaries.",
+                            "expanded": "Rust produces memory-safe, high-performance binaries without a garbage collector. If your project includes Rust modules, this is the compiler that builds them.\n\nUsually installed alongside Cargo via rustup."
+                        },
+                        {
+                            "when": {
+                                "textContains": "git"
+                            },
+                            "content": "The foundation — every integration in this control plane depends on Git being present.",
+                            "expanded": "Git manages your repository, branches, commits, and remotes. The CI/CD pipeline, GitHub integration, and deployment workflows all assume a Git repository exists.\n\nWithout Git, you can still configure things, but nothing will push, merge, or deploy."
+                        },
+                        {
+                            "when": {
+                                "textContains": "gh"
+                            },
+                            "content": "GitHub's official CLI — enables API operations from the terminal without a browser.",
+                            "expanded": "The control plane uses gh for creating repositories, managing secrets, configuring environments, and setting up GitHub Actions.\n\nIf missing, the GitHub integration wizard will fall back to manual instructions, but automated setup won't work."
+                        },
+                        {
+                            "when": {
+                                "textContains": "docker-compose"
+                            },
+                            "content": "Multi-container orchestration for local development — defines services, networks, and volumes in one file.",
+                            "expanded": "docker-compose.yml lets you run your entire stack locally with one command: database, cache, API, frontend — all wired together.\n\nThe Docker wizard generates compose files that match your modules. If you only have a single service, you might not need this, but most real projects do."
+                        },
+                        {
+                            "when": {
+                                "textContains": "docker"
+                            },
+                            "content": "Container runtime — builds images, runs containers, manages volumes and networks.",
+                            "expanded": "Docker is the container foundation. The Docker integration wizard generates Dockerfiles, docker-compose.yml, and .dockerignore files tailored to your detected stacks.\n\nIf you're deploying to Kubernetes, Docker (or a compatible runtime) builds the images that K8s runs."
+                        },
+                        {
+                            "when": {
+                                "textContains": "kubectl"
+                            },
+                            "content": "Kubernetes command-line tool — talks to your cluster's API server.",
+                            "expanded": "Every K8s operation goes through kubectl: deploying manifests, checking pod status, reading logs, scaling replicas.\n\nIf you're setting up the K8s integration, this is required. Without it, the control plane can generate manifests but can't apply them to a cluster."
+                        },
+                        {
+                            "when": {
+                                "textContains": "helm"
+                            },
+                            "content": "Kubernetes package manager — templates and versions your deployment manifests.",
+                            "expanded": "Helm charts are the standard way to package K8s applications. Instead of managing raw YAML, Helm gives you templating (values.yaml), versioning (Chart.yaml), and release management.\n\nThe K8s wizard generates Helm charts when Helm is available. Without it, you get raw manifests."
+                        },
+                        {
+                            "when": {
+                                "textContains": "skaffold"
+                            },
+                            "content": "Development workflow tool — builds, pushes, and deploys to K8s in one loop.",
+                            "expanded": "Skaffold watches your source files and automatically rebuilds, pushes, and redeploys when you save. It's the \"hot reload\" for Kubernetes development.\n\nOptional but valuable if you're actively developing K8s workloads. Not needed for CI/CD-only setups."
+                        },
+                        {
+                            "when": {
+                                "textContains": "terraform"
+                            },
+                            "content": "Infrastructure as Code — provisions cloud resources declaratively.",
+                            "expanded": "Terraform manages cloud infrastructure (VMs, databases, DNS, load balancers) through .tf files. You declare what you want, and Terraform figures out how to create, update, or destroy it.\n\nThe Terraform integration wizard generates .tf modules for your project's infrastructure needs."
+                        },
+                        {
+                            "when": {
+                                "textContains": "ruff"
+                            },
+                            "content": "Ultra-fast Python linter and formatter — replaces flake8, isort, and parts of pylint.",
+                            "expanded": "Ruff checks your Python code for style violations, import ordering, unused variables, and potential bugs. It's written in Rust, so it's 10-100× faster than traditional Python linters.\n\nThe DevOps tab's Code Quality section uses Ruff for its Python analysis."
+                        },
+                        {
+                            "when": {
+                                "textContains": "mypy"
+                            },
+                            "content": "Static type checker for Python — catches type errors before runtime.",
+                            "expanded": "mypy reads your type annotations and verifies they're consistent. It catches entire categories of bugs that tests might miss.\n\nRequires type annotations in your code to be useful. If your codebase doesn't use type hints yet, mypy will report many errors on first run."
+                        },
+                        {
+                            "when": {
+                                "textContains": "pytest"
+                            },
+                            "content": "Python testing framework — discovers and runs test_*.py files automatically.",
+                            "expanded": "pytest is the de facto standard for Python testing. It handles test discovery, fixtures, parameterization, and assertions with minimal boilerplate.\n\nThe Commands tab's \"test\" capability runs pytest for Python modules."
+                        },
+                        {
+                            "when": {
+                                "textContains": "black"
+                            },
+                            "content": "Opinionated Python formatter — enforces consistent code style automatically.",
+                            "expanded": "Black reformats your Python code to a single consistent style. No configuration needed — it makes all the style decisions for you.\n\n\"Any color you like, as long as it's black.\" If Ruff is your linter, Black is your formatter. They work well together."
+                        },
+                        {
+                            "when": {
+                                "textContains": "eslint"
+                            },
+                            "content": "JavaScript/TypeScript linter — catches bugs and enforces code conventions.",
+                            "expanded": "ESLint analyzes your JS/TS code for potential errors, anti-patterns, and style violations. It's highly configurable with plugins for React, Vue, Node, and more.\n\nThe Commands tab's \"lint\" capability runs ESLint for Node modules."
+                        },
+                        {
+                            "when": {
+                                "textContains": "prettier"
+                            },
+                            "content": "Multi-language formatter — enforces consistent style across JS, CSS, HTML, JSON, and more.",
+                            "expanded": "Prettier formats your code automatically so teams don't argue about style. It handles JavaScript, TypeScript, CSS, JSON, YAML, HTML, and Markdown.\n\nOften paired with ESLint: ESLint catches bugs, Prettier handles formatting."
+                        },
+                        {
+                            "when": {
+                                "textContains": "trivy"
+                            },
+                            "content": "Comprehensive security scanner — checks containers, filesystems, and IaC for vulnerabilities.",
+                            "expanded": "Trivy scans Docker images for known CVEs, checks your filesystem for exposed secrets, and analyzes Terraform/Kubernetes manifests for misconfigurations.\n\nThe Audit tab's Risks card uses Trivy for its vulnerability analysis when available."
+                        },
+                        {
+                            "when": {
+                                "textContains": "pip-audit"
+                            },
+                            "content": "Python dependency vulnerability scanner — checks installed packages against known CVEs.",
+                            "expanded": "pip-audit queries the OSV (Open Source Vulnerabilities) database and PyPI for known security issues in your Python dependencies.\n\nFaster and more focused than Safety. The Audit tab uses this for its dependency security check."
+                        },
+                        {
+                            "when": {
+                                "textContains": "bandit"
+                            },
+                            "content": "Python security linter — finds common security issues in source code.",
+                            "expanded": "Bandit scans your Python source for patterns like hardcoded passwords, SQL injection, use of eval(), insecure hash functions, and more.\n\nUnlike pip-audit (which checks dependencies), Bandit checks YOUR code for security anti-patterns."
+                        },
+                        {
+                            "when": {
+                                "textContains": "safety"
+                            },
+                            "content": "Python dependency checker — cross-references your packages against a vulnerability database.",
+                            "expanded": "Safety checks your requirements.txt or installed packages against the Safety DB of known vulnerabilities.\n\nSimilar to pip-audit but uses a different vulnerability database. Having both gives broader coverage."
+                        },
+                        {
+                            "when": {
+                                "textContains": "cargo-outdated"
+                            },
+                            "content": "Shows which Rust dependencies have newer versions available.",
+                            "expanded": "Outdated dependencies may have known vulnerabilities or missing features. cargo-outdated compares your Cargo.lock against crates.io for available updates.\n\nNo automated install — install via: cargo install cargo-outdated"
+                        },
+                        {
+                            "when": {
+                                "textContains": "cargo-audit"
+                            },
+                            "content": "Rust dependency vulnerability scanner — checks against the RustSec Advisory Database.",
+                            "expanded": "cargo-audit scans your Cargo.lock for crates with known security vulnerabilities, similar to what pip-audit does for Python.\n\nNo automated install — install via: cargo install cargo-audit"
+                        },
+                        {
+                            "when": {
+                                "textContains": "dig"
+                            },
+                            "content": "DNS lookup utility — resolves domain names and queries DNS records.",
+                            "expanded": "dig is used by the DNS/CDN integration to verify your domain's DNS configuration — A records, CNAME records, TXT records for domain verification.\n\nIf missing, DNS verification in the Pages/DNS wizard will use fallback methods."
+                        },
+                        {
+                            "when": {
+                                "textContains": "openssl"
+                            },
+                            "content": "Cryptographic toolkit — handles SSL/TLS certificates, key generation, and encryption.",
+                            "expanded": "OpenSSL is used for generating SSL certificates, verifying HTTPS configurations, and managing encryption keys.\n\nThe vault system uses OpenSSL-compatible encryption for secrets. Usually pre-installed on Linux systems."
+                        },
+                        {
+                            "when": {
+                                "textContains": "curl"
+                            },
+                            "content": "HTTP client — makes requests from the command line. Used for API health checks and downloads.",
+                            "expanded": "curl is the Swiss Army knife of HTTP. The control plane uses it for health checks, API endpoint testing, and downloading resources during setup.\n\nAlmost always pre-installed. If missing, something unusual is going on with your system."
+                        },
+                        {
+                            "when": {
+                                "textContains": "ffmpeg"
+                            },
+                            "content": "Media processing toolkit — converts, resizes, and analyzes audio/video files.",
+                            "expanded": "The Content vault uses ffmpeg for media operations: generating thumbnails, converting formats, and extracting metadata from uploaded media files.\n\nOptional — content management works without it, but media previews and conversions won't be available."
+                        },
+                        {
+                            "when": {
+                                "textContains": "gzip"
+                            },
+                            "content": "Compression utility — used for compressing backups and build artifacts.",
+                            "expanded": "gzip handles .gz file compression. Used internally for backup operations, log rotation, and artifact packaging.\n\nPre-installed on virtually all Unix systems. If missing, check your system's core utilities."
+                        },
+                        {
+                            "when": {
+                                "textContains": "jq"
+                            },
+                            "content": "Command-line JSON processor — extracts, transforms, and formats JSON data.",
+                            "expanded": "jq is used internally for parsing API responses, transforming configuration files, and formatting JSON output in the CLI.\n\nExtremely useful for debugging — pipe any API response through jq to read it."
+                        },
+                        {
+                            "when": {
+                                "textContains": "make"
+                            },
+                            "content": "Build automation tool — runs project-defined build targets from a Makefile.",
+                            "expanded": "Make reads a Makefile and executes named targets (make build, make test, make deploy). Many projects use it as a universal task runner.\n\nThe control plane can generate Makefiles for common workflows. If missing, you'll use manage.sh directly instead."
+                        },
+                        {
+                            "when": {
+                                "textContains": "rsync"
+                            },
+                            "content": "File synchronization tool — efficient incremental file transfers.",
+                            "expanded": "rsync copies files while only transferring what changed — much faster than copying everything. Used for backup operations and deployment artifact staging.\n\nPre-installed on most Unix systems."
+                        }
+                    ]
+                },
+                "children": []
+            },
+            {
+                "id": "dash-integrations",
+                "title": "Integration Progress",
+                "icon": "🚀",
+                "selector": "#setup-progress-section",
+                "content": "How far along is your DevOps pipeline? Each integration is probed for readiness — ready, partial, or not yet set up.",
+                "expanded": "Ready means the integration is detected and configured. Partial means some pieces are in place but not everything. Not set up means nothing was found.\n\nThe progress bar reflects only integrations you haven't hidden in preferences. The suggested next integration respects the dependency graph — for example, GitHub is suggested after Git, and CI/CD after GitHub.\n\n💡 Click 'Set up →' to jump directly into that integration's setup wizard.",
+                "dynamic": true,
+                "childTemplate": {
+                    "selector": "[data-int-id]",
+                    "nameSelector": "span[style*='font-weight:500']",
+                    "title": "{{name}}",
+                    "content": "Integration tracked by the control plane.",
+                    "variants": [
+                        {
+                            "when": {
+                                "textContains": "Git Repository"
+                            },
+                            "content": "The foundation — remotes, branches, .gitignore, and hooks all start here.",
+                            "expanded": "Git is the first integration because everything else depends on it. GitHub needs a remote. CI/CD needs commits. Docker needs a build context. K8s needs a repository to pull from.\n\nSet this up first if it's not ready."
+                        },
+                        {
+                            "when": {
+                                "textContains": "Docker"
+                            },
+                            "content": "Container packaging — turns your modules into portable, deployable images.",
+                            "expanded": "The Docker wizard generates Dockerfiles matched to your detected stacks, a docker-compose.yml for local development, and a .dockerignore to keep images lean.\n\nDocker images are the deployment unit for Kubernetes — you need this before K8s."
+                        },
+                        {
+                            "when": {
+                                "textContains": "GitHub"
+                            },
+                            "content": "Remote hosting + collaboration — repositories, environments, secrets, and Actions.",
+                            "expanded": "GitHub integration connects your local repo to GitHub for push/pull, environment management, secret storage, and CI/CD via GitHub Actions.\n\nRequires the GitHub CLI (gh) for automated setup."
+                        },
+                        {
+                            "when": {
+                                "textContains": "CI/CD Pipeline"
+                            },
+                            "content": "Automated pipeline — build, test, and deploy on every push.",
+                            "expanded": "CI/CD generates GitHub Actions workflows based on your stacks and modules. Each push triggers: lint → test → build → deploy.\n\nDepends on GitHub being configured first (for secrets and environments)."
+                        },
+                        {
+                            "when": {
+                                "textContains": "Kubernetes"
+                            },
+                            "content": "Container orchestration — deployments, services, and scaling for production.",
+                            "expanded": "Kubernetes handles running your containers at scale: replicas, rolling updates, health checks, resource limits, and service discovery.\n\nThe K8s wizard generates Helm charts or raw manifests. Requires Docker images to exist first."
+                        },
+                        {
+                            "when": {
+                                "textContains": "Terraform"
+                            },
+                            "content": "Infrastructure as Code — provisions the cloud resources your services run on.",
+                            "expanded": "Terraform manages the infrastructure layer: VMs, databases, networks, DNS, load balancers. Your K8s cluster itself might be Terraform-managed.\n\nGenerates .tf modules for your project's infrastructure needs."
+                        },
+                        {
+                            "when": {
+                                "textContains": "Pages"
+                            },
+                            "content": "Documentation site — Docusaurus-powered, auto-generated from your content vault.",
+                            "expanded": "Pages builds a static documentation site from your content vault markdown files. Deployed to GitHub Pages or any static hosting.\n\nIncludes auto-generated docs from your project structure, API endpoints, and configuration."
+                        },
+                        {
+                            "when": {
+                                "textContains": "DNS / Domain"
+                            },
+                            "content": "Domain and SSL — connects your deployed services to a custom domain.",
+                            "expanded": "DNS configuration generates the records you need: A/CNAME for your domain, TXT for verification, and CAA for SSL certificate authority authorization.\n\nThis is typically the last step — you need something deployed (Pages or K8s) before you point a domain at it."
+                        }
+                    ]
+                },
+                "children": []
+            },
+            {
+                "id": "dash-grade",
+                "title": "Project Grade",
+                "icon": "📊",
+                "selector": "#project-grade-section",
+                "content": "A composite health score across 7 domain probes — git, docker, CI, packages, environment, code quality, and project structure.",
+                "expanded": "The grade (A through F) gives you a single-glance quality signal. The score is 0-100 based on weighted probes.\n\nThis is a summary — to see which probes scored low and get specific recommendations, click through to the Audit tab where the full breakdown lives.\n\n💡 The score improves as you configure integrations, add quality tools, and organize your project structure.",
+                "variants": [
+                    {
+                        "when": {
+                            "textContains": "Your project looks healthy"
+                        },
+                        "content": "Strong score — your project has good structure, tooling, and integration coverage.",
+                        "expanded": "A high score means most domain probes are passing. The biggest factors are: version control (git repo, .gitignore, hooks), code quality (linter + formatter configured), testing (test framework present), and integration coverage.\n\n💡 To push from B to A, look at the Audit tab's probe breakdown for specific areas where you're losing points."
+                    },
+                    {
+                        "when": {
+                            "textContains": "Room for improvement"
+                        },
+                        "content": "Mid-range score — some foundations are solid but gaps exist in tooling or integration coverage.",
+                        "expanded": "A score in this range usually means core version control works but quality tools, testing, or integration setups are incomplete.\n\nThe fastest way to improve: set up missing integrations (each one contributes to multiple probes) and install the recommended quality tools.\n\n💡 Click 'View full report in Audit →' to see exactly which probes scored low."
+                    },
+                    {
+                        "when": {
+                            "textContains": "Needs attention"
+                        },
+                        "content": "Low score — multiple domain probes are failing. Your project needs some foundational setup.",
+                        "expanded": "A low score means significant gaps in project structure, tooling, or integrations. Common causes: no .gitignore, no linter configured, no tests, or most integrations not set up.\n\nDon't worry — this is common for new projects. Work through the Setup Wizard step by step and the score will improve with each integration you complete.\n\n💡 The Attention Required card below shows the highest-impact actions you can take right now."
+                    }
+                ],
+                "children": []
+            },
+            {
+                "id": "dash-attention",
+                "title": "Attention Required",
+                "icon": "⚠️",
+                "selector": "#attention-section",
+                "content": "Aggregated action items from across the control plane — things that need your input or have room for improvement.",
+                "expanded": "This section pulls from four sources:\n\n• <strong>Installable tools</strong> — missing tools that have auto-install recipes\n• <strong>Incomplete integrations</strong> — integrations not yet in 'ready' state\n• <strong>Failed operations</strong> — if your last CLI operation failed\n• <strong>Pending audits</strong> — unsaved audit snapshots waiting for review\n\nWhen everything is green, you'll see 'All clear' — that's the goal.",
+                "variants": [
+                    {
+                        "when": {
+                            "textContains": "All clear"
+                        },
+                        "content": "Everything looks good — no pending items need your attention.",
+                        "expanded": "All tools detected, integrations configured, no failed operations, and no pending audit snapshots.\n\nThis is the ideal state. The dashboard will surface new items here automatically as your project evolves."
+                    }
+                ],
+                "children": []
+            }
+        ]
     }
 ]

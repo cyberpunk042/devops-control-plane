@@ -66,21 +66,21 @@
 
                             const html = `
                                 ${wizSection('CI/CD Environment', 'Detected project configuration for CI pipeline generation.')}
-                                <div class="wiz-status-grid">
-                                    ${wizStatusRow('⚡', 'CI Provider', cicd.provider || 'Not configured', cicd.provider ? 'ok' : 'warn')}
-                                    ${wizStatusRow('📄', 'Workflow files', String(cicd.workflow_count || 0), cicd.workflow_count > 0 ? 'ok' : 'warn')}
-                                    ${wizStatusRow('🐳', 'Docker', docker.has_dockerfile ? 'Dockerfile found' : 'Not detected', docker.has_dockerfile ? 'ok' : 'muted')}
-                                    ${wizStatusRow('☸️', 'Kubernetes', k8s.has_manifests || k8s.has_skaffold ? 'Manifests found' : 'Not detected', k8s.has_manifests || k8s.has_skaffold ? 'ok' : 'muted')}
-                                    ${wizStatusRow('⚙️', 'Environment', envLabel, envSt.has_env || envSt.has_example ? 'ok' : 'muted')}
+                                <div class="wiz-status-grid" id="ci-detect-grid">
+                                    ${wizStatusRow('⚡', 'CI Provider', cicd.provider || 'Not configured', cicd.provider ? 'ok' : 'warn', false, 'ci-detect-provider')}
+                                    ${wizStatusRow('📄', 'Workflow files', String(cicd.workflow_count || 0), cicd.workflow_count > 0 ? 'ok' : 'warn', false, 'ci-detect-workflows')}
+                                    ${wizStatusRow('🐳', 'Docker', docker.has_dockerfile ? 'Dockerfile found' : 'Not detected', docker.has_dockerfile ? 'ok' : 'muted', false, 'ci-detect-docker')}
+                                    ${wizStatusRow('☸️', 'Kubernetes', k8s.has_manifests || k8s.has_skaffold ? 'Manifests found' : 'Not detected', k8s.has_manifests || k8s.has_skaffold ? 'ok' : 'muted', false, 'ci-detect-k8s')}
+                                    ${wizStatusRow('⚙️', 'Environment', envLabel, envSt.has_env || envSt.has_example ? 'ok' : 'muted', false, 'ci-detect-env')}
                                 </div>
 
-                                <div style="margin-top:0.6rem">
+                                <div style="margin-top:0.6rem" id="ci-detect-stacks">
                                     <label style="font-size:0.72rem;font-weight:600;color:var(--text-muted);display:block;margin-bottom:4px">Detected Stacks</label>
                                     <div style="display:flex;flex-wrap:wrap;gap:0.3rem">${stackBadges}</div>
                                 </div>
 
                                 ${!docker.has_dockerfile ? `
-                                    <div class="wiz-action-row" style="margin-top:1rem">
+                                    <div class="wiz-action-row" style="margin-top:1rem" id="ci-detect-docker-hint">
                                         <span class="wiz-action-label">💡 Set up Docker first for container-based CI/CD workflows.</span>
                                         <button class="btn btn-sm btn-secondary" onclick="wizardModalClose(); openDockerSetupWizard();">Setup Docker →</button>
                                     </div>
@@ -111,8 +111,8 @@
                         const envs = data._envs || [];
                         const isMultiEnv = envs.length > 1;
                         const stackInfo = hasStacks
-                            ? '<div style="font-size:0.72rem;color:var(--text-muted);margin-bottom:0.4rem">Test jobs will be generated per detected stack: <b>' + esc(stacks.join(', ')) + '</b></div>'
-                            : '<div style="font-size:0.72rem;color:var(--text-muted);margin-bottom:0.4rem">No stacks detected — generic test job will be used.</div>';
+                            ? '<div id="ci-pipeline-stack-info" style="font-size:0.72rem;color:var(--text-muted);margin-bottom:0.4rem">Test jobs will be generated per detected stack: <b>' + esc(stacks.join(', ')) + '</b></div>'
+                            : '<div id="ci-pipeline-stack-info" style="font-size:0.72rem;color:var(--text-muted);margin-bottom:0.4rem">No stacks detected — generic test job will be used.</div>';
 
                         // ── Secret key detection (from DataRegistry, same as K8s wizard) ──
                         var _SECRET_PATTERNS = (window._dcp && window._dcp.secretPatterns) || [
@@ -383,7 +383,7 @@
                                 }).join('')
                                 : '<div class="ci-env-empty" style="font-size:0.68rem;color:var(--text-muted);padding:0.2rem 0">No env vars configured yet.</div>')
                             + '</div>'
-                            + '<div style="margin-top:0.3rem">'
+                            + '<div id="ci-env-add-var" style="margin-top:0.3rem">'
                             + '<button type="button" onclick="window._ciAddEnvRow()"'
                             + ' style="font-size:0.68rem;padding:0.2rem 0.5rem;border:1px dashed var(--border-subtle);border-radius:4px;background:none;color:var(--accent);cursor:pointer">'
                             + '+ Add variable</button></div></div>';
@@ -426,7 +426,8 @@
                             + envVarsHtml
 
                             + (!hasStacks ?
-                                wizSection('Custom Commands', 'Override default test/lint commands when no stacks are detected.')
+                                '<div id="ci-custom-commands">'
+                                + wizSection('Custom Commands', 'Override default test/lint commands when no stacks are detected.')
                                 + wizFormGrid([
                                     { name: 'ci-python-ver', label: 'Python version', value: '3.12', placeholder: '3.12' },
                                     { name: 'ci-install-cmd', label: 'Install command', value: 'pip install -e ".[dev]"', placeholder: 'pip install -e ".[dev]"' },
@@ -434,6 +435,7 @@
                                     { name: 'ci-lint-cmd', label: 'Lint command', value: 'ruff check src/', placeholder: 'ruff check src/' },
                                     { name: 'ci-typecheck-cmd', label: 'Type-check command', value: 'mypy src/ --ignore-missing-imports', placeholder: 'mypy src/ --ignore-missing-imports' },
                                 ])
+                                + '</div>'
                             : '');
 
                         // --- Coverage tool toggle ---
@@ -446,6 +448,23 @@
 
                         // Initial dupe check
                         window._ciCheckDupes();
+
+                        // ── Assistant resolvers + refresh ──
+                        if (window._assistant) {
+                            window._assistant.resolvers['ci-trigger-value'] = function() {
+                                var el = document.getElementById('mf-ci-trigger');
+                                return el ? el.value : '';
+                            };
+                            window._assistant.resolvers['ci-coverage-tool-value'] = function() {
+                                var el = document.getElementById('mf-ci-coverage-tool');
+                                return el ? el.value : '';
+                            };
+                            var trigSel = document.getElementById('mf-ci-trigger');
+                            if (trigSel) trigSel.addEventListener('change', function() { window._assistant.refresh(); });
+                            var covToolSel = document.getElementById('mf-ci-coverage-tool');
+                            if (covToolSel) covToolSel.addEventListener('change', function() { window._assistant.refresh(); });
+                            if (covChk) covChk.addEventListener('change', function() { window._assistant.refresh(); });
+                        }
                     },
                     collect: (data) => {
                         data.runTests = mfVal('ci-test');
@@ -600,6 +619,19 @@
                             if (skfOpts) skfOpts.style.display = v === 'skaffold' ? 'block' : 'none';
                         };
                         if (methodSel) { methodSel.addEventListener('change', _updateMethodOpts); _updateMethodOpts(); }
+
+                        // ── Assistant resolver + refresh ──
+                        if (window._assistant) {
+                            window._assistant.resolvers['ci-k8s-method-value'] = function() {
+                                var el = document.getElementById('mf-ci-k8s-method');
+                                return el ? el.value : '';
+                            };
+                            if (methodSel) methodSel.addEventListener('change', function() { window._assistant.refresh(); });
+                            var dkChk = document.getElementById('mf-ci-docker');
+                            if (dkChk) dkChk.addEventListener('change', function() { window._assistant.refresh(); });
+                            var k8Chk = document.getElementById('mf-ci-k8s');
+                            if (k8Chk) k8Chk.addEventListener('change', function() { window._assistant.refresh(); });
+                        }
                     },
                     collect: (data) => {
                         data.dockerBuild = mfVal('ci-docker');
@@ -721,7 +753,7 @@
                                 }).join(' ');
 
                                 // ── Card ──
-                                var card = '<div style="padding:0.5rem;border:1px solid var(--border-subtle);border-radius:6px;background:var(--bg-inset);margin-bottom:0.4rem">'
+                                var card = '<div class="ci-env-card" style="padding:0.5rem;border:1px solid var(--border-subtle);border-radius:6px;background:var(--bg-inset);margin-bottom:0.4rem">'
                                     + '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.35rem">'
                                     + '<span style="font-weight:700;font-size:0.82rem;display:flex;align-items:center;gap:0.3rem">'
                                     + '<span style="font-size:0.9rem">🌍</span> ' + esc(env.name)
@@ -731,22 +763,22 @@
                                     + '</div>'
                                     + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:0.3rem">'
                                     + '<div>'
-                                    + '<label style="font-size:0.66rem;color:var(--text-muted)">Deploy branch</label>'
+                                    + '<label class="ci-env-branch-label" style="font-size:0.66rem;color:var(--text-muted)">Deploy branch</label>'
                                     + '<input class="modal-form-input ci-env-branch" data-idx="' + i + '" value="' + esc(env.branch || '') + '"'
                                     + ' style="font-size:0.72rem;padding:0.2rem 0.3rem;width:100%" placeholder="main">'
                                     + '</div>'
                                     + '<div>'
-                                    + '<label style="font-size:0.66rem;color:var(--text-muted)">Require approval</label>'
+                                    + '<label class="ci-env-approval-label" style="font-size:0.66rem;color:var(--text-muted)">Require approval</label>'
                                     + '<div style="padding-top:0.15rem"><input type="checkbox" class="ci-env-approval" data-idx="' + i + '"' + (env.require_approval ? ' checked' : '') + '></div>'
                                     + '</div>';
                                 // K8s-specific fields
                                 if (hasK8s) {
-                                    card += '<div>'
+                                    card += '<div class="ci-env-ns-box">'
                                         + '<label style="font-size:0.66rem;color:var(--text-muted)">K8s Namespace</label>'
                                         + '<input class="modal-form-input ci-env-ns" data-idx="' + i + '" value="' + esc(env.namespace || '') + '"'
                                         + ' style="font-size:0.72rem;padding:0.2rem 0.3rem;width:100%" placeholder="' + esc(env.name) + '">'
                                         + '</div>'
-                                        + '<div>'
+                                        + '<div class="ci-env-kube-box">'
                                         + '<label style="font-size:0.66rem;color:var(--text-muted)">Kubeconfig secret</label>'
                                         + '<input class="modal-form-input ci-env-kube" data-idx="' + i + '" value="' + esc(env.kubeconfig_secret || '') + '"'
                                         + ' style="font-size:0.72rem;padding:0.2rem 0.3rem;width:100%;font-family:var(--font-mono,monospace)" placeholder="KUBE_CONFIG_' + esc(env.name.toUpperCase()) + '">'
@@ -770,7 +802,7 @@
                                 // ── Per-environment variable overrides ──
                                 if (variableVars.length > 0) {
                                     var overrides = env.env_var_overrides || {};
-                                    card += '<div style="grid-column:1/-1;margin-top:0.35rem;padding:0.4rem;border:1px solid var(--border-subtle);border-radius:5px;background:var(--bg-primary)">'
+                                    card += '<div class="ci-env-overrides" style="grid-column:1/-1;margin-top:0.35rem;padding:0.4rem;border:1px solid var(--border-subtle);border-radius:5px;background:var(--bg-primary)">'
                                         + '<label style="font-size:0.7rem;color:var(--accent);font-weight:600;display:block;margin-bottom:0.2rem">🔄 Variable overrides for ' + esc(env.name) + '</label>'
                                         + '<div style="display:flex;flex-direction:column;gap:0.15rem">';
                                     variableVars.forEach(function(vv) {
@@ -787,7 +819,7 @@
                                 }
 
                                 // ── Secrets ──
-                                card += '<div style="grid-column:1/-1;margin-top:0.25rem;padding:0.4rem;border:1px solid var(--border-subtle);border-radius:5px;background:var(--bg-primary)">'
+                                card += '<div class="ci-env-secrets" style="grid-column:1/-1;margin-top:0.25rem;padding:0.4rem;border:1px solid var(--border-subtle);border-radius:5px;background:var(--bg-primary)">'
                                     + '<label style="font-size:0.7rem;color:var(--accent);font-weight:600;display:block;margin-bottom:0.15rem">🔒 Secrets for ' + esc(env.name) + '</label>'
                                     + '<div style="display:flex;flex-wrap:wrap;gap:0.2rem;margin-bottom:0.15rem">'
                                     + (secretsList || '<span style="font-size:0.64rem;color:var(--text-muted);font-style:italic">No secrets yet</span>')
@@ -1018,7 +1050,7 @@
 
                         // ── Summary banner ──
                         var envNames = window._ciEnvs.map(function(e) { return e.name; });
-                        var summaryHtml = '<div style="font-size:0.74rem;padding:0.5rem 0.6rem;margin-bottom:0.5rem;background:color-mix(in srgb, var(--accent) 6%, transparent);border:1px solid color-mix(in srgb, var(--accent) 20%, transparent);border-radius:6px">'
+                        var summaryHtml = '<div id="ci-env-summary" style="font-size:0.74rem;padding:0.5rem 0.6rem;margin-bottom:0.5rem;background:color-mix(in srgb, var(--accent) 6%, transparent);border:1px solid color-mix(in srgb, var(--accent) 20%, transparent);border-radius:6px">'
                             + '<div style="font-weight:700;color:var(--accent);margin-bottom:0.25rem;font-size:0.78rem">'
                             + '🌍 ' + envNames.length + ' environment' + (envNames.length !== 1 ? 's' : '') + ': '
                             + envNames.map(function(n) { return '<code style="font-size:0.72rem;background:var(--bg-primary);padding:1px 5px;border-radius:3px">' + esc(n) + '</code>'; }).join(' → ')
@@ -1053,7 +1085,7 @@
                         var envHtml = wizSection('Environments', 'Configure per-environment secrets, variables, and deployment settings. Each gets its own GitHub Actions environment.')
                             + summaryHtml
                             + '<div id="ci-env-list"></div>'
-                            + '<div style="display:flex;gap:0.3rem;margin-top:0.35rem">'
+                            + '<div id="ci-env-add-row" style="display:flex;gap:0.3rem;margin-top:0.35rem">'
                             + '<input id="ci-env-name-input" class="modal-form-input" type="text"'
                             + ' style="font-size:0.72rem;padding:0.2rem 0.4rem;flex:1;max-width:180px"'
                             + ' placeholder="environment name" onkeydown="if(event.key===\'Enter\'){event.preventDefault();window._ciAddEnv();}">'

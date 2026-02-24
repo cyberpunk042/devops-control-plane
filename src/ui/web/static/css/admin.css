@@ -237,6 +237,52 @@ body {
     margin-top: var(--space-xs);
 }
 
+/* ── Dashboard layout ────────────────────────────────────────────── */
+
+.dash-main {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-lg);
+}
+
+.dash-pulse {
+    display: flex;
+    align-items: center;
+    gap: var(--space-md);
+    flex-wrap: wrap;
+    padding: var(--space-md) var(--space-lg);
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+}
+
+/* Tool category expand/collapse */
+#tools-status-content details summary {
+    list-style: none;
+}
+
+#tools-status-content details summary::-webkit-details-marker {
+    display: none;
+}
+
+#tools-status-content details[open] .tool-cat-chevron {
+    transform: rotate(90deg);
+}
+
+.dash-grid-2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--space-lg);
+}
+
+@media (max-width: 900px) {
+    .dash-grid-2 {
+        grid-template-columns: 1fr;
+    }
+}
+
 /* ── Section ──────────────────────────────────────────────────────── */
 
 .section {

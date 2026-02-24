@@ -10,6 +10,7 @@
         <button class="content-mode" onclick="debugSwitchMode('state')">📦 State</button>
         <button class="content-mode" onclick="debugSwitchMode('health')">❤️ Health</button>
         <button class="content-mode" onclick="debugSwitchMode('config')">⚙️ Config</button>
+        <button class="content-mode" onclick="debugSwitchMode('commands')">⚡ Commands</button>
         <button class="content-mode" onclick="debugSwitchMode('traces')">📝 Traces</button>
     </div>
 
@@ -89,6 +90,64 @@
             </div>
             <div id="debug-config-preview"></div>
             <div id="debug-config-editor" style="display:none;height:500px;border-radius:var(--radius-md);overflow:hidden;border:1px solid var(--border)"></div>
+        </div>
+
+        <!-- Commands -->
+        <div class="card full-width" id="debug-commands" style="display:none">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-md)">
+                <h2 class="card-title" style="margin:0">Commands</h2>
+            </div>
+            <p class="panel-description">
+                Run a DevOps command across your project modules.
+                Pick what to do, choose which module(s) to target, then execute.
+                <span class="mock-notice">🛡️ <strong>Mock mode</strong> — commands are simulated, nothing actually runs
+                    on your system.</span>
+            </p>
+            <form class="run-form" id="run-form" onsubmit="return executeRun(event)">
+                <div class="form-group" style="flex:1.5;min-width:200px">
+                    <label for="run-capability">1. What to do</label>
+                    <select id="run-capability" name="capability" onchange="onCapabilityChange()">
+                        <option value="">Loading capabilities...</option>
+                    </select>
+                </div>
+                <div class="form-group" style="flex:1;min-width:160px">
+                    <label for="run-module">2. Target module</label>
+                    <select id="run-module" name="module" onchange="onSelectionChange()">
+                        <option value="">All modules</option>
+                    </select>
+                </div>
+                <div class="form-group" style="flex:0.7;min-width:120px">
+                    <label for="run-env">3. Environment</label>
+                    <select id="run-env" name="environment">
+                        <option value="dev">dev</option>
+                    </select>
+                </div>
+                <div class="form-buttons">
+                    <button type="submit" class="btn btn-primary" id="run-btn" disabled>
+                        ⚡ Execute
+                    </button>
+                    <button type="button" class="btn btn-secondary" id="preview-btn" onclick="executeDryRun()">
+                        👁 Preview
+                    </button>
+                </div>
+            </form>
+
+            <!-- Context panel — shows what will happen -->
+            <div class="context-panel" id="context-panel">
+                <div class="context-empty" id="context-empty">
+                    ↑ Select a capability to see what will happen
+                </div>
+                <div class="context-detail" id="context-detail" style="display:none"></div>
+            </div>
+
+            <!-- Results Panel -->
+            <div id="results-section" style="display:none;margin-top:var(--space-xl);">
+                <div class="section-header">
+                    <h2 class="section-title">📋 Results</h2>
+                    <button class="btn btn-secondary btn-sm" onclick="clearResults()">✕ Dismiss</button>
+                </div>
+                <div class="results-panel" id="results-panel" translate="no"></div>
+            </div>
         </div>
 
         <!-- Session Traces -->

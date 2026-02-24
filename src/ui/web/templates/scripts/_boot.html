@@ -28,22 +28,26 @@
             _showPostWizardNextSteps();
         }
 
-        // Critical path — needed for visible dashboard (fast, lightweight)
+        // Critical path — visible on landing (both fast)
         await Promise.all([
-            loadStatus(),
-            loadHealth(),
+            loadProjectPulse(),
+            loadToolsStatus(),
         ]);
 
-        // Deferred — load after critical UI is painted.
-        // Heavy endpoints (health score = 7 probes, setup progress = 8 probes)
-        // run in background without blocking UI interaction.
+        // Activate dashboard assistant (cards are rendered, panel can listen)
+        activateDashboardAssistant();
+
+        // Deferred — heavier probes, load after critical paint
         Promise.allSettled([
             loadCapabilities(),
-            loadAudit(),
-            loadHealthScore(),
             loadSetupProgress(),
+            loadProjectGrade(),
             checkGitAuth(),
-        ]);
+        ]).then(() => {
+            loadAttentionItems();
+            // Re-activate to pick up new dynamic children from deferred loads
+            activateDashboardAssistant();
+        });
     });
 
     /** Show a "Next Steps" modal after the wizard saves project.yml. */
