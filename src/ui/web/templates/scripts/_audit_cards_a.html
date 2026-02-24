@@ -16,16 +16,40 @@ async function loadAuditSystemCard() {
     const os = data.os || {};
     const pyInfo = data.python || {};
     const venv = data.venv || {};
+    const distro = os.distro || {};
+    const distroName = typeof distro === 'string' ? distro : (distro.name || os.system || '?');
+    const caps = os.capabilities || {};
+    const pm = os.package_manager || {};
+    const container = os.container || {};
+    const libs = os.libraries || {};
 
     html += `<div class="kv-grid" style="margin-bottom:var(--space-md)">`;
-    html += `<div class="kv-row"><span class="kv-label">OS</span><span class="kv-value">${os.distro || os.system || '?'} ${os.wsl ? '(WSL)' : ''}</span></div>`;
-    html += `<div class="kv-row"><span class="kv-label">Architecture</span><span class="kv-value">${os.machine || '?'}</span></div>`;
+    html += `<div class="kv-row"><span class="kv-label">OS</span><span class="kv-value">${distroName} ${os.wsl ? '(WSL' + (os.wsl_version || '') + ')' : ''}</span></div>`;
+    html += `<div class="kv-row"><span class="kv-label">Architecture</span><span class="kv-value">${os.machine || '?'} <span style="color:var(--text-muted);font-size:0.72rem">(${os.arch || '?'})</span></span></div>`;
+    if (distro.family) {
+        html += `<div class="kv-row"><span class="kv-label">Distro Family</span><span class="kv-value">${distro.family}${distro.codename ? ' <span style="color:var(--text-muted);font-size:0.72rem">(' + distro.codename + ')</span>' : ''}</span></div>`;
+    }
     html += `<div class="kv-row"><span class="kv-label">Python</span><span class="kv-value">${pyInfo.version || '?'} (${pyInfo.implementation || ''})</span></div>`;
     html += `<div class="kv-row"><span class="kv-label">Virtual Env</span><span class="kv-value">${venv.in_venv ? '✅ Active' : '❌ None'}</span></div>`;
     if (venv.venvs && venv.venvs.length) {
         for (const v of venv.venvs) {
             html += `<div class="kv-row"><span class="kv-label" style="padding-left:1rem">↳ ${v.path}</span><span class="kv-value">${v.active ? '🟢 active' : '⚪ inactive'}</span></div>`;
         }
+    }
+    if (pm.primary) {
+        html += `<div class="kv-row"><span class="kv-label">Package Manager</span><span class="kv-value">${pm.primary} <span style="color:var(--text-muted);font-size:0.72rem">${pm.available ? '(' + pm.available.join(', ') + ')' : ''}</span>${pm.snap_available ? ' <span class="tag tag-ok" style="font-size:0.62rem;padding:1px 5px">snap</span>' : ''}</span></div>`;
+    }
+    if (container.in_container) {
+        html += `<div class="kv-row"><span class="kv-label">Container</span><span class="kv-value">🐳 ${container.runtime || 'container'}${container.in_k8s ? ' (K8s pod)' : ''}</span></div>`;
+    }
+    if (caps.has_systemd !== undefined) {
+        html += `<div class="kv-row"><span class="kv-label">systemd</span><span class="kv-value">${caps.has_systemd ? '✅' : '❌'} ${caps.systemd_state || ''}</span></div>`;
+    }
+    if (libs.openssl_version) {
+        html += `<div class="kv-row"><span class="kv-label">OpenSSL</span><span class="kv-value">${libs.openssl_version}</span></div>`;
+    }
+    if (libs.glibc_version) {
+        html += `<div class="kv-row"><span class="kv-label">${libs.libc_type === 'musl' ? 'musl' : 'glibc'}</span><span class="kv-value">${libs.glibc_version}</span></div>`;
     }
     html += `</div>`;
 
