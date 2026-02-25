@@ -81,6 +81,7 @@ def _plan_risk(steps: list[dict]) -> dict:
         "level": level,
         "counts": counts,
         "has_high": counts["high"] > 0,
+        "has_medium": counts["medium"] > 0,
     }
 
 

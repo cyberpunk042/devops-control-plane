@@ -174,4 +174,76 @@ def _analyse_install_failure(
             ],
         }
 
+    # ── GCC compiler bug (aws-lc-sys / memcmp) ──
+    # Pattern: "COMPILER BUG DETECTED" from aws-lc-sys builder
+    # See https://gcc.gnu.org/bugzilla/show_bug.cgi?id=95189
+    if "COMPILER BUG DETECTED" in stderr or (
+        "memcmp" in stderr and "gcc.gnu.org/bugzilla" in stderr
+    ):
+        return {
+            "type": "compiler_bug",
+            "reason": (
+                f"Your GCC version has a known memcmp bug that prevents "
+                f"building {tool}'s crypto dependencies (aws-lc-sys)"
+            ),
+            "options": [
+                {
+                    "id": "upgrade-gcc",
+                    "label": "Install GCC 12+",
+                    "icon": "⬆️",
+                    "description": (
+                        "Install a newer GCC (gcc-12) that doesn't have "
+                        "the memcmp bug, then rebuild"
+                    ),
+                    "steps": [
+                        {
+                            "label": "Install gcc-12",
+                            "command": [
+                                "apt-get", "install", "-y",
+                                "gcc-12", "g++-12",
+                            ],
+                            "needs_sudo": True,
+                        },
+                        {
+                            "label": f"Install {tool} with gcc-12",
+                            "command": [
+                                "bash", "-c",
+                                f'export CC=gcc-12 CXX=g++-12 '
+                                f'PATH="$HOME/.cargo/bin:$PATH" '
+                                f"&& cargo install {tool}",
+                            ],
+                            "needs_sudo": False,
+                        },
+                    ],
+                },
+                {
+                    "id": "use-clang",
+                    "label": "Build with Clang",
+                    "icon": "🔧",
+                    "description": (
+                        "Use clang instead of gcc to avoid the compiler bug"
+                    ),
+                    "steps": [
+                        {
+                            "label": "Install clang",
+                            "command": [
+                                "apt-get", "install", "-y", "clang",
+                            ],
+                            "needs_sudo": True,
+                        },
+                        {
+                            "label": f"Install {tool} with clang",
+                            "command": [
+                                "bash", "-c",
+                                f'export CC=clang CXX=clang++ '
+                                f'PATH="$HOME/.cargo/bin:$PATH" '
+                                f"&& cargo install {tool}",
+                            ],
+                            "needs_sudo": False,
+                        },
+                    ],
+                },
+            ],
+        }
+
     return None

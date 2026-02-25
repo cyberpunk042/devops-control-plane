@@ -33,6 +33,52 @@ def _project_root() -> Path:
     return Path(current_app.config["PROJECT_ROOT"])
 
 
+def _refresh_server_path() -> None:
+    """Ensure common tool-install directories are at the FRONT of PATH.
+
+    After installing tools (e.g. rustup → ~/.cargo/bin, pip → ~/.local/bin),
+    the server process's os.environ['PATH'] may be stale because it was
+    inherited at startup.  Even if the dir is already on PATH, it may be
+    after /usr/bin, so shutil.which() finds the older system binary first.
+
+    This prepends known directories to the front (if they exist on disk),
+    mirroring what ``source ~/.cargo/env`` does in a new shell.
+    """
+    import os
+    home = Path.home()
+    # Order matters: first entry wins in PATH lookup
+    candidates = [
+        home / ".cargo" / "bin",
+        home / ".local" / "bin",
+        home / "go" / "bin",
+        home / ".nvm" / "current" / "bin",       # nvm symlink
+        Path("/usr/local/go/bin"),
+        Path("/snap/bin"),
+    ]
+    current = os.environ.get("PATH", "")
+    dirs = current.split(os.pathsep)
+
+    # Build new PATH: known tool dirs first, then everything else (deduped)
+    front: list[str] = []
+    for d in candidates:
+        s = str(d)
+        if d.is_dir() and s not in front:
+            front.append(s)
+
+    if not front:
+        return
+
+    # Remove duplicates from the rest of PATH
+    seen = set(front)
+    rest = []
+    for d in dirs:
+        if d not in seen:
+            seen.add(d)
+            rest.append(d)
+
+    os.environ["PATH"] = os.pathsep.join(front + rest)
+
+
 # ── L0: System Profile ─────────────────────────────────────────
 
 @audit_bp.route("/audit/system")
@@ -287,6 +333,7 @@ def audit_remediate():
 
             # Bust caches on success
             if ok:
+                _refresh_server_path()
                 try:
                     root = Path(current_app.config["PROJECT_ROOT"])
                     devops_cache.invalidate_scope(root, "integrations")
@@ -398,6 +445,7 @@ def tools_status():
     Returns all registered tools with availability, category,
     install type, and whether an install recipe exists.
     """
+    _refresh_server_path()
     from src.core.services.audit.l0_detection import detect_tools
     from src.core.services.tool_install import TOOL_RECIPES
 
@@ -646,6 +694,11 @@ def audit_execute_plan():
     if not tool:
         return jsonify({"error": "No tool specified"}), 400
 
+    # Refresh PATH before resolving — picks up tools installed by
+    # previous remediations (e.g. rustup → ~/.cargo/bin) so the
+    # resolver finds the correct binary versions.
+    _refresh_server_path()
+
     # Resolve the plan — use answers if provided (Phase 4)
     system_profile = _detect_os()
     if answers:
@@ -781,48 +834,82 @@ def audit_execute_plan():
                 for key, val in post_env.items():
                     env_overrides[key] = _os.path.expandvars(val)
 
-            try:
-                result = execute_plan_step(
-                    step,
-                    sudo_password=sudo_password,
-                    env_overrides=env_overrides if env_overrides else None,
+            # ── Execute step ──
+            # For tool/post_install steps: stream output live via Popen
+            # For other step types: use blocking executor (fast steps)
+            if step_type in ("tool", "post_install"):
+                from src.core.services.tool_install.execution.subprocess_runner import (
+                    _run_subprocess_streaming,
                 )
-            except Exception as exc:
-                # Save interrupted state
+                cmd = step.get("command", [])
+                if not cmd:
+                    yield _sse({"type": "step_failed", "step": i, "error": "No command"})
+                    yield _sse({"type": "done", "ok": False, "plan_id": plan_id, "error": "Empty command"})
+                    return
+
+                result = None
                 try:
-                    save_plan_state({
-                        "plan_id": plan_id,
-                        "tool": tool,
-                        "status": "failed",
-                        "current_step": i,
-                        "completed_steps": completed_steps,
-                        "steps": [dict(s) for s in steps],
+                    for chunk in _run_subprocess_streaming(
+                        cmd,
+                        needs_sudo=step.get("needs_sudo", False),
+                        sudo_password=sudo_password,
+                        timeout=step.get("timeout", 300),
+                        env_overrides=env_overrides if env_overrides else None,
+                    ):
+                        if chunk.get("done"):
+                            result = chunk
+                        elif "line" in chunk:
+                            yield _sse({"type": "log", "step": i, "line": chunk["line"]})
+                except Exception as exc:
+                    result = {"ok": False, "error": str(exc)}
+
+                if result is None:
+                    result = {"ok": False, "error": "No result from subprocess"}
+
+            else:
+                # Non-streaming steps (packages, verify, repo_setup, etc.)
+                try:
+                    result = execute_plan_step(
+                        step,
+                        sudo_password=sudo_password,
+                        env_overrides=env_overrides if env_overrides else None,
+                    )
+                except Exception as exc:
+                    # Save interrupted state
+                    try:
+                        save_plan_state({
+                            "plan_id": plan_id,
+                            "tool": tool,
+                            "status": "failed",
+                            "current_step": i,
+                            "completed_steps": completed_steps,
+                            "steps": [dict(s) for s in steps],
+                        })
+                    except Exception:
+                        pass
+                    yield _sse({
+                        "type": "step_failed",
+                        "step": i,
+                        "error": str(exc),
                     })
-                except Exception:
-                    pass
-                yield _sse({
-                    "type": "step_failed",
-                    "step": i,
-                    "error": str(exc),
-                })
-                yield _sse({
-                    "type": "done",
-                    "ok": False,
-                    "plan_id": plan_id,
-                    "error": f"Step {i + 1} crashed: {exc}",
-                })
-                return
+                    yield _sse({
+                        "type": "done",
+                        "ok": False,
+                        "plan_id": plan_id,
+                        "error": f"Step {i + 1} crashed: {exc}",
+                    })
+                    return
 
-            # Emit stdout as log lines
-            stdout = result.get("stdout", "")
-            if stdout:
-                for line in stdout.splitlines():
-                    yield _sse({"type": "log", "step": i, "line": line})
+                # Emit captured stdout as log lines (for non-streaming steps)
+                stdout = result.get("stdout", "")
+                if stdout:
+                    for line in stdout.splitlines():
+                        yield _sse({"type": "log", "step": i, "line": line})
 
-            stderr_out = result.get("stderr", "")
-            if stderr_out and not result.get("ok"):
-                for line in stderr_out.splitlines()[-10:]:
-                    yield _sse({"type": "log", "step": i, "line": line})
+                stderr_out = result.get("stderr", "")
+                if stderr_out and not result.get("ok"):
+                    for line in stderr_out.splitlines()[-10:]:
+                        yield _sse({"type": "log", "step": i, "line": line})
 
             if result.get("skipped"):
                 completed_steps.append(i)
@@ -889,14 +976,30 @@ def audit_execute_plan():
                     "step": i,
                     "error": result.get("error", "Step failed"),
                 })
-                yield _sse({
+
+                # ── Remediation analysis ──
+                remediation = None
+                if step_type in ("tool", "post_install"):
+                    from src.core.services.tool_install.detection.install_failure import (
+                        _analyse_install_failure,
+                    )
+                    remediation = _analyse_install_failure(
+                        tool,
+                        plan.get("cli", tool),
+                        result.get("stderr", ""),
+                    )
+
+                done_event: dict = {
                     "type": "done",
                     "ok": False,
                     "plan_id": plan_id,
                     "error": result.get("error", f"Step {i + 1} failed"),
                     "step": i,
                     "step_label": step_label,
-                })
+                }
+                if remediation:
+                    done_event["remediation"] = remediation
+                yield _sse(done_event)
                 return
 
         # All steps done — mark plan complete and bust caches
@@ -911,6 +1014,7 @@ def audit_execute_plan():
         except Exception:
             pass
 
+        _refresh_server_path()
         try:
             root = Path(current_app.config["PROJECT_ROOT"])
             devops_cache.invalidate_scope(root, "integrations")

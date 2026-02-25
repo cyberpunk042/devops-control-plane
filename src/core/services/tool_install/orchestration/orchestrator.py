@@ -12,6 +12,7 @@ import logging
 import os
 import shutil
 import time
+import uuid as _uuid_mod
 from pathlib import Path
 from typing import Any
 
@@ -24,10 +25,30 @@ from src.core.services.tool_install.domain.dag import (
 from src.core.services.tool_install.domain.restart import detect_restart_needs, _batch_restarts
 from src.core.services.tool_install.domain.risk import _infer_risk
 from src.core.services.tool_install.domain.rollback import _generate_rollback
+from src.core.services.tool_install.detection.hardware import _detect_secure_boot
 from src.core.services.tool_install.detection.install_failure import _analyse_install_failure
 from src.core.services.tool_install.detection.tool_version import get_tool_version
 from src.core.services.tool_install.execution.backup import _backup_before_step
+from src.core.services.tool_install.execution.build_helpers import (
+    _execute_source_step,
+    _execute_build_step,
+)
 from src.core.services.tool_install.execution.plan_state import save_plan_state, load_plan_state
+from src.core.services.tool_install.execution.step_executors import (
+    _execute_command_step,
+    _execute_cleanup_step,
+    _execute_config_step,
+    _execute_download_step,
+    _execute_github_release_step,
+    _execute_install_step,
+    _execute_notification_step,
+    _execute_package_step,
+    _execute_repo_step,
+    _execute_rollback,
+    _execute_service_step,
+    _execute_shell_config_step,
+    _execute_verify_step,
+)
 from src.core.services.tool_install.execution.subprocess_runner import _run_subprocess
 from src.core.services.tool_install.resolver.plan_resolution import resolve_install_plan
 

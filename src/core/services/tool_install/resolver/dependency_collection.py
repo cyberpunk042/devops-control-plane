@@ -7,12 +7,23 @@ Collects and orders tool dependencies from recipes.
 from __future__ import annotations
 
 import logging
+import shutil
 import subprocess
+import time
 from typing import Any
 
 from src.core.services.tool_install.data.recipes import TOOL_RECIPES
+from src.core.services.tool_install.detection.system_deps import _is_pkg_installed
+from src.core.services.tool_install.resolver.method_selection import (
+    _extract_packages_from_cmd,
+    _is_batchable,
+    _pick_install_method,
+)
 
 logger = logging.getLogger(__name__)
+
+# Cache for _can_reach() network probes (host → {ok, ts})
+_REACH_CACHE: dict[str, dict] = {}
 
 
 def _collect_deps(

@@ -8,9 +8,13 @@ from __future__ import annotations
 
 import logging
 import re
+import shutil
+import time
 from typing import Any
 
+from src.core.services.tool_install.data.constants import _VERSION_FETCH_CACHE
 from src.core.services.tool_install.data.recipes import TOOL_RECIPES
+from src.core.services.tool_install.resolver.dependency_collection import _can_reach
 
 logger = logging.getLogger(__name__)
 

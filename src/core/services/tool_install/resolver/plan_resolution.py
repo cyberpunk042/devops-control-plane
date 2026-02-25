@@ -14,9 +14,16 @@ import shutil
 from typing import Any
 
 from src.core.services.tool_install.data.recipes import TOOL_RECIPES
+from src.core.services.tool_install.detection.condition import _evaluate_condition
 from src.core.services.tool_install.detection.tool_version import _is_linux_binary
 from src.core.services.tool_install.domain.risk import _infer_risk, _plan_risk, _check_risk_escalation
 from src.core.services.tool_install.domain.version_constraint import check_version_constraint
+from src.core.services.tool_install.resolver.dependency_collection import _collect_deps
+from src.core.services.tool_install.resolver.method_selection import (
+    _build_pkg_install_cmd,
+    _pick_install_method,
+    _wrap_with_env,
+)
 
 logger = logging.getLogger(__name__)
 

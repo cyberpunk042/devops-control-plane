@@ -123,3 +123,112 @@ def _run_subprocess(
     except Exception as e:
         logger.exception("Subprocess error: %s", cmd)
         return {"ok": False, "error": str(e)}
+
+
+def _run_subprocess_streaming(
+    cmd: list[str],
+    *,
+    needs_sudo: bool = False,
+    sudo_password: str = "",
+    timeout: int = 300,
+    env_overrides: dict[str, str] | None = None,
+    cwd: str | None = None,
+):
+    """Run a subprocess and yield output lines as they arrive.
+
+    Same security invariants as ``_run_subprocess`` (sudo -S -k,
+    password via stdin, env handling) but uses ``Popen`` instead
+    of ``subprocess.run`` so callers can stream output live.
+
+    Yields:
+        ``{"line": "..."}`` for each output line.
+        ``{"done": True, "ok": bool, "exit_code": int, "stderr": str}``
+        as the final item.
+    """
+    # ── Sudo handling ──
+    if needs_sudo:
+        if os.geteuid() == 0:
+            pass
+        elif not sudo_password:
+            yield {
+                "done": True, "ok": False,
+                "needs_sudo": True,
+                "error": "This step requires sudo. Please enter your password.",
+            }
+            return
+        else:
+            cmd = ["sudo", "-S", "-k"] + cmd
+
+    # ── Environment ──
+    env = os.environ.copy()
+    if env_overrides:
+        for key, value in env_overrides.items():
+            env[key] = os.path.expandvars(value)
+
+    # ── Execute with Popen ──
+    start = time.monotonic()
+    all_lines: list[str] = []
+    try:
+        # Merge stderr into stdout so ALL output (including cargo's
+        # compilation progress which goes to stderr) streams live.
+        proc = subprocess.Popen(
+            cmd,
+            stdin=subprocess.PIPE if (needs_sudo and sudo_password and os.geteuid() != 0) else None,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+            env=env,
+            cwd=cwd,
+        )
+
+        # Feed sudo password
+        if needs_sudo and sudo_password and os.geteuid() != 0 and proc.stdin:
+            proc.stdin.write(sudo_password + "\n")
+            proc.stdin.flush()
+            proc.stdin.close()
+
+        # Stream merged output line by line
+        if proc.stdout:
+            for line in proc.stdout:
+                stripped = line.rstrip("\n\r")
+                all_lines.append(stripped)
+                yield {"line": stripped}
+
+        proc.wait(timeout=timeout)
+        elapsed_ms = int((time.monotonic() - start) * 1000)
+
+        ok = proc.returncode == 0
+        # Use last 100 lines as pseudo-stderr for failure analysis
+        stderr_text = "\n".join(all_lines[-100:]) if not ok else ""
+
+        # Wrong password?
+        if not ok and needs_sudo and (
+            "incorrect password" in stderr_text.lower()
+            or "sorry" in stderr_text.lower()
+        ):
+            yield {
+                "done": True, "ok": False,
+                "needs_sudo": True,
+                "error": "Wrong password. Try again.",
+            }
+            return
+
+        yield {
+            "done": True,
+            "ok": ok,
+            "exit_code": proc.returncode,
+            "elapsed_ms": elapsed_ms,
+            "stderr": stderr_text,
+            "stdout": "",  # already streamed
+        }
+
+    except subprocess.TimeoutExpired:
+        try:
+            proc.kill()
+        except Exception:
+            pass
+        yield {"done": True, "ok": False, "error": f"Command timed out ({timeout}s)"}
+    except Exception as e:
+        logger.exception("Streaming subprocess error: %s", cmd)
+        yield {"done": True, "ok": False, "error": str(e)}

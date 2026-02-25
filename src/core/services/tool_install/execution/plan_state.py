@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import logging
 import time
+import uuid as _uuid_mod
 from pathlib import Path
 
 logger = logging.getLogger(__name__)

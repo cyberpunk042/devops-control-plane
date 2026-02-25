@@ -790,9 +790,486 @@
     }
 
 
-    // (Legacy install functions removed — Phase 3 rewired all callers
-    //  to installWithPlan(). See git history for _doDirectInstall,
-    //  _showRemediationModal, _showDepInstallModal, _doSudoInstallAction.)
+    // ── Remediation modal — shows options when install fails ─────
+    //  Restored from pre-Phase-3 code. Used by both direct-install
+    //  and plan-based flows when _analyse_install_failure returns options.
+    //  Executes via /api/audit/remediate (SSE stream).
+
+    function _showRemediationModal(toolId, toolLabel, remediation, onSuccess, stderr) {
+        var cols = remediation.options.length;
+        var gridCols = cols >= 3 ? '1fr 1fr 1fr' : cols === 2 ? '1fr 1fr' : '1fr';
+
+        // Build option grid
+        var optionsHtml = '<div style="display:grid;grid-template-columns:' + gridCols +
+            ';gap:var(--space-sm);margin-bottom:var(--space-md)">';
+        for (var i = 0; i < remediation.options.length; i++) {
+            var opt = remediation.options[i];
+            var isFirst = (i === 0);
+            var borderColor = isFirst ? 'var(--accent)' : 'var(--border)';
+            var bg = isFirst
+                ? 'color-mix(in srgb, var(--accent) 8%, var(--bg-primary))'
+                : 'var(--bg-primary)';
+            optionsHtml += '<button class="btn btn-sm" id="rem-opt-' + i + '"' +
+                ' style="padding:10px;display:flex;flex-direction:column;align-items:center;' +
+                'gap:3px;border:2px solid ' + borderColor + ';background:' + bg + ';cursor:pointer"' +
+                ' onclick="_remSelectPath(' + i + ')">' +
+                '<span style="font-size:1.2rem">' + (opt.icon || '📦') + '</span>' +
+                '<strong style="font-size:0.74rem">' + esc(opt.label) + '</strong>' +
+                (isFirst ? '<span style="font-size:0.62rem;color:var(--text-muted)">Recommended</span>' : '') +
+                '</button>';
+        }
+        optionsHtml += '</div>';
+
+        // Build per-option panels
+        var panelsHtml = '';
+        for (var i = 0; i < remediation.options.length; i++) {
+            var opt = remediation.options[i];
+            var display = (i === 0) ? 'block' : 'none';
+            // Check if any step or the option itself needs sudo
+            var optNeedsSudo = opt.needs_sudo;
+            if (!optNeedsSudo && opt.steps) {
+                for (var si = 0; si < opt.steps.length; si++) {
+                    if (opt.steps[si].needs_sudo) { optNeedsSudo = true; break; }
+                }
+            }
+            var sudoHtml = '';
+            if (optNeedsSudo) {
+                sudoHtml = '<label style="font-size:0.72rem;color:var(--text-muted);display:block;margin-bottom:3px;margin-top:var(--space-sm)">sudo password</label>' +
+                    '<input id="rem-sudo-pw-' + i + '" type="password" autocomplete="off" placeholder="Required for this option" ' +
+                    'style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:var(--radius-sm);' +
+                    'background:var(--bg-inset);color:var(--text-primary);font-size:0.82rem;margin-bottom:var(--space-sm);' +
+                    'box-sizing:border-box" />';
+            }
+            panelsHtml += '<div id="rem-panel-' + i + '" style="display:' + display + '">' +
+                '<div style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:var(--space-sm)">' +
+                esc(opt.description) + '</div>' +
+                sudoHtml +
+                '<button class="btn btn-sm btn-primary" id="rem-action-' + i + '" ' +
+                'style="width:100%;padding:10px" ' +
+                'onclick="_remExecute(' + i + ')">' +
+                (opt.icon || '📦') + ' ' + esc(opt.label) + '</button></div>';
+        }
+
+        var stderrHtml = '';
+        if (stderr) {
+            stderrHtml = '<pre style="margin-top:0.5rem;margin-bottom:var(--space-md);padding:0.5rem;background:var(--bg-inset);' +
+                'border-radius:var(--radius-sm);font-size:0.72rem;max-height:150px;overflow:auto;' +
+                'white-space:pre-wrap;word-break:break-word;color:var(--text-muted)">' +
+                esc(stderr) + '</pre>';
+        }
+        var bodyHtml = '<div style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:var(--space-md)">' +
+            esc(remediation.reason) + '</div>' + stderrHtml +
+            optionsHtml + panelsHtml +
+            '<div id="rem-status" style="display:none;margin-top:var(--space-md);padding:12px;' +
+            'border-radius:var(--radius-sm);background:var(--bg-inset);font-size:0.78rem;text-align:center"></div>';
+
+        // Use stacked overlay (z-index 10001) so it renders on top of step-modal (10000)
+        var existing = document.getElementById('rem-modal-overlay');
+        if (existing) existing.remove();
+
+        var overlay = document.createElement('div');
+        overlay.id = 'rem-modal-overlay';
+        overlay.className = 'modal-overlay';
+        overlay.style.zIndex = '10001';
+        overlay.innerHTML =
+            '<div class="modal-box" style="max-width:520px;width:90%">' +
+            '<div class="modal-header">' +
+            '<span class="modal-title">🔧 Install Options — ' + esc(toolLabel) + '</span>' +
+            '<button class="modal-close" id="rem-modal-close" title="Close">✕</button>' +
+            '</div>' +
+            '<div class="modal-body">' + bodyHtml + '</div>' +
+            '</div>';
+
+        document.body.appendChild(overlay);
+
+        // Close handlers
+        function _remClose() {
+            var el = document.getElementById('rem-modal-overlay');
+            if (el) el.remove();
+        }
+        document.getElementById('rem-modal-close').addEventListener('click', _remClose);
+        overlay.addEventListener('click', function(e) {
+            if (e.target === overlay) _remClose();
+        });
+
+        // Store state for handlers
+        window._remState = {
+            toolId: toolId,
+            toolLabel: toolLabel,
+            remediation: remediation,
+            onSuccess: onSuccess,
+            selectedPath: 0,
+        };
+
+        // Path selector
+        window._remSelectPath = function(idx) {
+            var opts = window._remState.remediation.options;
+            for (var j = 0; j < opts.length; j++) {
+                var btn = document.getElementById('rem-opt-' + j);
+                var panel = document.getElementById('rem-panel-' + j);
+                if (j === idx) {
+                    if (btn) { btn.style.borderColor = 'var(--accent)'; btn.style.background = 'color-mix(in srgb, var(--accent) 8%, var(--bg-primary))'; }
+                    if (panel) panel.style.display = 'block';
+                } else {
+                    if (btn) { btn.style.borderColor = 'var(--border)'; btn.style.background = 'var(--bg-primary)'; }
+                    if (panel) panel.style.display = 'none';
+                }
+            }
+            window._remState.selectedPath = idx;
+        };
+
+        // Show a modal for missing system dependencies (stacked on top)
+        function _showDepsModal(missingPkgs, depOnSuccess) {
+            var pkgList = missingPkgs.map(function(p) { return '<code>' + esc(p) + '</code>'; }).join(', ');
+
+            var overlay = document.createElement('div');
+            overlay.className = 'modal-overlay';
+            overlay.id = 'deps-modal-overlay';
+            overlay.style.zIndex = '10001';
+            overlay.innerHTML =
+                '<div class="modal-box">' +
+                '<div class="modal-header">' +
+                '<span class="modal-title">📦 Missing System Dependencies</span>' +
+                '<button class="modal-close" onclick="document.getElementById(\'deps-modal-overlay\').remove()" title="Close">✕</button>' +
+                '</div>' +
+                '<div class="modal-body">' +
+                '<div style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:var(--space-md)">' +
+                'The following system packages are required but not installed:</div>' +
+                '<div style="font-size:0.9rem;font-weight:600;margin-bottom:var(--space-md)">' + pkgList + '</div>' +
+                '<label style="font-size:0.78rem;color:var(--text-muted);display:block;margin-bottom:4px">sudo password</label>' +
+                '<input id="deps-sudo-pw" type="password" autocomplete="off" ' +
+                'style="width:100%;padding:8px;border:1px solid var(--border);border-radius:var(--radius-sm);' +
+                'background:var(--bg-inset);color:var(--text-primary);font-size:0.85rem;margin-bottom:var(--space-md);' +
+                'box-sizing:border-box" />' +
+                '<div id="deps-status" style="display:none;margin-bottom:var(--space-md);padding:6px;' +
+                'border-radius:var(--radius-sm);background:var(--bg-inset);font-size:0.78rem;text-align:left"></div>' +
+                '<button id="deps-install-btn" onclick="_depsInstall()" ' +
+                'style="width:100%;padding:10px;border-radius:var(--radius-sm);background:var(--accent);' +
+                'color:#fff;border:none;cursor:pointer;font-weight:600;font-size:0.85rem">' +
+                '🔒 Install</button>' +
+                '</div></div>';
+
+            overlay.addEventListener('click', function(e) {
+                if (e.target === overlay) overlay.remove();
+            });
+
+            document.body.appendChild(overlay);
+            setTimeout(function() {
+                var pwField = document.getElementById('deps-sudo-pw');
+                if (pwField) pwField.focus();
+            }, 100);
+
+            window._depsInstallPkgs = missingPkgs;
+            window._depsOnSuccess = depOnSuccess;
+        }
+
+        window._depsInstall = async function() {
+            var pkgs = window._depsInstallPkgs;
+            var depOnSuccess = window._depsOnSuccess;
+            var btn = document.getElementById('deps-install-btn');
+            var statusEl = document.getElementById('deps-status');
+            var pwField = document.getElementById('deps-sudo-pw');
+            var pw = pwField ? pwField.value : '';
+
+            if (!pw) {
+                if (pwField) { pwField.style.borderColor = 'var(--danger)'; pwField.focus(); }
+                return;
+            }
+
+            if (btn) { btn.disabled = true; btn.textContent = '⏳ Installing…'; }
+            if (statusEl) {
+                statusEl.style.display = 'block';
+                statusEl.innerHTML = '<div id="deps-label" style="font-size:0.72rem;font-weight:600;margin-bottom:4px">⏳ Installing packages…</div>' +
+                    '<pre id="deps-log" style="margin:0;padding:6px;background:var(--bg-inset);border-radius:var(--radius-sm);' +
+                    'font-size:0.68rem;max-height:180px;overflow:auto;white-space:pre-wrap;word-break:break-word;' +
+                    'color:var(--text-muted);font-family:var(--font-mono,monospace)"></pre>';
+            }
+            var logEl = document.getElementById('deps-log');
+
+            try {
+                var res = await fetch('/api/audit/remediate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        tool: 'system-deps',
+                        cli: 'apt-get',
+                        override_command: ['apt-get', 'install', '-y'].concat(pkgs),
+                        sudo_password: pw,
+                    }),
+                });
+
+                var reader = res.body.getReader();
+                var decoder = new TextDecoder();
+                var result = { ok: false };
+                var buf = '';
+
+                while (true) {
+                    var chunk = await reader.read();
+                    if (chunk.done) break;
+                    buf += decoder.decode(chunk.value, { stream: true });
+                    var lines = buf.split('\n');
+                    buf = lines.pop() || '';
+                    for (var li = 0; li < lines.length; li++) {
+                        var ln = lines[li];
+                        if (!ln.startsWith('data: ')) continue;
+                        try {
+                            var evt = JSON.parse(ln.slice(6));
+                            if (evt.line !== undefined && logEl) {
+                                logEl.textContent += evt.line + '\n';
+                                logEl.scrollTop = logEl.scrollHeight;
+                            }
+                            if (evt.done) result = evt;
+                        } catch (_) {}
+                    }
+                }
+
+                var labelEl = document.getElementById('deps-label');
+                if (result.ok) {
+                    if (labelEl) labelEl.innerHTML = '✅ Packages installed!';
+                    toast('✅ System packages installed', 'success');
+                    setTimeout(function() {
+                        var depsOverlay = document.getElementById('deps-modal-overlay');
+                        if (depsOverlay) depsOverlay.remove();
+                        if (depOnSuccess) depOnSuccess();
+                    }, 1000);
+                } else {
+                    if (labelEl) labelEl.innerHTML = '❌ Failed (exit ' + (result.exit_code || '?') + ')';
+                    if (btn) { btn.disabled = false; btn.textContent = '🔄 Retry'; }
+                }
+            } catch (err) {
+                if (statusEl) statusEl.textContent = '❌ ' + err.message;
+                if (btn) { btn.disabled = false; btn.textContent = '🔄 Retry'; }
+            }
+        };
+
+        // Execute the selected remediation option
+        window._remExecute = async function(idx) {
+            var opt = window._remState.remediation.options[idx];
+            var st = window._remState;
+            var statusEl = document.getElementById('rem-status');
+            var actionBtn = document.getElementById('rem-action-' + idx);
+
+            // ── Check system_deps before running ──
+            if (opt.system_deps && opt.system_deps.length > 0) {
+                var depRes = await fetch('/api/audit/check-deps', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ packages: opt.system_deps }),
+                });
+                var depData = await depRes.json();
+                if (depData.missing && depData.missing.length > 0) {
+                    // Show deps modal on top
+                    _showDepsModal(depData.missing, function() {
+                        // After deps installed, retry the original option
+                        window._remExecute(idx);
+                    });
+                    return;
+                }
+            }
+
+            if (actionBtn) { actionBtn.disabled = true; actionBtn.textContent = '⏳ Working…'; }
+            if (statusEl) { statusEl.style.display = 'block'; statusEl.textContent = ''; statusEl.style.textAlign = 'left'; }
+
+            // Helper: stream a command and show lines in statusEl
+            async function streamCommand(command, label, needsSudo) {
+                // Create label + log area (only if not already present)
+                var logEl = document.getElementById('rem-log');
+                if (!logEl && statusEl) {
+                    statusEl.innerHTML = '<div id="rem-label" style="font-size:0.72rem;font-weight:600;margin-bottom:4px"></div>' +
+                        '<pre id="rem-log" style="margin:0;padding:6px;background:var(--bg-inset);border-radius:var(--radius-sm);' +
+                        'font-size:0.68rem;max-height:180px;overflow:auto;white-space:pre-wrap;word-break:break-word;' +
+                        'color:var(--text-muted);font-family:var(--font-mono,monospace)"></pre>';
+                    logEl = document.getElementById('rem-log');
+                }
+                var labelEl = document.getElementById('rem-label');
+                if (labelEl) labelEl.innerHTML = '⏳ ' + esc(label);
+
+                // Read sudo password from the option's password field
+                var sudoPw = '';
+                if (needsSudo) {
+                    var pwField = document.getElementById('rem-sudo-pw-' + idx);
+                    sudoPw = pwField ? pwField.value : '';
+                    if (!sudoPw) {
+                        if (pwField) { pwField.style.borderColor = 'var(--danger)'; pwField.focus(); }
+                        return { ok: false, error: 'Sudo password required' };
+                    }
+                }
+
+                var res = await fetch('/api/audit/remediate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        tool: st.toolId,
+                        cli: st.toolId,
+                        override_command: command,
+                        sudo_password: sudoPw,
+                    }),
+                });
+
+                var reader = res.body.getReader();
+                var decoder = new TextDecoder();
+                var result = { ok: false };
+                var buf = '';
+
+                while (true) {
+                    var chunk = await reader.read();
+                    if (chunk.done) break;
+                    buf += decoder.decode(chunk.value, { stream: true });
+                    var lines = buf.split('\n');
+                    buf = lines.pop() || '';
+                    for (var li = 0; li < lines.length; li++) {
+                        var ln = lines[li];
+                        if (!ln.startsWith('data: ')) continue;
+                        try {
+                            var evt = JSON.parse(ln.slice(6));
+                            if (evt.line !== undefined && logEl) {
+                                logEl.textContent += evt.line + '\n';
+                                logEl.scrollTop = logEl.scrollHeight;
+                            }
+                            if (evt.done) result = evt;
+                        } catch (_) {}
+                    }
+                }
+                return result;
+            }
+
+            try {
+                // Multi-step option (e.g. upgrade rust then install)
+                if (opt.steps) {
+                    for (var s = 0; s < opt.steps.length; s++) {
+                        var step = opt.steps[s];
+                        var stepLabel = 'Step ' + (s + 1) + '/' + opt.steps.length + ': ' + step.label;
+                        var stepResult = await streamCommand(step.command, stepLabel, step.needs_sudo);
+                        if (!stepResult.ok) {
+                            var labelEl = document.getElementById('rem-label');
+                            if (labelEl) labelEl.innerHTML = '❌ ' + esc(stepLabel) + ' failed (exit ' + (stepResult.exit_code || '?') + ')';
+                            if (actionBtn) { actionBtn.disabled = false; actionBtn.textContent = '🔄 Retry'; }
+                            return;
+                        }
+                        // Mark step done in label
+                        var labelEl2 = document.getElementById('rem-label');
+                        if (labelEl2) labelEl2.innerHTML = '✅ ' + esc(stepLabel);
+                    }
+                    // All steps done
+                    var labelElDone = document.getElementById('rem-label');
+                    if (labelElDone) labelElDone.innerHTML = '✅ All steps complete!';
+                    toast('✅ ' + st.toolLabel + ' installed!', 'success');
+                    cardInvalidate('tools-status');
+                    setTimeout(function() {
+                        _remClose();
+                        var sm = document.getElementById('step-modal');
+                        if (sm) sm.remove();
+                        if (st.onSuccess) st.onSuccess();
+                    }, 1500);
+                    return;
+                }
+
+                // Single-command option (e.g. compatible version, build from source)
+                if (opt.command) {
+                    var cmdResult = await streamCommand(opt.command, opt.label, opt.needs_sudo);
+                    if (cmdResult.ok) {
+                        var cmdLabelOk = document.getElementById('rem-label');
+                        if (cmdLabelOk) cmdLabelOk.innerHTML = '✅ ' + esc(st.toolLabel) + ' installed!';
+                        toast('✅ ' + st.toolLabel + ' installed!', 'success');
+                        cardInvalidate('tools-status');
+                        setTimeout(function() {
+                            _remClose();
+                            var sm = document.getElementById('step-modal');
+                            if (sm) sm.remove();
+                            if (st.onSuccess) st.onSuccess();
+                        }, 1500);
+                    } else {
+                        var cmdLabelFail = document.getElementById('rem-label');
+                        if (cmdLabelFail) cmdLabelFail.innerHTML = '❌ Failed (exit ' + (cmdResult.exit_code || '?') + ')';
+                        if (actionBtn) { actionBtn.disabled = false; actionBtn.textContent = '🔄 Retry'; }
+                    }
+                    return;
+                }
+
+                // Retry-sudo option
+                if (opt.retry_sudo) {
+                    _remClose();
+                    var sm = document.getElementById('step-modal');
+                    if (sm) sm.remove();
+                    _showInstallModal({ toolId: st.toolId, toolLabel: st.toolLabel, needsSudo: true, onSuccess: st.onSuccess });
+                    return;
+                }
+            } catch (err) {
+                if (statusEl) statusEl.textContent = '❌ Error: ' + err.message;
+                if (actionBtn) { actionBtn.disabled = false; actionBtn.textContent = '🔄 Retry'; }
+            }
+        };
+    }
+
+    /**
+     * Show modal when a tool needs a dependency installed first.
+     * After installing the dep, chains back to install the original tool.
+     */
+    function _showDepInstallModal(toolId, toolLabel, dep, onSuccess) {
+        var depTool = dep.tool;
+        var depLabel = dep.label;
+
+        modalOpen({
+            title: '📦 Dependency Required',
+            size: 'narrow',
+            body:
+                '<div style="font-size:0.85rem;color:var(--text-secondary);line-height:1.5">' +
+                '<p><strong>' + esc(toolLabel) + '</strong> requires <strong>' + esc(depLabel) +
+                '</strong> to install.</p>' +
+                '<p style="margin-top:0.5rem">' + esc(depLabel) +
+                ' is not installed on this system. Install it first, then ' +
+                esc(toolLabel) + ' will be installed automatically.</p>' +
+                '</div>',
+            footerButtons: [
+                { label: 'Cancel', cls: 'btn-secondary', onclick: 'modalClose()' },
+                {
+                    label: '📦 Install ' + depLabel,
+                    cls: 'btn-primary',
+                    id: 'dep-install-btn',
+                    onclick: '_doDepChainInstall()',
+                },
+            ],
+        });
+
+        window._doDepChainInstall = async function() {
+            var btn = document.getElementById('dep-install-btn');
+            if (btn) { btn.disabled = true; btn.textContent = '⏳ Installing ' + depLabel + '…'; }
+
+            try {
+                var depRes = await fetch('/api/audit/install-tool', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ tool: depTool, cli: depTool }),
+                });
+                var depResult = await depRes.json();
+
+                if (depResult.ok || depResult.already_installed) {
+                    toast('✅ ' + depLabel + ' installed! Now installing ' + toolLabel + '…', 'success');
+                    modalClose();
+                    // Chain-install the original tool
+                    installWithPlan(toolId, toolLabel, { onComplete: onSuccess });
+                } else if (depResult.needs_sudo) {
+                    modalClose();
+                    _showInstallModal({
+                        toolId: depTool,
+                        toolLabel: depLabel,
+                        onSuccess: function() {
+                            toast('✅ ' + depLabel + ' installed! Now installing ' + toolLabel + '…', 'success');
+                            setTimeout(function() {
+                                installWithPlan(toolId, toolLabel, { onComplete: onSuccess });
+                            }, 800);
+                        },
+                    });
+                } else {
+                    toast('❌ ' + (depResult.error || 'Failed to install ' + depLabel), 'error');
+                    if (btn) { btn.disabled = false; btn.textContent = '🔄 Retry'; }
+                }
+            } catch (err) {
+                toast('❌ Error: ' + err.message, 'error');
+                if (btn) { btn.disabled = false; btn.textContent = '🔄 Retry'; }
+            }
+        };
+    }
 
     // ═══════════════════════════════════════════════════════════════
     //  Phase 3 — Plan-based step modal (coexists with old flow)
@@ -1203,6 +1680,7 @@
                         var modal = document.getElementById('step-modal');
                         if (modal) modal.remove();
                         // Clear client-side caches
+                        cardInvalidate('tools-status');
                         try { sessionStorage.removeItem('l0_detection'); } catch (_) {}
                         try { sessionStorage.removeItem('system_deps_cache'); } catch (_) {}
                         if (options && options.onComplete) options.onComplete();
@@ -1228,6 +1706,19 @@
                         for (var r = 0; r < steps.length; r++) {
                             _updateStepRowStatus(r, 'pending', '⏳');
                         }
+                    }
+
+                    // ── Remediation options — open stacked remediation modal ──
+                    // Step modal stays visible behind (shows failure/logs).
+                    // Remediation overlay at z-index 10001, on top of step modal (10000).
+                    if (event.remediation && event.remediation.options && event.remediation.options.length) {
+                        _showRemediationModal(
+                            plan.tool,
+                            plan.label || plan.tool,
+                            event.remediation,
+                            options && options.onComplete,
+                            event.error || ''
+                        );
                     }
 
                     // Show Resume button if plan_id is available
@@ -1264,6 +1755,8 @@
             },
         });
     }
+
+
 
     // ── Helpers ──────────────────────────────────────────────────
     function _updateStepRowStatus(index, status, icon) {
