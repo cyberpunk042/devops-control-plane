@@ -338,10 +338,10 @@ src/core/services/tool_install/
 | 2 | Extract L0 (data dicts) into `data/` | No — just move constants | ✅ |
 | 3 | Extract L1 (pure functions) into `domain/` | No — just move functions | ✅ |
 | 4 | Extract L3 (detection) into `detection/` | No — isolated reads | ✅ |
-| 5 | Extract L4 (execution) into `execution/` | No — isolated writes | ⬜ |
-| 6 | Extract L2 (resolver) into `resolver/` | No — imports L0+L1 | ⬜ |
-| 7 | Extract L5 (orchestration) into `orchestration/` | No — top layer | ⬜ |
-| 8 | Delete monolith `tool_install.py` | Yes — old file removed | ⬜ |
+| 5 | Extract L4 (execution) into `execution/` | No — isolated writes | ✅ |
+| 6 | Extract L2 (resolver) into `resolver/` | No — imports L0+L1 | ✅ |
+| 7 | Extract L5 (orchestration) into `orchestration/` | No — top layer | ✅ |
+| 8 | Rewire `__init__.py`, retire monolith | Yes — cutover done | ✅ (_monolith.py kept as reference) |
 
 **Each step is independently testable.** At every step, the
 `__init__.py` re-exports ensure zero breakage to callers.
