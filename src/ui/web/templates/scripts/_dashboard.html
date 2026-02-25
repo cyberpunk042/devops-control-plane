@@ -233,19 +233,15 @@
         const cached = cardCached('tools-status');
         const tool = cached ? (cached.tools || []).find(t => t.id === toolId) : null;
         const toolLabel = (tool && tool.label) || toolId;
-        const needsSudo = tool ? !!tool.needs_sudo : false;
 
-        _showOpsModal({
-            type: 'install',
-            toolId: toolId,
-            toolLabel: toolLabel,
-            needsSudo: needsSudo,
-            onSuccess: function() {
+        installWithPlan(toolId, toolLabel, {
+            onComplete: function() {
                 cardStore('tools-status', null);
                 loadToolsStatus();
             },
         });
     }
+
 
     // ── 3. Integration Progress (Setup Progress — unchanged) ──────────
 

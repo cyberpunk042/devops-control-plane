@@ -524,3 +524,56 @@ After implementation, verify via:
    - `package_manager.available` = ["apt", "zypper", "brew"]
    - `libraries.openssl_version` = "3.6.1"
    - `libraries.glibc_version` = "2.31"
+
+---
+
+## 10. Phase 1 Expansion Roadmap
+
+Phase 1 as defined above covers what Phase 2 needs. Later phases
+require ADDITIONAL detection. Added incrementally per phase.
+
+### Phase 4 needs (Decision Trees)
+
+| Detection | How | Why |
+|-----------|-----|-----|
+| Shell type | `$SHELL` env var | Profile file differs per shell |
+| Shell health | Compare login vs non-login PATH | Detect broken profile |
+| Network connectivity | Probe PyPI, GitHub, npm registry | Remote install feasibility |
+| Init system type | Check OpenRC, init.d, launchd | Service mgmt beyond systemd |
+
+### Phase 5 needs (Build-from-Source)
+
+| Detection | How | Why |
+|-----------|-----|-----|
+| Compilers | `shutil.which("gcc")` | Build tool availability |
+| Build toolchain | Check `build-essential` equiv | Dev tools completeness |
+| Disk space | `shutil.disk_usage("/")` | Builds need GBs |
+| CPU cores | `os.cpu_count()` | Parallelism for make |
+
+### Phase 6 needs (Hardware and Kernel)
+
+| Detection | How | Why |
+|-----------|-----|-----|
+| NVIDIA GPU | `lspci`, `nvidia-smi` | CUDA availability |
+| CUDA version | `nvcc --version` | ML framework version matrix |
+| AMD GPU | `lspci`, `rocm-smi` | ROCm availability |
+| Intel GPU | `lspci` | OpenCL, oneAPI |
+| Kernel config | `/boot/config-$(uname -r)` | Module availability |
+| Loaded modules | `lsmod` | Active kernel modules |
+| IOMMU groups | `/sys/kernel/iommu_groups/` | GPU passthrough |
+| WSL interop | `shutil.which("powershell.exe")` | Cross-OS commands |
+
+### Phase 8 needs (System Config)
+
+| Detection | How | Why |
+|-----------|-----|-----|
+| journald | `systemctl is-active systemd-journald` | Log config |
+| logrotate | `shutil.which("logrotate")` | Log rotation |
+| Filesystem | `df -T /` | Storage driver choices |
+| SELinux | `getenforce` | Security restrictions |
+| AppArmor | `/sys/kernel/security/apparmor/` | Security restrictions |
+
+### Two-tier detection strategy
+
+1. **Fast tier** (current): distro, pm, capabilities. Every L0 scan. Under 200ms.
+2. **Deep tier** (future): GPU, kernel, disk, network. On demand, cached. Up to 2s.

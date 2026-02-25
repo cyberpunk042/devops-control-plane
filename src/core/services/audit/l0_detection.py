@@ -176,6 +176,24 @@ def _detect_container() -> dict:
         result["in_k8s"] = True
         result["in_container"] = True
 
+    # ── Read-only filesystem detection ──
+    result["read_only_rootfs"] = False
+    if result["in_container"]:
+        try:
+            probe = "/tmp/.dcp_ro_probe"
+            with open(probe, "w") as f:
+                f.write("probe")
+            os.unlink(probe)
+        except (OSError, PermissionError):
+            result["read_only_rootfs"] = True
+
+    # ── K8s ephemeral install warning ──
+    if result["in_k8s"]:
+        result["ephemeral_warning"] = (
+            "Running in a Kubernetes pod. Installed tools will be lost "
+            "when the pod restarts. Consider building a custom image instead."
+        )
+
     return result
 
 
@@ -375,6 +393,41 @@ def _detect_os() -> dict:
     # ── Library versions ───────────────────────────────────────
     info["libraries"] = _detect_libraries()
 
+    # ── Hardware basics (fast tier) ────────────────────────────
+    hw: dict[str, object] = {
+        "cpu_cores": os.cpu_count() or 1,
+        "arch": info["arch"],
+    }
+    # RAM detection
+    try:
+        with open("/proc/meminfo", encoding="utf-8") as f:
+            for line in f:
+                if line.startswith("MemTotal:"):
+                    kb = int(line.split()[1])
+                    hw["ram_total_mb"] = round(kb / 1024)
+                elif line.startswith("MemAvailable:"):
+                    kb = int(line.split()[1])
+                    hw["ram_available_mb"] = round(kb / 1024)
+    except (FileNotFoundError, OSError, ValueError):
+        # Fallback for non-Linux or restricted containers
+        try:
+            pages = os.sysconf("SC_PHYS_PAGES")
+            page_size = os.sysconf("SC_PAGE_SIZE")
+            if pages > 0 and page_size > 0:
+                hw["ram_total_mb"] = round((pages * page_size) / (1024 * 1024))
+        except (ValueError, OSError, AttributeError):
+            hw.setdefault("ram_total_mb", None)
+        hw.setdefault("ram_available_mb", None)
+    # Disk free (root partition)
+    try:
+        disk_usage = shutil.disk_usage("/")
+        hw["disk_free_gb"] = round(disk_usage.free / (1024 ** 3), 1)
+        hw["disk_total_gb"] = round(disk_usage.total / (1024 ** 3), 1)
+    except OSError:
+        hw["disk_free_gb"] = None
+        hw["disk_total_gb"] = None
+    info["hardware"] = hw
+
     return info
 
 
@@ -545,6 +598,858 @@ def _detect_manifests(project_root: Path) -> list[dict]:
     return found
 
 
+# ── Deep tier detection ─────────────────────────────────────────
+#
+# These detections are MORE expensive than fast tier (may take up
+# to ~2s). They run ON DEMAND when the install modal is opened or
+# when the resolver needs data for complex recipes.
+#
+# Each sub-detection is isolated so _detect_deep_profile() can be
+# called selectively via the `needs` parameter.
+#
+# Cache: module-level dict with TTL (5 min). Different from the
+# devops_cache used for audit cards — this is for deep-tier data
+# that doesn't correspond to file changes.
+
+import time as _time  # separate alias; `time` is imported locally in l0_system_profile
+
+_deep_cache: dict[str, object] = {}  # {"data": {...}, "ts": float}
+_DEEP_CACHE_TTL = 300  # 5 minutes
+
+
+def _detect_shell() -> dict:
+    """Detect shell environment (type, version, profile files, PATH health).
+
+    Matches arch-system-model §Shell environment (Phase 4).
+    """
+    shell_path = os.environ.get("SHELL", "")
+    shell_type = os.path.basename(shell_path) if shell_path else "unknown"
+
+    # ── Profile / RC file mapping ─────────────────────────────
+    _profile_map: dict[str, str] = {
+        "bash": "~/.bash_profile",
+        "zsh": "~/.zprofile",
+        "fish": "~/.config/fish/config.fish",
+        "sh": "~/.profile",
+        "dash": "~/.profile",
+    }
+    _rc_map: dict[str, str] = {
+        "bash": "~/.bashrc",
+        "zsh": "~/.zshrc",
+        "fish": "~/.config/fish/config.fish",
+        "sh": "~/.profile",
+        "dash": "~/.profile",
+    }
+
+    result: dict[str, object] = {
+        "type": shell_type,
+        "version": None,
+        "login_profile": _profile_map.get(shell_type, "~/.profile"),
+        "rc_file": _rc_map.get(shell_type, "~/.profile"),
+        "path_healthy": True,
+        "path_login": None,
+        "path_nonlogin": None,
+        "restricted": shell_type in ("rbash",) or shell_path.endswith("rbash"),
+    }
+
+    # ── Shell version ─────────────────────────────────────────
+    if shell_path and shutil.which(shell_path):
+        try:
+            r = subprocess.run(
+                [shell_path, "--version"],
+                capture_output=True, text=True, timeout=5,
+            )
+            output = r.stdout + r.stderr
+            m = re.search(r"(\d+\.\d+[\.\d]*)", output)
+            if m:
+                result["version"] = m.group(1)
+        except Exception:
+            pass
+
+    # ── PATH health check ─────────────────────────────────────
+    # Compare login-shell PATH vs non-login PATH for mismatches.
+    # Only for bash/zsh — fish has different mechanics.
+    if shell_type in ("bash", "zsh") and shell_path:
+        try:
+            r_login = subprocess.run(
+                [shell_path, "-l", "-c", "echo $PATH"],
+                capture_output=True, text=True, timeout=5,
+                env={**os.environ, "HOME": os.path.expanduser("~")},
+            )
+            r_nonlogin = subprocess.run(
+                [shell_path, "-c", "echo $PATH"],
+                capture_output=True, text=True, timeout=5,
+                env={**os.environ, "HOME": os.path.expanduser("~")},
+            )
+            path_login = r_login.stdout.strip()
+            path_nonlogin = r_nonlogin.stdout.strip()
+            result["path_login"] = path_login
+            result["path_nonlogin"] = path_nonlogin
+            # PATH is "unhealthy" if login shell adds dirs that
+            # non-login shell doesn't have (common .bashrc/.profile
+            # misconfiguration that breaks tool visibility).
+            if path_login and path_nonlogin:
+                login_dirs = set(path_login.split(":"))
+                nonlogin_dirs = set(path_nonlogin.split(":"))
+                result["path_healthy"] = login_dirs == nonlogin_dirs
+        except Exception:
+            pass
+
+    return result
+
+
+def _detect_init_system_profile() -> dict:
+    """Detect init system with full profile for service management.
+
+    Matches arch-system-model §Init system (Phase 4).
+    Goes beyond _detect_init_system() in tool_install.py by
+    adding service manager binary and capability checks.
+    """
+    result: dict[str, object] = {
+        "type": "unknown",
+        "service_manager": None,
+        "can_enable": False,
+        "can_start": False,
+    }
+
+    if Path("/run/systemd/system").exists():
+        result["type"] = "systemd"
+        result["service_manager"] = "systemctl"
+        result["can_enable"] = True
+        result["can_start"] = True
+    elif shutil.which("rc-service"):
+        result["type"] = "openrc"
+        result["service_manager"] = "rc-service"
+        result["can_enable"] = shutil.which("rc-update") is not None
+        result["can_start"] = True
+    elif shutil.which("launchctl"):
+        result["type"] = "launchd"
+        result["service_manager"] = "launchctl"
+        result["can_enable"] = True
+        result["can_start"] = True
+    elif Path("/etc/init.d").exists():
+        result["type"] = "initd"
+        result["service_manager"] = "service"
+        # initd can start but enable depends on update-rc.d / chkconfig
+        result["can_start"] = shutil.which("service") is not None
+        result["can_enable"] = (
+            shutil.which("update-rc.d") is not None
+            or shutil.which("chkconfig") is not None
+        )
+    else:
+        result["type"] = "none"
+
+    return result
+
+
+def _detect_build_profile() -> dict:
+    """Detect build toolchain with structured output.
+
+    Matches arch-system-model §Build toolchain (Phase 5).
+    Reshapes detect_build_toolchain() output from tool_install.py
+    into the schema the system model defines.
+    """
+    # Import here to avoid circular imports
+    from src.core.services.tool_install import detect_build_toolchain
+
+    raw = detect_build_toolchain()  # {name: version_or_None, ...}
+
+    # ── Compilers ─────────────────────────────────────────────
+    _compiler_names = ("gcc", "g++", "clang", "rustc")
+    compilers: dict[str, dict] = {}
+    for name in _compiler_names:
+        if name in raw:
+            compilers[name] = {"available": True, "version": raw[name]}
+        else:
+            compilers[name] = {"available": False, "version": None}
+
+    # ── Build tools ───────────────────────────────────────────
+    _tool_names = ("make", "cmake", "ninja", "meson", "autoconf")
+    build_tools: dict[str, bool] = {}
+    for name in _tool_names:
+        build_tools[name] = name in raw
+
+    # ── Dev packages installed? ───────────────────────────────
+    # Heuristic: if gcc AND make are available → likely has
+    # build-essential or equivalent installed.
+    dev_packages_installed = ("gcc" in raw and "make" in raw)
+
+    # ── Resource info ─────────────────────────────────────────
+    cpu_cores = os.cpu_count() or 1
+    try:
+        disk_usage = shutil.disk_usage("/")
+        disk_free_gb = round(disk_usage.free / (1024 ** 3), 1)
+    except Exception:
+        disk_free_gb = 0.0
+    try:
+        tmp_usage = shutil.disk_usage("/tmp")
+        tmp_free_gb = round(tmp_usage.free / (1024 ** 3), 1)
+    except Exception:
+        tmp_free_gb = disk_free_gb  # /tmp might be on root
+
+    # ── macOS gcc → clang alias detection ──────────────────────
+    gcc_is_clang = False
+    if platform.system() == "Darwin" and "gcc" in raw:
+        try:
+            r = subprocess.run(
+                ["gcc", "--version"],
+                capture_output=True, text=True, timeout=5,
+            )
+            if "clang" in r.stdout.lower():
+                gcc_is_clang = True
+        except Exception:
+            pass
+
+    return {
+        "compilers": compilers,
+        "build_tools": build_tools,
+        "dev_packages_installed": dev_packages_installed,
+        "cpu_cores": cpu_cores,
+        "disk_free_gb": disk_free_gb,
+        "tmp_free_gb": tmp_free_gb,
+        "gcc_is_clang_alias": gcc_is_clang,
+    }
+
+
+def _detect_gpu_profile() -> dict:
+    """Detect GPU hardware with full schema for Phase 6.
+
+    Matches arch-system-model §GPU hardware (Phase 6).
+    Wraps detect_gpu() from tool_install.py and adds fields
+    the spec requires: nvcc_version, compute_capability, opencl_available.
+    """
+    from src.core.services.tool_install import detect_gpu
+
+    raw = detect_gpu()
+
+    # ── Enrich NVIDIA with nvcc (CUDA toolkit) version ────────
+    nvcc_version = None
+    if shutil.which("nvcc"):
+        try:
+            r = subprocess.run(
+                ["nvcc", "--version"],
+                capture_output=True, text=True, timeout=5,
+            )
+            m = re.search(r"release\s+(\d+\.\d+)", r.stdout + r.stderr)
+            if m:
+                nvcc_version = m.group(1)
+        except Exception:
+            pass
+
+    # ── Enrich NVIDIA with compute capability ─────────────────
+    compute_capability = None
+    if raw.get("nvidia", {}).get("driver_loaded") and shutil.which("nvidia-smi"):
+        try:
+            r = subprocess.run(
+                ["nvidia-smi", "--query-gpu=compute_cap",
+                 "--format=csv,noheader,nounits"],
+                capture_output=True, text=True, timeout=5,
+            )
+            cap = r.stdout.strip()
+            if cap and cap != "[N/A]":
+                compute_capability = cap
+        except Exception:
+            pass
+
+    # ── cuDNN detection ────────────────────────────────────────
+    cudnn_version = None
+    cudnn_path = None
+    if raw.get("nvidia", {}).get("present"):
+        # Check for cudnn.h in common locations
+        cudnn_search_paths = [
+            "/usr/include/cudnn.h",
+            "/usr/include/cudnn_version.h",
+            "/usr/local/cuda/include/cudnn.h",
+            "/usr/local/cuda/include/cudnn_version.h",
+        ]
+        for hdr_path in cudnn_search_paths:
+            if os.path.isfile(hdr_path):
+                cudnn_path = hdr_path
+                try:
+                    with open(hdr_path) as f:
+                        content = f.read()
+                    import re as _re
+                    major = _re.search(r"CUDNN_MAJOR\s+(\d+)", content)
+                    minor = _re.search(r"CUDNN_MINOR\s+(\d+)", content)
+                    patch = _re.search(r"CUDNN_PATCHLEVEL\s+(\d+)", content)
+                    if major and minor:
+                        cudnn_version = f"{major.group(1)}.{minor.group(1)}"
+                        if patch:
+                            cudnn_version += f".{patch.group(1)}"
+                except Exception:
+                    pass
+                break
+
+        # Fallback: check ldconfig
+        if not cudnn_version and shutil.which("ldconfig"):
+            try:
+                r = subprocess.run(
+                    ["ldconfig", "-p"],
+                    capture_output=True, text=True, timeout=5,
+                )
+                for line in r.stdout.splitlines():
+                    if "libcudnn.so" in line:
+                        import re as _re
+                        m = _re.search(r"libcudnn\.so\.(\d+\.\d+\.\d+)", line)
+                        if m:
+                            cudnn_version = m.group(1)
+                        break
+            except Exception:
+                pass
+
+    # ── Enrich Intel with opencl_available ─────────────────────
+    opencl_available = False
+    if raw.get("intel", {}).get("present") and shutil.which("clinfo"):
+        try:
+            r = subprocess.run(
+                ["clinfo"],
+                capture_output=True, text=True, timeout=5,
+            )
+            opencl_available = "intel" in r.stdout.lower()
+        except Exception:
+            pass
+
+    # ── Reshape to match system model schema ──────────────────
+    return {
+        "nvidia": {
+            "present": raw.get("nvidia", {}).get("present", False),
+            "model": raw.get("nvidia", {}).get("model"),
+            "driver_version": raw.get("nvidia", {}).get("driver_version"),
+            "cuda_version": raw.get("nvidia", {}).get("cuda_version"),
+            "nvcc_version": nvcc_version,
+            "compute_capability": compute_capability,
+            "cudnn_version": cudnn_version,
+            "cudnn_path": cudnn_path,
+        },
+        "amd": {
+            "present": raw.get("amd", {}).get("present", False),
+            "model": raw.get("amd", {}).get("model"),
+            "rocm_version": raw.get("amd", {}).get("rocm_version"),
+        },
+        "intel": {
+            "present": raw.get("intel", {}).get("present", False),
+            "model": raw.get("intel", {}).get("model"),
+            "opencl_available": opencl_available,
+        },
+    }
+
+
+def _detect_kernel_profile() -> dict:
+    """Detect kernel state with full schema for Phase 6.
+
+    Matches arch-system-model §Kernel state (Phase 6).
+    Wraps detect_kernel() from tool_install.py and adds fields
+    the spec requires: config_available, config_path, loaded_modules
+    (full lsmod), module_check for DevOps-relevant modules, iommu_groups.
+    """
+    from src.core.services.tool_install import detect_kernel
+
+    raw = detect_kernel()
+    version = raw.get("version", platform.release())
+
+    # ── Kernel config detection ───────────────────────────────
+    config_path = None
+    config_available = False
+    for candidate in [
+        f"/boot/config-{version}",
+        "/proc/config.gz",
+        f"/lib/modules/{version}/config",
+    ]:
+        if Path(candidate).exists():
+            config_path = candidate
+            config_available = True
+            break
+
+    # ── Full lsmod (all loaded module names) ──────────────────
+    loaded_modules: list[str] = []
+    try:
+        r = subprocess.run(
+            ["lsmod"],
+            capture_output=True, text=True, timeout=5,
+        )
+        for line in r.stdout.strip().splitlines()[1:]:  # skip header
+            parts = line.split()
+            if parts:
+                loaded_modules.append(parts[0])
+    except Exception:
+        # Fallback to /proc/modules
+        try:
+            with open("/proc/modules", encoding="utf-8") as f:
+                for line in f:
+                    parts = line.split()
+                    if parts:
+                        loaded_modules.append(parts[0])
+        except (FileNotFoundError, OSError):
+            pass
+
+    # ── Module check for DevOps-relevant modules ──────────────
+    _MODULES_TO_CHECK = [
+        "vfio_pci", "overlay", "br_netfilter",
+        "nf_conntrack", "ip_tables",
+    ]
+
+    def _check_module(mod_name: str) -> dict:
+        loaded = mod_name in loaded_modules
+        # Check if .ko exists in /lib/modules
+        compiled = False
+        try:
+            r = subprocess.run(
+                ["find", f"/lib/modules/{version}",
+                 "-name", f"{mod_name}.ko*", "-maxdepth", "4"],
+                capture_output=True, text=True, timeout=5,
+            )
+            compiled = bool(r.stdout.strip())
+        except Exception:
+            pass
+        # Check kernel config state
+        config_state = None
+        if config_path and config_path != "/proc/config.gz":
+            cfg_key = f"CONFIG_{mod_name.upper().replace('-', '_')}"
+            try:
+                with open(config_path, encoding="utf-8") as f:
+                    for line in f:
+                        if line.startswith(cfg_key + "="):
+                            config_state = line.strip().split("=", 1)[1]
+                            break
+            except (FileNotFoundError, OSError):
+                pass
+        return {
+            "loaded": loaded,
+            "compiled": compiled,
+            "config_state": config_state,
+        }
+
+    module_check = {mod: _check_module(mod) for mod in _MODULES_TO_CHECK}
+
+    # ── IOMMU groups ──────────────────────────────────────────
+    iommu_groups: list[dict] | None = None
+    iommu_base = Path("/sys/kernel/iommu_groups")
+    if iommu_base.exists():
+        iommu_groups = []
+        try:
+            for group_dir in sorted(iommu_base.iterdir()):
+                if not group_dir.is_dir():
+                    continue
+                group_id = group_dir.name
+                devices_dir = group_dir / "devices"
+                devices = []
+                if devices_dir.exists():
+                    for dev in devices_dir.iterdir():
+                        devices.append(dev.name)
+                iommu_groups.append({
+                    "id": group_id,
+                    "devices": devices,
+                })
+        except (PermissionError, OSError):
+            pass
+
+    return {
+        "version": version,
+        "config_available": config_available,
+        "config_path": config_path,
+        "loaded_modules": loaded_modules,
+        "module_check": module_check,
+        "iommu_groups": iommu_groups,
+        # Carry forward from detect_kernel() for convenience
+        "headers_installed": raw.get("headers_installed", False),
+        "dkms_available": raw.get("dkms_available", False),
+        "secure_boot": raw.get("secure_boot"),
+    }
+
+def _detect_filesystem() -> dict:
+    """Detect root filesystem type and free space.
+
+    Matches arch-system-model §Filesystem and security (Phase 8).
+    """
+    root_type = "unknown"
+    try:
+        r = subprocess.run(
+            ["df", "-T", "/"],
+            capture_output=True, text=True, timeout=5,
+        )
+        # df -T output: Filesystem Type 1K-blocks Used Available Use% Mounted
+        # We want the second column of the data row (skip header).
+        lines = r.stdout.strip().splitlines()
+        if len(lines) >= 2:
+            parts = lines[1].split()
+            if len(parts) >= 2:
+                root_type = parts[1]
+    except Exception:
+        pass
+
+    root_free_gb = 0.0
+    try:
+        disk_usage = shutil.disk_usage("/")
+        root_free_gb = round(disk_usage.free / (1024 ** 3), 1)
+    except Exception:
+        pass
+
+    return {
+        "root_type": root_type,
+        "root_free_gb": root_free_gb,
+    }
+
+
+def _detect_security() -> dict:
+    """Detect SELinux and AppArmor security context.
+
+    Matches arch-system-model §Filesystem and security (Phase 8).
+    """
+    # ── SELinux ────────────────────────────────────────────────
+    selinux_installed = shutil.which("getenforce") is not None
+    selinux_mode = None
+    if selinux_installed:
+        try:
+            r = subprocess.run(
+                ["getenforce"],
+                capture_output=True, text=True, timeout=5,
+            )
+            mode = r.stdout.strip()
+            if mode in ("Enforcing", "Permissive", "Disabled"):
+                selinux_mode = mode
+        except Exception:
+            pass
+
+    # ── AppArmor ──────────────────────────────────────────────
+    apparmor_path = Path("/sys/kernel/security/apparmor")
+    apparmor_installed = apparmor_path.exists()
+    apparmor_profiles_loaded = False
+    if apparmor_installed:
+        profiles_file = apparmor_path / "profiles"
+        if profiles_file.exists():
+            try:
+                content = profiles_file.read_text(encoding="utf-8").strip()
+                apparmor_profiles_loaded = len(content) > 0
+            except (PermissionError, OSError):
+                pass
+
+    return {
+        "selinux": {
+            "installed": selinux_installed,
+            "mode": selinux_mode,
+        },
+        "apparmor": {
+            "installed": apparmor_installed,
+            "profiles_loaded": apparmor_profiles_loaded,
+        },
+    }
+
+
+def _detect_services() -> dict:
+    """Detect system service infrastructure (journald, logrotate, cron).
+
+    Matches arch-system-model §System services (Phase 8).
+    """
+    # ── journald ──────────────────────────────────────────────
+    journald_active = False
+    journald_disk_usage = None
+    if shutil.which("systemctl"):
+        try:
+            r = subprocess.run(
+                ["systemctl", "is-active", "systemd-journald"],
+                capture_output=True, text=True, timeout=5,
+            )
+            journald_active = r.stdout.strip() == "active"
+        except Exception:
+            pass
+    if journald_active and shutil.which("journalctl"):
+        try:
+            r = subprocess.run(
+                ["journalctl", "--disk-usage"],
+                capture_output=True, text=True, timeout=5,
+            )
+            # Output like: "Archived and active journals take up 1.2G in the file system."
+            output = r.stdout.strip()
+            if output:
+                # Extract the size (e.g., "1.2G", "240.0M")
+                m = re.search(r"([\d.]+[KMGTP])", output)
+                if m:
+                    journald_disk_usage = m.group(1)
+        except Exception:
+            pass
+
+    return {
+        "journald": {
+            "active": journald_active,
+            "disk_usage": journald_disk_usage,
+        },
+        "logrotate_installed": shutil.which("logrotate") is not None,
+        "cron_available": shutil.which("crontab") is not None,
+    }
+
+
+def _detect_wsl_interop() -> dict:
+    """Detect WSL interop capabilities.
+
+    Matches arch-system-model §WSL interop (Phase 6).
+    Only meaningful on WSL systems — on native Linux/macOS, returns
+    all-false/none values quickly.
+    """
+    result: dict[str, object] = {
+        "available": False,
+        "binfmt_registered": False,
+        "windows_user": None,
+        "wslconfig_path": None,
+    }
+
+    # Quick exit if not WSL — check /proc/version first
+    try:
+        with open("/proc/version", encoding="utf-8") as f:
+            version_str = f.read().lower()
+        if "microsoft" not in version_str and "wsl" not in version_str:
+            return result
+    except (FileNotFoundError, OSError):
+        return result
+
+    # ── powershell.exe availability ───────────────────────────
+    result["available"] = shutil.which("powershell.exe") is not None
+
+    # ── binfmt_misc WSL interop ───────────────────────────────
+    result["binfmt_registered"] = Path(
+        "/proc/sys/fs/binfmt_misc/WSLInterop"
+    ).exists()
+
+    # ── Windows username ──────────────────────────────────────
+    if shutil.which("cmd.exe"):
+        try:
+            r = subprocess.run(
+                ["cmd.exe", "/c", "echo", "%USERNAME%"],
+                capture_output=True, text=True, timeout=5,
+            )
+            username = r.stdout.strip()
+            if username and username != "%USERNAME%":
+                result["windows_user"] = username
+        except Exception:
+            pass
+
+    # ── .wslconfig path ───────────────────────────────────────
+    windows_user = result["windows_user"]
+    if windows_user:
+        # Standard location: C:\Users\USERNAME\.wslconfig
+        # In WSL this is /mnt/c/Users/USERNAME/.wslconfig
+        wslconfig_candidate = Path(
+            f"/mnt/c/Users/{windows_user}/.wslconfig"
+        )
+        if wslconfig_candidate.exists():
+            result["wslconfig_path"] = str(wslconfig_candidate)
+
+    return result
+
+
+# ── Network endpoint probes ─────────────────────────────────────
+
+_NETWORK_ENDPOINTS = [
+    "pypi.org",
+    "github.com",
+    "registry.npmjs.org",
+]
+_NETWORK_CONNECT_TIMEOUT = 3  # seconds
+
+
+def _probe_endpoint(endpoint: str) -> dict:
+    """Probe a single network endpoint for reachability.
+
+    Returns: {"reachable": bool, "latency_ms": int|None, "error": str|None}
+    """
+    result: dict[str, object] = {
+        "reachable": False,
+        "latency_ms": None,
+        "error": None,
+    }
+
+    # Prefer curl (available on most systems, handles HTTPS well)
+    if shutil.which("curl"):
+        try:
+            t0 = _time.time()
+            r = subprocess.run(
+                [
+                    "curl", "-s",
+                    "--connect-timeout", str(_NETWORK_CONNECT_TIMEOUT),
+                    "-o", "/dev/null",
+                    "-w", "%{http_code}",
+                    f"https://{endpoint}",
+                ],
+                capture_output=True, text=True,
+                timeout=_NETWORK_CONNECT_TIMEOUT + 2,  # subprocess timeout > curl timeout
+            )
+            elapsed_ms = int((_time.time() - t0) * 1000)
+            http_code = r.stdout.strip()
+
+            if r.returncode == 0 and http_code.isdigit():
+                code = int(http_code)
+                if code > 0:
+                    result["reachable"] = True
+                    result["latency_ms"] = elapsed_ms
+            else:
+                # curl exit codes: 6=DNS, 7=refused, 28=timeout
+                if r.returncode == 6:
+                    result["error"] = "dns"
+                elif r.returncode == 7:
+                    result["error"] = "refused"
+                elif r.returncode == 28:
+                    result["error"] = "timeout"
+                else:
+                    result["error"] = f"curl_exit_{r.returncode}"
+        except subprocess.TimeoutExpired:
+            result["error"] = "timeout"
+        except Exception as exc:
+            result["error"] = str(exc)[:50]
+    else:
+        # Fallback: try urllib (no curl on some minimal installs)
+        import urllib.request
+        import urllib.error
+        try:
+            t0 = _time.time()
+            req = urllib.request.Request(
+                f"https://{endpoint}",
+                method="HEAD",
+            )
+            urllib.request.urlopen(req, timeout=_NETWORK_CONNECT_TIMEOUT)
+            elapsed_ms = int((_time.time() - t0) * 1000)
+            result["reachable"] = True
+            result["latency_ms"] = elapsed_ms
+        except urllib.error.URLError as exc:
+            reason = str(exc.reason).lower()
+            if "name or service not known" in reason:
+                result["error"] = "dns"
+            elif "connection refused" in reason:
+                result["error"] = "refused"
+            elif "timed out" in reason:
+                result["error"] = "timeout"
+            else:
+                result["error"] = str(exc.reason)[:50]
+        except Exception as exc:
+            result["error"] = str(exc)[:50]
+
+    return result
+
+
+def _detect_network() -> dict:
+    """Detect network connectivity and proxy configuration.
+
+    Matches arch-system-model §Network connectivity (Phase 4).
+
+    Endpoint probes run in parallel using ThreadPoolExecutor so that
+    the worst case is 1 × connect_timeout (3s) instead of N × 3s.
+    """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    # ── Proxy detection (instant, env vars only) ──────────────
+    https_proxy = os.environ.get("HTTPS_PROXY") or os.environ.get("https_proxy")
+    http_proxy = os.environ.get("HTTP_PROXY") or os.environ.get("http_proxy")
+    proxy_url = https_proxy or http_proxy
+    proxy_detected = proxy_url is not None
+
+    # ── Parallel endpoint probes ──────────────────────────────
+    endpoints: dict[str, dict] = {}
+
+    with ThreadPoolExecutor(max_workers=len(_NETWORK_ENDPOINTS)) as pool:
+        futures = {
+            pool.submit(_probe_endpoint, ep): ep
+            for ep in _NETWORK_ENDPOINTS
+        }
+        for future in as_completed(futures):
+            ep = futures[future]
+            try:
+                endpoints[ep] = future.result()
+            except Exception as exc:
+                endpoints[ep] = {
+                    "reachable": False,
+                    "latency_ms": None,
+                    "error": str(exc)[:50],
+                }
+
+    # ── Online = at least one endpoint reachable ──────────────
+    online = any(ep.get("reachable") for ep in endpoints.values())
+
+    return {
+        "online": online,
+        "proxy_detected": proxy_detected,
+        "proxy_url": proxy_url,
+        "endpoints": endpoints,
+    }
+
+
+# ── Valid deep tier categories ──────────────────────────────────
+
+_DEEP_DETECTORS: dict[str, callable] = {
+    # Phase 4
+    "shell": _detect_shell,
+    "init_system": _detect_init_system_profile,
+    "network": _detect_network,
+    # Phase 5
+    "build": _detect_build_profile,
+    # Phase 6
+    "gpu": _detect_gpu_profile,
+    "kernel": _detect_kernel_profile,
+    "wsl_interop": _detect_wsl_interop,
+    # Phase 8
+    "services": _detect_services,
+    "filesystem": _detect_filesystem,
+    "security": _detect_security,
+}
+
+
+def _detect_deep_profile(
+    needs: list[str] | None = None,
+) -> dict:
+    """Run deep-tier detection, optionally selective.
+
+    Args:
+        needs: List of category names to detect. If None, detect all.
+               Valid names (by phase):
+                 Phase 4: "shell", "init_system", "network"
+                 Phase 5: "build"
+                 Phase 6: "gpu", "kernel", "wsl_interop"
+                 Phase 8: "services", "filesystem", "security"
+
+    Returns:
+        Dict with one key per detected category. When the cache is
+        warm, this may include MORE categories than were requested
+        (the full cached dict is returned as a superset). Consumers
+        must handle both missing AND extra keys gracefully.
+
+    Cache:
+        Results are cached module-level with a 5-minute TTL.
+        Selective requests detect only uncached categories and merge
+        them into the existing cache dict.
+    """
+    global _deep_cache
+
+    now = _time.time()
+    cached_ts = _deep_cache.get("ts", 0)
+    cached_data: dict = _deep_cache.get("data", {})
+
+    # Determine which categories to run
+    if needs is None:
+        categories = list(_DEEP_DETECTORS.keys())
+    else:
+        categories = [n for n in needs if n in _DEEP_DETECTORS]
+
+    # Filter out categories already in cache if cache is fresh
+    if (now - cached_ts) < _DEEP_CACHE_TTL:
+        categories = [c for c in categories if c not in cached_data]
+        if not categories:
+            logger.debug("deep tier: all %d categories cached", len(needs or _DEEP_DETECTORS))
+            return dict(cached_data)
+
+    # Run needed detections
+    result = dict(cached_data)
+    for cat in categories:
+        detector = _DEEP_DETECTORS[cat]
+        try:
+            result[cat] = detector()
+            logger.debug("deep tier: detected '%s'", cat)
+        except Exception:
+            logger.exception("deep tier: failed to detect '%s'", cat)
+            result[cat] = {"error": f"detection failed for {cat}"}
+
+    # Update cache
+    _deep_cache = {"data": result, "ts": now}
+
+    return result
+
+
 # ── Public API ──────────────────────────────────────────────────
 
 # Public aliases for the canonical tool registry
@@ -552,23 +1457,35 @@ TOOL_REGISTRY = _TOOLS
 detect_tools = _detect_tools
 
 
-def l0_system_profile(project_root: Path) -> dict:
+def l0_system_profile(project_root: Path, *, deep: bool = False) -> dict:
     """L0: Full system profile — OS, runtime, tools, modules, manifests.
 
-    This is designed to be fast (< 200ms) and is auto-loaded.
+    Fast tier (< 200ms): always runs.
+    Deep tier (< 5s): runs when deep=True. Adds 10 categories to the
+    OS profile dict: shell, init_system, network, build, gpu, kernel,
+    wsl_interop, services, filesystem, security. Cached with 5-min TTL.
     """
     import time
 
     from src.core.services.audit.models import wrap_result
 
     started = time.time()
+    os_data = _detect_os()
+
+    # ── Deep tier merge ───────────────────────────────────────
+    if deep:
+        deep_data = _detect_deep_profile()
+        for key, value in deep_data.items():
+            os_data[key] = value
+
     data = {
-        "os": _detect_os(),
+        "os": os_data,
         "python": _detect_python(),
         "venv": _detect_venv(project_root),
         "tools": _detect_tools(),
         "modules": _detect_modules(project_root),
         "manifests": _detect_manifests(project_root),
         "project_root": str(project_root),
+        "deep_tier": deep,
     }
     return wrap_result(data, "L0", "system", started)

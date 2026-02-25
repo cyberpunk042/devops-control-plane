@@ -6,6 +6,12 @@ Phase 1 (system detection) is **done and deployed**. The system now knows:
 distro family, package manager, snap availability, systemd, sudo, root,
 container status, library versions.
 
+> **Note:** Phase 1 will need EXPANSION for Phases 4-8. See
+> `tool-install-v2-scope-expansion.md` → Phase 1 currently does NOT detect:
+> GPU hardware, kernel config, shell type, init system beyond systemd,
+> disk space, network connectivity, WSL interop availability, sandbox
+> restrictions. These will be added incrementally as phases require them.
+
 Phase 2 is the **recipe unification and resolver engine**. It replaces
 the current flat, Debian-only, non-recursive install system with one
 that handles the FULL lifecycle of a tool on ANY system:
@@ -209,7 +215,8 @@ and in the per-tool analysis.
 
 ### Phase 2.3 — Resolver Engine
 
-**File:** `tool-install-v2-phase2.3-resolver-engine.md` (pending)
+**File:** `tool-install-v2-phase2.3-resolver-engine.md` ✅ ANALYZED
+**Scenarios:** `tool-install-v2-phase2.3-scenarios.md` ✅ 55 SCENARIOS
 
 **Scope:**
 - `_pick_install_method(recipe, primary_pm, snap_ok)` — select install command

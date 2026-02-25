@@ -33,16 +33,14 @@ def check_required_tools(tool_ids: list[str]) -> list[dict[str, Any]]:
         Empty list if all tools are available.
     """
     from src.core.services.audit.l0_detection import detect_tools
-    from src.core.services.tool_install import (
-        _NO_SUDO_RECIPES,
-        _SUDO_RECIPES,
-    )
+    from src.core.services.tool_install import TOOL_RECIPES
 
     # Only detect the tools we care about (fast — reuses cached shutil.which)
     all_tools = {t["id"]: t for t in detect_tools()}
 
     missing = []
     for tid in tool_ids:
+        recipe = TOOL_RECIPES.get(tid)
         t = all_tools.get(tid)
         if t is None:
             # Tool not in registry at all
@@ -50,16 +48,20 @@ def check_required_tools(tool_ids: list[str]) -> list[dict[str, Any]]:
                 "id": tid,
                 "label": tid,
                 "install_type": "none",
-                "has_recipe": tid in _NO_SUDO_RECIPES or tid in _SUDO_RECIPES,
-                "needs_sudo": tid in _SUDO_RECIPES,
+                "has_recipe": recipe is not None,
+                "needs_sudo": (
+                    any(recipe["needs_sudo"].values()) if recipe else False
+                ),
             })
         elif not t["available"]:
             missing.append({
                 "id": t["id"],
                 "label": t["label"],
                 "install_type": t["install_type"],
-                "has_recipe": tid in _NO_SUDO_RECIPES or tid in _SUDO_RECIPES,
-                "needs_sudo": tid in _SUDO_RECIPES,
+                "has_recipe": recipe is not None,
+                "needs_sudo": (
+                    any(recipe["needs_sudo"].values()) if recipe else False
+                ),
             })
 
     return missing

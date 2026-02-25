@@ -124,7 +124,7 @@ def check_required_tools(state: dict) -> dict:
             "install_available": ["docker", "skaffold"],
         }
     """
-    from src.core.services.tool_install import _NO_SUDO_RECIPES, _SUDO_RECIPES
+    from src.core.services.tool_install import TOOL_RECIPES
 
     # Determine which tools are required based on state
     required: dict[str, str] = {}  # tool_name → reason
@@ -151,7 +151,7 @@ def check_required_tools(state: dict) -> dict:
 
     for tool_name, reason in required.items():
         installed = shutil.which(tool_name) is not None
-        has_recipe = tool_name in _NO_SUDO_RECIPES or tool_name in _SUDO_RECIPES
+        has_recipe = tool_name in TOOL_RECIPES
 
         tools[tool_name] = {
             "installed": installed,

@@ -815,6 +815,92 @@ The user doesn't know what they're missing.
 }
 ```
 
+### 2.16 Network & Offline Scenarios
+
+**What can happen:**
+- Full internet access (normal case)
+- Behind corporate proxy (HTTP_PROXY, HTTPS_PROXY)
+- Air-gapped environment (no internet at all)
+- Partial access (internal mirror reachable, public internet not)
+- Intermittent connectivity (timeout during large downloads)
+
+**What the system needs:**
+- Phase 1 detection: probe key endpoints (PyPI, GitHub, npm registry)
+- Each endpoint probe returns: reachable/unreachable/slow/proxy-required
+- Recipes that need network have a `requires.network` field
+- If network is unavailable, disable online-only options (curl scripts, pip)
+- Offer alternatives: local binary, pre-downloaded package, internal mirror
+
+```python
+"network": {
+    "online": True,
+    "proxy_detected": True,
+    "proxy_url": "http://proxy.corp.com:8080",
+    "endpoints": {
+        "pypi.org": {"reachable": True, "latency_ms": 45},
+        "github.com": {"reachable": True, "latency_ms": 120},
+        "registry.npmjs.org": {"reachable": False, "error": "timeout"},
+    },
+}
+```
+
+**Impact on architecture:**
+- Install methods gain a `requires.network` field (most need it)
+- Options missing network are disabled with clear reason
+- Future: local cache / mirror support for air-gapped environments
+- Proxy settings can be injected into commands (pip --proxy, curl --proxy)
+
+### 2.17 Parallel Step Execution
+
+**Current model:** Plans are LINEAR — step 1, step 2, step 3, done.
+
+**Reality:** Some steps are INDEPENDENT and could run in parallel:
+- While building OpenCV from source (30 min), download data packs
+- While `apt-get install` runs for one tool, `pip install` runs for another
+- System package batch + cargo build can overlap
+
+**What the plan format needs:**
+```python
+"steps": [
+    {"id": "step1", "type": "packages", ...},
+    {"id": "step2", "type": "tool", ..., "depends_on": ["step1"]},
+    {"id": "step3", "type": "tool", ..., "depends_on": ["step1"]},
+    # step2 and step3 can run in parallel — both only depend on step1
+    {"id": "step4", "type": "verify", ..., "depends_on": ["step2", "step3"]},
+]
+```
+
+**Impact on architecture:**
+- Plan steps get an optional `depends_on` field (list of step IDs)
+- Steps with no unmet dependencies can be dispatched simultaneously
+- Frontend needs to show parallel progress (multiple log streams)
+- Phase 2 keeps it simple: all linear. Phase 8+ adds parallelism.
+- Plan format must NOT prevent this — `depends_on` is additive
+
+### 2.18 Pages Install Unification
+
+**Current state:** `pages_install.py` is a SEPARATE install system
+for page builders (Hugo, MkDocs, Docusaurus). It has:
+- Its own SSE streaming
+- Its own arch/OS detection (duplicates Phase 1)
+- Its own binary download logic (Hugo binary installer)
+- Its own error handling
+
+**What should happen:**
+- Hugo, MkDocs, Docusaurus become TOOL_RECIPES entries
+- Hugo binary download uses the same binary installer pattern
+- MkDocs uses pip install (already a supported method)
+- Docusaurus uses npm install (already a supported method)
+- SSE streaming uses the unified streamSSE() pattern
+- Frontend uses executeInstallPlan() like all other tools
+
+**Impact on architecture:**
+- Add Hugo/MkDocs/Docusaurus to TOOL_RECIPES
+- Hugo needs a `binary` install method with URL template
+- The existing `pages_install.py` can be gradually replaced
+- Frontend pages-install.js uses the same modal pattern
+- This is a Phase 3 task (frontend unification)
+
 ---
 
 ## 3. How This Changes the Recipe Format
@@ -958,43 +1044,51 @@ but it doesn't PREVENT them either.
 
 ---
 
-## 6. Scenarios That Are Out of Scope for Phase 2 But Must Be Named
+## 6. Scenarios Beyond Phase 2 (Named and Mapped)
 
-| Scenario | Why out of scope | Which future phase |
-|----------|-----------------|-------------------|
-| OpenCV with CUDA | Needs GPU detection, build-from-source | Phase 5+6 |
-| PyTorch GPU variant | Needs GPU detection, choice UI | Phase 4+6 |
-| Kernel recompilation | Too dangerous for automated tooling | Phase 6 (detect only) |
-| Broken .bashrc | Needs shell type detection, file editing | Phase 4 |
-| Restricted shell | Needs sandbox detection in Phase 1 | Phase 1 expansion |
-| System restart + resume | Needs persistent plan state | Phase 8 |
-| GPU passthrough (vfio) | Kernel config + IOMMU groups | Phase 6 (detect only) |
-| spaCy language models | Needs data pack UI | Phase 7 |
-| journald configuration | Needs config template system | Phase 8 |
-| Version selection (Python 3.12 vs 3.13) | Needs choice UI | Phase 4 |
+| Scenario | Why beyond Phase 2 | Which future phase |
+|----------|-------------------|-------------------|
+| OpenCV with CUDA | Needs GPU detection, build-from-source, choice tree | Phase 4+5+6 |
+| PyTorch GPU variant | Needs GPU detection, choice UI, pip index switching | Phase 4+6 |
+| Kernel module loading | Needs kernel config detection, risk gates, confirmation | Phase 6 |
+| Kernel recompilation | Needs build-from-source, restart+resume, rollback | Phase 5+6+8 |
+| WSL kernel customization | Needs WSL interop detection, cross-OS commands | Phase 6 |
+| GPU passthrough (vfio) | Needs kernel module loading + IOMMU group detection | Phase 6 |
+| Broken .bashrc / .zshrc | Needs shell type detection, profile file editing | Phase 4 |
+| Restricted shell (rbash) | Needs sandbox detection in Phase 1 expansion | Phase 1+ |
+| System restart + resume | Needs persistent plan state, resumable execution | Phase 8 |
+| spaCy language models | Needs data pack UI (multi-select, size estimates) | Phase 7 |
+| HuggingFace model download | Needs data pack UI + large download progress | Phase 7 |
+| journald configuration | Needs config template system + inputs | Phase 8 |
+| logrotate configuration | Needs config template system | Phase 8 |
+| Version selection (Python, Node, Go) | Needs choice UI + version-aware commands | Phase 4 |
 | npm global permission fix | Needs shell config editing | Phase 4 |
 | Docker storage driver config | Needs config input UI | Phase 4+8 |
 | Build cmake from source to build opencv | Recursive build chains | Phase 5 |
 | Private PyPI/npm registry | Needs registry config | Phase 4 |
+| Air-gapped / offline install | Needs network detection, local mirror support | Phase 4+ |
+| Parallel step execution | Needs plan format extension for DAG-based steps | Phase 8+ |
+| pages_install.py unification | Separate install system for page builders | Phase 3+ |
 
 ---
 
 ## 7. Updated Phase Roadmap
 
 ```
-Phase 1  (DONE)     System detection
+Phase 1  (DONE)     System detection (fast tier)
+  1+     (FUTURE)   Expansion: GPU, kernel, shell, network, disk (deep tier)
 Phase 2  (CURRENT)  Simple tool recipes + resolver + execution
   2.1  Package checking (multi-pm)
   2.2  Recipe format + dependency declarations (lifecycle)
   2.3  Resolver engine (single-pass, no choices)
   2.4  Execution replacement
   2.5  Update & maintenance
-Phase 3             Frontend (step modal, plan display)
-Phase 4             Decision trees (choices, inputs, constraints)
-Phase 5             Build-from-source support
-Phase 6             Hardware detection (GPU, kernel config)
-Phase 7             Data packs & downloads
-Phase 8             System configuration & restart management
+Phase 3             Frontend + pages unification (step modal, plan display, pages_install)
+Phase 4             Decision trees (choices, inputs, constraints, version selection)
+Phase 5             Build-from-source (cmake, make, meson, progress, disk)
+Phase 6             Hardware + kernel (GPU detect, module loading, kernel recompile, WSL kernel)
+Phase 7             Data packs & downloads (spaCy, NLTK, HuggingFace, locale)
+Phase 8             System config & orchestration (services, config files, restart, parallel)
 ```
 
 Each phase is independently shippable. Phase 2 alone is a major
@@ -1028,3 +1122,16 @@ improvement over the current flat Debian-only system.
    Adding a new field to a recipe doesn't break existing recipes.
    Adding a new choice type doesn't break existing choices.
    The system is designed for evolution, not revolution.
+
+7. **Nothing is off-limits with safeguards.**
+   Kernel recompilation, GPU driver installation, bootloader updates —
+   all are automatable. High-risk steps get confirmation gates, backups,
+   rollback instructions, and risk-level UI treatment. The system
+   presents the risk honestly and lets the user decide.
+
+8. **Interactive from the Admin panel.**
+   Everything the system can do is accessible from the web admin UI.
+   The user browses, selects, configures, and executes — all from the
+   browser. The CLI and TUI are alternative interfaces to the same
+   resolver and execution engine.
+

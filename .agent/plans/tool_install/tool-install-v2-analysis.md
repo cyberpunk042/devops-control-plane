@@ -1,5 +1,10 @@
 # Tool Install v2 — Full Analysis
 
+> **📦 LEGACY DOCUMENT** — This was the original analysis that started
+> everything. Sections 1-3 (inventory, systems, detection) remain valid
+> as historical context. Sections 4-11 are superseded by the detailed
+> phase documents. See `tool-install-v2-master.md` for current index.
+
 ## 1. What Exists Today (Complete Inventory)
 
 ### 1.1 System Detection (`l0_detection.py`)
@@ -585,34 +590,23 @@ async function streamSSE(url, body, logEl) {
 
 ## 11. Migration Path
 
-### Phase 1: System Detection Enhancement
+> **⚠️ SUPERSEDED** — The phase structure below was the original estimate.
+> The real phase structure is documented in `tool-install-v2-master.md`.
+> Phase 2 alone expanded into 5 sub-phases. Phases 3-8 are defined in
+> the scope expansion document.
+
+### Phase 1: System Detection Enhancement ✅ DONE
 - Extend `_detect_os()` in `l0_detection.py`
 - Add distro family, container detection, package manager detection
 - Add capabilities (systemd, sudo, root)
 - Add library versions (openssl, glibc, libc type)
 - Expose via `/api/system-profile` or extend existing endpoint
 
-### Phase 2: Recipe Unification
-- Create `TOOL_RECIPES` dict with per-platform install commands
-- Create `resolve_install_plan()` function
-- Update `check_system_deps()` for multi-distro
-- Create `/api/audit/install-plan` endpoint
+### Phase 2: Recipe Unification & Resolver (CURRENT — 5 sub-phases)
+- See `tool-install-v2-phase2-index.md` for full breakdown
 
 ### Phase 3: Frontend Unification
-- Create `streamSSE()` helper
-- Create `showStepModal()` — one modal for all step types
-- Create `executeInstallPlan()` — recursive stacked modal executor
-- Update `installToolFromBanner()` to use plan endpoint
+- See `tool-install-v2-scope-expansion.md` for expanded scope
 
-### Phase 4: Cleanup
-- Remove old modal functions
-- Remove duplicate stream readers
-- Remove inline `_RUNTIME_DEPS` / `_TOOL_REQUIRES`
-- Keep `_analyse_install_failure()` as fallback
-- Keep `install_tool()` for backward compat
-
-### Phase 5: Future
-- Extend `pages_install.py` to use same pattern
-- Add more distro-specific recipes as needed
-- Add binary download fallbacks for tools
-- Add PPA/repo addition as a step type (e.g. hashicorp repo for terraform)
+### Phase 4-8: Decision Trees, Build-from-Source, Hardware, Data Packs, System Config
+- See `tool-install-v2-scope-expansion.md` and `tool-install-v2-master.md`

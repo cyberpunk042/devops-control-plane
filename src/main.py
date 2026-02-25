@@ -462,6 +462,7 @@ from src.ui.cli.testing import testing
 from src.ui.cli.k8s import k8s
 from src.ui.cli.terraform import terraform
 from src.ui.cli.dns import dns
+from src.ui.cli.audit import audit
 
 cli.add_command(vault)
 cli.add_command(content)
@@ -481,6 +482,7 @@ cli.add_command(testing)
 cli.add_command(k8s)
 cli.add_command(terraform)
 cli.add_command(dns)
+cli.add_command(audit)
 
 
 if __name__ == "__main__":

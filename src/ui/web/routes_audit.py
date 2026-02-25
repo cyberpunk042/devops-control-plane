@@ -39,11 +39,22 @@ def _project_root() -> Path:
 def audit_system():
     root = _project_root()
     bust = "bust" in request.args
-    result = devops_cache.get_cached(
-        root, "audit:system",
-        lambda: l0_system_profile(root),
-        force=bust,
-    )
+    deep = "deep" in request.args
+
+    if deep:
+        # Deep tier: separate cache key, longer compute budget
+        result = devops_cache.get_cached(
+            root, "audit:system:deep",
+            lambda: l0_system_profile(root, deep=True),
+            force=bust,
+        )
+    else:
+        # Fast tier: original behavior, unchanged
+        result = devops_cache.get_cached(
+            root, "audit:system",
+            lambda: l0_system_profile(root),
+            force=bust,
+        )
     return jsonify(result)
 
 
@@ -294,16 +305,91 @@ def audit_remediate():
 
 @audit_bp.route("/audit/check-deps", methods=["POST"])
 def audit_check_deps():
-    """Check if system packages are installed."""
+    """Check if system packages are installed.
+
+    Request body:
+        {"packages": ["libssl-dev", "pkg-config"]}
+        or with explicit pm:
+        {"packages": ["openssl-devel"], "pkg_manager": "dnf"}
+
+    If pkg_manager is not provided, auto-detects from system profile.
+    """
     from src.core.services.tool_install import check_system_deps
 
     body = request.get_json(silent=True) or {}
     packages = body.get("packages", [])
     if not packages:
         return jsonify({"missing": [], "installed": []}), 200
-    result = check_system_deps(packages)
+
+    pkg_manager = body.get("pkg_manager")
+    if not pkg_manager:
+        from src.core.services.audit.l0_detection import _detect_os
+        os_info = _detect_os()
+        pkg_manager = os_info.get("package_manager", {}).get("primary", "apt")
+
+    result = check_system_deps(packages, pkg_manager)
     return jsonify(result), 200
 
+
+@audit_bp.route("/audit/resolve-choices", methods=["POST"])
+def audit_resolve_choices():
+    """Pass 1 — Get choices the user must make before installing a tool.
+
+    Request body:
+        {"tool": "docker"}
+
+    Response:
+        Decision tree with choices, inputs, defaults, disabled options.
+        If the tool has no choices, returns ``auto_resolve: true``.
+    """
+    from src.core.services.tool_install import resolve_choices
+    from src.core.services.audit.l0_detection import _detect_os
+
+    body = request.get_json(silent=True) or {}
+    tool = body.get("tool", "").strip().lower()
+    if not tool:
+        return jsonify({"error": "No tool specified"}), 400
+
+    system_profile = _detect_os()
+    result = resolve_choices(tool, system_profile)
+
+    status = 200 if not result.get("error") else 422
+    return jsonify(result), status
+
+
+@audit_bp.route("/audit/install-plan", methods=["POST"])
+def audit_install_plan():
+    """Generate an ordered install plan for a tool.
+
+    Request body:
+        {"tool": "cargo-outdated"}
+        — or with choice answers (Phase 4 two-pass) —
+        {"tool": "docker", "answers": {"variant": "docker-ce"}}
+
+    Response:
+        Plan dict with steps, or error if tool can't be installed.
+    """
+    from src.core.services.tool_install import (
+        resolve_install_plan,
+        resolve_install_plan_with_choices,
+    )
+    from src.core.services.audit.l0_detection import _detect_os
+
+    body = request.get_json(silent=True) or {}
+    tool = body.get("tool", "").strip().lower()
+    if not tool:
+        return jsonify({"error": "No tool specified"}), 400
+
+    answers = body.get("answers", {})
+    system_profile = _detect_os()
+
+    if answers:
+        plan = resolve_install_plan_with_choices(tool, system_profile, answers)
+    else:
+        plan = resolve_install_plan(tool, system_profile)
+
+    status = 200 if not plan.get("error") else 422
+    return jsonify(plan), status
 
 @audit_bp.route("/tools/status")
 def tools_status():
@@ -313,17 +399,17 @@ def tools_status():
     install type, and whether an install recipe exists.
     """
     from src.core.services.audit.l0_detection import detect_tools
-    from src.core.services.tool_install import (
-        _NO_SUDO_RECIPES,
-        _SUDO_RECIPES,
-    )
+    from src.core.services.tool_install import TOOL_RECIPES
 
     tools = detect_tools()
     # Enrich with recipe availability
     for t in tools:
         tid = t["id"]
-        t["has_recipe"] = tid in _NO_SUDO_RECIPES or tid in _SUDO_RECIPES
-        t["needs_sudo"] = tid in _SUDO_RECIPES
+        recipe = TOOL_RECIPES.get(tid)
+        t["has_recipe"] = recipe is not None
+        t["needs_sudo"] = (
+            any(recipe["needs_sudo"].values()) if recipe else False
+        )
 
     available = sum(1 for t in tools if t["available"])
     missing = [t for t in tools if not t["available"]]
@@ -434,3 +520,712 @@ def audits_saved_delete(snapshot_id):
         return jsonify({"deleted": snapshot_id})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+# ── Phase 2.5: Update & version routes ─────────────────────────
+
+
+@audit_bp.route("/audit/update-tool", methods=["POST"])
+@run_tracked("install", "install:update")
+def audit_update_tool():
+    """Update an installed tool to its latest version.
+
+    Request body:
+        {"tool": "ruff", "sudo_password": "..."}
+
+    Response:
+        {"ok": true, "from_version": "...", "to_version": "..."}
+    """
+    from src.core.services.tool_install import update_tool
+
+    body = request.get_json(silent=True) or {}
+    tool = body.get("tool", "").strip().lower()
+    if not tool:
+        return jsonify({"error": "No tool specified"}), 400
+
+    result = update_tool(
+        tool,
+        sudo_password=body.get("sudo_password", ""),
+    )
+
+    # On success, bust server-side caches
+    if result.get("ok"):
+        try:
+            root = Path(current_app.config["PROJECT_ROOT"])
+            devops_cache.invalidate_scope(root, "integrations")
+            devops_cache.invalidate_scope(root, "devops")
+            devops_cache.invalidate(root, "wiz:detect")
+            current_app.logger.info("Cache busted after updating %s", tool)
+        except Exception as exc:
+            current_app.logger.warning("Failed to bust cache after update: %s", exc)
+
+    status = 200 if result.get("ok") else 400
+    return jsonify(result), status
+
+
+@audit_bp.route("/audit/check-updates", methods=["POST"])
+def audit_check_updates():
+    """Check installed tools for version info.
+
+    Request body (optional):
+        {"tools": ["ruff", "docker"]}
+
+    Response:
+        {"updates": [{"tool": "ruff", "installed": true, "version": "0.5.1", ...}]}
+    """
+    from src.core.services.tool_install import check_updates
+
+    body = request.get_json(silent=True) or {}
+    tools = body.get("tools")  # None = check all
+
+    return jsonify({"updates": check_updates(tools)})
+
+
+@audit_bp.route("/audit/tool-version", methods=["POST"])
+def audit_tool_version():
+    """Get version of a single installed tool.
+
+    Request body:
+        {"tool": "ruff"}
+
+    Response:
+        {"tool": "ruff", "version": "0.5.1"}
+    """
+    from src.core.services.tool_install import get_tool_version
+
+    body = request.get_json(silent=True) or {}
+    tool = body.get("tool", "").strip().lower()
+    if not tool:
+        return jsonify({"error": "No tool specified"}), 400
+
+    version = get_tool_version(tool)
+    return jsonify({"tool": tool, "version": version})
+
+
+# ── Phase 3: Plan execution with SSE streaming ────────────────
+
+
+@audit_bp.route("/audit/install-plan/execute", methods=["POST"])
+@run_tracked("install", "install:execute-plan")
+def audit_execute_plan():
+    """Execute an install plan with SSE streaming.
+
+    Resolves a plan for the requested tool, then executes each step
+    in order, streaming progress events to the client.
+
+    Request body:
+        {"tool": "cargo-audit", "sudo_password": "...", "answers": {}}
+
+    SSE events:
+        {"type": "step_start", "step": 0, "label": "..."}
+        {"type": "log", "step": 0, "line": "..."}
+        {"type": "step_done", "step": 0}
+        {"type": "step_failed", "step": 0, "error": "..."}
+        {"type": "done", "ok": true, "message": "..."}
+        {"type": "done", "ok": false, "error": "..."}
+    """
+    import json as _json
+    import os as _os
+
+    from flask import Response, stream_with_context
+
+    from src.core.services.audit.l0_detection import _detect_os
+    from src.core.services.tool_install import (
+        execute_plan_dag,
+        execute_plan_step,
+        resolve_install_plan,
+        resolve_install_plan_with_choices,
+        save_plan_state,
+    )
+
+    body = request.get_json(silent=True) or {}
+    tool = body.get("tool", "").strip().lower()
+    sudo_password = body.get("sudo_password", "")
+    answers = body.get("answers", {})
+
+    if not tool:
+        return jsonify({"error": "No tool specified"}), 400
+
+    # Resolve the plan — use answers if provided (Phase 4)
+    system_profile = _detect_os()
+    if answers:
+        plan = resolve_install_plan_with_choices(tool, system_profile, answers)
+    else:
+        plan = resolve_install_plan(tool, system_profile)
+
+    if plan.get("error"):
+        return jsonify({"ok": False, "error": plan["error"]}), 400
+
+    if plan.get("already_installed"):
+        return jsonify({
+            "ok": True,
+            "already_installed": True,
+            "message": f"{tool} is already installed",
+        })
+
+    steps = plan.get("steps", [])
+
+    # Generate plan_id for state tracking
+    import uuid as _uuid_mod
+    plan_id = str(_uuid_mod.uuid4())
+
+    def _sse(data: dict) -> str:
+        return f"data: {_json.dumps(data)}\n\n"
+
+    # ── Detect DAG-shaped plans ──────────────────────────────
+    is_dag = any(step.get("depends_on") for step in steps)
+
+    if is_dag:
+        # DAG execution: bridge callback → SSE via queue
+        import queue
+        import threading
+
+        # Attach plan_id to plan dict for DAG executor's state saves
+        plan["plan_id"] = plan_id
+
+        # Build step index by id for progress events
+        step_idx = {s.get("id", f"step_{i}"): i for i, s in enumerate(steps)}
+
+        event_queue: queue.Queue = queue.Queue()
+
+        def _on_progress(step_id: str, status: str) -> None:
+            """DAG executor callback → push event to queue."""
+            idx = step_idx.get(step_id, 0)
+            if status == "started":
+                event_queue.put({
+                    "type": "step_start", "step": idx,
+                    "label": steps[idx].get("label", step_id) if idx < len(steps) else step_id,
+                    "total": len(steps),
+                })
+            elif status == "done":
+                event_queue.put({"type": "step_done", "step": idx})
+            elif status == "failed":
+                event_queue.put({
+                    "type": "step_failed", "step": idx,
+                    "error": f"Step '{step_id}' failed",
+                })
+            elif status == "skipped":
+                event_queue.put({
+                    "type": "step_done", "step": idx,
+                    "skipped": True, "message": "Dependency failed",
+                })
+
+        def _run_dag() -> None:
+            """Execute DAG in background thread."""
+            try:
+                result = execute_plan_dag(
+                    plan, sudo_password=sudo_password,
+                    on_progress=_on_progress,
+                )
+                event_queue.put(("__done__", result))
+            except Exception as exc:
+                event_queue.put(("__done__", {
+                    "ok": False, "error": str(exc),
+                }))
+
+        thread = threading.Thread(target=_run_dag, daemon=True)
+        thread.start()
+
+        def generate_dag():
+            while True:
+                event = event_queue.get()
+                if isinstance(event, tuple) and event[0] == "__done__":
+                    # Final result from DAG executor
+                    result = event[1]
+                    # Bust caches
+                    try:
+                        root = Path(current_app.config["PROJECT_ROOT"])
+                        devops_cache.invalidate_scope(root, "integrations")
+                        devops_cache.invalidate_scope(root, "devops")
+                        devops_cache.invalidate(root, "wiz:detect")
+                    except Exception:
+                        pass
+                    yield _sse({
+                        "type": "done",
+                        "ok": result.get("ok", False),
+                        "plan_id": plan_id,
+                        "message": f"{tool} installed successfully"
+                            if result.get("ok") else result.get("error", "DAG execution failed"),
+                        "paused": result.get("paused", False),
+                        "pause_reason": result.get("pause_reason"),
+                    })
+                    return
+                else:
+                    yield _sse(event)
+
+        return Response(
+            stream_with_context(generate_dag()),
+            mimetype="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+
+    # ── Linear execution (original path) ─────────────────────
+    def generate():
+        env_overrides: dict[str, str] = {}
+        post_env = plan.get("post_env", {})
+        completed_steps: list[int] = []
+
+        for i, step in enumerate(steps):
+            step_label = step.get("label", f"Step {i + 1}")
+            step_type = step.get("type", "tool")
+
+            yield _sse({
+                "type": "step_start",
+                "step": i,
+                "label": step_label,
+                "total": len(steps),
+            })
+
+            # Accumulate env overrides from post_env after tool steps
+            if step_type == "tool" and post_env:
+                for key, val in post_env.items():
+                    env_overrides[key] = _os.path.expandvars(val)
+
+            try:
+                result = execute_plan_step(
+                    step,
+                    sudo_password=sudo_password,
+                    env_overrides=env_overrides if env_overrides else None,
+                )
+            except Exception as exc:
+                # Save interrupted state
+                try:
+                    save_plan_state({
+                        "plan_id": plan_id,
+                        "tool": tool,
+                        "status": "failed",
+                        "current_step": i,
+                        "completed_steps": completed_steps,
+                        "steps": [dict(s) for s in steps],
+                    })
+                except Exception:
+                    pass
+                yield _sse({
+                    "type": "step_failed",
+                    "step": i,
+                    "error": str(exc),
+                })
+                yield _sse({
+                    "type": "done",
+                    "ok": False,
+                    "plan_id": plan_id,
+                    "error": f"Step {i + 1} crashed: {exc}",
+                })
+                return
+
+            # Emit stdout as log lines
+            stdout = result.get("stdout", "")
+            if stdout:
+                for line in stdout.splitlines():
+                    yield _sse({"type": "log", "step": i, "line": line})
+
+            stderr_out = result.get("stderr", "")
+            if stderr_out and not result.get("ok"):
+                for line in stderr_out.splitlines()[-10:]:
+                    yield _sse({"type": "log", "step": i, "line": line})
+
+            if result.get("skipped"):
+                completed_steps.append(i)
+                yield _sse({
+                    "type": "step_done",
+                    "step": i,
+                    "skipped": True,
+                    "message": result.get("message", "Already satisfied"),
+                })
+                continue
+
+            if result.get("ok"):
+                completed_steps.append(i)
+                # Persist progress after each successful step
+                try:
+                    save_plan_state({
+                        "plan_id": plan_id,
+                        "tool": tool,
+                        "status": "running",
+                        "current_step": i,
+                        "completed_steps": completed_steps,
+                        "steps": [dict(s) for s in steps],
+                    })
+                except Exception:
+                    pass
+                yield _sse({
+                    "type": "step_done",
+                    "step": i,
+                    "elapsed_ms": result.get("elapsed_ms"),
+                })
+            else:
+                # Save failed state
+                try:
+                    save_plan_state({
+                        "plan_id": plan_id,
+                        "tool": tool,
+                        "status": "failed",
+                        "current_step": i,
+                        "completed_steps": completed_steps,
+                        "steps": [dict(s) for s in steps],
+                    })
+                except Exception:
+                    pass
+
+                # Check for sudo needed
+                if result.get("needs_sudo"):
+                    yield _sse({
+                        "type": "step_failed",
+                        "step": i,
+                        "error": result.get("error", "Sudo required"),
+                        "needs_sudo": True,
+                    })
+                    yield _sse({
+                        "type": "done",
+                        "ok": False,
+                        "plan_id": plan_id,
+                        "error": result.get("error", "Sudo required"),
+                        "needs_sudo": True,
+                    })
+                    return
+
+                yield _sse({
+                    "type": "step_failed",
+                    "step": i,
+                    "error": result.get("error", "Step failed"),
+                })
+                yield _sse({
+                    "type": "done",
+                    "ok": False,
+                    "plan_id": plan_id,
+                    "error": result.get("error", f"Step {i + 1} failed"),
+                    "step": i,
+                    "step_label": step_label,
+                })
+                return
+
+        # All steps done — mark plan complete and bust caches
+        try:
+            save_plan_state({
+                "plan_id": plan_id,
+                "tool": tool,
+                "status": "done",
+                "completed_steps": completed_steps,
+                "steps": [dict(s) for s in steps],
+            })
+        except Exception:
+            pass
+
+        try:
+            root = Path(current_app.config["PROJECT_ROOT"])
+            devops_cache.invalidate_scope(root, "integrations")
+            devops_cache.invalidate_scope(root, "devops")
+            devops_cache.invalidate(root, "wiz:detect")
+        except Exception:
+            pass
+
+        yield _sse({
+            "type": "done",
+            "ok": True,
+            "plan_id": plan_id,
+            "message": f"{tool} installed successfully",
+            "steps_completed": len(steps),
+        })
+
+    return Response(
+        stream_with_context(generate()),
+        mimetype="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+# ── Resumable Plans ────────────────────────────────────────────
+
+
+@audit_bp.route("/audit/install-plan/pending", methods=["GET"])
+def audit_pending_plans():
+    """Return a list of resumable (paused/failed) plans.
+
+    Response:
+        {"plans": [{"plan_id": "...", "tool": "...", "status": "failed",
+                     "completed_steps": [...], "steps": [...]}]}
+    """
+    from src.core.services.tool_install import list_pending_plans
+
+    plans = list_pending_plans()
+
+    # Return a shallow summary for each plan
+    summary = []
+    for p in plans:
+        summary.append({
+            "plan_id": p.get("plan_id", ""),
+            "tool": p.get("tool", ""),
+            "status": p.get("status", ""),
+            "completed_count": len(p.get("completed_steps", [])),
+            "total_steps": len(p.get("steps", [])),
+        })
+
+    return jsonify({"plans": summary})
+
+
+@audit_bp.route("/audit/install-plan/resume", methods=["POST"])
+def audit_resume_plan():
+    """Resume a paused or failed installation plan via SSE.
+
+    Request body:
+        {"plan_id": "abc123...", "sudo_password": "..."}
+
+    SSE events: same as /audit/install-plan/execute.
+    """
+    import json as _json
+    import os as _os
+
+    from flask import Response, stream_with_context
+
+    from src.core.services.tool_install import (
+        execute_plan_step,
+        resume_plan,
+        save_plan_state,
+    )
+
+    body = request.get_json(silent=True) or {}
+    plan_id = body.get("plan_id", "").strip()
+    sudo_password = body.get("sudo_password", "")
+
+    if not plan_id:
+        return jsonify({"error": "No plan_id specified"}), 400
+
+    # Resume — get remaining steps
+    plan = resume_plan(plan_id)
+    if plan.get("error"):
+        return jsonify({"ok": False, "error": plan["error"]}), 400
+
+    tool = plan.get("tool", "")
+    steps = plan.get("steps", [])
+    completed_count = plan.get("completed_count", 0)
+    original_total = plan.get("original_total", len(steps))
+
+    def _sse(data: dict) -> str:
+        return f"data: {_json.dumps(data)}\n\n"
+
+    def generate():
+        completed_steps: list[int] = list(range(completed_count))
+
+        for i, step in enumerate(steps):
+            step_index = completed_count + i
+            step_label = step.get("label", f"Step {step_index + 1}")
+
+            yield _sse({
+                "type": "step_start",
+                "step": i,
+                "label": step_label,
+                "total": len(steps),
+                "resumed_offset": completed_count,
+            })
+
+            try:
+                result = execute_plan_step(
+                    step,
+                    sudo_password=sudo_password,
+                )
+            except Exception as exc:
+                try:
+                    save_plan_state({
+                        "plan_id": plan_id,
+                        "tool": tool,
+                        "status": "failed",
+                        "current_step": step_index,
+                        "completed_steps": completed_steps,
+                        "steps": [dict(s) for s in steps],
+                    })
+                except Exception:
+                    pass
+                yield _sse({
+                    "type": "step_failed",
+                    "step": i,
+                    "error": str(exc),
+                })
+                yield _sse({
+                    "type": "done",
+                    "ok": False,
+                    "plan_id": plan_id,
+                    "error": f"Step {step_index + 1} crashed: {exc}",
+                })
+                return
+
+            # Emit stdout
+            stdout = result.get("stdout", "")
+            if stdout:
+                for line in stdout.splitlines():
+                    yield _sse({"type": "log", "step": i, "line": line})
+
+            stderr_out = result.get("stderr", "")
+            if stderr_out and not result.get("ok"):
+                for line in stderr_out.splitlines()[-10:]:
+                    yield _sse({"type": "log", "step": i, "line": line})
+
+            if result.get("skipped"):
+                completed_steps.append(step_index)
+                yield _sse({
+                    "type": "step_done",
+                    "step": i,
+                    "skipped": True,
+                    "message": result.get("message", "Already satisfied"),
+                })
+                continue
+
+            if result.get("ok"):
+                completed_steps.append(step_index)
+                try:
+                    save_plan_state({
+                        "plan_id": plan_id,
+                        "tool": tool,
+                        "status": "running",
+                        "current_step": step_index,
+                        "completed_steps": completed_steps,
+                        "steps": [dict(s) for s in steps],
+                    })
+                except Exception:
+                    pass
+                yield _sse({
+                    "type": "step_done",
+                    "step": i,
+                    "elapsed_ms": result.get("elapsed_ms"),
+                })
+            else:
+                try:
+                    save_plan_state({
+                        "plan_id": plan_id,
+                        "tool": tool,
+                        "status": "failed",
+                        "current_step": step_index,
+                        "completed_steps": completed_steps,
+                        "steps": [dict(s) for s in steps],
+                    })
+                except Exception:
+                    pass
+
+                if result.get("needs_sudo"):
+                    yield _sse({
+                        "type": "step_failed",
+                        "step": i,
+                        "error": result.get("error", "Sudo required"),
+                        "needs_sudo": True,
+                    })
+                    yield _sse({
+                        "type": "done",
+                        "ok": False,
+                        "plan_id": plan_id,
+                        "error": result.get("error", "Sudo required"),
+                        "needs_sudo": True,
+                    })
+                    return
+
+                yield _sse({
+                    "type": "step_failed",
+                    "step": i,
+                    "error": result.get("error", "Step failed"),
+                })
+                yield _sse({
+                    "type": "done",
+                    "ok": False,
+                    "plan_id": plan_id,
+                    "error": result.get("error", f"Step {step_index + 1} failed"),
+                    "step": i,
+                    "step_label": step_label,
+                })
+                return
+
+        # All steps done
+        try:
+            save_plan_state({
+                "plan_id": plan_id,
+                "tool": tool,
+                "status": "done",
+                "completed_steps": completed_steps,
+                "steps": [dict(s) for s in steps],
+            })
+        except Exception:
+            pass
+
+        try:
+            root = Path(current_app.config["PROJECT_ROOT"])
+            devops_cache.invalidate_scope(root, "integrations")
+            devops_cache.invalidate_scope(root, "devops")
+            devops_cache.invalidate(root, "wiz:detect")
+        except Exception:
+            pass
+
+        yield _sse({
+            "type": "done",
+            "ok": True,
+            "plan_id": plan_id,
+            "message": f"{tool} resumed and completed successfully",
+            "steps_completed": len(steps),
+        })
+
+    return Response(
+        stream_with_context(generate()),
+        mimetype="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+# ── Phase 7: Data Pack Status ──────────────────────────────────
+
+
+@audit_bp.route("/audit/data-status", methods=["POST"])
+def audit_data_status():
+    """Check freshness of a data pack.
+
+    Request body:
+        {"pack_id": "spacy-en-core-web-sm"}
+
+    Response:
+        {"stale": true, "schedule": "weekly", "age_seconds": 604900, ...}
+    """
+    from src.core.services.tool_install import check_data_freshness
+
+    body = request.get_json(silent=True) or {}
+    pack_id = body.get("pack_id", "").strip()
+    if not pack_id:
+        return jsonify({"error": "No pack_id specified"}), 400
+
+    result = check_data_freshness(pack_id)
+    return jsonify(result)
+
+
+@audit_bp.route("/audit/data-usage")
+def audit_data_usage():
+    """Report disk usage of all known data pack directories.
+
+    Response:
+        {"packs": [{"type": "spacy", "path": "...", "size_bytes": N, "size_human": "1.2G"}, ...]}
+    """
+    from src.core.services.tool_install import get_data_pack_usage
+
+    usage = get_data_pack_usage()
+    return jsonify({"packs": usage, "total": len(usage)})
+
+
+# ── Phase 8: Service Status ───────────────────────────────────
+
+
+@audit_bp.route("/audit/service-status", methods=["POST"])
+def audit_service_status():
+    """Query status of a system service.
+
+    Request body:
+        {"service": "docker"}
+
+    Response (systemd):
+        {"service": "docker", "init_system": "systemd", "active": true,
+         "state": "active", "sub_state": "running", "loaded": true}
+
+    Response (other/unknown init):
+        {"service": "docker", "init_system": "...", "active": null, "state": "unknown"}
+    """
+    from src.core.services.tool_install import get_service_status
+
+    body = request.get_json(silent=True) or {}
+    service = body.get("service", "").strip()
+    if not service:
+        return jsonify({"error": "No service specified"}), 400
+
+    result = get_service_status(service)
+    return jsonify(result)

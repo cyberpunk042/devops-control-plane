@@ -605,7 +605,7 @@
      * @param {string} containerId - DOM id to render into
      * @param {Function} [onInstalled] - Optional callback after successful install
      */
-    function renderMissingTools(missingTools, containerId, onInstalled) {
+    async function renderMissingTools(missingTools, containerId, onInstalled) {
         const el = document.getElementById(containerId);
         if (!el) return;
         if (!missingTools || missingTools.length === 0) {
@@ -614,6 +614,9 @@
             return;
         }
         el.style.display = 'block';
+
+        // Fetch pending plans to show resume buttons
+        var pending = await _fetchPendingPlans();
 
         let html = '<div class="missing-tools-banner">'
             + '<div class="missing-tools-header">'
@@ -627,9 +630,21 @@
             const dataAttr = ' data-tool-id="' + esc(tool.id) + '"'
                 + ' data-tool-label="' + esc(tool.label) + '"'
                 + ' data-needs-sudo="' + (tool.needs_sudo ? '1' : '0') + '"';
+
+            var pendingPlan = _getPendingPlanForTool(tool.id, pending);
+
             html += '<div class="missing-tool-item">'
-                + '<span class="missing-tool-label">' + esc(tool.label) + '</span>'
-                + '<button class="btn btn-sm btn-install-tool"'
+                + '<span class="missing-tool-label">' + esc(tool.label) + '</span>';
+
+            if (pendingPlan) {
+                html += '<button class="btn btn-sm" style="background:var(--warning,#e8a735);color:#000;margin-right:4px"'
+                    + ' data-plan-id="' + esc(pendingPlan.plan_id) + '"'
+                    + ' data-tool-label="' + esc(tool.label) + '"'
+                    + ' onclick="resumeToolFromBanner(this)">'
+                    + '🔄 Resume (' + pendingPlan.completed_count + '/' + pendingPlan.total_steps + ')</button>';
+            }
+
+            html += '<button class="btn btn-sm btn-install-tool"'
                 + dataAttr
                 + ' onclick="installToolFromBanner(this'
                 + (onInstalled ? ',true' : '') + ')">'
@@ -674,97 +689,60 @@
 
     /**
      * Install a tool via the banner install button.
-     * Handles sudo password prompt if needed.
+     * Delegates to the plan-based flow (Phase 3).
      */
     async function installToolFromBanner(btn, triggerRefresh) {
         const toolId = btn.dataset.toolId;
         const toolLabel = btn.dataset.toolLabel;
-        const needsSudo = btn.dataset.needsSudo === '1';
-
-        if (needsSudo) {
-            _showOpsModal({
-                type: 'install', toolId, toolLabel: toolLabel || toolId, needsSudo: true,
-                onSuccess: triggerRefresh ? () => _refreshAfterInstall() : null,
-            });
-            return;
-        }
 
         btn.disabled = true;
-        btn.textContent = '⏳ Installing...';
+        btn.textContent = '⏳ Loading…';
 
-        try {
-            const raw = await fetch('/api/audit/install-tool', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ tool: toolId, cli: toolId }),
-            });
-            const res = await raw.json();
-
-            if (res.ok || res.already_installed) {
+        installWithPlan(toolId, toolLabel || toolId, {
+            onComplete: function() {
                 btn.textContent = '✅ Installed';
                 btn.classList.add('btn-success');
-                toast(toolLabel + ' installed successfully!', 'success');
-                if (triggerRefresh) setTimeout(() => _refreshAfterInstall(), 1200);
-            } else if (res.missing_dependency) {
+                if (triggerRefresh) _refreshAfterInstall();
+            },
+        });
+
+        // Re-enable button after a short delay (modal takes over)
+        setTimeout(function() {
+            if (btn.textContent === '⏳ Loading…') {
                 btn.disabled = false;
                 btn.textContent = '📦 Install';
-                _showDepInstallModal(toolId, toolLabel || toolId, res.missing_dependency,
-                    triggerRefresh ? () => _refreshAfterInstall() : null);
-            } else if (res.remediation) {
-                btn.disabled = false;
-                btn.textContent = '📦 Install';
-                _showRemediationModal(toolId, toolLabel || toolId, res.remediation,
-                    triggerRefresh ? () => _refreshAfterInstall() : null, res.stderr);
-            } else if (res.needs_sudo) {
-                btn.disabled = false;
-                btn.textContent = '📦 Install';
-                _showOpsModal({
-                    type: 'install', toolId, toolLabel: toolLabel || toolId, needsSudo: true,
-                    onSuccess: triggerRefresh ? () => _refreshAfterInstall() : null,
-                });
-            } else {
-                btn.disabled = false;
-                btn.textContent = '📦 Retry';
-                // Show error in modal with stderr
-                var errBody = '<div style="font-size:0.85rem;color:var(--text-secondary);line-height:1.5">' +
-                    '<p><strong>Failed to install ' + esc(toolLabel) + '</strong></p>' +
-                    '<p style="margin-top:0.5rem">' + esc(res.error || 'Unknown error') + '</p>';
-                if (res.stderr) {
-                    errBody += '<pre style="margin-top:0.75rem;padding:0.5rem;background:var(--bg-inset);' +
-                        'border-radius:var(--radius-sm);font-size:0.72rem;max-height:200px;overflow:auto;' +
-                        'white-space:pre-wrap;word-break:break-word;color:var(--text-muted)">' +
-                        esc(res.stderr) + '</pre>';
-                }
-                errBody += '</div>';
-                modalOpen({
-                    title: '❌ Install Failed',
-                    size: 'narrow',
-                    body: errBody,
-                    footerButtons: [
-                        { label: 'Close', cls: 'btn-secondary', onclick: 'modalClose()' },
-                    ],
-                });
             }
-        } catch (err) {
-            btn.disabled = false;
-            btn.textContent = '📦 Retry';
-            modalOpen({
-                title: '❌ Install Error',
-                size: 'narrow',
-                body: '<p style="font-size:0.85rem;color:var(--text-secondary)">' +
-                    esc(err.message || 'Unknown error') + '</p>',
-                footerButtons: [
-                    { label: 'Close', cls: 'btn-secondary', onclick: 'modalClose()' },
-                ],
-            });
-        }
+        }, 3000);
     }
 
-    // ── Backwards-compatible wrapper ──
+    async function resumeToolFromBanner(btn) {
+        const planId = btn.dataset.planId;
+        const toolLabel = btn.dataset.toolLabel;
+
+        btn.disabled = true;
+        btn.textContent = '⏳ Loading…';
+
+        resumeWithPlan(planId, toolLabel, {
+            onComplete: function() {
+                btn.textContent = '✅ Done';
+                btn.classList.add('btn-success');
+                _refreshAfterInstall();
+            },
+        });
+
+        // Re-enable button after a short delay (modal takes over)
+        setTimeout(function() {
+            if (btn.textContent === '⏳ Loading…') {
+                btn.disabled = false;
+                btn.textContent = '🔄 Resume';
+            }
+        }, 3000);
+    }
+
+    // ── Backwards-compatible wrapper (used by 6+ integration templates) ──
     function _showSudoInstallModal(toolId, toolLabel, originBtn, triggerRefresh) {
-        _showOpsModal({
-            type: 'install', toolId, toolLabel: toolLabel || toolId, needsSudo: true,
-            onSuccess: triggerRefresh ? () => _refreshAfterInstall() : null,
+        installWithPlan(toolId, toolLabel || toolId, {
+            onComplete: triggerRefresh ? () => _refreshAfterInstall() : null,
         });
     }
 
@@ -801,579 +779,1222 @@
         console.warn('_showOpsModal: unknown type', config.type);
     }
 
-    // ── Install Modal (sudo password only when needed) ──────────────
+    // ── Install Modal — delegates to plan-based flow (Phase 3) ────
 
     function _showInstallModal(config) {
-        const { toolId, toolLabel, needsSudo } = config;
+        const { toolId, toolLabel } = config;
 
-        if (!needsSudo) {
-            // No sudo needed — install directly, no modal
-            _doDirectInstall(toolId, toolLabel, config.onSuccess);
-            return;
-        }
-
-        // Sudo needed — show password modal
-        document.getElementById('ops-modal')?.remove();
-
-        const modal = document.createElement('div');
-        modal.id = 'ops-modal';
-        modal.className = 'vault-modal-overlay';
-        modal.innerHTML = `<div class="vault-modal" style="max-width:420px">
-            <div class="vault-modal-header">
-                <span class="vault-modal-title">🔒 Install ${esc(toolLabel)}</span>
-                <button class="vault-modal-close" onclick="document.getElementById('ops-modal')?.remove()">✕</button>
-            </div>
-            <div class="vault-modal-body">
-                <div style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:var(--space-md)">
-                    <strong>${esc(toolLabel)}</strong> requires sudo privileges to install.
-                </div>
-                <label style="font-size:0.75rem;font-weight:600;display:block;margin-bottom:4px">🔑 Sudo password:</label>
-                <input id="ops-modal-pw" type="password" placeholder="Enter your password"
-                       style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg-primary);color:var(--text-primary);font-size:0.85rem;box-sizing:border-box"
-                       onkeydown="if(event.key==='Enter'){document.getElementById('ops-modal-action').click()}" />
-                <div id="ops-modal-log" style="display:none;margin-top:var(--space-sm);font-size:0.72rem;padding:8px;border-radius:var(--radius-sm);background:var(--bg-inset);max-height:100px;overflow:auto;font-family:var(--font-mono,monospace)"></div>
-                <div style="display:flex;gap:var(--space-sm);justify-content:flex-end;margin-top:var(--space-md)">
-                    <button class="btn btn-sm btn-secondary" onclick="document.getElementById('ops-modal')?.remove()">Cancel</button>
-                    <button class="btn btn-sm btn-primary" id="ops-modal-action" style="min-width:100px">📦 Install</button>
-                </div>
-            </div>
-        </div>`;
-        document.body.appendChild(modal);
-        modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
-        setTimeout(() => document.getElementById('ops-modal-pw')?.focus(), 100);
-
-        // Wire install button
-        document.getElementById('ops-modal-action').addEventListener('click', () => {
-            _doSudoInstallAction(toolId, toolLabel, config.onSuccess);
+        installWithPlan(toolId, toolLabel || toolId, {
+            onComplete: config.onSuccess || null,
         });
     }
 
-    async function _doDirectInstall(toolId, toolLabel, onSuccess) {
-        toast('⏳ Installing ' + toolLabel + '…', 'info');
+
+    // (Legacy install functions removed — Phase 3 rewired all callers
+    //  to installWithPlan(). See git history for _doDirectInstall,
+    //  _showRemediationModal, _showDepInstallModal, _doSudoInstallAction.)
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Phase 3 — Plan-based step modal (coexists with old flow)
+    // ═══════════════════════════════════════════════════════════════
+
+    // ── Inject step-modal CSS ────────────────────────────────────
+    (function _injectStepModalCSS() {
+        if (document.getElementById('step-modal-css')) return;
+        var style = document.createElement('style');
+        style.id = 'step-modal-css';
+        style.textContent = [
+            '.step-modal-overlay{position:fixed;inset:0;z-index:10000;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.55);backdrop-filter:blur(4px);animation:fadeIn .15s ease}',
+            '.step-modal-box{background:var(--bg-primary);border:1px solid var(--border);border-radius:var(--radius-md,8px);max-width:520px;width:90%;max-height:80vh;display:flex;flex-direction:column;box-shadow:0 16px 48px rgba(0,0,0,.4);animation:slideUp .2s ease}',
+            '@keyframes slideUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}',
+            '.step-modal-header{display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--border)}',
+            '.step-modal-header h3{margin:0;font-size:0.95rem;font-weight:700}',
+            '.step-modal-close{background:none;border:none;color:var(--text-muted);font-size:1.1rem;cursor:pointer;padding:4px 8px;border-radius:4px}',
+            '.step-modal-close:hover{color:var(--text-primary);background:var(--bg-hover)}',
+            '.step-modal-body{padding:16px 18px;overflow-y:auto;flex:1}',
+            '.step-modal-footer{display:flex;gap:var(--space-sm,8px);justify-content:flex-end;padding:12px 18px;border-top:1px solid var(--border)}',
+            '.step-list{display:flex;flex-direction:column;gap:4px;margin-bottom:12px}',
+            '.step-row{display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:var(--radius-sm,4px);background:var(--bg-inset);font-size:0.82rem;transition:background .2s,opacity .2s,box-shadow .2s}',
+            '.step-row[data-status="running"]{background:var(--bg-hover);box-shadow:inset 3px 0 0 var(--accent)}',
+            '.step-row[data-status="done"]{opacity:.65}',
+            '.step-row[data-status="skipped"]{opacity:.5}',
+            '.step-row[data-status="failed"]{background:hsl(0 40% 15%);box-shadow:inset 3px 0 0 hsl(0 70% 50%)}',
+            '.step-icon{width:20px;text-align:center;flex-shrink:0;font-size:0.9rem}',
+            '.step-label{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+            '.step-badge{font-size:0.62rem;padding:1px 6px;border-radius:8px;margin-left:auto;flex-shrink:0;font-weight:600;text-transform:uppercase;letter-spacing:.03em}',
+            '.step-badge.sudo{background:hsl(40 60% 20%);color:hsl(40 90% 70%)}',
+            '.step-badge.risk-medium{background:hsl(40 60% 20%);color:hsl(40 90% 70%)}',
+            '.step-badge.risk-high{background:hsl(0 60% 20%);color:hsl(0 90% 70%)}',
+            '.step-risk-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}',
+            '.step-risk-dot.low{background:hsl(140 60% 45%)}',
+            '.step-risk-dot.medium{background:hsl(40 90% 55%)}',
+            '.step-risk-dot.high{background:hsl(0 70% 50%)}',
+            '.step-elapsed{font-size:0.62rem;color:var(--text-muted);margin-left:4px;flex-shrink:0}',
+            '.step-log-area{font-family:var(--font-mono,monospace);font-size:0.7rem;padding:8px 10px;border-radius:var(--radius-sm,4px);background:var(--bg-inset);max-height:140px;overflow-y:auto;white-space:pre-wrap;word-break:break-all;color:var(--text-muted);line-height:1.45}',
+            '.step-sudo-row{margin-bottom:10px}',
+            '.step-sudo-row input{width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius-sm,4px);background:var(--bg-inset);color:var(--text-primary);font-size:0.85rem;box-sizing:border-box}',
+            '.step-sudo-row input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 2px color-mix(in srgb, var(--accent) 20%, transparent)}',
+            '.risk-banner{padding:8px 12px;border-radius:var(--radius-sm,4px);margin-bottom:12px;font-size:0.8rem}',
+            '.risk-banner.risk-medium{background:hsl(40 60% 15%);border-left:3px solid hsl(40 90% 60%);color:hsl(40 90% 80%)}',
+            '.risk-banner.risk-high{background:hsl(0 60% 15%);border-left:3px solid hsl(0 90% 60%);color:hsl(0 90% 80%)}',
+            '.confirm-gate{padding:12px 14px;border-radius:var(--radius-sm,4px);margin-bottom:12px;font-size:0.8rem}',
+            '.confirm-gate.gate-single{background:hsl(40 50% 12%);border:1px solid hsl(40 60% 30%)}',
+            '.confirm-gate.gate-double{background:hsl(0 50% 12%);border:1px solid hsl(0 60% 30%)}',
+            '.confirm-gate label{display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:600}',
+            '.confirm-gate input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px}',
+            '.confirm-gate input[type="text"]{width:100%;padding:6px 10px;margin-top:8px;border:1px solid var(--border);border-radius:var(--radius-sm,4px);background:var(--bg-inset);color:var(--text-primary);font-size:0.82rem;box-sizing:border-box}',
+            '.confirm-gate .gate-steps{font-size:0.72rem;color:var(--text-muted);margin-top:6px;padding-left:4px}',
+            '.restart-toast{position:fixed;bottom:24px;right:24px;z-index:10100;background:hsl(220 60% 18%);border:1px solid hsl(220 60% 35%);border-radius:var(--radius-md,8px);padding:14px 18px;font-size:0.82rem;color:hsl(220 90% 85%);box-shadow:0 8px 32px rgba(0,0,0,.4);animation:slideUp .25s ease;max-width:320px}',
+            '.restart-toast .restart-icon{font-size:1.1rem;margin-right:6px}',
+            '.restart-toast .restart-dismiss{background:none;border:none;color:var(--text-muted);cursor:pointer;float:right;font-size:0.9rem;padding:0 4px}',
+            '.restart-toast .restart-dismiss:hover{color:var(--text-primary)}',
+            '.restart-toast p{margin:4px 0 0;font-size:0.74rem;color:var(--text-muted)}',
+            '.step-progress{height:3px;background:var(--bg-hover);border-radius:2px;margin-top:4px;overflow:hidden;display:none}',
+            '.step-progress-bar{height:100%;background:linear-gradient(90deg,var(--accent),hsl(200 90% 55%));border-radius:2px;transition:width .3s ease;width:0%}',
+        ].join('\n');
+        document.head.appendChild(style);
+    })();
+
+    // ── streamSSE — unified SSE reader ───────────────────────────
+    /**
+     * Stream SSE events from a POST endpoint.
+     *
+     * @param {string} url       POST endpoint URL
+     * @param {Object} body      Request body (JSON)
+     * @param {Object} callbacks Event handlers:
+     *   onLog(line)           — log output line
+     *   onStepStart({step, label, total}) — step begins
+     *   onStepDone({step, skipped, elapsed_ms}) — step finished
+     *   onStepFailed({step, error, needs_sudo}) — step failed
+     *   onDone({ok, message, error}) — plan finished
+     *   onError(errorString)  — network/parse error
+     * @returns {Promise<{ok: boolean}>}
+     */
+    async function streamSSE(url, body, callbacks) {
+        var resp;
         try {
-            const raw = await fetch('/api/audit/install-tool', {
+            resp = await fetch(url, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ tool: toolId, cli: toolId }),
+                body: JSON.stringify(body),
             });
-            const res = await raw.json();
-
-            if (res.ok || res.already_installed) {
-                toast('✅ ' + (res.message || toolLabel + ' installed!'), 'success');
-                if (onSuccess) setTimeout(onSuccess, 500);
-            } else if (res.missing_dependency) {
-                _showDepInstallModal(toolId, toolLabel, res.missing_dependency, onSuccess);
-            } else if (res.remediation) {
-                _showRemediationModal(toolId, toolLabel, res.remediation, onSuccess, res.stderr);
-            } else if (res.needs_sudo) {
-                _showInstallModal({ toolId, toolLabel, onSuccess, _forceSudo: true });
-            } else {
-                // No remediation — show raw error in modal
-                var errBody = '<div style="font-size:0.85rem;color:var(--text-secondary);line-height:1.5">' +
-                    '<p><strong>Failed to install ' + esc(toolLabel) + '</strong></p>' +
-                    '<p style="margin-top:0.5rem">' + esc(res.error || 'Unknown error') + '</p>';
-                if (res.stderr) {
-                    errBody += '<pre style="margin-top:0.75rem;padding:0.5rem;background:var(--bg-inset);' +
-                        'border-radius:var(--radius-sm);font-size:0.72rem;max-height:200px;overflow:auto;' +
-                        'white-space:pre-wrap;word-break:break-word;color:var(--text-muted)">' +
-                        esc(res.stderr) + '</pre>';
-                }
-                errBody += '</div>';
-                modalOpen({
-                    title: '❌ Install Failed',
-                    size: 'narrow',
-                    body: errBody,
-                    footerButtons: [
-                        { label: 'Close', cls: 'btn-secondary', onclick: 'modalClose()' },
-                    ],
-                });
-            }
-        } catch (err) {
-            modalOpen({
-                title: '❌ Install Error',
-                size: 'narrow',
-                body: '<p style="font-size:0.85rem;color:var(--text-secondary)">' +
-                    esc(err.message || 'Unknown error') + '</p>',
-                footerButtons: [
-                    { label: 'Close', cls: 'btn-secondary', onclick: 'modalClose()' },
-                ],
-            });
-        }
-    }
-
-    /**
-     * Show remediation modal with multiple actionable options (like gh auth).
-     * Each option is a clickable panel that executes a fix for the failed install.
-     */
-    function _showRemediationModal(toolId, toolLabel, remediation, onSuccess, stderr) {
-        var cols = remediation.options.length;
-        var gridCols = cols >= 3 ? '1fr 1fr 1fr' : cols === 2 ? '1fr 1fr' : '1fr';
-
-        // Build option grid
-        var optionsHtml = '<div style="display:grid;grid-template-columns:' + gridCols +
-            ';gap:var(--space-sm);margin-bottom:var(--space-md)">';
-        for (var i = 0; i < remediation.options.length; i++) {
-            var opt = remediation.options[i];
-            var isFirst = (i === 0);
-            var borderColor = isFirst ? 'var(--accent)' : 'var(--border)';
-            var bg = isFirst
-                ? 'color-mix(in srgb, var(--accent) 8%, var(--bg-primary))'
-                : 'var(--bg-primary)';
-            optionsHtml += '<button class="btn btn-sm" id="rem-opt-' + i + '"' +
-                ' style="padding:10px;display:flex;flex-direction:column;align-items:center;' +
-                'gap:3px;border:2px solid ' + borderColor + ';background:' + bg + ';cursor:pointer"' +
-                ' onclick="_remSelectPath(' + i + ')">' +
-                '<span style="font-size:1.2rem">' + (opt.icon || '📦') + '</span>' +
-                '<strong style="font-size:0.74rem">' + esc(opt.label) + '</strong>' +
-                (isFirst ? '<span style="font-size:0.62rem;color:var(--text-muted)">Recommended</span>' : '') +
-                '</button>';
-        }
-        optionsHtml += '</div>';
-
-        // Build per-option panels
-        var panelsHtml = '';
-        for (var i = 0; i < remediation.options.length; i++) {
-            var opt = remediation.options[i];
-            var display = (i === 0) ? 'block' : 'none';
-            panelsHtml += '<div id="rem-panel-' + i + '" style="display:' + display + '">' +
-                '<div style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:var(--space-sm)">' +
-                esc(opt.description) + '</div>' +
-                '<button class="btn btn-sm btn-primary" id="rem-action-' + i + '" ' +
-                'style="width:100%;padding:10px" ' +
-                'onclick="_remExecute(' + i + ')">' +
-                (opt.icon || '📦') + ' ' + esc(opt.label) + '</button></div>';
+        } catch (networkErr) {
+            if (callbacks.onError) callbacks.onError('Network error: ' + networkErr.message);
+            return { ok: false };
         }
 
-        var stderrHtml = '';
-        if (stderr) {
-            stderrHtml = '<pre style="margin-top:0.5rem;margin-bottom:var(--space-md);padding:0.5rem;background:var(--bg-inset);' +
-                'border-radius:var(--radius-sm);font-size:0.72rem;max-height:150px;overflow:auto;' +
-                'white-space:pre-wrap;word-break:break-word;color:var(--text-muted)">' +
-                esc(stderr) + '</pre>';
-        }
-        var body = '<div style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:var(--space-md)">' +
-            esc(remediation.reason) + '</div>' + stderrHtml +
-            optionsHtml + panelsHtml +
-            '<div id="rem-status" style="display:none;margin-top:var(--space-md);padding:12px;' +
-            'border-radius:var(--radius-sm);background:var(--bg-inset);font-size:0.78rem;text-align:center"></div>';
-
-        modalOpen({ title: '🔧 Install Options — ' + toolLabel, size: 'medium', body: body });
-
-        // Store state for handlers
-        window._remState = {
-            toolId: toolId,
-            toolLabel: toolLabel,
-            remediation: remediation,
-            onSuccess: onSuccess,
-            selectedPath: 0,
-        };
-
-        // Path selector
-        window._remSelectPath = function(idx) {
-            var opts = window._remState.remediation.options;
-            for (var j = 0; j < opts.length; j++) {
-                var btn = document.getElementById('rem-opt-' + j);
-                var panel = document.getElementById('rem-panel-' + j);
-                if (j === idx) {
-                    if (btn) { btn.style.borderColor = 'var(--accent)'; btn.style.background = 'color-mix(in srgb, var(--accent) 8%, var(--bg-primary))'; }
-                    if (panel) panel.style.display = 'block';
-                } else {
-                    if (btn) { btn.style.borderColor = 'var(--border)'; btn.style.background = 'var(--bg-primary)'; }
-                    if (panel) panel.style.display = 'none';
-                }
-            }
-            window._remState.selectedPath = idx;
-        };
-
-        // Show a modal for missing system dependencies (stacked on top)
-        function _showDepsModal(missingPkgs, onSuccess) {
-            var pkgList = missingPkgs.map(function(p) { return '<code>' + esc(p) + '</code>'; }).join(', ');
-
-            var overlay = document.createElement('div');
-            overlay.className = 'modal-overlay';
-            overlay.id = 'deps-modal-overlay';
-            overlay.style.zIndex = '10001';
-            overlay.innerHTML =
-                '<div class="modal-box">' +
-                '<div class="modal-header">' +
-                '<span class="modal-title">📦 Missing System Dependencies</span>' +
-                '<button class="modal-close" onclick="document.getElementById(\'deps-modal-overlay\').remove()" title="Close">✕</button>' +
-                '</div>' +
-                '<div class="modal-body">' +
-                '<div style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:var(--space-md)">' +
-                'The following system packages are required but not installed:</div>' +
-                '<div style="font-size:0.9rem;font-weight:600;margin-bottom:var(--space-md)">' + pkgList + '</div>' +
-                '<label style="font-size:0.78rem;color:var(--text-muted);display:block;margin-bottom:4px">sudo password</label>' +
-                '<input id="deps-sudo-pw" type="password" autocomplete="off" ' +
-                'style="width:100%;padding:8px;border:1px solid var(--border);border-radius:var(--radius-sm);' +
-                'background:var(--bg-inset);color:var(--text-primary);font-size:0.85rem;margin-bottom:var(--space-md);' +
-                'box-sizing:border-box" />' +
-                '<div id="deps-status" style="display:none;margin-bottom:var(--space-md);padding:6px;' +
-                'border-radius:var(--radius-sm);background:var(--bg-inset);font-size:0.78rem;text-align:left"></div>' +
-                '<button id="deps-install-btn" onclick="_depsInstall()" ' +
-                'style="width:100%;padding:10px;border-radius:var(--radius-sm);background:var(--accent);' +
-                'color:#fff;border:none;cursor:pointer;font-weight:600;font-size:0.85rem">' +
-                '🔒 Install</button>' +
-                '</div></div>';
-
-            overlay.addEventListener('click', function(e) {
-                if (e.target === overlay) overlay.remove();
-            });
-
-            document.body.appendChild(overlay);
-            setTimeout(function() {
-                var pwField = document.getElementById('deps-sudo-pw');
-                if (pwField) pwField.focus();
-            }, 100);
-
-            window._depsInstallPkgs = missingPkgs;
-            window._depsOnSuccess = onSuccess;
-        }
-
-        window._depsInstall = async function() {
-            var pkgs = window._depsInstallPkgs;
-            var onSuccess = window._depsOnSuccess;
-            var btn = document.getElementById('deps-install-btn');
-            var statusEl = document.getElementById('deps-status');
-            var pwField = document.getElementById('deps-sudo-pw');
-            var pw = pwField ? pwField.value : '';
-
-            if (!pw) {
-                if (pwField) { pwField.style.borderColor = 'var(--danger)'; pwField.focus(); }
-                return;
-            }
-
-            if (btn) { btn.disabled = true; btn.textContent = '⏳ Installing…'; }
-            if (statusEl) {
-                statusEl.style.display = 'block';
-                statusEl.innerHTML = '<div id="deps-label" style="font-size:0.72rem;font-weight:600;margin-bottom:4px">⏳ Installing packages…</div>' +
-                    '<pre id="deps-log" style="margin:0;padding:6px;background:var(--bg-inset);border-radius:var(--radius-sm);' +
-                    'font-size:0.68rem;max-height:180px;overflow:auto;white-space:pre-wrap;word-break:break-word;' +
-                    'color:var(--text-muted);font-family:var(--font-mono,monospace)"></pre>';
-            }
-            var logEl = document.getElementById('deps-log');
-
+        if (!resp.ok) {
+            // Try to parse error from JSON body
             try {
-                var res = await fetch('/api/audit/remediate', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        tool: 'system-deps',
-                        cli: 'apt-get',
-                        override_command: ['apt-get', 'install', '-y'].concat(pkgs),
-                        sudo_password: pw,
-                    }),
-                });
-
-                var reader = res.body.getReader();
-                var decoder = new TextDecoder();
-                var result = { ok: false };
-                var buf = '';
-
-                while (true) {
-                    var chunk = await reader.read();
-                    if (chunk.done) break;
-                    buf += decoder.decode(chunk.value, { stream: true });
-                    var lines = buf.split('\n');
-                    buf = lines.pop() || '';
-                    for (var i = 0; i < lines.length; i++) {
-                        var ln = lines[i];
-                        if (!ln.startsWith('data: ')) continue;
-                        try {
-                            var evt = JSON.parse(ln.slice(6));
-                            if (evt.line !== undefined && logEl) {
-                                logEl.textContent += evt.line + '\n';
-                                logEl.scrollTop = logEl.scrollHeight;
-                            }
-                            if (evt.done) result = evt;
-                        } catch (_) {}
-                    }
-                }
-
-                var labelEl = document.getElementById('deps-label');
-                if (result.ok) {
-                    if (labelEl) labelEl.innerHTML = '✅ Packages installed!';
-                    toast('✅ System packages installed', 'success');
-                    setTimeout(function() {
-                        var depsOverlay = document.getElementById('deps-modal-overlay');
-                        if (depsOverlay) depsOverlay.remove();
-                        if (onSuccess) onSuccess();
-                    }, 1000);
-                } else {
-                    if (labelEl) labelEl.innerHTML = '❌ Failed (exit ' + (result.exit_code || '?') + ')';
-                    if (btn) { btn.disabled = false; btn.textContent = '🔄 Retry'; }
-                }
-            } catch (err) {
-                if (statusEl) statusEl.textContent = '❌ ' + err.message;
-                if (btn) { btn.disabled = false; btn.textContent = '🔄 Retry'; }
+                var errBody = await resp.json();
+                if (callbacks.onError) callbacks.onError(errBody.error || 'Request failed: ' + resp.status);
+            } catch (_) {
+                if (callbacks.onError) callbacks.onError('Request failed: ' + resp.status);
             }
-        };
+            return { ok: false };
+        }
 
-        // Execute the selected remediation option
-        window._remExecute = async function(idx) {
-            var opt = window._remState.remediation.options[idx];
-            var st = window._remState;
-            var statusEl = document.getElementById('rem-status');
-            var actionBtn = document.getElementById('rem-action-' + idx);
+        var reader = resp.body.getReader();
+        var decoder = new TextDecoder();
+        var buffer = '';
+        var finalResult = { ok: false };
 
-            // ── Check system_deps before running ──
-            if (opt.system_deps && opt.system_deps.length > 0) {
-                var depRes = await fetch('/api/audit/check-deps', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ packages: opt.system_deps }),
-                });
-                var depData = await depRes.json();
-                if (depData.missing && depData.missing.length > 0) {
-                    // Show deps modal on top
-                    _showDepsModal(depData.missing, function() {
-                        // After deps installed, retry the original option
-                        window._remExecute(idx);
-                    });
-                    return;
-                }
-            }
+        try {
+            while (true) {
+                var chunk = await reader.read();
+                if (chunk.done) break;
 
-            if (actionBtn) { actionBtn.disabled = true; actionBtn.textContent = '⏳ Working…'; }
-            if (statusEl) { statusEl.style.display = 'block'; statusEl.textContent = ''; statusEl.style.textAlign = 'left'; }
+                buffer += decoder.decode(chunk.value, { stream: true });
+                var lines = buffer.split('\n');
+                buffer = lines.pop() || '';
 
-            // Helper: stream a command and show lines in statusEl
-            async function streamCommand(command, label) {
-                // Create label + log area (only if not already present)
-                var logEl = document.getElementById('rem-log');
-                if (!logEl && statusEl) {
-                    statusEl.innerHTML = '<div id="rem-label" style="font-size:0.72rem;font-weight:600;margin-bottom:4px"></div>' +
-                        '<pre id="rem-log" style="margin:0;padding:6px;background:var(--bg-inset);border-radius:var(--radius-sm);' +
-                        'font-size:0.68rem;max-height:180px;overflow:auto;white-space:pre-wrap;word-break:break-word;' +
-                        'color:var(--text-muted);font-family:var(--font-mono,monospace)"></pre>';
-                    logEl = document.getElementById('rem-log');
-                }
-                var labelEl = document.getElementById('rem-label');
-                if (labelEl) labelEl.innerHTML = '⏳ ' + esc(label);
-
-
-                var res = await fetch('/api/audit/remediate', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        tool: st.toolId,
-                        cli: st.toolId,
-                        override_command: command,
-                    }),
-                });
-
-                var reader = res.body.getReader();
-                var decoder = new TextDecoder();
-                var result = { ok: false };
-                var buf = '';
-
-                while (true) {
-                    var chunk = await reader.read();
-                    if (chunk.done) break;
-                    buf += decoder.decode(chunk.value, { stream: true });
-                    var lines = buf.split('\n');
-                    buf = lines.pop() || '';
-                    for (var i = 0; i < lines.length; i++) {
-                        var ln = lines[i];
-                        if (!ln.startsWith('data: ')) continue;
-                        try {
-                            var evt = JSON.parse(ln.slice(6));
-                            if (evt.line !== undefined && logEl) {
-                                logEl.textContent += evt.line + '\n';
-                                logEl.scrollTop = logEl.scrollHeight;
-                            }
-                            if (evt.done) result = evt;
-                        } catch (_) {}
-                    }
-                }
-                return result;
-            }
-
-            try {
-                // Multi-step option (e.g. upgrade rust then install)
-                if (opt.steps) {
-                    for (var s = 0; s < opt.steps.length; s++) {
-                        var step = opt.steps[s];
-                        var stepLabel = 'Step ' + (s + 1) + '/' + opt.steps.length + ': ' + step.label;
-                        var stepResult = await streamCommand(step.command, stepLabel);
-                        if (!stepResult.ok) {
-                            var labelEl = document.getElementById('rem-label');
-                            if (labelEl) labelEl.innerHTML = '❌ ' + esc(stepLabel) + ' failed (exit ' + (stepResult.exit_code || '?') + ')';
-                            if (actionBtn) { actionBtn.disabled = false; actionBtn.textContent = '🔄 Retry'; }
-                            return;
+                for (var li = 0; li < lines.length; li++) {
+                    var ln = lines[li];
+                    if (!ln.startsWith('data: ')) continue;
+                    try {
+                        var event = JSON.parse(ln.slice(6));
+                        switch (event.type) {
+                            case 'log':
+                                if (callbacks.onLog) callbacks.onLog(event.line);
+                                break;
+                            case 'step_start':
+                                if (callbacks.onStepStart) callbacks.onStepStart(event);
+                                break;
+                            case 'step_done':
+                                if (callbacks.onStepDone) callbacks.onStepDone(event);
+                                break;
+                            case 'step_failed':
+                                if (callbacks.onStepFailed) callbacks.onStepFailed(event);
+                                break;
+                            case 'progress':
+                                if (callbacks.onProgress) callbacks.onProgress(event);
+                                break;
+                            case 'done':
+                                finalResult = event;
+                                if (callbacks.onDone) callbacks.onDone(event);
+                                return { ok: !!event.ok };
+                            case 'error':
+                                if (callbacks.onError) callbacks.onError(event.error);
+                                return { ok: false };
                         }
-                        // Mark step done in label
-                        var labelEl2 = document.getElementById('rem-label');
-                        if (labelEl2) labelEl2.innerHTML = '✅ ' + esc(stepLabel);
-
-                    }
-                    // All steps done
-                    var labelElDone = document.getElementById('rem-label');
-                    if (labelElDone) labelElDone.innerHTML = '✅ All steps complete!';
-                    toast('✅ ' + st.toolLabel + ' installed!', 'success');
-                    setTimeout(function() { modalClose(); if (st.onSuccess) st.onSuccess(); }, 1500);
-                    return;
+                    } catch (_parseErr) { /* skip malformed SSE lines */ }
                 }
-
-                // Single-command option (e.g. compatible version, build from source)
-                if (opt.command) {
-                    var cmdResult = await streamCommand(opt.command, opt.label);
-                    if (cmdResult.ok) {
-                        var cmdLabelOk = document.getElementById('rem-label');
-                        if (cmdLabelOk) cmdLabelOk.innerHTML = '✅ ' + esc(st.toolLabel) + ' installed!';
-                        toast('✅ ' + st.toolLabel + ' installed!', 'success');
-                        setTimeout(function() { modalClose(); if (st.onSuccess) st.onSuccess(); }, 1500);
-                    } else {
-                        var cmdLabelFail = document.getElementById('rem-label');
-                        if (cmdLabelFail) cmdLabelFail.innerHTML = '❌ Failed (exit ' + (cmdResult.exit_code || '?') + ')';
-                        if (actionBtn) { actionBtn.disabled = false; actionBtn.textContent = '🔄 Retry'; }
-                    }
-                    return;
-                }
-
-                // Retry-sudo option
-                if (opt.retry_sudo) {
-                    modalClose();
-                    _showInstallModal({ toolId: st.toolId, toolLabel: st.toolLabel, needsSudo: true, onSuccess: st.onSuccess });
-                    return;
-                }
-            } catch (err) {
-                if (statusEl) statusEl.textContent = '❌ Error: ' + err.message;
-                if (actionBtn) { actionBtn.disabled = false; actionBtn.textContent = '🔄 Retry'; }
             }
+        } catch (streamErr) {
+            if (callbacks.onError) callbacks.onError('Stream error: ' + streamErr.message);
+            return { ok: false };
+        }
+
+        return { ok: !!finalResult.ok };
+    }
+
+    // ── showStepModal — plan-based install modal ─────────────────
+    /**
+     * Show a step-by-step install modal for a resolved plan.
+     *
+     * @param {Object} plan    Install plan from /audit/install-plan
+     * @param {Object} options
+     * @param {Function} [options.onComplete] Callback on successful install
+     */
+    function showStepModal(plan, options) {
+        options = options || {};
+
+        // Remove existing step modal
+        var existing = document.getElementById('step-modal');
+        if (existing) existing.remove();
+
+        var needsSudo = false;
+        var steps = plan.steps || [];
+        for (var s = 0; s < steps.length; s++) {
+            if (steps[s].needs_sudo) { needsSudo = true; break; }
+        }
+
+        var riskLevel = _planRisk(plan);
+        var toolLabel = plan.label || plan.tool;
+
+        // Build step list HTML
+        var stepsHtml = '';
+        for (var i = 0; i < steps.length; i++) {
+            var st = steps[i];
+            var stepRisk = st.risk || 'low';
+            stepsHtml += '<div class="step-row" id="step-row-' + i + '" data-status="pending">' +
+                '<span class="step-icon">⏳</span>' +
+                '<span class="step-risk-dot ' + stepRisk + '" title="' + stepRisk + ' risk"></span>' +
+                '<span class="step-label">' + esc(st.label || ('Step ' + (i + 1))) + '</span>';
+            if (st.needs_sudo) {
+                stepsHtml += '<span class="step-badge sudo">sudo</span>';
+            }
+            if (stepRisk !== 'low') {
+                stepsHtml += '<span class="step-badge risk-' + stepRisk + '">' + esc(stepRisk) + '</span>';
+            }
+            stepsHtml += '</div>';
+        }
+
+        // Progress parser — extracts percentage from build/download log lines
+        function _parseProgress(line) {
+            // ninja: [42/100]
+            var ninjaMatch = line.match(/\[(\d+)\/(\d+)\]/);
+            if (ninjaMatch) return Math.round(parseInt(ninjaMatch[1]) / parseInt(ninjaMatch[2]) * 100);
+            // cmake/make/pip: XX%
+            var pctMatch = line.match(/(\d{1,3})%/);
+            if (pctMatch) {
+                var pct = parseInt(pctMatch[1]);
+                if (pct >= 0 && pct <= 100) return pct;
+            }
+            return null;
+        }
+
+        // Risk banner
+        var riskHtml = '';
+        if (riskLevel === 'high') {
+            riskHtml = '<div class="risk-banner risk-high">🔴 This plan contains high-risk operations</div>';
+        } else if (riskLevel === 'medium') {
+            riskHtml = '<div class="risk-banner risk-medium">⚠️ This plan contains medium-risk operations</div>';
+        }
+
+        // Confirmation gate
+        var gateHtml = '';
+        var gate = plan.confirmation_gate;
+        if (gate && gate.required) {
+            if (gate.level === 'double') {
+                gateHtml = '<div class="confirm-gate gate-double">' +
+                    '<div style="font-weight:700;margin-bottom:4px">🔴 High-risk confirmation required</div>' +
+                    '<div style="font-size:0.76rem;margin-bottom:6px">' + esc(gate.reason) + '</div>';
+                if (gate.high_risk_steps && gate.high_risk_steps.length) {
+                    gateHtml += '<div class="gate-steps">Steps requiring confirmation:';
+                    for (var gi = 0; gi < gate.high_risk_steps.length; gi++) {
+                        var gs = gate.high_risk_steps[gi];
+                        gateHtml += '<br/>• ' + esc(gs.label || gs);
+                    }
+                    gateHtml += '</div>';
+                }
+                gateHtml += '<input type="text" id="step-modal-confirm" placeholder=\'Type "I understand" to proceed\' ' +
+                    'oninput="document.getElementById(\'step-modal-go\').disabled = this.value !== \'I understand\'" />' +
+                    '</div>';
+            } else {
+                gateHtml = '<div class="confirm-gate gate-single">' +
+                    '<label><input type="checkbox" id="step-modal-confirm" ' +
+                    'onchange="document.getElementById(\'step-modal-go\').disabled = !this.checked" />' +
+                    '<span>⚠️ I confirm this plan modifies system components</span></label>' +
+                    '</div>';
+            }
+        }
+
+        // Sudo input
+        var sudoHtml = '';
+        if (needsSudo) {
+            sudoHtml = '<div class="step-sudo-row">' +
+                '<label style="font-size:0.75rem;font-weight:600;display:block;margin-bottom:4px">🔑 Sudo password:</label>' +
+                '<input id="step-modal-pw" type="password" placeholder="Enter your password" autocomplete="off" ' +
+                'onkeydown="if(event.key===\'Enter\'){document.getElementById(\'step-modal-go\')?.click()}" />' +
+                '</div>';
+        }
+
+        var overlay = document.createElement('div');
+        overlay.id = 'step-modal';
+        overlay.className = 'step-modal-overlay';
+
+        overlay.innerHTML = '<div class="step-modal-box">' +
+            '<div class="step-modal-header">' +
+            '<h3>📦 Install ' + esc(toolLabel) + '</h3>' +
+            '<button class="step-modal-close" id="step-modal-close-btn" title="Close">✕</button>' +
+            '</div>' +
+            '<div class="step-modal-body">' +
+            riskHtml +
+            gateHtml +
+            '<div class="step-list" id="step-list">' + stepsHtml + '</div>' +
+            sudoHtml +
+            '<div class="step-log-area" id="step-log" style="display:none"></div>' +
+            '</div>' +
+            '<div class="step-modal-footer">' +
+            '<button class="btn btn-sm btn-secondary" id="step-modal-cancel">Cancel</button>' +
+            '<button class="btn btn-sm btn-primary" id="step-modal-go"' +
+            (gate && gate.required ? ' disabled' : '') +
+            ' style="min-width:110px">📦 Install</button>' +
+            '</div>' +
+            '</div>';
+
+        document.body.appendChild(overlay);
+
+        // Focus password field if present
+        if (needsSudo) {
+            setTimeout(function() {
+                var pw = document.getElementById('step-modal-pw');
+                if (pw) pw.focus();
+            }, 100);
+        }
+
+        // Backdrop click to close
+        overlay.addEventListener('click', function(e) {
+            if (e.target === overlay) overlay.remove();
+        });
+
+        // Close button
+        document.getElementById('step-modal-close-btn').addEventListener('click', function() {
+            overlay.remove();
+        });
+
+        // Cancel button
+        document.getElementById('step-modal-cancel').addEventListener('click', function() {
+            overlay.remove();
+        });
+
+        // Wire install button
+        document.getElementById('step-modal-go').addEventListener('click', function() {
+            _executeStepModalPlan(plan, options);
+        });
+    }
+
+    // ── _executeStepModalPlan — internal driver ──────────────────
+    async function _executeStepModalPlan(plan, options) {
+        var btn = document.getElementById('step-modal-go');
+        var cancelBtn = document.getElementById('step-modal-cancel');
+        var logEl = document.getElementById('step-log');
+        var pwInput = document.getElementById('step-modal-pw');
+        var pw = pwInput ? pwInput.value : '';
+        var currentStep = 0;
+
+        // Validate sudo password
+        var needsSudo = false;
+        var steps = plan.steps || [];
+        for (var s = 0; s < steps.length; s++) {
+            if (steps[s].needs_sudo) { needsSudo = true; break; }
+        }
+        if (needsSudo && !pw) {
+            if (pwInput) {
+                pwInput.style.borderColor = 'var(--error,#e55)';
+                pwInput.placeholder = '⚠️ Password required';
+                pwInput.focus();
+            }
+            return;
+        }
+
+        // Lock UI
+        if (btn) { btn.disabled = true; btn.textContent = '⏳ Installing…'; }
+        if (cancelBtn) cancelBtn.style.display = 'none';
+        if (logEl) { logEl.style.display = 'block'; logEl.textContent = ''; }
+
+        // Clear password from DOM immediately
+        if (pwInput) {
+            pwInput.value = '';
+            pwInput.disabled = true;
+        }
+
+        var result = await streamSSE('/api/audit/install-plan/execute', {
+            tool: plan.tool,
+            sudo_password: pw,
+            answers: plan._answers || {},
+        }, {
+            onLog: function(line) {
+                if (logEl) {
+                    logEl.textContent += line + '\n';
+                    logEl.scrollTop = logEl.scrollHeight;
+                }
+                // Parse progress from log lines
+                var pct = _parseProgress(line);
+                if (pct !== null) {
+                    _updateStepProgress(currentStep, pct);
+                }
+            },
+            onStepStart: function(event) {
+                currentStep = event.step;
+                _updateStepRowStatus(event.step, 'running', '🔄');
+            },
+            onProgress: function(event) {
+                if (event.percent != null) {
+                    _updateStepProgress(event.step, event.percent);
+                }
+            },
+            onStepDone: function(event) {
+                var icon = event.skipped ? '⏭️' : '✅';
+                _updateStepRowStatus(event.step, event.skipped ? 'skipped' : 'done', icon);
+                // Show elapsed time
+                if (event.elapsed_ms) {
+                    var row = document.getElementById('step-row-' + event.step);
+                    if (row) {
+                        var elapsed = document.createElement('span');
+                        elapsed.className = 'step-elapsed';
+                        elapsed.textContent = (event.elapsed_ms / 1000).toFixed(1) + 's';
+                        row.appendChild(elapsed);
+                    }
+                }
+            },
+            onStepFailed: function(event) {
+                _updateStepRowStatus(event.step, 'failed', '❌');
+                if (logEl && event.error) {
+                    logEl.textContent += 'ERROR: ' + event.error + '\n';
+                }
+            },
+            onDone: function(event) {
+                if (event.ok) {
+                    if (btn) {
+                        btn.textContent = '✅ Installed';
+                        btn.className = 'btn btn-sm btn-success';
+                        btn.style.minWidth = '110px';
+                    }
+                    toast((plan.label || plan.tool) + ' installed successfully!', 'success');
+
+                    // Restart notification
+                    if (plan.restart_required) {
+                        _showRestartNotification(plan.restart_required, plan.label || plan.tool);
+                    }
+
+                    setTimeout(function() {
+                        var modal = document.getElementById('step-modal');
+                        if (modal) modal.remove();
+                        // Clear client-side caches
+                        try { sessionStorage.removeItem('l0_detection'); } catch (_) {}
+                        try { sessionStorage.removeItem('system_deps_cache'); } catch (_) {}
+                        if (options && options.onComplete) options.onComplete();
+                    }, 1500);
+                } else {
+                    if (btn) {
+                        btn.disabled = false;
+                        btn.textContent = '🔄 Retry';
+                        btn.className = 'btn btn-sm btn-primary';
+                    }
+                    if (cancelBtn) cancelBtn.style.display = '';
+                    // Re-enable password for retry
+                    if (pwInput) pwInput.disabled = false;
+
+                    // Handle wrong sudo password
+                    if (event.needs_sudo) {
+                        if (pwInput) {
+                            pwInput.style.borderColor = 'var(--warning,#e8a735)';
+                            pwInput.placeholder = '🔑 Wrong password — try again';
+                            pwInput.focus();
+                        }
+                        // Reset step rows for retry
+                        for (var r = 0; r < steps.length; r++) {
+                            _updateStepRowStatus(r, 'pending', '⏳');
+                        }
+                    }
+
+                    // Show Resume button if plan_id is available
+                    if (event.plan_id && !event.needs_sudo) {
+                        var footer = document.querySelector('.step-modal-footer');
+                        if (footer && !document.getElementById('step-modal-resume')) {
+                            var resumeBtn = document.createElement('button');
+                            resumeBtn.id = 'step-modal-resume';
+                            resumeBtn.className = 'btn btn-sm btn-primary';
+                            resumeBtn.style.cssText = 'margin-right:auto';
+                            resumeBtn.textContent = '🔄 Resume';
+                            resumeBtn.title = 'Resume from last completed step';
+                            resumeBtn.addEventListener('click', function() {
+                                var modal = document.getElementById('step-modal');
+                                if (modal) modal.remove();
+                                resumeWithPlan(event.plan_id, plan.label || plan.tool, {
+                                    onComplete: options && options.onComplete,
+                                });
+                            });
+                            footer.prepend(resumeBtn);
+                        }
+                    }
+                }
+            },
+            onError: function(error) {
+                if (btn) {
+                    btn.disabled = false;
+                    btn.textContent = '🔄 Retry';
+                }
+                if (cancelBtn) cancelBtn.style.display = '';
+                if (pwInput) pwInput.disabled = false;
+                if (logEl) logEl.textContent += 'ERROR: ' + error + '\n';
+                toast('Install failed: ' + error, 'error');
+            },
+        });
+    }
+
+    // ── Helpers ──────────────────────────────────────────────────
+    function _updateStepRowStatus(index, status, icon) {
+        var row = document.getElementById('step-row-' + index);
+        if (!row) return;
+        row.dataset.status = status;
+        var iconEl = row.querySelector('.step-icon');
+        if (iconEl) iconEl.textContent = icon;
+    }
+
+    function _updateStepProgress(index, percent) {
+        var row = document.getElementById('step-row-' + index);
+        if (!row) return;
+        var bar = row.querySelector('.step-progress');
+        if (!bar) {
+            bar = document.createElement('div');
+            bar.className = 'step-progress';
+            bar.innerHTML = '<div class="step-progress-bar"></div>';
+            row.appendChild(bar);
+        }
+        bar.style.display = 'block';
+        var fill = bar.querySelector('.step-progress-bar');
+        if (fill) fill.style.width = Math.min(percent, 100) + '%';
+    }
+
+    function _planRisk(plan) {
+        var steps = plan.steps || [];
+        var hasHigh = false;
+        var hasMedium = false;
+        for (var i = 0; i < steps.length; i++) {
+            var risk = steps[i].risk || 'low';
+            if (risk === 'high') hasHigh = true;
+            if (risk === 'medium') hasMedium = true;
+        }
+        if (hasHigh) return 'high';
+        if (hasMedium) return 'medium';
+        return 'low';
+    }
+
+    function _showRestartNotification(restartType, toolLabel) {
+        // Remove existing
+        var old = document.getElementById('restart-toast');
+        if (old) old.remove();
+
+        var msgs = {
+            'session': 'Log out and back in for changes to take effect.',
+            'system':  'A system reboot is required for changes to take effect.',
+            'service': 'Related services may need restarting.',
         };
+        var icons = { 'session': '🔄', 'system': '🔃', 'service': '⚙️' };
+
+        var msg = msgs[restartType] || 'A restart may be required.';
+        var icon = icons[restartType] || '🔄';
+
+        var toast = document.createElement('div');
+        toast.id = 'restart-toast';
+        toast.className = 'restart-toast';
+        toast.innerHTML =
+            '<button class="restart-dismiss" onclick="this.parentElement.remove()" title="Dismiss">✕</button>' +
+            '<span class="restart-icon">' + icon + '</span>' +
+            '<strong>Restart required</strong>' +
+            '<p>' + esc(msg) + '</p>';
+        document.body.appendChild(toast);
+
+        // Auto-dismiss after 30 seconds
+        setTimeout(function() {
+            var el = document.getElementById('restart-toast');
+            if (el) el.remove();
+        }, 30000);
     }
 
     /**
-     * Show modal when a tool needs a dependency installed first.
-     * After installing the dep, chains back to install the original tool.
+     * Plan-based install entry point.
+     *
+     * Fetches the install plan, then shows the step modal.
+     * Drop-in replacement for _showInstallModal where callers
+     * want the new plan-based UI.
+     *
+     * Phase 4: Now does two-pass resolution:
+     *   Pass 1: POST /audit/resolve-choices → get choices
+     *   If auto_resolve → skip to plan (original flow)
+     *   If choices → show choice modal → collect answers
+     *   Pass 2: POST /audit/install-plan with answers → plan
+     *
+     * @param {string} toolId     Tool identifier
+     * @param {string} toolLabel  Display name
+     * @param {Object} [opts]     Options: { onComplete }
      */
-    function _showDepInstallModal(toolId, toolLabel, dep, onSuccess) {
-        const depTool = dep.tool;     // e.g. "cargo"
-        const depLabel = dep.label;   // e.g. "Cargo (Rust)"
+
+    // ── Phase 4: Choice modal CSS ─────────────────────────────────
+    (function _injectChoiceModalCSS() {
+        if (document.getElementById('choice-modal-css')) return;
+        var style = document.createElement('style');
+        style.id = 'choice-modal-css';
+        style.textContent = [
+            '.choice-group{margin-bottom:16px}',
+            '.choice-label{font-size:0.88rem;font-weight:600;color:var(--text-primary);margin-bottom:4px;display:block}',
+            '.choice-desc{font-size:0.78rem;color:var(--text-muted);margin:0 0 8px;line-height:1.4}',
+            '.choice-options{display:flex;flex-direction:column;gap:6px}',
+            '.choice-option{display:flex;align-items:flex-start;gap:10px;padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius-sm,4px);cursor:pointer;transition:border-color .15s,background .15s}',
+            '.choice-option:hover:not(.disabled){border-color:var(--accent);background:var(--bg-hover)}',
+            '.choice-option.disabled{opacity:.5;cursor:not-allowed}',
+            '.choice-option input[type="radio"],.choice-option input[type="checkbox"]{margin-top:2px;flex-shrink:0;accent-color:var(--accent)}',
+            '.choice-option-content{display:flex;flex-direction:column;gap:2px;min-width:0}',
+            '.choice-option-label{font-size:0.84rem;font-weight:600;color:var(--text-primary)}',
+            '.choice-option-desc{font-size:0.74rem;color:var(--text-muted);line-height:1.35}',
+            '.choice-option-meta{display:flex;gap:10px;align-items:center;font-size:0.7rem;margin-top:2px}',
+            '.choice-meta-time{color:var(--text-muted);opacity:0.8}',
+            '.choice-meta-risk{font-weight:600;padding:1px 6px;border-radius:3px}',
+            '.choice-meta-risk.risk-medium{color:hsl(40 90% 65%);background:hsl(40 90% 65% / .12)}',
+            '.choice-meta-risk.risk-high{color:hsl(0 75% 65%);background:hsl(0 75% 65% / .12)}',
+            '.choice-disabled-reason{font-size:0.72rem;color:hsl(40 90% 65%);display:flex;align-items:center;gap:4px;margin-top:2px}',
+            '.choice-option.selected:not(.disabled){border-color:var(--accent);background:color-mix(in srgb, var(--accent) 8%, transparent);box-shadow:inset 3px 0 0 var(--accent)}',
+            '.choice-toggle{display:flex;align-items:center;gap:10px;cursor:pointer;font-size:0.84rem;font-weight:600;color:var(--text-primary);padding:8px 0}',
+            '.choice-toggle input[type="checkbox"]{width:18px;height:18px;accent-color:var(--accent)}',
+            '.choice-version-select{width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius-sm,4px);background:var(--bg-inset);color:var(--text-primary);font-size:0.84rem}',
+            '.choice-version-select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 2px color-mix(in srgb, var(--accent) 20%, transparent)}',
+            '.choice-input-group{margin-bottom:12px}',
+            '.choice-input-group label{display:block;font-size:0.84rem;font-weight:600;color:var(--text-primary);margin-bottom:4px}',
+            '.choice-input-group .input-desc{font-size:0.74rem;color:var(--text-muted);margin-bottom:6px}',
+            '.choice-input-group input,.choice-input-group select{width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius-sm,4px);background:var(--bg-inset);color:var(--text-primary);font-size:0.84rem;box-sizing:border-box}',
+            '.choice-input-group input:focus,.choice-input-group select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 2px color-mix(in srgb, var(--accent) 20%, transparent)}',
+            '.choice-all-disabled{padding:16px;text-align:center;color:var(--text-muted);font-size:0.85rem;background:var(--bg-inset);border-radius:var(--radius-sm,4px)}',
+        ].join('\n');
+        document.head.appendChild(style);
+    })();
+
+    // ── Choice renderers ──────────────────────────────────────────
+
+    function _renderChoice(choice, defaults) {
+        defaults = defaults || {};
+        var h = '<div class="choice-group">';
+        h += '<span class="choice-label">' + esc(choice.label) + '</span>';
+        if (choice.description) {
+            h += '<p class="choice-desc">' + esc(choice.description) + '</p>';
+        }
+
+        if (choice.type === 'select_one' || choice.type === 'single') {
+            h += '<div class="choice-options">';
+            for (var i = 0; i < choice.options.length; i++) {
+                var opt = choice.options[i];
+                var optId = opt.id || opt.value;
+                var isDefault = defaults[choice.id] === optId;
+                var isDisabled = opt.available === false;
+                h += '<label class="choice-option' +
+                    (isDisabled ? ' disabled' : '') +
+                    (isDefault && !isDisabled ? ' selected' : '') +
+                    '"' +
+                    ' data-choice-id="' + esc(choice.id) + '"' +
+                    ' data-opt-id="' + esc(optId) + '"' +
+                    (opt.disabled_reason ? ' title="' + esc(opt.disabled_reason) + '"' : '') +
+                    '>' +
+                    '<input type="radio" name="choice_' + esc(choice.id) + '"' +
+                    ' value="' + esc(optId) + '"' +
+                    (isDefault && !isDisabled ? ' checked' : '') +
+                    (isDisabled ? ' disabled' : '') + ' />' +
+                    '<div class="choice-option-content">' +
+                    '<span class="choice-option-label">' + esc(opt.label) + '</span>';
+                if (opt.description) {
+                    h += '<span class="choice-option-desc">' + esc(opt.description) + '</span>';
+                }
+                if (opt.estimated_time || opt.risk) {
+                    h += '<span class="choice-option-meta">';
+                    if (opt.estimated_time) {
+                        h += '<span class="choice-meta-time">⏱ ' + esc(opt.estimated_time) + '</span>';
+                    }
+                    if (opt.risk && opt.risk !== 'low') {
+                        h += '<span class="choice-meta-risk risk-' + esc(opt.risk) + '">' +
+                            (opt.risk === 'high' ? '🔴' : '⚠️') + ' ' + esc(opt.risk) + ' risk</span>';
+                    }
+                    h += '</span>';
+                }
+                if (opt.warning) {
+                    h += '<span class="choice-option-desc" style="color:hsl(40 90% 65%)">⚠️ ' + esc(opt.warning) + '</span>';
+                }
+                if (isDisabled && opt.disabled_reason) {
+                    h += '<span class="choice-disabled-reason">⚠️ ' + esc(opt.disabled_reason);
+                    if (opt.enable_hint) {
+                        h += ' — ' + esc(opt.enable_hint);
+                    }
+                    h += '</span>';
+                }
+                h += '</div></label>';
+            }
+            h += '</div>';
+        }
+
+        else if (choice.type === 'toggle') {
+            var isChecked = defaults[choice.id] ? true : false;
+            h += '<label class="choice-toggle">' +
+                '<input type="checkbox" name="choice_' + esc(choice.id) + '"' +
+                (isChecked ? ' checked' : '') + ' />' +
+                '<span>' + esc(choice.label) + '</span>' +
+                '</label>';
+        }
+
+        else if (choice.type === 'select_version') {
+            h += '<select name="choice_' + esc(choice.id) + '" class="choice-version-select">';
+            var versions = choice.versions || choice.options || [];
+            for (var j = 0; j < versions.length; j++) {
+                var v = versions[j];
+                var vId = v.id || v.value;
+                var vDisabled = v.available === false;
+                h += '<option value="' + esc(vId) + '"' +
+                    (v.default ? ' selected' : '') +
+                    (vDisabled ? ' disabled' : '') + '>' +
+                    esc(v.label) + (v.tag ? ' ' + esc(v.tag) : '') +
+                    '</option>';
+            }
+            h += '</select>';
+        }
+
+        else if (choice.type === 'select_multi' || choice.type === 'multi') {
+            h += '<div class="choice-options">';
+            for (var k = 0; k < choice.options.length; k++) {
+                var mOpt = choice.options[k];
+                var mId = mOpt.id || mOpt.value;
+                var mDisabled = mOpt.available === false;
+                var mChecked = mOpt.default || false;
+                h += '<label class="choice-option' +
+                    (mDisabled ? ' disabled' : '') +
+                    '">' +
+                    '<input type="checkbox" name="choice_' + esc(choice.id) + '_multi"' +
+                    ' value="' + esc(mId) + '"' +
+                    (mChecked ? ' checked' : '') +
+                    (mDisabled ? ' disabled' : '') + ' />' +
+                    '<div class="choice-option-content">' +
+                    '<span class="choice-option-label">' + esc(mOpt.label) + '</span>';
+                if (mOpt.description) {
+                    h += '<span class="choice-option-desc">' + esc(mOpt.description) + '</span>';
+                }
+                if (mOpt.size) {
+                    h += '<span class="choice-option-desc">📦 ' + esc(mOpt.size) + '</span>';
+                }
+                if (mDisabled && mOpt.disabled_reason) {
+                    h += '<span class="choice-disabled-reason">⚠️ ' + esc(mOpt.disabled_reason) + '</span>';
+                }
+                h += '</div></label>';
+            }
+            h += '</div>';
+        }
+
+        h += '</div>';
+        return h;
+    }
+
+    function _renderInput(inp) {
+        var h = '<div class="choice-input-group" data-input-id="' + esc(inp.id) + '">';
+        h += '<label for="input_' + esc(inp.id) + '">' + esc(inp.label) + '</label>';
+        if (inp.description) {
+            h += '<div class="input-desc">' + esc(inp.description) + '</div>';
+        }
+
+        if (inp.type === 'select') {
+            h += '<select name="input_' + esc(inp.id) + '" id="input_' + esc(inp.id) + '">';
+            var options = inp.options || [];
+            for (var i = 0; i < options.length; i++) {
+                var o = typeof options[i] === 'string' ? { value: options[i], label: options[i] } : options[i];
+                h += '<option value="' + esc(o.value || o) + '"' +
+                    ((o.value || o) === inp.default ? ' selected' : '') + '>' +
+                    esc(o.label || o) + '</option>';
+            }
+            h += '</select>';
+        } else if (inp.type === 'boolean') {
+            h += '<label class="choice-toggle">' +
+                '<input type="checkbox" name="input_' + esc(inp.id) + '"' +
+                ' id="input_' + esc(inp.id) + '"' +
+                (inp.default ? ' checked' : '') + ' />' +
+                '<span>' + esc(inp.label) + '</span></label>';
+        } else if (inp.type === 'password') {
+            h += '<input type="password" name="input_' + esc(inp.id) + '"' +
+                ' id="input_' + esc(inp.id) + '"' +
+                ' placeholder="' + esc(inp.placeholder || '') + '"' +
+                ' autocomplete="off" />';
+        } else {
+            // text, number, path
+            var inputType = inp.type === 'number' ? 'number' : 'text';
+            h += '<input type="' + inputType + '" name="input_' + esc(inp.id) + '"' +
+                ' id="input_' + esc(inp.id) + '"' +
+                ' value="' + esc(inp.default != null ? String(inp.default) : '') + '"' +
+                ' placeholder="' + esc(inp.placeholder || '') + '"';
+            if (inp.type === 'number' && inp.validation) {
+                if (inp.validation.min != null) h += ' min="' + inp.validation.min + '"';
+                if (inp.validation.max != null) h += ' max="' + inp.validation.max + '"';
+            }
+            h += ' />';
+        }
+
+        h += '</div>';
+        return h;
+    }
+
+    function _collectAnswers(choiceData) {
+        var answers = {};
+
+        // Collect choice answers
+        for (var i = 0; i < (choiceData.choices || []).length; i++) {
+            var choice = choiceData.choices[i];
+            var cid = choice.id;
+
+            if (choice.type === 'toggle') {
+                var cb = document.querySelector('[name="choice_' + cid + '"]');
+                answers[cid] = cb ? cb.checked : false;
+            } else if (choice.type === 'select_multi' || choice.type === 'multi') {
+                var checked = document.querySelectorAll('[name="choice_' + cid + '_multi"]:checked');
+                var vals = [];
+                for (var j = 0; j < checked.length; j++) {
+                    vals.push(checked[j].value);
+                }
+                answers[cid] = vals;
+            } else {
+                // select_one, select_version
+                var selected = document.querySelector('[name="choice_' + cid + '"]:checked') ||
+                               document.querySelector('select[name="choice_' + cid + '"]');
+                if (selected) {
+                    answers[cid] = selected.value;
+                }
+            }
+        }
+
+        // Collect input answers
+        for (var k = 0; k < (choiceData.inputs || []).length; k++) {
+            var inp = choiceData.inputs[k];
+            var el = document.getElementById('input_' + inp.id);
+            if (el) {
+                if (inp.type === 'boolean') {
+                    answers[inp.id] = el.checked;
+                } else if (inp.type === 'number') {
+                    answers[inp.id] = el.value ? Number(el.value) : inp.default;
+                } else {
+                    answers[inp.id] = el.value;
+                }
+            }
+        }
+
+        return answers;
+    }
+
+    function showChoiceModal(choiceData, opts) {
+        opts = opts || {};
+        var toolLabel = choiceData.label || choiceData.tool;
+
+        // Check if all options are disabled
+        var allDisabled = true;
+        for (var i = 0; i < (choiceData.choices || []).length; i++) {
+            var choice = choiceData.choices[i];
+            for (var j = 0; j < (choice.options || []).length; j++) {
+                if (choice.options[j].available !== false) {
+                    allDisabled = false;
+                    break;
+                }
+            }
+            if (!allDisabled) break;
+        }
+
+        // Build body
+        var bodyHtml = '';
+        if (allDisabled && choiceData.choices && choiceData.choices.length) {
+            bodyHtml += '<div class="choice-all-disabled">' +
+                '<p>⚠️ No install options are available for <strong>' +
+                esc(toolLabel) + '</strong> on this system.</p>';
+            // Still render them so user can see WHY
+            for (var d = 0; d < choiceData.choices.length; d++) {
+                bodyHtml += _renderChoice(choiceData.choices[d], choiceData.defaults);
+            }
+            bodyHtml += '</div>';
+        } else {
+            for (var c = 0; c < (choiceData.choices || []).length; c++) {
+                bodyHtml += _renderChoice(choiceData.choices[c], choiceData.defaults);
+            }
+            for (var inp = 0; inp < (choiceData.inputs || []).length; inp++) {
+                bodyHtml += _renderInput(choiceData.inputs[inp]);
+            }
+        }
 
         modalOpen({
-            title: '📦 Dependency Required',
+            title: '⚙️ Configure ' + esc(toolLabel),
             size: 'narrow',
-            body:
-                '<div style="font-size:0.85rem;color:var(--text-secondary);line-height:1.5">' +
-                '<p><strong>' + esc(toolLabel) + '</strong> requires <strong>' + esc(depLabel) +
-                '</strong> to install.</p>' +
-                '<p style="margin-top:0.5rem">' + esc(depLabel) +
-                ' is not installed on this system. Install it first, then ' +
-                esc(toolLabel) + ' will be installed automatically.</p>' +
-                '</div>',
+            body: bodyHtml,
             footerButtons: [
                 { label: 'Cancel', cls: 'btn-secondary', onclick: 'modalClose()' },
                 {
-                    label: '📦 Install ' + depLabel,
+                    label: 'Continue →',
                     cls: 'btn-primary',
-                    id: 'dep-install-btn',
-                    onclick: '_doDepChainInstall()'
+                    id: 'choice-modal-go',
+                    onclick: '_doChoiceInstall()',
+                    disabled: allDisabled,
                 },
             ],
         });
 
-        // Expose the chain-install function
-        window._doDepChainInstall = async function() {
-            const btn = document.getElementById('dep-install-btn');
-            if (btn) { btn.disabled = true; btn.textContent = '⏳ Installing ' + depLabel + '…'; }
-            modalStatus('Installing ' + depLabel + '…');
-
-            try {
-                const depRes = await apiPost('/audit/install-tool', {
-                    tool: depTool, cli: depTool,
+        // Wire up radio button visual selection
+        setTimeout(function() {
+            var radios = document.querySelectorAll('.choice-option input[type="radio"]');
+            for (var r = 0; r < radios.length; r++) {
+                radios[r].addEventListener('change', function() {
+                    // Deselect siblings
+                    var parent = this.closest('.choice-options');
+                    if (parent) {
+                        var siblings = parent.querySelectorAll('.choice-option');
+                        for (var s = 0; s < siblings.length; s++) {
+                            siblings[s].classList.remove('selected');
+                        }
+                    }
+                    var label = this.closest('.choice-option');
+                    if (label) label.classList.add('selected');
                 });
+            }
+        }, 50);
 
-                if (depRes.needs_sudo) {
-                    // Dep needs sudo — close this modal, open sudo modal, then chain
-                    modalClose();
-                    _showInstallModal({
-                        toolId: depTool,
-                        toolLabel: depLabel,
-                        needsSudo: true,
-                        onSuccess: function() {
-                            // Dependency installed with sudo — now install the original
-                            toast('✅ ' + depLabel + ' installed! Now installing ' + toolLabel + '…', 'success');
-                            setTimeout(function() {
-                                _doDirectInstall(toolId, toolLabel, onSuccess);
-                            }, 800);
-                        },
-                    });
+        // Expose the install callback
+        window._choiceModalData = choiceData;
+        window._choiceModalOpts = opts;
+        window._doChoiceInstall = async function() {
+            var answers = _collectAnswers(choiceData);
+            modalClose();
+
+            // Now get the plan with answers (Pass 2)
+            toast('⏳ Resolving install plan…', 'info');
+            try {
+                var resp = await fetch('/api/audit/install-plan', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ tool: choiceData.tool, answers: answers }),
+                });
+                var plan = await resp.json();
+
+                if (plan.error) {
+                    toast('❌ ' + plan.error, 'error');
                     return;
                 }
 
-                if (depRes.ok || depRes.already_installed) {
-                    modalStatus('✅ ' + depLabel + ' installed! Installing ' + toolLabel + '…', 'success');
-                    // Now chain-install the original tool
-                    const origRes = await apiPost('/audit/install-tool', {
-                        tool: toolId, cli: toolId,
-                    });
-                    if (origRes.ok || origRes.already_installed) {
-                        toast('✅ ' + toolLabel + ' installed!', 'success');
-                        modalClose();
-                        if (onSuccess) setTimeout(onSuccess, 500);
-                    } else if (origRes.needs_sudo) {
-                        modalClose();
-                        _showInstallModal({
-                            toolId, toolLabel, needsSudo: true, onSuccess,
-                        });
-                    } else {
-                        modalStatus('❌ ' + (origRes.error || 'Failed to install ' + toolLabel), 'error');
-                        if (btn) { btn.disabled = false; btn.textContent = '🔄 Retry'; }
-                    }
-                } else {
-                    modalStatus('❌ ' + (depRes.error || 'Failed to install ' + depLabel), 'error');
-                    if (btn) { btn.disabled = false; btn.textContent = '🔄 Retry'; }
+                if (plan.already_installed) {
+                    toast('✅ ' + (toolLabel) + ' is already installed', 'success');
+                    if (opts.onComplete) opts.onComplete();
+                    return;
                 }
+
+                // Attach answers to plan so execute endpoint gets them
+                plan._answers = answers;
+
+                showStepModal(plan, {
+                    onComplete: opts.onComplete || null,
+                });
             } catch (err) {
-                modalStatus('❌ Error: ' + err.message, 'error');
-                if (btn) { btn.disabled = false; btn.textContent = '🔄 Retry'; }
+                toast('❌ Failed to resolve plan: ' + err.message, 'error');
             }
         };
     }
 
-    async function _doSudoInstallAction(toolId, toolLabel, onSuccess) {
-        const pw = document.getElementById('ops-modal-pw')?.value;
-        const btn = document.getElementById('ops-modal-action');
-        const log = document.getElementById('ops-modal-log');
-        if (!pw) {
-            const input = document.getElementById('ops-modal-pw');
-            if (input) { input.style.borderColor = 'var(--error)'; input.placeholder = '⚠️ Password required'; input.focus(); }
-            return;
-        }
-        if (btn) { btn.disabled = true; btn.textContent = '⏳ Installing…'; }
-        if (log) { log.style.display = 'block'; log.textContent = 'Installing ' + toolLabel + '…'; log.style.color = ''; }
+    async function installWithPlan(toolId, toolLabel, opts) {
+        opts = opts || {};
+        toast('⏳ Loading install plan for ' + (toolLabel || toolId) + '…', 'info');
 
         try {
-            const res = await apiPost('/audit/install-tool', {
-                tool: toolId, cli: toolId, sudo_password: pw,
+            // Phase 4: Pass 1 — resolve choices first
+            var choicesResp = await fetch('/api/audit/resolve-choices', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ tool: toolId }),
             });
+            var choiceData = await choicesResp.json();
 
-            if (res.ok || res.already_installed) {
-                if (log) { log.textContent = '✅ ' + (res.message || toolLabel + ' installed!'); log.style.color = 'var(--success)'; }
-                if (btn) { btn.textContent = '✅ Installed'; btn.classList.add('btn-success'); }
-                toast(toolLabel + ' installed successfully!', 'success');
-                setTimeout(() => {
-                    document.getElementById('ops-modal')?.remove();
-                    if (onSuccess) onSuccess();
-                }, 1200);
-            } else if (res.needs_sudo) {
-                if (log) { log.textContent = '🔑 ' + (res.error || 'Wrong password — try again'); log.style.color = 'var(--warning)'; }
-                const input = document.getElementById('ops-modal-pw');
-                if (input) { input.value = ''; input.focus(); input.style.borderColor = 'var(--warning)'; }
-                if (btn) { btn.disabled = false; btn.textContent = '📦 Install'; }
-            } else {
-                if (log) { log.textContent = '❌ ' + (res.error || 'Install failed'); log.style.color = 'var(--error)'; }
-                if (btn) { btn.disabled = false; btn.textContent = '📦 Retry'; }
+            if (choiceData.error) {
+                toast('❌ ' + choiceData.error, 'error');
+                return;
             }
+
+            if (choiceData.already_installed) {
+                toast('✅ ' + (toolLabel || toolId) + ' is already installed', 'success');
+                if (opts.onComplete) opts.onComplete();
+                return;
+            }
+
+            // If tool has choices to make → show choice modal
+            if (!choiceData.auto_resolve && choiceData.choices && choiceData.choices.length) {
+                showChoiceModal(choiceData, {
+                    onComplete: opts.onComplete || null,
+                });
+                return;
+            }
+
+            // No choices → fetch plan directly (original flow)
+            var planResp = await fetch('/api/audit/install-plan', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    tool: toolId,
+                    answers: choiceData.defaults || {},
+                }),
+            });
+            var plan = await planResp.json();
+
+            if (plan.error) {
+                toast('❌ ' + plan.error, 'error');
+                return;
+            }
+
+            if (plan.already_installed) {
+                toast('✅ ' + (toolLabel || toolId) + ' is already installed', 'success');
+                if (opts.onComplete) opts.onComplete();
+                return;
+            }
+
+            // Attach default answers to plan so execute endpoint gets them
+            plan._answers = choiceData.defaults || {};
+
+            showStepModal(plan, {
+                onComplete: opts.onComplete || null,
+            });
         } catch (err) {
-            if (log) { log.textContent = '❌ ' + err.message; log.style.color = 'var(--error)'; }
-            if (btn) { btn.disabled = false; btn.textContent = '📦 Retry'; }
+            toast('❌ Failed to load install plan: ' + err.message, 'error');
         }
     }
 
+    // ── Resume a saved plan ─────────────────────────────────────
+
+    /**
+     * Resume a paused/failed plan by its plan_id.
+     * Opens a step modal and streams from /audit/install-plan/resume.
+     *
+     * @param {string} planId  - Saved plan UUID
+     * @param {string} toolLabel - Display name
+     * @param {Object} opts   - {onComplete: fn}
+     */
+    async function resumeWithPlan(planId, toolLabel, opts) {
+        opts = opts || {};
+
+        // Fetch plan state to know remaining steps
+        try {
+            var resp = await fetch('/api/audit/install-plan/pending');
+            var data = await resp.json();
+            var planInfo = (data.plans || []).find(function(p) { return p.plan_id === planId; });
+
+            if (!planInfo) {
+                toast('❌ Plan not found or already completed', 'error');
+                return;
+            }
+
+            var remaining = planInfo.total_steps - planInfo.completed_count;
+            var fakeSteps = [];
+            for (var si = 0; si < remaining; si++) {
+                fakeSteps.push({
+                    label: 'Step ' + (planInfo.completed_count + si + 1),
+                    type: 'tool',
+                });
+            }
+
+            // Build a synthetic plan object for showStepModal
+            var resumePlan = {
+                tool: planInfo.tool,
+                label: toolLabel || planInfo.tool,
+                steps: fakeSteps,
+                needs_sudo: false,
+                _resumePlanId: planId,
+                _resumeOffset: planInfo.completed_count,
+            };
+
+            // Step modal CSS is already injected on page load by the IIFE
+
+            // Build the step modal
+            var existing = document.getElementById('step-modal');
+            if (existing) existing.remove();
+
+            var stepsHtml = '';
+            for (var ri = 0; ri < fakeSteps.length; ri++) {
+                stepsHtml += '<div class="step-row" id="step-row-' + ri + '" data-status="pending">'
+                    + '<span class="step-icon">⏳</span>'
+                    + '<span class="step-label">Step ' + (planInfo.completed_count + ri + 1) + '</span>'
+                    + '</div>';
+            }
+
+            var headerText = '🔄 Resume: ' + esc(toolLabel || planInfo.tool)
+                + ' (' + planInfo.completed_count + '/' + planInfo.total_steps + ' done)';
+
+            var overlay = document.createElement('div');
+            overlay.id = 'step-modal';
+            overlay.className = 'step-modal-overlay';
+            overlay.innerHTML = '<div class="step-modal-box">'
+                + '<div class="step-modal-header">'
+                + '<h3>' + headerText + '</h3>'
+                + '<button class="step-modal-close" id="step-modal-close-btn" title="Close">✕</button>'
+                + '</div>'
+                + '<div class="step-modal-body">'
+                + '<div class="step-list">' + stepsHtml + '</div>'
+                + '<div class="sudo-gate" style="margin-top:8px">'
+                + '<input id="step-modal-pw" type="password" placeholder="Sudo password (if needed)" autocomplete="off" '
+                + 'onkeydown="if(event.key===\'Enter\'){document.getElementById(\'step-modal-go\')?.click()}" />'
+                + '</div>'
+                + '<pre id="step-log" class="step-log" style="display:none"></pre>'
+                + '</div>'
+                + '<div class="step-modal-footer">'
+                + '<button class="btn btn-sm btn-secondary" id="step-modal-cancel">Cancel</button>'
+                + '<button class="btn btn-sm btn-primary" id="step-modal-go">▶ Resume</button>'
+                + '</div></div>';
+            document.body.appendChild(overlay);
+
+            // Wire up buttons
+            document.getElementById('step-modal-close-btn').addEventListener('click', function() {
+                overlay.remove();
+            });
+            document.getElementById('step-modal-cancel').addEventListener('click', function() {
+                overlay.remove();
+            });
+            document.getElementById('step-modal-go').addEventListener('click', function() {
+                _executeResumePlan(planId, resumePlan, opts);
+            });
+
+        } catch (err) {
+            toast('❌ Failed to resume: ' + err.message, 'error');
+        }
+    }
+
+    /**
+     * Execute a resume plan via SSE streaming.
+     */
+    async function _executeResumePlan(planId, plan, options) {
+        var btn = document.getElementById('step-modal-go');
+        var cancelBtn = document.getElementById('step-modal-cancel');
+        var logEl = document.getElementById('step-log');
+        var pwInput = document.getElementById('step-modal-pw');
+        var pw = pwInput ? pwInput.value : '';
+
+        // Lock UI
+        if (btn) { btn.disabled = true; btn.textContent = '⏳ Resuming…'; }
+        if (cancelBtn) cancelBtn.style.display = 'none';
+        if (logEl) { logEl.style.display = 'block'; logEl.textContent = ''; }
+        if (pwInput) { pwInput.value = ''; pwInput.disabled = true; }
+
+        var result = await streamSSE('/api/audit/install-plan/resume', {
+            plan_id: planId,
+            sudo_password: pw,
+        }, {
+            onLog: function(line) {
+                if (logEl) {
+                    logEl.textContent += line + '\n';
+                    logEl.scrollTop = logEl.scrollHeight;
+                }
+            },
+            onStepStart: function(event) {
+                _updateStepRowStatus(event.step, 'running', '🔄');
+            },
+            onStepDone: function(event) {
+                var icon = event.skipped ? '⏭️' : '✅';
+                _updateStepRowStatus(event.step, event.skipped ? 'skipped' : 'done', icon);
+                if (event.elapsed_ms) {
+                    var row = document.getElementById('step-row-' + event.step);
+                    if (row) {
+                        var elapsed = document.createElement('span');
+                        elapsed.className = 'step-elapsed';
+                        elapsed.textContent = (event.elapsed_ms / 1000).toFixed(1) + 's';
+                        row.appendChild(elapsed);
+                    }
+                }
+            },
+            onStepFailed: function(event) {
+                _updateStepRowStatus(event.step, 'failed', '❌');
+                if (logEl && event.error) {
+                    logEl.textContent += 'ERROR: ' + event.error + '\n';
+                }
+            },
+            onDone: function(event) {
+                if (event.ok) {
+                    if (btn) {
+                        btn.textContent = '✅ Completed';
+                        btn.className = 'btn btn-sm btn-success';
+                    }
+                    toast((plan.label || plan.tool) + ' resumed and completed!', 'success');
+                    setTimeout(function() {
+                        var modal = document.getElementById('step-modal');
+                        if (modal) modal.remove();
+                        try { sessionStorage.removeItem('l0_detection'); } catch (_) {}
+                        try { sessionStorage.removeItem('system_deps_cache'); } catch (_) {}
+                        // Clear pending plans cache
+                        _pendingPlansCache = null;
+                        if (options && options.onComplete) options.onComplete();
+                    }, 1500);
+                } else {
+                    if (btn) {
+                        btn.disabled = false;
+                        btn.textContent = '🔄 Retry Resume';
+                        btn.className = 'btn btn-sm btn-primary';
+                    }
+                    if (cancelBtn) cancelBtn.style.display = '';
+                    if (pwInput) pwInput.disabled = false;
+                }
+            },
+            onError: function(error) {
+                if (btn) { btn.disabled = false; btn.textContent = '🔄 Retry'; }
+                if (cancelBtn) cancelBtn.style.display = '';
+                if (pwInput) pwInput.disabled = false;
+                if (logEl) logEl.textContent += 'ERROR: ' + error + '\n';
+                toast('Resume failed: ' + error, 'error');
+            },
+        });
+    }
+
+    // ── Pending Plans Cache ─────────────────────────────────────
+
+    var _pendingPlansCache = null;
+
+    /**
+     * Fetch pending plans (cached for the page lifetime).
+     * Returns: [{plan_id, tool, status, completed_count, total_steps}]
+     */
+    async function _fetchPendingPlans() {
+        if (_pendingPlansCache) return _pendingPlansCache;
+        try {
+            var resp = await fetch('/api/audit/install-plan/pending');
+            var data = await resp.json();
+            _pendingPlansCache = data.plans || [];
+        } catch (_) {
+            _pendingPlansCache = [];
+        }
+        return _pendingPlansCache;
+    }
+
+    /**
+     * Get a pending plan for a specific tool.
+     * Returns the plan summary or null.
+     */
+    function _getPendingPlanForTool(toolId, pending) {
+        if (!pending || !pending.length) return null;
+        for (var pi = 0; pi < pending.length; pi++) {
+            if (pending[pi].tool === toolId) return pending[pi];
+        }
+        return null;
+    }
+
     // ── Auth Modal (multi-path: browser + terminal + token) ──────────
+
 
     let _opsPollingTimer = null;
     let _opsDeviceSession = null;
