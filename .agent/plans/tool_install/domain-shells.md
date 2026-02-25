@@ -1,5 +1,11 @@
 # Domain: Shells
 
+> ⚠️ **PHASE LABELS MAY BE STALE** — As of 2026-02-25, code has evolved far beyond
+> what the phase roadmaps suggest. Many features labeled "Phase 4-8 future" are
+> ALREADY IMPLEMENTED. See `audit-domain-docs.md` and `audit-missing-pieces.md`
+> for the verified truth. Code is the source of truth, not these phase labels.
+
+
 > This document catalogs all shell types the tool install system
 > must handle, their profile files, PATH mechanics, broken profile
 > detection, restricted environments, and sandbox confinement.
@@ -385,7 +391,7 @@ contains "restricted".
 | chroot | ⚠️ (if PM available) | ✅ | ✅ |
 
 **Phase 2:** No sandbox detection. Known limitation.
-**Phase 4+:** NOT IMPLEMENTED. Detect snap/Flatpak confinement. Disable restricted options.
+✅ **IMPLEMENTED (L3):** `detect_sandbox()` in `detection/environment.py` detects snap, Flatpak, SELinux, AppArmor, chroot.
 
 ---
 

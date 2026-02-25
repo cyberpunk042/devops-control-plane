@@ -9,11 +9,14 @@ to produce executable plans.
 from __future__ import annotations
 
 import logging
+import os
 import shutil
 from typing import Any
 
 from src.core.services.tool_install.data.recipes import TOOL_RECIPES
+from src.core.services.tool_install.detection.tool_version import _is_linux_binary
 from src.core.services.tool_install.domain.risk import _infer_risk, _plan_risk, _check_risk_escalation
+from src.core.services.tool_install.domain.version_constraint import check_version_constraint
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +52,8 @@ def resolve_install_plan(
         return {"tool": tool, "error": f"No recipe for '{tool}'."}
 
     cli = recipe.get("cli", tool)
-    if shutil.which(cli):
+    cli_path = shutil.which(cli)
+    if cli_path and _is_linux_binary(cli_path):
         return {
             "tool": tool,
             "label": recipe["label"],
@@ -121,6 +125,20 @@ def resolve_install_plan(
         method = ts["method"]
         cmd = list(recipe_t["install"][method])
         sudo = recipe_t["needs_sudo"].get(method, False)
+
+        # ── M6: Dynamic npm sudo detection ──────────────────
+        if method == "npm" and not sudo:
+            import subprocess as _sp
+            try:
+                prefix = _sp.run(
+                    ["npm", "config", "get", "prefix"],
+                    capture_output=True, text=True, timeout=5,
+                ).stdout.strip()
+                if prefix and not os.access(prefix, os.W_OK):
+                    sudo = True
+                    logger.debug("npm prefix %s not writable — needs sudo", prefix)
+            except Exception:
+                pass  # npm not found or timeout — leave as-is
 
         if accumulated_env:
             cmd = _wrap_with_env(cmd, accumulated_env)
@@ -234,6 +252,28 @@ def resolve_install_plan(
             "This plan requires sudo but sudo is not available on this system."
         )
 
+    # ── M7: Version constraint validation ──────────────────
+    vc = recipe.get("version_constraint")
+    if vc:
+        # Determine reference version:
+        # 1. Explicit in constraint, 2. From system_profile, 3. reference_hint
+        ref_version = vc.get("reference")
+        if not ref_version:
+            hint = vc.get("reference_hint", "")
+            if hint and hint in system_profile.get("versions", {}):
+                ref_version = system_profile["versions"][hint]
+
+        if ref_version:
+            vc_with_ref = {**vc, "reference": ref_version}
+            plan["version_constraint"] = vc_with_ref
+            plan["version_constraint"]["description"] = vc.get(
+                "description", ""
+            )
+        else:
+            # Can't validate without a reference, but include the constraint
+            # so the UI can prompt the user
+            plan["version_constraint"] = vc
+
     return plan
 
 
@@ -262,7 +302,8 @@ def resolve_install_plan_with_choices(
 
     # Check if already installed
     cli = recipe.get("cli", tool)
-    if shutil.which(cli):
+    cli_path = shutil.which(cli)
+    if cli_path and _is_linux_binary(cli_path):
         return {
             "tool": tool,
             "label": recipe["label"],

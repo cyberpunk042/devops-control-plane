@@ -1,5 +1,11 @@
 # Domain: Language Package Managers
 
+> ⚠️ **PHASE LABELS MAY BE STALE** — As of 2026-02-25, code has evolved far beyond
+> what the phase roadmaps suggest. Many features labeled "Phase 4-8 future" are
+> ALREADY IMPLEMENTED. See `audit-domain-docs.md` and `audit-missing-pieces.md`
+> for the verified truth. Code is the source of truth, not these phase labels.
+
+
 > This document catalogs every language-level package manager the
 > tool install system handles: pip, npm, cargo, and their runtimes.
 > It covers install mechanics, permission models, isolation strategies,
@@ -206,7 +212,7 @@ write permission, `npm install -g` fails with EACCES. The error
 analysis handles this case post-failure. This preserves current
 behavior.
 
-**NOT IMPLEMENTED (Phase 4):** Detect npm global prefix and set
+✅ **IMPLEMENTED (M6):** Dynamic npm sudo detection via `npm config get prefix` write access check.
 `needs_sudo` dynamically:
 ```python
 prefix = subprocess.run(["npm", "config", "get", "prefix"],
@@ -238,7 +244,7 @@ nvm is NOT directly supported in Phase 2. If nvm is installed:
 - Install works normally (writes to nvm's prefix)
 - No sudo needed
 
-NOT IMPLEMENTED: nvm detection could enable version-specific installs.
+✅ IMPLEMENTED (L5): nvm detection via `detect_nvm()` in `detection/environment.py`.
 
 ### Edge cases
 
@@ -395,8 +401,8 @@ installed during the current plan.
 | Case | Impact | Handling |
 |------|--------|---------|
 | Compilation fails (missing headers) | cargo install errors out | Error analysis checks system packages |
-| Disk space insufficient | Build fills disk | NOT IMPLEMENTED: check disk_free_gb |
-| OOM during compilation | Process killed | NOT IMPLEMENTED: check available RAM |
+| Disk space insufficient | Build fills disk | ✅ IMPLEMENTED (M4): `_check_build_resources()` |
+| OOM during compilation | Process killed | ✅ IMPLEMENTED (M4): `_check_build_resources()` |
 | Cargo already installed but outdated | `cargo install` re-compiles | Acceptable |
 | rustup already installed | `rustup` script detects, updates | Safe to re-run |
 | Network down | Can't download crates | Error analysis |
@@ -493,7 +499,7 @@ All language PMs require network access to their registries:
 | npm | npmjs | https://registry.npmjs.org/ | Private registry |
 | cargo | crates.io | https://index.crates.io/ | Alternative registry |
 
-### Network detection integration (NOT IMPLEMENTED — Phase 4)
+### Network detection integration (✅ IMPLEMENTED — L6)
 
 ```python
 "network": {

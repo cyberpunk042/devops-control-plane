@@ -105,6 +105,10 @@ def check_system_deps(
     Returns:
         {"missing": ["pkg1", ...], "installed": ["pkg2", ...]}
     """
+    # ── L4: Brew batch optimization ──────────────────────────
+    if pkg_manager == "brew" and len(packages) > 1:
+        return _check_brew_batch(packages)
+
     missing: list[str] = []
     installed: list[str] = []
     for pkg in packages:
@@ -112,4 +116,44 @@ def check_system_deps(
             installed.append(pkg)
         else:
             missing.append(pkg)
+    return {"missing": missing, "installed": installed}
+
+
+def _check_brew_batch(packages: list[str]) -> dict[str, list[str]]:
+    """Batch-check brew packages in a single call.
+
+    ``brew ls --versions pkg1 pkg2 pkg3`` returns one line per *installed*
+    package (e.g. ``pkg1 1.2.3``). Missing packages produce no output line.
+    Much faster than N individual ``brew ls --versions`` calls.
+    """
+    installed: list[str] = []
+    missing: list[str] = list(packages)
+
+    try:
+        cmd = ["brew", "ls", "--versions"] + list(packages)
+        r = subprocess.run(
+            cmd,
+            capture_output=True, text=True, timeout=30,
+        )
+        # Parse output: each line is "pkgname version(s)"
+        installed_names = set()
+        for line in r.stdout.strip().splitlines():
+            parts = line.strip().split()
+            if parts:
+                installed_names.add(parts[0])
+
+        installed = [p for p in packages if p in installed_names]
+        missing = [p for p in packages if p not in installed_names]
+
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError) as exc:
+        logger.warning("Brew batch check failed: %s. Falling back to individual checks.", exc)
+        # Fall back to individual checks
+        installed = []
+        missing = []
+        for pkg in packages:
+            if _is_pkg_installed(pkg, "brew"):
+                installed.append(pkg)
+            else:
+                missing.append(pkg)
+
     return {"missing": missing, "installed": installed}

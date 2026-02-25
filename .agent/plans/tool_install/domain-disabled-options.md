@@ -1,5 +1,11 @@
 # Domain: Disabled Options
 
+> ⚠️ **PHASE LABELS MAY BE STALE** — As of 2026-02-25, code has evolved far beyond
+> what the phase roadmaps suggest. Many features labeled "Phase 4-8 future" are
+> ALREADY IMPLEMENTED. See `audit-domain-docs.md` and `audit-missing-pieces.md`
+> for the verified truth. Code is the source of truth, not these phase labels.
+
+
 > This document catalogs the "always-present, sometimes-disabled"
 > pattern for tool install options. Why options are never removed,
 > the disabled_reason/enable_hint/learn_more fields, risk level

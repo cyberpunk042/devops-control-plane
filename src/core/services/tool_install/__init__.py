@@ -44,7 +44,10 @@ from src.core.services.tool_install.detection.tool_version import (  # noqa: F40
 
 # ── L4: Execution ──
 from src.core.services.tool_install.execution.plan_state import (  # noqa: F401
+    archive_plan,
+    cancel_plan,
     list_pending_plans,
+    load_plan_state,
     resume_plan,
     save_plan_state,
 )

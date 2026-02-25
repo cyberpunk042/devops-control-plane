@@ -63,6 +63,32 @@ VERSION_COMMANDS: dict[str, tuple[list[str], str]] = {
 }
 
 
+def _is_linux_binary(path: str) -> bool:
+    """Check if a binary at the given path is a Linux ELF executable.
+
+    On WSL, ``shutil.which()`` can find Windows ``.exe`` files via
+    the interop PATH.  This function reads the first 4 bytes of the
+    file to check for the ELF magic number (``\\x7fELF``).
+
+    Returns ``True`` if the file is a Linux ELF binary OR if we
+    can't check (non-WSL, permission error).  Returns ``False``
+    only when we're on WSL and the file is clearly a Windows PE.
+    """
+    import os
+    import platform
+
+    # Only relevant on WSL
+    if "microsoft" not in platform.release().lower():
+        return True
+
+    try:
+        with open(path, "rb") as f:
+            magic = f.read(4)
+        return magic == b"\x7fELF"
+    except (OSError, PermissionError):
+        return True  # Can't read — assume Linux
+
+
 def get_tool_version(tool: str) -> str | None:
     """Get the installed version of a tool.
 

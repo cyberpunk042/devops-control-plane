@@ -425,7 +425,7 @@ def _execute_source_step(
         cmd += [source["repo"], dest]
         return _run_subprocess(
             cmd,
-            timeout=step.get("timeout", 120),
+            timeout=step.get("timeout", 1800),  # M3: builds can take 30+ min
             needs_sudo=step.get("needs_sudo", False),
             sudo_password=sudo_password,
         )
@@ -440,7 +440,7 @@ def _execute_source_step(
                   f"curl -fsSL '{url}' | tar xz -C '{dest}' --strip-components=1"]
         return _run_subprocess(
             dl_cmd,
-            timeout=step.get("timeout", 120),
+            timeout=step.get("timeout", 1800),  # M3: builds can take 30+ min
             needs_sudo=step.get("needs_sudo", False),
             sudo_password=sudo_password,
         )
@@ -474,6 +474,22 @@ def _execute_build_step(
 
     cmd = list(step["command"])
     cwd = step.get("cwd")
+
+    # ── M4/M5: Pre-build resource check ──
+    disk_req = step.get("disk_estimate_mb", 500)
+    ram_req = step.get("ram_estimate_mb", 512)
+    resources = _check_build_resources(
+        disk_estimate_mb=disk_req,
+        ram_estimate_mb=ram_req,
+        build_dir=cwd or "/tmp",
+    )
+    if not resources["ok"]:
+        issues_str = "; ".join(resources["issues"])
+        if resources["disk_free_mb"] < disk_req // 2:
+            # Critical shortage — block the build
+            return {"ok": False, "error": f"Insufficient resources: {issues_str}"}
+        # Marginal — warn but proceed
+        logger.warning("Build resource warning: %s", issues_str)
 
     # Auto-parallel: add -j flag if parallel requested
     if step.get("parallel", True):  # builds default to parallel

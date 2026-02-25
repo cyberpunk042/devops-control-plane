@@ -1,5 +1,11 @@
 # Domain: Binary Installers
 
+> ⚠️ **PHASE LABELS MAY BE STALE** — As of 2026-02-25, code has evolved far beyond
+> what the phase roadmaps suggest. Many features labeled "Phase 4-8 future" are
+> ALREADY IMPLEMENTED. See `audit-domain-docs.md` and `audit-missing-pieces.md`
+> for the verified truth. Code is the source of truth, not these phase labels.
+
+
 > This document catalogs all binary installation methods that bypass
 > system and language package managers: curl-pipe-bash scripts, direct
 > binary downloads from GitHub releases and vendor CDNs, and the
@@ -487,7 +493,7 @@ When the SAME tool can be installed multiple ways, here's the tradeoff:
 
 - snap strict confinement blocks writes to `/usr/local/bin/`
 - Some containers mount `/usr/local/` as read-only
-- NOT IMPLEMENTED: fall back to `~/.local/bin/`
+- ✅ IMPLEMENTED (M1): falls back to `~/.local/bin/` when /usr/local/bin not writable
 
 ---
 

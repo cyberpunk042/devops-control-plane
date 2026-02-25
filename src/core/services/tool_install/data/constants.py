@@ -15,8 +15,12 @@ _PIP: list[str] = [sys.executable, "-m", "pip"]
 # Architecture name normalization.
 _IARCH_MAP: dict[str, str] = {
     "x86_64": "amd64",
+    "AMD64": "amd64",      # Windows / WSL2
     "aarch64": "arm64",
+    "arm64": "arm64",      # macOS (Darwin reports arm64)
     "armv7l": "armhf",
+    "i686": "i386",
+    "i386": "i386",
 }
 
 # Runtime cache for version API fetches (GitHub releases, PyPI, etc.).

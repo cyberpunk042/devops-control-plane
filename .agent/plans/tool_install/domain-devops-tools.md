@@ -1,5 +1,11 @@
 # Domain: DevOps Tools
 
+> ⚠️ **PHASE LABELS MAY BE STALE** — As of 2026-02-25, code has evolved far beyond
+> what the phase roadmaps suggest. Many features labeled "Phase 4-8 future" are
+> ALREADY IMPLEMENTED. See `audit-domain-docs.md` and `audit-missing-pieces.md`
+> for the verified truth. Code is the source of truth, not these phase labels.
+
+
 > This document catalogs the current tool scope: the 42 CLI tools
 > that the install system manages. Categories, install methods,
 > dependencies, lifecycle, and what Phase 2 actually implements.

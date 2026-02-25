@@ -1,5 +1,11 @@
 # Domain: Package Managers (System)
 
+> ⚠️ **PHASE LABELS MAY BE STALE** — As of 2026-02-25, code has evolved far beyond
+> what the phase roadmaps suggest. Many features labeled "Phase 4-8 future" are
+> ALREADY IMPLEMENTED. See `audit-domain-docs.md` and `audit-missing-pieces.md`
+> for the verified truth. Code is the source of truth, not these phase labels.
+
+
 > This document catalogs every system-level package manager the
 > tool install system handles, how each is detected, its commands,
 > flags, naming conventions, repo setup, update, and remove mechanics.
@@ -478,7 +484,7 @@ Common failure modes per PM:
 **brew is the outlier.** Checking 6 packages on brew = 300ms-3s.
 The resolver uses a 30s timeout for brew checks.
 
-**Optimization for brew (NOT IMPLEMENTED):** Batch check with
+✅ **IMPLEMENTED (L4):** Batch check with
 `brew ls --versions pkg1 pkg2 pkg3` in a single call.
 
 ---

@@ -755,7 +755,7 @@ def _detect_build_profile() -> dict:
     raw = detect_build_toolchain()  # {name: version_or_None, ...}
 
     # ── Compilers ─────────────────────────────────────────────
-    _compiler_names = ("gcc", "g++", "clang", "rustc")
+    _compiler_names = ("gcc", "g++", "clang", "rustc", "go")
     compilers: dict[str, dict] = {}
     for name in _compiler_names:
         if name in raw:

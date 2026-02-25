@@ -21,6 +21,13 @@ from src.core.services.tool_install.data.recipes import TOOL_RECIPES
 from src.core.services.tool_install.data.undo_catalog import UNDO_COMMANDS
 from src.core.services.tool_install.detection.system_deps import check_system_deps
 from src.core.services.tool_install.detection.tool_version import get_tool_version
+from src.core.services.tool_install.execution.script_verify import (
+    is_curl_pipe_command,
+    extract_script_url,
+    download_and_verify_script,
+    rewrite_curl_pipe_to_safe,
+    cleanup_script,
+)
 from src.core.services.tool_install.execution.subprocess_runner import _run_subprocess
 
 logger = logging.getLogger(__name__)
@@ -101,9 +108,50 @@ def _execute_command_step(
     sudo_password: str = "",
     env_overrides: dict[str, str] | None = None,
 ) -> dict[str, Any]:
-    """Execute a command step (tool install or post_install action)."""
+    """Execute a command step (tool install or post_install action).
+
+    If the command is a curl-pipe-bash pattern and the step has a
+    ``script_sha256`` field, the script is downloaded to a tempfile,
+    hash-verified, and executed from the file instead of piping.
+    """
+    command = step["command"]
+
+    # ── M2: Script integrity verification ──────────────────
+    if is_curl_pipe_command(command):
+        url = extract_script_url(command)
+        expected_sha = step.get("script_sha256")
+
+        if url:
+            dl = download_and_verify_script(url, expected_sha256=expected_sha)
+            if not dl["ok"]:
+                return dl  # Checksum mismatch or download failure
+
+            if not expected_sha:
+                logger.warning(
+                    "M2: curl-pipe-bash with no script_sha256 for %s — "
+                    "executing from tempfile but unverified (sha256=%s)",
+                    url, dl["sha256"],
+                )
+
+            # Rewrite command to use verified tempfile
+            safe_cmd = rewrite_curl_pipe_to_safe(command, dl["path"])
+            try:
+                result = _run_subprocess(
+                    safe_cmd,
+                    needs_sudo=step.get("needs_sudo", False),
+                    sudo_password=sudo_password,
+                    timeout=step.get("timeout", 120),
+                    env_overrides=env_overrides,
+                )
+                result["script_sha256"] = dl["sha256"]
+                result["script_verified"] = bool(expected_sha)
+                return result
+            finally:
+                cleanup_script(dl["path"])
+
+    # Standard execution (no curl pipe)
     return _run_subprocess(
-        step["command"],
+        command,
         needs_sudo=step.get("needs_sudo", False),
         sudo_password=sudo_password,
         timeout=step.get("timeout", 120),
@@ -157,7 +205,7 @@ def _execute_install_step(
         step["command"],
         needs_sudo=step.get("needs_sudo", True),
         sudo_password=sudo_password,
-        timeout=step.get("timeout", 120),
+        timeout=step.get("timeout", 600),  # M3: build installs can be slow
         env_overrides=env_overrides,
         cwd=step.get("cwd"),
     )
@@ -629,7 +677,17 @@ def _execute_github_release_step(
     version = step.get("version", "latest")
     asset_pattern = step.get("asset_pattern", "")
     binary_name = step.get("binary_name", "")
-    install_dir = step.get("install_dir", "/usr/local/bin")
+
+    # ── M1: install_dir fallback chain ──
+    install_dir = step.get("install_dir", "")
+    if not install_dir:
+        # Try /usr/local/bin first; fall back to ~/.local/bin if not writable
+        if os.access("/usr/local/bin", os.W_OK) or sudo_password:
+            install_dir = "/usr/local/bin"
+        else:
+            install_dir = os.path.expanduser("~/.local/bin")
+            os.makedirs(install_dir, exist_ok=True)
+            logger.info("Using %s (no sudo, /usr/local/bin not writable)", install_dir)
 
     # Resolve the download URL
     resolved = _resolve_github_release_url(

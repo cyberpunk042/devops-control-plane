@@ -253,6 +253,12 @@ TOOL_RECIPES: dict[str, dict] = {
         "needs_sudo": {"snap": True, "brew": False, "_default": True},
         "prefer": ["snap", "brew", "_default"],
         "requires": {"binaries": ["curl"]},
+        "version_constraint": {
+            "type": "minor_range",
+            "reference_hint": "cluster_version",
+            "range": 1,
+            "description": "kubectl should be within ±1 minor version of the K8s cluster.",
+        },
         "verify": ["kubectl", "version", "--client"],
         "update": {
             "snap": ["snap", "refresh", "kubectl"],
@@ -295,6 +301,11 @@ TOOL_RECIPES: dict[str, dict] = {
             "apk": True, "pacman": True, "brew": False,
         },
         "prefer": ["snap", "brew"],
+        "version_constraint": {
+            "type": "gte",
+            "reference": "18.0.0",
+            "description": "Node.js 18+ required for modern ESM and fetch support.",
+        },
         "verify": ["node", "--version"],
         "update": {
             "snap":   ["snap", "refresh", "node"],
@@ -763,6 +774,11 @@ TOOL_RECIPES: dict[str, dict] = {
             "pacman": True, "zypper": True, "brew": False,
         },
         "requires": {"binaries": ["docker"]},
+        "version_constraint": {
+            "type": "gte",
+            "reference": "2.0.0",
+            "description": "Docker Compose V2 required (docker compose, not docker-compose).",
+        },
         "verify": ["docker", "compose", "version"],
         "update": {
             "apt":    ["apt-get", "install", "--only-upgrade", "-y", "docker-compose-v2"],

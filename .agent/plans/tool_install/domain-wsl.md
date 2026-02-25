@@ -1,5 +1,11 @@
 # Domain: WSL (Windows Subsystem for Linux)
 
+> ⚠️ **PHASE LABELS MAY BE STALE** — As of 2026-02-25, code has evolved far beyond
+> what the phase roadmaps suggest. Many features labeled "Phase 4-8 future" are
+> ALREADY IMPLEMENTED. See `audit-domain-docs.md` and `audit-missing-pieces.md`
+> for the verified truth. Code is the source of truth, not these phase labels.
+
+
 > This document catalogs WSL1 and WSL2, how each is detected,
 > what differs from native Linux, and what the recipes and
 > resolver must account for.
@@ -210,7 +216,7 @@ WSL automatically adds Windows directories to the Linux PATH:
 **Current handling:** Phase 1 doesn't distinguish Windows .exe from
 Linux binaries in `shutil.which()`. This is a KNOWN LIMITATION.
 
-**NOT IMPLEMENTED (Phase 4):** For critical tools, verify the binary is
+✅ **IMPLEMENTED (L1):** `_is_linux_binary()` in `detection/tool_version.py` verifies ELF magic bytes. Binary is
 a Linux ELF, not a Windows PE:
 ```python
 def _is_linux_binary(path: str) -> bool:
