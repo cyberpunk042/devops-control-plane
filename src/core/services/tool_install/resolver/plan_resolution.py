@@ -15,7 +15,10 @@ from typing import Any
 
 from src.core.services.tool_install.data.recipes import TOOL_RECIPES
 from src.core.services.tool_install.detection.condition import _evaluate_condition
-from src.core.services.tool_install.detection.tool_version import _is_linux_binary
+from src.core.services.tool_install.detection.tool_version import (
+    _is_linux_binary,
+    get_tool_version,
+)
 from src.core.services.tool_install.domain.risk import _infer_risk, _plan_risk, _check_risk_escalation
 from src.core.services.tool_install.domain.version_constraint import check_version_constraint
 from src.core.services.tool_install.resolver.dependency_collection import _collect_deps
@@ -58,15 +61,60 @@ def resolve_install_plan(
     if not recipe:
         return {"tool": tool, "error": f"No recipe for '{tool}'."}
 
+    # ── Type-based dispatch ────────────────────────────────────
+    recipe_type = recipe.get("type", "tool")
+
+    if recipe_type == "data_pack":
+        return _resolve_data_pack_plan(tool, recipe, system_profile)
+
+    if recipe_type == "config":
+        return _resolve_config_plan(tool, recipe, system_profile)
+
     cli = recipe.get("cli", tool)
     cli_path = shutil.which(cli)
     if cli_path and _is_linux_binary(cli_path):
-        return {
-            "tool": tool,
-            "label": recipe["label"],
-            "already_installed": True,
-            "steps": [],
-        }
+        # ── Check version constraint before declaring "already installed" ──
+        min_ver = recipe.get("minimum_version")
+        vc = recipe.get("version_constraint")
+        installed_version = get_tool_version(tool)
+
+        needs_upgrade = False
+        version_message = ""
+
+        if installed_version and min_ver:
+            vc_result = check_version_constraint(
+                installed_version,
+                {"type": "gte", "reference": min_ver},
+            )
+            if not vc_result.get("valid"):
+                needs_upgrade = True
+                version_message = vc_result.get("message", "")
+                logger.info(
+                    "%s installed (%s) but below minimum %s — planning upgrade",
+                    tool, installed_version, min_ver,
+                )
+
+        if installed_version and vc and not needs_upgrade:
+            vc_result = check_version_constraint(installed_version, vc)
+            if not vc_result.get("valid"):
+                needs_upgrade = True
+                version_message = vc_result.get("message", "")
+                logger.info(
+                    "%s installed (%s) but fails constraint — planning upgrade",
+                    tool, installed_version,
+                )
+
+        if not needs_upgrade:
+            return {
+                "tool": tool,
+                "label": recipe["label"],
+                "already_installed": True,
+                "version_installed": installed_version,
+                "steps": [],
+            }
+
+        # Fall through to plan generation for upgrade
+        logger.info("%s needs upgrade: %s", tool, version_message)
 
     pm = system_profile.get("package_manager", {}).get("primary", "apt")
     snap_ok = system_profile.get("package_manager", {}).get("snap_available", False)
@@ -130,6 +178,93 @@ def resolve_install_plan(
         tool_id = ts["tool_id"]
         recipe_t = ts["recipe"]
         method = ts["method"]
+
+        # ── Build-from-source method ──
+        if method == "source":
+            from src.core.services.tool_install.execution.build_helpers import (
+                _autotools_plan,
+                _cargo_git_plan,
+                _cmake_plan,
+                _substitute_install_vars,
+                _validate_toolchain,
+            )
+
+            source_spec = recipe_t["install"]["source"]
+            build_system = source_spec.get("build_system", "autotools")
+
+            # Toolchain validation step
+            required_tools = source_spec.get("requires_toolchain", [])
+            if not required_tools:
+                # Infer from build system
+                if build_system == "cmake":
+                    required_tools = ["cmake", "make"]
+                elif build_system == "autotools":
+                    required_tools = ["make", "gcc"]
+                elif build_system == "cargo-git":
+                    required_tools = ["cargo"]
+
+            tc_check = _validate_toolchain(required_tools)
+            if not tc_check["ok"]:
+                steps.append({
+                    "type": "notification",
+                    "label": f"Missing build tools for {recipe_t['label']}",
+                    "message": tc_check.get("suggestion", "Install missing build tools"),
+                    "missing_tools": tc_check["missing"],
+                    "severity": "error",
+                })
+
+            # Source acquisition step
+            if "git_repo" in source_spec:
+                import tempfile
+                build_dir = source_spec.get(
+                    "build_dir",
+                    f"/tmp/devops-cp-build-{tool_id}",
+                )
+                steps.append({
+                    "type": "source",
+                    "label": f"Clone {recipe_t['label']} source",
+                    "tool_id": tool_id,
+                    "source": {
+                        "type": "git",
+                        "repo": source_spec["git_repo"],
+                        "branch": source_spec.get("branch"),
+                        "depth": source_spec.get("depth", 1),
+                    },
+                    "dest": build_dir,
+                    "needs_sudo": False,
+                })
+
+                # Build steps — dispatch to the right plan generator
+                if build_system == "autotools":
+                    build_steps = _autotools_plan(source_spec, system_profile, build_dir)
+                elif build_system == "cmake":
+                    build_steps = _cmake_plan(source_spec, system_profile, build_dir)
+                elif build_system == "cargo-git":
+                    build_steps = _cargo_git_plan(source_spec, system_profile)
+                else:
+                    # Generic: use the raw command from the recipe
+                    raw_cmd = source_spec.get("command", ["make"])
+                    build_steps = [{
+                        "type": "build",
+                        "label": f"Build {recipe_t['label']}",
+                        "command": _substitute_install_vars(raw_cmd, system_profile),
+                        "cwd": build_dir,
+                        "needs_sudo": False,
+                    }]
+
+                for bs in build_steps:
+                    bs["tool_id"] = tool_id
+                    steps.append(bs)
+
+                # Cleanup step
+                steps.append({
+                    "type": "cleanup",
+                    "label": f"Cleanup build directory",
+                    "command": ["rm", "-rf", build_dir],
+                    "needs_sudo": False,
+                })
+            continue
+
         cmd = list(recipe_t["install"][method])
         sudo = recipe_t["needs_sudo"].get(method, False)
 
@@ -375,3 +510,108 @@ def resolve_install_plan_with_choices(
             TOOL_RECIPES[tool] = original
         else:
             TOOL_RECIPES.pop(tool, None)
+
+
+# ── Data‑pack resolution ──────────────────────────────────────
+
+def _resolve_data_pack_plan(
+    tool: str,
+    recipe: dict,
+    system_profile: dict,
+) -> dict:
+    """Wrap a data‑pack recipe's pre‑built steps into a plan.
+
+    Data packs have a ``steps`` list with pre‑defined download/setup
+    steps.  No method selection needed — the steps are ready to execute.
+    """
+    raw_steps = recipe.get("steps", [])
+    steps: list[dict] = []
+
+    for i, s in enumerate(raw_steps):
+        step = {
+            "type": s.get("type", "download"),
+            "label": s.get("label", f"{recipe['label']} step {i + 1}"),
+            "command": s.get("command", []),
+            "needs_sudo": s.get("needs_sudo", False),
+        }
+        # Forward all data-pack specific fields (url, dest, checksum, etc.)
+        for key in ("url", "dest", "checksum", "size_hint", "resume",
+                     "disk_check", "freshness_days"):
+            if key in s:
+                step[key] = s[key]
+        steps.append(step)
+
+    # Append verify if present
+    verify = recipe.get("verify")
+    if verify:
+        steps.append({
+            "type": "verify",
+            "label": f"Verify {recipe['label']}",
+            "command": verify,
+            "needs_sudo": False,
+        })
+
+    return {
+        "tool": tool,
+        "label": recipe["label"],
+        "type": "data_pack",
+        "already_installed": False,
+        "needs_sudo": any(s.get("needs_sudo") for s in steps),
+        "steps": steps,
+    }
+
+
+# ── Config resolution ─────────────────────────────────────────
+
+def _resolve_config_plan(
+    tool: str,
+    recipe: dict,
+    system_profile: dict,
+) -> dict:
+    """Wrap a config recipe's templates into config steps.
+
+    Config recipes define config file templates with target paths,
+    default content, and backup policies.
+    """
+    templates = recipe.get("config_templates", [])
+    steps: list[dict] = []
+
+    for tmpl in templates:
+        steps.append({
+            "type": "config",
+            "label": tmpl.get("label", f"Configure {tmpl.get('file', '?')}"),
+            "target_file": tmpl.get("file", ""),
+            "template": tmpl.get("template", ""),
+            "defaults": tmpl.get("defaults", {}),
+            "backup": tmpl.get("backup", True),
+            "needs_sudo": tmpl.get("needs_sudo", True),
+        })
+
+    # Post-install steps (e.g., restart docker after config change)
+    for pis in recipe.get("post_install", []):
+        steps.append({
+            "type": "post_install",
+            "label": pis.get("label", "Post-install"),
+            "command": pis.get("command", []),
+            "needs_sudo": pis.get("needs_sudo", False),
+        })
+
+    # Verify step
+    verify = recipe.get("verify")
+    if verify:
+        steps.append({
+            "type": "verify",
+            "label": f"Verify {recipe['label']}",
+            "command": verify,
+            "needs_sudo": False,
+        })
+
+    return {
+        "tool": tool,
+        "label": recipe["label"],
+        "type": "config",
+        "already_installed": False,
+        "needs_sudo": any(s.get("needs_sudo") for s in steps),
+        "steps": steps,
+    }
+

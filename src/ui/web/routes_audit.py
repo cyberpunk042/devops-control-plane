@@ -650,7 +650,173 @@ def audit_tool_version():
     return jsonify({"tool": tool, "version": version})
 
 
-# ── Phase 3: Plan execution with SSE streaming ────────────────
+# ── Deep system detection (on-demand) ──────────────────────────
+
+
+@audit_bp.route("/audit/system/deep-detect", methods=["POST"])
+def audit_deep_detect():
+    """Run deep system detection (GPU, kernel, hardware, build tools, network).
+
+    This is the "deep tier" — takes ~2s, called on-demand before
+    provisioning flows that need hardware/network info.
+
+    Request body:
+        {"checks": ["gpu", "hardware", "kernel", "build", "network", "environment"]}
+        If empty, runs all checks.
+
+    Response:
+        {"gpu": {...}, "hardware": {...}, "kernel": {...},
+         "build_toolchain": {...}, "network": {...}, "environment": {...}}
+    """
+    from src.core.services.tool_install import (
+        detect_build_toolchain,
+        detect_gpu,
+        detect_kernel,
+    )
+    from src.core.services.tool_install.detection.environment import (
+        detect_cpu_features,
+        detect_nvm,
+        detect_sandbox,
+    )
+    from src.core.services.tool_install.detection.hardware import detect_hardware
+    from src.core.services.tool_install.detection.network import (
+        check_all_registries,
+        detect_proxy,
+    )
+
+    body = request.get_json(silent=True) or {}
+    checks = body.get("checks", [])
+    run_all = not checks
+
+    result: dict = {}
+
+    if run_all or "gpu" in checks:
+        try:
+            gpu_info = detect_gpu()
+            # Auto-check CUDA/driver compat when both are available
+            from src.core.services.tool_install.detection.hardware import check_cuda_driver_compat
+            nvidia = gpu_info.get("nvidia", {})
+            if nvidia.get("cuda_version") and nvidia.get("driver_version"):
+                compat = check_cuda_driver_compat(
+                    nvidia["cuda_version"],
+                    nvidia["driver_version"],
+                )
+                gpu_info["cuda_driver_compat"] = compat
+            result["gpu"] = gpu_info
+        except Exception as exc:
+            result["gpu"] = {"error": str(exc)}
+
+    if run_all or "hardware" in checks:
+        try:
+            result["hardware"] = detect_hardware()
+        except Exception as exc:
+            result["hardware"] = {"error": str(exc)}
+
+    if run_all or "kernel" in checks:
+        try:
+            result["kernel"] = detect_kernel()
+        except Exception as exc:
+            result["kernel"] = {"error": str(exc)}
+
+    if run_all or "build" in checks:
+        try:
+            result["build_toolchain"] = detect_build_toolchain()
+        except Exception as exc:
+            result["build_toolchain"] = {"error": str(exc)}
+
+    if run_all or "network" in checks:
+        try:
+            result["network"] = {
+                "registries": check_all_registries(timeout=3),
+                "proxy": detect_proxy(),
+            }
+            # Add Alpine community repo check if applicable
+            from src.core.services.tool_install.detection.network import check_alpine_community_repo
+            alpine_check = check_alpine_community_repo()
+            if alpine_check.get("is_alpine"):
+                result["network"]["alpine_community"] = alpine_check
+        except Exception as exc:
+            result["network"] = {"error": str(exc)}
+
+    if run_all or "environment" in checks:
+        try:
+            result["environment"] = {
+                "nvm": detect_nvm(),
+                "sandbox": detect_sandbox(),
+                "cpu_features": detect_cpu_features(),
+            }
+        except Exception as exc:
+            result["environment"] = {"error": str(exc)}
+
+    return jsonify(result)
+
+
+# ── Phase 3: Plan execution ───────────────────────────────────
+
+
+@audit_bp.route("/audit/install-plan/execute-sync", methods=["POST"])
+@run_tracked("install", "install:execute-plan-sync")
+def audit_execute_plan_sync():
+    """Execute an install plan synchronously (non-streaming).
+
+    For CLI callers and batch operations. Returns a single JSON
+    response when all steps are complete — no SSE stream.
+
+    Request body:
+        {"tool": "cargo-audit", "sudo_password": "...", "answers": {}}
+
+    Response:
+        {"ok": true, "tool": "cargo-audit", "steps_completed": 3, ...}
+        or
+        {"ok": false, "error": "...", "step": 1, ...}
+    """
+    from src.core.services.audit.l0_detection import _detect_os
+    from src.core.services.tool_install import (
+        resolve_install_plan,
+        resolve_install_plan_with_choices,
+    )
+    from src.core.services.tool_install.orchestration.orchestrator import execute_plan
+
+    body = request.get_json(silent=True) or {}
+    tool = body.get("tool", "").strip().lower()
+    sudo_password = body.get("sudo_password", "")
+    answers = body.get("answers", {})
+
+    if not tool:
+        return jsonify({"error": "No tool specified"}), 400
+
+    _refresh_server_path()
+    system_profile = _detect_os()
+
+    if answers:
+        plan = resolve_install_plan_with_choices(tool, system_profile, answers)
+    else:
+        plan = resolve_install_plan(tool, system_profile)
+
+    if plan.get("error"):
+        return jsonify({"ok": False, "error": plan["error"]}), 400
+
+    if plan.get("already_installed"):
+        return jsonify({
+            "ok": True,
+            "already_installed": True,
+            "message": f"{tool} is already installed",
+            "version_installed": plan.get("version_installed"),
+        })
+
+    result = execute_plan(plan, sudo_password=sudo_password)
+
+    if result.get("ok"):
+        _refresh_server_path()
+        try:
+            root = Path(current_app.config["PROJECT_ROOT"])
+            devops_cache.invalidate_scope(root, "integrations")
+            devops_cache.invalidate_scope(root, "devops")
+            devops_cache.invalidate(root, "wiz:detect")
+        except Exception:
+            pass
+
+    return jsonify(result)
 
 
 @audit_bp.route("/audit/install-plan/execute", methods=["POST"])
@@ -717,6 +883,40 @@ def audit_execute_plan():
         })
 
     steps = plan.get("steps", [])
+
+    # ── Pre-flight: network reachability for required registries ──
+    from src.core.services.tool_install.detection.network import (
+        check_registry_reachable,
+        detect_proxy,
+    )
+
+    # Infer required registries from step commands
+    _needed_registries: set[str] = set()
+    for s in steps:
+        cmd_str = " ".join(s.get("command", []))
+        if "pip " in cmd_str or "pip3 " in cmd_str:
+            _needed_registries.add("pypi")
+        elif "cargo " in cmd_str:
+            _needed_registries.add("crates")
+        elif "npm " in cmd_str:
+            _needed_registries.add("npm")
+        elif "curl " in cmd_str or "wget " in cmd_str:
+            _needed_registries.add("github")
+
+    network_warnings: list[dict] = []
+    if _needed_registries:
+        proxy_info = detect_proxy()
+        for reg in _needed_registries:
+            result = check_registry_reachable(reg, timeout=3)
+            if not result.get("reachable"):
+                warning = {
+                    "registry": reg,
+                    "url": result.get("url", ""),
+                    "error": result.get("error", "unreachable"),
+                }
+                if proxy_info.get("has_proxy"):
+                    warning["proxy_detected"] = True
+                network_warnings.append(warning)
 
     # Generate plan_id for state tracking
     import uuid as _uuid_mod
@@ -817,6 +1017,16 @@ def audit_execute_plan():
         env_overrides: dict[str, str] = {}
         post_env = plan.get("post_env", {})
         completed_steps: list[int] = []
+
+        # Emit network warnings before starting execution
+        for nw in network_warnings:
+            yield _sse({
+                "type": "network_warning",
+                "registry": nw["registry"],
+                "url": nw.get("url", ""),
+                "error": nw.get("error", ""),
+                "proxy_detected": nw.get("proxy_detected", False),
+            })
 
         for i, step in enumerate(steps):
             step_label = step.get("label", f"Step {i + 1}")
@@ -1023,13 +1233,31 @@ def audit_execute_plan():
         except Exception:
             pass
 
-        yield _sse({
+        # ── Restart detection ──
+        from src.core.services.tool_install.domain.restart import (
+            _batch_restarts,
+            detect_restart_needs,
+        )
+
+        completed_step_dicts = [steps[ci] for ci in completed_steps if ci < len(steps)]
+        restart_needs = detect_restart_needs(plan, completed_step_dicts)
+        restart_actions = _batch_restarts(restart_needs) if any(
+            restart_needs.get(k) for k in ("shell_restart", "reboot_required", "service_restart")
+        ) else []
+
+        done_event: dict = {
             "type": "done",
             "ok": True,
             "plan_id": plan_id,
             "message": f"{tool} installed successfully",
             "steps_completed": len(steps),
-        })
+        }
+
+        if restart_needs.get("shell_restart") or restart_needs.get("reboot_required") or restart_needs.get("service_restart"):
+            done_event["restart"] = restart_needs
+            done_event["restart_actions"] = restart_actions
+
+        yield _sse(done_event)
 
     return Response(
         stream_with_context(generate()),
@@ -1270,7 +1498,205 @@ def audit_resume_plan():
     )
 
 
-# ── Phase 7: Data Pack Status ──────────────────────────────────
+# ── Plan Cancel / Archive ──────────────────────────────────────
+
+
+@audit_bp.route("/audit/install-plan/cancel", methods=["POST"])
+def audit_cancel_plan():
+    """Cancel an interrupted/failed plan.
+
+    Request body:
+        {"plan_id": "abc123..."}
+
+    Response:
+        {"ok": true, "plan_id": "abc123...", "status": "cancelled"}
+    """
+    from src.core.services.tool_install import cancel_plan
+
+    body = request.get_json(silent=True) or {}
+    plan_id = body.get("plan_id", "").strip()
+
+    if not plan_id:
+        return jsonify({"error": "No plan_id specified"}), 400
+
+    result = cancel_plan(plan_id)
+    if result.get("error"):
+        return jsonify({"ok": False, "error": result["error"]}), 404
+
+    return jsonify({"ok": True, "plan_id": plan_id, "status": "cancelled"})
+
+
+@audit_bp.route("/audit/install-plan/archive", methods=["POST"])
+def audit_archive_plan():
+    """Archive a completed/cancelled plan.
+
+    Request body:
+        {"plan_id": "abc123..."}
+
+    Response:
+        {"ok": true, "plan_id": "abc123...", "status": "archived"}
+    """
+    from src.core.services.tool_install import archive_plan
+
+    body = request.get_json(silent=True) or {}
+    plan_id = body.get("plan_id", "").strip()
+
+    if not plan_id:
+        return jsonify({"error": "No plan_id specified"}), 400
+
+    result = archive_plan(plan_id)
+    if result.get("error"):
+        return jsonify({"ok": False, "error": result["error"]}), 404
+
+    return jsonify({"ok": True, "plan_id": plan_id, "status": "archived"})
+
+
+# ── Tool Removal ───────────────────────────────────────────────
+
+
+@audit_bp.route("/audit/remove-tool", methods=["POST"])
+@run_tracked("install", "install:remove-tool")
+def audit_remove_tool():
+    """Remove an installed tool.
+
+    Request body:
+        {"tool": "cargo-audit", "sudo_password": "..."}
+
+    Response:
+        {"ok": true, "message": "cargo-audit removed"}
+    """
+    from src.core.services.tool_install import remove_tool
+
+    body = request.get_json(silent=True) or {}
+    tool = body.get("tool", "").strip().lower()
+    sudo_password = body.get("sudo_password", "")
+
+    if not tool:
+        return jsonify({"error": "No tool specified"}), 400
+
+    result = remove_tool(tool, sudo_password=sudo_password)
+    if result.get("ok"):
+        # Bust caches after removal
+        _refresh_server_path()
+        try:
+            root = Path(current_app.config["PROJECT_ROOT"])
+            devops_cache.invalidate_scope(root, "integrations")
+            devops_cache.invalidate_scope(root, "devops")
+            devops_cache.invalidate(root, "wiz:detect")
+        except Exception:
+            pass
+        return jsonify({
+            "ok": True,
+            "message": f"{tool} removed",
+        })
+    else:
+        return jsonify({
+            "ok": False,
+            "error": result.get("error", f"Failed to remove {tool}"),
+        }), 500
+
+
+# ── Offline Install Cache ──────────────────────────────────────
+
+
+@audit_bp.route("/audit/install-plan/cache", methods=["POST"])
+@run_tracked("install", "install:cache-plan")
+def audit_cache_plan():
+    """Pre-download plan artifacts for offline installation.
+
+    Request body:
+        {"tool": "cargo-audit", "answers": {}}
+
+    Response:
+        {"ok": true, "cached_count": 3, "total_size_mb": 12.3,
+         "download_estimates": {"10 Mbps": "2s", ...}}
+    """
+    from src.core.services.audit.l0_detection import _detect_os
+    from src.core.services.tool_install import resolve_install_plan, resolve_install_plan_with_choices
+    from src.core.services.tool_install.domain.download_helpers import _estimate_download_time
+    from src.core.services.tool_install.execution.offline_cache import cache_plan
+
+    body = request.get_json(silent=True) or {}
+    tool = body.get("tool", "").strip().lower()
+    answers = body.get("answers", {})
+
+    if not tool:
+        return jsonify({"error": "No tool specified"}), 400
+
+    system_profile = _detect_os()
+    if answers:
+        plan = resolve_install_plan_with_choices(tool, system_profile, answers)
+    else:
+        plan = resolve_install_plan(tool, system_profile)
+
+    if plan.get("error"):
+        return jsonify({"ok": False, "error": plan["error"]}), 400
+
+    if plan.get("already_installed"):
+        return jsonify({"ok": True, "already_installed": True, "message": f"{tool} is already installed"})
+
+    result = cache_plan(plan)
+
+    # Add download time estimate
+    total_bytes = int(result.get("total_size_mb", 0) * 1024 * 1024)
+    if total_bytes > 0:
+        result["download_estimates"] = _estimate_download_time(total_bytes)
+
+    return jsonify(result)
+
+
+@audit_bp.route("/audit/install-cache/status", methods=["GET"])
+def audit_cache_status():
+    """Return summary of cached install artifacts.
+
+    Response:
+        {"cache_dir": "...", "tools": {"kubectl": {"files": 3, "size_mb": 12.3}},
+         "total_size_mb": 45.6}
+    """
+    from src.core.services.tool_install.execution.offline_cache import cache_status
+
+    return jsonify(cache_status())
+
+
+@audit_bp.route("/audit/install-cache/clear", methods=["POST"])
+def audit_cache_clear():
+    """Clear cached artifacts for a tool or all tools.
+
+    Request body:
+        {"tool": "kubectl"}   — clear one tool
+        {}                     — clear all
+
+    Response:
+        {"ok": true, "cleared": "kubectl"}
+    """
+    from src.core.services.tool_install.execution.offline_cache import clear_cache
+
+    body = request.get_json(silent=True) or {}
+    tool = body.get("tool", "").strip().lower() or None
+
+    return jsonify(clear_cache(tool=tool))
+
+
+@audit_bp.route("/audit/install-cache/artifacts", methods=["POST"])
+def audit_cache_artifacts():
+    """Load cached artifact manifest for a tool.
+
+    Request body:
+        {"tool": "kubectl"}
+
+    Response:
+        {"step_id": {...artifact info...}} or null
+    """
+    from src.core.services.tool_install.execution.offline_cache import load_cached_artifacts
+
+    body = request.get_json(silent=True) or {}
+    tool = body.get("tool", "").strip().lower()
+
+    if not tool:
+        return jsonify({"error": "No tool specified"}), 400
+
+    artifacts = load_cached_artifacts(tool)
+    return jsonify(artifacts or {})
 
 
 @audit_bp.route("/audit/data-status", methods=["POST"])

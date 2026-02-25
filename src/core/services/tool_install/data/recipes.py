@@ -872,6 +872,7 @@ TOOL_RECIPES: dict[str, dict] = {
         "verify": ["nvcc", "--version"],
     },
     "vfio-passthrough": {
+        "type": "data_pack",
         "label": "VFIO GPU Passthrough",
         "category": "gpu",
         "risk": "high",
@@ -1054,6 +1055,7 @@ TOOL_RECIPES: dict[str, dict] = {
         "install": {
             "pip": ["pip3", "install", "torch"],
         },
+        "needs_sudo": {"pip": False},
         "verify": ["python3", "-c", "import torch; print(torch.__version__)"],
     },
     "opencv": {
@@ -1113,6 +1115,7 @@ TOOL_RECIPES: dict[str, dict] = {
         "install": {
             "pip": ["pip3", "install", "opencv-python-headless"],
         },
+        "needs_sudo": {"pip": False},
         "verify": ["python3", "-c", "import cv2; print(cv2.__version__)"],
     },
 
@@ -1123,6 +1126,7 @@ TOOL_RECIPES: dict[str, dict] = {
     # resume, checksums, and freshness tracking.
 
     "trivy-db": {
+        "type": "data_pack",
         "label": "Trivy Vulnerability DB",
         "category": "data_pack",
         "risk": "low",
@@ -1143,6 +1147,7 @@ TOOL_RECIPES: dict[str, dict] = {
         },
     },
     "geoip-db": {
+        "type": "data_pack",
         "label": "MaxMind GeoIP Database",
         "category": "data_pack",
         "risk": "low",
@@ -1169,6 +1174,7 @@ TOOL_RECIPES: dict[str, dict] = {
         ],
     },
     "wordlists": {
+        "type": "data_pack",
         "label": "Security Wordlists (rockyou)",
         "category": "data_pack",
         "risk": "low",
@@ -1185,6 +1191,7 @@ TOOL_RECIPES: dict[str, dict] = {
         ],
     },
     "spacy-en": {
+        "type": "data_pack",
         "label": "spaCy English Model",
         "category": "data_pack",
         "risk": "low",
@@ -1203,6 +1210,7 @@ TOOL_RECIPES: dict[str, dict] = {
         },
     },
     "hf-model": {
+        "type": "data_pack",
         "label": "HuggingFace Model (gated)",
         "category": "data_pack",
         "risk": "low",
@@ -1246,6 +1254,7 @@ TOOL_RECIPES: dict[str, dict] = {
     # These produce `action: "template"` config steps.
 
     "docker-daemon-config": {
+        "type": "config",
         "label": "Docker daemon.json",
         "category": "config",
         "config_templates": [{
@@ -1287,6 +1296,7 @@ TOOL_RECIPES: dict[str, dict] = {
         "verify": ["bash", "-c", "test -f /etc/docker/daemon.json"],
     },
     "journald-config": {
+        "type": "config",
         "label": "journald configuration",
         "category": "config",
         "config_templates": [{
@@ -1318,6 +1328,7 @@ TOOL_RECIPES: dict[str, dict] = {
                    "test -f /etc/systemd/journald.conf.d/custom.conf"],
     },
     "logrotate-docker": {
+        "type": "config",
         "label": "Docker logrotate config",
         "category": "config",
         "config_templates": [{
@@ -1348,6 +1359,7 @@ TOOL_RECIPES: dict[str, dict] = {
                    "test -f /etc/logrotate.d/docker-containers"],
     },
     "nginx-vhost": {
+        "type": "config",
         "label": "nginx virtual host",
         "category": "config",
         "config_templates": [{
@@ -1485,6 +1497,7 @@ TOOL_RECIPES: dict[str, dict] = {
         "install": {
             "pip": ["pip3", "install", "mkdocs"],
         },
+        "needs_sudo": {"pip": False},
         "verify": ["mkdocs", "--version"],
         "update": {
             "pip": ["pip3", "install", "--upgrade", "mkdocs"],

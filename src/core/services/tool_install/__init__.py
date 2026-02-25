@@ -52,11 +52,13 @@ from src.core.services.tool_install.execution.plan_state import (  # noqa: F401
     save_plan_state,
 )
 from src.core.services.tool_install.execution.tool_management import (  # noqa: F401
+    remove_tool,
     update_tool,
 )
 
 # ── L5: Orchestration ──
 from src.core.services.tool_install.orchestration.orchestrator import (  # noqa: F401
+    execute_plan,
     execute_plan_dag,
     execute_plan_step,
     install_tool,

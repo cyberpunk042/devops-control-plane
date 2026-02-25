@@ -204,6 +204,20 @@ def execute_plan(
         if step_type in ("tool", "post_install", "verify") and post_env:
             env_overrides.update(post_env)
 
+        # ── Offline cache: use cached artifact if available ──
+        from src.core.services.tool_install.execution.offline_cache import (
+            install_from_cache,
+            load_cached_artifacts,
+        )
+        if step_type in ("download", "github_release"):
+            cached = load_cached_artifacts(tool)
+            if cached:
+                step_id = step.get("step_id", step.get("label", f"step_{i}"))
+                artifact = cached.get(step_id)
+                if artifact:
+                    step = install_from_cache(step, artifact)
+                    logger.info("Using cached artifact for step %s", step_id)
+
         result = execute_plan_step(
             step,
             sudo_password=sudo_password,
