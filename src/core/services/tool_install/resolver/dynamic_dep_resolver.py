@@ -202,6 +202,11 @@ KNOWN_PACKAGES: dict[str, dict[str, str | list[str]]] = {
         "apk": "python3", "pacman": "python",
         "zypper": "python3", "brew": "python@3",
     },
+    "cargo": {
+        "apt": "cargo", "dnf": "cargo",
+        "apk": "cargo", "pacman": "rustup",
+        "zypper": "cargo", "brew": "rustup",
+    },
     "node": {
         "apt": "nodejs", "dnf": "nodejs",
         "apk": "nodejs", "pacman": "nodejs",
@@ -209,8 +214,8 @@ KNOWN_PACKAGES: dict[str, dict[str, str | list[str]]] = {
     },
     "npm": {
         "apt": "npm", "dnf": "npm",
-        "apk": "nodejs-npm", "pacman": "npm",
-        "zypper": "npm16", "brew": "node",
+        "apk": "npm", "pacman": "npm",
+        "zypper": "npm20", "brew": "node",
     },
     "ruby": {
         "apt": "ruby-full", "dnf": "ruby",
@@ -223,14 +228,23 @@ KNOWN_PACKAGES: dict[str, dict[str, str | list[str]]] = {
         "zypper": "php8", "brew": "php",
     },
     "go": {
-        "apt": "golang", "dnf": "golang",
+        "apt": "golang-go", "dnf": "golang",
         "apk": "go", "pacman": "go",
         "zypper": "go", "brew": "go",
+        "snap": "go",
     },
     "docker": {
         "apt": "docker.io", "dnf": "docker",
         "apk": "docker", "pacman": "docker",
         "zypper": "docker", "brew": "docker",
+    },
+    "docker-compose": {
+        "apt": "docker-compose-plugin",
+        "dnf": "docker-compose-plugin",
+        "apk": "docker-cli-compose",
+        "pacman": "docker-compose",
+        "zypper": "docker-compose",
+        "brew": "docker-compose",
     },
     "clang": {
         "apt": "clang", "dnf": "clang",
@@ -278,6 +292,53 @@ KNOWN_PACKAGES: dict[str, dict[str, str | list[str]]] = {
         ),
     },
 }
+
+
+# ═══════════════════════════════════════════════════════════════════
+# Shared package groups
+# ═══════════════════════════════════════════════════════════════════
+#
+# Named package sets used by `install_packages` strategy options.
+# Handlers reference a group by name (string) instead of duplicating
+# the family→packages mapping.  The resolver expands the string to
+# a dict at availability-check / execution time.
+#
+# Keys: distro *family* names (not PM names) because handler
+# `packages` dicts are already keyed by family.
+
+PACKAGE_GROUPS: dict[str, dict[str, list[str]]] = {
+    "build_tools": {
+        "debian": ["build-essential"],
+        "rhel": ["gcc", "gcc-c++", "make"],
+        "alpine": ["build-base"],
+        "arch": ["base-devel"],
+        "suse": ["gcc", "gcc-c++", "make"],
+        "macos": ["gcc"],
+    },
+    "node_build_tools": {
+        "debian": ["build-essential", "python3"],
+        "rhel": ["gcc", "gcc-c++", "make", "python3"],
+        "alpine": ["build-base", "python3"],
+        "arch": ["base-devel", "python"],
+        "suse": ["gcc", "gcc-c++", "make", "python3"],
+        "macos": ["python3"],
+    },
+    "epel": {
+        "rhel": ["epel-release"],
+    },
+}
+
+
+def resolve_package_group(packages):
+    """Expand a string package-group reference to its dict.
+
+    If *packages* is already a dict, return it unchanged.
+    If it is a string, look it up in ``PACKAGE_GROUPS``.
+    Raises ``KeyError`` if the name is unknown.
+    """
+    if isinstance(packages, dict):
+        return packages
+    return PACKAGE_GROUPS[packages]
 
 
 # ═══════════════════════════════════════════════════════════════════

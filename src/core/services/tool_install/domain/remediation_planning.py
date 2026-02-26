@@ -25,6 +25,9 @@ from src.core.services.tool_install.data.remediation_handlers import (
     LIB_TO_PACKAGE_MAP,
     VALID_STRATEGIES,
 )
+from src.core.services.tool_install.resolver.dynamic_dep_resolver import (
+    resolve_package_group,
+)
 from src.core.services.tool_install.domain.handler_matching import (
     _collect_all_options,
     _sort_options,
@@ -95,12 +98,63 @@ def _compute_availability(
     strategy = option.get("strategy", "")
     family = _get_family(system_profile)
 
+    # ── pre_packages gate ──────────────────────────────────────
+    # If the option has prerequisite OS packages, check that we
+    # can actually install them (not read-only rootfs).
+    pre_packages = option.get("pre_packages")
+    if pre_packages and system_profile:
+        read_only = system_profile.get(
+            "container", {},
+        ).get("read_only_rootfs", False)
+        if read_only:
+            return "impossible", None, None, (
+                "Cannot install prerequisite packages: "
+                "read-only root filesystem"
+            )
+
     # ── Architecture exclusion ─────────────────────────────────
     arch_exclude = option.get("arch_exclude", [])
     if arch_exclude and system_profile:
         arch = system_profile.get("arch", "")
         if arch in arch_exclude:
             return "impossible", None, None, "ARM architecture is not supported"
+
+    # ── requires: capability conditions gate ───────────────────
+    # Options can declare system requirements that must ALL be met.
+    # If any condition fails → impossible.
+    requires = option.get("requires")
+    if requires and system_profile:
+        caps = system_profile.get("capabilities", {})
+        container = system_profile.get("container", {})
+        system_type = system_profile.get("system", "")
+
+        _REQUIRES_CHECKS = {
+            "has_systemd": lambda: caps.get("has_systemd", False),
+            "has_openrc": lambda: (
+                system_profile.get("init_system", {}).get("type") == "openrc"
+            ),
+            "is_linux": lambda: system_type == "Linux",
+            "not_container": lambda: not container.get("in_container", False),
+            "writable_rootfs": lambda: not container.get(
+                "read_only_rootfs", False,
+            ),
+            "not_root": lambda: not caps.get("is_root", False),
+            "has_sudo": lambda: caps.get("has_sudo", False),
+        }
+
+        for cond, expected in requires.items():
+            checker = _REQUIRES_CHECKS.get(cond)
+            if checker is None:
+                continue  # Unknown condition — skip (schema validates)
+            actual = checker()
+            if actual != expected:
+                # Build a human-readable reason
+                label = cond.replace("_", " ")
+                if expected:
+                    reason = f"Requires {label} (not available)"
+                else:
+                    reason = f"Not applicable: {label}"
+                return "impossible", None, None, reason
 
     if strategy == "install_dep":
         dep = option.get("dep", "")
@@ -211,6 +265,8 @@ def _compute_availability(
             # Dynamic packages are resolved at execution time
             return "ready", None, None, None
         packages = option.get("packages", {})
+        if isinstance(packages, str):
+            packages = resolve_package_group(packages)
         if not packages:
             return "impossible", None, None, "No packages defined"
         if family and family not in packages:
@@ -331,38 +387,41 @@ def _compute_step_count(option: dict, system_profile: dict | None) -> int:
     """
     strategy = option.get("strategy", "")
 
+    # pre_packages adds 1 step (OS package install) before the strategy
+    pre_step = 1 if option.get("pre_packages") else 0
+
     if strategy in ("retry_with_modifier", "manual"):
-        return 1
+        return 1 + pre_step
 
     if strategy == "install_dep":
         # The dep itself is a full install plan (1-5 steps typically)
-        return 2
+        return 2 + pre_step
 
     if strategy == "install_dep_then_switch":
         # Install dep + switch method install
-        return 3
+        return 3 + pre_step
 
     if strategy == "switch_method":
-        return 1
+        return 1 + pre_step
 
     if strategy == "install_packages":
-        return 1
+        return 1 + pre_step
 
     if strategy == "add_repo":
-        return 2  # add repo + retry
+        return 2 + pre_step  # add repo + retry
 
     if strategy == "upgrade_dep":
-        return 2
+        return 2 + pre_step
 
     if strategy == "env_fix":
         cmds = option.get("fix_commands", [])
-        return max(1, len(cmds))
+        return max(1, len(cmds)) + pre_step
 
     if strategy == "cleanup_retry":
         cmds = option.get("cleanup_commands", [])
-        return max(1, len(cmds)) + 1  # cleanup + retry
+        return max(1, len(cmds)) + 1 + pre_step  # cleanup + retry
 
-    return 1
+    return 1 + pre_step
 
 
 # ── Main response builder ──────────────────────────────────────

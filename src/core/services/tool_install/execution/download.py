@@ -93,6 +93,13 @@ def _resolve_github_release_url(
         return {"ok": False, "error": f"No assets found for {repo} {release_tag}"}
 
     # Resolve arch/os in pattern
+    # TODO (2026-02-26): This uses the global _IARCH_MAP which normalizes to
+    # Go-style names (amd64/arm64). Tools whose releases use raw uname -m
+    # names (x86_64/aarch64) won't match via this auto-detect path.
+    # The recipe-based _default path has per-tool arch_map overrides, but
+    # this function does not yet support them. When we start using
+    # github_release steps for tools with raw naming, we'll need to accept
+    # an optional arch_map parameter here too.
     machine = platform.machine().lower()
     arch = _IARCH_MAP.get(machine, machine)
     os_name = platform.system().lower()

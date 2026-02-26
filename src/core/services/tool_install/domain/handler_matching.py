@@ -18,6 +18,9 @@ from src.core.services.tool_install.data.remediation_handlers import (
     INFRA_HANDLERS,
     METHOD_FAMILY_HANDLERS,
 )
+from src.core.services.tool_install.data.tool_failure_handlers import (
+    TOOL_FAILURE_HANDLERS,
+)
 
 
 # ── Single handler match ────────────────────────────────────────
@@ -120,9 +123,10 @@ def _collect_all_options(
                 }
                 merged_options.append(tagged_option)
 
-    # Layer 3: Recipe-specific handlers (highest priority)
-    if recipe:
-        _scan_handlers(recipe.get("on_failure", []), "recipe")
+    # Layer 3: Tool-specific handlers (highest priority)
+    tool_handlers = TOOL_FAILURE_HANDLERS.get(tool_id, [])
+    if tool_handlers:
+        _scan_handlers(tool_handlers, "recipe")
 
     # Layer 2: Method-family handlers
     method_handlers = METHOD_FAMILY_HANDLERS.get(method, [])

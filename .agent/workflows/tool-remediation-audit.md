@@ -165,36 +165,38 @@ If a new gate is needed:
 
 ---
 
-## Phase 5: Validate remediation
+## Phase 5: Validate remediation (targeted — per-tool only)
+
+Do NOT run the full test suite for every tool. Use the per-tool mode:
 
 ```bash
 // turbo
-.venv/bin/python -m tests.test_remediation_coverage --verbose
+.venv/bin/python -m tests.test_remediation_coverage --tool TOOL_ID_HERE
 ```
 
-| Check | What to look for |
-|-------|-----------------|
-| Check 2 | No "impossible deps" from your new handlers |
-| Check 3 | No handler option errors (switch_method targets exist, packages cover all families) |
-| Check 4 | **0 false impossibles** — your options should be ready/locked/impossible correctly on ALL 19 presets |
+This validates:
+- **A.** Recipe schema for the tool
+- **B.** Handler schema for all applicable method families (auto-detected from recipe + category)
+- **C.** Full scenario sweep: every handler × every preset using the REAL recipe
 
-### If you see false impossibles in Check 4
+The sweep covers:
+- All handlers in the tool's method families (e.g. npm, source, _default)
+- All INFRA handlers (network, disk, permissions, timeout, etc.)
+- All 19 system presets
 
-1. Note the preset and option ID from the error line
-2. Determine why `_compute_availability()` returned `impossible` for that option on that preset
-3. Three possible fixes:
-   - **Wrong gate:** Fix the gate logic in `remediation_planning.py`
-   - **Legitimate impossible:** Add the reason to `SYSTEM_CORRECT_REASONS` or `SYSTEM_CORRECT_REASON_PATTERNS` in the test
-   - **Missing recipe method:** Add the method to the recipe
+If validation fails → fix → re-run → repeat until clean.
+
+---
+
+## Phase 6: Regression check (optional — only when making cross-tool changes)
+
+Only run the full suite if you changed INFRA_HANDLERS, BOOTSTRAP_HANDLERS,
+or `_compute_availability()` logic. Do NOT run it for per-tool handler changes.
 
 ```bash
 // turbo
 .venv/bin/python -m tests.test_remediation_coverage
 ```
-
----
-
-## Phase 6: Confirm no regressions
 
 - Total error count did not increase
 - No NEW false impossibles appeared in Check 4

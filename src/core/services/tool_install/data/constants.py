@@ -13,6 +13,25 @@ import sys
 _PIP: list[str] = [sys.executable, "-m", "pip"]
 
 # Architecture name normalization.
+#
+# EVOLUTION NOTE (2026-02-26):
+# This map was originally built for simplicity — one system, one naming
+# convention (Go-style: amd64/arm64). As we expanded to full multi-arch
+# coverage across 19 presets, we discovered that different upstream projects
+# use different naming conventions for their GitHub release assets:
+#
+#   Go/Docker Hub style:  amd64, arm64          (used by Hugo, Trivy, etc.)
+#   Raw uname -m style:   x86_64, aarch64       (used by Docker Compose, etc.)
+#
+# The global map normalizes to Go-style by default. Tools that use raw
+# uname -m naming MUST declare a per-recipe `arch_map` override, which is
+# injected by plan_resolution.py into the profile as `_arch_map` before
+# variable substitution. See: docker-compose recipe, build_helpers.py
+# `_substitute_install_vars()`.
+#
+# TODO: download.py's `_resolve_github_release_url` also uses this map
+# directly for auto-matching. It should support a per-call arch_map
+# parameter for consistency with the recipe path.
 _IARCH_MAP: dict[str, str] = {
     "x86_64": "amd64",
     "AMD64": "amd64",      # Windows / WSL2

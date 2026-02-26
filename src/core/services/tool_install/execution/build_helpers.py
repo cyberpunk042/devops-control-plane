@@ -15,7 +15,7 @@ import shutil
 from pathlib import Path
 from typing import Any
 
-from src.core.services.tool_install.data.constants import BUILD_TIMEOUT_TIERS
+from src.core.services.tool_install.data.constants import BUILD_TIMEOUT_TIERS, _IARCH_MAP
 from src.core.services.tool_install.detection.hardware import (
     detect_build_toolchain,
     _read_available_ram_mb,

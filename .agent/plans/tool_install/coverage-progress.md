@@ -1,7 +1,7 @@
 # Tool Coverage Progress Tracker
 
 > **Last updated:** 2026-02-26
-> **Total recipes:** 296 | **Audited:** 1 | **Unaudited:** 295
+> **Total recipes:** 296 | **Audited:** 4 | **Unaudited:** 292
 > **Missing from EXPECTED_TOOLS:** 7 (java, nvm, pipx, python3, rustup, tar, unzip)
 
 ## How to use this file
@@ -60,11 +60,11 @@ These unlock all language-specific stacks.
 | 20 | `node` | ⬜ | | Node.js runtime |
 | 21 | `npm` | ⬜ | | Node package manager |
 | 22 | `npx` | ⬜ | | Node package executor |
-| 23 | `go` | ⬜ | | Go language runtime |
-| 24 | `cargo` | ⬜ | | Rust package manager |
+| 23 | `go` | ✅ | | Go language runtime |
+| 24 | `cargo` | ✅ | | Rust package manager |
 | 25 | `rustc` | ⬜ | | Rust compiler |
-| 26 | `docker` | ⬜ | | Container runtime |
-| 27 | `docker-compose` | ⬜ | | Container orchestration |
+| 26 | `docker` | ✅ | | Container runtime |
+| 27 | `docker-compose` | ✅ | | Container orchestration |
 
 ---
 

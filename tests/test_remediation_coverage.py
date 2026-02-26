@@ -5,12 +5,21 @@ Run:  .venv/bin/python -m tests.test_remediation_coverage
       .venv/bin/python -m tests.test_remediation_coverage --verbose
       .venv/bin/python -m tests.test_remediation_coverage --suggest
 
+Per-tool mode (fast, targeted — preferred during audits):
+      .venv/bin/python -m tests.test_remediation_coverage --tool npm
+      .venv/bin/python -m tests.test_remediation_coverage --tool curl
+
 Validates the entire remediation layer:
   1. Recipe completeness (cli, label, install methods per system)
   2. Dep coverage (every dep referenced in handlers is resolvable)
   3. Handler option validity (switch_method targets exist, packages cover families)
   4. Scenario availability (no false impossibles across all system presets)
   5. Missing tool detection (common tools that should have recipes but don't)
+
+Per-tool mode validates:
+  A. Recipe schema for the specific tool
+  B. Handler schema for the tool's method family
+  C. Full scenario sweep: every handler × every preset using the REAL recipe
 
 Exit codes:
   0 = all checks pass
@@ -29,10 +38,21 @@ from src.core.services.tool_install.data.remediation_handlers import (
     INFRA_HANDLERS,
     METHOD_FAMILY_HANDLERS,
 )
+from src.core.services.tool_install.data.tool_failure_handlers import (
+    TOOL_FAILURE_HANDLERS,
+)
+from src.core.services.tool_install.resolver.dynamic_dep_resolver import (
+    PACKAGE_GROUPS,
+    resolve_package_group,
+)
 from src.core.services.tool_install.domain.remediation_planning import (
     _check_dep_availability,
     _compute_availability,
     build_remediation_response,
+)
+from src.core.services.tool_install.data.recipe_schema import (
+    _validate_handler_list,
+    validate_all_recipes,
 )
 from src.core.services.dev_scenarios import (
     SYSTEM_PRESETS,
@@ -212,6 +232,15 @@ def check_handler_options(verbose: bool = False) -> list[str]:
             if strategy == "install_packages":
                 packages = opt.get("packages", {})
                 dynamic = opt.get("dynamic_packages", False)
+                # Resolve string group references
+                if isinstance(packages, str):
+                    if packages not in PACKAGE_GROUPS:
+                        issues.append(
+                            f"handler/{layer}/{fid}/{oid}: "
+                            f"unknown package group '{packages}'"
+                        )
+                        continue
+                    packages = resolve_package_group(packages)
                 if not dynamic and not packages:
                     issues.append(
                         f"handler/{layer}/{fid}/{oid}: "
@@ -533,7 +562,261 @@ def run_all_checks(verbose: bool = False, suggest: bool = False) -> int:
     return 1 if all_issues else 0
 
 
+# ═══════════════════════════════════════════════════════════════════
+# Per-tool testing (--tool <tool_id>)
+# ═══════════════════════════════════════════════════════════════════
+
+def _detect_method_family(tool_id: str, recipe: dict) -> str | None:
+    """Determine which method family a tool belongs to.
+
+    Checks the tool's install methods against known method families.
+    Returns the family name or None.
+    """
+    install = recipe.get("install", {})
+    for method in install:
+        if method in METHOD_FAMILY_HANDLERS:
+            return method
+    # Check if the tool IS a method family (npm installs npm packages)
+    if tool_id in METHOD_FAMILY_HANDLERS:
+        return tool_id
+    return None
+
+
+def _get_all_families_for_tool(recipe: dict, tool_id: str = "") -> list[str]:
+    """Return all method families that apply to a tool's install methods.
+
+    Also includes the tool's own family if the tool IS a method family
+    (e.g. npm, pip, cargo — they are both tools AND install methods for
+    downstream packages).
+    """
+    install = recipe.get("install", {})
+    families = []
+    for method in install:
+        if method in METHOD_FAMILY_HANDLERS:
+            families.append(method)
+    # If the tool itself IS a method family, include it
+    # (npm the tool has its own npm-specific failure handlers)
+    if tool_id and tool_id in METHOD_FAMILY_HANDLERS:
+        if tool_id not in families:
+            families.append(tool_id)
+    # Also check the recipe's category — tools in the "node" category
+    # should be tested against npm handlers, etc.
+    category = recipe.get("category", "")
+    category_to_family = {
+        "node": "npm",
+        "python": "pip",
+        "rust": "cargo",
+        "go": "go",
+    }
+    mapped_family = category_to_family.get(category)
+    if mapped_family and mapped_family in METHOD_FAMILY_HANDLERS:
+        if mapped_family not in families:
+            families.append(mapped_family)
+    return families
+
+
+def check_single_tool(tool_id: str) -> int:
+    """Run targeted validation for a single tool.
+
+    Returns 0 on success, 1 on failure.
+    """
+    print("=" * 70)
+    print(f"  Per-Tool Audit: {tool_id}")
+    print("=" * 70)
+
+    issues: list[str] = []
+
+    # ── A. Recipe schema ──────────────────────────────────────────
+    print("\n📋 A. Recipe schema validation...")
+    if tool_id not in TOOL_RECIPES:
+        print(f"   ❌ {tool_id}: NOT FOUND in TOOL_RECIPES")
+        return 1
+
+    recipe = TOOL_RECIPES[tool_id]
+    errs = validate_all_recipes({tool_id: recipe})
+    tool_errs = errs.get(tool_id, [])
+    if tool_errs:
+        for e in tool_errs:
+            print(f"   ❌ {e}")
+            issues.append(f"recipe: {e}")
+    else:
+        print(f"   ✅ {tool_id} recipe: VALID")
+
+    # ── B. Handler schema ─────────────────────────────────────────
+    print("\n🔧 B. Handler schema validation...")
+    families = _get_all_families_for_tool(recipe, tool_id=tool_id)
+    # Also check _default if present
+    if "_default" in recipe.get("install", {}):
+        if "_default" not in families:
+            families.append("_default")
+
+    if not families:
+        print("   ⚠️  No method families found — tool uses only native PM")
+    else:
+        for fam in families:
+            if fam not in METHOD_FAMILY_HANDLERS:
+                print(f"   ℹ️  {fam}: no method family handlers (OK for PM methods)")
+                continue
+            handler_errs = _validate_handler_list(
+                METHOD_FAMILY_HANDLERS[fam], fam
+            )
+            if handler_errs:
+                for e in handler_errs:
+                    print(f"   ❌ {fam}: {e}")
+                    issues.append(f"handler/{fam}: {e}")
+            else:
+                count = len(METHOD_FAMILY_HANDLERS[fam])
+                print(f"   ✅ {fam} handlers: VALID ({count} handlers)")
+
+    # Validate on_failure (Layer 3) handlers from TOOL_FAILURE_HANDLERS
+    on_failure_raw = TOOL_FAILURE_HANDLERS.get(tool_id, [])
+    if on_failure_raw:
+        handler_errs = _validate_handler_list(
+            on_failure_raw, f"{tool_id}/on_failure",
+        )
+        if handler_errs:
+            for e in handler_errs:
+                print(f"   ❌ on_failure: {e}")
+                issues.append(f"handler/on_failure: {e}")
+        else:
+            count = len(on_failure_raw)
+            print(f"   ✅ on_failure handlers: VALID ({count} handlers)")
+
+    # ── C. Scenario sweep ─────────────────────────────────────────
+    print("\n🎯 C. Scenario sweep (handlers × presets)...")
+    print()
+
+    all_presets = sorted(SYSTEM_PRESETS.keys())
+
+    # Collect all handlers that apply to this tool
+    test_scenarios: list[tuple[str, str, int, str, str]] = []
+    # (label, method, exit_code, stderr, handler_id)
+
+    # Method family handlers
+    for fam in families:
+        if fam not in METHOD_FAMILY_HANDLERS:
+            continue
+        for handler in METHOD_FAMILY_HANDLERS[fam]:
+            stderr = handler.get("example_stderr", handler.get("pattern", "error"))
+            exit_code = handler.get("example_exit_code", 1)
+            test_scenarios.append((
+                handler["label"],
+                fam,
+                exit_code,
+                stderr,
+                handler["failure_id"],
+            ))
+
+    # INFRA handlers (always apply)
+    for handler in INFRA_HANDLERS:
+        stderr = handler.get("example_stderr", handler.get("pattern", "error"))
+        exit_code = handler.get("example_exit_code", 1)
+        # Use the tool's primary install method for INFRA tests
+        primary_method = recipe.get("install", {})
+        first_method = next(iter(primary_method), "_default")
+        test_scenarios.append((
+            f"[INFRA] {handler['label']}",
+            first_method,
+            exit_code,
+            stderr,
+            handler["failure_id"],
+        ))
+
+    # Layer 3: Tool-specific on_failure handlers (from TOOL_FAILURE_HANDLERS)
+    on_failure = TOOL_FAILURE_HANDLERS.get(tool_id, [])
+    if on_failure:
+        primary_method = recipe.get("install", {})
+        first_method = next(iter(primary_method), "_default")
+        for handler in on_failure:
+            stderr = handler.get(
+                "example_stderr", handler.get("pattern", "error"),
+            )
+            exit_code = handler.get("example_exit_code", 1)
+            test_scenarios.append((
+                f"[TOOL] {handler['label']}",
+                first_method,
+                exit_code,
+                stderr,
+                handler["failure_id"],
+            ))
+
+    total = 0
+    covered = 0
+    gaps: list[str] = []
+
+    for label, method, exit_code, stderr, handler_id in test_scenarios:
+        missed: list[str] = []
+        for pn in all_presets:
+            total += 1
+            r = build_remediation_response(
+                tool_id=tool_id,
+                step_idx=0,
+                step_label=f"Install {tool_id}",
+                exit_code=exit_code,
+                stderr=stderr,
+                method=method,
+                system_profile=SYSTEM_PRESETS[pn],
+            )
+            if r:
+                covered += 1
+            else:
+                missed.append(pn)
+
+        if missed:
+            status = f"❌ {len(all_presets) - len(missed)}/{len(all_presets)} — GAPS: {', '.join(missed[:5])}"
+            gaps.append(f"{label} ({handler_id}): {', '.join(missed)}")
+        else:
+            status = f"✅ {len(all_presets)}/{len(all_presets)}"
+
+        print(f"  {label:45s} {status}")
+
+    # ── Summary ───────────────────────────────────────────────────
+    print()
+    print("─" * 70)
+    n_scenarios = len(test_scenarios)
+    n_presets = len(all_presets)
+
+    pct = (100 * covered // total) if total > 0 else 0
+    print(f"\n  SCENARIOS: {n_scenarios}")
+    print(f"  PRESETS:   {n_presets}")
+    print(f"  MATRIX:    {n_scenarios} × {n_presets} = {total}")
+    print(f"  COVERED:   {covered}/{total} ({pct}%)")
+
+    if gaps:
+        print(f"\n  ❌ {len(gaps)} GAP(S):")
+        for g in gaps:
+            print(f"    • {g}")
+            issues.append(f"gap: {g}")
+    else:
+        print(f"\n  ✅ FULL COVERAGE — {n_scenarios} scenarios, {n_presets} presets")
+
+    # Handler inventory
+    print("\n  Handler inventory:")
+    for fam in families:
+        if fam in METHOD_FAMILY_HANDLERS:
+            for h in METHOD_FAMILY_HANDLERS[fam]:
+                print(f"    • {h['failure_id']:35s} [{h['category']}]")
+    if on_failure:
+        for h in on_failure:
+            print(f"    ▸ {h['failure_id']:35s} [{h['category']}]  (on_failure)")
+    print(f"    + {len(INFRA_HANDLERS)} INFRA handlers (cross-tool)")
+
+    print()
+    return 1 if issues else 0
+
+
 if __name__ == "__main__":
     verbose = "--verbose" in sys.argv or "-v" in sys.argv
     suggest = "--suggest" in sys.argv or "-s" in sys.argv
+
+    # Per-tool mode
+    if "--tool" in sys.argv:
+        idx = sys.argv.index("--tool")
+        if idx + 1 >= len(sys.argv):
+            print("❌ --tool requires a tool_id argument", file=sys.stderr)
+            print("   Example: python -m tests.test_remediation_coverage --tool npm")
+            sys.exit(1)
+        tool_id = sys.argv[idx + 1]
+        sys.exit(check_single_tool(tool_id))
+
     sys.exit(run_all_checks(verbose=verbose, suggest=suggest))

@@ -432,12 +432,112 @@ def _detect_os() -> dict:
 
 
 def _detect_python() -> dict:
-    """Detect Python runtime details."""
+    """Detect Python runtime details and environment context.
+
+    Returns:
+        version: str — Python version (e.g. "3.12.1")
+        version_tuple: list[int] — [3, 12, 1]
+        implementation: str — "CPython", "PyPy", etc.
+        executable: str — path to python binary
+        prefix: str — sys.prefix
+        base_prefix: str — sys.base_prefix
+
+        env_type: str — "system" | "venv" | "conda" | "uv" | "pyenv" | "virtualenv"
+        in_managed_env: bool — True if running in any managed environment
+        pep668: bool — True if system Python has EXTERNALLY-MANAGED marker
+
+        env_managers: dict — available Python environment managers:
+            uv: bool — uv binary found
+            conda: bool — conda binary found
+            pyenv: bool — pyenv binary found
+            virtualenv: bool — virtualenv binary found
+            pipx: bool — pipx binary found
+
+        system_python_warning: bool — True when operating on bare system Python
+    """
+    version = platform.python_version()
+    version_parts = []
+    for p in version.split("."):
+        try:
+            version_parts.append(int(p))
+        except ValueError:
+            break
+
+    # ── Environment type detection ────────────────────────────
+    # Priority: conda > uv > pyenv > venv > virtualenv > system
+    env_type = "system"
+    in_managed_env = False
+
+    # Check conda first (CONDA_DEFAULT_ENV or CONDA_PREFIX)
+    conda_prefix = os.environ.get("CONDA_PREFIX", "")
+    conda_env = os.environ.get("CONDA_DEFAULT_ENV", "")
+    if conda_prefix or conda_env:
+        env_type = "conda"
+        in_managed_env = True
+    # Check uv (UV_VIRTUAL_ENV or .uv marker in prefix)
+    elif os.environ.get("UV_VIRTUAL_ENV", ""):
+        env_type = "uv"
+        in_managed_env = True
+    # Check pyenv (PYENV_ROOT set and prefix inside it)
+    elif os.environ.get("PYENV_ROOT", "") and (
+        os.environ["PYENV_ROOT"] in sys.prefix
+    ):
+        env_type = "pyenv"
+        in_managed_env = True
+    # Check standard venv (sys.prefix != sys.base_prefix)
+    elif sys.prefix != sys.base_prefix:
+        # Could be venv or virtualenv — check for pyvenv.cfg
+        pyvenv_cfg = os.path.join(sys.prefix, "pyvenv.cfg")
+        if os.path.isfile(pyvenv_cfg):
+            env_type = "venv"
+        else:
+            env_type = "virtualenv"
+        in_managed_env = True
+
+    # ── PEP 668 detection ─────────────────────────────────────
+    # Check if the system Python has the EXTERNALLY-MANAGED marker
+    pep668 = False
+    if not in_managed_env:
+        # Check in the stdlib path for the marker file
+        for stdlib_dir in (
+            os.path.join(sys.base_prefix, "lib",
+                         f"python{sys.version_info.major}.{sys.version_info.minor}"),
+            f"/usr/lib/python{sys.version_info.major}.{sys.version_info.minor}",
+            f"/usr/lib/python{sys.version_info.major}",
+        ):
+            marker = os.path.join(stdlib_dir, "EXTERNALLY-MANAGED")
+            if os.path.isfile(marker):
+                pep668 = True
+                break
+
+    # ── Available environment managers ─────────────────────────
+    env_managers = {
+        "uv": shutil.which("uv") is not None,
+        "conda": shutil.which("conda") is not None,
+        "pyenv": shutil.which("pyenv") is not None,
+        "virtualenv": shutil.which("virtualenv") is not None,
+        "pipx": shutil.which("pipx") is not None,
+    }
+
+    # ── System Python warning ─────────────────────────────────
+    # True when running on bare system Python (no env, not root container)
+    system_python_warning = (
+        not in_managed_env
+        and env_type == "system"
+    )
+
     return {
-        "version": platform.python_version(),
+        "version": version,
+        "version_tuple": version_parts,
         "implementation": platform.python_implementation(),
         "executable": sys.executable,
         "prefix": sys.prefix,
+        "base_prefix": sys.base_prefix,
+        "env_type": env_type,
+        "in_managed_env": in_managed_env,
+        "pep668": pep668,
+        "env_managers": env_managers,
+        "system_python_warning": system_python_warning,
     }
 
 

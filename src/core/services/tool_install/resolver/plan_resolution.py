@@ -299,7 +299,14 @@ def resolve_install_plan(
             from src.core.services.tool_install.execution.build_helpers import (
                 _substitute_install_vars,
             )
+            # Inject recipe-level arch_map so per-tool overrides work.
+            # Docker Compose releases use x86_64/aarch64, not amd64/arm64.
+            recipe_arch_map = recipe_t.get("arch_map")
+            if recipe_arch_map:
+                system_profile["_arch_map"] = recipe_arch_map
             cmd = _substitute_install_vars(cmd, system_profile)
+            # Clean up to avoid leaking into other tools
+            system_profile.pop("_arch_map", None)
 
         # ── M6: Dynamic npm sudo detection ──────────────────
         if method == "npm" and not sudo:

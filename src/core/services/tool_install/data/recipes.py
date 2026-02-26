@@ -130,21 +130,69 @@ TOOL_RECIPES: dict[str, dict] = {
     # ── Category 4: Runtimes via bash-curl ──────────────────────
 
     "cargo": {
+        "cli": "cargo",
         "label": "Cargo (Rust)",
+        "category": "language",
+        # EVOLUTION NOTE (2026-02-26):
+        # Originally a _default-only stub using rustup.rs. Expanded to
+        # full multi-PM coverage. Two installation paths exist:
+        #   1. rustup (_default, brew, pacman, snap) — latest stable,
+        #      user-local ($HOME/.cargo/bin), no sudo. Recommended.
+        #   2. system packages (apt, dnf, apk, zypper) — distro-maintained,
+        #      often outdated (e.g. Ubuntu 22.04 ships Rust 1.66 vs
+        #      current 1.83+). System-wide, needs sudo.
+        # The `prefer` field routes to _default first.
+        #
+        # IMPORTANT: pacman/brew/snap install rustup (the manager), NOT
+        # cargo. They need a chained `rustup default stable` or
+        # `rustup-init -y` to actually produce a cargo binary.
         "install": {
+            "apt":    ["apt-get", "install", "-y", "cargo"],
+            "dnf":    ["dnf", "install", "-y", "cargo"],
+            "apk":    ["apk", "add", "cargo"],
+            "pacman": ["bash", "-c",
+                       "pacman -S --noconfirm rustup && "
+                       "rustup default stable"],
+            "zypper": ["zypper", "install", "-y", "cargo"],
+            "brew":   ["bash", "-c",
+                       "brew install rustup && "
+                       "rustup-init -y"],
+            "snap":   ["bash", "-c",
+                       "snap install rustup --classic && "
+                       "rustup default stable"],
             "_default": [
                 "bash", "-c",
                 "curl --proto '=https' --tlsv1.2 -sSf "
                 "https://sh.rustup.rs | sh -s -- -y",
             ],
         },
-        "needs_sudo": {"_default": False},
+        "needs_sudo": {
+            "apt": True, "dnf": True, "apk": True,
+            "pacman": True, "zypper": True,
+            "brew": False, "snap": True, "_default": False,
+        },
+        "prefer": ["_default", "brew", "snap"],
         "requires": {"binaries": ["curl"]},
         "post_env": 'export PATH="$HOME/.cargo/bin:$PATH"',
         "verify": ["bash", "-c",
                    'export PATH="$HOME/.cargo/bin:$PATH" && cargo --version'],
-        "update": {"_default": ["bash", "-c",
-                   'export PATH="$HOME/.cargo/bin:$PATH" && rustup update']},
+        "update": {
+            "apt":    ["apt-get", "install", "--only-upgrade", "-y", "cargo"],
+            "dnf":    ["dnf", "upgrade", "-y", "cargo"],
+            "apk":    ["apk", "upgrade", "cargo"],
+            "pacman": ["bash", "-c",
+                       'export PATH="$HOME/.cargo/bin:$PATH" && '
+                       "rustup update"],
+            "zypper": ["zypper", "update", "-y", "cargo"],
+            "brew":   ["bash", "-c",
+                       'export PATH="$HOME/.cargo/bin:$PATH" && '
+                       "rustup update"],
+            "snap":   ["bash", "-c",
+                       'export PATH="$HOME/.cargo/bin:$PATH" && '
+                       "rustup update"],
+            "_default": ["bash", "-c",
+                   'export PATH="$HOME/.cargo/bin:$PATH" && rustup update'],
+        },
     },
     "rustc": {
         "label": "Rust Compiler",
@@ -317,28 +365,72 @@ TOOL_RECIPES: dict[str, dict] = {
         },
     },
     "go": {
+        "cli": "go",
         "label": "Go",
+        "category": "language",
+        # EVOLUTION NOTE (2026-02-26):
+        # Originally had 6 PM methods (snap, apt, dnf, apk, pacman,
+        # brew) with no _default. Expanded to 8 methods with _default
+        # binary download from go.dev, added zypper, fixed verify to
+        # handle _default PATH, and added on_failure handlers.
+        #
+        # Two installation paths:
+        #   1. _default (recommended) — binary tarball from go.dev,
+        #      always latest stable, extracts to /usr/local/go.
+        #   2. System packages (apt, dnf, apk, etc.) — distro-maintained,
+        #      can lag behind (e.g. Ubuntu 22.04 ships Go 1.18 vs
+        #      current 1.26+).
+        #   3. snap — provides near-latest via Canonical packaging.
         "install": {
-            "snap":   ["snap", "install", "go", "--classic"],
             "apt":    ["apt-get", "install", "-y", "golang-go"],
             "dnf":    ["dnf", "install", "-y", "golang"],
             "apk":    ["apk", "add", "go"],
             "pacman": ["pacman", "-S", "--noconfirm", "go"],
+            "zypper": ["zypper", "install", "-y", "go"],
             "brew":   ["brew", "install", "go"],
+            "snap":   ["snap", "install", "go", "--classic"],
+            "_default": [
+                "bash", "-c",
+                "GO_VERSION=$(curl -sSf https://go.dev/VERSION?m=text "
+                "| head -1) && "
+                "curl -sSfL "
+                "\"https://go.dev/dl/${GO_VERSION}.linux-{arch}.tar.gz\" "
+                "-o /tmp/go.tar.gz && "
+                "rm -rf /usr/local/go && "
+                "tar -C /usr/local -xzf /tmp/go.tar.gz && "
+                "rm /tmp/go.tar.gz",
+            ],
         },
         "needs_sudo": {
-            "snap": True, "apt": True, "dnf": True,
-            "apk": True, "pacman": True, "brew": False,
+            "apt": True, "dnf": True, "apk": True,
+            "pacman": True, "zypper": True, "brew": False,
+            "snap": True, "_default": True,
         },
-        "prefer": ["snap", "brew"],
-        "verify": ["go", "version"],
+        "prefer": ["_default", "snap", "brew"],
+        "requires": {"binaries": ["curl"]},
+        "arch_map": {"armv7l": "armv6l"},
+        "post_env": 'export PATH=$PATH:/usr/local/go/bin',
+        "verify": ["bash", "-c",
+                   'export PATH=$PATH:/usr/local/go/bin && go version'],
         "update": {
-            "snap":   ["snap", "refresh", "go"],
             "apt":    ["apt-get", "install", "--only-upgrade", "-y", "golang-go"],
             "dnf":    ["dnf", "upgrade", "-y", "golang"],
             "apk":    ["apk", "upgrade", "go"],
             "pacman": ["pacman", "-S", "--noconfirm", "go"],
+            "zypper": ["zypper", "update", "-y", "go"],
             "brew":   ["brew", "upgrade", "go"],
+            "snap":   ["snap", "refresh", "go"],
+            "_default": [
+                "bash", "-c",
+                "GO_VERSION=$(curl -sSf https://go.dev/VERSION?m=text "
+                "| head -1) && "
+                "curl -sSfL "
+                "\"https://go.dev/dl/${GO_VERSION}.linux-{arch}.tar.gz\" "
+                "-o /tmp/go.tar.gz && "
+                "rm -rf /usr/local/go && "
+                "tar -C /usr/local -xzf /tmp/go.tar.gz && "
+                "rm /tmp/go.tar.gz",
+            ],
         },
     },
     "gh": {
@@ -677,7 +769,9 @@ TOOL_RECIPES: dict[str, dict] = {
         },
     },
     "pip": {
+        "cli": "pip",
         "label": "pip",
+        "category": "python",
         "install": {
             "apt":    ["apt-get", "install", "-y", "python3-pip"],
             "dnf":    ["dnf", "install", "-y", "python3-pip"],
@@ -693,20 +787,32 @@ TOOL_RECIPES: dict[str, dict] = {
         "update": {"_default": ["pip", "install", "--upgrade", "pip"]},
     },
     "npm": {
-        "label": "npm",
+        "cli": "npm",
+        "label": "npm (Node Package Manager)",
+        "category": "node",
         "install": {
             "apt":    ["apt-get", "install", "-y", "npm"],
             "dnf":    ["dnf", "install", "-y", "npm"],
-            "apk":    ["apk", "add", "npm"],
+            "apk":    ["apk", "add", "nodejs", "npm"],
             "pacman": ["pacman", "-S", "--noconfirm", "npm"],
+            "zypper": ["zypper", "install", "-y", "npm20"],
             "brew":   ["brew", "install", "node"],
+            "snap":   ["snap", "install", "node", "--classic"],
         },
         "needs_sudo": {
             "apt": True, "dnf": True, "apk": True,
-            "pacman": True, "brew": False,
+            "pacman": True, "zypper": True, "brew": False,
+            "snap": True,
+        },
+        "requires": {
+            "binaries": ["node"],
         },
         "verify": ["npm", "--version"],
-        "update": {"_default": ["npm", "install", "-g", "npm"]},
+        "update": {
+            "_default": ["npm", "install", "-g", "npm"],
+            "snap":     ["snap", "refresh", "node"],
+            "brew":     ["brew", "upgrade", "node"],
+        },
     },
     "npx": {
         "label": "npx",
@@ -740,18 +846,27 @@ TOOL_RECIPES: dict[str, dict] = {
         "verify": ["dig", "-v"],
     },
     "docker": {
+        "cli": "docker",
         "label": "Docker",
+        "category": "container",
         "install": {
             "apt":    ["apt-get", "install", "-y", "docker.io"],
             "dnf":    ["dnf", "install", "-y", "docker"],
             "apk":    ["apk", "add", "docker"],
             "pacman": ["pacman", "-S", "--noconfirm", "docker"],
             "zypper": ["zypper", "install", "-y", "docker"],
+            "brew":   ["brew", "install", "docker"],
+            "_default": [
+                "bash", "-c",
+                "curl -fsSL https://get.docker.com | sudo sh",
+            ],
         },
         "needs_sudo": {
             "apt": True, "dnf": True, "apk": True,
-            "pacman": True, "zypper": True,
+            "pacman": True, "zypper": True, "brew": False,
+            "_default": True,
         },
+        "requires": {"binaries": ["curl"]},
         "post_install": [
             {
                 "label": "Start Docker daemon",
@@ -779,23 +894,40 @@ TOOL_RECIPES: dict[str, dict] = {
             "apk":    ["apk", "upgrade", "docker"],
             "pacman": ["pacman", "-S", "--noconfirm", "docker"],
             "zypper": ["zypper", "update", "-y", "docker"],
+            "brew":   ["brew", "upgrade", "docker"],
+            "_default": [
+                "bash", "-c",
+                "curl -fsSL https://get.docker.com | sudo sh",
+            ],
         },
     },
     "docker-compose": {
+        "cli": "docker",
         "label": "Docker Compose",
+        "category": "container",
         "install": {
-            "apt":    ["apt-get", "install", "-y", "docker-compose-v2"],
+            "apt":    ["apt-get", "install", "-y", "docker-compose-plugin"],
             "dnf":    ["dnf", "install", "-y", "docker-compose-plugin"],
-            "apk":    ["apk", "add", "docker-compose"],
+            "apk":    ["apk", "add", "docker-cli-compose"],
             "pacman": ["pacman", "-S", "--noconfirm", "docker-compose"],
             "zypper": ["zypper", "install", "-y", "docker-compose"],
             "brew":   ["brew", "install", "docker-compose"],
+            "_default": [
+                "bash", "-c",
+                "COMPOSE_ARCH={arch} && "
+                "mkdir -p /usr/local/lib/docker/cli-plugins && "
+                "curl -sSfL https://github.com/docker/compose/releases/"
+                "latest/download/docker-compose-linux-$COMPOSE_ARCH "
+                "-o /usr/local/lib/docker/cli-plugins/docker-compose && "
+                "chmod +x /usr/local/lib/docker/cli-plugins/docker-compose",
+            ],
         },
         "needs_sudo": {
             "apt": True, "dnf": True, "apk": True,
             "pacman": True, "zypper": True, "brew": False,
+            "_default": True,
         },
-        "requires": {"binaries": ["docker"]},
+        "requires": {"binaries": ["docker", "curl"]},
         "version_constraint": {
             "type": "gte",
             "reference": "2.0.0",
@@ -803,13 +935,24 @@ TOOL_RECIPES: dict[str, dict] = {
         },
         "verify": ["docker", "compose", "version"],
         "update": {
-            "apt":    ["apt-get", "install", "--only-upgrade", "-y", "docker-compose-v2"],
+            "apt":    ["apt-get", "install", "--only-upgrade", "-y",
+                       "docker-compose-plugin"],
             "dnf":    ["dnf", "upgrade", "-y", "docker-compose-plugin"],
-            "apk":    ["apk", "upgrade", "docker-compose"],
+            "apk":    ["apk", "upgrade", "docker-cli-compose"],
             "pacman": ["pacman", "-S", "--noconfirm", "docker-compose"],
             "zypper": ["zypper", "update", "-y", "docker-compose"],
             "brew":   ["brew", "upgrade", "docker-compose"],
+            "_default": [
+                "bash", "-c",
+                "COMPOSE_ARCH={arch} && "
+                "mkdir -p /usr/local/lib/docker/cli-plugins && "
+                "curl -sSfL https://github.com/docker/compose/releases/"
+                "latest/download/docker-compose-linux-$COMPOSE_ARCH "
+                "-o /usr/local/lib/docker/cli-plugins/docker-compose && "
+                "chmod +x /usr/local/lib/docker/cli-plugins/docker-compose",
+            ],
         },
+        "arch_map": {"x86_64": "x86_64", "aarch64": "aarch64", "armv7l": "armv7"},
     },
 
     # ── Category 9: GPU drivers ─────────────────────────────────

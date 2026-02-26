@@ -73,8 +73,10 @@ _OPTION_COMMON_OPTIONAL = {
     "recommended",      # bool: is this the recommended choice?
     "risk",             # str: "low" | "medium" | "high"
     "requires_binary",  # str: binary that must be on PATH for ready state
+    "requires",         # dict[str→bool]: system capability conditions that must all pass
     "group",            # str: "primary" | "extended" — UI grouping
     "arch_exclude",     # list[str]: architectures where this is impossible
+    "pre_packages",     # dict[family→list[str]]: OS packages to install before strategy
 }
 
 # Per-strategy: (required_fields, optional_fields)
@@ -420,6 +422,22 @@ def _validate_option(
                         f"{prefix}: packages['{fam}'] must be a list"
                     )
 
+    # pre_packages must be family-keyed dict of lists (same as packages)
+    if "pre_packages" in opt:
+        pre = opt["pre_packages"]
+        if not isinstance(pre, dict):
+            errors.append(f"{prefix}: 'pre_packages' must be a dict")
+        else:
+            for fam in pre:
+                if fam not in VALID_FAMILIES:
+                    errors.append(
+                        f"{prefix}: unknown family '{fam}' in 'pre_packages'"
+                    )
+                if not isinstance(pre[fam], list):
+                    errors.append(
+                        f"{prefix}: pre_packages['{fam}'] must be a list"
+                    )
+
     # fix_commands / repo_commands / cleanup_commands must be list of lists
     for cmd_field in ("fix_commands", "repo_commands", "cleanup_commands"):
         if cmd_field in opt:
@@ -456,13 +474,40 @@ def _validate_option(
                 f"{prefix}: 'requires_binary' must be a non-empty string"
             )
 
+    # requires must be dict of known conditions → bool
+    _VALID_REQUIRES_CONDITIONS = {
+        "has_systemd",      # capabilities.has_systemd == True
+        "has_openrc",       # init system is OpenRC (Alpine, Gentoo)
+        "is_linux",         # system == "Linux"
+        "not_container",    # not container.in_container
+        "writable_rootfs",  # not container.read_only_rootfs
+        "not_root",         # not capabilities.is_root
+        "has_sudo",         # capabilities.has_sudo == True
+    }
+    if "requires" in opt:
+        req = opt["requires"]
+        if not isinstance(req, dict):
+            errors.append(f"{prefix}: 'requires' must be a dict")
+        else:
+            for cond, val in req.items():
+                if cond not in _VALID_REQUIRES_CONDITIONS:
+                    errors.append(
+                        f"{prefix}: unknown requires condition "
+                        f"'{cond}' — valid: "
+                        f"{sorted(_VALID_REQUIRES_CONDITIONS)}"
+                    )
+                if not isinstance(val, bool):
+                    errors.append(
+                        f"{prefix}: requires['{cond}'] must be bool"
+                    )
+
     # risk must be valid
     if "risk" in opt:
         r = opt["risk"]
-        if r not in ("low", "medium", "high"):
+        if r not in ("low", "medium", "high", "critical"):
             errors.append(
                 f"{prefix}: invalid risk '{r}' — "
-                f"must be 'low', 'medium', or 'high'"
+                f"must be 'low', 'medium', 'high', or 'critical'"
             )
 
     # group must be valid

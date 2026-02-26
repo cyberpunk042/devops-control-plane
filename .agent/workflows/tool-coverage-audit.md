@@ -14,33 +14,32 @@ description: Full-spectrum tool coverage workflow — research, recipe, resolver
 
 ---
 
-## Phase 0: Understand the current state
-
-Before touching any tool, run the validation suite to see where things stand.
-
-```bash
-# Quick — errors only
-// turbo
-.venv/bin/python -m tests.test_remediation_coverage
-
-# Full — errors + warnings + suggestions + arch checks
-// turbo
-.venv/bin/python -m tests.test_remediation_coverage --verbose --suggest
-```
-
-Read the output. Understand:
-- How many recipes have missing `cli` fields (Check 1)
-- How many tools are in EXPECTED_TOOLS but have no recipe (Check 5)
-- How many `_default` commands have hardcoded x86 URLs (Check 7)
-- How many method coverage gaps exist (Check 6)
-
----
-
-## Phase 1: Select a tool
+## Phase 0: Select a tool
 
 Pick a tool from the stack coverage plan, or from the test output. One tool at a time.
 
 State which tool you are working on. Do not proceed to Phase 2 without naming it.
+
+DO NOT CONSIDER IT DONE. IF IT DOES NOT HAVE A DOCS file it is not done.
+Even if there is already a recipe, it is not done, recipe are detailled.
+We want a 100% coverage for each tool, this mean full tool_install capabilities.
+Docs location: docs/tool_install/tools (not any random forma)
+
+---
+
+## Phase 1: Understand the current state of THIS tool
+
+Before researching or changing anything, read the tool's existing recipe (if any) in `recipes.py`.
+
+Determine:
+- Does the tool already have a recipe? If yes, what fields are present?
+- Does it have a `cli` field? A `category`? A `label`?
+- What install methods are already defined?
+- Does it have `on_failure` handlers?
+- Is it listed in EXPECTED_TOOLS? In KNOWN_PACKAGES?
+- Are there any existing handlers in METHOD_FAMILY_HANDLERS that apply to its install methods?
+
+This is about understanding the *starting point* for this specific tool — not a global sweep.
 
 ---
 
@@ -180,30 +179,33 @@ Does any dependency need a standalone installer (not in any repo)?
 
 ---
 
-## Phase 5: Validate
+## Phase 5: Validate (targeted — per-tool only)
+
+Do NOT run the full test suite for every tool. Use the per-tool mode:
 
 ```bash
 // turbo
-.venv/bin/python -m tests.test_remediation_coverage --verbose --suggest
+.venv/bin/python -m tests.test_remediation_coverage --tool TOOL_ID_HERE
 ```
 
-| Check | What to look for |
-|-------|-----------------|
-| Check 1 | Your recipe should NOT appear as "missing cli" or "NO install methods" |
-| Check 1 | If you added a `source` method, it should NOT appear as "must be a dict" |
-| Check 5 | If your tool is in EXPECTED_TOOLS, it should no longer appear as "missing" |
-| Check 7 | If your `_default` uses `{arch}`, it should NOT appear in arch warnings |
+This validates:
+- **A.** Recipe schema for the tool
+- **B.** Handler schema for all applicable method families
+- **C.** Full scenario sweep: every handler × every preset using the REAL recipe
 
 If validation fails → fix → re-run → repeat until clean.
+
+---
+
+## Phase 6: Regression check (optional — only when making cross-tool changes)
+
+Only run the full suite if you changed INFRA_HANDLERS, BOOTSTRAP_HANDLERS, or recipe_schema logic.
+Do NOT run it for per-tool recipe or per-method-family handler changes.
 
 ```bash
 // turbo
 .venv/bin/python -m tests.test_remediation_coverage
 ```
-
----
-
-## Phase 6: Confirm no regressions
 
 - Total error count did not increase
 - No new failures in any check
