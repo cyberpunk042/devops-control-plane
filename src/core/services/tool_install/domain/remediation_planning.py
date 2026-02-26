@@ -53,6 +53,15 @@ _INSTALLABLE_PMS = frozenset({"brew", "snap"})
 # All PM methods (union of native + installable)
 _PM_METHODS = _NATIVE_PMS | _INSTALLABLE_PMS
 
+# Language ecosystem installers — locked if CLI not on PATH.
+# Maps method key → binary name to look for.
+_LANG_PMS: dict[str, str] = {
+    "pip": "pip3",
+    "npm": "npm",
+    "cargo": "cargo",
+    "go": "go",
+}
+
 
 def _compute_availability(
     option: dict,
@@ -145,6 +154,27 @@ def _compute_availability(
                         f"available on this system"
                     )
 
+        # ── Language ecosystem PM gate ─────────────────────────
+        if target_method in _LANG_PMS:
+            lang_cli = _LANG_PMS[target_method]
+            if not shutil.which(lang_cli):
+                return "locked", f"{lang_cli} not installed", [target_method], None
+
+        # ── Source method: check build toolchain ───────────────
+        if target_method == "source":
+            install_methods = recipe.get("install", {})
+            source_spec = install_methods.get("source", {})
+            if isinstance(source_spec, dict):
+                toolchain = source_spec.get("requires_toolchain", [])
+                for tool_bin in toolchain:
+                    if not shutil.which(tool_bin):
+                        return (
+                            "locked",
+                            f"{tool_bin} not installed (build dependency)",
+                            [tool_bin],
+                            None,
+                        )
+
         install_methods = recipe.get("install", {})
         if target_method not in install_methods:
             return "impossible", None, None, (
@@ -153,6 +183,16 @@ def _compute_availability(
         return "ready", None, None, None
 
     if strategy == "retry_with_modifier":
+        # Some modifiers require a specific binary to be available.
+        # e.g. "substitute_curl_with_wget" requires wget.
+        requires_bin = option.get("requires_binary")
+        if requires_bin and not shutil.which(requires_bin):
+            return (
+                "locked",
+                f"{requires_bin} not installed",
+                [requires_bin],
+                None,
+            )
         return "ready", None, None, None
 
     if strategy == "install_packages":
@@ -370,11 +410,32 @@ def build_remediation_response(
     if not matched_handlers and not merged_options:
         return None  # No handlers matched — caller uses generic fallback
 
+    # Extract visited tool_ids from chain for cycle detection
+    visited_tools: set[str] = set()
+    if chain:
+        for crumb in chain.get("breadcrumbs", []):
+            visited_tools.add(crumb.get("tool_id", ""))
+    visited_tools.add(tool_id)
+
     # Compute availability for each option
     for opt in merged_options:
         state, lock_reason, unlock_deps, impossible_reason = (
             _compute_availability(opt, recipe, system_profile)
         )
+
+        # Cycle detection: if a dep is already in the chain, it's impossible
+        if state == "locked" and unlock_deps:
+            for dep in unlock_deps:
+                if dep in visited_tools:
+                    state = "impossible"
+                    lock_reason = None
+                    unlock_deps = None
+                    impossible_reason = (
+                        f"Circular dependency detected: "
+                        f"{dep} is already being installed in this chain"
+                    )
+                    break
+
         opt["availability"] = state
         if lock_reason:
             opt["lock_reason"] = lock_reason
@@ -383,6 +444,10 @@ def build_remediation_response(
             opt["unlock_step_count"] = sum(
                 _compute_step_count({"strategy": "install_dep", "dep": d}, system_profile)
                 for d in unlock_deps
+            )
+            # One-level lookahead: show how each unlock dep can be installed
+            opt["unlock_preview"] = _compute_unlock_preview(
+                unlock_deps, system_profile,
             )
         if impossible_reason:
             opt["impossible_reason"] = impossible_reason
@@ -429,23 +494,138 @@ def _build_chain_context(
 
     If no chain exists (first failure), returns a minimal context.
     If a chain exists, includes breadcrumbs and depth info.
+
+    Each breadcrumb is a rich node::
+
+        {
+            "tool_id": "helm",
+            "failure_id": "missing_curl",
+            "chosen_option": "install-curl",
+            "depth": 0,
+        }
+
+    This allows the UI to display the full path:
+    "Installing helm → needed curl → curl apt failed → ..."
     """
     if not chain:
         return {
             "chain_id": None,
             "original_goal": tool_id,
             "depth": 0,
-            "max_depth": 3,
+            "max_depth": 5,
             "breadcrumbs": [],
         }
 
     return {
         "chain_id": chain.get("chain_id"),
         "original_goal": chain.get("original_goal", {}).get("tool_id", tool_id),
-        "depth": len(chain.get("escalation_stack", [])),
-        "max_depth": chain.get("max_depth", 3),
+        "depth": len(chain.get("breadcrumbs", [])),
+        "max_depth": chain.get("max_depth", 5),
         "breadcrumbs": chain.get("breadcrumbs", []),
     }
+
+
+# ── Unlock preview (one-level lookahead) ───────────────────────
+
+def _compute_method_availability(
+    method_key: str,
+    system_profile: dict | None,
+) -> tuple[str, str | None]:
+    """Check if an install method is usable on this system.
+
+    Lightweight check — does NOT look at the recipe contents,
+    only at whether the PM/tool is present on the system.
+
+    Args:
+        method_key: Install method key (e.g. "apt", "snap", "source").
+        system_profile: Phase 1 detection output.
+
+    Returns:
+        Tuple of (state, reason). State is "ready", "locked", or
+        "impossible". Reason is None when ready.
+    """
+    if not system_profile:
+        return "ready", None
+
+    available_pms = _get_available_pms(system_profile)
+
+    # Native PMs — tied to the distro
+    if method_key in _NATIVE_PMS:
+        if available_pms and method_key not in available_pms:
+            return "impossible", f"{method_key} not available on this system"
+        return "ready", None
+
+    # snap — needs systemd + snapd
+    if method_key == "snap":
+        has_systemd = system_profile.get(
+            "capabilities", {},
+        ).get("has_systemd", True)
+        if not has_systemd:
+            return "impossible", "snap requires systemd"
+        if available_pms and "snap" not in available_pms:
+            return "locked", "snapd not installed"
+        return "ready", None
+
+    # brew — installable anywhere
+    if method_key == "brew":
+        if available_pms and "brew" not in available_pms:
+            return "locked", "brew not installed"
+        return "ready", None
+
+    # Language ecosystem PMs
+    if method_key in _LANG_PMS:
+        lang_cli = _LANG_PMS[method_key]
+        if not shutil.which(lang_cli):
+            return "locked", f"{lang_cli} not installed"
+        return "ready", None
+
+    # _default, source, or anything else — assume ready
+    return "ready", None
+
+
+def _compute_unlock_preview(
+    unlock_deps: list[str],
+    system_profile: dict | None,
+) -> list[dict]:
+    """For each unlock dep, preview how it can be installed.
+
+    This provides one-level lookahead: when an option is locked
+    because dep X is missing, the preview shows which install
+    methods exist for dep X and whether they're ready/locked/impossible.
+
+    The user sees: "this option needs make → make can be
+    installed via apt (ready), brew (locked), source (locked)"
+
+    Args:
+        unlock_deps: List of tool IDs that need to be installed.
+        system_profile: Phase 1 detection output.
+
+    Returns:
+        List of preview dicts, one per dep.
+    """
+    previews: list[dict] = []
+    for dep in unlock_deps:
+        recipe = TOOL_RECIPES.get(dep, {})
+        install_methods = recipe.get("install", {})
+        method_previews: list[dict] = []
+        for method_key in install_methods:
+            avail, reason = _compute_method_availability(
+                method_key, system_profile,
+            )
+            preview: dict[str, Any] = {
+                "method": method_key,
+                "availability": avail,
+            }
+            if reason:
+                preview["reason"] = reason
+            method_previews.append(preview)
+
+        previews.append({
+            "dep": dep,
+            "label": recipe.get("label", dep),
+            "install_options": method_previews,
+        })
+    return previews
 
 
 # ── Legacy compatibility adapter ───────────────────────────────

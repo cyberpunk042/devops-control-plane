@@ -563,6 +563,20 @@ METHOD_FAMILY_HANDLERS: dict[str, list[dict]] = {
                     "recommended": False,
                     "strategy": "retry_with_modifier",
                     "modifier": {"substitute_curl_with_wget": True},
+                    "requires_binary": "wget",
+                },
+                {
+                    "id": "use-python3-urllib",
+                    "label": "Use python3 urllib instead",
+                    "description": (
+                        "Download using Python's built-in urllib "
+                        "(independent of libcurl)"
+                    ),
+                    "icon": "🐍",
+                    "recommended": False,
+                    "strategy": "retry_with_modifier",
+                    "modifier": {"substitute_curl_with_python3": True},
+                    "requires_binary": "python3",
                 },
             ],
         },
@@ -668,6 +682,7 @@ METHOD_FAMILY_HANDLERS: dict[str, list[dict]] = {
                         "alpine": ["build-base"],
                         "arch": ["base-devel"],
                         "suse": ["gcc", "gcc-c++", "make"],
+                        "macos": ["gcc"],
                     },
                 },
             ],
@@ -700,6 +715,75 @@ METHOD_FAMILY_HANDLERS: dict[str, list[dict]] = {
                         "Set CMAKE_PREFIX_PATH to include the package location:\n"
                         "  export CMAKE_PREFIX_PATH=/usr/local:$CMAKE_PREFIX_PATH"
                     ),
+                },
+            ],
+        },
+        {
+            "pattern": r"configure:\s*error:",
+            "failure_id": "configure_error",
+            "category": "dependency",
+            "label": "configure script failed",
+            "description": (
+                "The autotools configure script failed, usually because "
+                "a required library or tool is missing."
+            ),
+            "example_stderr": (
+                "configure: error: OpenSSL libs and/or directories "
+                "were not found"
+            ),
+            "options": [
+                {
+                    "id": "install-dev-libs",
+                    "label": "Install development libraries",
+                    "description": (
+                        "Install the -dev/-devel packages for "
+                        "the missing library"
+                    ),
+                    "icon": "📦",
+                    "recommended": True,
+                    "strategy": "install_packages",
+                    "dynamic_packages": True,
+                },
+                {
+                    "id": "check-config-log",
+                    "label": "Check config.log",
+                    "description": (
+                        "Read the config.log file for the exact "
+                        "reason configure failed"
+                    ),
+                    "icon": "🔍",
+                    "recommended": False,
+                    "strategy": "manual",
+                    "instructions": (
+                        "Examine the configure log for details:\n"
+                        "  cat config.log | grep -A5 'error:'"
+                    ),
+                },
+            ],
+        },
+        {
+            "pattern": r"ld:\s*cannot find\s*-l|cannot find -l",
+            "failure_id": "linker_error",
+            "category": "dependency",
+            "label": "Linker cannot find library",
+            "description": (
+                "The linker cannot find a required shared library. "
+                "The development package for this library is likely "
+                "not installed."
+            ),
+            "example_stderr": "ld: cannot find -lssl",
+            "options": [
+                {
+                    "id": "install-lib-dev",
+                    "label": "Install library development package",
+                    "description": (
+                        "Install the -dev/-devel package for "
+                        "the missing library"
+                    ),
+                    "icon": "📦",
+                    "recommended": True,
+                    "strategy": "install_packages",
+                    "dynamic_packages": True,
                 },
             ],
         },
@@ -1083,6 +1167,7 @@ LIB_TO_PACKAGE_MAP: dict[str, dict[str, str]] = {
         "alpine": "curl-dev",
         "arch": "curl",
         "suse": "libcurl-devel",
+        "macos": "curl",
     },
     "z": {
         "debian": "zlib1g-dev",

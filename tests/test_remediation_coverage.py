@@ -108,15 +108,34 @@ def check_recipe_completeness(verbose: bool = False) -> list[str]:
             issues.append(f"recipe/{tool_id}: NO install methods at all")
             continue
 
-        # Check if tool has at least _default or a system pkg manager
+        # Check if tool has at least one valid install path
         has_universal = "_default" in install
         has_any_pkg_mgr = any(
             m in install for m in ("apt", "dnf", "apk", "zypper", "brew", "pacman")
         )
-        if not has_universal and not has_any_pkg_mgr:
+        has_lang_method = any(
+            m in install for m in ("pip", "npm", "cargo", "go")
+        )
+        has_source = "source" in install
+        if not has_universal and not has_any_pkg_mgr and not has_lang_method and not has_source:
             issues.append(
-                f"recipe/{tool_id}: no _default and no system pkg manager method"
+                f"recipe/{tool_id}: no _default, no system pkg manager, "
+                f"no language method, and no source method"
             )
+
+        # Validate source method structure (must be dict, not command list)
+        if has_source:
+            source_spec = install["source"]
+            if not isinstance(source_spec, dict):
+                issues.append(
+                    f"recipe/{tool_id}: 'source' method must be a dict "
+                    f"(got {type(source_spec).__name__})"
+                )
+            elif not source_spec.get("build_system") and not source_spec.get("command"):
+                issues.append(
+                    f"recipe/{tool_id}: 'source' method missing "
+                    f"'build_system' or 'command'"
+                )
 
     return issues
 
@@ -238,12 +257,20 @@ SYSTEM_CORRECT_REASONS = {
     "No 'apk' install method in recipe",
     "No 'pacman' install method in recipe",
     "No 'zypper' install method in recipe",
+    "No 'source' install method in recipe",
     "ARM architecture is not supported",
     "This method has been permanently removed upstream",
     # A2 version-aware gates
     "snap requires systemd (not available)",
     "Cannot install packages: read-only root filesystem",
 }
+
+# Patterns that are reason-correct but dynamic (contain tool names)
+SYSTEM_CORRECT_REASON_PATTERNS = (
+    "Package manager '",            # native PM not available
+    "not installed",                 # locked deps (language PMs, build tools)
+    "No packages defined for distro family",
+)
 
 
 def check_scenario_availability(verbose: bool = False) -> list[str]:
@@ -272,14 +299,8 @@ def check_scenario_availability(verbose: bool = False) -> list[str]:
                     if reason in SYSTEM_CORRECT_REASONS:
                         continue
 
-                    # Skip family-specific package mismatches (correct)
-                    if reason.startswith("No packages defined for distro family"):
-                        continue
-
-                    # Skip PM availability mismatches (correct)
-                    if reason.startswith("Package manager '") and reason.endswith(
-                        "is not available on this system"
-                    ):
+                    # Skip dynamic system-correct patterns
+                    if any(reason.startswith(p) for p in SYSTEM_CORRECT_REASON_PATTERNS):
                         continue
 
                     # This is a FALSE impossible — report it
@@ -374,6 +395,56 @@ def check_method_coverage(verbose: bool = False) -> list[str]:
 
 
 # ═══════════════════════════════════════════════════════════════════
+# Check 7: Arch-hardcoded _default commands
+# ═══════════════════════════════════════════════════════════════════
+
+_X86_PATTERNS = ("x86_64", "x86-64", "amd64", "64bit", "linux-amd64")
+
+
+def check_default_arch_awareness(verbose: bool = False) -> list[str]:
+    """Warn about _default commands with hardcoded x86 arch strings.
+
+    If a recipe uses {arch} or {os} placeholders, it'll work everywhere.
+    If it has a hardcoded arch string AND no arch_exclude, ARM systems
+    will download the wrong binary.
+    """
+    issues: list[str] = []
+
+    for tool_id, recipe in sorted(TOOL_RECIPES.items()):
+        if recipe.get("_not_installable"):
+            continue
+
+        install = recipe.get("install", {})
+        default_cmd = install.get("_default")
+        if not default_cmd:
+            continue
+
+        # Flatten command to a single string for pattern matching
+        cmd_str = " ".join(str(c) for c in default_cmd).lower()
+
+        # Skip if using {arch} template — already arch-aware
+        if "{arch}" in cmd_str:
+            continue
+
+        # Check for hardcoded x86 arch strings
+        has_hardcoded_arch = any(pat in cmd_str for pat in _X86_PATTERNS)
+        if not has_hardcoded_arch:
+            continue
+
+        # Check if there's an arch_exclude or on_failure that handles this
+        has_arch_handling = bool(recipe.get("arch_exclude"))
+        if has_arch_handling:
+            continue
+
+        issues.append(
+            f"arch/{tool_id}: _default command contains hardcoded x86 arch "
+            f"but no {{arch}} template and no arch_exclude"
+        )
+
+    return issues
+
+
+# ═══════════════════════════════════════════════════════════════════
 # Runner
 # ═══════════════════════════════════════════════════════════════════
 
@@ -433,6 +504,13 @@ def run_all_checks(verbose: bool = False, suggest: bool = False) -> int:
         print("\n💡 Check 6: Method coverage suggestions...")
         suggestions = check_method_coverage(verbose=True)
         print(f"   {len(suggestions)} coverage suggestions")
+        all_suggestions.extend(suggestions)
+
+    # ── Check 7 ──
+    if suggest:
+        print("\n🏗️  Check 7: Arch-hardcoded _default commands...")
+        suggestions = check_default_arch_awareness(verbose=True)
+        print(f"   {len(suggestions)} arch-hardcoded _default commands")
         all_suggestions.extend(suggestions)
 
     # ── Summary ──

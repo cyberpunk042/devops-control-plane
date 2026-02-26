@@ -392,6 +392,62 @@ def _cargo_git_plan(
     }]
 
 
+def _build_tarball_download_cmd(
+    url: str,
+    dest: str,
+) -> list[str] | None:
+    """Build a shell command to download and extract a tarball.
+
+    Tries download backends in order of preference:
+      1. ``curl``  — most common, streams efficiently
+      2. ``wget``  — independent of libcurl, true fallback
+      3. ``python3`` — uses stdlib urllib, no external deps
+
+    This cascade exists because of circular dependencies:
+    building curl from source requires downloading the source,
+    but curl might not be installed yet.  wget and python3 urllib
+    do NOT depend on libcurl, so they work independently.
+
+    Args:
+        url: The tarball URL to download.
+        dest: Directory to extract into.
+
+    Returns:
+        Shell command list for ``_run_subprocess()``, or ``None``
+        if no download backend is available.
+    """
+    if shutil.which("curl"):
+        return [
+            "bash", "-c",
+            f"curl -fsSL '{url}' | tar xz -C '{dest}' --strip-components=1",
+        ]
+
+    if shutil.which("wget"):
+        return [
+            "bash", "-c",
+            f"wget -qO- '{url}' | tar xz -C '{dest}' --strip-components=1",
+        ]
+
+    if shutil.which("python3"):
+        # Use Python's urllib — no libcurl dependency.
+        # Download to a temp file, then extract.
+        return [
+            "bash", "-c",
+            (
+                f"python3 -c \""
+                f"import urllib.request, tempfile, os; "
+                f"tf = tempfile.NamedTemporaryFile(suffix='.tar.gz', delete=False); "
+                f"urllib.request.urlretrieve('{url}', tf.name); "
+                f"tf.close(); "
+                f"os.system('tar xzf ' + tf.name + ' -C {dest} --strip-components=1'); "
+                f"os.unlink(tf.name)"
+                f"\""
+            ),
+        ]
+
+    return None
+
+
 def _execute_source_step(
     step: dict,
     *,
@@ -434,13 +490,23 @@ def _execute_source_step(
         url = source.get("url", "")
         if not url:
             return {"ok": False, "error": "No tarball URL specified"}
-        # Download and extract
+        # Download and extract — use the best available download backend.
+        # This cascade handles the circular dependency problem: when
+        # building curl from source, curl itself is not available, so
+        # we fall back to wget or python3 urllib.
         Path(dest).mkdir(parents=True, exist_ok=True)
-        dl_cmd = ["bash", "-c",
-                  f"curl -fsSL '{url}' | tar xz -C '{dest}' --strip-components=1"]
+        dl_cmd = _build_tarball_download_cmd(url, dest)
+        if dl_cmd is None:
+            return {
+                "ok": False,
+                "error": (
+                    "No download tool available (curl, wget, python3). "
+                    "Install one via your package manager first."
+                ),
+            }
         return _run_subprocess(
             dl_cmd,
-            timeout=step.get("timeout", 1800),  # M3: builds can take 30+ min
+            timeout=step.get("timeout", 1800),
             needs_sudo=step.get("needs_sudo", False),
             sudo_password=sudo_password,
         )

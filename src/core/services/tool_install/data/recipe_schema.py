@@ -40,6 +40,87 @@ VALID_FAMILIES = {
     "debian", "rhel", "alpine", "arch", "suse", "macos",
 }
 
+# ── Source method sub-schema ────────────────────────────────────
+
+VALID_BUILD_SYSTEMS = {
+    "autotools", "cmake", "cargo", "meson", "go", "make",
+}
+
+_SOURCE_SPEC_FIELDS = {
+    "build_system",         # str: REQUIRED — one of VALID_BUILD_SYSTEMS
+    "git_repo",             # str: source acquisition — mutex with tarball_url
+    "tarball_url",          # str: source acquisition — mutex with git_repo
+    "default_version",      # str: REQUIRED when tarball_url contains {version}
+    "branch",               # str: git branch/tag — only with git_repo
+    "depth",                # int: git clone depth — only with git_repo
+    "requires_toolchain",   # list[str]: REQUIRED — binaries needed for build
+    "configure_args",       # list[str]: args for ./configure (autotools)
+    "cmake_args",           # list[str]: args for cmake
+    "cargo_args",           # list[str]: args for cargo build
+    "install_prefix",       # str: --prefix value, default /usr/local
+    "build_size",           # str: "small" | "medium" | "large"
+    "configure_timeout",    # int: configure step timeout in seconds
+    "install_needs_sudo",   # bool: whether make install needs sudo
+}
+
+# ── Handler option schema ───────────────────────────────────────
+
+# Fields valid on ALL options regardless of strategy
+_OPTION_COMMON_REQUIRED = {"id", "label", "strategy", "icon"}
+
+_OPTION_COMMON_OPTIONAL = {
+    "description",      # str: what this option does
+    "recommended",      # bool: is this the recommended choice?
+    "risk",             # str: "low" | "medium" | "high"
+    "requires_binary",  # str: binary that must be on PATH for ready state
+    "group",            # str: "primary" | "extended" — UI grouping
+    "arch_exclude",     # list[str]: architectures where this is impossible
+}
+
+# Per-strategy: (required_fields, optional_fields)
+_STRATEGY_FIELDS: dict[str, tuple[set[str], set[str]]] = {
+    "install_dep": (
+        {"dep"},
+        {"env_override"},
+    ),
+    "install_dep_then_switch": (
+        {"dep", "switch_to"},
+        set(),
+    ),
+    "install_packages": (
+        set(),  # Must have packages OR dynamic_packages — checked separately
+        {"packages", "dynamic_packages", "env_override"},
+    ),
+    "switch_method": (
+        {"method"},
+        set(),
+    ),
+    "retry_with_modifier": (
+        {"modifier"},
+        {"requires_binary"},  # Already in common optional, listed for clarity
+    ),
+    "add_repo": (
+        {"repo_commands"},
+        set(),
+    ),
+    "upgrade_dep": (
+        {"dep"},
+        set(),
+    ),
+    "env_fix": (
+        {"fix_commands"},
+        set(),
+    ),
+    "manual": (
+        {"instructions"},
+        set(),
+    ),
+    "cleanup_retry": (
+        {"cleanup_commands"},
+        set(),
+    ),
+}
+
 # ── Field definitions ───────────────────────────────────────────
 
 # Fields valid for ALL recipe types
@@ -110,6 +191,292 @@ _REQUIRED_BY_TYPE = {
 }
 
 
+# ── Source spec validator ───────────────────────────────────────
+
+def _validate_source_spec(
+    source_spec: dict,
+    prefix: str,
+) -> list[str]:
+    """Validate a source method spec dict.
+
+    Checks:
+      - build_system is present and valid
+      - Exactly one of git_repo / tarball_url is present
+      - requires_toolchain is present and is a list
+      - default_version present when tarball_url contains {version}
+      - branch/depth only allowed with git_repo
+      - configure_args / cmake_args / cargo_args are lists when present
+      - No unknown fields
+
+    Args:
+        source_spec: The source method dict from install.source.
+        prefix: Error message prefix (e.g. "install['source']").
+
+    Returns:
+        List of error strings.
+    """
+    errors: list[str] = []
+
+    # Unknown fields
+    for key in source_spec:
+        if key not in _SOURCE_SPEC_FIELDS:
+            errors.append(f"{prefix}: unknown field '{key}'")
+
+    # build_system — required
+    bs = source_spec.get("build_system")
+    if not bs:
+        errors.append(f"{prefix}: missing required field 'build_system'")
+    elif bs not in VALID_BUILD_SYSTEMS:
+        errors.append(
+            f"{prefix}: invalid build_system '{bs}' — "
+            f"must be one of {sorted(VALID_BUILD_SYSTEMS)}"
+        )
+
+    # Source acquisition — exactly one of git_repo or tarball_url
+    has_git = "git_repo" in source_spec
+    has_tarball = "tarball_url" in source_spec
+    if not has_git and not has_tarball:
+        errors.append(
+            f"{prefix}: must have 'git_repo' or 'tarball_url'"
+        )
+    if has_git and has_tarball:
+        errors.append(
+            f"{prefix}: cannot have both 'git_repo' and 'tarball_url'"
+        )
+
+    # requires_toolchain — required, must be list
+    tc = source_spec.get("requires_toolchain")
+    if tc is None:
+        errors.append(f"{prefix}: missing required field 'requires_toolchain'")
+    elif not isinstance(tc, list):
+        errors.append(f"{prefix}: 'requires_toolchain' must be a list")
+
+    # default_version — required when tarball_url contains {version}
+    if has_tarball:
+        url = source_spec.get("tarball_url", "")
+        if "{version}" in url:
+            if "default_version" not in source_spec:
+                errors.append(
+                    f"{prefix}: tarball_url contains '{{version}}' but "
+                    f"no 'default_version' is specified"
+                )
+
+    # branch/depth — only valid with git_repo
+    if has_tarball:
+        if "branch" in source_spec:
+            errors.append(
+                f"{prefix}: 'branch' is only valid with 'git_repo', "
+                f"not 'tarball_url'"
+            )
+        if "depth" in source_spec:
+            errors.append(
+                f"{prefix}: 'depth' is only valid with 'git_repo', "
+                f"not 'tarball_url'"
+            )
+
+    # List fields — must be lists when present
+    for field in ("configure_args", "cmake_args", "cargo_args"):
+        val = source_spec.get(field)
+        if val is not None and not isinstance(val, list):
+            errors.append(f"{prefix}: '{field}' must be a list")
+
+    # build_size — must be valid
+    bs_size = source_spec.get("build_size")
+    if bs_size is not None and bs_size not in ("small", "medium", "large"):
+        errors.append(
+            f"{prefix}: invalid build_size '{bs_size}' — "
+            f"must be 'small', 'medium', or 'large'"
+        )
+
+    # depth — must be int
+    depth = source_spec.get("depth")
+    if depth is not None and not isinstance(depth, int):
+        errors.append(f"{prefix}: 'depth' must be an int")
+
+    # configure_timeout — must be int
+    ct = source_spec.get("configure_timeout")
+    if ct is not None and not isinstance(ct, int):
+        errors.append(f"{prefix}: 'configure_timeout' must be an int")
+
+    return errors
+
+
+# ── Option validator ────────────────────────────────────────────
+
+def _validate_option(
+    opt: dict,
+    prefix: str,
+    seen_ids: set[str],
+) -> list[str]:
+    """Validate a single remediation option dict.
+
+    Checks:
+      - Common required fields present
+      - Strategy is valid
+      - Per-strategy required fields present
+      - No unknown fields (common + strategy-specific)
+      - Type checks on strategy-specific fields
+      - Duplicate option ID detection
+
+    Args:
+        opt: The option dict.
+        prefix: Error message prefix (e.g. "on_failure[0].options[1]").
+        seen_ids: Set of already-seen option IDs (mutated in place).
+
+    Returns:
+        List of error strings.
+    """
+    errors: list[str] = []
+
+    if not isinstance(opt, dict):
+        errors.append(f"{prefix} must be a dict")
+        return errors
+
+    # Common required fields
+    for f in _OPTION_COMMON_REQUIRED:
+        if f not in opt:
+            errors.append(f"{prefix}: missing '{f}'")
+
+    # Strategy validation
+    strat = opt.get("strategy", "")
+    if strat and strat not in VALID_STRATEGIES:
+        errors.append(f"{prefix}: unknown strategy '{strat}'")
+        # Can't validate strategy-specific fields if strategy is unknown
+        return errors
+
+    # Duplicate ID
+    oid = opt.get("id", "")
+    if oid in seen_ids:
+        errors.append(f"{prefix}: duplicate option id '{oid}'")
+    seen_ids.add(oid)
+
+    if not strat:
+        return errors  # Can't validate further without strategy
+
+    # Per-strategy required + optional fields
+    strat_req, strat_opt = _STRATEGY_FIELDS.get(strat, (set(), set()))
+
+    # Check required strategy-specific fields
+    for f in strat_req:
+        if f not in opt:
+            errors.append(
+                f"{prefix}: strategy '{strat}' requires field '{f}'"
+            )
+
+    # install_packages special case: must have packages OR dynamic_packages
+    if strat == "install_packages":
+        if "packages" not in opt and not opt.get("dynamic_packages"):
+            errors.append(
+                f"{prefix}: strategy 'install_packages' requires "
+                f"'packages' or 'dynamic_packages: True'"
+            )
+
+    # Unknown field check — allow common + strategy-specific
+    all_valid = (
+        _OPTION_COMMON_REQUIRED
+        | _OPTION_COMMON_OPTIONAL
+        | strat_req
+        | strat_opt
+    )
+    for f in opt:
+        if f not in all_valid:
+            errors.append(
+                f"{prefix}: unknown field '{f}' "
+                f"for strategy '{strat}'"
+            )
+
+    # ── Type checks on strategy-specific fields ──
+
+    # dep must be a non-empty string
+    if "dep" in opt:
+        dep = opt["dep"]
+        if not isinstance(dep, str) or not dep:
+            errors.append(f"{prefix}: 'dep' must be a non-empty string")
+
+    # method must be a non-empty string
+    if "method" in opt:
+        m = opt["method"]
+        if not isinstance(m, str) or not m:
+            errors.append(f"{prefix}: 'method' must be a non-empty string")
+
+    # modifier must be a dict
+    if "modifier" in opt:
+        if not isinstance(opt["modifier"], dict):
+            errors.append(f"{prefix}: 'modifier' must be a dict")
+
+    # packages must be family-keyed dict of lists
+    if "packages" in opt:
+        pkgs = opt["packages"]
+        if not isinstance(pkgs, dict):
+            errors.append(f"{prefix}: 'packages' must be a dict")
+        else:
+            for fam in pkgs:
+                if fam not in VALID_FAMILIES:
+                    errors.append(
+                        f"{prefix}: unknown family '{fam}' in 'packages'"
+                    )
+                if not isinstance(pkgs[fam], list):
+                    errors.append(
+                        f"{prefix}: packages['{fam}'] must be a list"
+                    )
+
+    # fix_commands / repo_commands / cleanup_commands must be list of lists
+    for cmd_field in ("fix_commands", "repo_commands", "cleanup_commands"):
+        if cmd_field in opt:
+            cmds = opt[cmd_field]
+            if not isinstance(cmds, list):
+                errors.append(f"{prefix}: '{cmd_field}' must be a list")
+            else:
+                for ci, c in enumerate(cmds):
+                    if not isinstance(c, list):
+                        errors.append(
+                            f"{prefix}: {cmd_field}[{ci}] must be a list"
+                        )
+
+    # instructions must be a string
+    if "instructions" in opt:
+        if not isinstance(opt["instructions"], str):
+            errors.append(f"{prefix}: 'instructions' must be a string")
+
+    # env_override must be a dict
+    if "env_override" in opt:
+        if not isinstance(opt["env_override"], dict):
+            errors.append(f"{prefix}: 'env_override' must be a dict")
+
+    # arch_exclude must be a list
+    if "arch_exclude" in opt:
+        if not isinstance(opt["arch_exclude"], list):
+            errors.append(f"{prefix}: 'arch_exclude' must be a list")
+
+    # requires_binary must be a string
+    if "requires_binary" in opt:
+        rb = opt["requires_binary"]
+        if not isinstance(rb, str) or not rb:
+            errors.append(
+                f"{prefix}: 'requires_binary' must be a non-empty string"
+            )
+
+    # risk must be valid
+    if "risk" in opt:
+        r = opt["risk"]
+        if r not in ("low", "medium", "high"):
+            errors.append(
+                f"{prefix}: invalid risk '{r}' — "
+                f"must be 'low', 'medium', or 'high'"
+            )
+
+    # group must be valid
+    if "group" in opt:
+        g = opt["group"]
+        if g not in ("primary", "extended"):
+            errors.append(
+                f"{prefix}: invalid group '{g}' — "
+                f"must be 'primary' or 'extended'"
+            )
+
+    return errors
+
+
 # ── Validator ───────────────────────────────────────────────────
 
 def validate_recipe(tool_id: str, recipe: dict) -> list[str]:
@@ -168,10 +535,25 @@ def validate_recipe(tool_id: str, recipe: dict) -> list[str]:
                     f"(and no '_default' fallback)"
                 )
 
-        # Install commands must be lists
+        # Install commands: lists for normal methods, dict for source
         for method, cmd in install.items():
-            if not isinstance(cmd, list):
-                errors.append(f"install['{method}'] must be a list, got {type(cmd).__name__}")
+            if method == "source":
+                # Source method can be a dict (structured) or a list (legacy)
+                if isinstance(cmd, dict):
+                    errors.extend(
+                        _validate_source_spec(cmd, f"install['source']")
+                    )
+                elif not isinstance(cmd, list):
+                    errors.append(
+                        f"install['source'] must be a list or dict, "
+                        f"got {type(cmd).__name__}"
+                    )
+            else:
+                if not isinstance(cmd, list):
+                    errors.append(
+                        f"install['{method}'] must be a list, "
+                        f"got {type(cmd).__name__}"
+                    )
 
         # Verify should be a list
         verify = recipe.get("verify")
@@ -207,61 +589,70 @@ def validate_recipe(tool_id: str, recipe: dict) -> list[str]:
             if not isinstance(on_failure, list):
                 errors.append("on_failure must be a list")
             else:
-                _handler_req = {"pattern", "failure_id", "category", "label", "options"}
-                _handler_opt = {"description", "exit_code", "detect_fn"}
-                _option_req = {"id", "label", "strategy", "icon"}
-                for hi, handler in enumerate(on_failure):
-                    prefix = f"on_failure[{hi}]"
-                    if not isinstance(handler, dict):
-                        errors.append(f"{prefix} must be a dict")
-                        continue
-                    for f in _handler_req:
-                        if f not in handler:
-                            errors.append(f"{prefix}: missing required field '{f}'")
-                    for f in handler:
-                        if f not in _handler_req | _handler_opt:
-                            errors.append(f"{prefix}: unknown field '{f}'")
-                    # Validate pattern is a compilable regex
-                    pat = handler.get("pattern", "")
-                    if pat:
-                        try:
-                            re.compile(pat)
-                        except re.error as exc:
-                            errors.append(f"{prefix}: invalid regex '{pat}': {exc}")
-                    # Validate category
-                    cat = handler.get("category", "")
-                    if cat and cat not in VALID_CATEGORIES:
-                        errors.append(
-                            f"{prefix}: unknown category '{cat}'"
-                        )
-                    # Validate options
-                    opts = handler.get("options")
-                    if opts is not None:
-                        if not isinstance(opts, list):
-                            errors.append(f"{prefix}.options must be a list")
-                        else:
-                            seen_ids: set[str] = set()
-                            for oi, opt in enumerate(opts):
-                                oprefix = f"{prefix}.options[{oi}]"
-                                if not isinstance(opt, dict):
-                                    errors.append(f"{oprefix} must be a dict")
-                                    continue
-                                for f in _option_req:
-                                    if f not in opt:
-                                        errors.append(
-                                            f"{oprefix}: missing '{f}'"
-                                        )
-                                strat = opt.get("strategy", "")
-                                if strat and strat not in VALID_STRATEGIES:
-                                    errors.append(
-                                        f"{oprefix}: unknown strategy '{strat}'"
-                                    )
-                                oid = opt.get("id", "")
-                                if oid in seen_ids:
-                                    errors.append(
-                                        f"{oprefix}: duplicate option id '{oid}'"
-                                    )
-                                seen_ids.add(oid)
+                errors.extend(_validate_handler_list(on_failure, "on_failure"))
+
+    return errors
+
+
+def _validate_handler_list(
+    handlers: list,
+    prefix: str,
+) -> list[str]:
+    """Validate a list of handler dicts.
+
+    Shared between on_failure (recipe layer) and standalone handler
+    registry validation.
+
+    Args:
+        handlers: List of handler dicts.
+        prefix: Error prefix (e.g. "on_failure" or "METHOD_FAMILY_HANDLERS['pip']").
+
+    Returns:
+        List of error strings.
+    """
+    errors: list[str] = []
+    _handler_req = {"pattern", "failure_id", "category", "label", "options"}
+    _handler_opt = {"description", "exit_code", "detect_fn", "example_stderr", "example_exit_code"}
+
+    for hi, handler in enumerate(handlers):
+        hp = f"{prefix}[{hi}]"
+        if not isinstance(handler, dict):
+            errors.append(f"{hp} must be a dict")
+            continue
+
+        for f in _handler_req:
+            if f not in handler:
+                errors.append(f"{hp}: missing required field '{f}'")
+
+        for f in handler:
+            if f not in _handler_req | _handler_opt:
+                errors.append(f"{hp}: unknown field '{f}'")
+
+        # Validate pattern is a compilable regex
+        pat = handler.get("pattern", "")
+        if pat:
+            try:
+                re.compile(pat)
+            except re.error as exc:
+                errors.append(f"{hp}: invalid regex '{pat}': {exc}")
+
+        # Validate category
+        cat = handler.get("category", "")
+        if cat and cat not in VALID_CATEGORIES:
+            errors.append(f"{hp}: unknown category '{cat}'")
+
+        # Validate options
+        opts = handler.get("options")
+        if opts is not None:
+            if not isinstance(opts, list):
+                errors.append(f"{hp}.options must be a list")
+            else:
+                seen_ids: set[str] = set()
+                for oi, opt in enumerate(opts):
+                    oprefix = f"{hp}.options[{oi}]"
+                    errors.extend(
+                        _validate_option(opt, oprefix, seen_ids)
+                    )
 
     return errors
 

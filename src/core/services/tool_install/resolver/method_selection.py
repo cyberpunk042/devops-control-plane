@@ -99,7 +99,11 @@ def _pick_install_method(
     if "_default" in install:
         return "_default"
 
-    # 5. Any available pm that's on PATH
+    # 5. source (last-resort — needs compiler + build tools)
+    if "source" in install:
+        return "source"
+
+    # 6. Any available pm that's on PATH
     for method in install:
         if method.startswith("_"):
             continue

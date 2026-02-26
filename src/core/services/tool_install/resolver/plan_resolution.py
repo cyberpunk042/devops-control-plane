@@ -213,13 +213,13 @@ def resolve_install_plan(
                     "severity": "error",
                 })
 
-            # Source acquisition step
+            # Source acquisition step — git clone or tarball download
+            build_dir = source_spec.get(
+                "build_dir",
+                f"/tmp/devops-cp-build-{tool_id}",
+            )
+
             if "git_repo" in source_spec:
-                import tempfile
-                build_dir = source_spec.get(
-                    "build_dir",
-                    f"/tmp/devops-cp-build-{tool_id}",
-                )
                 steps.append({
                     "type": "source",
                     "label": f"Clone {recipe_t['label']} source",
@@ -233,40 +233,73 @@ def resolve_install_plan(
                     "dest": build_dir,
                     "needs_sudo": False,
                 })
-
-                # Build steps — dispatch to the right plan generator
-                if build_system == "autotools":
-                    build_steps = _autotools_plan(source_spec, system_profile, build_dir)
-                elif build_system == "cmake":
-                    build_steps = _cmake_plan(source_spec, system_profile, build_dir)
-                elif build_system == "cargo-git":
-                    build_steps = _cargo_git_plan(source_spec, system_profile)
-                else:
-                    # Generic: use the raw command from the recipe
-                    raw_cmd = source_spec.get("command", ["make"])
-                    build_steps = [{
-                        "type": "build",
-                        "label": f"Build {recipe_t['label']}",
-                        "command": _substitute_install_vars(raw_cmd, system_profile),
-                        "cwd": build_dir,
-                        "needs_sudo": False,
-                    }]
-
-                for bs in build_steps:
-                    bs["tool_id"] = tool_id
-                    steps.append(bs)
-
-                # Cleanup step
+            elif "tarball_url" in source_spec:
+                tarball_url = source_spec["tarball_url"]
+                # Variable substitution for {version}, {arch}, etc.
+                default_version = source_spec.get("default_version", "")
+                tarball_url_resolved = _substitute_install_vars(
+                    [tarball_url], system_profile,
+                    version=default_version,
+                )[0]
                 steps.append({
-                    "type": "cleanup",
-                    "label": f"Cleanup build directory",
-                    "command": ["rm", "-rf", build_dir],
+                    "type": "source",
+                    "label": f"Download {recipe_t['label']} source tarball",
+                    "tool_id": tool_id,
+                    "source": {
+                        "type": "tarball",
+                        "url": tarball_url_resolved,
+                    },
+                    "dest": build_dir,
                     "needs_sudo": False,
                 })
+            else:
+                # No source acquisition method specified
+                logger.warning(
+                    "Source method for %s has no git_repo or tarball_url",
+                    tool_id,
+                )
+                continue
+
+            # Build steps — dispatch to the right plan generator
+            if build_system == "autotools":
+                build_steps = _autotools_plan(source_spec, system_profile, build_dir)
+            elif build_system == "cmake":
+                build_steps = _cmake_plan(source_spec, system_profile, build_dir)
+            elif build_system == "cargo-git":
+                build_steps = _cargo_git_plan(source_spec, system_profile)
+            else:
+                # Generic: use the raw command from the recipe
+                raw_cmd = source_spec.get("command", ["make"])
+                build_steps = [{
+                    "type": "build",
+                    "label": f"Build {recipe_t['label']}",
+                    "command": _substitute_install_vars(raw_cmd, system_profile),
+                    "cwd": build_dir,
+                    "needs_sudo": False,
+                }]
+
+            for bs in build_steps:
+                bs["tool_id"] = tool_id
+                steps.append(bs)
+
+            # Cleanup step
+            steps.append({
+                "type": "cleanup",
+                "label": "Cleanup build directory",
+                "command": ["rm", "-rf", build_dir],
+                "needs_sudo": False,
+            })
             continue
 
         cmd = list(recipe_t["install"][method])
-        sudo = recipe_t["needs_sudo"].get(method, False)
+        sudo = recipe_t.get("needs_sudo", {}).get(method, False)
+
+        # ── Arch/OS variable substitution for _default commands ──
+        if method == "_default":
+            from src.core.services.tool_install.execution.build_helpers import (
+                _substitute_install_vars,
+            )
+            cmd = _substitute_install_vars(cmd, system_profile)
 
         # ── M6: Dynamic npm sudo detection ──────────────────
         if method == "npm" and not sudo:

@@ -1135,3 +1135,147 @@ improvement over the current flat Debian-only system.
    browser. The CLI and TUI are alternative interfaces to the same
    resolver and execution engine.
 
+---
+
+## 9. Infrastructure Requirement: Download Backend Cascade
+
+> Discovered during curl per-tool audit (2026-02-26).
+> This is a cross-cutting infrastructure concern that applies to ALL
+> install methods that download anything: `_default`, `source`, `binary`.
+
+### 9.1 The problem: circular dependencies in download tools
+
+Many tools use `curl | bash` or `git clone https://` to install.
+But what if `curl` is missing? What if `git` is missing?
+What if both are missing?
+
+The download backends available on a system are:
+
+| Backend | CLI binary | HTTPS? | Depends on libcurl? | Default availability |
+|---------|-----------|--------|---------------------|---------------------|
+| `curl` | `curl` | ✅ | IS libcurl | Most systems, not guaranteed |
+| `wget` | `wget` | ✅ | ❌ (gnutls/openssl) | Many systems, NOT macOS, NOT Alpine minimal, NOT Arch minimal |
+| `python3 urllib` | `python3` | ✅ | ❌ (Python ssl module) | Most systems, NOT bare Alpine |
+| `busybox wget` | `busybox wget` or `wget` | ❌ (no TLS by default) | ❌ | Alpine only (BusyBox applet, no HTTPS) |
+| `git` (HTTPS) | `git` | ✅ | ✅ (git uses libcurl for HTTP) | Many systems, NOT all |
+| `perl LWP` | `perl` | ✅ (if LWP installed) | ❌ | Not common |
+
+**Key fact:** `git clone https://` uses libcurl under the hood on most
+Linux systems. If curl/libcurl is completely absent, git HTTPS also
+breaks. So "use git clone as fallback for missing curl" is circular.
+
+**Key fact:** `wget` uses its own HTTP stack (gnutls or openssl
+directly), NOT libcurl. wget is the true independent fallback.
+
+**Key fact:** `python3 urllib` uses Python's ssl module (linked to
+system openssl), NOT libcurl. python3 is another true independent
+fallback.
+
+### 9.2 The base case: native PM never needs a download backend
+
+The native PM (`apt`, `dnf`, `apk`, `pacman`, `zypper`, `brew`)
+uses its OWN download mechanism. It does NOT need curl, wget, or git.
+
+- `apt` uses its own HTTP transport (`/usr/lib/apt/methods/http`)
+- `dnf` uses `librepo` (its own download library)
+- `apk` uses its own fetch code
+- `pacman` uses its own download code
+- `zypper` uses `libzypp` (its own download library)
+- `brew` uses `curl` (exception! brew DOES need curl)
+
+So on every Linux system, the native PM is the **base case** that
+breaks all circular dependencies. brew on macOS is the exception —
+macOS always has curl pre-installed (Apple ships it with the OS).
+
+### 9.3 The unlock cascade
+
+```
+Level 0: Native PM (always available — the base case)
+  │
+  ├── apt/dnf/apk/pacman/zypper install curl    → curl is now READY
+  ├── apt/dnf/apk/pacman/zypper install wget    → wget is now READY
+  ├── apt/dnf/apk/pacman/zypper install git     → git is now READY
+  └── apt/dnf/apk/pacman/zypper install python3 → python3 urllib READY
+        │
+Level 1: With curl available
+  │
+  ├── curl | bash install scripts    → _default methods READY
+  ├── git clone https://             → source (git) methods READY
+  ├── curl -LO binary.tar.gz        → binary download methods READY
+  └── pip/npm/cargo install          → language PM methods READY
+        │
+Level 2: With curl + git available
+  │
+  ├── git clone + make              → source build methods READY
+  ├── pip install from git repos     → pip+git methods READY
+  └── cargo install from git repos   → cargo+git methods READY
+```
+
+**Nothing is `impossible` due to missing download tools.**
+Everything is `locked` with an unlock chain that bottoms out at
+the native PM. The only `impossible` states are:
+- PM not available on this system (e.g., `dnf` on Debian)
+- Hardware not present (e.g., NVIDIA GPU)
+- Architecture not supported (e.g., ARM-only tool on x86)
+
+### 9.4 Handler option ordering for download failures
+
+When a download fails because the download backend is missing,
+the handler should offer options in TWO groups:
+
+**Primary options (shown prominently, ordered by likelihood):**
+
+1. 🟢 **Recommended:** Install the missing tool via native PM
+   (e.g., `apt install curl`) — always `ready` on the right system
+2. 🟢 **Alternative:** Use wget to download instead
+   — `ready` if wget is installed, `locked` if not
+3. 🟢 **Alternative:** Use python3 urllib to download instead
+   — `ready` if python3 is installed, `locked` if not
+
+**Extended options (collapsed / expandable, for edge cases):**
+
+4. 🔒 Install wget first, then use wget to download
+   — `locked`, unlock dep: wget (install via PM)
+5. 🔒 Install python3 first, then use urllib
+   — `locked`, unlock dep: python3 (install via PM)
+6. 🔒 Install git first, then git clone
+   — `locked`, unlock dep: git (install via PM)
+   — note: git HTTPS also needs libcurl on most systems
+
+### 9.5 Infrastructure changes needed
+
+The current handler/remediation architecture supports `ready`/`locked`/
+`impossible` states and the `_compute_availability` function gates
+options correctly. What's MISSING:
+
+1. **Option grouping:** No way to mark options as "primary" vs
+   "extended/other". The frontend shows all options in a flat list.
+   Need a `group` or `priority` field on options.
+
+2. **Download backend abstraction:** When a recipe says `git_repo:`
+   or `tarball_url:`, the execution engine needs to try available
+   backends in order:
+   - For tarballs: curl → wget → python3 urllib
+   - For git repos: git (if libcurl works) → wget tarball fallback
+   This is NOT per-tool logic. It's infrastructure.
+
+3. **The `missing_curl` handler "Use wget instead" option** does NOT
+   check if wget is actually installed. It's a modifier with no
+   availability gate. This needs to go through `_compute_availability`.
+
+4. **Locked option unlock deps** should cascade: if "Use wget" is
+   locked because wget isn't installed, the unlock dep "wget" resolves
+   to `apt install wget` which is always `ready` — so the user sees
+   `locked (install wget first)` not `impossible`.
+
+### 9.6 When to implement
+
+This is infrastructure that should be built AFTER the per-tool audit
+is complete. The per-tool audit documents the download dependencies
+factually. The infrastructure evolution then addresses all of them
+at once rather than per-tool hacks.
+
+Phase mapping: This falls under **Phase 2 evolution** for the option
+grouping and availability gating, and **Phase 5** for the download
+backend abstraction in the build-from-source execution engine.
+

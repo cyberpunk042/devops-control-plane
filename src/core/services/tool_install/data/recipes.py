@@ -383,7 +383,9 @@ TOOL_RECIPES: dict[str, dict] = {
         },
     },
     "curl": {
-        "label": "curl",
+        "cli": "curl",
+        "label": "curl (URL transfer tool)",
+        "category": "system",
         "install": {
             "apt":    ["apt-get", "install", "-y", "curl"],
             "dnf":    ["dnf", "install", "-y", "curl"],
@@ -391,10 +393,30 @@ TOOL_RECIPES: dict[str, dict] = {
             "pacman": ["pacman", "-S", "--noconfirm", "curl"],
             "zypper": ["zypper", "install", "-y", "curl"],
             "brew":   ["brew", "install", "curl"],
+            "snap":   ["snap", "install", "curl"],
+            "source": {
+                "build_system": "autotools",
+                "tarball_url": "https://curl.se/download/curl-{version}.tar.gz",
+                "default_version": "8.18.0",
+                "requires_toolchain": ["make", "gcc", "autoconf",
+                                       "automake", "libtool", "pkg-config"],
+                "configure_args": ["--with-openssl", "--with-zlib"],
+            },
         },
         "needs_sudo": {
             "apt": True, "dnf": True, "apk": True,
             "pacman": True, "zypper": True, "brew": False,
+            "snap": True, "source": True,
+        },
+        "requires": {
+            "packages": {
+                "debian": ["libssl-dev", "zlib1g-dev"],
+                "rhel":   ["openssl-devel", "zlib-devel"],
+                "alpine": ["openssl-dev", "zlib-dev", "ca-certificates"],
+                "arch":   ["openssl", "zlib"],
+                "suse":   ["libopenssl-devel", "zlib-devel"],
+                "macos":  ["openssl@3"],
+            },
         },
         "verify": ["curl", "--version"],
         "update": {
@@ -2609,6 +2631,7 @@ TOOL_RECIPES: dict[str, dict] = {
     # ════════════════════════════════════════════════════════════
 
     "act": {
+        "cli": "act",
         "label": "act (local GitHub Actions)",
         "category": "cicd",
         "install": {

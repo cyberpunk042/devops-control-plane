@@ -135,6 +135,46 @@ KNOWN_PACKAGES: dict[str, dict[str, str | list[str]]] = {
         "apt": "zstd", "dnf": "zstd", "apk": "zstd",
         "pacman": "zstd", "zypper": "zstd", "brew": "zstd",
     },
+    "gpg": {
+        "apt": "gnupg", "dnf": "gnupg2", "apk": "gnupg",
+        "pacman": "gnupg", "zypper": "gpg2", "brew": "gnupg",
+    },
+    "bash": {
+        "apt": "bash", "dnf": "bash", "apk": "bash",
+        "pacman": "bash", "zypper": "bash", "brew": "bash",
+    },
+    "file": {
+        "apt": "file", "dnf": "file", "apk": "file",
+        "pacman": "file", "zypper": "file", "brew": "file-formula",
+    },
+    "patch": {
+        "apt": "patch", "dnf": "patch", "apk": "patch",
+        "pacman": "patch", "zypper": "patch", "brew": "gpatch",
+    },
+    "sudo": {
+        "apt": "sudo", "dnf": "sudo", "apk": "sudo",
+        "pacman": "sudo", "zypper": "sudo",
+    },
+    "pkg-config": {
+        "apt": "pkg-config", "dnf": "pkgconf-pkg-config", "apk": "pkgconf",
+        "pacman": "pkgconf", "zypper": "pkg-config", "brew": "pkg-config",
+    },
+    "autoconf": {
+        "apt": "autoconf", "dnf": "autoconf", "apk": "autoconf",
+        "pacman": "autoconf", "zypper": "autoconf", "brew": "autoconf",
+    },
+    "automake": {
+        "apt": "automake", "dnf": "automake", "apk": "automake",
+        "pacman": "automake", "zypper": "automake", "brew": "automake",
+    },
+    "libtool": {
+        "apt": "libtool", "dnf": "libtool", "apk": "libtool",
+        "pacman": "libtool", "zypper": "libtool", "brew": "libtool",
+    },
+    "ninja": {
+        "apt": "ninja-build", "dnf": "ninja-build", "apk": "samurai",
+        "pacman": "ninja", "zypper": "ninja", "brew": "ninja",
+    },
 
     # ── Tools where package name differs from binary name ───────
     "pip": {
