@@ -1,0 +1,702 @@
+<script>
+    // ─────────────────────────────────────────────────────────────────
+    //  _stage_debugger.html
+    //
+    //  Stage debugger drawer — slide-out panel with:
+    //    Tab 1: Scenario Library (D1)
+    //    Tab 2: State Overrides (D2)
+    //  Toggled by clicking the DEV badge in the nav bar.
+    //  Only active when dev mode is on (D0 identity gate).
+    // ─────────────────────────────────────────────────────────────────
+
+    // ── State ──────────────────────────────────────────────────────
+
+    var _debugDrawerOpen = false;
+    var _debugActiveTab = 'scenarios'; // 'scenarios' | 'overrides'
+    var _debugScenarios = [];
+    var _debugSystemPresets = [];
+    var _debugCurrentSystem = 'debian_12';
+    window._debugScenarioActive = false;
+
+    // ── Override storage (sessionStorage) ──────────────────────────
+
+    var _DEV_OVERRIDES_KEY = 'dcp_dev_overrides';
+
+    function _getDevOverrides() {
+        if (!window._devModeStatus || !window._devModeStatus.dev_mode) return null;
+        try {
+            return JSON.parse(sessionStorage.getItem(_DEV_OVERRIDES_KEY)) || null;
+        } catch (_) { return null; }
+    }
+
+    function _saveDevOverrides(overrides) {
+        if (!overrides) {
+            sessionStorage.removeItem(_DEV_OVERRIDES_KEY);
+        } else {
+            sessionStorage.setItem(_DEV_OVERRIDES_KEY, JSON.stringify(overrides));
+        }
+        _renderOverrideBanner();
+    }
+
+    function _clearDevOverrides() {
+        sessionStorage.removeItem(_DEV_OVERRIDES_KEY);
+        _renderOverrideBanner();
+        _renderOverridesTab();
+    }
+
+    function _getDevSystemPreset() {
+        var overrides = _getDevOverrides();
+        return (overrides && overrides.system_profile) ? overrides.system_profile.preset_id : null;
+    }
+
+    // ── API header injection ───────────────────────────────────────
+    // Call this from any fetch() that needs system override awareness.
+
+    function _devOverrideHeaders(headers) {
+        headers = headers || {};
+        var preset = _getDevSystemPreset();
+        if (preset) {
+            headers['X-Dev-System-Override'] = JSON.stringify({ preset_id: preset });
+        }
+        return headers;
+    }
+
+    // ── Override banner ────────────────────────────────────────────
+
+    function _renderOverrideBanner() {
+        var bannerId = 'debug-override-banner';
+        var existing = document.getElementById(bannerId);
+        var overrides = _getDevOverrides();
+        var activeCount = 0;
+        var label = '';
+
+        if (overrides) {
+            if (overrides.system_profile) {
+                activeCount++;
+                var presetLabels = {
+                    'debian_12': 'Debian 12', 'fedora_39': 'Fedora 39',
+                    'alpine_318': 'Alpine 3.18', 'macos_14': 'macOS 14',
+                    'arch_latest': 'Arch Linux',
+                };
+                label = presetLabels[overrides.system_profile.preset_id] || overrides.system_profile.preset_id;
+            }
+            if (overrides.tool_overrides) {
+                activeCount += Object.keys(overrides.tool_overrides).length;
+            }
+            if (overrides.inject_failure) {
+                activeCount++;
+            }
+        }
+
+        if (activeCount === 0) {
+            if (existing) existing.remove();
+            return;
+        }
+
+        if (!existing) {
+            existing = document.createElement('div');
+            existing.id = bannerId;
+            existing.className = 'debug-override-banner';
+            // Insert after the app-header
+            var header = document.querySelector('.app-header');
+            if (header && header.nextSibling) {
+                header.parentNode.insertBefore(existing, header.nextSibling);
+            } else {
+                document.body.prepend(existing);
+            }
+        }
+
+        var text = '🔧 Dev Override Active';
+        if (label) text += ': ' + esc(label);
+        text += ' (' + activeCount + ' override' + (activeCount > 1 ? 's' : '') + ')';
+
+        existing.innerHTML =
+            '<span>' + text + '</span>' +
+            '<button onclick="_clearDevOverrides()" style="background:none;border:none;' +
+                'color:inherit;cursor:pointer;font-size:0.72rem;text-decoration:underline;opacity:0.8">Clear All</button>';
+    }
+
+    // ── Group labels & icons ───────────────────────────────────────
+
+    var _debugGroupLabels = {
+        'method-family': { label: 'Method Failures', icon: '📦' },
+        'infrastructure': { label: 'Infrastructure', icon: '🔧' },
+        'bootstrap':      { label: 'Bootstrap',      icon: '🚀' },
+        'chains':         { label: 'Chains',          icon: '🔗' },
+        'edge-cases':     { label: 'Edge Cases',      icon: '🧪' },
+    };
+
+    // ── Toggle ─────────────────────────────────────────────────────
+
+    function _toggleDebugDrawer() {
+        _debugDrawerOpen = !_debugDrawerOpen;
+        var drawer = document.getElementById('debug-drawer');
+        if (!drawer) {
+            _injectDebugDrawer();
+            drawer = document.getElementById('debug-drawer');
+        }
+        if (_debugDrawerOpen) {
+            drawer.classList.add('open');
+            if (_debugScenarios.length === 0) _loadDebugScenarios();
+            _renderOverrideBanner();
+        } else {
+            drawer.classList.remove('open');
+        }
+    }
+
+    // ── Inject drawer DOM ──────────────────────────────────────────
+
+    function _injectDebugDrawer() {
+        var existing = document.getElementById('debug-drawer');
+        if (existing) return;
+
+        var drawer = document.createElement('div');
+        drawer.id = 'debug-drawer';
+        drawer.className = 'debug-drawer';
+        drawer.innerHTML =
+            '<div class="debug-drawer-header">' +
+                '<div class="debug-drawer-title">' +
+                    '<span style="font-size:1rem">🔧</span> Stage Debugger' +
+                '</div>' +
+                '<button class="debug-drawer-close" onclick="_toggleDebugDrawer()" title="Close">&times;</button>' +
+            '</div>' +
+            // Tab bar
+            '<div class="debug-tab-bar">' +
+                '<button class="debug-tab active" data-tab="scenarios" onclick="_switchDebugTab(\'scenarios\')">Scenarios</button>' +
+                '<button class="debug-tab" data-tab="overrides" onclick="_switchDebugTab(\'overrides\')">Overrides</button>' +
+            '</div>' +
+            // Tab 1: Scenarios
+            '<div id="debug-tab-scenarios" class="debug-tab-content active">' +
+                '<div class="debug-drawer-toolbar">' +
+                    '<label style="font-size:0.68rem;color:var(--text-muted)">System:</label>' +
+                    '<select id="debug-system-select" onchange="_changeDebugSystem(this.value)" ' +
+                        'style="font-size:0.7rem;padding:2px 6px;border-radius:var(--radius-sm);' +
+                        'background:var(--bg-inset);color:var(--text-primary);border:1px solid var(--border-subtle)">' +
+                    '</select>' +
+                    '<div id="debug-scenario-count" style="font-size:0.65rem;color:var(--text-muted);margin-left:auto"></div>' +
+                '</div>' +
+                '<div id="debug-scenario-grid" class="debug-scenario-grid">' +
+                    '<div style="text-align:center;padding:2rem;color:var(--text-muted);font-size:0.75rem">Loading scenarios...</div>' +
+                '</div>' +
+            '</div>' +
+            // Tab 2: Overrides
+            '<div id="debug-tab-overrides" class="debug-tab-content">' +
+                '<div id="debug-overrides-content" style="padding:8px"></div>' +
+            '</div>';
+
+        document.body.appendChild(drawer);
+    }
+
+    // ── Tab switching ──────────────────────────────────────────────
+
+    function _switchDebugTab(tabName) {
+        _debugActiveTab = tabName;
+        var tabs = document.querySelectorAll('.debug-tab');
+        var contents = document.querySelectorAll('.debug-tab-content');
+
+        for (var i = 0; i < tabs.length; i++) {
+            tabs[i].classList.toggle('active', tabs[i].getAttribute('data-tab') === tabName);
+        }
+        for (var j = 0; j < contents.length; j++) {
+            contents[j].classList.toggle('active', contents[j].id === 'debug-tab-' + tabName);
+        }
+
+        if (tabName === 'overrides') {
+            _renderOverridesTab();
+        }
+    }
+
+    // ── Overrides tab rendering (D2.4/D2.5/D2.6 will add content) ─
+
+    function _renderOverridesTab() {
+        var container = document.getElementById('debug-overrides-content');
+        if (!container) return;
+
+        var overrides = _getDevOverrides() || {};
+        var currentPreset = (overrides.system_profile && overrides.system_profile.preset_id) || '';
+
+        // ── System profile section ─────────────────────────────────
+        var presetLabels = {
+            '': 'Real System',
+            'debian_12': 'Debian 12', 'fedora_39': 'Fedora 39',
+            'alpine_318': 'Alpine 3.18', 'macos_14': 'macOS 14',
+            'arch_latest': 'Arch Linux',
+        };
+
+        var sysHtml = '<div class="debug-group">' +
+            '<div class="debug-group-header"><span>🖥️</span> System Profile</div>' +
+            '<div style="padding:4px 8px">' +
+                '<select id="debug-override-system" onchange="_setSystemOverride(this.value)" ' +
+                    'style="width:100%;font-size:0.72rem;padding:4px 8px;border-radius:var(--radius-sm);' +
+                    'background:var(--bg-inset);color:var(--text-primary);border:1px solid var(--border-subtle)">';
+
+        var presetKeys = ['', 'debian_12', 'fedora_39', 'alpine_318', 'macos_14', 'arch_latest'];
+        for (var k = 0; k < presetKeys.length; k++) {
+            var pk = presetKeys[k];
+            var sel = (pk === currentPreset) ? ' selected' : '';
+            sysHtml += '<option value="' + esc(pk) + '"' + sel + '>' + esc(presetLabels[pk] || pk) + '</option>';
+        }
+
+        sysHtml += '</select></div></div>';
+
+        // ── Tool state overrides section (D2.5) ────────────────────
+        var toolOverrides = overrides.tool_overrides || {};
+        var cachedTools = (typeof cardCached === 'function') ? cardCached('tools-status') : null;
+        var tools = (cachedTools && cachedTools.tools) ? cachedTools.tools : [];
+
+        var toolHtml = '<div class="debug-group" style="margin-top:12px">' +
+            '<div class="debug-group-header">' +
+                '<span>🔧</span> Tool State' +
+                '<span class="debug-group-count">' + Object.keys(toolOverrides).length + ' overridden</span>' +
+            '</div>';
+
+        if (tools.length === 0) {
+            toolHtml += '<div style="padding:4px 8px;font-size:0.68rem;color:var(--text-muted)">' +
+                'Load the Dashboard tab first to populate tool list.</div>';
+        } else {
+            toolHtml += '<div style="padding:4px 8px;display:flex;gap:6px;margin-bottom:4px">' +
+                '<button onclick="_resetToolOverrides()" style="font-size:0.62rem;padding:2px 8px;' +
+                    'border-radius:var(--radius-sm);background:var(--bg-inset);color:var(--text-muted);' +
+                    'border:1px solid var(--border-subtle);cursor:pointer">Reset All</button>' +
+                '<button onclick="_forceAllToolsMissing()" style="font-size:0.62rem;padding:2px 8px;' +
+                    'border-radius:var(--radius-sm);background:hsla(0,60%,50%,0.08);color:hsl(0,60%,60%);' +
+                    'border:1px solid hsla(0,60%,50%,0.15);cursor:pointer">Force All Missing</button>' +
+            '</div>';
+
+            toolHtml += '<div style="padding:0 8px;max-height:240px;overflow-y:auto">';
+            for (var ti = 0; ti < tools.length; ti++) {
+                var t = tools[ti];
+                var realState = t.available ? '✅' : '❌';
+                var ov = toolOverrides[t.id] || '';
+                var isReal = (ov === '');
+                var isMissing = (ov === 'missing');
+                var isInstalled = (ov === 'installed');
+
+                toolHtml += '<div style="display:flex;align-items:center;gap:6px;padding:3px 0;' +
+                    'border-bottom:1px solid var(--border-subtle);font-size:0.68rem">' +
+                    '<span style="width:16px;text-align:center">' + realState + '</span>' +
+                    '<span style="flex:1;color:var(--text-primary);font-weight:500;min-width:0;' +
+                        'overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + esc(t.id) + '">' +
+                        esc(t.label || t.id) + '</span>' +
+                    '<label style="display:flex;align-items:center;gap:2px;cursor:pointer;color:' +
+                        (isReal ? 'var(--text-primary)' : 'var(--text-muted)') + '">' +
+                        '<input type="radio" name="tool-ov-' + esc(t.id) + '" ' +
+                            (isReal ? 'checked ' : '') +
+                            'onchange="_setToolOverride(\'' + esc(t.id) + '\',\'\')" ' +
+                            'style="margin:0;width:12px;height:12px"> real</label>' +
+                    '<label style="display:flex;align-items:center;gap:2px;cursor:pointer;color:' +
+                        (isMissing ? 'hsl(0,70%,65%)' : 'var(--text-muted)') + '">' +
+                        '<input type="radio" name="tool-ov-' + esc(t.id) + '" ' +
+                            (isMissing ? 'checked ' : '') +
+                            'onchange="_setToolOverride(\'' + esc(t.id) + '\',\'missing\')" ' +
+                            'style="margin:0;width:12px;height:12px"> ❌</label>' +
+                    '<label style="display:flex;align-items:center;gap:2px;cursor:pointer;color:' +
+                        (isInstalled ? 'var(--success)' : 'var(--text-muted)') + '">' +
+                        '<input type="radio" name="tool-ov-' + esc(t.id) + '" ' +
+                            (isInstalled ? 'checked ' : '') +
+                            'onchange="_setToolOverride(\'' + esc(t.id) + '\',\'installed\')" ' +
+                            'style="margin:0;width:12px;height:12px"> ✅</label>' +
+                '</div>';
+            }
+            toolHtml += '</div>';
+        }
+
+        toolHtml += '</div>';
+
+        // ── Failure injection section (D2.6) ───────────────────────
+        var injectedFailure = overrides.inject_failure || null;
+
+        var failHtml = '<div class="debug-group" style="margin-top:12px">' +
+            '<div class="debug-group-header">' +
+                '<span>💥</span> Failure Injection' +
+                (injectedFailure ? '<span class="debug-group-count" style="background:hsla(0,60%,50%,0.15);color:hsl(0,70%,65%)">ARMED</span>' : '') +
+            '</div>';
+
+        if (injectedFailure) {
+            // Show armed state
+            failHtml += '<div style="padding:6px 8px;font-size:0.7rem">' +
+                '<div style="color:hsl(0,70%,65%);font-weight:600;margin-bottom:4px">' +
+                    '⚠️ Next install will fail with:' +
+                '</div>' +
+                '<div style="color:var(--text-primary);font-weight:500">' +
+                    esc(injectedFailure.label || injectedFailure.scenario_id) +
+                '</div>' +
+                '<div style="color:var(--text-muted);font-size:0.65rem;margin-top:2px">' +
+                    'Scenario: ' + esc(injectedFailure.scenario_id) +
+                '</div>' +
+                '<button onclick="_clearFailureInjection()" style="margin-top:6px;width:100%;padding:5px;' +
+                    'font-size:0.68rem;border-radius:var(--radius-sm);background:hsla(0,60%,50%,0.08);' +
+                    'color:hsl(0,60%,60%);border:1px solid hsla(0,60%,50%,0.15);cursor:pointer">' +
+                    'Disarm</button>' +
+            '</div>';
+        } else {
+            // Show scenario picker
+            failHtml += '<div style="padding:4px 8px;font-size:0.68rem;color:var(--text-muted);margin-bottom:4px">' +
+                'Arm a failure: the next install attempt will trigger this failure scenario instead of real execution.' +
+            '</div>';
+
+            if (_debugScenarios.length > 0) {
+                failHtml += '<div style="padding:0 8px">' +
+                    '<select id="debug-inject-scenario" style="width:100%;font-size:0.7rem;padding:4px 6px;' +
+                        'border-radius:var(--radius-sm);background:var(--bg-inset);color:var(--text-primary);' +
+                        'border:1px solid var(--border-subtle)">' +
+                        '<option value="">Select a failure…</option>';
+
+                for (var fi = 0; fi < _debugScenarios.length; fi++) {
+                    var fs = _debugScenarios[fi];
+                    failHtml += '<option value="' + esc(fs._meta.id) + '">' +
+                        esc(fs._meta.group + ' → ' + fs._meta.label) + '</option>';
+                }
+
+                failHtml += '</select>' +
+                    '<button onclick="_armFailureInjection()" style="margin-top:6px;width:100%;padding:5px;' +
+                        'font-size:0.68rem;border-radius:var(--radius-sm);background:hsla(0,60%,50%,0.08);' +
+                        'color:hsl(0,60%,60%);border:1px solid hsla(0,60%,50%,0.15);cursor:pointer">' +
+                        '💥 Arm Failure</button>' +
+                '</div>';
+            } else {
+                failHtml += '<div style="padding:4px 8px;font-size:0.68rem;color:var(--text-muted)">' +
+                    'Load Scenarios tab first to populate the failure list.</div>';
+            }
+        }
+
+        failHtml += '</div>';
+
+        // ── Override hygiene section ───────────────────────────────
+        var activeCount = 0;
+        if (overrides.system_profile) activeCount++;
+        if (overrides.tool_overrides) activeCount += Object.keys(overrides.tool_overrides).length;
+        if (overrides.inject_failure) activeCount++;
+
+        var hygieneHtml = '<div class="debug-group" style="margin-top:16px">' +
+            '<div class="debug-group-header"><span>🚿</span> Override Hygiene</div>' +
+            '<div style="padding:4px 8px;font-size:0.7rem;color:var(--text-muted)">' +
+                'Active overrides: ' + activeCount +
+            '</div>' +
+            '<div style="padding:4px 8px">' +
+                '<button onclick="_clearDevOverrides()" ' +
+                    'style="width:100%;padding:6px;font-size:0.7rem;border-radius:var(--radius-sm);' +
+                    'background:hsla(0,60%,50%,0.1);color:hsl(0,70%,65%);border:1px solid hsla(0,60%,50%,0.2);' +
+                    'cursor:pointer"' +
+                    (activeCount === 0 ? ' disabled' : '') +
+                '>Clear All Overrides</button>' +
+            '</div>' +
+        '</div>';
+
+        container.innerHTML = sysHtml + toolHtml + failHtml + hygieneHtml;
+    }
+
+    // ── System override setter ─────────────────────────────────────
+
+    function _setSystemOverride(presetId) {
+        var overrides = _getDevOverrides() || {};
+
+        if (!presetId) {
+            delete overrides.system_profile;
+        } else {
+            overrides.system_profile = { preset_id: presetId };
+        }
+
+        // Clean up empty overrides object
+        if (!overrides.system_profile && !overrides.tool_overrides && !overrides.inject_failure) {
+            _saveDevOverrides(null);
+        } else {
+            _saveDevOverrides(overrides);
+        }
+        _renderOverridesTab();
+    }
+
+    // ── Tool override setters (D2.5) ───────────────────────────────
+
+    function _setToolOverride(toolId, state) {
+        var overrides = _getDevOverrides() || {};
+        if (!overrides.tool_overrides) overrides.tool_overrides = {};
+
+        if (!state) {
+            delete overrides.tool_overrides[toolId];
+            // Clean up empty object
+            if (Object.keys(overrides.tool_overrides).length === 0) {
+                delete overrides.tool_overrides;
+            }
+        } else {
+            overrides.tool_overrides[toolId] = state;
+        }
+
+        // Clean up if all empty
+        if (!overrides.system_profile && !overrides.tool_overrides && !overrides.inject_failure) {
+            _saveDevOverrides(null);
+        } else {
+            _saveDevOverrides(overrides);
+        }
+
+        // Refresh dashboard if visible
+        if (typeof loadToolsStatus === 'function') {
+            loadToolsStatus();
+        }
+        _renderOverridesTab();
+    }
+
+    function _resetToolOverrides() {
+        var overrides = _getDevOverrides() || {};
+        delete overrides.tool_overrides;
+        if (!overrides.system_profile && !overrides.inject_failure) {
+            _saveDevOverrides(null);
+        } else {
+            _saveDevOverrides(overrides);
+        }
+        if (typeof loadToolsStatus === 'function') {
+            loadToolsStatus();
+        }
+        _renderOverridesTab();
+    }
+
+    function _forceAllToolsMissing() {
+        var cachedTools = (typeof cardCached === 'function') ? cardCached('tools-status') : null;
+        var tools = (cachedTools && cachedTools.tools) ? cachedTools.tools : [];
+        if (tools.length === 0) return;
+
+        var overrides = _getDevOverrides() || {};
+        overrides.tool_overrides = {};
+        for (var i = 0; i < tools.length; i++) {
+            overrides.tool_overrides[tools[i].id] = 'missing';
+        }
+        _saveDevOverrides(overrides);
+        if (typeof loadToolsStatus === 'function') {
+            loadToolsStatus();
+        }
+        _renderOverridesTab();
+    }
+
+    // ── Failure injection (D2.6) ───────────────────────────────────
+
+    function _armFailureInjection() {
+        var select = document.getElementById('debug-inject-scenario');
+        if (!select || !select.value) {
+            toast('Select a failure scenario first', 'warning');
+            return;
+        }
+
+        var scenarioId = select.value;
+        var scenario = null;
+        for (var i = 0; i < _debugScenarios.length; i++) {
+            if (_debugScenarios[i]._meta.id === scenarioId) {
+                scenario = _debugScenarios[i];
+                break;
+            }
+        }
+        if (!scenario) return;
+
+        var overrides = _getDevOverrides() || {};
+        overrides.inject_failure = {
+            scenario_id: scenarioId,
+            label: scenario._meta.label,
+            tool_id: scenario.toolId,
+            tool_label: scenario.toolLabel,
+            remediation: scenario.remediation,
+        };
+        _saveDevOverrides(overrides);
+        _renderOverridesTab();
+        toast('💥 Failure armed: ' + scenario._meta.label, 'warning');
+    }
+
+    function _clearFailureInjection() {
+        var overrides = _getDevOverrides() || {};
+        delete overrides.inject_failure;
+        if (!overrides.system_profile && !overrides.tool_overrides) {
+            _saveDevOverrides(null);
+        } else {
+            _saveDevOverrides(overrides);
+        }
+        _renderOverridesTab();
+    }
+
+    /**
+     * Check for an armed failure injection before real install.
+     * Called from installWithPlan(). Returns true if injection was
+     * triggered (caller should abort real install).
+     */
+    function _checkFailureInjection(toolId, toolLabel, opts) {
+        var overrides = _getDevOverrides();
+        if (!overrides || !overrides.inject_failure) return false;
+
+        var injection = overrides.inject_failure;
+
+        // Set dry-run flag
+        window._debugScenarioActive = true;
+
+        // Fire the remediation modal with injected data
+        _showRemediationModal(
+            injection.tool_id || toolId,
+            injection.tool_label || toolLabel,
+            injection.remediation,
+            function onSuccess() {
+                window._debugScenarioActive = false;
+                console.log('[stage-debugger] Injected failure completed');
+                if (opts && opts.onComplete) opts.onComplete();
+            },
+            injection.remediation.stderr || '(injected failure: ' + injection.scenario_id + ')'
+        );
+
+        // Auto-disarm (one-shot)
+        _clearFailureInjection();
+        toast('💥 Failure injected for ' + (injection.tool_label || toolId), 'warning');
+
+        return true; // caller should abort real install
+    }
+
+    // ── Load scenarios from API ────────────────────────────────────
+
+    async function _loadDebugScenarios() {
+        try {
+            var resp = await fetch('/api/dev/scenarios?system=' + encodeURIComponent(_debugCurrentSystem));
+            if (!resp.ok) return;
+            var data = await resp.json();
+
+            _debugScenarios = data.scenarios || [];
+            _debugSystemPresets = data.system_presets || [];
+            _debugCurrentSystem = data.current_system || 'debian_12';
+
+            _renderSystemPicker();
+            _renderScenarioGrid();
+        } catch (err) {
+            console.error('[stage-debugger] Failed to load scenarios:', err);
+        }
+    }
+
+    // ── System preset picker ───────────────────────────────────────
+
+    function _renderSystemPicker() {
+        var select = document.getElementById('debug-system-select');
+        if (!select) return;
+
+        var labels = {
+            'debian_12': 'Debian 12',
+            'fedora_39': 'Fedora 39',
+            'alpine_318': 'Alpine 3.18',
+            'macos_14': 'macOS 14',
+            'arch_latest': 'Arch Linux',
+        };
+
+        var html = '';
+        for (var i = 0; i < _debugSystemPresets.length; i++) {
+            var p = _debugSystemPresets[i];
+            var label = labels[p] || p;
+            var sel = (p === _debugCurrentSystem) ? ' selected' : '';
+            html += '<option value="' + esc(p) + '"' + sel + '>' + esc(label) + '</option>';
+        }
+        select.innerHTML = html;
+    }
+
+    function _changeDebugSystem(preset) {
+        _debugCurrentSystem = preset;
+        var grid = document.getElementById('debug-scenario-grid');
+        if (grid) grid.innerHTML = '<div style="text-align:center;padding:2rem;color:var(--text-muted);font-size:0.75rem">Loading...</div>';
+        _loadDebugScenarios();
+    }
+
+    // ── Scenario grid rendering ────────────────────────────────────
+
+    function _renderScenarioGrid() {
+        var grid = document.getElementById('debug-scenario-grid');
+        var countEl = document.getElementById('debug-scenario-count');
+        if (!grid) return;
+
+        if (_debugScenarios.length === 0) {
+            grid.innerHTML = '<div style="text-align:center;padding:2rem;color:var(--text-muted);font-size:0.75rem">No scenarios</div>';
+            return;
+        }
+
+        if (countEl) countEl.textContent = _debugScenarios.length + ' scenarios';
+
+        // Group scenarios
+        var groups = {};
+        var groupOrder = ['method-family', 'infrastructure', 'bootstrap', 'chains', 'edge-cases'];
+        for (var i = 0; i < _debugScenarios.length; i++) {
+            var s = _debugScenarios[i];
+            var g = s._meta.group || 'other';
+            if (!groups[g]) groups[g] = [];
+            groups[g].push(s);
+        }
+
+        var html = '';
+        for (var gi = 0; gi < groupOrder.length; gi++) {
+            var gKey = groupOrder[gi];
+            var items = groups[gKey];
+            if (!items || items.length === 0) continue;
+
+            var gInfo = _debugGroupLabels[gKey] || { label: gKey, icon: '📋' };
+            html += '<div class="debug-group">' +
+                '<div class="debug-group-header">' +
+                    '<span>' + gInfo.icon + '</span> ' + esc(gInfo.label) +
+                    '<span class="debug-group-count">' + items.length + '</span>' +
+                '</div>';
+
+            for (var si = 0; si < items.length; si++) {
+                html += _renderScenarioCard(items[si]);
+            }
+
+            html += '</div>';
+        }
+
+        grid.innerHTML = html;
+    }
+
+    // ── Single scenario card ───────────────────────────────────────
+
+    function _renderScenarioCard(scenario) {
+        var m = scenario._meta;
+        var opts = m.option_count || 0;
+        var avail = m.availability || 'unknown';
+        var risk = m.max_risk || 'low';
+
+        // Availability badge color
+        var availColor = avail === 'all-ready' ? 'var(--success)'
+            : avail === 'mixed' ? 'var(--warning)'
+            : avail === 'all-locked' ? 'var(--text-muted)'
+            : 'hsla(0,80%,60%,1)';
+
+        // Risk badge
+        var riskIcon = risk === 'high' ? '🔴' : risk === 'medium' ? '🟡' : '🟢';
+
+        return '<div class="debug-scenario-card" onclick="_launchScenario(\'' + esc(m.id) + '\')">' +
+            '<div class="debug-card-title">' + esc(m.label) + '</div>' +
+            '<div class="debug-card-meta">' +
+                '<span>' + opts + ' opt' + (opts !== 1 ? 's' : '') + '</span>' +
+                '<span style="color:' + availColor + '">' + esc(avail) + '</span>' +
+                '<span>' + riskIcon + ' ' + esc(risk) + '</span>' +
+            '</div>' +
+            (m.description ? '<div class="debug-card-desc">' + esc(m.description) + '</div>' : '') +
+            '<div class="debug-card-launch">▶ Launch</div>' +
+        '</div>';
+    }
+
+    // ── Launch a scenario ──────────────────────────────────────────
+
+    function _launchScenario(scenarioId) {
+        var scenario = null;
+        for (var i = 0; i < _debugScenarios.length; i++) {
+            if (_debugScenarios[i]._meta.id === scenarioId) {
+                scenario = _debugScenarios[i];
+                break;
+            }
+        }
+        if (!scenario) {
+            console.warn('[stage-debugger] Scenario not found:', scenarioId);
+            return;
+        }
+
+        // Set dry-run flag — intercepted by _remExecute (D1.5)
+        window._debugScenarioActive = true;
+
+        _showRemediationModal(
+            scenario.toolId,
+            scenario.toolLabel,
+            scenario.remediation,
+            function onSuccess() {
+                window._debugScenarioActive = false;
+                console.log('[stage-debugger] Scenario completed:', scenarioId);
+            },
+            scenario.remediation.stderr || '(synthetic stderr for ' + scenarioId + ')'
+        );
+    }
+</script>

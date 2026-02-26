@@ -1,0 +1,58 @@
+<script>
+    // ─────────────────────────────────────────────────────────────────
+    //  _dev_mode.html
+    //
+    //  Dev-mode boot script — fetches identity from /api/dev/status,
+    //  stores on window._devModeStatus, and shows the DEV badge if
+    //  the current git user is a project owner.
+    // ─────────────────────────────────────────────────────────────────
+
+    // Dev-mode status — populated by _bootDevMode()
+    window._devModeStatus = null;
+
+    /**
+     * Fetch dev-mode status from the backend and apply UI state.
+     * Called during boot, before dashboard cards load.
+     */
+    async function _bootDevMode() {
+        try {
+            const resp = await fetch('/api/dev/status');
+            if (!resp.ok) return;
+            const status = await resp.json();
+            window._devModeStatus = status;
+
+            // Check localStorage preference — owner can explicitly disable
+            const prefs = prefsLoad();
+            const explicitlyDisabled = prefs.devMode === false;
+
+            const devActive = status.is_owner && !explicitlyDisabled;
+            window._devModeStatus.dev_mode = devActive;
+
+            // Show/hide the DEV badge and wire drawer toggle
+            const badge = document.getElementById('dev-mode-badge');
+            if (badge) {
+                badge.style.display = devActive ? '' : 'none';
+                if (devActive) {
+                    badge.style.cursor = 'pointer';
+                    badge.title = 'Toggle Stage Debugger';
+                    badge.addEventListener('click', function(e) {
+                        e.stopPropagation();
+                        if (typeof _toggleDebugDrawer === 'function') {
+                            _toggleDebugDrawer();
+                        }
+                    });
+                }
+            }
+
+            // Set data attribute on body for CSS hooks
+            if (devActive) {
+                document.body.setAttribute('data-dev-mode', 'true');
+            } else {
+                document.body.removeAttribute('data-dev-mode');
+            }
+        } catch (err) {
+            // Dev mode is non-critical — degrade silently
+            console.debug('[dev-mode] Boot failed:', err);
+        }
+    }
+</script>

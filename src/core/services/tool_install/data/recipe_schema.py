@@ -14,7 +14,13 @@ Recipe types:
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
+
+from src.core.services.tool_install.data.remediation_handlers import (
+    VALID_STRATEGIES,
+    VALID_CATEGORIES,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +73,7 @@ _TOOL_FIELDS = _COMMON_FIELDS | {
     "install_variants",  # dict: variant-keyed install commands
     "arch_map",          # dict: architecture name mappings
     "cli_verify_args",   # list[str]: alternative verify args
+    "on_failure",        # list[dict]: reactive remediation handlers (optional)
 }
 
 # Fields valid for data_pack recipes
@@ -193,6 +200,68 @@ def validate_recipe(tool_id: str, recipe: dict) -> list[str]:
         for p in prefer:
             if p not in install:
                 errors.append(f"prefer references '{p}' but no install['{p}'] exists")
+
+        # ── on_failure validation ──
+        on_failure = recipe.get("on_failure")
+        if on_failure is not None:
+            if not isinstance(on_failure, list):
+                errors.append("on_failure must be a list")
+            else:
+                _handler_req = {"pattern", "failure_id", "category", "label", "options"}
+                _handler_opt = {"description", "exit_code", "detect_fn"}
+                _option_req = {"id", "label", "strategy", "icon"}
+                for hi, handler in enumerate(on_failure):
+                    prefix = f"on_failure[{hi}]"
+                    if not isinstance(handler, dict):
+                        errors.append(f"{prefix} must be a dict")
+                        continue
+                    for f in _handler_req:
+                        if f not in handler:
+                            errors.append(f"{prefix}: missing required field '{f}'")
+                    for f in handler:
+                        if f not in _handler_req | _handler_opt:
+                            errors.append(f"{prefix}: unknown field '{f}'")
+                    # Validate pattern is a compilable regex
+                    pat = handler.get("pattern", "")
+                    if pat:
+                        try:
+                            re.compile(pat)
+                        except re.error as exc:
+                            errors.append(f"{prefix}: invalid regex '{pat}': {exc}")
+                    # Validate category
+                    cat = handler.get("category", "")
+                    if cat and cat not in VALID_CATEGORIES:
+                        errors.append(
+                            f"{prefix}: unknown category '{cat}'"
+                        )
+                    # Validate options
+                    opts = handler.get("options")
+                    if opts is not None:
+                        if not isinstance(opts, list):
+                            errors.append(f"{prefix}.options must be a list")
+                        else:
+                            seen_ids: set[str] = set()
+                            for oi, opt in enumerate(opts):
+                                oprefix = f"{prefix}.options[{oi}]"
+                                if not isinstance(opt, dict):
+                                    errors.append(f"{oprefix} must be a dict")
+                                    continue
+                                for f in _option_req:
+                                    if f not in opt:
+                                        errors.append(
+                                            f"{oprefix}: missing '{f}'"
+                                        )
+                                strat = opt.get("strategy", "")
+                                if strat and strat not in VALID_STRATEGIES:
+                                    errors.append(
+                                        f"{oprefix}: unknown strategy '{strat}'"
+                                    )
+                                oid = opt.get("id", "")
+                                if oid in seen_ids:
+                                    errors.append(
+                                        f"{oprefix}: duplicate option id '{oid}'"
+                                    )
+                                seen_ids.add(oid)
 
     return errors
 

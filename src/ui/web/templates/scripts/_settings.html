@@ -15,6 +15,7 @@
         previewMode: 'modal',    // modal | forward
         assistantGuide: true,    // assistant side panel
         sshPassphrasePrompt: 'always',  // 'always' | 'on-demand'
+        devMode: true,                   // owner can disable dev tools
     };
 
     // ── Scale profiles ──────────────────────────────────────────────
@@ -186,6 +187,21 @@
             </div>`;
         }
 
+        // ── Dev Mode (owner-only) ────────────────────────────────────
+        if (window._devModeStatus && window._devModeStatus.is_owner) {
+            const dm = prefs.devMode !== false;  // default: true for owners
+            html += `<div class="settings-group">
+                <div class="settings-label">🔧 Dev Mode</div>
+                <div class="settings-hint">Stage debugger and developer tools</div>
+                <div class="settings-btn-group">
+                    <button class="settings-btn ${dm ? 'active' : ''}"
+                        onclick="_prefSetDevMode(true)">On</button>
+                    <button class="settings-btn ${!dm ? 'active' : ''}"
+                        onclick="_prefSetDevMode(false)">Off</button>
+                </div>
+            </div>`;
+        }
+
         body.innerHTML = html;
     }
 
@@ -224,6 +240,22 @@
 
     function _prefSetSshPrompt(mode) {
         prefsSet('sshPassphrasePrompt', mode);
+        _renderSettingsPanel();
+    }
+
+    function _prefSetDevMode(enabled) {
+        prefsSet('devMode', enabled);
+        // Re-run dev mode logic to update badge + body attribute
+        if (window._devModeStatus) {
+            window._devModeStatus.dev_mode = window._devModeStatus.is_owner && enabled;
+            const badge = document.getElementById('dev-mode-badge');
+            if (badge) badge.style.display = enabled ? '' : 'none';
+            if (enabled) {
+                document.body.setAttribute('data-dev-mode', 'true');
+            } else {
+                document.body.removeAttribute('data-dev-mode');
+            }
+        }
         _renderSettingsPanel();
     }
 

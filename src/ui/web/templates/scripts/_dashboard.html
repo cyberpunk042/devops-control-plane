@@ -128,10 +128,29 @@
             const data = cached || await api('/tools/status');
             if (!cached) cardStore('tools-status', data);
 
-            const tools = data.tools || [];
-            const available = data.available || 0;
-            const total = data.total || 0;
-            const missingCount = data.missing_count || 0;
+            // ── D2.5: Apply dev tool overrides ──────────────────
+            // Clone tool array so the cached pristine data is never mutated
+            let tools = (data.tools || []).map(t => Object.assign({}, t));
+            let available = data.available || 0;
+            let total = data.total || 0;
+            let missingCount = data.missing_count || 0;
+
+            const devOv = (typeof _getDevOverrides === 'function') ? _getDevOverrides() : null;
+            if (devOv && devOv.tool_overrides) {
+                for (const t of tools) {
+                    const ov = devOv.tool_overrides[t.id];
+                    if (ov === 'missing') {
+                        t.available = false;
+                        t._dev_override = 'forced_missing';
+                    } else if (ov === 'installed') {
+                        t.available = true;
+                        t._dev_override = 'forced_installed';
+                    }
+                }
+                // Recompute counts from the cloned array
+                available = tools.filter(t => t.available).length;
+                missingCount = tools.length - available;
+            }
 
             // Badge
             if (missingCount === 0) {
@@ -206,6 +225,9 @@
                         let actionHtml = '';
                         if (!t.available) {
                             actionHtml = `<button class="btn btn-sm btn-secondary" onclick="installTool('${esc(t.id)}','${esc(t.cli)}')" style="font-size:0.62rem;padding:1px 6px;margin-left:auto">Install</button>`;
+                        }
+                        if (t._dev_override) {
+                            actionHtml += `<span style="font-size:0.55rem;color:hsl(280,70%,60%)" title="Dev override: ${esc(t._dev_override)}">🔧</span>`;
                         }
 
                         html += `<div data-tool-id="${esc(t.id)}" style="display:flex;align-items:center;gap:0.4rem;font-size:0.75rem">

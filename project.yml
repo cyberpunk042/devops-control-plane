@@ -7,6 +7,9 @@ version: 1
 name: devops-control-plane
 description: A general-purpose project control plane for DevOps automation
 repository: github.com/cyberpunk042/devops-control-plane
+owners:
+  - name: "Cyberpunk 042"
+    github: "cyberpunk042"
 domains:
 - library
 - ops

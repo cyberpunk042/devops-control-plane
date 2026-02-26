@@ -2,6 +2,9 @@
     // ── Boot ────────────────────────────────────────────────────────────
 
     document.addEventListener('DOMContentLoaded', async () => {
+        // Dev mode identity check (non-blocking — don't delay critical paint)
+        _bootDevMode();
+
         // Restore tab from URL hash FIRST — so the correct tab is visible instantly
         restoreFromHash();
 

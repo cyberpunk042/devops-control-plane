@@ -796,36 +796,175 @@
     //  Executes via /api/audit/remediate (SSE stream).
 
     function _showRemediationModal(toolId, toolLabel, remediation, onSuccess, stderr) {
-        var cols = remediation.options.length;
+        // ── Normalize both legacy and §6 response shapes ──
+        // Legacy: { reason: "...", options: [{label, command, ...}] }
+        // §6:     { failure: {label, description, ...}, options: [{id, label, availability, ...}], chain: {...} }
+        var reason = remediation.reason || (remediation.failure && remediation.failure.label) || 'Installation failed';
+        var description = (remediation.failure && remediation.failure.description) || '';
+        var options = remediation.options || [];
+        var chain = remediation.chain || null;
+        var fallbackActions = remediation.fallback_actions || [];
+
+        // ── Build breadcrumb trail if chain has depth ──
+        var breadcrumbHtml = '';
+        if (chain && chain.breadcrumbs && chain.breadcrumbs.length > 1) {
+            breadcrumbHtml = '<div style="display:flex;align-items:center;gap:6px;margin-bottom:var(--space-md);' +
+                'padding:8px 10px;background:var(--bg-inset);border-radius:var(--radius-sm);font-size:0.72rem;' +
+                'color:var(--text-muted);flex-wrap:wrap">';
+            for (var bi = 0; bi < chain.breadcrumbs.length; bi++) {
+                var crumb = chain.breadcrumbs[bi];
+                if (bi > 0) breadcrumbHtml += '<span style="opacity:0.5">→</span>';
+                var crumbStyle = (bi === chain.breadcrumbs.length - 1)
+                    ? 'color:var(--text-primary);font-weight:600'
+                    : 'color:var(--text-muted)';
+                breadcrumbHtml += '<span style="' + crumbStyle + '">' +
+                    (crumb.icon || '📦') + ' ' + esc(crumb.label) + '</span>';
+            }
+            breadcrumbHtml += '</div>';
+        }
+
+        // ── Separate options by availability ──
+        var readyOpts = [], lockedOpts = [], impossibleOpts = [];
+        for (var oi = 0; oi < options.length; oi++) {
+            var avail = options[oi].availability || 'ready';
+            if (avail === 'impossible') impossibleOpts.push({ idx: oi, opt: options[oi] });
+            else if (avail === 'locked') lockedOpts.push({ idx: oi, opt: options[oi] });
+            else readyOpts.push({ idx: oi, opt: options[oi] });
+        }
+
+        // Display order: ready first, locked second, impossible last
+        var orderedOpts = readyOpts.concat(lockedOpts, impossibleOpts);
+        var cols = orderedOpts.length;
         var gridCols = cols >= 3 ? '1fr 1fr 1fr' : cols === 2 ? '1fr 1fr' : '1fr';
 
-        // Build option grid
+        // ── Build option grid ──
         var optionsHtml = '<div style="display:grid;grid-template-columns:' + gridCols +
             ';gap:var(--space-sm);margin-bottom:var(--space-md)">';
-        for (var i = 0; i < remediation.options.length; i++) {
-            var opt = remediation.options[i];
-            var isFirst = (i === 0);
-            var borderColor = isFirst ? 'var(--accent)' : 'var(--border)';
-            var bg = isFirst
-                ? 'color-mix(in srgb, var(--accent) 8%, var(--bg-primary))'
-                : 'var(--bg-primary)';
-            optionsHtml += '<button class="btn btn-sm" id="rem-opt-' + i + '"' +
+        for (var gi = 0; gi < orderedOpts.length; gi++) {
+            var entry = orderedOpts[gi];
+            var opt = entry.opt;
+            var origIdx = entry.idx;
+            var avail = opt.availability || 'ready';
+            var isRecommended = opt.recommended;
+            var isLocked = (avail === 'locked');
+            var isImpossible = (avail === 'impossible');
+            var isFirst = (gi === 0 && !isLocked && !isImpossible);
+
+            // Visual styling per availability
+            var borderColor, bg, opacity, cursor;
+            if (isImpossible) {
+                borderColor = 'var(--border)';
+                bg = 'var(--bg-primary)';
+                opacity = '0.45';
+                cursor = 'not-allowed';
+            } else if (isLocked) {
+                borderColor = 'var(--warning, #e8a735)';
+                bg = 'color-mix(in srgb, var(--warning, #e8a735) 5%, var(--bg-primary))';
+                opacity = '0.85';
+                cursor = 'pointer';
+            } else if (isFirst || isRecommended) {
+                borderColor = 'var(--accent)';
+                bg = 'color-mix(in srgb, var(--accent) 8%, var(--bg-primary))';
+                opacity = '1';
+                cursor = 'pointer';
+            } else {
+                borderColor = 'var(--border)';
+                bg = 'var(--bg-primary)';
+                opacity = '1';
+                cursor = 'pointer';
+            }
+
+            // Risk badge
+            var riskBadge = '';
+            var risk = opt.risk || 'low';
+            if (risk === 'high') {
+                riskBadge = '<span style="font-size:0.58rem;padding:1px 4px;border-radius:3px;' +
+                    'background:color-mix(in srgb, var(--danger) 15%, transparent);color:var(--danger);' +
+                    'font-weight:600">HIGH RISK</span>';
+            } else if (risk === 'medium') {
+                riskBadge = '<span style="font-size:0.58rem;padding:1px 4px;border-radius:3px;' +
+                    'background:color-mix(in srgb, var(--warning, #e8a735) 15%, transparent);' +
+                    'color:var(--warning, #e8a735);font-weight:600">MEDIUM</span>';
+            }
+
+            // Availability badge
+            var availBadge = '';
+            if (isLocked) {
+                availBadge = '<span style="font-size:0.58rem;color:var(--warning, #e8a735)">🔒 Locked</span>';
+            } else if (isImpossible) {
+                availBadge = '<span style="font-size:0.58rem;color:var(--text-muted)">✕ Unavailable</span>';
+            }
+
+            // Recommended badge
+            var recBadge = '';
+            if (isRecommended && !isLocked && !isImpossible) {
+                recBadge = '<span style="font-size:0.62rem;color:var(--text-muted)">Recommended</span>';
+            }
+
+            // Step count hint
+            var stepsHint = '';
+            if (opt.step_count && opt.step_count > 1) {
+                stepsHint = '<span style="font-size:0.58rem;color:var(--text-muted)">' +
+                    opt.step_count + ' steps</span>';
+            }
+
+            // Badges line (bottom of button)
+            var badgesHtml = '';
+            var badges = [recBadge, riskBadge, availBadge, stepsHint].filter(function(b) { return b; });
+            if (badges.length) {
+                badgesHtml = '<div style="display:flex;flex-wrap:wrap;gap:3px;justify-content:center;margin-top:2px">' +
+                    badges.join('') + '</div>';
+            }
+
+            var clickHandler = isImpossible
+                ? ''
+                : ' onclick="_remSelectPath(' + origIdx + ')"';
+
+            optionsHtml += '<button class="btn btn-sm" id="rem-opt-' + origIdx + '"' +
+                ' data-avail="' + avail + '"' +
                 ' style="padding:10px;display:flex;flex-direction:column;align-items:center;' +
-                'gap:3px;border:2px solid ' + borderColor + ';background:' + bg + ';cursor:pointer"' +
-                ' onclick="_remSelectPath(' + i + ')">' +
-                '<span style="font-size:1.2rem">' + (opt.icon || '📦') + '</span>' +
+                'gap:3px;border:2px solid ' + borderColor + ';background:' + bg + ';' +
+                'opacity:' + opacity + ';cursor:' + cursor + '"' +
+                clickHandler + '>' +
+                '<span style="font-size:1.2rem">' + (isLocked ? '🔒' : (opt.icon || '📦')) + '</span>' +
                 '<strong style="font-size:0.74rem">' + esc(opt.label) + '</strong>' +
-                (isFirst ? '<span style="font-size:0.62rem;color:var(--text-muted)">Recommended</span>' : '') +
+                badgesHtml +
                 '</button>';
         }
         optionsHtml += '</div>';
 
-        // Build per-option panels
+        // ── Build per-option panels ──
         var panelsHtml = '';
-        for (var i = 0; i < remediation.options.length; i++) {
-            var opt = remediation.options[i];
-            var display = (i === 0) ? 'block' : 'none';
-            // Check if any step or the option itself needs sudo
+        var firstReady = orderedOpts.length > 0 ? orderedOpts[0].idx : 0;
+        for (var pi = 0; pi < options.length; pi++) {
+            var opt = options[pi];
+            var avail = opt.availability || 'ready';
+            var display = (pi === firstReady) ? 'block' : 'none';
+
+            // Lock info panel
+            var lockHtml = '';
+            if (avail === 'locked' && opt.lock_reason) {
+                lockHtml = '<div style="padding:8px 10px;margin-bottom:var(--space-sm);border-radius:var(--radius-sm);' +
+                    'background:color-mix(in srgb, var(--warning, #e8a735) 8%, var(--bg-inset));' +
+                    'border:1px solid color-mix(in srgb, var(--warning, #e8a735) 25%, transparent);font-size:0.78rem">' +
+                    '<strong style="color:var(--warning, #e8a735)">🔒 ' + esc(opt.lock_reason) + '</strong>';
+                if (opt.unlock_deps && opt.unlock_deps.length) {
+                    lockHtml += '<div style="margin-top:4px;font-size:0.72rem;color:var(--text-muted)">' +
+                        'Install <strong>' + opt.unlock_deps.map(esc).join(', ') + '</strong> first' +
+                        (opt.unlock_step_count ? ' (~' + opt.unlock_step_count + ' steps)' : '') + '</div>';
+                }
+                lockHtml += '</div>';
+            }
+
+            // Impossible info panel
+            var impossibleHtml = '';
+            if (avail === 'impossible' && opt.impossible_reason) {
+                impossibleHtml = '<div style="padding:8px 10px;margin-bottom:var(--space-sm);border-radius:var(--radius-sm);' +
+                    'background:var(--bg-inset);font-size:0.78rem;color:var(--text-muted)">' +
+                    '✕ ' + esc(opt.impossible_reason) + '</div>';
+            }
+
+            // Sudo field (for ready and locked options)
             var optNeedsSudo = opt.needs_sudo;
             if (!optNeedsSudo && opt.steps) {
                 for (var si = 0; si < opt.steps.length; si++) {
@@ -833,32 +972,59 @@
                 }
             }
             var sudoHtml = '';
-            if (optNeedsSudo) {
+            if (optNeedsSudo && avail !== 'impossible') {
                 sudoHtml = '<label style="font-size:0.72rem;color:var(--text-muted);display:block;margin-bottom:3px;margin-top:var(--space-sm)">sudo password</label>' +
-                    '<input id="rem-sudo-pw-' + i + '" type="password" autocomplete="off" placeholder="Required for this option" ' +
+                    '<input id="rem-sudo-pw-' + pi + '" type="password" autocomplete="off" placeholder="Required for this option" ' +
                     'style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:var(--radius-sm);' +
                     'background:var(--bg-inset);color:var(--text-primary);font-size:0.82rem;margin-bottom:var(--space-sm);' +
                     'box-sizing:border-box" />';
             }
-            panelsHtml += '<div id="rem-panel-' + i + '" style="display:' + display + '">' +
+
+            // Action button — different for each availability state
+            var actionHtml = '';
+            if (avail === 'impossible') {
+                actionHtml = '<button class="btn btn-sm" disabled ' +
+                    'style="width:100%;padding:10px;opacity:0.5;cursor:not-allowed">' +
+                    '✕ Not available on this system</button>';
+            } else if (avail === 'locked') {
+                actionHtml = '<button class="btn btn-sm btn-primary" id="rem-action-' + pi + '" ' +
+                    'style="width:100%;padding:10px" ' +
+                    'onclick="_remExecute(' + pi + ')">' +
+                    '🔓 Unlock & ' + esc(opt.label) + '</button>';
+            } else {
+                actionHtml = '<button class="btn btn-sm btn-primary" id="rem-action-' + pi + '" ' +
+                    'style="width:100%;padding:10px" ' +
+                    'onclick="_remExecute(' + pi + ')">' +
+                    (opt.icon || '📦') + ' ' + esc(opt.label) + '</button>';
+            }
+
+            panelsHtml += '<div id="rem-panel-' + pi + '" style="display:' + display + '">' +
+                lockHtml + impossibleHtml +
                 '<div style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:var(--space-sm)">' +
                 esc(opt.description) + '</div>' +
-                sudoHtml +
-                '<button class="btn btn-sm btn-primary" id="rem-action-' + i + '" ' +
-                'style="width:100%;padding:10px" ' +
-                'onclick="_remExecute(' + i + ')">' +
-                (opt.icon || '📦') + ' ' + esc(opt.label) + '</button></div>';
+                sudoHtml + actionHtml + '</div>';
         }
 
+        // ── Stderr preview ──
+        var stderrText = stderr || remediation.stderr || '';
         var stderrHtml = '';
-        if (stderr) {
+        if (stderrText) {
             stderrHtml = '<pre style="margin-top:0.5rem;margin-bottom:var(--space-md);padding:0.5rem;background:var(--bg-inset);' +
                 'border-radius:var(--radius-sm);font-size:0.72rem;max-height:150px;overflow:auto;' +
                 'white-space:pre-wrap;word-break:break-word;color:var(--text-muted)">' +
-                esc(stderr) + '</pre>';
+                esc(stderrText) + '</pre>';
         }
-        var bodyHtml = '<div style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:var(--space-md)">' +
-            esc(remediation.reason) + '</div>' + stderrHtml +
+
+        // ── Description line ──
+        var descHtml = '';
+        if (description) {
+            descHtml = '<div style="font-size:0.78rem;color:var(--text-muted);margin-bottom:var(--space-sm)">' +
+                esc(description) + '</div>';
+        }
+
+        var bodyHtml = breadcrumbHtml +
+            '<div style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:var(--space-sm)">' +
+            esc(reason) + '</div>' + descHtml + stderrHtml +
             optionsHtml + panelsHtml +
             '<div id="rem-status" style="display:none;margin-top:var(--space-md);padding:12px;' +
             'border-radius:var(--radius-sm);background:var(--bg-inset);font-size:0.78rem;text-align:center"></div>';
@@ -898,7 +1064,7 @@
             toolLabel: toolLabel,
             remediation: remediation,
             onSuccess: onSuccess,
-            selectedPath: 0,
+            selectedPath: firstReady,
         };
 
         // Path selector
@@ -907,11 +1073,20 @@
             for (var j = 0; j < opts.length; j++) {
                 var btn = document.getElementById('rem-opt-' + j);
                 var panel = document.getElementById('rem-panel-' + j);
+                var optAvail = (opts[j].availability || 'ready');
                 if (j === idx) {
-                    if (btn) { btn.style.borderColor = 'var(--accent)'; btn.style.background = 'color-mix(in srgb, var(--accent) 8%, var(--bg-primary))'; }
+                    if (btn) {
+                        btn.style.borderColor = optAvail === 'locked' ? 'var(--warning, #e8a735)' : 'var(--accent)';
+                        btn.style.background = optAvail === 'locked'
+                            ? 'color-mix(in srgb, var(--warning, #e8a735) 8%, var(--bg-primary))'
+                            : 'color-mix(in srgb, var(--accent) 8%, var(--bg-primary))';
+                    }
                     if (panel) panel.style.display = 'block';
                 } else {
-                    if (btn) { btn.style.borderColor = 'var(--border)'; btn.style.background = 'var(--bg-primary)'; }
+                    if (btn && optAvail !== 'impossible') {
+                        btn.style.borderColor = 'var(--border)';
+                        btn.style.background = 'var(--bg-primary)';
+                    }
                     if (panel) panel.style.display = 'none';
                 }
             }
@@ -1046,6 +1221,24 @@
         window._remExecute = async function(idx) {
             var opt = window._remState.remediation.options[idx];
             var st = window._remState;
+
+            // ── D1.5: Stage debugger dry-run bypass ──
+            if (window._debugScenarioActive) {
+                console.log('[stage-debugger] Dry run — would execute:', opt.strategy, opt.label, opt);
+                var statusEl = document.getElementById('rem-status');
+                if (statusEl) {
+                    statusEl.style.display = 'block';
+                    statusEl.innerHTML = '<div style="padding:12px;background:hsla(270,60%,50%,0.1);' +
+                        'border:1px solid hsla(270,60%,50%,0.3);border-radius:var(--radius-sm);' +
+                        'font-size:0.75rem;color:var(--text-secondary);text-align:center">' +
+                        '<div style="font-size:1.2rem;margin-bottom:6px">🔧</div>' +
+                        '<div style="font-weight:600;margin-bottom:4px">Dry Run — Strategy: ' + esc(opt.strategy || 'unknown') + '</div>' +
+                        '<div style="font-size:0.7rem;color:var(--text-muted)">No real commands executed. This is a stage debugger scenario.</div>' +
+                    '</div>';
+                }
+                return;
+            }
+
             var statusEl = document.getElementById('rem-status');
             var actionBtn = document.getElementById('rem-action-' + idx);
 
@@ -1134,6 +1327,109 @@
             }
 
             try {
+                var strategy = opt.strategy || '';
+
+                // ── Strategy-based dispatch (§6 options) ──
+
+                // retry_with_modifier: Re-run with sudo or env changes
+                if (strategy === 'retry_with_modifier') {
+                    var modifier = opt.modifier || {};
+                    if (modifier.retry_sudo || opt.needs_sudo) {
+                        _remClose();
+                        var sm = document.getElementById('step-modal');
+                        if (sm) sm.remove();
+                        _showInstallModal({ toolId: st.toolId, toolLabel: st.toolLabel, needsSudo: true, onSuccess: st.onSuccess });
+                        return;
+                    }
+                    // Other modifiers: re-run install with answers
+                    _remClose();
+                    var sm2 = document.getElementById('step-modal');
+                    if (sm2) sm2.remove();
+                    _showInstallModal({
+                        toolId: st.toolId, toolLabel: st.toolLabel,
+                        onSuccess: st.onSuccess,
+                        answers: modifier,
+                    });
+                    return;
+                }
+
+                // switch_method: Re-install using a different method
+                if (strategy === 'switch_method') {
+                    _remClose();
+                    var sm3 = document.getElementById('step-modal');
+                    if (sm3) sm3.remove();
+                    _showInstallModal({
+                        toolId: st.toolId, toolLabel: st.toolLabel,
+                        onSuccess: st.onSuccess,
+                        answers: { method: opt.method || '' },
+                    });
+                    return;
+                }
+
+                // install_dep / install_dep_then_switch: Install a dependency first
+                if (strategy === 'install_dep' || strategy === 'install_dep_then_switch') {
+                    var depTool = opt.dep || '';
+                    if (depTool) {
+                        _remClose();
+                        _showDepInstallModal(st.toolId, st.toolLabel, {
+                            tool: depTool,
+                            label: opt.label || depTool,
+                        }, st.onSuccess);
+                        return;
+                    }
+                }
+
+                // manual: Show instructions only (no command to run)
+                if (strategy === 'manual') {
+                    if (statusEl) {
+                        statusEl.style.display = 'block';
+                        statusEl.innerHTML = '<div style="text-align:left;font-size:0.78rem;line-height:1.6">' +
+                            '<strong>' + (opt.icon || 'ℹ️') + ' ' + esc(opt.label) + '</strong>' +
+                            '<pre style="margin-top:6px;padding:8px;background:var(--bg-inset);border-radius:var(--radius-sm);' +
+                            'font-size:0.72rem;white-space:pre-wrap;word-break:break-word;color:var(--text-secondary);' +
+                            'font-family:var(--font-mono,monospace)">' + esc(opt.instructions || opt.description || '') + '</pre></div>';
+                    }
+                    if (actionBtn) { actionBtn.textContent = '✓ Acknowledged'; actionBtn.disabled = true; }
+                    return;
+                }
+
+                // env_fix / cleanup_retry: Execute fix_commands / cleanup_commands
+                if (strategy === 'env_fix' || strategy === 'cleanup_retry') {
+                    var fixCmds = opt.fix_commands || opt.cleanup_commands || [];
+                    if (fixCmds.length > 0) {
+                        var fixResult = await streamCommand(fixCmds, opt.label, opt.needs_sudo);
+                        if (fixResult.ok) {
+                            var fixLabel = document.getElementById('rem-label');
+                            if (fixLabel) fixLabel.innerHTML = '✅ ' + esc(opt.label) + ' done!';
+                            toast('✅ ' + esc(opt.label), 'success');
+                            if (strategy === 'cleanup_retry') {
+                                // After cleanup, close and retry
+                                setTimeout(function() {
+                                    _remClose();
+                                    var sm = document.getElementById('step-modal');
+                                    if (sm) sm.remove();
+                                    _showInstallModal({ toolId: st.toolId, toolLabel: st.toolLabel, onSuccess: st.onSuccess });
+                                }, 1000);
+                            } else {
+                                cardInvalidate('tools-status');
+                                setTimeout(function() {
+                                    _remClose();
+                                    var sm = document.getElementById('step-modal');
+                                    if (sm) sm.remove();
+                                    if (st.onSuccess) st.onSuccess();
+                                }, 1500);
+                            }
+                        } else {
+                            var fixLabelFail = document.getElementById('rem-label');
+                            if (fixLabelFail) fixLabelFail.innerHTML = '❌ Failed (exit ' + (fixResult.exit_code || '?') + ')';
+                            if (actionBtn) { actionBtn.disabled = false; actionBtn.textContent = '🔄 Retry'; }
+                        }
+                        return;
+                    }
+                }
+
+                // ── Legacy execution paths (backward compat) ──
+
                 // Multi-step option (e.g. upgrade rust then install)
                 if (opt.steps) {
                     for (var s = 0; s < opt.steps.length; s++) {
@@ -1186,7 +1482,7 @@
                     return;
                 }
 
-                // Retry-sudo option
+                // Legacy retry-sudo option (no strategy field)
                 if (opt.retry_sudo) {
                     _remClose();
                     var sm = document.getElementById('step-modal');
@@ -2209,6 +2505,13 @@
 
     async function installWithPlan(toolId, toolLabel, opts) {
         opts = opts || {};
+
+        // D2.6: Check for armed failure injection
+        if (typeof _checkFailureInjection === 'function' &&
+            _checkFailureInjection(toolId, toolLabel, opts)) {
+            return; // Injection fired — skip real install
+        }
+
         toast('⏳ Loading install plan for ' + (toolLabel || toolId) + '…', 'info');
 
         try {

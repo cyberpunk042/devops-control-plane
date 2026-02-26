@@ -56,7 +56,50 @@ def _collect_deps(
 
     recipe = TOOL_RECIPES.get(tool_id)
     if not recipe:
-        logger.warning("Dependency '%s' not found in TOOL_RECIPES", tool_id)
+        # ── Dynamic fallback: resolve without a full recipe ────
+        from src.core.services.tool_install.resolver.dynamic_dep_resolver import (
+            resolve_dep_install,
+        )
+
+        # Already installed?
+        if shutil.which(tool_id):
+            return
+
+        resolution = resolve_dep_install(tool_id, system_profile)
+        if resolution is None:
+            logger.warning(
+                "Dependency '%s' not found in TOOL_RECIPES and "
+                "could not be dynamically resolved",
+                tool_id,
+            )
+            return
+
+        source = resolution["source"]
+
+        if source == "recipe":
+            # Resolver found it in TOOL_RECIPES after all (shouldn't happen
+            # since we just checked, but guard against race)
+            pass
+        elif source == "special_installer":
+            # Standalone installer script (rustup, nvm, etc.)
+            tool_steps.append({
+                "tool_id": tool_id,
+                "recipe": {
+                    "cli": tool_id,
+                    "label": tool_id,
+                    "install": {"_default": resolution["install_cmd"]},
+                },
+                "method": "_default",
+                "_dynamic": True,
+            })
+        else:
+            # System package (known_package, lib_mapping, or identity)
+            for pkg in resolution["package_names"]:
+                pm = system_profile.get("package_manager", {}).get("primary", "apt")
+                if not _is_pkg_installed(pkg, pm) and pkg not in batch_packages:
+                    batch_packages.append(pkg)
+            batched_tools.append(tool_id)
+
         return
 
     cli = recipe.get("cli", tool_id)

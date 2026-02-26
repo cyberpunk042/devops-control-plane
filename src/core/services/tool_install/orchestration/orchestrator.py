@@ -155,6 +155,7 @@ def execute_plan(
     *,
     sudo_password: str = "",
     start_from: int = 0,
+    system_profile: dict | None = None,
 ) -> dict[str, Any]:
     """Execute an install plan step by step.
 
@@ -256,6 +257,9 @@ def execute_plan(
                 remediation = _analyse_install_failure(
                     tool, plan.get("cli", tool),
                     result.get("stderr", ""),
+                    exit_code=result.get("exit_code", 1),
+                    method=step.get("method", plan.get("method", "")),
+                    system_profile=system_profile,
                 )
 
             _audit(
@@ -604,6 +608,8 @@ def install_tool(
         else:
             remediation = _analyse_install_failure(
                 tool, cli, result.get("stderr", ""),
+                exit_code=result.get("exit_code", 1),
+                system_profile=system_profile,
             )
             if remediation:
                 result["remediation"] = remediation
@@ -646,4 +652,4 @@ def install_tool(
         }
 
     # Execute the plan
-    return execute_plan(plan, sudo_password=sudo_password)
+    return execute_plan(plan, sudo_password=sudo_password, system_profile=system_profile)

@@ -370,8 +370,8 @@ def audit_check_deps():
 
     pkg_manager = body.get("pkg_manager")
     if not pkg_manager:
-        from src.core.services.audit.l0_detection import _detect_os
-        os_info = _detect_os()
+        from src.core.services.dev_overrides import resolve_system_profile
+        os_info, _ = resolve_system_profile(current_app.config["PROJECT_ROOT"])
         pkg_manager = os_info.get("package_manager", {}).get("primary", "apt")
 
     result = check_system_deps(packages, pkg_manager)
@@ -390,14 +390,14 @@ def audit_resolve_choices():
         If the tool has no choices, returns ``auto_resolve: true``.
     """
     from src.core.services.tool_install import resolve_choices
-    from src.core.services.audit.l0_detection import _detect_os
+    from src.core.services.dev_overrides import resolve_system_profile
 
     body = request.get_json(silent=True) or {}
     tool = body.get("tool", "").strip().lower()
     if not tool:
         return jsonify({"error": "No tool specified"}), 400
 
-    system_profile = _detect_os()
+    system_profile, _ = resolve_system_profile(current_app.config["PROJECT_ROOT"])
     result = resolve_choices(tool, system_profile)
 
     status = 200 if not result.get("error") else 422
@@ -420,7 +420,7 @@ def audit_install_plan():
         resolve_install_plan,
         resolve_install_plan_with_choices,
     )
-    from src.core.services.audit.l0_detection import _detect_os
+    from src.core.services.dev_overrides import resolve_system_profile
 
     body = request.get_json(silent=True) or {}
     tool = body.get("tool", "").strip().lower()
@@ -428,7 +428,7 @@ def audit_install_plan():
         return jsonify({"error": "No tool specified"}), 400
 
     answers = body.get("answers", {})
-    system_profile = _detect_os()
+    system_profile, _ = resolve_system_profile(current_app.config["PROJECT_ROOT"])
 
     if answers:
         plan = resolve_install_plan_with_choices(tool, system_profile, answers)
@@ -770,7 +770,7 @@ def audit_execute_plan_sync():
         or
         {"ok": false, "error": "...", "step": 1, ...}
     """
-    from src.core.services.audit.l0_detection import _detect_os
+    from src.core.services.dev_overrides import resolve_system_profile
     from src.core.services.tool_install import (
         resolve_install_plan,
         resolve_install_plan_with_choices,
@@ -786,7 +786,7 @@ def audit_execute_plan_sync():
         return jsonify({"error": "No tool specified"}), 400
 
     _refresh_server_path()
-    system_profile = _detect_os()
+    system_profile, _ = resolve_system_profile(current_app.config["PROJECT_ROOT"])
 
     if answers:
         plan = resolve_install_plan_with_choices(tool, system_profile, answers)
@@ -843,7 +843,7 @@ def audit_execute_plan():
 
     from flask import Response, stream_with_context
 
-    from src.core.services.audit.l0_detection import _detect_os
+    from src.core.services.dev_overrides import resolve_system_profile
     from src.core.services.tool_install import (
         execute_plan_dag,
         execute_plan_step,
@@ -866,7 +866,7 @@ def audit_execute_plan():
     _refresh_server_path()
 
     # Resolve the plan — use answers if provided (Phase 4)
-    system_profile = _detect_os()
+    system_profile, _ = resolve_system_profile(current_app.config["PROJECT_ROOT"])
     if answers:
         plan = resolve_install_plan_with_choices(tool, system_profile, answers)
     else:
@@ -1193,10 +1193,14 @@ def audit_execute_plan():
                     from src.core.services.tool_install.detection.install_failure import (
                         _analyse_install_failure,
                     )
+                    step_method = step.get("method", plan.get("method", ""))
                     remediation = _analyse_install_failure(
                         tool,
                         plan.get("cli", tool),
                         result.get("stderr", ""),
+                        exit_code=result.get("exit_code", 1),
+                        method=step_method,
+                        system_profile=system_profile,
                     )
 
                 done_event: dict = {
@@ -1611,7 +1615,7 @@ def audit_cache_plan():
         {"ok": true, "cached_count": 3, "total_size_mb": 12.3,
          "download_estimates": {"10 Mbps": "2s", ...}}
     """
-    from src.core.services.audit.l0_detection import _detect_os
+    from src.core.services.dev_overrides import resolve_system_profile
     from src.core.services.tool_install import resolve_install_plan, resolve_install_plan_with_choices
     from src.core.services.tool_install.domain.download_helpers import _estimate_download_time
     from src.core.services.tool_install.execution.offline_cache import cache_plan
@@ -1623,7 +1627,7 @@ def audit_cache_plan():
     if not tool:
         return jsonify({"error": "No tool specified"}), 400
 
-    system_profile = _detect_os()
+    system_profile, _ = resolve_system_profile(current_app.config["PROJECT_ROOT"])
     if answers:
         plan = resolve_install_plan_with_choices(tool, system_profile, answers)
     else:

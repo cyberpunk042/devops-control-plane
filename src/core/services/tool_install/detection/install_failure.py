@@ -1,249 +1,108 @@
 """
 L3 Detection — Install failure analysis.
 
-Parses stderr from failed installs for known patterns and
-generates structured remediation options. Uses ``_get_system_deps``
-which calls ``_detect_os()`` underneath.
+Thin dispatcher that delegates to the remediation domain layer.
+Backward compatible: old callers pass (tool, cli, stderr) and
+get the legacy response shape. New callers pass method +
+system_profile and get the full §6 response.
+
+History: this file previously contained 5 hardcoded patterns
+(rust version mismatch, npm missing, pip missing, EACCES, GCC bug).
+Those patterns now live in data/remediation_handlers.py and are
+evaluated by domain/handler_matching.py.
 """
 
 from __future__ import annotations
 
-import re
 from typing import Any
 
-from src.core.services.tool_install.detection.recipe_deps import _get_system_deps
+from src.core.services.tool_install.domain.remediation_planning import (
+    build_remediation_response,
+    to_legacy_remediation,
+)
 
 
 def _analyse_install_failure(
-    tool: str, cli: str, stderr: str,
+    tool: str,
+    cli: str,
+    stderr: str,
+    *,
+    exit_code: int = 1,
+    method: str = "",
+    system_profile: dict | None = None,
 ) -> dict[str, Any] | None:
     """Parse stderr from a failed install and return structured remediation.
 
-    Returns None if no known pattern matched.
-    Returns a dict with:
-      - reason: human-readable explanation
-      - options: list of actionable remediation paths
+    **Backward compatible** — old callers pass ``(tool, cli, stderr)`` and
+    get the legacy response shape (``{"reason": ..., "options": [...]}``).
+    New callers also pass ``method`` and ``system_profile`` to get the
+    full §6 response shape.
+
+    Args:
+        tool: Tool ID that failed.
+        cli: CLI name of the tool (for PATH checks).
+        stderr: stderr output from the failed command.
+        exit_code: Process exit code (default 1).
+        method: Install method used (e.g. ``"pip"``, ``"cargo"``).
+            If empty, inferred from stderr heuristics.
+        system_profile: Phase 1 ``_detect_os()`` output. If None,
+            availability checks will be limited.
+
+    Returns:
+        None if no handler matched.
+        If ``method`` is provided: full §6 response dict.
+        If ``method`` is empty (legacy caller): legacy response dict.
     """
-    if not stderr:
+    if not stderr and exit_code not in (137,):
         return None
 
-    # ── Rust version mismatch ──
-    # Pattern: "it requires rustc X.Y or newer, while the currently active
-    #           rustc version is Z.W"
-    # Hint:    "package_name X.Y.Z supports rustc A.B.C"
-    rustc_req = re.search(
-        r"requires rustc (\d+\.\d+(?:\.\d+)?)\s+or newer.*?"
-        r"currently active rustc version is (\d+\.\d+(?:\.\d+)?)",
-        stderr,
-        re.DOTALL,
+    # Infer method from stderr if not provided (legacy callers)
+    effective_method = method or _infer_method(stderr)
+
+    response = build_remediation_response(
+        tool_id=tool,
+        step_idx=0,
+        step_label=f"install {tool}",
+        exit_code=exit_code,
+        stderr=stderr,
+        method=effective_method,
+        system_profile=system_profile,
     )
-    if rustc_req:
-        required = rustc_req.group(1)
-        current = rustc_req.group(2)
 
-        # Try to extract the compatible fallback version
-        compat = re.search(
-            rf"`?{re.escape(tool)}\s+(\d+\.\d+\.\d+)`?\s+supports\s+rustc",
-            stderr,
-        )
-        compat_ver = compat.group(1) if compat else None
+    if response is None:
+        return None
 
-        options: list[dict[str, Any]] = []
+    # Legacy callers (no method provided) get the old shape
+    if not method:
+        return to_legacy_remediation(response)
 
-        # Option 1: Install compatible version
-        if compat_ver:
-            options.append({
-                "id": "compatible-version",
-                "label": "Compatible Version",
-                "icon": "📦",
-                "description": (
-                    f"Install {tool}@{compat_ver} "
-                    f"(works with your rustc {current})"
-                ),
-                "command": ["cargo", "install", f"{tool}@{compat_ver}"],
-                "needs_sudo": False,
-                "system_deps": _get_system_deps(tool),
-            })
+    return response
 
-        # Option 2: Upgrade Rust via rustup
-        options.append({
-            "id": "upgrade-dep",
-            "label": "Upgrade Rust",
-            "icon": "⬆️",
-            "description": (
-                f"Install rustup + Rust {required}+, "
-                f"then install latest {tool}"
-            ),
-            "system_deps": _get_system_deps(tool),
-            "steps": [
-                {
-                    "label": "Install rustup + latest Rust",
-                    "command": [
-                        "bash", "-c",
-                        "curl --proto '=https' --tlsv1.2 -sSf "
-                        "https://sh.rustup.rs | sh -s -- -y",
-                    ],
-                    "needs_sudo": False,
-                },
-                {
-                    "label": f"Install {tool}",
-                    "command": [
-                        "bash", "-c",
-                        f'export PATH="$HOME/.cargo/bin:$PATH" && cargo install {tool}',
-                    ],
-                    "needs_sudo": False,
-                },
-            ],
-        })
 
-        # Option 3: Build from source
-        # Cargo can build older commits that support the system rustc
-        options.append({
-            "id": "build-source",
-            "label": "Build from Source",
-            "icon": "🔧",
-            "description": (
-                f"Build {tool} from source using system rustc {current}"
-            ),
-            "command": [
-                "bash", "-c",
-                f"cargo install {tool} --locked 2>/dev/null "
-                f"|| cargo install {tool}@{compat_ver}" if compat_ver
-                else f"cargo install {tool} --locked",
-            ],
-            "needs_sudo": False,
-            "system_deps": _get_system_deps(tool),
-        })
+def _infer_method(stderr: str) -> str:
+    """Best-effort method inference from stderr content.
 
-        return {
-            "type": "version_mismatch",
-            "reason": (
-                f"{tool} requires rustc {required}+ "
-                f"(you have {current})"
-            ),
-            "options": options,
-        }
+    Used when legacy callers don't pass the method.
+    """
+    lower = stderr.lower()
 
-    # ── npm / node not found ──
-    if "npm: command not found" in stderr or "npm: not found" in stderr:
-        return {
-            "type": "missing_runtime",
-            "reason": "npm is not installed",
-            "options": [
-                {
-                    "id": "install-npm",
-                    "label": "Install npm",
-                    "icon": "📦",
-                    "description": "Install npm via system packages",
-                    "tool": "npm",
-                    "needs_sudo": True,
-                },
-            ],
-        }
+    if any(kw in lower for kw in (
+        "cargo", "rustc", "crate",
+        "compiler bug detected", "memcmp", "gcc.gnu.org",
+        "cannot find -l", "linker `cc`",
+    )):
+        return "cargo"
+    if "pip" in lower or "externally-managed" in lower:
+        return "pip"
+    if "npm" in lower or "eacces" in lower:
+        return "npm"
+    if "apt" in lower or "dpkg" in lower:
+        return "apt"
+    if "dnf" in lower:
+        return "dnf"
+    if "snap" in lower or "snapd" in lower:
+        return "snap"
+    if "brew" in lower or "formulae" in lower:
+        return "brew"
 
-    # ── pip not found ──
-    if "No module named pip" in stderr or "pip: command not found" in stderr:
-        return {
-            "type": "missing_runtime",
-            "reason": "pip is not installed",
-            "options": [
-                {
-                    "id": "install-pip",
-                    "label": "Install pip",
-                    "icon": "📦",
-                    "description": "Install pip via system packages",
-                    "tool": "pip",
-                    "needs_sudo": True,
-                },
-            ],
-        }
-
-    # ── Permission denied (npm global) ──
-    if "EACCES" in stderr and "permission denied" in stderr.lower():
-        return {
-            "type": "permissions",
-            "reason": "Permission denied — try with sudo",
-            "options": [
-                {
-                    "id": "retry-sudo",
-                    "label": "Retry with sudo",
-                    "icon": "🔒",
-                    "description": "Re-run the install with sudo privileges",
-                    "retry_sudo": True,
-                },
-            ],
-        }
-
-    # ── GCC compiler bug (aws-lc-sys / memcmp) ──
-    # Pattern: "COMPILER BUG DETECTED" from aws-lc-sys builder
-    # See https://gcc.gnu.org/bugzilla/show_bug.cgi?id=95189
-    if "COMPILER BUG DETECTED" in stderr or (
-        "memcmp" in stderr and "gcc.gnu.org/bugzilla" in stderr
-    ):
-        return {
-            "type": "compiler_bug",
-            "reason": (
-                f"Your GCC version has a known memcmp bug that prevents "
-                f"building {tool}'s crypto dependencies (aws-lc-sys)"
-            ),
-            "options": [
-                {
-                    "id": "upgrade-gcc",
-                    "label": "Install GCC 12+",
-                    "icon": "⬆️",
-                    "description": (
-                        "Install a newer GCC (gcc-12) that doesn't have "
-                        "the memcmp bug, then rebuild"
-                    ),
-                    "steps": [
-                        {
-                            "label": "Install gcc-12",
-                            "command": [
-                                "apt-get", "install", "-y",
-                                "gcc-12", "g++-12",
-                            ],
-                            "needs_sudo": True,
-                        },
-                        {
-                            "label": f"Install {tool} with gcc-12",
-                            "command": [
-                                "bash", "-c",
-                                f'export CC=gcc-12 CXX=g++-12 '
-                                f'PATH="$HOME/.cargo/bin:$PATH" '
-                                f"&& cargo install {tool}",
-                            ],
-                            "needs_sudo": False,
-                        },
-                    ],
-                },
-                {
-                    "id": "use-clang",
-                    "label": "Build with Clang",
-                    "icon": "🔧",
-                    "description": (
-                        "Use clang instead of gcc to avoid the compiler bug"
-                    ),
-                    "steps": [
-                        {
-                            "label": "Install clang",
-                            "command": [
-                                "apt-get", "install", "-y", "clang",
-                            ],
-                            "needs_sudo": True,
-                        },
-                        {
-                            "label": f"Install {tool} with clang",
-                            "command": [
-                                "bash", "-c",
-                                f'export CC=clang CXX=clang++ '
-                                f'PATH="$HOME/.cargo/bin:$PATH" '
-                                f"&& cargo install {tool}",
-                            ],
-                            "needs_sudo": False,
-                        },
-                    ],
-                },
-            ],
-        }
-
-    return None
+    return "_default"
