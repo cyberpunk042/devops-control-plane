@@ -323,6 +323,16 @@ def _detect_os() -> dict:
     system = platform.system()
     machine = platform.machine()
 
+    # ── Real userland arch detection ───────────────────────────
+    # On Raspbian, the kernel may be 64-bit (aarch64) but the
+    # userland 32-bit (armv7l). platform.machine() reports the
+    # kernel arch, which gives the wrong binary. We detect this
+    # by checking the pointer size of the running Python process.
+    import struct
+    pointer_bits = struct.calcsize("P") * 8
+    if machine.lower() == "aarch64" and pointer_bits == 32:
+        machine = "armv7l"
+
     info: dict[str, object] = {
         "system": system,
         "release": platform.release(),

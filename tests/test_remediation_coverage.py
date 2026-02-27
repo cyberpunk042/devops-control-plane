@@ -607,6 +607,7 @@ def _get_all_families_for_tool(recipe: dict, tool_id: str = "") -> list[str]:
         "python": "pip",
         "rust": "cargo",
         "go": "go",
+        "ruby": "gem",
     }
     mapped_family = category_to_family.get(category)
     if mapped_family and mapped_family in METHOD_FAMILY_HANDLERS:

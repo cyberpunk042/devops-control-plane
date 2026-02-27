@@ -1,7 +1,7 @@
 # Infrastructure Evolution Plan — Tool Install Subsystem
 
 > **Created:** 2026-02-26
-> **Status:** Evolutions A+B complete — C/D pending
+> **Status:** All evolutions complete (A+B+C+D)
 > **Trigger:** 4/296 tools audited, scaling patterns visible
 
 ---
@@ -219,9 +219,10 @@ The resolver/test expands the reference at runtime.
 
 ---
 
-### Evolution C: `cli` field auto-inference & schema evolution
+### Evolution C: `cli` field auto-inference & schema evolution ✅ DONE
 
-**Priority: 🟢 LOW — ongoing, no code change needed now**
+**Completed:** 2026-02-26
+**Result:** 3 redundant `cli` fields removed (cargo, go, docker). docker-compose keeps `cli: "docker"` since it genuinely differs. Convention documented: only add `cli` when it differs from tool_id.
 
 #### Observation
 
@@ -250,9 +251,10 @@ We can clean them up when convenient — no urgency.
 
 ---
 
-### Evolution D: `update` field completion on unaudited tools
+### Evolution D: `update` field completion on unaudited tools ✅ DONE
 
-**Priority: 🟢 LOW — background task, not blocking**
+**Completed:** 2026-02-26
+**Result:** Runtime derivation implemented via `get_update_map()`. 189 additional recipes gain update capability without explicit `update` entries. Derivation covers 8 PMs (apt, dnf, yum, apk, pacman, zypper, brew, snap). `_default` and language PMs excluded (not derivable).
 
 #### Observation
 
@@ -309,13 +311,11 @@ use `--update` flags, some are idempotent reinstalls).
    │  Result: 7 duplicates → 3 named groups, remediation_handlers.py −48 lines
    │  All 4 tools pass at 100%
    │
-3. Evolution D — Update derivation        🟢 LATER (before 50+ tools)
-   │  Why: Eliminates 226 missing fields mechanically
-   │  Effort: 2-3 hours
-   │  Risk: Medium
+3. Evolution D — Update derivation        ✅ DONE (2026-02-26)
+   │  Result: get_update_map() derives PM updates, +189 tools updatable
    │
-4. Evolution C — cli convention           🟢 ONGOING (no code change)
-      Why: Documentation-only, already works
+4. Evolution C — cli convention           ✅ DONE (2026-02-26)
+      Result: 3 redundant cli fields removed, convention documented
 ```
 
 ---

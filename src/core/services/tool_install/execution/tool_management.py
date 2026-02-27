@@ -14,6 +14,7 @@ from src.core.services.tool_install.data.recipes import TOOL_RECIPES
 from src.core.services.tool_install.data.undo_catalog import UNDO_COMMANDS
 from src.core.services.tool_install.detection.tool_version import get_tool_version
 from src.core.services.tool_install.execution.subprocess_runner import _run_subprocess
+from src.core.services.tool_install.resolver.method_selection import get_update_map
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +48,7 @@ def update_tool(
             "error": f"{tool} is not installed. Install it first.",
         }
 
-    update_map = recipe.get("update")
+    update_map = get_update_map(recipe)
     if not update_map:
         return {"ok": False, "error": f"No update command defined for {tool}"}
 

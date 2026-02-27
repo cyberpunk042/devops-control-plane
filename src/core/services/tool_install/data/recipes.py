@@ -130,7 +130,6 @@ TOOL_RECIPES: dict[str, dict] = {
     # ── Category 4: Runtimes via bash-curl ──────────────────────
 
     "cargo": {
-        "cli": "cargo",
         "label": "Cargo (Rust)",
         "category": "language",
         # EVOLUTION NOTE (2026-02-26):
@@ -211,6 +210,73 @@ TOOL_RECIPES: dict[str, dict] = {
         "update": {"_default": ["bash", "-c",
                    'export PATH="$HOME/.cargo/bin:$PATH" && rustup update']},
     },
+    # ── rustup ──────────────────────────────────────────────────
+    # Official Rust toolchain installer and version manager.
+    # Installs to ~/.cargo/bin (rustup, rustc, cargo).
+    # Unlike nvm, rustup IS a binary so shutil.which() works.
+    #
+    # IMPORTANT: Most PM installs only provide `rustup` (or
+    # `rustup-init`) — you still need `rustup default stable`
+    # to get rustc and cargo. The commands below chain this.
+    #
+    # apt: Debian 13+ / Ubuntu 24.04+ only. Older versions
+    # don't have the rustup package.
+    "rustup": {
+        "cli": "rustup",
+        "label": "rustup (Rust toolchain manager)",
+        "category": "rust",
+        "install": {
+            "apt":    ["bash", "-c",
+                       "apt-get install -y rustup && "
+                       "rustup default stable"],
+            "dnf":    ["bash", "-c",
+                       "dnf install -y rustup && "
+                       "rustup-init -y"],
+            "apk":    ["bash", "-c",
+                       "apk add rustup && "
+                       "rustup-init -y"],
+            "pacman": ["bash", "-c",
+                       "pacman -S --noconfirm rustup && "
+                       "rustup default stable"],
+            "zypper": ["bash", "-c",
+                       "zypper install -y rustup && "
+                       "rustup toolchain install stable"],
+            "brew":   ["bash", "-c",
+                       "brew install rustup && "
+                       "rustup-init -y"],
+            "snap":   ["bash", "-c",
+                       "snap install rustup --classic && "
+                       "rustup default stable"],
+            "_default": [
+                "bash", "-c",
+                "curl --proto '=https' --tlsv1.2 -sSf "
+                "https://sh.rustup.rs | sh -s -- -y",
+            ],
+        },
+        "needs_sudo": {
+            "apt": True, "dnf": True, "apk": True,
+            "pacman": True, "zypper": True,
+            "brew": False, "snap": True, "_default": False,
+        },
+        "prefer": ["_default", "brew", "pacman", "snap"],
+        "requires": {"binaries": ["curl"]},
+        "post_env": 'export PATH="$HOME/.cargo/bin:$PATH"',
+        "verify": ["bash", "-c",
+                   'export PATH="$HOME/.cargo/bin:$PATH" && '
+                   "rustup --version"],
+        "update": {
+            "_default": ["bash", "-c",
+                   'export PATH="$HOME/.cargo/bin:$PATH" && '
+                   "rustup self update"],
+            "apt":    ["apt-get", "install", "--only-upgrade", "-y", "rustup"],
+            "dnf":    ["dnf", "upgrade", "-y", "rustup"],
+            "apk":    ["apk", "upgrade", "rustup"],
+            "pacman": ["pacman", "-S", "--noconfirm", "rustup"],
+            "zypper": ["zypper", "update", "-y", "rustup"],
+            "brew":   ["brew", "upgrade", "rustup"],
+            "snap":   ["snap", "refresh", "rustup"],
+        },
+    },
 
     # ── Category 5: bash-curl + brew alternatives ───────────────
 
@@ -261,24 +327,28 @@ TOOL_RECIPES: dict[str, dict] = {
     "skaffold": {
         "label": "Skaffold",
         "install": {
-            "_default": [
-                "bash", "-c",
-                "curl -Lo /usr/local/bin/skaffold "
-                "https://storage.googleapis.com/skaffold/releases/latest/"
-                "skaffold-linux-amd64 && chmod +x /usr/local/bin/skaffold",
-            ],
+            "_default": {
+                "linux": [
+                    "bash", "-c",
+                    "curl -Lo /usr/local/bin/skaffold "
+                    "https://storage.googleapis.com/skaffold/releases/latest/"
+                    "skaffold-linux-amd64 && chmod +x /usr/local/bin/skaffold",
+                ],
+            },
             "brew": ["brew", "install", "skaffold"],
         },
         "needs_sudo": {"_default": True, "brew": False},
         "requires": {"binaries": ["curl"]},
         "verify": ["skaffold", "version"],
         "update": {
-            "_default": [
-                "bash", "-c",
-                "curl -Lo /usr/local/bin/skaffold "
-                "https://storage.googleapis.com/skaffold/releases/latest/"
-                "skaffold-linux-amd64 && chmod +x /usr/local/bin/skaffold",
-            ],
+            "_default": {
+                "linux": [
+                    "bash", "-c",
+                    "curl -Lo /usr/local/bin/skaffold "
+                    "https://storage.googleapis.com/skaffold/releases/latest/"
+                    "skaffold-linux-amd64 && chmod +x /usr/local/bin/skaffold",
+                ],
+            },
             "brew": ["brew", "upgrade", "skaffold"],
         },
     },
@@ -286,21 +356,47 @@ TOOL_RECIPES: dict[str, dict] = {
     # ── Category 6: snap tools with platform variants ───────────
 
     "kubectl": {
-        "label": "kubectl",
+        "label": "Kubernetes CLI",
+        "cli": "kubectl",
+        "category": "k8s",
+        # EVOLUTION NOTE (2026-02-26):
+        # Full coverage audit. Added cli, category, all distro PM methods,
+        # upgraded _default from hardcoded linux/amd64 to {os}/{arch}
+        # portable binary download.
+        #
+        # _default uses {os} and {arch} placeholders — kubectl publishes
+        # bare binaries (no archive) for linux and darwin, amd64 and arm64.
+        # URL: dl.k8s.io/release/stable.txt → /bin/{os}/{arch}/kubectl
+        #
+        # Note: apt/dnf/zypper require adding external Kubernetes repos,
+        # which are not set up by default on most systems. The _default
+        # binary download is the most reliable path.
         "install": {
-            "snap": ["snap", "install", "kubectl", "--classic"],
-            "brew": ["brew", "install", "kubectl"],
+            "snap":   ["snap", "install", "kubectl", "--classic"],
+            "apt":    ["apt-get", "install", "-y", "kubectl"],
+            "dnf":    ["dnf", "install", "-y", "kubernetes-client"],
+            "apk":    ["apk", "add", "kubectl"],
+            "pacman": ["pacman", "-S", "--noconfirm", "kubectl"],
+            "zypper": ["zypper", "install", "-y", "kubernetes-client"],
+            "brew":   ["brew", "install", "kubectl"],
             "_default": [
                 "bash", "-c",
-                'curl -LO "https://dl.k8s.io/release/'
-                '$(curl -L -s https://dl.k8s.io/release/stable.txt)'
-                '/bin/linux/amd64/kubectl" '
-                '&& chmod +x kubectl && sudo mv kubectl /usr/local/bin/',
+                "curl -sSfL -o /tmp/kubectl "
+                "\"https://dl.k8s.io/release/"
+                "$(curl -sSfL https://dl.k8s.io/release/stable.txt)"
+                "/bin/{os}/{arch}/kubectl\" && "
+                "chmod +x /tmp/kubectl && "
+                "mv /tmp/kubectl /usr/local/bin/kubectl",
             ],
         },
-        "needs_sudo": {"snap": True, "brew": False, "_default": True},
-        "prefer": ["snap", "brew", "_default"],
+        "needs_sudo": {
+            "snap": True, "apt": True, "dnf": True,
+            "apk": True, "pacman": True, "zypper": True,
+            "brew": False, "_default": True,
+        },
+        "prefer": ["_default", "snap", "brew"],
         "requires": {"binaries": ["curl"]},
+        "arch_map": {"x86_64": "amd64", "aarch64": "arm64", "armv7l": "arm"},
         "version_constraint": {
             "type": "minor_range",
             "reference_hint": "cluster_version",
@@ -308,17 +404,6 @@ TOOL_RECIPES: dict[str, dict] = {
             "description": "kubectl should be within ±1 minor version of the K8s cluster.",
         },
         "verify": ["kubectl", "version", "--client"],
-        "update": {
-            "snap": ["snap", "refresh", "kubectl"],
-            "brew": ["brew", "upgrade", "kubectl"],
-            "_default": [
-                "bash", "-c",
-                'curl -LO "https://dl.k8s.io/release/'
-                '$(curl -L -s https://dl.k8s.io/release/stable.txt)'
-                '/bin/linux/amd64/kubectl" '
-                '&& chmod +x kubectl && sudo mv kubectl /usr/local/bin/',
-            ],
-        },
     },
     "terraform": {
         "label": "Terraform",
@@ -336,51 +421,90 @@ TOOL_RECIPES: dict[str, dict] = {
     },
     "node": {
         "label": "Node.js",
+        "cli": "node",
+        "category": "language",
+        # EVOLUTION NOTE (2026-02-26):
+        # Full coverage + remediation audit. Added cli, category, zypper,
+        # _default binary download, arch_map, requires. Removed explicit
+        # update (derived by get_update_map for PM methods).
+        #
+        # _default is an OS-variant dict (Evolution: OS & Arch Awareness):
+        #   linux  — .tar.xz archive, tar -xJf
+        #   darwin — .tar.gz archive, tar -xzf
+        # Both use {arch} placeholder resolved via arch_map.
+        #
+        # Node.js publishes pre-compiled binaries for:
+        #   linux-x64, linux-arm64, linux-armv7l
+        #   darwin-x64, darwin-arm64
         "install": {
             "snap":   ["snap", "install", "node", "--classic"],
             "apt":    ["apt-get", "install", "-y", "nodejs"],
             "dnf":    ["dnf", "install", "-y", "nodejs"],
-            "apk":    ["apk", "add", "nodejs"],
-            "pacman": ["pacman", "-S", "--noconfirm", "nodejs"],
+            "apk":    ["apk", "add", "nodejs", "npm"],
+            "pacman": ["pacman", "-S", "--noconfirm", "nodejs", "npm"],
+            "zypper": ["zypper", "install", "-y", "nodejs20"],
             "brew":   ["brew", "install", "node"],
+            "_default": {
+                "linux": [
+                    "bash", "-c",
+                    "NODE_VERSION=$(curl -sSf "
+                    "https://nodejs.org/dist/index.json "
+                    "| python3 -c \"import sys,json;"
+                    "vs=[v for v in json.load(sys.stdin) if v['lts']];"
+                    "print(vs[0]['version'])\" "
+                    "2>/dev/null || echo v22.15.0) && "
+                    "curl -sSfL "
+                    "\"https://nodejs.org/dist/${NODE_VERSION}/"
+                    "node-${NODE_VERSION}-linux-{arch}.tar.xz\" "
+                    "-o /tmp/node.tar.xz && "
+                    "tar -xJf /tmp/node.tar.xz -C /usr/local "
+                    "--strip-components=1 && "
+                    "rm /tmp/node.tar.xz",
+                ],
+                "darwin": [
+                    "bash", "-c",
+                    "NODE_VERSION=$(curl -sSf "
+                    "https://nodejs.org/dist/index.json "
+                    "| python3 -c \"import sys,json;"
+                    "vs=[v for v in json.load(sys.stdin) if v['lts']];"
+                    "print(vs[0]['version'])\" "
+                    "2>/dev/null || echo v22.15.0) && "
+                    "curl -sSfL "
+                    "\"https://nodejs.org/dist/${NODE_VERSION}/"
+                    "node-${NODE_VERSION}-darwin-{arch}.tar.gz\" "
+                    "-o /tmp/node.tar.gz && "
+                    "tar -xzf /tmp/node.tar.gz -C /usr/local "
+                    "--strip-components=1 && "
+                    "rm /tmp/node.tar.gz",
+                ],
+            },
         },
         "needs_sudo": {
             "snap": True, "apt": True, "dnf": True,
-            "apk": True, "pacman": True, "brew": False,
+            "apk": True, "pacman": True, "zypper": True,
+            "brew": False, "_default": True,
         },
-        "prefer": ["snap", "brew"],
+        "prefer": ["_default", "snap", "brew"],
+        "requires": {"binaries": ["curl"]},
+        "arch_map": {"x86_64": "x64", "aarch64": "arm64", "armv7l": "armv7l"},
         "version_constraint": {
             "type": "gte",
             "reference": "18.0.0",
             "description": "Node.js 18+ required for modern ESM and fetch support.",
         },
         "verify": ["node", "--version"],
-        "update": {
-            "snap":   ["snap", "refresh", "node"],
-            "apt":    ["apt-get", "install", "--only-upgrade", "-y", "nodejs"],
-            "dnf":    ["dnf", "upgrade", "-y", "nodejs"],
-            "apk":    ["apk", "upgrade", "nodejs"],
-            "pacman": ["pacman", "-S", "--noconfirm", "nodejs"],
-            "brew":   ["brew", "upgrade", "node"],
-        },
     },
     "go": {
         "cli": "go",
         "label": "Go",
         "category": "language",
         # EVOLUTION NOTE (2026-02-26):
-        # Originally had 6 PM methods (snap, apt, dnf, apk, pacman,
-        # brew) with no _default. Expanded to 8 methods with _default
-        # binary download from go.dev, added zypper, fixed verify to
-        # handle _default PATH, and added on_failure handlers.
+        # Originally had 6 PM methods. Expanded to 8 with _default
+        # binary download from go.dev, added zypper.
         #
-        # Two installation paths:
-        #   1. _default (recommended) — binary tarball from go.dev,
-        #      always latest stable, extracts to /usr/local/go.
-        #   2. System packages (apt, dnf, apk, etc.) — distro-maintained,
-        #      can lag behind (e.g. Ubuntu 22.04 ships Go 1.18 vs
-        #      current 1.26+).
-        #   3. snap — provides near-latest via Canonical packaging.
+        # _default uses {os} placeholder (Evolution: OS & Arch Awareness)
+        # since Go uses the same .tar.gz format on both linux and darwin.
+        # URL pattern: go.dev/dl/${GO_VERSION}.{os}-{arch}.tar.gz
         "install": {
             "apt":    ["apt-get", "install", "-y", "golang-go"],
             "dnf":    ["dnf", "install", "-y", "golang"],
@@ -394,7 +518,7 @@ TOOL_RECIPES: dict[str, dict] = {
                 "GO_VERSION=$(curl -sSf https://go.dev/VERSION?m=text "
                 "| head -1) && "
                 "curl -sSfL "
-                "\"https://go.dev/dl/${GO_VERSION}.linux-{arch}.tar.gz\" "
+                "\"https://go.dev/dl/${GO_VERSION}.{os}-{arch}.tar.gz\" "
                 "-o /tmp/go.tar.gz && "
                 "rm -rf /usr/local/go && "
                 "tar -C /usr/local -xzf /tmp/go.tar.gz && "
@@ -425,7 +549,7 @@ TOOL_RECIPES: dict[str, dict] = {
                 "GO_VERSION=$(curl -sSf https://go.dev/VERSION?m=text "
                 "| head -1) && "
                 "curl -sSfL "
-                "\"https://go.dev/dl/${GO_VERSION}.linux-{arch}.tar.gz\" "
+                "\"https://go.dev/dl/${GO_VERSION}.{os}-{arch}.tar.gz\" "
                 "-o /tmp/go.tar.gz && "
                 "rm -rf /usr/local/go && "
                 "tar -C /usr/local -xzf /tmp/go.tar.gz && "
@@ -746,6 +870,15 @@ TOOL_RECIPES: dict[str, dict] = {
     "python": {
         "label": "Python",
         "cli": "python3",
+        "category": "language",
+        # EVOLUTION NOTE (2026-02-26):
+        # Python is special: system Python is pre-installed on almost all
+        # Linux distros. This recipe is for when it's MISSING or when a
+        # newer version is needed. Two paths:
+        #   1. System PM (apt/dnf/apk/pacman/zypper/brew) — fast, distro version
+        #   2. _default — build from source (python.org tarball), always latest
+        # snap is intentionally excluded: python3-alt snap naming is
+        # confusing and conflicts with system python3 symlink.
         "install": {
             "apt":    ["apt-get", "install", "-y", "python3"],
             "dnf":    ["dnf", "install", "-y", "python3"],
@@ -753,20 +886,58 @@ TOOL_RECIPES: dict[str, dict] = {
             "pacman": ["pacman", "-S", "--noconfirm", "python"],
             "zypper": ["zypper", "install", "-y", "python3"],
             "brew":   ["brew", "install", "python@3"],
+            "_default": [
+                "bash", "-c",
+                "PY_VERSION=$(curl -sSf https://www.python.org/ftp/python/"
+                " | grep -oP '(?<=href=\")3\\.\\d+\\.\\d+(?=/\")'"
+                " | sort -V | tail -1) && "
+                "curl -sSfL \"https://www.python.org/ftp/python/"
+                "${PY_VERSION}/Python-${PY_VERSION}.tgz\""
+                " -o /tmp/python.tgz && "
+                "tar -xzf /tmp/python.tgz -C /tmp && "
+                "cd /tmp/Python-${PY_VERSION} && "
+                "./configure --enable-optimizations --prefix=/usr/local && "
+                "make -j$(nproc) && "
+                "sudo make altinstall && "
+                "rm -rf /tmp/python.tgz /tmp/Python-${PY_VERSION}",
+            ],
         },
         "needs_sudo": {
             "apt": True, "dnf": True, "apk": True,
             "pacman": True, "zypper": True, "brew": False,
+            "_default": True,
+        },
+        "requires": {
+            "binaries": ["curl"],
+            "packages": {
+                "debian": [
+                    "build-essential", "libssl-dev", "zlib1g-dev",
+                    "libncurses5-dev", "libreadline-dev", "libsqlite3-dev",
+                    "libffi-dev", "libbz2-dev", "liblzma-dev",
+                ],
+                "rhel": [
+                    "gcc", "make", "openssl-devel", "zlib-devel",
+                    "ncurses-devel", "readline-devel", "sqlite-devel",
+                    "libffi-devel", "bzip2-devel", "xz-devel",
+                ],
+                "alpine": [
+                    "build-base", "openssl-dev", "zlib-dev",
+                    "ncurses-dev", "readline-dev", "sqlite-dev",
+                    "libffi-dev", "bzip2-dev", "xz-dev",
+                ],
+                "arch": [
+                    "base-devel", "openssl", "zlib",
+                    "ncurses", "readline", "sqlite",
+                    "libffi", "bzip2", "xz",
+                ],
+                "suse": [
+                    "gcc", "make", "libopenssl-devel", "zlib-devel",
+                    "ncurses-devel", "readline-devel", "sqlite3-devel",
+                    "libffi-devel", "libbz2-devel", "xz-devel",
+                ],
+            },
         },
         "verify": ["python3", "--version"],
-        "update": {
-            "apt":    ["apt-get", "install", "--only-upgrade", "-y", "python3"],
-            "dnf":    ["dnf", "upgrade", "-y", "python3"],
-            "apk":    ["apk", "upgrade", "python3"],
-            "pacman": ["pacman", "-S", "--noconfirm", "python"],
-            "zypper": ["zypper", "update", "-y", "python3"],
-            "brew":   ["brew", "upgrade", "python@3"],
-        },
     },
     "pip": {
         "cli": "pip",
@@ -785,6 +956,36 @@ TOOL_RECIPES: dict[str, dict] = {
         },
         "verify": ["pip", "--version"],
         "update": {"_default": ["pip", "install", "--upgrade", "pip"]},
+    },
+    "pipx": {
+        "cli": "pipx",
+        "label": "pipx (install & run Python CLI apps in isolated environments)",
+        "category": "python",
+        "install": {
+            "apt": ["apt-get", "install", "-y", "pipx"],
+            "dnf": ["dnf", "install", "-y", "pipx"],
+            "apk": ["apk", "add", "pipx"],
+            "pacman": ["pacman", "-S", "--noconfirm", "python-pipx"],
+            "zypper": ["zypper", "install", "-y", "python3-pipx"],
+            "brew": ["brew", "install", "pipx"],
+            "_default": [
+                "bash", "-c",
+                "pip install --user pipx && python3 -m pipx ensurepath",
+            ],
+        },
+        "needs_sudo": {
+            "apt": True, "dnf": True, "apk": True,
+            "pacman": True, "zypper": True,
+            "brew": False, "_default": False,
+        },
+        "prefer": ["apt", "dnf", "brew"],
+        "requires": {"binaries": ["python3"]},
+        "post_env": 'export PATH="$HOME/.local/bin:$PATH"',
+        "verify": ["pipx", "--version"],
+        "update": {
+            "pip": ["pip", "install", "--upgrade", "pipx"],
+            "brew": ["brew", "upgrade", "pipx"],
+        },
     },
     "npm": {
         "cli": "npm",
@@ -829,6 +1030,49 @@ TOOL_RECIPES: dict[str, dict] = {
         },
         "verify": ["npx", "--version"],
     },
+    # ── nvm ─────────────────────────────────────────────────────
+    # nvm is a SHELL FUNCTION, not a binary.  shutil.which("nvm")
+    # never works.  Verify checks for the nvm.sh file instead.
+    # Only available via brew and the official installer script —
+    # not in any Linux system PM repos.
+    "nvm": {
+        "cli": "nvm",
+        "label": "nvm (Node Version Manager)",
+        "category": "node",
+        "install": {
+            "brew": ["brew", "install", "nvm"],
+            "_default": [
+                "bash", "-c",
+                "curl -o-"
+                " https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.4/install.sh"
+                " | bash",
+            ],
+        },
+        "needs_sudo": {
+            "brew": False,
+            "_default": False,
+        },
+        "prefer": ["_default", "brew"],
+        "requires": {
+            "binaries": ["curl", "bash"],
+        },
+        "post_env": (
+            'export NVM_DIR="$HOME/.nvm" && '
+            '[ -s "$NVM_DIR/nvm.sh" ] && '
+            'source "$NVM_DIR/nvm.sh"'
+        ),
+        "verify": ["bash", "-c", "[ -s \"$HOME/.nvm/nvm.sh\" ]"],
+        "update": {
+            "_default": [
+                "bash", "-c",
+                "cd \"$NVM_DIR\" && git fetch --tags origin"
+                " && git checkout $(git describe --abbrev=0 --tags"
+                " --match 'v[0-9]*' $(git rev-list --tags --max-count=1))"
+                " && source \"$NVM_DIR/nvm.sh\"",
+            ],
+            "brew": ["brew", "upgrade", "nvm"],
+        },
+    },
     "dig": {
         "label": "dig",
         "install": {
@@ -846,7 +1090,6 @@ TOOL_RECIPES: dict[str, dict] = {
         "verify": ["dig", "-v"],
     },
     "docker": {
-        "cli": "docker",
         "label": "Docker",
         "category": "container",
         "install": {
@@ -912,15 +1155,17 @@ TOOL_RECIPES: dict[str, dict] = {
             "pacman": ["pacman", "-S", "--noconfirm", "docker-compose"],
             "zypper": ["zypper", "install", "-y", "docker-compose"],
             "brew":   ["brew", "install", "docker-compose"],
-            "_default": [
-                "bash", "-c",
-                "COMPOSE_ARCH={arch} && "
-                "mkdir -p /usr/local/lib/docker/cli-plugins && "
-                "curl -sSfL https://github.com/docker/compose/releases/"
-                "latest/download/docker-compose-linux-$COMPOSE_ARCH "
-                "-o /usr/local/lib/docker/cli-plugins/docker-compose && "
-                "chmod +x /usr/local/lib/docker/cli-plugins/docker-compose",
-            ],
+            "_default": {
+                "linux": [
+                    "bash", "-c",
+                    "COMPOSE_ARCH={arch} && "
+                    "mkdir -p /usr/local/lib/docker/cli-plugins && "
+                    "curl -sSfL https://github.com/docker/compose/releases/"
+                    "latest/download/docker-compose-linux-$COMPOSE_ARCH "
+                    "-o /usr/local/lib/docker/cli-plugins/docker-compose && "
+                    "chmod +x /usr/local/lib/docker/cli-plugins/docker-compose",
+                ],
+            },
         },
         "needs_sudo": {
             "apt": True, "dnf": True, "apk": True,
@@ -942,15 +1187,17 @@ TOOL_RECIPES: dict[str, dict] = {
             "pacman": ["pacman", "-S", "--noconfirm", "docker-compose"],
             "zypper": ["zypper", "update", "-y", "docker-compose"],
             "brew":   ["brew", "upgrade", "docker-compose"],
-            "_default": [
-                "bash", "-c",
-                "COMPOSE_ARCH={arch} && "
-                "mkdir -p /usr/local/lib/docker/cli-plugins && "
-                "curl -sSfL https://github.com/docker/compose/releases/"
-                "latest/download/docker-compose-linux-$COMPOSE_ARCH "
-                "-o /usr/local/lib/docker/cli-plugins/docker-compose && "
-                "chmod +x /usr/local/lib/docker/cli-plugins/docker-compose",
-            ],
+            "_default": {
+                "linux": [
+                    "bash", "-c",
+                    "COMPOSE_ARCH={arch} && "
+                    "mkdir -p /usr/local/lib/docker/cli-plugins && "
+                    "curl -sSfL https://github.com/docker/compose/releases/"
+                    "latest/download/docker-compose-linux-$COMPOSE_ARCH "
+                    "-o /usr/local/lib/docker/cli-plugins/docker-compose && "
+                    "chmod +x /usr/local/lib/docker/cli-plugins/docker-compose",
+                ],
+            },
         },
         "arch_map": {"x86_64": "x86_64", "aarch64": "aarch64", "armv7l": "armv7"},
     },
@@ -1601,12 +1848,14 @@ TOOL_RECIPES: dict[str, dict] = {
             "apt": ["apt-get", "install", "-y", "hugo"],
             "brew": ["brew", "install", "hugo"],
             "snap": ["snap", "install", "hugo"],
-            "_default": [
-                "bash", "-c",
-                "curl -sL https://github.com/gohugoio/hugo/releases/latest/"
-                "download/hugo_extended_{version}_linux-{arch}.tar.gz "
-                "| tar xz -C /usr/local/bin hugo",
-            ],
+            "_default": {
+                "linux": [
+                    "bash", "-c",
+                    "curl -sL https://github.com/gohugoio/hugo/releases/latest/"
+                    "download/hugo_extended_{version}_linux-{arch}.tar.gz "
+                    "| tar xz -C /usr/local/bin hugo",
+                ],
+            },
         },
         "needs_sudo": {
             "apt": True, "brew": False, "snap": True, "_default": True,
@@ -1795,24 +2044,28 @@ TOOL_RECIPES: dict[str, dict] = {
         "category": "cloud",
         "cli": "aws",
         "install": {
-            "_default": [
-                "bash", "-c",
-                'curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip"'
-                ' -o /tmp/awscliv2.zip && cd /tmp && unzip -qo awscliv2.zip'
-                ' && sudo ./aws/install --update && rm -rf /tmp/aws /tmp/awscliv2.zip',
-            ],
+            "_default": {
+                "linux": [
+                    "bash", "-c",
+                    'curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip"'
+                    ' -o /tmp/awscliv2.zip && cd /tmp && unzip -qo awscliv2.zip'
+                    ' && sudo ./aws/install --update && rm -rf /tmp/aws /tmp/awscliv2.zip',
+                ],
+            },
             "brew": ["brew", "install", "awscli"],
         },
         "needs_sudo": {"_default": True, "brew": False},
         "requires": {"binaries": ["curl"]},
         "verify": ["aws", "--version"],
         "update": {
-            "_default": [
-                "bash", "-c",
-                'curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip"'
-                ' -o /tmp/awscliv2.zip && cd /tmp && unzip -qo awscliv2.zip'
-                ' && sudo ./aws/install --update && rm -rf /tmp/aws /tmp/awscliv2.zip',
-            ],
+            "_default": {
+                "linux": [
+                    "bash", "-c",
+                    'curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip"'
+                    ' -o /tmp/awscliv2.zip && cd /tmp && unzip -qo awscliv2.zip'
+                    ' && sudo ./aws/install --update && rm -rf /tmp/aws /tmp/awscliv2.zip',
+                ],
+            },
             "brew": ["brew", "upgrade", "awscli"],
         },
     },
@@ -1898,12 +2151,14 @@ TOOL_RECIPES: dict[str, dict] = {
         "label": "Stern (multi-pod log tailing)",
         "category": "k8s",
         "install": {
-            "_default": [
-                "bash", "-c",
-                "curl -Lo stern https://github.com/stern/stern/releases/"
-                "latest/download/stern_linux_amd64"
-                " && chmod +x stern && sudo mv stern /usr/local/bin/",
-            ],
+            "_default": {
+                "linux": [
+                    "bash", "-c",
+                    "curl -Lo stern https://github.com/stern/stern/releases/"
+                    "latest/download/stern_linux_amd64"
+                    " && chmod +x stern && sudo mv stern /usr/local/bin/",
+                ],
+            },
             "brew": ["brew", "install", "stern"],
         },
         "needs_sudo": {"_default": True, "brew": False},
@@ -1934,13 +2189,15 @@ TOOL_RECIPES: dict[str, dict] = {
         "category": "k8s",
         "cli": "argocd",
         "install": {
-            "_default": [
-                "bash", "-c",
-                "curl -sSL -o /usr/local/bin/argocd "
-                "https://github.com/argoproj/argo-cd/releases/latest/"
-                "download/argocd-linux-amd64"
-                " && chmod +x /usr/local/bin/argocd",
-            ],
+            "_default": {
+                "linux": [
+                    "bash", "-c",
+                    "curl -sSL -o /usr/local/bin/argocd "
+                    "https://github.com/argoproj/argo-cd/releases/latest/"
+                    "download/argocd-linux-amd64"
+                    " && chmod +x /usr/local/bin/argocd",
+                ],
+            },
             "brew": ["brew", "install", "argocd"],
         },
         "needs_sudo": {"_default": True, "brew": False},
@@ -1981,13 +2238,15 @@ TOOL_RECIPES: dict[str, dict] = {
         "label": "Helmfile",
         "category": "k8s",
         "install": {
-            "_default": [
-                "bash", "-c",
-                "curl -fsSL -o /usr/local/bin/helmfile "
-                "https://github.com/helmfile/helmfile/releases/latest/"
-                "download/helmfile_linux_amd64"
-                " && chmod +x /usr/local/bin/helmfile",
-            ],
+            "_default": {
+                "linux": [
+                    "bash", "-c",
+                    "curl -fsSL -o /usr/local/bin/helmfile "
+                    "https://github.com/helmfile/helmfile/releases/latest/"
+                    "download/helmfile_linux_amd64"
+                    " && chmod +x /usr/local/bin/helmfile",
+                ],
+            },
             "brew": ["brew", "install", "helmfile"],
         },
         "needs_sudo": {"_default": True, "brew": False},
@@ -2033,12 +2292,14 @@ TOOL_RECIPES: dict[str, dict] = {
         "label": "Gitleaks (secret scanner)",
         "category": "security",
         "install": {
-            "_default": [
-                "bash", "-c",
-                "curl -sSfL https://github.com/gitleaks/gitleaks/releases/"
-                "latest/download/gitleaks_linux_x64.tar.gz"
-                " | tar xz -C /usr/local/bin gitleaks",
-            ],
+            "_default": {
+                "linux": [
+                    "bash", "-c",
+                    "curl -sSfL https://github.com/gitleaks/gitleaks/releases/"
+                    "latest/download/gitleaks_linux_x64.tar.gz"
+                    " | tar xz -C /usr/local/bin gitleaks",
+                ],
+            },
             "brew": ["brew", "install", "gitleaks"],
         },
         "needs_sudo": {"_default": True, "brew": False},
@@ -2049,11 +2310,13 @@ TOOL_RECIPES: dict[str, dict] = {
         "label": "tfsec (Terraform security)",
         "category": "security",
         "install": {
-            "_default": [
-                "bash", "-c",
-                "curl -sSfL https://raw.githubusercontent.com/aquasecurity/"
-                "tfsec/master/scripts/install_linux.sh | bash",
-            ],
+            "_default": {
+                "linux": [
+                    "bash", "-c",
+                    "curl -sSfL https://raw.githubusercontent.com/aquasecurity/"
+                    "tfsec/master/scripts/install_linux.sh | bash",
+                ],
+            },
             "brew": ["brew", "install", "tfsec"],
         },
         "needs_sudo": {"_default": True, "brew": False},
@@ -2108,14 +2371,16 @@ TOOL_RECIPES: dict[str, dict] = {
         "install": {
             "apt": ["apt-get", "install", "-y", "docker-buildx-plugin"],
             "dnf": ["dnf", "install", "-y", "docker-buildx-plugin"],
-            "_default": [
-                "bash", "-c",
-                "mkdir -p ~/.docker/cli-plugins"
-                " && curl -sSL https://github.com/docker/buildx/releases/"
-                "latest/download/buildx-linux-amd64"
-                " -o ~/.docker/cli-plugins/docker-buildx"
-                " && chmod +x ~/.docker/cli-plugins/docker-buildx",
-            ],
+            "_default": {
+                "linux": [
+                    "bash", "-c",
+                    "mkdir -p ~/.docker/cli-plugins"
+                    " && curl -sSL https://github.com/docker/buildx/releases/"
+                    "latest/download/buildx-linux-amd64"
+                    " -o ~/.docker/cli-plugins/docker-buildx"
+                    " && chmod +x ~/.docker/cli-plugins/docker-buildx",
+                ],
+            },
         },
         "needs_sudo": {"apt": True, "dnf": True, "_default": False},
         "requires": {"binaries": ["docker"]},
@@ -2159,12 +2424,14 @@ TOOL_RECIPES: dict[str, dict] = {
         "label": "Dive (Docker image explorer)",
         "category": "container",
         "install": {
-            "_default": [
-                "bash", "-c",
-                "curl -sSfL https://github.com/wagoodman/dive/releases/"
-                "latest/download/dive_linux_amd64.tar.gz"
-                " | tar xz -C /usr/local/bin dive",
-            ],
+            "_default": {
+                "linux": [
+                    "bash", "-c",
+                    "curl -sSfL https://github.com/wagoodman/dive/releases/"
+                    "latest/download/dive_linux_amd64.tar.gz"
+                    " | tar xz -C /usr/local/bin dive",
+                ],
+            },
             "brew": ["brew", "install", "dive"],
         },
         "needs_sudo": {"_default": True, "brew": False},
@@ -2175,13 +2442,15 @@ TOOL_RECIPES: dict[str, dict] = {
         "label": "Hadolint (Dockerfile linter)",
         "category": "container",
         "install": {
-            "_default": [
-                "bash", "-c",
-                "curl -sSfL -o /usr/local/bin/hadolint "
-                "https://github.com/hadolint/hadolint/releases/latest/"
-                "download/hadolint-Linux-x86_64"
-                " && chmod +x /usr/local/bin/hadolint",
-            ],
+            "_default": {
+                "linux": [
+                    "bash", "-c",
+                    "curl -sSfL -o /usr/local/bin/hadolint "
+                    "https://github.com/hadolint/hadolint/releases/latest/"
+                    "download/hadolint-Linux-x86_64"
+                    " && chmod +x /usr/local/bin/hadolint",
+                ],
+            },
             "brew": ["brew", "install", "hadolint"],
         },
         "needs_sudo": {"_default": True, "brew": False},
@@ -2357,36 +2626,73 @@ TOOL_RECIPES: dict[str, dict] = {
     # ════════════════════════════════════════════════════════════
 
     "poetry": {
-        "label": "Poetry (Python packaging)",
+        "cli": "poetry",
+        "label": "Poetry (Python dependency management and packaging)",
         "category": "python",
         "install": {
+            "pipx": ["pipx", "install", "poetry"],
+            "pip": ["pip", "install", "--user", "poetry"],
+            "apt": ["apt-get", "install", "-y", "python3-poetry"],
+            "dnf": ["dnf", "install", "-y", "python3-poetry"],
+            "pacman": ["pacman", "-S", "--noconfirm", "python-poetry"],
+            "brew": ["brew", "install", "poetry"],
             "_default": [
                 "bash", "-c",
                 "curl -sSL https://install.python-poetry.org | python3 -",
             ],
-            "brew": ["brew", "install", "poetry"],
         },
-        "needs_sudo": {"_default": False, "brew": False},
+        "needs_sudo": {
+            "pipx": False, "pip": False,
+            "apt": True, "dnf": True, "pacman": True,
+            "brew": False, "_default": False,
+        },
+        "prefer": ["pipx", "_default", "brew"],
         "requires": {"binaries": ["curl"]},
         "post_env": 'export PATH="$HOME/.local/bin:$PATH"',
         "verify": ["bash", "-c",
                    'export PATH="$HOME/.local/bin:$PATH" && poetry --version'],
+        "update": {
+            "pipx": ["pipx", "upgrade", "poetry"],
+            "pip": ["pip", "install", "--upgrade", "poetry"],
+            "brew": ["brew", "upgrade", "poetry"],
+        },
     },
     "uv": {
-        "label": "uv (fast Python package manager)",
+        "cli": "uv",
+        "label": "uv (extremely fast Python package and project manager)",
         "category": "python",
         "install": {
+            "pip": ["pip", "install", "uv"],
+            "pipx": ["pipx", "install", "uv"],
+            "dnf": ["dnf", "install", "-y", "uv"],
+            "apk": ["apk", "add", "uv"],
+            "pacman": ["pacman", "-S", "--noconfirm", "uv"],
+            "cargo": ["cargo", "install", "--locked", "uv"],
+            "brew": ["brew", "install", "uv"],
             "_default": [
                 "bash", "-c",
                 "curl -LsSf https://astral.sh/uv/install.sh | sh",
             ],
-            "brew": ["brew", "install", "uv"],
         },
-        "needs_sudo": {"_default": False, "brew": False},
+        "needs_sudo": {
+            "pip": False, "pipx": False,
+            "dnf": True, "apk": True, "pacman": True,
+            "cargo": False, "brew": False, "_default": False,
+        },
+        "prefer": ["_default", "brew", "pipx"],
         "requires": {"binaries": ["curl"]},
-        "post_env": 'export PATH="$HOME/.cargo/bin:$PATH"',
+        "post_env": 'export PATH="$HOME/.local/bin:$PATH"',
         "verify": ["bash", "-c",
-                   'export PATH="$HOME/.cargo/bin:$PATH" && uv --version'],
+                   'export PATH="$HOME/.local/bin:$PATH" && uv --version'],
+        "update": {
+            "pip": ["pip", "install", "--upgrade", "uv"],
+            "pipx": ["pipx", "upgrade", "uv"],
+            "brew": ["brew", "upgrade", "uv"],
+            "_default": [
+                "bash", "-c",
+                "curl -LsSf https://astral.sh/uv/install.sh | sh",
+            ],
+        },
     },
     "pyright": {
         "label": "Pyright (Python type checker)",
@@ -2471,34 +2777,57 @@ TOOL_RECIPES: dict[str, dict] = {
     # ════════════════════════════════════════════════════════════
 
     "yarn": {
-        "label": "Yarn",
+        "cli": "yarn",
+        "label": "Yarn (JavaScript package manager)",
         "category": "node",
         "install": {
-            "_default": ["npm", "install", "-g", "yarn"],
+            "npm": ["npm", "install", "-g", "yarn"],
+            "apt": ["apt-get", "install", "-y", "yarn"],
+            "dnf": ["dnf", "install", "-y", "yarnpkg"],
+            "apk": ["apk", "add", "yarn"],
+            "pacman": ["pacman", "-S", "--noconfirm", "yarn"],
+            "zypper": ["zypper", "install", "-y", "yarn"],
             "brew": ["brew", "install", "yarn"],
+            "_default": ["npm", "install", "-g", "yarn"],
         },
-        "needs_sudo": {"_default": False, "brew": False},
+        "needs_sudo": {
+            "npm": False, "apt": True, "dnf": True,
+            "apk": True, "pacman": True, "zypper": True,
+            "brew": False, "_default": False,
+        },
+        "prefer": ["npm", "brew", "_default"],
         "requires": {"binaries": ["npm"]},
         "verify": ["yarn", "--version"],
         "update": {
-            "_default": ["npm", "update", "-g", "yarn"],
+            "npm": ["npm", "update", "-g", "yarn"],
             "brew": ["brew", "upgrade", "yarn"],
         },
     },
     "pnpm": {
-        "label": "pnpm",
+        "cli": "pnpm",
+        "label": "pnpm (fast, disk efficient Node package manager)",
         "category": "node",
         "install": {
-            "_default": ["npm", "install", "-g", "pnpm"],
+            "npm": ["npm", "install", "-g", "pnpm"],
+            "apk": ["apk", "add", "pnpm"],
             "brew": ["brew", "install", "pnpm"],
+            "_default": [
+                "bash", "-c",
+                "curl -fsSL https://get.pnpm.io/install.sh | sh -",
+            ],
         },
-        "needs_sudo": {"_default": False, "brew": False},
-        "requires": {"binaries": ["npm"]},
+        "needs_sudo": {
+            "npm": False, "apk": True,
+            "brew": False, "_default": False,
+        },
+        "prefer": ["npm", "brew", "_default"],
+        "requires": {"binaries": ["curl"]},
         "verify": ["pnpm", "--version"],
         "update": {
-            "_default": ["npm", "update", "-g", "pnpm"],
+            "npm": ["npm", "update", "-g", "pnpm"],
             "brew": ["brew", "upgrade", "pnpm"],
         },
+        "post_env": "export PNPM_HOME=\"$HOME/.local/share/pnpm\" && export PATH=\"$PNPM_HOME:$PATH\"",
     },
     "bun": {
         "label": "Bun (JS runtime)",
@@ -2814,13 +3143,15 @@ TOOL_RECIPES: dict[str, dict] = {
         "label": "mkcert (local TLS certs)",
         "category": "network",
         "install": {
-            "_default": [
-                "bash", "-c",
-                "curl -sSfL -o /usr/local/bin/mkcert "
-                "https://github.com/FiloSottile/mkcert/releases/latest/"
-                "download/mkcert-linux-amd64"
-                " && chmod +x /usr/local/bin/mkcert",
-            ],
+            "_default": {
+                "linux": [
+                    "bash", "-c",
+                    "curl -sSfL -o /usr/local/bin/mkcert "
+                    "https://github.com/FiloSottile/mkcert/releases/latest/"
+                    "download/mkcert-linux-amd64"
+                    " && chmod +x /usr/local/bin/mkcert",
+                ],
+            },
             "brew": ["brew", "install", "mkcert"],
         },
         "needs_sudo": {"_default": True, "brew": False},
@@ -2904,28 +3235,71 @@ TOOL_RECIPES: dict[str, dict] = {
     # ════════════════════════════════════════════════════════════
 
     "ruby": {
+        "cli": "ruby",
         "label": "Ruby",
         "category": "ruby",
+        # No _default (binary download) — Ruby from source requires
+        # autotools + C compiler + many deps. System packages are
+        # the correct path. No snap package exists.
+        #
+        # apt ruby-full = ruby + ruby-dev + ruby-doc (all-in-one).
+        # dnf/apk need separate -devel/-dev for gem native extensions.
+        # pacman/brew ruby includes everything.
         "install": {
-            "apt": ["apt-get", "install", "-y", "ruby-full"],
-            "dnf": ["dnf", "install", "-y", "ruby", "ruby-devel"],
-            "apk": ["apk", "add", "ruby", "ruby-dev"],
+            "apt":    ["apt-get", "install", "-y", "ruby-full"],
+            "dnf":    ["dnf", "install", "-y", "ruby", "ruby-devel"],
+            "apk":    ["apk", "add", "ruby", "ruby-dev"],
             "pacman": ["pacman", "-S", "--noconfirm", "ruby"],
             "zypper": ["zypper", "install", "-y", "ruby-devel"],
-            "brew": ["brew", "install", "ruby"],
+            "brew":   ["brew", "install", "ruby"],
         },
-        "needs_sudo": {"apt": True, "dnf": True, "apk": True,
-                       "pacman": True, "zypper": True, "brew": False},
+        "needs_sudo": {
+            "apt": True, "dnf": True, "apk": True,
+            "pacman": True, "zypper": True, "brew": False,
+        },
         "verify": ["ruby", "--version"],
+        "update": {
+            "apt":    ["apt-get", "install", "--only-upgrade", "-y",
+                       "ruby-full"],
+            "dnf":    ["dnf", "upgrade", "-y", "ruby"],
+            "apk":    ["apk", "upgrade", "ruby"],
+            "pacman": ["pacman", "-S", "--noconfirm", "ruby"],
+            "zypper": ["zypper", "update", "-y", "ruby-devel"],
+            "brew":   ["brew", "upgrade", "ruby"],
+        },
     },
     "bundler": {
+        "cli": "bundle",
         "label": "Bundler (Ruby dependency manager)",
         "category": "ruby",
-        "cli": "bundle",
-        "install": {"_default": ["gem", "install", "bundler"]},
-        "needs_sudo": {"_default": False},
+        # _default via gem is preferred — always latest, Ruby is
+        # already a hard dependency. System packages often lag.
+        # brew doesn't have a separate formula — bundler ships
+        # with brewed Ruby since Ruby 2.6+.
+        "install": {
+            "apt":    ["apt-get", "install", "-y", "ruby-bundler"],
+            "dnf":    ["dnf", "install", "-y", "rubygem-bundler"],
+            "apk":    ["apk", "add", "ruby-bundler"],
+            "pacman": ["pacman", "-S", "--noconfirm", "ruby-bundler"],
+            "zypper": ["zypper", "install", "-y", "ruby-bundler"],
+            "_default": ["gem", "install", "bundler"],
+        },
+        "needs_sudo": {
+            "apt": True, "dnf": True, "apk": True,
+            "pacman": True, "zypper": True, "_default": False,
+        },
+        "prefer": ["_default"],
         "requires": {"binaries": ["ruby"]},
         "verify": ["bundle", "--version"],
+        "update": {
+            "apt":    ["apt-get", "install", "--only-upgrade", "-y",
+                       "ruby-bundler"],
+            "dnf":    ["dnf", "upgrade", "-y", "rubygem-bundler"],
+            "apk":    ["apk", "upgrade", "ruby-bundler"],
+            "pacman": ["pacman", "-S", "--noconfirm", "ruby-bundler"],
+            "zypper": ["zypper", "update", "-y", "ruby-bundler"],
+            "_default": ["gem", "update", "bundler"],
+        },
     },
     "rubocop": {
         "label": "RuboCop (Ruby linter)",
@@ -2956,51 +3330,104 @@ TOOL_RECIPES: dict[str, dict] = {
         "verify": ["php", "--version"],
     },
     "composer": {
+        "cli": "composer",
         "label": "Composer (PHP dependency manager)",
         "category": "php",
+        # Available in all major PMs. zypper uses php-composer (not
+        # composer). No snap package. _default uses the official
+        # installer from getcomposer.org which requires php + curl.
+        #
+        # The installer is smarter than manual mv: it verifies the
+        # download hash, places the binary directly, and supports
+        # --install-dir and --filename flags.
         "install": {
+            "apt":    ["apt-get", "install", "-y", "composer"],
+            "dnf":    ["dnf", "install", "-y", "composer"],
+            "apk":    ["apk", "add", "composer"],
+            "pacman": ["pacman", "-S", "--noconfirm", "composer"],
+            "zypper": ["zypper", "install", "-y", "php-composer"],
+            "brew":   ["brew", "install", "composer"],
             "_default": [
                 "bash", "-c",
-                "curl -sS https://getcomposer.org/installer | php"
-                " && sudo mv composer.phar /usr/local/bin/composer",
+                "curl -sS https://getcomposer.org/installer"
+                " | php -- --install-dir=/usr/local/bin"
+                " --filename=composer",
             ],
-            "brew": ["brew", "install", "composer"],
         },
-        "needs_sudo": {"_default": True, "brew": False},
+        "needs_sudo": {
+            "apt": True, "dnf": True, "apk": True,
+            "pacman": True, "zypper": True,
+            "brew": False, "_default": True,
+        },
+        "prefer": ["_default", "brew"],
         "requires": {"binaries": ["php", "curl"]},
         "verify": ["composer", "--version"],
+        "update": {
+            "apt":    ["apt-get", "install", "--only-upgrade", "-y",
+                       "composer"],
+            "dnf":    ["dnf", "upgrade", "-y", "composer"],
+            "apk":    ["apk", "upgrade", "composer"],
+            "pacman": ["pacman", "-S", "--noconfirm", "composer"],
+            "zypper": ["zypper", "update", "-y", "php-composer"],
+            "brew":   ["brew", "upgrade", "composer"],
+            "_default": ["composer", "self-update"],
+        },
     },
     "phpstan": {
+        "cli": "phpstan",
         "label": "PHPStan (PHP static analysis)",
         "category": "php",
+        # Not in apt/dnf/apk/pacman/zypper repos.
+        # Available via composer (recommended) and brew.
+        # Arch has AUR phpstan-bin but not official repos.
         "install": {
             "_default": [
                 "bash", "-c",
                 "composer global require phpstan/phpstan",
             ],
+            "brew": ["brew", "install", "phpstan"],
         },
-        "needs_sudo": {"_default": False},
+        "needs_sudo": {"_default": False, "brew": False},
         "requires": {"binaries": ["composer"]},
         "post_env": 'export PATH="$HOME/.config/composer/vendor/bin:$PATH"',
         "verify": ["bash", "-c",
                    'export PATH="$HOME/.config/composer/vendor/bin:$PATH"'
                    ' && phpstan --version'],
+        "update": {
+            "_default": [
+                "bash", "-c",
+                "composer global update phpstan/phpstan",
+            ],
+            "brew": ["brew", "upgrade", "phpstan"],
+        },
     },
     "phpunit": {
+        "cli": "phpunit",
         "label": "PHPUnit (PHP testing)",
         "category": "php",
+        # Not in apt/dnf/apk/pacman/zypper repos.
+        # Available via composer (recommended) and brew.
+        # PHPUnit 11 requires PHP 8.2+, PHPUnit 12 requires PHP 8.3+.
         "install": {
             "_default": [
                 "bash", "-c",
                 "composer global require phpunit/phpunit",
             ],
+            "brew": ["brew", "install", "phpunit"],
         },
-        "needs_sudo": {"_default": False},
+        "needs_sudo": {"_default": False, "brew": False},
         "requires": {"binaries": ["composer"]},
         "post_env": 'export PATH="$HOME/.config/composer/vendor/bin:$PATH"',
         "verify": ["bash", "-c",
                    'export PATH="$HOME/.config/composer/vendor/bin:$PATH"'
                    ' && phpunit --version'],
+        "update": {
+            "_default": [
+                "bash", "-c",
+                "composer global update phpunit/phpunit",
+            ],
+            "brew": ["brew", "upgrade", "phpunit"],
+        },
     },
 
     # ════════════════════════════════════════════════════════════
@@ -3027,11 +3454,13 @@ TOOL_RECIPES: dict[str, dict] = {
         "label": "cargo-nextest (test runner)",
         "category": "rust",
         "install": {
-            "_default": [
-                "bash", "-c",
-                "curl -LsSf https://get.nexte.st/latest/linux"
-                " | tar zxf - -C ${CARGO_HOME:-~/.cargo}/bin",
-            ],
+            "_default": {
+                "linux": [
+                    "bash", "-c",
+                    "curl -LsSf https://get.nexte.st/latest/linux"
+                    " | tar zxf - -C ${CARGO_HOME:-~/.cargo}/bin",
+                ],
+            },
             "brew": ["brew", "install", "cargo-nextest"],
         },
         "needs_sudo": {"_default": False, "brew": False},
@@ -3066,13 +3495,15 @@ TOOL_RECIPES: dict[str, dict] = {
         "label": "Prometheus",
         "category": "monitoring",
         "install": {
-            "_default": [
-                "bash", "-c",
-                "curl -sSfL https://github.com/prometheus/prometheus/"
-                "releases/latest/download/prometheus-*.linux-amd64.tar.gz"
-                " | tar xz --strip-components=1 -C /usr/local/bin"
-                " prometheus promtool",
-            ],
+            "_default": {
+                "linux": [
+                    "bash", "-c",
+                    "curl -sSfL https://github.com/prometheus/prometheus/"
+                    "releases/latest/download/prometheus-*.linux-amd64.tar.gz"
+                    " | tar xz --strip-components=1 -C /usr/local/bin"
+                    " prometheus promtool",
+                ],
+            },
             "brew": ["brew", "install", "prometheus"],
         },
         "needs_sudo": {"_default": True, "brew": False},
@@ -3096,12 +3527,14 @@ TOOL_RECIPES: dict[str, dict] = {
         "category": "monitoring",
         "cli": "loki",
         "install": {
-            "_default": [
-                "bash", "-c",
-                "curl -sSfL -o /usr/local/bin/loki"
-                " https://github.com/grafana/loki/releases/latest/download/"
-                "loki-linux-amd64.zip && chmod +x /usr/local/bin/loki",
-            ],
+            "_default": {
+                "linux": [
+                    "bash", "-c",
+                    "curl -sSfL -o /usr/local/bin/loki"
+                    " https://github.com/grafana/loki/releases/latest/download/"
+                    "loki-linux-amd64.zip && chmod +x /usr/local/bin/loki",
+                ],
+            },
             "brew": ["brew", "install", "loki"],
         },
         "needs_sudo": {"_default": True, "brew": False},
@@ -3112,12 +3545,14 @@ TOOL_RECIPES: dict[str, dict] = {
         "label": "Promtail (Loki agent)",
         "category": "monitoring",
         "install": {
-            "_default": [
-                "bash", "-c",
-                "curl -sSfL -o /usr/local/bin/promtail"
-                " https://github.com/grafana/loki/releases/latest/download/"
-                "promtail-linux-amd64.zip && chmod +x /usr/local/bin/promtail",
-            ],
+            "_default": {
+                "linux": [
+                    "bash", "-c",
+                    "curl -sSfL -o /usr/local/bin/promtail"
+                    " https://github.com/grafana/loki/releases/latest/download/"
+                    "promtail-linux-amd64.zip && chmod +x /usr/local/bin/promtail",
+                ],
+            },
             "brew": ["brew", "install", "promtail"],
         },
         "needs_sudo": {"_default": True, "brew": False},
@@ -3128,12 +3563,14 @@ TOOL_RECIPES: dict[str, dict] = {
         "label": "Jaeger (distributed tracing)",
         "category": "monitoring",
         "install": {
-            "_default": [
-                "bash", "-c",
-                "curl -sSfL https://github.com/jaegertracing/jaeger/releases/"
-                "latest/download/jaeger-all-in-one-linux-amd64.tar.gz"
-                " | tar xz -C /usr/local/bin",
-            ],
+            "_default": {
+                "linux": [
+                    "bash", "-c",
+                    "curl -sSfL https://github.com/jaegertracing/jaeger/releases/"
+                    "latest/download/jaeger-all-in-one-linux-amd64.tar.gz"
+                    " | tar xz -C /usr/local/bin",
+                ],
+            },
             "brew": ["brew", "install", "jaeger"],
         },
         "needs_sudo": {"_default": True, "brew": False},
@@ -3145,12 +3582,14 @@ TOOL_RECIPES: dict[str, dict] = {
         "label": "Vegeta (HTTP load testing)",
         "category": "monitoring",
         "install": {
-            "_default": [
-                "bash", "-c",
-                "curl -sSfL https://github.com/tsenart/vegeta/releases/"
-                "latest/download/vegeta_linux_amd64.tar.gz"
-                " | tar xz -C /usr/local/bin vegeta",
-            ],
+            "_default": {
+                "linux": [
+                    "bash", "-c",
+                    "curl -sSfL https://github.com/tsenart/vegeta/releases/"
+                    "latest/download/vegeta_linux_amd64.tar.gz"
+                    " | tar xz -C /usr/local/bin vegeta",
+                ],
+            },
             "brew": ["brew", "install", "vegeta"],
         },
         "needs_sudo": {"_default": True, "brew": False},
@@ -3605,12 +4044,14 @@ TOOL_RECIPES: dict[str, dict] = {
         "label": "yq (YAML processor)",
         "category": "system",
         "install": {
-            "_default": [
-                "bash", "-c",
-                "curl -sSfL -o /usr/local/bin/yq"
-                " https://github.com/mikefarah/yq/releases/latest/download/"
-                "yq_linux_amd64 && chmod +x /usr/local/bin/yq",
-            ],
+            "_default": {
+                "linux": [
+                    "bash", "-c",
+                    "curl -sSfL -o /usr/local/bin/yq"
+                    " https://github.com/mikefarah/yq/releases/latest/download/"
+                    "yq_linux_amd64 && chmod +x /usr/local/bin/yq",
+                ],
+            },
             "brew": ["brew", "install", "yq"],
             "snap": ["snap", "install", "yq"],
         },
@@ -3805,13 +4246,15 @@ TOOL_RECIPES: dict[str, dict] = {
         "category": "formatting",
         "cli": "ec",
         "install": {
-            "_default": [
-                "bash", "-c",
-                "curl -sSfL -o /usr/local/bin/ec"
-                " https://github.com/editorconfig-checker/"
-                "editorconfig-checker/releases/latest/download/"
-                "ec-linux-amd64 && chmod +x /usr/local/bin/ec",
-            ],
+            "_default": {
+                "linux": [
+                    "bash", "-c",
+                    "curl -sSfL -o /usr/local/bin/ec"
+                    " https://github.com/editorconfig-checker/"
+                    "editorconfig-checker/releases/latest/download/"
+                    "ec-linux-amd64 && chmod +x /usr/local/bin/ec",
+                ],
+            },
             "brew": ["brew", "install", "editorconfig-checker"],
         },
         "needs_sudo": {"_default": True, "brew": False},
@@ -3963,12 +4406,14 @@ TOOL_RECIPES: dict[str, dict] = {
         "label": "Buf (protobuf tooling)",
         "category": "protobuf",
         "install": {
-            "_default": [
-                "bash", "-c",
-                "curl -sSL https://github.com/bufbuild/buf/releases/latest/"
-                "download/buf-Linux-x86_64"
-                " -o /usr/local/bin/buf && chmod +x /usr/local/bin/buf",
-            ],
+            "_default": {
+                "linux": [
+                    "bash", "-c",
+                    "curl -sSL https://github.com/bufbuild/buf/releases/latest/"
+                    "download/buf-Linux-x86_64"
+                    " -o /usr/local/bin/buf && chmod +x /usr/local/bin/buf",
+                ],
+            },
             "brew": ["brew", "install", "bufbuild/buf/buf"],
         },
         "needs_sudo": {"_default": True, "brew": False},
@@ -4107,12 +4552,14 @@ TOOL_RECIPES: dict[str, dict] = {
         "label": "ZLS (Zig language server)",
         "category": "zig",
         "install": {
-            "_default": [
-                "bash", "-c",
-                "curl -sSfL -o /usr/local/bin/zls"
-                " https://github.com/zigtools/zls/releases/latest/download/"
-                "zls-linux-x86_64 && chmod +x /usr/local/bin/zls",
-            ],
+            "_default": {
+                "linux": [
+                    "bash", "-c",
+                    "curl -sSfL -o /usr/local/bin/zls"
+                    " https://github.com/zigtools/zls/releases/latest/download/"
+                    "zls-linux-x86_64 && chmod +x /usr/local/bin/zls",
+                ],
+            },
             "brew": ["brew", "install", "zls"],
         },
         "needs_sudo": {"_default": True, "brew": False},
@@ -4271,12 +4718,14 @@ TOOL_RECIPES: dict[str, dict] = {
         "label": "SOPS (secret encryption)",
         "category": "crypto",
         "install": {
-            "_default": [
-                "bash", "-c",
-                "curl -sSfL -o /usr/local/bin/sops"
-                " https://github.com/getsops/sops/releases/latest/download/"
-                "sops-linux-amd64 && chmod +x /usr/local/bin/sops",
-            ],
+            "_default": {
+                "linux": [
+                    "bash", "-c",
+                    "curl -sSfL -o /usr/local/bin/sops"
+                    " https://github.com/getsops/sops/releases/latest/download/"
+                    "sops-linux-amd64 && chmod +x /usr/local/bin/sops",
+                ],
+            },
             "brew": ["brew", "install", "sops"],
         },
         "needs_sudo": {"_default": True, "brew": False},
@@ -4565,12 +5014,14 @@ TOOL_RECIPES: dict[str, dict] = {
         "label": "DigitalOcean CLI",
         "category": "cloud",
         "install": {
-            "_default": [
-                "bash", "-c",
-                "curl -sSL https://github.com/digitalocean/doctl/releases/"
-                "latest/download/doctl-linux-amd64.tar.gz"
-                " | tar xz -C /usr/local/bin",
-            ],
+            "_default": {
+                "linux": [
+                    "bash", "-c",
+                    "curl -sSL https://github.com/digitalocean/doctl/releases/"
+                    "latest/download/doctl-linux-amd64.tar.gz"
+                    " | tar xz -C /usr/local/bin",
+                ],
+            },
             "brew": ["brew", "install", "doctl"],
             "snap": ["snap", "install", "doctl"],
         },
@@ -4881,12 +5332,14 @@ TOOL_RECIPES: dict[str, dict] = {
         "label": "Traefik",
         "category": "proxy",
         "install": {
-            "_default": [
-                "bash", "-c",
-                "curl -sSfL https://github.com/traefik/traefik/releases/"
-                "latest/download/traefik_linux_amd64.tar.gz"
-                " | tar xz -C /usr/local/bin traefik",
-            ],
+            "_default": {
+                "linux": [
+                    "bash", "-c",
+                    "curl -sSfL https://github.com/traefik/traefik/releases/"
+                    "latest/download/traefik_linux_amd64.tar.gz"
+                    " | tar xz -C /usr/local/bin traefik",
+                ],
+            },
             "brew": ["brew", "install", "traefik"],
         },
         "needs_sudo": {"_default": True, "brew": False},
@@ -4899,13 +5352,15 @@ TOOL_RECIPES: dict[str, dict] = {
         "install": {
             "apt": ["apt-get", "install", "-y", "envoy"],
             "brew": ["brew", "install", "envoy"],
-            "_default": [
-                "bash", "-c",
-                "curl -sSfL -o /usr/local/bin/envoy"
-                " https://github.com/envoyproxy/envoy/releases/latest/"
-                "download/envoy-contrib-linux-x86_64"
-                " && chmod +x /usr/local/bin/envoy",
-            ],
+            "_default": {
+                "linux": [
+                    "bash", "-c",
+                    "curl -sSfL -o /usr/local/bin/envoy"
+                    " https://github.com/envoyproxy/envoy/releases/latest/"
+                    "download/envoy-contrib-linux-x86_64"
+                    " && chmod +x /usr/local/bin/envoy",
+                ],
+            },
         },
         "needs_sudo": {"apt": True, "brew": False, "_default": True},
         "verify": ["envoy", "--version"],
@@ -4947,12 +5402,14 @@ TOOL_RECIPES: dict[str, dict] = {
         "category": "logging",
         "cli": "stern",
         "install": {
-            "_default": [
-                "bash", "-c",
-                "curl -sSfL https://github.com/stern/stern/releases/"
-                "latest/download/stern_linux_amd64.tar.gz"
-                " | tar xz -C /usr/local/bin stern",
-            ],
+            "_default": {
+                "linux": [
+                    "bash", "-c",
+                    "curl -sSfL https://github.com/stern/stern/releases/"
+                    "latest/download/stern_linux_amd64.tar.gz"
+                    " | tar xz -C /usr/local/bin stern",
+                ],
+            },
             "brew": ["brew", "install", "stern"],
         },
         "needs_sudo": {"_default": True, "brew": False},
@@ -4968,12 +5425,14 @@ TOOL_RECIPES: dict[str, dict] = {
         "label": "k6 (load testing)",
         "category": "testing",
         "install": {
-            "_default": [
-                "bash", "-c",
-                "curl -sSfL https://github.com/grafana/k6/releases/"
-                "latest/download/k6-linux-amd64.tar.gz"
-                " | tar xz --strip-components=1 -C /usr/local/bin",
-            ],
+            "_default": {
+                "linux": [
+                    "bash", "-c",
+                    "curl -sSfL https://github.com/grafana/k6/releases/"
+                    "latest/download/k6-linux-amd64.tar.gz"
+                    " | tar xz --strip-components=1 -C /usr/local/bin",
+                ],
+            },
             "brew": ["brew", "install", "k6"],
             "snap": ["snap", "install", "k6"],
         },
@@ -5117,12 +5576,14 @@ TOOL_RECIPES: dict[str, dict] = {
         "label": "Earthly (CI/CD build tool)",
         "category": "taskrunner",
         "install": {
-            "_default": [
-                "bash", "-c",
-                "curl -sSfL https://github.com/earthly/earthly/releases/"
-                "latest/download/earthly-linux-amd64"
-                " -o /usr/local/bin/earthly && chmod +x /usr/local/bin/earthly",
-            ],
+            "_default": {
+                "linux": [
+                    "bash", "-c",
+                    "curl -sSfL https://github.com/earthly/earthly/releases/"
+                    "latest/download/earthly-linux-amd64"
+                    " -o /usr/local/bin/earthly && chmod +x /usr/local/bin/earthly",
+                ],
+            },
             "brew": ["brew", "install", "earthly"],
         },
         "needs_sudo": {"_default": True, "brew": False},
@@ -5154,13 +5615,15 @@ TOOL_RECIPES: dict[str, dict] = {
         "install": {
             "apt": ["apt-get", "install", "-y", "etcd-client"],
             "brew": ["brew", "install", "etcd"],
-            "_default": [
-                "bash", "-c",
-                "curl -sSfL https://github.com/etcd-io/etcd/releases/"
-                "latest/download/etcd-linux-amd64.tar.gz"
-                " | tar xz --strip-components=1 -C /usr/local/bin"
-                " etcdctl etcd",
-            ],
+            "_default": {
+                "linux": [
+                    "bash", "-c",
+                    "curl -sSfL https://github.com/etcd-io/etcd/releases/"
+                    "latest/download/etcd-linux-amd64.tar.gz"
+                    " | tar xz --strip-components=1 -C /usr/local/bin"
+                    " etcdctl etcd",
+                ],
+            },
         },
         "needs_sudo": {"apt": True, "brew": False, "_default": True},
         "verify": ["etcdctl", "version"],

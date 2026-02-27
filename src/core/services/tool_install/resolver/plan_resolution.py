@@ -291,8 +291,17 @@ def resolve_install_plan(
             })
             continue
 
-        cmd = list(recipe_t["install"][method])
+        cmd = recipe_t["install"][method]
         sudo = recipe_t.get("needs_sudo", {}).get(method, False)
+
+        # ── Resolve OS variant for dict _default ─────────────
+        # _default may be a dict keyed by OS (e.g. {"linux": [...],
+        # "darwin": [...]}). Extract the command for this OS.
+        if method == "_default" and isinstance(cmd, dict):
+            import platform as _plat
+            current_os = _plat.system().lower()
+            cmd = cmd[current_os]  # guaranteed to exist — method_selection checked
+        cmd = list(cmd)
 
         # ── Arch/OS variable substitution for _default commands ──
         if method == "_default":

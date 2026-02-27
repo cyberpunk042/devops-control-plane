@@ -24,6 +24,7 @@ from src.core.services.tool_install.resolver.method_selection import (  # noqa: 
     _pick_install_method,
     _pick_method_command,
     _wrap_with_env,
+    get_update_map,
 )
 from src.core.services.tool_install.resolver.plan_resolution import (  # noqa: F401
     resolve_install_plan,

@@ -32,7 +32,7 @@ RECIPE_TYPES = {"tool", "data_pack", "config"}
 # Valid install method keys (PM names + _default)
 VALID_METHOD_KEYS = {
     "_default", "apt", "dnf", "yum", "apk", "pacman",
-    "zypper", "brew", "snap", "pip", "npm", "cargo", "source",
+    "zypper", "brew", "snap", "pip", "pipx", "npm", "cargo", "source",
 }
 
 # Valid distro family keys (for packages map)

@@ -139,6 +139,23 @@ KNOWN_PACKAGES: dict[str, dict[str, str | list[str]]] = {
         "apt": "gnupg", "dnf": "gnupg2", "apk": "gnupg",
         "pacman": "gnupg", "zypper": "gpg2", "brew": "gnupg",
     },
+    "kubectl": {
+        "apt": "kubectl", "dnf": "kubernetes-client", "apk": "kubectl",
+        "pacman": "kubectl", "zypper": "kubernetes-client", "brew": "kubectl",
+    },
+    "yarn": {
+        "apt": "yarn", "dnf": "yarnpkg", "apk": "yarn",
+        "pacman": "yarn", "zypper": "yarn", "brew": "yarn",
+    },
+    "poetry": {
+        "apt": "python3-poetry", "dnf": "python3-poetry",
+        "pacman": "python-poetry", "brew": "poetry",
+    },
+    "pipx": {
+        "apt": "pipx", "dnf": "pipx", "apk": "pipx",
+        "pacman": "python-pipx", "zypper": "python3-pipx",
+        "brew": "pipx",
+    },
     "bash": {
         "apt": "bash", "dnf": "bash", "apk": "bash",
         "pacman": "bash", "zypper": "bash", "brew": "bash",
@@ -210,7 +227,7 @@ KNOWN_PACKAGES: dict[str, dict[str, str | list[str]]] = {
     "node": {
         "apt": "nodejs", "dnf": "nodejs",
         "apk": "nodejs", "pacman": "nodejs",
-        "zypper": "nodejs16", "brew": "node",
+        "zypper": "nodejs20", "brew": "node",
     },
     "npm": {
         "apt": "npm", "dnf": "npm",
@@ -219,7 +236,7 @@ KNOWN_PACKAGES: dict[str, dict[str, str | list[str]]] = {
     },
     "ruby": {
         "apt": "ruby-full", "dnf": "ruby",
-        "apk": "ruby-full", "pacman": "ruby",
+        "apk": "ruby", "pacman": "ruby",
         "zypper": "ruby", "brew": "ruby",
     },
     "php": {

@@ -13,6 +13,7 @@ import subprocess
 import sys
 
 from src.core.services.tool_install.data.recipes import TOOL_RECIPES
+from src.core.services.tool_install.resolver.method_selection import get_update_map
 
 _PIP: list[str] = [sys.executable, "-m", "pip"]
 
@@ -165,7 +166,7 @@ def check_updates(
             continue
 
         version = get_tool_version(tool_id)
-        has_update_cmd = bool(recipe.get("update"))
+        has_update_cmd = bool(get_update_map(recipe))
 
         results.append({
             "tool": tool_id,

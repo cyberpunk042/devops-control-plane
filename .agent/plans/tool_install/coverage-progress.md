@@ -1,7 +1,7 @@
 # Tool Coverage Progress Tracker
 
 > **Last updated:** 2026-02-26
-> **Total recipes:** 296 | **Audited:** 4 | **Unaudited:** 292
+> **Total recipes:** 296 | **Audited:** 5 | **Unaudited:** 291
 > **Missing from EXPECTED_TOOLS:** 7 (java, nvm, pipx, python3, rustup, tar, unzip)
 
 ## How to use this file
@@ -34,7 +34,7 @@ Process these FIRST — they unblock all other stacks.
 | 8 | `dig` | ⬜ | | DNS lookup, bind-utils |
 | 9 | `expect` | ⬜ | | Terminal automation |
 | 10 | `pip` | ⬜ | | Python package installer |
-| 11 | `python` | ⬜ | python3 | Has partial data |
+| 11 | `python` | ✅ | python3 | 589/589 (100%), 7 Layer 3 handlers |
 | 12 | `build-essential` | ⬜ | gcc | Has partial data |
 
 ### Missing expected tools (need new recipes)
@@ -57,7 +57,7 @@ These unlock all language-specific stacks.
 
 | # | Tool ID | Status | CLI | Notes |
 |---|---------|--------|-----|-------|
-| 20 | `node` | ⬜ | | Node.js runtime |
+| 20 | `node` | ✅ | node | 551/551 (100%), 4 Layer 3 handlers |
 | 21 | `npm` | ⬜ | | Node package manager |
 | 22 | `npx` | ⬜ | | Node package executor |
 | 23 | `go` | ✅ | | Go language runtime |

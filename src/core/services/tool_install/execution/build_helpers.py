@@ -12,6 +12,7 @@ import os
 import platform
 import re
 import shutil
+import struct
 from pathlib import Path
 from typing import Any
 
@@ -171,6 +172,7 @@ def _substitute_install_vars(
 
     Standard variables available:
     - ``{arch}`` — normalized architecture (``amd64``, ``arm64``)
+    - ``{os}`` — operating system (``linux``, ``darwin``)
     - ``{version}`` — selected version (if supplied)
     - ``{user}`` — current username
     - ``{home}`` — home directory
@@ -189,8 +191,16 @@ def _substitute_install_vars(
         New list with tokens substituted.
     """
     machine = platform.machine().lower()
+
+    # Raspbian: 64-bit kernel + 32-bit userland correction.
+    # platform.machine() reports kernel arch, not userland.
+    pointer_bits = struct.calcsize("P") * 8
+    if machine == "aarch64" and pointer_bits == 32:
+        machine = "armv7l"
+
     variables: dict[str, str] = {
         "arch": _IARCH_MAP.get(machine, machine),
+        "os": platform.system().lower(),
         "user": os.getenv("USER", os.getenv("LOGNAME", "unknown")),
         "home": str(Path.home()),
         "nproc": str(os.cpu_count() or 1),

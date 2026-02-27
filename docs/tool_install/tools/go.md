@@ -1,7 +1,7 @@
 # go — Full Spectrum Analysis
 
 > **Tool ID:** `go`
-> **Last audited:** 2026-02-26
+> **Last audited:** 2026-02-26 (re-audited — fixed missing cli + handler schema)
 > **Status:** ✅ Complete (coverage + remediation)
 
 ---
@@ -305,7 +305,7 @@ Handlers:  19 PM-family + 3 go-method + 3 on_failure + 9 INFRA = 31 total
 
 | File | Change |
 |------|--------|
-| `data/recipes.py` | Added `cli: "go"`, `category: "language"` |
+| `data/recipes.py` | Added `cli: "go"` (was missing from recipe despite docs claiming it) |
 | `data/recipes.py` | Added `_default` install method (go.dev binary tarball) |
 | `data/recipes.py` | Added `zypper` install/update method |
 | `data/recipes.py` | Added `requires: {"binaries": ["curl"]}` |
@@ -317,6 +317,7 @@ Handlers:  19 PM-family + 3 go-method + 3 on_failure + 9 INFRA = 31 total
 | `data/recipes.py` | Added 3 `on_failure` handlers (GOPATH perms, PATH, noexec /tmp) |
 | `resolver/dynamic_dep_resolver.py` | Fixed `apt: "golang-go"`, added `snap: "go"` |
 | `data/remediation_handlers.py` | Added `go` METHOD_FAMILY_HANDLERS (3 handlers) |
+| `data/remediation_handlers.py` | Fixed `go_cgo_missing_compiler` handler: `packages` was a bare string `"build_tools"`, must be a per-family dict |
 
 ---
 

@@ -8,6 +8,7 @@ Transforms recipe data + system profile into concrete commands.
 from __future__ import annotations
 
 import logging
+import platform
 import shlex
 import shutil
 from typing import Any
@@ -82,7 +83,15 @@ def _pick_install_method(
         elif method == "brew":
             if not shutil.which("brew"):
                 continue
-        elif method not in (primary_pm, "_default"):
+        elif method == "_default":
+            # _default may be a dict keyed by OS (linux/darwin).
+            # If so, only select it when the current OS has a variant.
+            default_val = install["_default"]
+            if isinstance(default_val, dict):
+                current_os = platform.system().lower()
+                if current_os not in default_val:
+                    continue
+        elif method != primary_pm:
             # It's a PM key that doesn't match our system — skip
             continue
         return method
@@ -95,9 +104,15 @@ def _pick_install_method(
     if snap_available and "snap" in install:
         return "snap"
 
-    # 4. _default
+    # 4. _default (same OS gating as above)
     if "_default" in install:
-        return "_default"
+        default_val = install["_default"]
+        if isinstance(default_val, dict):
+            current_os = platform.system().lower()
+            if current_os in default_val:
+                return "_default"
+        else:
+            return "_default"
 
     # 5. source (last-resort — needs compiler + build tools)
     if "source" in install:
@@ -198,3 +213,112 @@ def _pick_method_command(
         return cmd, key
 
     return None
+
+
+# ═══════════════════════════════════════════════════════════════════
+# Update command derivation
+# ═══════════════════════════════════════════════════════════════════
+#
+# Standard PM-based update commands are derivable from install commands.
+# Only PM methods are derivable — _default and source are NOT because
+# binary-download updates vary wildly between tools.
+
+# PM → (install_verb, update_verb, extra_flags)
+# The derivation replaces `install_verb` with `update_verb` in the command.
+_PM_UPDATE_RULES: dict[str, tuple[str, str, list[str]]] = {
+    # apt-get install -y PKG  →  apt-get install --only-upgrade -y PKG
+    "apt":    ("install", "install", ["--only-upgrade"]),
+    # dnf install -y PKG  →  dnf upgrade -y PKG
+    "dnf":    ("install", "upgrade", []),
+    # yum install -y PKG  →  yum update -y PKG
+    "yum":    ("install", "update", []),
+    # apk add PKG  →  apk upgrade PKG
+    "apk":    ("add", "upgrade", []),
+    # pacman -S --noconfirm PKG  →  pacman -S --noconfirm PKG (same)
+    "pacman": ("-S", "-S", []),
+    # zypper install -y PKG  →  zypper update -y PKG
+    "zypper": ("install", "update", []),
+    # brew install PKG  →  brew upgrade PKG
+    "brew":   ("install", "upgrade", []),
+    # snap install PKG  →  snap refresh PKG
+    "snap":   ("install", "refresh", []),
+}
+
+# Methods that are NOT derivable — each tool's update is unique
+_NON_DERIVABLE_METHODS = {"_default", "source", "pip", "npm", "cargo"}
+
+
+def _derive_update_cmd(
+    install_cmd: list[str],
+    pm: str,
+) -> list[str] | None:
+    """Derive an update command from an install command for a given PM.
+
+    Returns ``None`` if the PM has no derivation rule or the command
+    doesn't match the expected pattern.
+    """
+    rule = _PM_UPDATE_RULES.get(pm)
+    if not rule:
+        return None
+
+    install_verb, update_verb, extra_flags = rule
+
+    # Find and replace the verb
+    cmd = list(install_cmd)  # copy
+    try:
+        idx = cmd.index(install_verb)
+    except ValueError:
+        # Command doesn't contain expected verb — can't derive
+        return None
+
+    cmd[idx] = update_verb
+
+    # Insert extra flags right after the verb
+    if extra_flags:
+        for i, flag in enumerate(extra_flags):
+            cmd.insert(idx + 1 + i, flag)
+
+    # Strip install-only flags that don't apply to update
+    if pm == "snap":
+        # --classic, --channel flags are install-time only
+        cmd = [c for c in cmd if c not in (
+            "--classic", "--edge", "--beta", "--candidate",
+        )]
+
+    return cmd
+
+
+def get_update_map(recipe: dict) -> dict[str, list[str]]:
+    """Get the update command map for a recipe.
+
+    Resolution:
+      1. Recipe's explicit ``update`` map (returned as-is if present)
+      2. Derived from ``install`` map for standard PM methods
+
+    Only PM methods are derived. ``_default``, ``source``, and language
+    PMs (pip, npm, cargo) are excluded because their update commands
+    are tool-specific and not derivable.
+
+    Returns:
+        Method→command dict.  May be empty if no methods are derivable
+        and no explicit update exists.
+    """
+    explicit = recipe.get("update")
+    if explicit:
+        return explicit
+
+    install = recipe.get("install", {})
+    if not install:
+        return {}
+
+    derived: dict[str, list[str]] = {}
+    for method, cmd in install.items():
+        if method in _NON_DERIVABLE_METHODS:
+            continue
+        if not isinstance(cmd, list):
+            continue
+        update_cmd = _derive_update_cmd(cmd, method)
+        if update_cmd:
+            derived[method] = update_cmd
+
+    return derived
