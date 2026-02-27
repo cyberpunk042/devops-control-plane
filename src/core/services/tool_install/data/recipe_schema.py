@@ -121,6 +121,10 @@ _STRATEGY_FIELDS: dict[str, tuple[set[str], set[str]]] = {
         {"cleanup_commands"},
         set(),
     ),
+    "retry": (
+        set(),   # No extra fields — just re-run the same command
+        set(),
+    ),
 }
 
 # ── Field definitions ───────────────────────────────────────────

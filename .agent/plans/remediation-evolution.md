@@ -1,7 +1,7 @@
 # Remediation System — Evolution Plan
 
 > **Created:** 2026-02-26
-> **Status:** Phase 1–5 COMPLETE — Issues D+E deferred
+> **Status:** Phase 1–7 COMPLETE — Issues D+E deferred
 > **Scope:** `src/core/services/tool_install/data/` + `domain/handler_matching.py` + `resolver/plan_resolution.py`
 
 ---
@@ -385,6 +385,29 @@ Do it when handler count makes manual verification impractical.
 - [x] Previous stacks unaffected (PHP, Go all still 100%)
 - [x] Largest single-batch install_via update — 43 tools connected in one pass
 
+### Phase 6: `github_release` — 31 tools connected — ✅ COMPLETE
+
+- [x] Created `METHOD_FAMILY_HANDLERS["github_release"]` with 3 handlers:
+  - `github_rate_limit` — API rate limit exceeded (60/hr unauthenticated)
+  - `github_asset_not_found` — no binary for this OS/arch in the release
+  - `github_extract_failed` — archive extraction failure (partial download, HTML error page)
+- [x] Added `install_via: {"_default": "github_release"}` to 31 tools
+- [x] All 31 tools: FULL COVERAGE
+- [x] Previous stacks unaffected (PHP, Go, curl|bash all still 100%)
+
+### Phase 7: Connect pip/npm/cargo/go/gem — 82 tools — ✅ COMPLETE
+
+- [x] No new handler definitions needed — METHOD_FAMILY_HANDLERS already has pip (11), npm (7+), cargo, gem families
+- [x] Added `install_via` for 82 tools:
+  - `pip`: 32 tools (ruff, black, pytest, ansible, numpy, mypy, etc.)
+  - `npm`: 23 tools (eslint, prettier, yarn, tsx, playwright, etc.)
+  - `cargo`: 18 tools (cargo-watch, delta, just, nushell, hyperfine, etc.)
+  - `go`: 6 more tools (lazygit, shfmt, grpcurl, mage, age, dnsx)
+  - `gem`: 3 tools (bundler, rubocop, asciidoctor)
+- [x] All 82 tools: FULL COVERAGE
+- [x] Example: ruff now gets 11 pip-specific handlers (PEP 668, venv, SSL, wheel, etc.)
+- [x] Previous stacks unaffected
+
 ---
 
 ## 5. What We DON'T Do
@@ -404,21 +427,24 @@ Do it when handler count makes manual verification impractical.
 - [x] Adding a new composer-global tool (e.g. php-cs-fixer) requires NO handler duplication
 - [x] The runtime cascade (`handler_matching.py`) delivers the same handlers that the test validates
 - [x] Method propagation is explicit, not inferred from stderr heuristics
-- [x] Full test suite passes (all PHP + Go + curl|bash tools validated)
-- [x] 5 Go tools now receive Go method family handlers via `install_via`
-- [x] 43 curl|bash tools now receive 3 shared handlers via `install_via`
-- [x] **50 total tools** connected to pattern families (previously 0)
+- [x] Full test suite passes across all connected tools
+- [x] **163 tools** (55% of 299) connected to pattern families via `install_via`
 
 ## 7. Pattern Family Summary
 
-| Family | Handlers | Tools | Shared failures |
-|--------|----------|-------|-----------------|
-| `composer_global` | 2 | phpstan, phpunit | Memory exhaustion, PHP version mismatch |
-| `go` (existing) | 3 | gopls, delve, air, mockgen, protoc-gen-go | Go version, CGO compiler, module not found |
-| `curl_pipe_bash` | 3 | 43 tools | TLS cert, unsupported arch, script 404 |
+| Family | Handlers | Tools | How connected |
+|--------|----------|-------|---------------|
+| `composer_global` | 2 | 2 | New family (Phase 2) |
+| `go` | 3 | 11 | Existing family, newly connected |
+| `curl_pipe_bash` | 3 | 43 | New family (Phase 5) |
+| `github_release` | 3 | 31 | New family (Phase 6) |
+| `pip` | 11 | 32 | Existing family, newly connected |
+| `npm` | 7+ | 23 | Existing family, newly connected |
+| `cargo` | varies | 18 | Existing family, newly connected |
+| `gem` | varies | 3 | Existing family, newly connected |
+| **Total** | | **163 tools** | |
 
 ## 8. Future Work (when needed)
 
-- **`github_release` family** — kubectl, terraform, gh, trivy, lazygit download binaries from GH
 - **Issue D** — per-tool module split (defer until ~400 tools)
 - **Issue E** — TypedDict (defer until IDE support becomes critical)

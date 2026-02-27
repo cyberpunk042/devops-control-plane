@@ -23,6 +23,7 @@ TOOL_RECIPES: dict[str, dict] = {
         "label": "Ruff",
         "install": {"_default": _PIP + ["install", "ruff"]},
         "needs_sudo": {"_default": False},
+        "install_via": {"_default": "pip"},
         "verify": ["ruff", "--version"],
         "update": {"_default": _PIP + ["install", "--upgrade", "ruff"]},
     },
@@ -30,6 +31,7 @@ TOOL_RECIPES: dict[str, dict] = {
         "label": "mypy",
         "install": {"_default": _PIP + ["install", "mypy"]},
         "needs_sudo": {"_default": False},
+        "install_via": {"_default": "pip"},
         "verify": ["mypy", "--version"],
         "update": {"_default": _PIP + ["install", "--upgrade", "mypy"]},
     },
@@ -37,6 +39,7 @@ TOOL_RECIPES: dict[str, dict] = {
         "label": "pytest",
         "install": {"_default": _PIP + ["install", "pytest"]},
         "needs_sudo": {"_default": False},
+        "install_via": {"_default": "pip"},
         "verify": ["pytest", "--version"],
         "update": {"_default": _PIP + ["install", "--upgrade", "pytest"]},
     },
@@ -44,6 +47,7 @@ TOOL_RECIPES: dict[str, dict] = {
         "label": "Black",
         "install": {"_default": _PIP + ["install", "black"]},
         "needs_sudo": {"_default": False},
+        "install_via": {"_default": "pip"},
         "verify": ["black", "--version"],
         "update": {"_default": _PIP + ["install", "--upgrade", "black"]},
     },
@@ -51,6 +55,7 @@ TOOL_RECIPES: dict[str, dict] = {
         "label": "pip-audit",
         "install": {"_default": _PIP + ["install", "pip-audit"]},
         "needs_sudo": {"_default": False},
+        "install_via": {"_default": "pip"},
         "verify": _PIP + ["show", "pip-audit"],
         "update": {"_default": _PIP + ["install", "--upgrade", "pip-audit"]},
     },
@@ -58,6 +63,7 @@ TOOL_RECIPES: dict[str, dict] = {
         "label": "Safety",
         "install": {"_default": _PIP + ["install", "safety"]},
         "needs_sudo": {"_default": False},
+        "install_via": {"_default": "pip"},
         "verify": ["safety", "--version"],
         "update": {"_default": _PIP + ["install", "--upgrade", "safety"]},
     },
@@ -65,6 +71,7 @@ TOOL_RECIPES: dict[str, dict] = {
         "label": "Bandit",
         "install": {"_default": _PIP + ["install", "bandit"]},
         "needs_sudo": {"_default": False},
+        "install_via": {"_default": "pip"},
         "verify": ["bandit", "--version"],
         "update": {"_default": _PIP + ["install", "--upgrade", "bandit"]},
     },
@@ -75,6 +82,7 @@ TOOL_RECIPES: dict[str, dict] = {
         "label": "ESLint",
         "install": {"_default": ["npm", "install", "-g", "eslint"]},
         "needs_sudo": {"_default": False},
+        "install_via": {"_default": "npm"},
         "requires": {"binaries": ["npm"]},
         "verify": ["eslint", "--version"],
         "update": {"_default": ["npm", "update", "-g", "eslint"]},
@@ -83,6 +91,7 @@ TOOL_RECIPES: dict[str, dict] = {
         "label": "Prettier",
         "install": {"_default": ["npm", "install", "-g", "prettier"]},
         "needs_sudo": {"_default": False},
+        "install_via": {"_default": "npm"},
         "requires": {"binaries": ["npm"]},
         "verify": ["prettier", "--version"],
         "update": {"_default": ["npm", "update", "-g", "prettier"]},
@@ -94,6 +103,7 @@ TOOL_RECIPES: dict[str, dict] = {
         "label": "cargo-audit",
         "install": {"_default": ["cargo", "install", "cargo-audit"]},
         "needs_sudo": {"_default": False},
+        "install_via": {"_default": "cargo"},
         "requires": {
             "binaries": ["cargo"],
             "packages": {
@@ -112,6 +122,7 @@ TOOL_RECIPES: dict[str, dict] = {
         "label": "cargo-outdated",
         "install": {"_default": ["cargo", "install", "cargo-outdated"]},
         "needs_sudo": {"_default": False},
+        "install_via": {"_default": "cargo"},
         "requires": {
             "binaries": ["cargo"],
             "packages": {
@@ -284,51 +295,122 @@ TOOL_RECIPES: dict[str, dict] = {
     # ── Category 5: bash-curl + brew alternatives ───────────────
 
     "helm": {
-        "label": "Helm",
+        "cli": "helm",
+        "label": "Helm (Kubernetes package manager)",
+        "category": "k8s",
+        # Helm is available via apt (Buildkite repo + GPG), dnf (Fedora 35+),
+        # apk (Alpine community), brew, snap (--classic), and the official
+        # get-helm-3 installer script. NOT in pacman or zypper official repos.
         "install": {
+            "apt": [
+                "bash", "-c",
+                "apt-get install -y curl gpg apt-transport-https"
+                " && curl -fsSL https://packages.buildkite.com/"
+                "helm-linux/helm-debian/gpgkey"
+                " | gpg --dearmor"
+                " | tee /usr/share/keyrings/helm.gpg > /dev/null"
+                " && echo 'deb [signed-by=/usr/share/keyrings/helm.gpg]"
+                " https://packages.buildkite.com/helm-linux/helm-debian/"
+                "any/ any main'"
+                " | tee /etc/apt/sources.list.d/helm-stable-debian.list"
+                " && apt-get update"
+                " && apt-get install -y helm",
+            ],
+            "dnf": ["dnf", "install", "-y", "helm"],
+            "apk": ["apk", "add", "helm"],
+            "brew": ["brew", "install", "helm"],
+            "snap": ["snap", "install", "helm", "--classic"],
             "_default": [
                 "bash", "-c",
                 "curl -fsSL https://raw.githubusercontent.com/helm/helm"
                 "/main/scripts/get-helm-3 | bash",
             ],
-            "brew": ["brew", "install", "helm"],
         },
-        "needs_sudo": {"_default": True, "brew": False},
+        "needs_sudo": {
+            "apt": True, "dnf": True, "apk": True,
+            "brew": False, "snap": True, "_default": True,
+        },
         "install_via": {"_default": "curl_pipe_bash"},
         "requires": {"binaries": ["curl"]},
+        "prefer": ["apt", "dnf", "apk", "brew"],
         "verify": ["helm", "version"],
         "update": {
+            "apt": ["apt-get", "install", "--only-upgrade", "-y", "helm"],
+            "dnf": ["dnf", "upgrade", "-y", "helm"],
+            "apk": ["apk", "upgrade", "helm"],
+            "brew": ["brew", "upgrade", "helm"],
+            "snap": ["snap", "refresh", "helm"],
             "_default": [
                 "bash", "-c",
                 "curl -fsSL https://raw.githubusercontent.com/helm/helm"
                 "/main/scripts/get-helm-3 | bash",
             ],
-            "brew": ["brew", "upgrade", "helm"],
         },
     },
+
     "trivy": {
-        "label": "Trivy",
+        "cli": "trivy",
+        "label": "Trivy (comprehensive vulnerability scanner)",
+        "category": "security",
+        # Trivy apt/dnf require adding Aqua Security's GPG key + repo.
+        # Not in apk/pacman/zypper standard repos.
+        # Official curl|bash installer handles OS/arch detection.
         "install": {
-            "_default": [
+            "apt": [
                 "bash", "-c",
-                "curl -sfL https://raw.githubusercontent.com/aquasecurity/"
-                "trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin",
+                "apt-get install -y wget apt-transport-https gnupg"
+                " && wget -qO - https://aquasecurity.github.io/trivy-repo/"
+                "deb/public.key"
+                " | gpg --dearmor"
+                " | tee /usr/share/keyrings/trivy.gpg > /dev/null"
+                " && echo 'deb [signed-by=/usr/share/keyrings/trivy.gpg]"
+                " https://aquasecurity.github.io/trivy-repo/deb"
+                " generic main'"
+                " | tee /etc/apt/sources.list.d/trivy.list"
+                " && apt-get update"
+                " && apt-get install -y trivy",
+            ],
+            "dnf": [
+                "bash", "-c",
+                "cat << 'EOF' | tee /etc/yum.repos.d/trivy.repo\n"
+                "[trivy]\n"
+                "name=Trivy repository\n"
+                "baseurl=https://aquasecurity.github.io/trivy-repo/rpm/"
+                "releases/$basearch/\n"
+                "gpgcheck=0\n"
+                "enabled=1\n"
+                "EOF\n"
+                " && dnf install -y trivy",
             ],
             "brew": ["brew", "install", "trivy"],
-        },
-        "needs_sudo": {"_default": True, "brew": False},
-        "install_via": {"_default": "curl_pipe_bash"},
-        "requires": {"binaries": ["curl"]},
-        "verify": ["trivy", "--version"],
-        "update": {
+            "snap": ["snap", "install", "trivy"],
             "_default": [
                 "bash", "-c",
                 "curl -sfL https://raw.githubusercontent.com/aquasecurity/"
                 "trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin",
             ],
+        },
+        "needs_sudo": {
+            "apt": True, "dnf": True,
+            "brew": False, "snap": True, "_default": True,
+        },
+        "install_via": {"_default": "curl_pipe_bash"},
+        "requires": {"binaries": ["curl"]},
+        "prefer": ["apt", "dnf", "brew"],
+        "verify": ["trivy", "--version"],
+        "update": {
+            "apt": ["apt-get", "install", "--only-upgrade", "-y", "trivy"],
+            "dnf": ["dnf", "upgrade", "-y", "trivy"],
             "brew": ["brew", "upgrade", "trivy"],
+            "snap": ["snap", "refresh", "trivy"],
+            "_default": [
+                "bash", "-c",
+                "curl -sfL https://raw.githubusercontent.com/aquasecurity/"
+                "trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin",
+            ],
         },
     },
+
     "skaffold": {
         "label": "Skaffold",
         "install": {
@@ -361,7 +443,7 @@ TOOL_RECIPES: dict[str, dict] = {
     # ── Category 6: snap tools with platform variants ───────────
 
     "kubectl": {
-        "label": "Kubernetes CLI",
+        "label": "kubectl (Kubernetes CLI)",
         "cli": "kubectl",
         "category": "k8s",
         # EVOLUTION NOTE (2026-02-26):
@@ -373,8 +455,9 @@ TOOL_RECIPES: dict[str, dict] = {
         # bare binaries (no archive) for linux and darwin, amd64 and arm64.
         # URL: dl.k8s.io/release/stable.txt → /bin/{os}/{arch}/kubectl
         #
-        # Note: apt/dnf/zypper require adding external Kubernetes repos,
-        # which are not set up by default on most systems. The _default
+        # Note: apt/zypper require adding external Kubernetes repos,
+        # which are not set up by default on most systems. dnf has
+        # kubernetes-client in standard Fedora repos. The _default
         # binary download is the most reliable path.
         "install": {
             "snap":   ["snap", "install", "kubectl", "--classic"],
@@ -399,6 +482,7 @@ TOOL_RECIPES: dict[str, dict] = {
             "apk": True, "pacman": True, "zypper": True,
             "brew": False, "_default": True,
         },
+        "install_via": {"_default": "binary_download"},
         "prefer": ["_default", "snap", "brew"],
         "requires": {"binaries": ["curl"]},
         "arch_map": {"x86_64": "amd64", "aarch64": "arm64", "armv7l": "arm"},
@@ -409,21 +493,118 @@ TOOL_RECIPES: dict[str, dict] = {
             "description": "kubectl should be within ±1 minor version of the K8s cluster.",
         },
         "verify": ["kubectl", "version", "--client"],
-    },
-    "terraform": {
-        "label": "Terraform",
-        "install": {
-            "snap": ["snap", "install", "terraform", "--classic"],
-            "brew": ["brew", "install", "terraform"],
+        "update": {
+            "snap": ["snap", "refresh", "kubectl"],
+            "apt": ["apt-get", "install", "--only-upgrade", "-y", "kubectl"],
+            "dnf": ["dnf", "upgrade", "-y", "kubernetes-client"],
+            "apk": ["apk", "upgrade", "kubectl"],
+            "pacman": ["pacman", "-Syu", "--noconfirm", "kubectl"],
+            "zypper": ["zypper", "update", "-y", "kubernetes-client"],
+            "brew": ["brew", "upgrade", "kubectl"],
+            "_default": [
+                "bash", "-c",
+                "curl -sSfL -o /tmp/kubectl "
+                "\"https://dl.k8s.io/release/"
+                "$(curl -sSfL https://dl.k8s.io/release/stable.txt)"
+                "/bin/{os}/{arch}/kubectl\" && "
+                "chmod +x /tmp/kubectl && "
+                "mv /tmp/kubectl /usr/local/bin/kubectl",
+            ],
         },
-        "needs_sudo": {"snap": True, "brew": False},
-        "prefer": ["snap", "brew"],
+    },
+
+    "terraform": {
+        "cli": "terraform",
+        "label": "Terraform (infrastructure as code)",
+        "category": "iac",
+        "install": {
+            "apt": [
+                "bash", "-c",
+                "wget -O- https://apt.releases.hashicorp.com/gpg"
+                " | sudo gpg --dearmor -o"
+                " /usr/share/keyrings/hashicorp-archive-keyring.gpg"
+                " && echo \"deb [arch=$(dpkg --print-architecture)"
+                " signed-by=/usr/share/keyrings/"
+                "hashicorp-archive-keyring.gpg]"
+                " https://apt.releases.hashicorp.com"
+                " $(lsb_release -cs) main\""
+                " | sudo tee /etc/apt/sources.list.d/hashicorp.list"
+                " && sudo apt-get update"
+                " && sudo apt-get install -y terraform",
+            ],
+            "dnf": [
+                "bash", "-c",
+                "sudo dnf install -y dnf-plugins-core"
+                " && sudo dnf config-manager addrepo"
+                " --from-repofile="
+                "https://rpm.releases.hashicorp.com/fedora/"
+                "hashicorp.repo"
+                " && sudo dnf -y install terraform",
+            ],
+            "pacman": ["pacman", "-S", "--noconfirm", "terraform"],
+            "snap": ["snap", "install", "terraform", "--classic"],
+            "brew": [
+                "bash", "-c",
+                "brew tap hashicorp/tap"
+                " && brew install hashicorp/tap/terraform",
+            ],
+            "_default": [
+                "bash", "-c",
+                "TF_VERSION=$(curl -sSf"
+                " https://checkpoint.hashicorp.com/v1/check/terraform"
+                " | python3 -c"
+                " \"import sys,json;"
+                "print(json.load(sys.stdin)['current_version'])\")"
+                " && curl -sSfL -o /tmp/terraform.zip"
+                " \"https://releases.hashicorp.com/terraform/"
+                "${TF_VERSION}/terraform_${TF_VERSION}"
+                "_{os}_{arch}.zip\""
+                " && sudo unzip -o /tmp/terraform.zip"
+                " -d /usr/local/bin"
+                " && rm /tmp/terraform.zip",
+            ],
+        },
+        "needs_sudo": {
+            "apt": True,
+            "dnf": True,
+            "pacman": True,
+            "snap": True,
+            "brew": False,
+            "_default": True,
+        },
+        "install_via": {"_default": "github_release"},
+        "requires": {"binaries": ["curl", "unzip"]},
+        "arch_map": {"x86_64": "amd64", "aarch64": "arm64", "armv7l": "arm"},
+        "prefer": ["apt", "dnf", "pacman", "snap", "brew"],
         "verify": ["terraform", "--version"],
         "update": {
+            "apt": [
+                "bash", "-c",
+                "sudo apt-get update"
+                " && sudo apt-get install -y --only-upgrade terraform",
+            ],
+            "dnf": ["dnf", "upgrade", "-y", "terraform"],
+            "pacman": ["pacman", "-Syu", "--noconfirm", "terraform"],
             "snap": ["snap", "refresh", "terraform"],
-            "brew": ["brew", "upgrade", "terraform"],
+            "brew": ["brew", "upgrade", "hashicorp/tap/terraform"],
+            "_default": [
+                "bash", "-c",
+                "TF_VERSION=$(curl -sSf"
+                " https://checkpoint.hashicorp.com/v1/check/terraform"
+                " | python3 -c"
+                " \"import sys,json;"
+                "print(json.load(sys.stdin)['current_version'])\")"
+                " && curl -sSfL -o /tmp/terraform.zip"
+                " \"https://releases.hashicorp.com/terraform/"
+                "${TF_VERSION}/terraform_${TF_VERSION}"
+                "_{os}_{arch}.zip\""
+                " && sudo unzip -o /tmp/terraform.zip"
+                " -d /usr/local/bin"
+                " && rm /tmp/terraform.zip",
+            ],
         },
     },
+
     "node": {
         "label": "Node.js",
         "cli": "node",
@@ -563,19 +744,112 @@ TOOL_RECIPES: dict[str, dict] = {
         },
     },
     "gh": {
-        "label": "GitHub CLI",
+        "cli": "gh",
+        "label": "GitHub CLI (GitHub from the terminal)",
+        "category": "scm",
+        # OFFICIAL install methods: apt (GPG + repo), dnf (repo), zypper (repo),
+        # brew. COMMUNITY: apk (github-cli), pacman (github-cli).
+        # Snap is OFFICIALLY DISCOURAGED by GitHub CLI maintainers.
+        # _default downloads from GitHub releases.
         "install": {
-            "snap": ["snap", "install", "gh"],
+            "apt": [
+                "bash", "-c",
+                "(type -p wget >/dev/null"
+                " || (sudo apt update && sudo apt install wget -y))"
+                " && sudo mkdir -p -m 755 /etc/apt/keyrings"
+                " && out=$(mktemp)"
+                " && wget -nv -O$out"
+                " https://cli.github.com/packages/"
+                "githubcli-archive-keyring.gpg"
+                " && cat $out | sudo tee"
+                " /etc/apt/keyrings/githubcli-archive-keyring.gpg"
+                " > /dev/null"
+                " && sudo chmod go+r"
+                " /etc/apt/keyrings/githubcli-archive-keyring.gpg"
+                " && echo \"deb [arch=$(dpkg --print-architecture)"
+                " signed-by=/etc/apt/keyrings/"
+                "githubcli-archive-keyring.gpg]"
+                " https://cli.github.com/packages stable main\""
+                " | sudo tee /etc/apt/sources.list.d/github-cli.list"
+                " > /dev/null"
+                " && sudo apt update"
+                " && sudo apt install gh -y",
+            ],
+            "dnf": [
+                "bash", "-c",
+                "sudo dnf install -y 'dnf-command(config-manager)'"
+                " && sudo dnf config-manager"
+                " --add-repo"
+                " https://cli.github.com/packages/rpm/gh-cli.repo"
+                " && sudo dnf install -y gh --repo gh-cli",
+            ],
+            "apk": ["apk", "add", "github-cli"],
+            "pacman": ["pacman", "-S", "--noconfirm", "github-cli"],
+            "zypper": [
+                "bash", "-c",
+                "sudo zypper addrepo"
+                " https://cli.github.com/packages/rpm/gh-cli.repo"
+                " && sudo zypper ref"
+                " && sudo zypper install -y gh",
+            ],
             "brew": ["brew", "install", "gh"],
+            "snap": ["snap", "install", "gh"],
+            "_default": [
+                "bash", "-c",
+                "GH_VERSION=$(curl -sSf"
+                " https://api.github.com/repos/cli/cli/releases/latest"
+                " | grep '\"tag_name\"'"
+                " | sed 's/.*\"v\\(.*\\)\".*/\\1/')"
+                " && curl -sSfL -o /tmp/gh.tar.gz"
+                " \"https://github.com/cli/cli/releases/download/"
+                "v${GH_VERSION}/gh_${GH_VERSION}_{os}_{arch}.tar.gz\""
+                " && sudo tar -xzf /tmp/gh.tar.gz"
+                " -C /usr/local"
+                " --strip-components=1"
+                " && rm /tmp/gh.tar.gz",
+            ],
         },
-        "needs_sudo": {"snap": True, "brew": False},
-        "prefer": ["snap", "brew"],
+        "needs_sudo": {
+            "apt": True, "dnf": True, "apk": True,
+            "pacman": True, "zypper": True,
+            "brew": False, "snap": True, "_default": True,
+        },
+        "install_via": {"_default": "github_release"},
+        "requires": {"binaries": ["curl"]},
+        "arch_map": {"x86_64": "amd64", "aarch64": "arm64", "armv7l": "armv6"},
+        "prefer": ["apt", "dnf", "apk", "pacman", "zypper", "brew"],
         "verify": ["gh", "--version"],
         "update": {
-            "snap": ["snap", "refresh", "gh"],
+            "apt": [
+                "bash", "-c",
+                "sudo apt update && sudo apt install -y --only-upgrade gh",
+            ],
+            "dnf": ["dnf", "update", "-y", "gh"],
+            "apk": ["apk", "upgrade", "github-cli"],
+            "pacman": ["pacman", "-Syu", "--noconfirm", "github-cli"],
+            "zypper": [
+                "bash", "-c",
+                "sudo zypper ref && sudo zypper update -y gh",
+            ],
             "brew": ["brew", "upgrade", "gh"],
+            "snap": ["snap", "refresh", "gh"],
+            "_default": [
+                "bash", "-c",
+                "GH_VERSION=$(curl -sSf"
+                " https://api.github.com/repos/cli/cli/releases/latest"
+                " | grep '\"tag_name\"'"
+                " | sed 's/.*\"v\\(.*\\)\".*/\\1/')"
+                " && curl -sSfL -o /tmp/gh.tar.gz"
+                " \"https://github.com/cli/cli/releases/download/"
+                "v${GH_VERSION}/gh_${GH_VERSION}_{os}_{arch}.tar.gz\""
+                " && sudo tar -xzf /tmp/gh.tar.gz"
+                " -C /usr/local"
+                " --strip-components=1"
+                " && rm /tmp/gh.tar.gz",
+            ],
         },
     },
+
 
     # ── Category 7: Simple system packages (same name everywhere) ─
 
@@ -650,7 +924,13 @@ TOOL_RECIPES: dict[str, dict] = {
         },
     },
     "jq": {
-        "label": "jq",
+        "cli": "jq",
+        "label": "jq (command-line JSON processor)",
+        "category": "utility",
+        # jq is a simple system package on all PMs.
+        # _default downloads the raw binary from GitHub (no archive).
+        # Binary naming: jq-{os}-{arch} (os: linux/macos, arch: amd64/arm64)
+        # Tag format: jq-VERSION (not v-prefixed)
         "install": {
             "apt":    ["apt-get", "install", "-y", "jq"],
             "dnf":    ["dnf", "install", "-y", "jq"],
@@ -658,10 +938,27 @@ TOOL_RECIPES: dict[str, dict] = {
             "pacman": ["pacman", "-S", "--noconfirm", "jq"],
             "zypper": ["zypper", "install", "-y", "jq"],
             "brew":   ["brew", "install", "jq"],
+            "_default": [
+                "bash", "-c",
+                "JQ_VERSION=$(curl -sSf"
+                " https://api.github.com/repos/jqlang/jq/releases/latest"
+                " | grep '\"tag_name\"'"
+                " | sed 's/.*\"\\(jq-[^\"]*\\)\".*/\\1/')"
+                " && curl -sSfL -o /usr/local/bin/jq"
+                " \"https://github.com/jqlang/jq/releases/download/"
+                "${JQ_VERSION}/jq-{os}-{arch}\""
+                " && chmod +x /usr/local/bin/jq",
+            ],
         },
         "needs_sudo": {
             "apt": True, "dnf": True, "apk": True,
             "pacman": True, "zypper": True, "brew": False,
+            "_default": True,
+        },
+        "install_via": {"_default": "github_release"},
+        "requires": {"binaries": ["curl"]},
+        "arch_map": {
+            "x86_64": "amd64", "aarch64": "arm64", "armv7l": "armhf",
         },
         "verify": ["jq", "--version"],
         "update": {
@@ -671,8 +968,20 @@ TOOL_RECIPES: dict[str, dict] = {
             "pacman": ["pacman", "-S", "--noconfirm", "jq"],
             "zypper": ["zypper", "update", "-y", "jq"],
             "brew":   ["brew", "upgrade", "jq"],
+            "_default": [
+                "bash", "-c",
+                "JQ_VERSION=$(curl -sSf"
+                " https://api.github.com/repos/jqlang/jq/releases/latest"
+                " | grep '\"tag_name\"'"
+                " | sed 's/.*\"\\(jq-[^\"]*\\)\".*/\\1/')"
+                " && curl -sSfL -o /usr/local/bin/jq"
+                " \"https://github.com/jqlang/jq/releases/download/"
+                "${JQ_VERSION}/jq-{os}-{arch}\""
+                " && chmod +x /usr/local/bin/jq",
+            ],
         },
     },
+
     "make": {
         "label": "Make",
         "install": {
@@ -983,6 +1292,7 @@ TOOL_RECIPES: dict[str, dict] = {
             "pacman": True, "zypper": True,
             "brew": False, "_default": False,
         },
+        "install_via": {"_default": "pip"},
         "prefer": ["apt", "dnf", "brew"],
         "requires": {"binaries": ["python3"]},
         "post_env": 'export PATH="$HOME/.local/bin:$PATH"',
@@ -1179,6 +1489,7 @@ TOOL_RECIPES: dict[str, dict] = {
             "pacman": True, "zypper": True, "brew": False,
             "_default": True,
         },
+        "install_via": {"_default": "github_release"},
         "requires": {"binaries": ["docker", "curl"]},
         "version_constraint": {
             "type": "gte",
@@ -1867,6 +2178,7 @@ TOOL_RECIPES: dict[str, dict] = {
         "needs_sudo": {
             "apt": True, "brew": False, "snap": True, "_default": True,
         },
+        "install_via": {"_default": "github_release"},
         "prefer": ["brew", "apt", "snap", "_default"],
         "verify": ["hugo", "version"],
         "update": {
@@ -2131,76 +2443,206 @@ TOOL_RECIPES: dict[str, dict] = {
     # ════════════════════════════════════════════════════════════
 
     "kustomize": {
-        "label": "Kustomize",
+        "cli": "kustomize",
+        "label": "Kustomize (Kubernetes config customization)",
         "category": "k8s",
+        # kustomize is in apk (Alpine community), brew, snap.
+        # NOT in apt, dnf, pacman, zypper standard repos.
+        # Official curl|bash installer from kubernetes-sigs handles
+        # OS/arch detection. GitHub releases use tool-prefixed tags
+        # (kustomize/vX.Y.Z) with lowercase os/arch naming.
         "install": {
+            "apk": ["apk", "add", "kustomize"],
+            "brew": ["brew", "install", "kustomize"],
+            "snap": ["snap", "install", "kustomize"],
             "_default": [
                 "bash", "-c",
                 "curl -s https://raw.githubusercontent.com/kubernetes-sigs/"
                 "kustomize/master/hack/install_kustomize.sh | bash"
-                " && sudo mv kustomize /usr/local/bin/",
+                " && mv kustomize /usr/local/bin/",
             ],
-            "brew": ["brew", "install", "kustomize"],
         },
-        "needs_sudo": {"_default": True, "brew": False},
+        "needs_sudo": {
+            "apk": True, "brew": False,
+            "snap": True, "_default": True,
+        },
         "install_via": {"_default": "curl_pipe_bash"},
         "requires": {"binaries": ["curl"]},
+        "arch_map": {
+            "x86_64": "amd64", "aarch64": "arm64",
+        },
+        "prefer": ["apk", "brew"],
         "verify": ["kustomize", "version"],
-    },
-    "k9s": {
-        "label": "K9s (K8s TUI)",
-        "category": "k8s",
-        "install": {
+        "update": {
+            "apk": ["apk", "upgrade", "kustomize"],
+            "brew": ["brew", "upgrade", "kustomize"],
+            "snap": ["snap", "refresh", "kustomize"],
             "_default": [
                 "bash", "-c",
-                "curl -sS https://webinstall.dev/k9s | bash",
+                "curl -s https://raw.githubusercontent.com/kubernetes-sigs/"
+                "kustomize/master/hack/install_kustomize.sh | bash"
+                " && mv kustomize /usr/local/bin/",
             ],
+        },
+    },
+
+    "k9s": {
+        "cli": "k9s",
+        "label": "K9s (Kubernetes TUI)",
+        "category": "k8s",
+        # k9s is in dnf (Fedora 42+), apk (Alpine community),
+        # pacman (Arch community), brew, snap (--devmode).
+        # NOT in apt or zypper standard repos.
+        # GitHub releases: k9s_{OS}_{arch}.tar.gz (OS capitalized).
+        "install": {
+            "dnf": ["dnf", "install", "-y", "k9s"],
+            "apk": ["apk", "add", "k9s"],
+            "pacman": ["pacman", "-S", "--noconfirm", "k9s"],
             "brew": ["brew", "install", "k9s"],
             "snap": ["snap", "install", "k9s", "--devmode"],
-        },
-        "needs_sudo": {"_default": False, "brew": False, "snap": True},
-        "install_via": {"_default": "curl_pipe_bash"},
-        "requires": {"binaries": ["curl"]},
-        "verify": ["k9s", "version"],
-        "prefer": ["brew", "snap"],
-    },
-    "stern": {
-        "label": "Stern (multi-pod log tailing)",
-        "category": "k8s",
-        "install": {
-            "_default": {
-                "linux": [
-                    "bash", "-c",
-                    "curl -Lo stern https://github.com/stern/stern/releases/"
-                    "latest/download/stern_linux_amd64"
-                    " && chmod +x stern && sudo mv stern /usr/local/bin/",
-                ],
-            },
-            "brew": ["brew", "install", "stern"],
-        },
-        "needs_sudo": {"_default": True, "brew": False},
-        "requires": {"binaries": ["curl"]},
-        "verify": ["stern", "--version"],
-    },
-    "kubectx": {
-        "label": "kubectx + kubens",
-        "category": "k8s",
-        "install": {
             "_default": [
                 "bash", "-c",
-                "curl -Lo kubectx https://github.com/ahmetb/kubectx/releases/"
-                "latest/download/kubectx"
-                " && chmod +x kubectx && sudo mv kubectx /usr/local/bin/"
-                " && curl -Lo kubens https://github.com/ahmetb/kubectx/"
-                "releases/latest/download/kubens"
-                " && chmod +x kubens && sudo mv kubens /usr/local/bin/",
+                "K9S_VERSION=$(curl -sSf"
+                " https://api.github.com/repos/derailed/k9s/releases/latest"
+                " | grep -o '\"tag_name\":\"[^\"]*\"'"
+                " | cut -d'\"' -f4)"
+                " && curl -sSfL"
+                " https://github.com/derailed/k9s/releases/download/"
+                "${K9S_VERSION}/k9s_Linux_{arch}.tar.gz"
+                " | tar -xz -C /usr/local/bin k9s",
             ],
-            "brew": ["brew", "install", "kubectx"],
         },
-        "needs_sudo": {"_default": True, "brew": False},
+        "needs_sudo": {
+            "dnf": True, "apk": True, "pacman": True,
+            "brew": False, "snap": True, "_default": True,
+        },
+        "install_via": {"_default": "github_release"},
         "requires": {"binaries": ["curl"]},
-        "verify": ["kubectx", "--help"],
+        "arch_map": {
+            "x86_64": "amd64", "aarch64": "arm64", "armv7l": "armv7",
+        },
+        "prefer": ["dnf", "apk", "pacman", "brew"],
+        "verify": ["k9s", "version"],
+        "update": {
+            "dnf": ["dnf", "upgrade", "-y", "k9s"],
+            "apk": ["apk", "upgrade", "k9s"],
+            "pacman": ["pacman", "-Syu", "--noconfirm", "k9s"],
+            "brew": ["brew", "upgrade", "k9s"],
+            "snap": ["snap", "refresh", "k9s"],
+            "_default": [
+                "bash", "-c",
+                "K9S_VERSION=$(curl -sSf"
+                " https://api.github.com/repos/derailed/k9s/releases/latest"
+                " | grep -o '\"tag_name\":\"[^\"]*\"'"
+                " | cut -d'\"' -f4)"
+                " && curl -sSfL"
+                " https://github.com/derailed/k9s/releases/download/"
+                "${K9S_VERSION}/k9s_Linux_{arch}.tar.gz"
+                " | tar -xz -C /usr/local/bin k9s",
+            ],
+        },
     },
+
+    "stern": {
+        "cli": "stern",
+        "label": "Stern (multi-pod K8s log tailing)",
+        "category": "k8s",
+        # stern is NOT in any system PM repos (apt, dnf, apk, pacman, zypper).
+        # Only available via brew and GitHub releases.
+        # GitHub releases: stern_{version}_{os}_{arch}.tar.gz
+        # OS: linux, darwin (lowercase). Arch: amd64, arm64, arm.
+        # Version in tag has 'v' prefix, in filename it does not.
+        "install": {
+            "brew": ["brew", "install", "stern"],
+            "_default": [
+                "bash", "-c",
+                "VERSION=$(curl -sSf https://api.github.com/repos/stern/stern"
+                "/releases/latest | grep -o '\"tag_name\": \"v[^\"]*\"'"
+                " | cut -d'\"' -f4 | sed 's/^v//') && "
+                "curl -sSfL https://github.com/stern/stern/releases/download/"
+                "v${VERSION}/stern_${VERSION}_{os}_{arch}.tar.gz"
+                " | tar -xz -C /usr/local/bin stern",
+            ],
+        },
+        "needs_sudo": {"brew": False, "_default": True},
+        "install_via": {"_default": "github_release"},
+        "requires": {"binaries": ["curl"]},
+        "arch_map": {
+            "x86_64": "amd64", "aarch64": "arm64", "armv7l": "arm",
+        },
+        "prefer": ["brew"],
+        "verify": ["stern", "--version"],
+        "update": {
+            "brew": ["brew", "upgrade", "stern"],
+            "_default": [
+                "bash", "-c",
+                "VERSION=$(curl -sSf https://api.github.com/repos/stern/stern"
+                "/releases/latest | grep -o '\"tag_name\": \"v[^\"]*\"'"
+                " | cut -d'\"' -f4 | sed 's/^v//') && "
+                "curl -sSfL https://github.com/stern/stern/releases/download/"
+                "v${VERSION}/stern_${VERSION}_{os}_{arch}.tar.gz"
+                " | tar -xz -C /usr/local/bin stern",
+            ],
+        },
+    },
+
+    "kubectx": {
+        "cli": "kubectx",
+        "label": "kubectx + kubens (K8s context/namespace switcher)",
+        "category": "k8s",
+        # kubectx installs BOTH kubectx and kubens binaries.
+        # NOT in apt, dnf, apk, zypper standard repos.
+        # Available in pacman (community), brew, snap.
+        # GitHub releases: separate tar.gz for kubectx and kubens.
+        # Uses x86_64 (not amd64!) in asset names, arm64, armv7.
+        # Tag version IS included in filename: kubectx_v0.9.5_linux_x86_64.tar.gz
+        "install": {
+            "pacman": ["pacman", "-S", "--noconfirm", "kubectx"],
+            "brew": ["brew", "install", "kubectx"],
+            "snap": ["snap", "install", "kubectx", "--classic"],
+            "_default": [
+                "bash", "-c",
+                "VERSION=$(curl -sSf https://api.github.com/repos/ahmetb/"
+                "kubectx/releases/latest | grep -o '\"tag_name\": \"[^\"]*\"'"
+                " | cut -d'\"' -f4) && "
+                "curl -sSfL https://github.com/ahmetb/kubectx/releases/"
+                "download/${VERSION}/kubectx_${VERSION}_{os}_{arch}.tar.gz"
+                " | tar -xz -C /usr/local/bin kubectx && "
+                "curl -sSfL https://github.com/ahmetb/kubectx/releases/"
+                "download/${VERSION}/kubens_${VERSION}_{os}_{arch}.tar.gz"
+                " | tar -xz -C /usr/local/bin kubens",
+            ],
+        },
+        "needs_sudo": {
+            "pacman": True, "brew": False,
+            "snap": True, "_default": True,
+        },
+        "install_via": {"_default": "github_release"},
+        "requires": {"binaries": ["curl"]},
+        "arch_map": {
+            "aarch64": "arm64", "armv7l": "armv7",
+        },
+        "prefer": ["pacman", "brew"],
+        "verify": ["kubectx", "--help"],
+        "update": {
+            "pacman": ["pacman", "-Syu", "--noconfirm", "kubectx"],
+            "brew": ["brew", "upgrade", "kubectx"],
+            "snap": ["snap", "refresh", "kubectx"],
+            "_default": [
+                "bash", "-c",
+                "VERSION=$(curl -sSf https://api.github.com/repos/ahmetb/"
+                "kubectx/releases/latest | grep -o '\"tag_name\": \"[^\"]*\"'"
+                " | cut -d'\"' -f4) && "
+                "curl -sSfL https://github.com/ahmetb/kubectx/releases/"
+                "download/${VERSION}/kubectx_${VERSION}_{os}_{arch}.tar.gz"
+                " | tar -xz -C /usr/local/bin kubectx && "
+                "curl -sSfL https://github.com/ahmetb/kubectx/releases/"
+                "download/${VERSION}/kubens_${VERSION}_{os}_{arch}.tar.gz"
+                " | tar -xz -C /usr/local/bin kubens",
+            ],
+        },
+    },
+
     "argocd-cli": {
         "label": "Argo CD CLI",
         "category": "k8s",
@@ -2218,59 +2660,140 @@ TOOL_RECIPES: dict[str, dict] = {
             "brew": ["brew", "install", "argocd"],
         },
         "needs_sudo": {"_default": True, "brew": False},
+        "install_via": {"_default": "github_release"},
         "requires": {"binaries": ["curl"]},
         "verify": ["argocd", "version", "--client"],
     },
     "flux": {
-        "label": "Flux CD CLI",
+        "cli": "flux",
+        "label": "Flux CD CLI (GitOps for Kubernetes)",
         "category": "k8s",
+        # flux is NOT in apt, dnf, apk, zypper, snap standard repos.
+        # brew uses a custom tap: fluxcd/tap/flux.
+        # Official curl|bash installer handles OS/arch detection.
+        # GitHub releases (fluxcd/flux2): flux_{version}_{os}_{arch}.tar.gz
+        # Version in tag has 'v' prefix, in filename it does not.
         "install": {
+            "brew": ["brew", "install", "fluxcd/tap/flux"],
             "_default": [
                 "bash", "-c",
-                "curl -s https://fluxcd.io/install.sh | sudo bash",
+                "curl -s https://fluxcd.io/install.sh | bash",
             ],
-            "brew": ["brew", "install", "fluxcd/tap/flux"],
         },
-        "needs_sudo": {"_default": True, "brew": False},
+        "needs_sudo": {"brew": False, "_default": True},
         "install_via": {"_default": "curl_pipe_bash"},
         "requires": {"binaries": ["curl"]},
+        "arch_map": {
+            "x86_64": "amd64", "aarch64": "arm64", "armv7l": "arm",
+        },
+        "prefer": ["brew"],
         "verify": ["flux", "--version"],
-    },
-    "istioctl": {
-        "label": "Istio CLI",
-        "category": "k8s",
-        "install": {
+        "update": {
+            "brew": ["brew", "upgrade", "fluxcd/tap/flux"],
             "_default": [
                 "bash", "-c",
-                "curl -L https://istio.io/downloadIstio | ISTIO_VERSION=latest"
-                " sh - && sudo mv istio-*/bin/istioctl /usr/local/bin/"
-                " && rm -rf istio-*",
+                "curl -s https://fluxcd.io/install.sh | bash",
             ],
-            "brew": ["brew", "install", "istioctl"],
         },
-        "needs_sudo": {"_default": True, "brew": False},
-        "requires": {"binaries": ["curl"]},
-        "verify": ["istioctl", "version", "--remote=false"],
     },
-    "helmfile": {
-        "label": "Helmfile",
+
+    "istioctl": {
+        "cli": "istioctl",
+        "label": "istioctl (Istio service mesh CLI)",
         "category": "k8s",
+        # istioctl is NOT in apt, dnf, apk, pacman, zypper, snap.
+        # Only available via brew and GitHub releases.
+        # GitHub releases (istio/istio): two asset sets:
+        #   istio-{ver}-{os}-{arch}.tar.gz  (full distro + samples)
+        #   istioctl-{ver}-{os}-{arch}.tar.gz (CLI only) ← use this
+        # Tag has NO 'v' prefix: 1.29.0 (not v1.29.0).
+        # OS: linux (NOT darwin — macOS uses 'osx').
+        # Arch: amd64, arm64, armv7 (Go-standard).
         "install": {
-            "_default": {
-                "linux": [
-                    "bash", "-c",
-                    "curl -fsSL -o /usr/local/bin/helmfile "
-                    "https://github.com/helmfile/helmfile/releases/latest/"
-                    "download/helmfile_linux_amd64"
-                    " && chmod +x /usr/local/bin/helmfile",
-                ],
-            },
-            "brew": ["brew", "install", "helmfile"],
+            "brew": ["brew", "install", "istioctl"],
+            "_default": [
+                "bash", "-c",
+                "VERSION=$(curl -sSf https://api.github.com/repos/istio/istio"
+                "/releases/latest | grep -o '\"tag_name\": \"[^\"]*\"'"
+                " | cut -d'\"' -f4) && "
+                "curl -sSfL https://github.com/istio/istio/releases/download/"
+                "${VERSION}/istioctl-${VERSION}-{os}-{arch}.tar.gz"
+                " | tar -xz -C /usr/local/bin istioctl",
+            ],
         },
-        "needs_sudo": {"_default": True, "brew": False},
-        "requires": {"binaries": ["curl", "helm"]},
-        "verify": ["helmfile", "--version"],
+        "needs_sudo": {"brew": False, "_default": True},
+        "install_via": {"_default": "github_release"},
+        "requires": {"binaries": ["curl"]},
+        "arch_map": {
+            "x86_64": "amd64", "aarch64": "arm64", "armv7l": "armv7",
+        },
+        "prefer": ["brew"],
+        "verify": ["istioctl", "version", "--remote=false"],
+        "update": {
+            "brew": ["brew", "upgrade", "istioctl"],
+            "_default": [
+                "bash", "-c",
+                "VERSION=$(curl -sSf https://api.github.com/repos/istio/istio"
+                "/releases/latest | grep -o '\"tag_name\": \"[^\"]*\"'"
+                " | cut -d'\"' -f4) && "
+                "curl -sSfL https://github.com/istio/istio/releases/download/"
+                "${VERSION}/istioctl-${VERSION}-{os}-{arch}.tar.gz"
+                " | tar -xz -C /usr/local/bin istioctl",
+            ],
+        },
     },
+
+    "helmfile": {
+        "cli": "helmfile",
+        "label": "Helmfile (declarative Helm chart management)",
+        "category": "k8s",
+        # helmfile is NOT in apt, dnf, apk, zypper standard repos.
+        # Available in pacman (community), brew, snap.
+        # GitHub releases: helmfile_{version}_{os}_{arch}.tar.gz
+        # OS: linux, darwin (lowercase). Arch: amd64, arm64.
+        # Version in tag has 'v' prefix, in filename it does not.
+        # Requires helm as a runtime dependency.
+        "install": {
+            "pacman": ["pacman", "-S", "--noconfirm", "helmfile"],
+            "brew": ["brew", "install", "helmfile"],
+            "snap": ["snap", "install", "helmfile", "--classic"],
+            "_default": [
+                "bash", "-c",
+                "VERSION=$(curl -sSf https://api.github.com/repos/helmfile/"
+                "helmfile/releases/latest | grep -o '\"tag_name\": \"v[^\"]*\"'"
+                " | cut -d'\"' -f4 | sed 's/^v//') && "
+                "curl -sSfL https://github.com/helmfile/helmfile/releases/"
+                "download/v${VERSION}/helmfile_${VERSION}_{os}_{arch}.tar.gz"
+                " | tar -xz -C /usr/local/bin helmfile",
+            ],
+        },
+        "needs_sudo": {
+            "pacman": True, "brew": False,
+            "snap": True, "_default": True,
+        },
+        "install_via": {"_default": "github_release"},
+        "requires": {"binaries": ["curl", "helm"]},
+        "arch_map": {
+            "x86_64": "amd64", "aarch64": "arm64",
+        },
+        "prefer": ["pacman", "brew"],
+        "verify": ["helmfile", "--version"],
+        "update": {
+            "pacman": ["pacman", "-Syu", "--noconfirm", "helmfile"],
+            "brew": ["brew", "upgrade", "helmfile"],
+            "snap": ["snap", "refresh", "helmfile"],
+            "_default": [
+                "bash", "-c",
+                "VERSION=$(curl -sSf https://api.github.com/repos/helmfile/"
+                "helmfile/releases/latest | grep -o '\"tag_name\": \"v[^\"]*\"'"
+                " | cut -d'\"' -f4 | sed 's/^v//') && "
+                "curl -sSfL https://github.com/helmfile/helmfile/releases/"
+                "download/v${VERSION}/helmfile_${VERSION}_{os}_{arch}.tar.gz"
+                " | tar -xz -C /usr/local/bin helmfile",
+            ],
+        },
+    },
+
 
     # ════════════════════════════════════════════════════════════
     # Security tools
@@ -2284,6 +2807,7 @@ TOOL_RECIPES: dict[str, dict] = {
             "brew": ["brew", "install", "snyk-cli"],
         },
         "needs_sudo": {"_default": False, "brew": False},
+        "install_via": {"_default": "npm"},
         "requires": {"binaries": ["npm"]},
         "verify": ["snyk", "--version"],
         "update": {
@@ -2322,6 +2846,7 @@ TOOL_RECIPES: dict[str, dict] = {
             "brew": ["brew", "install", "gitleaks"],
         },
         "needs_sudo": {"_default": True, "brew": False},
+        "install_via": {"_default": "github_release"},
         "requires": {"binaries": ["curl"]},
         "verify": ["gitleaks", "version"],
     },
@@ -2349,6 +2874,7 @@ TOOL_RECIPES: dict[str, dict] = {
             "_default": _PIP + ["install", "checkov"],
         },
         "needs_sudo": {"_default": False},
+        "install_via": {"_default": "pip"},
         "verify": ["checkov", "--version"],
         "update": {"_default": _PIP + ["install", "--upgrade", "checkov"]},
     },
@@ -2360,6 +2886,7 @@ TOOL_RECIPES: dict[str, dict] = {
             "brew": ["brew", "install", "semgrep"],
         },
         "needs_sudo": {"_default": False, "brew": False},
+        "install_via": {"_default": "pip"},
         "verify": ["semgrep", "--version"],
         "update": {
             "_default": _PIP + ["install", "--upgrade", "semgrep"],
@@ -2373,6 +2900,7 @@ TOOL_RECIPES: dict[str, dict] = {
             "_default": _PIP + ["install", "detect-secrets"],
         },
         "needs_sudo": {"_default": False},
+        "install_via": {"_default": "pip"},
         "verify": ["detect-secrets", "--version"],
         "update": {"_default": _PIP + ["install", "--upgrade",
                                        "detect-secrets"]},
@@ -2402,6 +2930,7 @@ TOOL_RECIPES: dict[str, dict] = {
             },
         },
         "needs_sudo": {"apt": True, "dnf": True, "_default": False},
+        "install_via": {"_default": "github_release"},
         "requires": {"binaries": ["docker"]},
         "verify": ["docker", "buildx", "version"],
     },
@@ -2454,6 +2983,7 @@ TOOL_RECIPES: dict[str, dict] = {
             "brew": ["brew", "install", "dive"],
         },
         "needs_sudo": {"_default": True, "brew": False},
+        "install_via": {"_default": "github_release"},
         "requires": {"binaries": ["curl"]},
         "verify": ["dive", "--version"],
     },
@@ -2473,6 +3003,7 @@ TOOL_RECIPES: dict[str, dict] = {
             "brew": ["brew", "install", "hadolint"],
         },
         "needs_sudo": {"_default": True, "brew": False},
+        "install_via": {"_default": "github_release"},
         "requires": {"binaries": ["curl"]},
         "verify": ["hadolint", "--version"],
     },
@@ -2591,6 +3122,7 @@ TOOL_RECIPES: dict[str, dict] = {
         },
         "needs_sudo": {"apt": True, "dnf": True, "pacman": True,
                        "brew": False, "_default": False},
+        "install_via": {"_default": "cargo"},
         "verify": ["eza", "--version"],
     },
     "fd": {
@@ -2726,6 +3258,7 @@ TOOL_RECIPES: dict[str, dict] = {
             "brew": ["brew", "install", "pyright"],
         },
         "needs_sudo": {"_default": False, "brew": False},
+        "install_via": {"_default": "npm"},
         "requires": {"binaries": ["npm"]},
         "verify": ["pyright", "--version"],
         "update": {
@@ -2738,6 +3271,7 @@ TOOL_RECIPES: dict[str, dict] = {
         "category": "python",
         "install": {"_default": _PIP + ["install", "isort"]},
         "needs_sudo": {"_default": False},
+        "install_via": {"_default": "pip"},
         "verify": ["isort", "--version"],
         "update": {"_default": _PIP + ["install", "--upgrade", "isort"]},
     },
@@ -2746,6 +3280,7 @@ TOOL_RECIPES: dict[str, dict] = {
         "category": "python",
         "install": {"_default": _PIP + ["install", "flake8"]},
         "needs_sudo": {"_default": False},
+        "install_via": {"_default": "pip"},
         "verify": ["flake8", "--version"],
         "update": {"_default": _PIP + ["install", "--upgrade", "flake8"]},
     },
@@ -2754,6 +3289,7 @@ TOOL_RECIPES: dict[str, dict] = {
         "category": "python",
         "install": {"_default": _PIP + ["install", "tox"]},
         "needs_sudo": {"_default": False},
+        "install_via": {"_default": "pip"},
         "verify": ["tox", "--version"],
         "update": {"_default": _PIP + ["install", "--upgrade", "tox"]},
     },
@@ -2762,6 +3298,7 @@ TOOL_RECIPES: dict[str, dict] = {
         "category": "python",
         "install": {"_default": _PIP + ["install", "nox"]},
         "needs_sudo": {"_default": False},
+        "install_via": {"_default": "pip"},
         "verify": ["nox", "--version"],
         "update": {"_default": _PIP + ["install", "--upgrade", "nox"]},
     },
@@ -2789,6 +3326,7 @@ TOOL_RECIPES: dict[str, dict] = {
             "brew": ["brew", "install", "hatch"],
         },
         "needs_sudo": {"_default": False, "brew": False},
+        "install_via": {"_default": "pip"},
         "verify": ["hatch", "--version"],
         "update": {
             "_default": _PIP + ["install", "--upgrade", "hatch"],
@@ -2819,6 +3357,7 @@ TOOL_RECIPES: dict[str, dict] = {
             "apk": True, "pacman": True, "zypper": True,
             "brew": False, "_default": False,
         },
+        "install_via": {"_default": "npm"},
         "prefer": ["npm", "brew", "_default"],
         "requires": {"binaries": ["npm"]},
         "verify": ["yarn", "--version"],
@@ -2876,6 +3415,7 @@ TOOL_RECIPES: dict[str, dict] = {
         "category": "node",
         "install": {"_default": ["npm", "install", "-g", "tsx"]},
         "needs_sudo": {"_default": False},
+        "install_via": {"_default": "npm"},
         "requires": {"binaries": ["npm"]},
         "verify": ["tsx", "--version"],
         "update": {"_default": ["npm", "update", "-g", "tsx"]},
@@ -2885,6 +3425,7 @@ TOOL_RECIPES: dict[str, dict] = {
         "category": "node",
         "install": {"_default": ["npm", "install", "-g", "vitest"]},
         "needs_sudo": {"_default": False},
+        "install_via": {"_default": "npm"},
         "requires": {"binaries": ["npm"]},
         "verify": ["vitest", "--version"],
         "update": {"_default": ["npm", "update", "-g", "vitest"]},
@@ -2894,6 +3435,7 @@ TOOL_RECIPES: dict[str, dict] = {
         "category": "node",
         "install": {"_default": ["npm", "install", "-g", "playwright"]},
         "needs_sudo": {"_default": False},
+        "install_via": {"_default": "npm"},
         "requires": {"binaries": ["npm"]},
         "verify": ["npx", "playwright", "--version"],
         "cli": "npx",
@@ -3000,22 +3542,42 @@ TOOL_RECIPES: dict[str, dict] = {
     # ════════════════════════════════════════════════════════════
 
     "ansible": {
-        "label": "Ansible",
+        "cli": "ansible",
+        "label": "Ansible (configuration management & automation)",
         "category": "iac",
         "install": {
             "_default": _PIP + ["install", "ansible"],
             "apt": ["apt-get", "install", "-y", "ansible"],
             "dnf": ["dnf", "install", "-y", "ansible"],
+            "apk": ["apk", "add", "ansible"],
+            "pacman": ["pacman", "-S", "--noconfirm", "ansible"],
+            "zypper": ["zypper", "install", "-y", "ansible"],
             "brew": ["brew", "install", "ansible"],
         },
-        "needs_sudo": {"_default": False, "apt": True,
-                       "dnf": True, "brew": False},
+        "needs_sudo": {
+            "_default": False, "apt": True, "dnf": True,
+            "apk": True, "pacman": True, "zypper": True,
+            "brew": False,
+        },
+        "install_via": {"_default": "pip"},
+        "requires": {"binaries": ["python3"]},
+        "prefer": ["apt", "dnf", "apk", "pacman", "zypper", "brew"],
         "verify": ["ansible", "--version"],
         "update": {
             "_default": _PIP + ["install", "--upgrade", "ansible"],
+            "apt": [
+                "bash", "-c",
+                "sudo apt-get update"
+                " && sudo apt-get install -y --only-upgrade ansible",
+            ],
+            "dnf": ["dnf", "upgrade", "-y", "ansible"],
+            "apk": ["apk", "upgrade", "ansible"],
+            "pacman": ["pacman", "-Syu", "--noconfirm", "ansible"],
+            "zypper": ["zypper", "update", "-y", "ansible"],
             "brew": ["brew", "upgrade", "ansible"],
         },
     },
+
     "pulumi": {
         "label": "Pulumi",
         "category": "iac",
@@ -3038,6 +3600,7 @@ TOOL_RECIPES: dict[str, dict] = {
         "category": "iac",
         "install": {"_default": ["npm", "install", "-g", "cdktf-cli"]},
         "needs_sudo": {"_default": False},
+        "install_via": {"_default": "npm"},
         "requires": {"binaries": ["npm"]},
         "verify": ["cdktf", "--version"],
         "update": {"_default": ["npm", "update", "-g", "cdktf-cli"]},
@@ -3086,6 +3649,7 @@ TOOL_RECIPES: dict[str, dict] = {
             "brew": ["brew", "install", "mongosh"],
         },
         "needs_sudo": {"_default": False, "brew": False},
+        "install_via": {"_default": "npm"},
         "requires": {"binaries": ["npm"]},
         "verify": ["mongosh", "--version"],
         "update": {
@@ -3184,6 +3748,7 @@ TOOL_RECIPES: dict[str, dict] = {
             "brew": ["brew", "install", "mkcert"],
         },
         "needs_sudo": {"_default": True, "brew": False},
+        "install_via": {"_default": "github_release"},
         "requires": {"binaries": ["curl"]},
         "verify": ["mkcert", "--version"],
     },
@@ -3318,6 +3883,7 @@ TOOL_RECIPES: dict[str, dict] = {
             "apt": True, "dnf": True, "apk": True,
             "pacman": True, "zypper": True, "_default": False,
         },
+        "install_via": {"_default": "gem"},
         "prefer": ["_default"],
         "requires": {"binaries": ["ruby"]},
         "verify": ["bundle", "--version"],
@@ -3336,6 +3902,7 @@ TOOL_RECIPES: dict[str, dict] = {
         "category": "ruby",
         "install": {"_default": ["gem", "install", "rubocop"]},
         "needs_sudo": {"_default": False},
+        "install_via": {"_default": "gem"},
         "requires": {"binaries": ["ruby"]},
         "verify": ["rubocop", "--version"],
     },
@@ -3471,6 +4038,7 @@ TOOL_RECIPES: dict[str, dict] = {
         "category": "rust",
         "install": {"_default": ["cargo", "install", "cargo-watch"]},
         "needs_sudo": {"_default": False},
+        "install_via": {"_default": "cargo"},
         "requires": {"binaries": ["cargo"]},
         "verify": ["cargo", "watch", "--version"],
     },
@@ -3479,6 +4047,7 @@ TOOL_RECIPES: dict[str, dict] = {
         "category": "rust",
         "install": {"_default": ["cargo", "install", "cargo-edit"]},
         "needs_sudo": {"_default": False},
+        "install_via": {"_default": "cargo"},
         "requires": {"binaries": ["cargo"]},
         "verify": ["cargo", "add", "--version"],
     },
@@ -3507,6 +4076,7 @@ TOOL_RECIPES: dict[str, dict] = {
             "brew": ["brew", "install", "sccache"],
         },
         "needs_sudo": {"_default": False, "brew": False},
+        "install_via": {"_default": "cargo"},
         "requires": {"binaries": ["cargo"]},
         "verify": ["sccache", "--version"],
     },
@@ -3515,6 +4085,7 @@ TOOL_RECIPES: dict[str, dict] = {
         "category": "rust",
         "install": {"_default": ["cargo", "install", "cross"]},
         "needs_sudo": {"_default": False},
+        "install_via": {"_default": "cargo"},
         "requires": {"binaries": ["cargo", "docker"]},
         "verify": ["cross", "--version"],
     },
@@ -3539,6 +4110,7 @@ TOOL_RECIPES: dict[str, dict] = {
             "brew": ["brew", "install", "prometheus"],
         },
         "needs_sudo": {"_default": True, "brew": False},
+        "install_via": {"_default": "github_release"},
         "requires": {"binaries": ["curl"]},
         "verify": ["prometheus", "--version"],
     },
@@ -3570,6 +4142,7 @@ TOOL_RECIPES: dict[str, dict] = {
             "brew": ["brew", "install", "loki"],
         },
         "needs_sudo": {"_default": True, "brew": False},
+        "install_via": {"_default": "github_release"},
         "requires": {"binaries": ["curl"]},
         "verify": ["loki", "--version"],
     },
@@ -3588,6 +4161,7 @@ TOOL_RECIPES: dict[str, dict] = {
             "brew": ["brew", "install", "promtail"],
         },
         "needs_sudo": {"_default": True, "brew": False},
+        "install_via": {"_default": "github_release"},
         "requires": {"binaries": ["curl"]},
         "verify": ["promtail", "--version"],
     },
@@ -3606,6 +4180,7 @@ TOOL_RECIPES: dict[str, dict] = {
             "brew": ["brew", "install", "jaeger"],
         },
         "needs_sudo": {"_default": True, "brew": False},
+        "install_via": {"_default": "github_release"},
         "requires": {"binaries": ["curl"]},
         "verify": ["jaeger-all-in-one", "version"],
         "cli": "jaeger-all-in-one",
@@ -3625,6 +4200,7 @@ TOOL_RECIPES: dict[str, dict] = {
             "brew": ["brew", "install", "vegeta"],
         },
         "needs_sudo": {"_default": True, "brew": False},
+        "install_via": {"_default": "github_release"},
         "requires": {"binaries": ["curl"]},
         "verify": ["vegeta", "--version"],
     },
@@ -3658,6 +4234,7 @@ TOOL_RECIPES: dict[str, dict] = {
             "snap": ["snap", "install", "shfmt"],
         },
         "needs_sudo": {"_default": False, "brew": False, "snap": True},
+        "install_via": {"_default": "go"},
         "post_env": 'export PATH="$HOME/go/bin:$PATH"',
         "verify": ["bash", "-c",
                    'export PATH="$HOME/go/bin:$PATH" && shfmt --version'],
@@ -3717,6 +4294,7 @@ TOOL_RECIPES: dict[str, dict] = {
             "brew": ["brew", "install", "nushell"],
         },
         "needs_sudo": {"_default": False, "brew": False},
+        "install_via": {"_default": "cargo"},
         "verify": ["nu", "--version"],
     },
 
@@ -3752,6 +4330,7 @@ TOOL_RECIPES: dict[str, dict] = {
         },
         "needs_sudo": {"_default": False, "apt": True, "dnf": True,
                        "brew": False, "snap": True},
+        "install_via": {"_default": "pip"},
         "verify": ["http", "--version"],
     },
     "wget": {
@@ -3810,6 +4389,7 @@ TOOL_RECIPES: dict[str, dict] = {
         "category": "ml",
         "install": {"_default": _PIP + ["install", "jupyter"]},
         "needs_sudo": {"_default": False},
+        "install_via": {"_default": "pip"},
         "verify": ["jupyter", "--version"],
         "update": {"_default": _PIP + ["install", "--upgrade", "jupyter"]},
     },
@@ -3818,6 +4398,7 @@ TOOL_RECIPES: dict[str, dict] = {
         "category": "ml",
         "install": {"_default": _PIP + ["install", "numpy"]},
         "needs_sudo": {"_default": False},
+        "install_via": {"_default": "pip"},
         "cli": "python3",
         "verify": ["python3", "-c", "import numpy; print(numpy.__version__)"],
     },
@@ -3826,6 +4407,7 @@ TOOL_RECIPES: dict[str, dict] = {
         "category": "ml",
         "install": {"_default": _PIP + ["install", "pandas"]},
         "needs_sudo": {"_default": False},
+        "install_via": {"_default": "pip"},
         "cli": "python3",
         "verify": ["python3", "-c", "import pandas; print(pandas.__version__)"],
     },
@@ -3834,6 +4416,7 @@ TOOL_RECIPES: dict[str, dict] = {
         "category": "ml",
         "install": {"_default": _PIP + ["install", "tensorflow"]},
         "needs_sudo": {"_default": False},
+        "install_via": {"_default": "pip"},
         "cli": "python3",
         "verify": ["python3", "-c",
                    "import tensorflow; print(tensorflow.__version__)"],
@@ -4073,6 +4656,7 @@ TOOL_RECIPES: dict[str, dict] = {
             "brew": ["brew", "install", "jc"],
         },
         "needs_sudo": {"_default": False, "apt": True, "brew": False},
+        "install_via": {"_default": "pip"},
         "verify": ["jc", "--version"],
     },
     "yq": {
@@ -4091,6 +4675,7 @@ TOOL_RECIPES: dict[str, dict] = {
             "snap": ["snap", "install", "yq"],
         },
         "needs_sudo": {"_default": True, "brew": False, "snap": True},
+        "install_via": {"_default": "github_release"},
         "requires": {"binaries": ["curl"]},
         "verify": ["yq", "--version"],
     },
@@ -4190,6 +4775,7 @@ TOOL_RECIPES: dict[str, dict] = {
         "cli": "sphinx-build",
         "install": {"_default": _PIP + ["install", "sphinx"]},
         "needs_sudo": {"_default": False},
+        "install_via": {"_default": "pip"},
         "verify": ["sphinx-build", "--version"],
         "update": {"_default": _PIP + ["install", "--upgrade", "sphinx"]},
     },
@@ -4201,6 +4787,7 @@ TOOL_RECIPES: dict[str, dict] = {
             "brew": ["brew", "install", "mdbook"],
         },
         "needs_sudo": {"_default": False, "brew": False},
+        "install_via": {"_default": "cargo"},
         "verify": ["mdbook", "--version"],
     },
     "asciidoctor": {
@@ -4214,6 +4801,7 @@ TOOL_RECIPES: dict[str, dict] = {
         },
         "needs_sudo": {"apt": True, "dnf": True, "brew": False,
                        "_default": False},
+        "install_via": {"_default": "gem"},
         "verify": ["asciidoctor", "--version"],
     },
 
@@ -4246,6 +4834,7 @@ TOOL_RECIPES: dict[str, dict] = {
             "brew": ["brew", "install", "git-delta"],
         },
         "needs_sudo": {"_default": False, "apt": True, "brew": False},
+        "install_via": {"_default": "cargo"},
         "verify": ["delta", "--version"],
     },
     "lazygit": {
@@ -4257,6 +4846,7 @@ TOOL_RECIPES: dict[str, dict] = {
             "brew": ["brew", "install", "lazygit"],
         },
         "needs_sudo": {"_default": False, "brew": False},
+        "install_via": {"_default": "go"},
         "post_env": 'export PATH="$HOME/go/bin:$PATH"',
         "verify": ["bash", "-c",
                    'export PATH="$HOME/go/bin:$PATH" && lazygit --version'],
@@ -4269,6 +4859,7 @@ TOOL_RECIPES: dict[str, dict] = {
             "brew": ["brew", "install", "pre-commit"],
         },
         "needs_sudo": {"_default": False, "brew": False},
+        "install_via": {"_default": "pip"},
         "verify": ["pre-commit", "--version"],
         "update": {
             "_default": _PIP + ["install", "--upgrade", "pre-commit"],
@@ -4297,6 +4888,7 @@ TOOL_RECIPES: dict[str, dict] = {
             "brew": ["brew", "install", "editorconfig-checker"],
         },
         "needs_sudo": {"_default": True, "brew": False},
+        "install_via": {"_default": "github_release"},
         "requires": {"binaries": ["curl"]},
         "verify": ["ec", "--version"],
     },
@@ -4309,6 +4901,7 @@ TOOL_RECIPES: dict[str, dict] = {
             "brew": ["brew", "install", "yamllint"],
         },
         "needs_sudo": {"_default": False, "apt": True, "brew": False},
+        "install_via": {"_default": "pip"},
         "verify": ["yamllint", "--version"],
     },
     "jsonlint": {
@@ -4318,6 +4911,7 @@ TOOL_RECIPES: dict[str, dict] = {
             "_default": ["npm", "install", "-g", "jsonlint"],
         },
         "needs_sudo": {"_default": False},
+        "install_via": {"_default": "npm"},
         "requires": {"binaries": ["npm"]},
         "verify": ["jsonlint", "--version"],
     },
@@ -4329,6 +4923,7 @@ TOOL_RECIPES: dict[str, dict] = {
             "brew": ["brew", "install", "markdownlint-cli"],
         },
         "needs_sudo": {"_default": False, "brew": False},
+        "install_via": {"_default": "npm"},
         "requires": {"binaries": ["npm"]},
         "verify": ["markdownlint", "--version"],
     },
@@ -4340,6 +4935,7 @@ TOOL_RECIPES: dict[str, dict] = {
             "brew": ["brew", "install", "taplo"],
         },
         "needs_sudo": {"_default": False, "brew": False},
+        "install_via": {"_default": "cargo"},
         "verify": ["taplo", "--version"],
     },
 
@@ -4375,6 +4971,7 @@ TOOL_RECIPES: dict[str, dict] = {
         },
         "needs_sudo": {"apt": True, "pacman": True,
                        "brew": False, "_default": False},
+        "install_via": {"_default": "cargo"},
         "verify": ["hx", "--version"],
     },
     "micro": {
@@ -4439,6 +5036,7 @@ TOOL_RECIPES: dict[str, dict] = {
             "brew": ["brew", "install", "grpcurl"],
         },
         "needs_sudo": {"_default": False, "brew": False},
+        "install_via": {"_default": "go"},
         "post_env": 'export PATH="$HOME/go/bin:$PATH"',
         "verify": ["bash", "-c",
                    'export PATH="$HOME/go/bin:$PATH" && grpcurl --version'],
@@ -4458,6 +5056,7 @@ TOOL_RECIPES: dict[str, dict] = {
             "brew": ["brew", "install", "bufbuild/buf/buf"],
         },
         "needs_sudo": {"_default": True, "brew": False},
+        "install_via": {"_default": "github_release"},
         "requires": {"binaries": ["curl"]},
         "verify": ["buf", "--version"],
     },
@@ -4605,6 +5204,7 @@ TOOL_RECIPES: dict[str, dict] = {
             "brew": ["brew", "install", "zls"],
         },
         "needs_sudo": {"_default": True, "brew": False},
+        "install_via": {"_default": "github_release"},
         "requires": {"binaries": ["curl"]},
         "verify": ["zls", "--version"],
     },
@@ -4651,6 +5251,7 @@ TOOL_RECIPES: dict[str, dict] = {
             "brew": ["brew", "install", "stylua"],
         },
         "needs_sudo": {"_default": False, "brew": False},
+        "install_via": {"_default": "cargo"},
         "verify": ["stylua", "--version"],
     },
 
@@ -4700,6 +5301,7 @@ TOOL_RECIPES: dict[str, dict] = {
             "brew": ["brew", "install", "wasm-pack"],
         },
         "needs_sudo": {"_default": False, "brew": False},
+        "install_via": {"_default": "cargo"},
         "requires": {"binaries": ["cargo"]},
         "verify": ["wasm-pack", "--version"],
     },
@@ -4740,6 +5342,7 @@ TOOL_RECIPES: dict[str, dict] = {
             "brew": ["brew", "install", "step"],
         },
         "needs_sudo": {"_default": True, "brew": False},
+        "install_via": {"_default": "github_release"},
         "requires": {"binaries": ["curl"]},
         "verify": ["step", "--version"],
     },
@@ -4756,6 +5359,7 @@ TOOL_RECIPES: dict[str, dict] = {
         },
         "needs_sudo": {"apt": True, "dnf": True, "pacman": True,
                        "brew": False, "_default": False},
+        "install_via": {"_default": "go"},
         "verify": ["age", "--version"],
     },
     "sops": {
@@ -4773,6 +5377,7 @@ TOOL_RECIPES: dict[str, dict] = {
             "brew": ["brew", "install", "sops"],
         },
         "needs_sudo": {"_default": True, "brew": False},
+        "install_via": {"_default": "github_release"},
         "requires": {"binaries": ["curl"]},
         "verify": ["sops", "--version"],
     },
@@ -4856,6 +5461,7 @@ TOOL_RECIPES: dict[str, dict] = {
             "brew": ["brew", "install", "dog"],
         },
         "needs_sudo": {"_default": False, "brew": False},
+        "install_via": {"_default": "cargo"},
         "verify": ["dog", "--version"],
     },
     "dnsx": {
@@ -4867,6 +5473,7 @@ TOOL_RECIPES: dict[str, dict] = {
             "brew": ["brew", "install", "dnsx"],
         },
         "needs_sudo": {"_default": False, "brew": False},
+        "install_via": {"_default": "go"},
         "post_env": 'export PATH="$HOME/go/bin:$PATH"',
         "verify": ["bash", "-c",
                    'export PATH="$HOME/go/bin:$PATH" && dnsx --version'],
@@ -4967,6 +5574,7 @@ TOOL_RECIPES: dict[str, dict] = {
             "dnf": ["dnf", "install", "-y", "supervisor"],
         },
         "needs_sudo": {"_default": False, "apt": True, "dnf": True},
+        "install_via": {"_default": "pip"},
         "verify": ["supervisord", "--version"],
     },
     "pm2": {
@@ -4976,6 +5584,7 @@ TOOL_RECIPES: dict[str, dict] = {
             "_default": ["npm", "install", "-g", "pm2"],
         },
         "needs_sudo": {"_default": False},
+        "install_via": {"_default": "npm"},
         "requires": {"binaries": ["npm"]},
         "verify": ["pm2", "--version"],
         "update": {"_default": ["npm", "update", "-g", "pm2"]},
@@ -5010,6 +5619,7 @@ TOOL_RECIPES: dict[str, dict] = {
             "_default": ["npm", "install", "-g", "newman"],
         },
         "needs_sudo": {"_default": False},
+        "install_via": {"_default": "npm"},
         "requires": {"binaries": ["npm"]},
         "verify": ["newman", "--version"],
         "update": {"_default": ["npm", "update", "-g", "newman"]},
@@ -5023,6 +5633,7 @@ TOOL_RECIPES: dict[str, dict] = {
             "brew": ["brew", "install", "inso"],
         },
         "needs_sudo": {"_default": False, "brew": False},
+        "install_via": {"_default": "npm"},
         "requires": {"binaries": ["npm"]},
         "verify": ["inso", "--version"],
     },
@@ -5034,6 +5645,7 @@ TOOL_RECIPES: dict[str, dict] = {
             "_default": ["npm", "install", "-g", "@apidevtools/swagger-cli"],
         },
         "needs_sudo": {"_default": False},
+        "install_via": {"_default": "npm"},
         "requires": {"binaries": ["npm"]},
         "verify": ["swagger-cli", "--version"],
     },
@@ -5046,6 +5658,7 @@ TOOL_RECIPES: dict[str, dict] = {
             "brew": ["brew", "install", "openapi-generator"],
         },
         "needs_sudo": {"_default": False, "brew": False},
+        "install_via": {"_default": "npm"},
         "requires": {"binaries": ["npm"]},
         "cli": "openapi-generator-cli",
         "verify": ["openapi-generator-cli", "version"],
@@ -5071,6 +5684,7 @@ TOOL_RECIPES: dict[str, dict] = {
             "snap": ["snap", "install", "doctl"],
         },
         "needs_sudo": {"_default": True, "brew": False, "snap": True},
+        "install_via": {"_default": "github_release"},
         "requires": {"binaries": ["curl"]},
         "verify": ["doctl", "version"],
     },
@@ -5082,6 +5696,7 @@ TOOL_RECIPES: dict[str, dict] = {
             "brew": ["brew", "install", "linode-cli"],
         },
         "needs_sudo": {"_default": False, "brew": False},
+        "install_via": {"_default": "pip"},
         "verify": ["linode-cli", "--version"],
     },
     "flyctl": {
@@ -5109,6 +5724,7 @@ TOOL_RECIPES: dict[str, dict] = {
             "_default": ["npm", "install", "-g", "wrangler"],
         },
         "needs_sudo": {"_default": False},
+        "install_via": {"_default": "npm"},
         "requires": {"binaries": ["npm"]},
         "verify": ["wrangler", "--version"],
         "update": {"_default": ["npm", "update", "-g", "wrangler"]},
@@ -5120,6 +5736,7 @@ TOOL_RECIPES: dict[str, dict] = {
             "_default": ["npm", "install", "-g", "vercel"],
         },
         "needs_sudo": {"_default": False},
+        "install_via": {"_default": "npm"},
         "requires": {"binaries": ["npm"]},
         "verify": ["vercel", "--version"],
         "update": {"_default": ["npm", "update", "-g", "vercel"]},
@@ -5132,6 +5749,7 @@ TOOL_RECIPES: dict[str, dict] = {
             "_default": ["npm", "install", "-g", "netlify-cli"],
         },
         "needs_sudo": {"_default": False},
+        "install_via": {"_default": "npm"},
         "requires": {"binaries": ["npm"]},
         "verify": ["netlify", "--version"],
         "update": {"_default": ["npm", "update", "-g", "netlify-cli"]},
@@ -5187,6 +5805,7 @@ TOOL_RECIPES: dict[str, dict] = {
             "brew": ["brew", "install", "ammonite-repl"],
         },
         "needs_sudo": {"_default": True, "brew": False},
+        "install_via": {"_default": "github_release"},
         "requires": {"binaries": ["curl"]},
         "verify": ["amm", "--version"],
     },
@@ -5219,6 +5838,7 @@ TOOL_RECIPES: dict[str, dict] = {
             "brew": ["brew", "install", "ktlint"],
         },
         "needs_sudo": {"_default": True, "brew": False},
+        "install_via": {"_default": "github_release"},
         "requires": {"binaries": ["curl"]},
         "verify": ["ktlint", "--version"],
     },
@@ -5391,6 +6011,7 @@ TOOL_RECIPES: dict[str, dict] = {
             "brew": ["brew", "install", "traefik"],
         },
         "needs_sudo": {"_default": True, "brew": False},
+        "install_via": {"_default": "github_release"},
         "requires": {"binaries": ["curl"]},
         "verify": ["traefik", "version"],
     },
@@ -5411,6 +6032,7 @@ TOOL_RECIPES: dict[str, dict] = {
             },
         },
         "needs_sudo": {"apt": True, "brew": False, "_default": True},
+        "install_via": {"_default": "github_release"},
         "verify": ["envoy", "--version"],
     },
 
@@ -5462,6 +6084,7 @@ TOOL_RECIPES: dict[str, dict] = {
             "brew": ["brew", "install", "stern"],
         },
         "needs_sudo": {"_default": True, "brew": False},
+        "install_via": {"_default": "github_release"},
         "requires": {"binaries": ["curl"]},
         "verify": ["stern", "--version"],
     },
@@ -5486,6 +6109,7 @@ TOOL_RECIPES: dict[str, dict] = {
             "snap": ["snap", "install", "k6"],
         },
         "needs_sudo": {"_default": True, "brew": False, "snap": True},
+        "install_via": {"_default": "github_release"},
         "requires": {"binaries": ["curl"]},
         "verify": ["k6", "version"],
     },
@@ -5496,6 +6120,7 @@ TOOL_RECIPES: dict[str, dict] = {
             "_default": _PIP + ["install", "locust"],
         },
         "needs_sudo": {"_default": False},
+        "install_via": {"_default": "pip"},
         "verify": ["locust", "--version"],
     },
     "cypress": {
@@ -5505,6 +6130,7 @@ TOOL_RECIPES: dict[str, dict] = {
             "_default": ["npm", "install", "-g", "cypress"],
         },
         "needs_sudo": {"_default": False},
+        "install_via": {"_default": "npm"},
         "requires": {"binaries": ["npm"]},
         "verify": ["cypress", "--version"],
     },
@@ -5515,6 +6141,7 @@ TOOL_RECIPES: dict[str, dict] = {
             "_default": ["npm", "install", "-g", "artillery"],
         },
         "needs_sudo": {"_default": False},
+        "install_via": {"_default": "npm"},
         "requires": {"binaries": ["npm"]},
         "verify": ["artillery", "--version"],
     },
@@ -5586,6 +6213,7 @@ TOOL_RECIPES: dict[str, dict] = {
             "_default": ["npm", "install", "-g", "svgo"],
         },
         "needs_sudo": {"_default": False},
+        "install_via": {"_default": "npm"},
         "requires": {"binaries": ["npm"]},
         "verify": ["svgo", "--version"],
     },
@@ -5619,6 +6247,7 @@ TOOL_RECIPES: dict[str, dict] = {
             "pacman": ["pacman", "-S", "--noconfirm", "just"],
         },
         "needs_sudo": {"_default": False, "brew": False, "pacman": True},
+        "install_via": {"_default": "cargo"},
         "verify": ["just", "--version"],
     },
     "earthly": {
@@ -5636,6 +6265,7 @@ TOOL_RECIPES: dict[str, dict] = {
             "brew": ["brew", "install", "earthly"],
         },
         "needs_sudo": {"_default": True, "brew": False},
+        "install_via": {"_default": "github_release"},
         "requires": {"binaries": ["curl"]},
         "verify": ["earthly", "--version"],
     },
@@ -5648,6 +6278,7 @@ TOOL_RECIPES: dict[str, dict] = {
             "brew": ["brew", "install", "mage"],
         },
         "needs_sudo": {"_default": False, "brew": False},
+        "install_via": {"_default": "go"},
         "post_env": 'export PATH="$HOME/go/bin:$PATH"',
         "verify": ["bash", "-c",
                    'export PATH="$HOME/go/bin:$PATH" && mage --version'],
@@ -5675,6 +6306,7 @@ TOOL_RECIPES: dict[str, dict] = {
             },
         },
         "needs_sudo": {"apt": True, "brew": False, "_default": True},
+        "install_via": {"_default": "github_release"},
         "verify": ["etcdctl", "version"],
     },
     "linkerd": {
@@ -5735,6 +6367,7 @@ TOOL_RECIPES: dict[str, dict] = {
             "brew": ["brew", "install", "hyperfine"],
         },
         "needs_sudo": {"_default": False, "apt": True, "brew": False},
+        "install_via": {"_default": "cargo"},
         "verify": ["hyperfine", "--version"],
     },
     "py-spy": {
@@ -5745,6 +6378,7 @@ TOOL_RECIPES: dict[str, dict] = {
             "brew": ["brew", "install", "py-spy"],
         },
         "needs_sudo": {"_default": False, "brew": False},
+        "install_via": {"_default": "pip"},
         "verify": ["py-spy", "--version"],
     },
 
@@ -5775,6 +6409,7 @@ TOOL_RECIPES: dict[str, dict] = {
             "brew": ["brew", "install", "zellij"],
         },
         "needs_sudo": {"_default": False, "brew": False},
+        "install_via": {"_default": "cargo"},
         "verify": ["zellij", "--version"],
     },
     "mosh": {
@@ -5835,6 +6470,7 @@ TOOL_RECIPES: dict[str, dict] = {
             "_default": _PIP + ["install", "platformio"],
         },
         "needs_sudo": {"_default": False},
+        "install_via": {"_default": "pip"},
         "verify": ["pio", "--version"],
         "update": {"_default": _PIP + ["install", "--upgrade",
                                        "platformio"]},
@@ -5846,6 +6482,7 @@ TOOL_RECIPES: dict[str, dict] = {
             "_default": _PIP + ["install", "esptool"],
         },
         "needs_sudo": {"_default": False},
+        "install_via": {"_default": "pip"},
         "verify": ["esptool.py", "version"],
         "cli": "esptool.py",
     },

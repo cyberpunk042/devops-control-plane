@@ -1,7 +1,7 @@
 # kubectl — Full Spectrum Analysis
 
 > **Tool ID:** `kubectl`
-> **Last audited:** 2026-02-26
+> **Last audited:** 2026-02-27
 > **Status:** ✅ Complete (coverage + remediation)
 
 ---
@@ -174,7 +174,7 @@ Network, disk, permissions, OOM, timeout — all standard.
 ```python
 "kubectl": {
     "cli": "kubectl",
-    "label": "Kubernetes CLI",
+    "label": "kubectl (Kubernetes CLI)",
     "category": "k8s",
     "install": {
         "snap":   ["snap", "install", "kubectl", "--classic"],
@@ -199,11 +199,13 @@ Network, disk, permissions, OOM, timeout — all standard.
         "apk": True, "pacman": True, "zypper": True,
         "brew": False, "_default": True,
     },
+    "install_via": {"_default": "binary_download"},
     "prefer": ["_default", "snap", "brew"],
     "requires": {"binaries": ["curl"]},
     "arch_map": {"x86_64": "amd64", "aarch64": "arm64", "armv7l": "arm"},
     "version_constraint": {...},
     "verify": ["kubectl", "version", "--client"],
+    "update": { ... per-method update commands ... },
 }
 ```
 
@@ -229,28 +231,12 @@ Handlers:  1 snap + 10 PM-family + 5 _default + 3 on_failure + 9 INFRA = 28 tota
 | `data/recipes.py` | Upgraded `_default` from hardcoded linux/amd64 to `{os}/{arch}` |
 | `data/recipes.py` | Added `arch_map` for amd64/arm64 naming |
 | `data/recipes.py` | Updated `prefer` to `["_default", "snap", "brew"]` |
-| `data/recipes.py` | Removed explicit `update` (derived by get_update_map) |
+| `data/recipes.py` | Added `install_via: {"_default": "binary_download"}` |
+| `data/recipes.py` | Updated label to `"kubectl (Kubernetes CLI)"` |
+| `data/recipes.py` | Added explicit per-method `update` commands for all 8 methods |
 | `resolver/dynamic_dep_resolver.py` | Added kubectl to `KNOWN_PACKAGES` (dnf=kubernetes-client, zypper=kubernetes-client) |
 | `data/remediation_handlers.py` | Fixed pre-existing dnf handler `packages` schema error |
 | `data/remediation_handlers.py` | Added `configuration` to `VALID_CATEGORIES` |
 | `data/tool_failure_handlers.py` | Added `kubectl_repo_not_configured` handler (2 options) |
 | `data/tool_failure_handlers.py` | Added `kubectl_version_skew` handler (1 option) |
 | `data/tool_failure_handlers.py` | Added `kubectl_exec_format_error` handler (2 options) |
-
----
-
-## 11. Update Derivation
-
-kubectl has no explicit `update` map. Evolution D's `get_update_map()`
-derives PM update commands automatically:
-
-| PM | Derived update command |
-|----|----------------------|
-| snap | `snap refresh kubectl` |
-| apt | `apt-get install --only-upgrade -y kubectl` |
-| dnf | `dnf upgrade -y kubernetes-client` |
-| apk | `apk upgrade kubectl` |
-| pacman | `pacman -S --noconfirm kubectl` |
-| zypper | `zypper update -y kubernetes-client` |
-| brew | `brew upgrade kubectl` |
-| _default | Not derivable (binary download) |
