@@ -340,6 +340,7 @@ def resolve_install_plan(
             "tool_id": tool_id,
             "command": cmd,
             "needs_sudo": sudo,
+            "method": method,
         })
 
         pe = recipe_t.get("post_env", "")
@@ -390,6 +391,7 @@ def resolve_install_plan(
         "label": recipe["label"],
         "already_installed": False,
         "needs_sudo": any_sudo,
+        "method": method_for_target,
         "risk_summary": _plan_risk(steps),
         "steps": steps,
     }

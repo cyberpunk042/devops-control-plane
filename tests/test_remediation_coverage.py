@@ -588,19 +588,31 @@ def _get_all_families_for_tool(recipe: dict, tool_id: str = "") -> list[str]:
     Also includes the tool's own family if the tool IS a method family
     (e.g. npm, pip, cargo — they are both tools AND install methods for
     downstream packages).
+
+    Also checks install_via — if a recipe declares that its _default
+    method is really "composer_global" under the hood, include that
+    family so the test validates those handlers fire for this tool.
     """
     install = recipe.get("install", {})
     families = []
     for method in install:
         if method in METHOD_FAMILY_HANDLERS:
             families.append(method)
+    # install_via: secondary family lookup (mirrors handler_matching.py L2b)
+    install_via = recipe.get("install_via", {})
+    for method, via_family in install_via.items():
+        if via_family in METHOD_FAMILY_HANDLERS and via_family not in families:
+            families.append(via_family)
     # If the tool itself IS a method family, include it
     # (npm the tool has its own npm-specific failure handlers)
     if tool_id and tool_id in METHOD_FAMILY_HANDLERS:
         if tool_id not in families:
             families.append(tool_id)
-    # Also check the recipe's category — tools in the "node" category
-    # should be tested against npm handlers, etc.
+    # Also check the recipe's category — for stacks where the category
+    # maps 1:1 to a method family (all node tools use npm, all python
+    # tools use pip, etc.), this is a valid safety net. For PHP, the
+    # relationship is many-to-many (some PHP tools use composer global,
+    # some don't), so PHP tools must use install_via explicitly instead.
     category = recipe.get("category", "")
     category_to_family = {
         "node": "npm",
@@ -608,6 +620,8 @@ def _get_all_families_for_tool(recipe: dict, tool_id: str = "") -> list[str]:
         "rust": "cargo",
         "go": "go",
         "ruby": "gem",
+        # "php" deliberately omitted — not all PHP tools use
+        # composer_global. Use install_via per-recipe instead.
     }
     mapped_family = category_to_family.get(category)
     if mapped_family and mapped_family in METHOD_FAMILY_HANDLERS:

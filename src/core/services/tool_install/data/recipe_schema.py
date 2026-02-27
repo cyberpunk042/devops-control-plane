@@ -157,6 +157,7 @@ _TOOL_FIELDS = _COMMON_FIELDS | {
     "arch_map",          # dict: architecture name mappings
     "cli_verify_args",   # list[str]: alternative verify args
     "on_failure",        # list[dict]: reactive remediation handlers (optional)
+    "install_via",       # dict: method key → pattern family (e.g. {"_default": "composer_global"})
 }
 
 # Fields valid for data_pack recipes

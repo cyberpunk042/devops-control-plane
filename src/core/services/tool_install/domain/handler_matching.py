@@ -128,7 +128,18 @@ def _collect_all_options(
     if tool_handlers:
         _scan_handlers(tool_handlers, "recipe")
 
-    # Layer 2: Method-family handlers
+    # Layer 2b: Install-pattern family (via recipe's install_via field)
+    # e.g. phpstan's _default is really "composer global require" →
+    #      install_via: {"_default": "composer_global"} →
+    #      checks METHOD_FAMILY_HANDLERS["composer_global"]
+    if recipe:
+        install_via = recipe.get("install_via", {}).get(method)
+        if install_via and install_via != method:
+            via_handlers = METHOD_FAMILY_HANDLERS.get(install_via, [])
+            if via_handlers:
+                _scan_handlers(via_handlers, "method_family")
+
+    # Layer 2a: Method-family handlers (by method key)
     method_handlers = METHOD_FAMILY_HANDLERS.get(method, [])
     _scan_handlers(method_handlers, "method_family")
 

@@ -2665,6 +2665,330 @@ METHOD_FAMILY_HANDLERS: dict[str, list[dict]] = {
             ],
         },
     ],
+
+    # ── composer_global (install-pattern family) ────────────────
+    # Used via install_via: {"_default": "composer_global"}
+    # Applies to ALL tools installed with `composer global require`.
+    # NOT the same as "composer" the tool — this is tools installed
+    # BY composer, not composer itself.
+
+    "composer_global": [
+            # ── Composer memory exhaustion ───────────────────────
+            # `composer global require` loads the full dependency
+            # graph into memory. PHP's default memory_limit (128MB)
+            # is often insufficient. Common on Raspberry Pi and
+            # other low-RAM devices.
+            {
+                "pattern": (
+                    r"Allowed memory size of \d+ bytes exhausted|"
+                    r"PHP Fatal error:.*memory size.*exhausted|"
+                    r"mmap\(\) failed:.*Cannot allocate memory|"
+                    r"proc_open\(\):.*Cannot allocate memory"
+                ),
+                "failure_id": "composer_global_memory_limit",
+                "category": "resources",
+                "label": "Composer ran out of memory during install",
+                "description": (
+                    "The composer global require command ran out of "
+                    "memory. PHP's default memory_limit (128MB) is "
+                    "often insufficient for dependency resolution. "
+                    "This is especially common on Raspberry Pi and "
+                    "other low-RAM devices."
+                ),
+                "example_stderr": (
+                    "PHP Fatal error:  Allowed memory size of "
+                    "134217728 bytes exhausted (tried to allocate "
+                    "4096 bytes) in phar:///usr/local/bin/composer/"
+                    "src/Composer/DependencyResolver/Solver.php "
+                    "on line 223"
+                ),
+                "options": [
+                    {
+                        "id": "retry-unlimited-memory",
+                        "label": "Retry with unlimited memory",
+                        "description": (
+                            "Re-run composer global require with "
+                            "COMPOSER_MEMORY_LIMIT=-1 to remove "
+                            "the PHP memory cap"
+                        ),
+                        "icon": "🔧",
+                        "recommended": True,
+                        "strategy": "retry_with_modifier",
+                        "modifier": {
+                            "env": {
+                                "COMPOSER_MEMORY_LIMIT": "-1",
+                            },
+                        },
+                    },
+                    {
+                        "id": "install-via-brew-mem",
+                        "label": "Install via brew instead",
+                        "description": (
+                            "Brew formulae are pre-compiled — no "
+                            "Composer dependency resolution needed, "
+                            "so no memory pressure."
+                        ),
+                        "icon": "🍺",
+                        "recommended": False,
+                        "strategy": "switch_method",
+                        "method": "brew",
+                    },
+                ],
+            },
+            # ── PHP version too old for the package ──────────────
+            # Composer dependency resolution fails when system PHP
+            # doesn't meet the package's version requirement.
+            # Generic pattern — matches any package/phpversion combo.
+            {
+                "pattern": (
+                    r"requires php \^[\d.]+ .* your PHP version|"
+                    r"requires php .* does not satisfy|"
+                    r"your PHP version \([\d.]+\) does not satisfy"
+                ),
+                "failure_id": "composer_global_php_version",
+                "category": "environment",
+                "label": "PHP version too old for the package",
+                "description": (
+                    "The package being installed requires a newer "
+                    "PHP version than what your system has. Upgrade "
+                    "PHP or use brew (brew bundles its own PHP)."
+                ),
+                "example_stderr": (
+                    "phpstan/phpstan 2.1.0 requires php ^7.4 || ^8.0"
+                    " -> your PHP version (7.2.33) does not satisfy "
+                    "that requirement."
+                ),
+                "options": [
+                    {
+                        "id": "upgrade-php",
+                        "label": "Upgrade PHP",
+                        "description": (
+                            "Install a newer PHP version (8.x) "
+                            "using your system package manager"
+                        ),
+                        "icon": "⬆️",
+                        "recommended": True,
+                        "strategy": "install_dep",
+                        "dep": "php",
+                    },
+                    {
+                        "id": "install-via-brew-ver",
+                        "label": "Install via brew instead",
+                        "description": (
+                            "Brew formulae bundle a compatible PHP "
+                            "version — no system PHP dependency."
+                        ),
+                        "icon": "🍺",
+                        "recommended": False,
+                        "strategy": "switch_method",
+                        "method": "brew",
+                    },
+                ],
+            },
+    ],
+
+    # ── curl_pipe_bash (install-pattern family) ─────────────────
+    # Used via install_via: {"_default": "curl_pipe_bash"}
+    # Applies to ALL tools installed with `curl ... | sh` or
+    # `curl ... | bash`. NOT curl itself — this is tools installed
+    # BY curl piping into a shell script.
+    #
+    # 43 tools use this pattern. Shared failure modes are distinct
+    # from INFRA (which catches generic network) and _default
+    # (which catches missing binaries like curl/git).
+
+    "curl_pipe_bash": [
+            # ── TLS / certificate error ──────────────────────────
+            # Minimal Docker images (alpine, distroless, scratch)
+            # often lack CA certificates. curl can reach the host
+            # but rejects the TLS cert. This is NOT a network
+            # failure — DNS and TCP work fine.
+            {
+                "pattern": (
+                    r"curl:\s*\(60\).*SSL certificate problem|"
+                    r"curl:\s*\(60\).*certificate.*not trusted|"
+                    r"curl:\s*\(77\).*error setting certificate|"
+                    r"curl:\s*\(35\).*SSL connect error|"
+                    r"ssl_client:.*SSL connection error|"
+                    r"unable to get local issuer certificate"
+                ),
+                "failure_id": "curl_tls_certificate",
+                "category": "environment",
+                "label": "TLS certificate verification failed",
+                "description": (
+                    "curl could not verify the server's TLS "
+                    "certificate. This usually means the system "
+                    "is missing CA certificates — common on "
+                    "minimal Docker images (Alpine, slim). "
+                    "Install the ca-certificates package."
+                ),
+                "example_stderr": (
+                    "curl: (60) SSL certificate problem: "
+                    "unable to get local issuer certificate"
+                ),
+                "options": [
+                    {
+                        "id": "install-ca-certs",
+                        "label": "Install CA certificates",
+                        "description": (
+                            "Install the system CA certificate "
+                            "bundle so curl can verify TLS"
+                        ),
+                        "icon": "🔒",
+                        "recommended": True,
+                        "strategy": "install_packages",
+                        "packages": {
+                            "debian": ["ca-certificates"],
+                            "rhel": ["ca-certificates"],
+                            "alpine": ["ca-certificates"],
+                            "arch": ["ca-certificates"],
+                            "suse": ["ca-certificates"],
+                            "macos": ["ca-certificates"],
+                        },
+                    },
+                    {
+                        "id": "curl-insecure",
+                        "label": "Retry with --insecure (unsafe)",
+                        "description": (
+                            "Skip TLS verification. NOT recommended"
+                            " — only use in isolated/test "
+                            "environments where you trust the "
+                            "network."
+                        ),
+                        "icon": "⚠️",
+                        "recommended": False,
+                        "risk": "high",
+                        "strategy": "manual",
+                        "instructions": (
+                            "Re-run the command with curl -k or "
+                            "curl --insecure. This skips TLS "
+                            "certificate verification."
+                        ),
+                    },
+                ],
+            },
+            # ── Unsupported architecture ─────────────────────────
+            # Many install scripts detect the system architecture
+            # (uname -m / uname -s) and fail if it's not x86_64
+            # or aarch64. Common on arm7l (32-bit ARM), s390x,
+            # ppc64le, riscv64.
+            {
+                "pattern": (
+                    r"unsupported (?:os|arch|platform|system)|"
+                    r"architecture .* (?:not supported|unsupported)|"
+                    r"no (?:binary|release|download) (?:available |found )?for|"
+                    r"(?:os|platform|arch).*not (?:recognized|supported)|"
+                    r"does not support .* architecture|"
+                    r"No prebuilt binary"
+                ),
+                "failure_id": "curl_unsupported_arch",
+                "category": "environment",
+                "label": "Unsupported OS or architecture",
+                "description": (
+                    "The install script does not have a binary "
+                    "for your OS/architecture combination. This "
+                    "is common on ARM 32-bit, s390x, ppc64le, "
+                    "and RISC-V. You may need to build from "
+                    "source or use a different install method."
+                ),
+                "example_stderr": (
+                    "Error: unsupported arch: armv7l. "
+                    "Only x86_64 and aarch64 are supported."
+                ),
+                "options": [
+                    {
+                        "id": "switch-to-source",
+                        "label": "Build from source",
+                        "description": (
+                            "Some tools offer source builds for "
+                            "unsupported architectures. Check the "
+                            "tool's documentation for instructions."
+                        ),
+                        "icon": "🔨",
+                        "recommended": True,
+                        "strategy": "manual",
+                        "instructions": (
+                            "Check the tool's GitHub/documentation "
+                            "for source build instructions for "
+                            "your architecture."
+                        ),
+                    },
+                    {
+                        "id": "switch-to-brew-arch",
+                        "label": "Try brew instead",
+                        "description": (
+                            "Homebrew builds from source on "
+                            "unsupported architectures."
+                        ),
+                        "icon": "🍺",
+                        "recommended": False,
+                        "strategy": "switch_method",
+                        "method": "brew",
+                    },
+                ],
+            },
+            # ── Script URL gone (404/410) ────────────────────────
+            # Projects move domains, change URLs, or deprecate
+            # install scripts. curl returns the HTTP error page
+            # content which the shell tries to execute.
+            {
+                "pattern": (
+                    r"curl:\s*\(22\).*(?:404|410|403)|"
+                    r"The requested URL returned error: (?:404|410|403)|"
+                    r"curl:\s*\(22\).*not found|"
+                    r"sh:.*syntax error.*unexpected|"
+                    r"bash:.*syntax error near unexpected token|"
+                    r"<!DOCTYPE html>|<html"
+                ),
+                "failure_id": "curl_script_not_found",
+                "category": "environment",
+                "label": "Install script URL not found or returned HTML",
+                "description": (
+                    "The install script URL returned a 404/403 "
+                    "error or an HTML page instead of a shell "
+                    "script. The project may have moved to a new "
+                    "URL, or the install script format may have "
+                    "changed. Check the project's documentation "
+                    "for the current install method."
+                ),
+                "example_stderr": (
+                    "curl: (22) The requested URL returned error: "
+                    "404 Not Found"
+                ),
+                "options": [
+                    {
+                        "id": "check-docs",
+                        "label": "Check project documentation",
+                        "description": (
+                            "The install script URL may have "
+                            "changed. Check the project's website "
+                            "or GitHub for the current install "
+                            "instructions."
+                        ),
+                        "icon": "📖",
+                        "recommended": True,
+                        "strategy": "manual",
+                        "instructions": (
+                            "Visit the project's official website "
+                            "or GitHub page to find the current "
+                            "installation instructions."
+                        ),
+                    },
+                    {
+                        "id": "switch-to-brew-404",
+                        "label": "Install via brew instead",
+                        "description": (
+                            "Homebrew formulae don't depend on "
+                            "third-party install scripts."
+                        ),
+                        "icon": "🍺",
+                        "recommended": False,
+                        "strategy": "switch_method",
+                        "method": "brew",
+                    },
+                ],
+            },
+    ],
 }
 
 
