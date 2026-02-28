@@ -2260,8 +2260,11 @@ TOOL_RECIPES: dict[str, dict] = {
     # ════════════════════════════════════════════════════════════
 
     "gopls": {
-        "label": "gopls (Go language server)",
+        "cli": "gopls",
+        "label": "gopls (Go language server — official)",
         "category": "go",
+        # Official Go language server by the Go team.
+        # go install only. NOT in any PM except go.
         "install": {
             "_default": ["go", "install", "golang.org/x/tools/gopls@latest"],
         },
@@ -2275,36 +2278,44 @@ TOOL_RECIPES: dict[str, dict] = {
                                 "golang.org/x/tools/gopls@latest"]},
     },
     "golangci-lint": {
-        "label": "golangci-lint",
+        "cli": "golangci-lint",
+        "label": "golangci-lint (Go linters aggregator)",
         "category": "go",
+        # Aggregates 100+ Go linters into one CLI.
+        # Official installer script or brew. Also available via go install
+        # but official docs recommend the script for reproducibility.
         "install": {
+            "brew": ["brew", "install", "golangci-lint"],
             "_default": [
                 "bash", "-c",
                 "curl -sSfL https://raw.githubusercontent.com/golangci/"
                 "golangci-lint/HEAD/install.sh | sh -s -- -b "
                 "$(go env GOPATH)/bin",
             ],
-            "brew": ["brew", "install", "golangci-lint"],
         },
         "needs_sudo": {"_default": False, "brew": False},
         "install_via": {"_default": "curl_pipe_bash"},
         "requires": {"binaries": ["go", "curl"]},
+        "prefer": ["brew"],
         "post_env": 'export PATH="$HOME/go/bin:$PATH"',
         "verify": ["bash", "-c",
                    'export PATH="$HOME/go/bin:$PATH" && golangci-lint --version'],
         "update": {
+            "brew": ["brew", "upgrade", "golangci-lint"],
             "_default": [
                 "bash", "-c",
                 "curl -sSfL https://raw.githubusercontent.com/golangci/"
                 "golangci-lint/HEAD/install.sh | sh -s -- -b "
                 "$(go env GOPATH)/bin",
             ],
-            "brew": ["brew", "upgrade", "golangci-lint"],
         },
     },
     "delve": {
-        "label": "Delve (Go debugger)",
+        "cli": "dlv",
+        "label": "Delve (Go debugger — dlv)",
         "category": "go",
+        # Go debugger. Binary name is dlv, not delve.
+        # go install only.
         "install": {
             "_default": ["go", "install",
                          "github.com/go-delve/delve/cmd/dlv@latest"],
@@ -2315,11 +2326,15 @@ TOOL_RECIPES: dict[str, dict] = {
         "post_env": 'export PATH="$HOME/go/bin:$PATH"',
         "verify": ["bash", "-c",
                    'export PATH="$HOME/go/bin:$PATH" && dlv version'],
-        "cli": "dlv",
+        "update": {"_default": ["go", "install",
+                                "github.com/go-delve/delve/cmd/dlv@latest"]},
     },
     "air": {
-        "label": "Air (Go live reload)",
+        "cli": "air",
+        "label": "Air (Go live reload for development)",
         "category": "go",
+        # Live reload for Go apps during development.
+        # go install only.
         "install": {
             "_default": ["go", "install",
                          "github.com/air-verse/air@latest"],
@@ -2330,10 +2345,15 @@ TOOL_RECIPES: dict[str, dict] = {
         "post_env": 'export PATH="$HOME/go/bin:$PATH"',
         "verify": ["bash", "-c",
                    'export PATH="$HOME/go/bin:$PATH" && air -v'],
+        "update": {"_default": ["go", "install",
+                                "github.com/air-verse/air@latest"]},
     },
     "mockgen": {
-        "label": "mockgen (Go mock generator)",
+        "cli": "mockgen",
+        "label": "mockgen (Go mock generator — uber/mock)",
         "category": "go",
+        # Generates mock implementations for Go interfaces.
+        # go install only. From uber/mock (successor to golang/mock).
         "install": {
             "_default": ["go", "install",
                          "go.uber.org/mock/mockgen@latest"],
@@ -2344,10 +2364,15 @@ TOOL_RECIPES: dict[str, dict] = {
         "post_env": 'export PATH="$HOME/go/bin:$PATH"',
         "verify": ["bash", "-c",
                    'export PATH="$HOME/go/bin:$PATH" && mockgen --version'],
+        "update": {"_default": ["go", "install",
+                                "go.uber.org/mock/mockgen@latest"]},
     },
     "protoc-gen-go": {
-        "label": "protoc-gen-go (Go protobuf)",
+        "cli": "protoc-gen-go",
+        "label": "protoc-gen-go (Go protobuf code generator)",
         "category": "go",
+        # Generates Go code from .proto files.
+        # go install only. Requires protoc (protobuf compiler) at runtime.
         "install": {
             "_default": ["go", "install",
                          "google.golang.org/protobuf/cmd/protoc-gen-go@latest"],
@@ -2358,6 +2383,8 @@ TOOL_RECIPES: dict[str, dict] = {
         "post_env": 'export PATH="$HOME/go/bin:$PATH"',
         "verify": ["bash", "-c",
                    'export PATH="$HOME/go/bin:$PATH" && protoc-gen-go --version'],
+        "update": {"_default": ["go", "install",
+                                "google.golang.org/protobuf/cmd/protoc-gen-go@latest"]},
     },
 
     # ════════════════════════════════════════════════════════════
@@ -2365,76 +2392,103 @@ TOOL_RECIPES: dict[str, dict] = {
     # ════════════════════════════════════════════════════════════
 
     "aws-cli": {
-        "label": "AWS CLI v2",
-        "category": "cloud",
         "cli": "aws",
+        "label": "AWS CLI v2 (Amazon Web Services command-line interface)",
+        "category": "cloud",
+        # Written in Python but v2 ships as a self-contained installer.
+        # Official installer is bundled zip with embedded Python — no pip deps.
+        # brew formula: awscli. snap: aws-cli --classic.
+        # pip has `awscli` but AWS discourages for v2 — use official installer.
+        # NOT in apt (v1 only), dnf (v1 only), pacman, zypper.
+        # apk has it in community repo but may lag versions.
+        # _default uses $(uname -m) for runtime arch detection.
+        # AWS URLs: awscli-exe-linux-x86_64.zip / awscli-exe-linux-aarch64.zip
+        # uname -m outputs x86_64 or aarch64 — matches AWS naming exactly.
         "install": {
-            "_default": {
-                "linux": [
-                    "bash", "-c",
-                    'curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip"'
-                    ' -o /tmp/awscliv2.zip && cd /tmp && unzip -qo awscliv2.zip'
-                    ' && sudo ./aws/install --update && rm -rf /tmp/aws /tmp/awscliv2.zip',
-                ],
-            },
             "brew": ["brew", "install", "awscli"],
+            "snap": ["snap", "install", "aws-cli", "--classic"],
+            "_default": [
+                "bash", "-c",
+                'ARCH=$(uname -m) && '
+                'curl "https://awscli.amazonaws.com/awscli-exe-linux-${ARCH}.zip"'
+                ' -o /tmp/awscliv2.zip && cd /tmp && unzip -qo awscliv2.zip'
+                ' && sudo ./aws/install --update && rm -rf /tmp/aws /tmp/awscliv2.zip',
+            ],
         },
-        "needs_sudo": {"_default": True, "brew": False},
+        "needs_sudo": {"brew": False, "snap": True, "_default": True},
+        "install_via": {"_default": "github_release"},
         "requires": {"binaries": ["curl"]},
+        "prefer": ["brew", "snap"],
         "verify": ["aws", "--version"],
         "update": {
-            "_default": {
-                "linux": [
-                    "bash", "-c",
-                    'curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip"'
-                    ' -o /tmp/awscliv2.zip && cd /tmp && unzip -qo awscliv2.zip'
-                    ' && sudo ./aws/install --update && rm -rf /tmp/aws /tmp/awscliv2.zip',
-                ],
-            },
             "brew": ["brew", "upgrade", "awscli"],
+            "snap": ["snap", "refresh", "aws-cli"],
+            "_default": [
+                "bash", "-c",
+                'ARCH=$(uname -m) && '
+                'curl "https://awscli.amazonaws.com/awscli-exe-linux-${ARCH}.zip"'
+                ' -o /tmp/awscliv2.zip && cd /tmp && unzip -qo awscliv2.zip'
+                ' && sudo ./aws/install --update && rm -rf /tmp/aws /tmp/awscliv2.zip',
+            ],
         },
     },
     "gcloud": {
-        "label": "Google Cloud SDK",
+        "cli": "gcloud",
+        "label": "Google Cloud SDK (gcloud CLI)",
         "category": "cloud",
+        # Written in Python. Google provides official apt/dnf repos but
+        # they require adding Google's signing key and repo — complex setup.
+        # snap is simpler (google-cloud-cli --classic), brew works too.
+        # _default installer pipes to bash — installs to $HOME.
+        # NOT in apk, pacman, zypper.
+        # apt/dnf methods omitted because they need repo setup (not simple apt install).
         "install": {
+            "snap": ["snap", "install", "google-cloud-cli", "--classic"],
+            "brew": ["brew", "install", "google-cloud-sdk"],
             "_default": [
                 "bash", "-c",
                 "curl -sSL https://sdk.cloud.google.com | bash -s -- "
                 "--disable-prompts --install-dir=$HOME",
             ],
-            "brew": ["brew", "install", "google-cloud-sdk"],
-            "snap": ["snap", "install", "google-cloud-cli", "--classic"],
         },
-        "needs_sudo": {"_default": False, "brew": False, "snap": True},
+        "needs_sudo": {"snap": True, "brew": False, "_default": False},
         "install_via": {"_default": "curl_pipe_bash"},
         "requires": {"binaries": ["curl"]},
         "post_env": 'export PATH="$HOME/google-cloud-sdk/bin:$PATH"',
         "verify": ["bash", "-c",
                    'export PATH="$HOME/google-cloud-sdk/bin:$PATH" && gcloud --version'],
         "prefer": ["snap", "brew"],
+        "update": {
+            "snap": ["snap", "refresh", "google-cloud-cli"],
+            "brew": ["brew", "upgrade", "google-cloud-sdk"],
+            "_default": ["bash", "-c",
+                         'export PATH="$HOME/google-cloud-sdk/bin:$PATH" '
+                         '&& gcloud components update --quiet'],
+        },
     },
     "az-cli": {
-        "label": "Azure CLI",
-        "category": "cloud",
         "cli": "az",
+        "label": "Azure CLI (Microsoft Azure command-line interface)",
+        "category": "cloud",
+        # Written in Python. `pip install azure-cli` is the cross-platform
+        # method Microsoft recommends for any Linux/macOS.
+        # brew formula: azure-cli.
+        # Microsoft also has distro-specific repo setup scripts
+        # (InstallAzureCLIDeb for Debian, RPM repo for Fedora, etc.)
+        # but those require repo + key setup and are distro-locked.
+        # pip is the true universal fallback — works everywhere Python runs.
+        # NOT in snap, apk, pacman.
         "install": {
-            "_default": [
-                "bash", "-c",
-                "curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash",
-            ],
             "brew": ["brew", "install", "azure-cli"],
+            "_default": _PIP + ["install", "azure-cli"],
         },
-        "needs_sudo": {"_default": True, "brew": False},
-        "install_via": {"_default": "curl_pipe_bash"},
-        "requires": {"binaries": ["curl"]},
+        "needs_sudo": {"brew": False, "_default": False},
+        "install_via": {"_default": "pip"},
+        "prefer": ["brew"],
         "verify": ["az", "--version"],
         "update": {
-            "_default": [
-                "bash", "-c",
-                "curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash",
-            ],
             "brew": ["brew", "upgrade", "azure-cli"],
+            "_default": _PIP + ["install", "--upgrade", "azure-cli"],
         },
     },
 
@@ -2644,26 +2698,48 @@ TOOL_RECIPES: dict[str, dict] = {
     },
 
     "argocd-cli": {
-        "label": "Argo CD CLI",
-        "category": "k8s",
         "cli": "argocd",
+        "label": "Argo CD CLI (GitOps continuous delivery)",
+        "category": "k8s",
+        # argocd is NOT in apt, dnf, apk, zypper, snap.
+        # Available in pacman (AUR/community) and brew.
+        # GitHub releases (argoproj/argo-cd): raw binaries, no archive.
+        # Asset naming: argocd-{os}-{arch} (no extension).
+        # OS: linux, darwin. Arch: amd64, arm64.
         "install": {
-            "_default": {
-                "linux": [
-                    "bash", "-c",
-                    "curl -sSL -o /usr/local/bin/argocd "
-                    "https://github.com/argoproj/argo-cd/releases/latest/"
-                    "download/argocd-linux-amd64"
-                    " && chmod +x /usr/local/bin/argocd",
-                ],
-            },
+            "pacman": ["pacman", "-S", "--noconfirm", "argocd"],
             "brew": ["brew", "install", "argocd"],
+            "_default": [
+                "bash", "-c",
+                "curl -sSfL -o /tmp/argocd https://github.com/argoproj/"
+                "argo-cd/releases/latest/download/argocd-{os}-{arch}"
+                " && chmod +x /tmp/argocd"
+                " && mv /tmp/argocd /usr/local/bin/argocd",
+            ],
         },
-        "needs_sudo": {"_default": True, "brew": False},
-        "install_via": {"_default": "github_release"},
+        "needs_sudo": {
+            "pacman": True, "brew": False, "_default": True,
+        },
+        "install_via": {"_default": "binary_download"},
         "requires": {"binaries": ["curl"]},
+        "arch_map": {
+            "x86_64": "amd64", "aarch64": "arm64",
+        },
+        "prefer": ["pacman", "brew"],
         "verify": ["argocd", "version", "--client"],
+        "update": {
+            "pacman": ["pacman", "-Syu", "--noconfirm", "argocd"],
+            "brew": ["brew", "upgrade", "argocd"],
+            "_default": [
+                "bash", "-c",
+                "curl -sSfL -o /tmp/argocd https://github.com/argoproj/"
+                "argo-cd/releases/latest/download/argocd-{os}-{arch}"
+                " && chmod +x /tmp/argocd"
+                " && mv /tmp/argocd /usr/local/bin/argocd",
+            ],
+        },
     },
+
     "flux": {
         "cli": "flux",
         "label": "Flux CD CLI (GitOps for Kubernetes)",
@@ -2800,8 +2876,15 @@ TOOL_RECIPES: dict[str, dict] = {
     # ════════════════════════════════════════════════════════════
 
     "snyk": {
-        "label": "Snyk CLI",
+        "cli": "snyk",
+        "label": "Snyk CLI (security vulnerability scanner)",
         "category": "security",
+        # snyk is NOT in apt, dnf, apk, pacman, zypper, snap.
+        # Available via npm (canonical) and brew (snyk-cli, not snyk!).
+        # Also provides standalone binaries from CDN:
+        #   https://static.snyk.io/cli/latest/snyk-linux
+        #   https://static.snyk.io/cli/latest/snyk-linux-arm64
+        # But npm is the official/recommended install method.
         "install": {
             "_default": ["npm", "install", "-g", "snyk"],
             "brew": ["brew", "install", "snyk-cli"],
@@ -2809,134 +2892,284 @@ TOOL_RECIPES: dict[str, dict] = {
         "needs_sudo": {"_default": False, "brew": False},
         "install_via": {"_default": "npm"},
         "requires": {"binaries": ["npm"]},
+        "prefer": ["brew"],
         "verify": ["snyk", "--version"],
         "update": {
             "_default": ["npm", "update", "-g", "snyk"],
             "brew": ["brew", "upgrade", "snyk-cli"],
         },
     },
+
     "grype": {
-        "label": "Grype (vulnerability scanner)",
+        "cli": "grype",
+        "label": "Grype (container vulnerability scanner)",
         "category": "security",
+        # grype is NOT in apt, dnf, apk, pacman, zypper standard repos.
+        # Available via brew, snap, and official curl|bash installer.
+        # GitHub releases (anchore/grype): .tar.gz, .deb, .rpm
+        # Asset naming: grype_{ver}_{os}_{arch}.tar.gz
+        # Tag has 'v' prefix, filename does not.
+        # OS: linux, darwin. Arch: amd64, arm64.
         "install": {
+            "brew": ["brew", "install", "grype"],
+            "snap": ["snap", "install", "grype"],
             "_default": [
                 "bash", "-c",
                 "curl -sSfL https://raw.githubusercontent.com/anchore/grype/"
                 "main/install.sh | sh -s -- -b /usr/local/bin",
             ],
-            "brew": ["brew", "install", "grype"],
         },
-        "needs_sudo": {"_default": True, "brew": False},
+        "needs_sudo": {"brew": False, "snap": True, "_default": True},
         "install_via": {"_default": "curl_pipe_bash"},
         "requires": {"binaries": ["curl"]},
-        "verify": ["grype", "version"],
-    },
-    "gitleaks": {
-        "label": "Gitleaks (secret scanner)",
-        "category": "security",
-        "install": {
-            "_default": {
-                "linux": [
-                    "bash", "-c",
-                    "curl -sSfL https://github.com/gitleaks/gitleaks/releases/"
-                    "latest/download/gitleaks_linux_x64.tar.gz"
-                    " | tar xz -C /usr/local/bin gitleaks",
-                ],
-            },
-            "brew": ["brew", "install", "gitleaks"],
+        "arch_map": {
+            "x86_64": "amd64", "aarch64": "arm64",
         },
-        "needs_sudo": {"_default": True, "brew": False},
+        "prefer": ["brew"],
+        "verify": ["grype", "version"],
+        "update": {
+            "brew": ["brew", "upgrade", "grype"],
+            "snap": ["snap", "refresh", "grype"],
+            "_default": [
+                "bash", "-c",
+                "curl -sSfL https://raw.githubusercontent.com/anchore/grype/"
+                "main/install.sh | sh -s -- -b /usr/local/bin",
+            ],
+        },
+    },
+
+    "gitleaks": {
+        "cli": "gitleaks",
+        "label": "Gitleaks (Git secret scanner)",
+        "category": "security",
+        # gitleaks is NOT in apt, dnf, apk, zypper, snap.
+        # Available in pacman (community) and brew.
+        # GitHub releases (gitleaks/gitleaks): .tar.gz
+        # Asset naming: gitleaks_{ver}_{os}_{arch}.tar.gz
+        # NON-STANDARD arch: uses 'x64' (NOT amd64!) for x86_64.
+        # arm64 is standard. OS: linux, darwin.
+        # Tag has 'v' prefix, filename does not.
+        "install": {
+            "pacman": ["pacman", "-S", "--noconfirm", "gitleaks"],
+            "brew": ["brew", "install", "gitleaks"],
+            "_default": [
+                "bash", "-c",
+                "VERSION=$(curl -sSf https://api.github.com/repos/gitleaks/"
+                "gitleaks/releases/latest | grep -o '\"tag_name\": \"v[^\"]*\"'"
+                " | cut -d'\"' -f4 | sed 's/^v//') && "
+                "curl -sSfL https://github.com/gitleaks/gitleaks/releases/"
+                "download/v${VERSION}/gitleaks_${VERSION}_{os}_{arch}.tar.gz"
+                " | tar -xz -C /usr/local/bin gitleaks",
+            ],
+        },
+        "needs_sudo": {
+            "pacman": True, "brew": False, "_default": True,
+        },
         "install_via": {"_default": "github_release"},
         "requires": {"binaries": ["curl"]},
-        "verify": ["gitleaks", "version"],
-    },
-    "tfsec": {
-        "label": "tfsec (Terraform security)",
-        "category": "security",
-        "install": {
-            "_default": {
-                "linux": [
-                    "bash", "-c",
-                    "curl -sSfL https://raw.githubusercontent.com/aquasecurity/"
-                    "tfsec/master/scripts/install_linux.sh | bash",
-                ],
-            },
-            "brew": ["brew", "install", "tfsec"],
+        "arch_map": {
+            "x86_64": "x64", "aarch64": "arm64",
         },
-        "needs_sudo": {"_default": True, "brew": False},
-        "requires": {"binaries": ["curl"]},
-        "verify": ["tfsec", "--version"],
+        "prefer": ["pacman", "brew"],
+        "verify": ["gitleaks", "version"],
+        "update": {
+            "pacman": ["pacman", "-Syu", "--noconfirm", "gitleaks"],
+            "brew": ["brew", "upgrade", "gitleaks"],
+            "_default": [
+                "bash", "-c",
+                "VERSION=$(curl -sSf https://api.github.com/repos/gitleaks/"
+                "gitleaks/releases/latest | grep -o '\"tag_name\": \"v[^\"]*\"'"
+                " | cut -d'\"' -f4 | sed 's/^v//') && "
+                "curl -sSfL https://github.com/gitleaks/gitleaks/releases/"
+                "download/v${VERSION}/gitleaks_${VERSION}_{os}_{arch}.tar.gz"
+                " | tar -xz -C /usr/local/bin gitleaks",
+            ],
+        },
     },
-    "checkov": {
-        "label": "Checkov (IaC scanner)",
+
+    "tfsec": {
+        "cli": "tfsec",
+        "label": "tfsec (Terraform security scanner — deprecated, use Trivy)",
         "category": "security",
+        # DEPRECATED: tfsec is merged into Trivy (aquasecurity).
+        # Still gets maintenance releases but no new features.
+        # NOT in apt, dnf, apk, zypper, snap.
+        # Available in pacman (AUR) and brew.
+        # GitHub releases: raw binaries (tfsec-{os}-{arch})
+        #   and tar.gz (tfsec_{ver}_{os}_{arch}.tar.gz).
+        # Using raw binary download (simpler, no extraction).
+        # OS: linux, darwin. Arch: amd64, arm64 (Go-standard).
+        # Latest release redirect works for raw binaries.
         "install": {
+            "pacman": ["pacman", "-S", "--noconfirm", "tfsec"],
+            "brew": ["brew", "install", "tfsec"],
+            "_default": [
+                "bash", "-c",
+                "curl -sSfL -o /tmp/tfsec https://github.com/aquasecurity/"
+                "tfsec/releases/latest/download/tfsec-{os}-{arch}"
+                " && chmod +x /tmp/tfsec && mv /tmp/tfsec /usr/local/bin/tfsec",
+            ],
+        },
+        "needs_sudo": {
+            "pacman": True, "brew": False, "_default": True,
+        },
+        "install_via": {"_default": "binary_download"},
+        "requires": {"binaries": ["curl"]},
+        "arch_map": {
+            "x86_64": "amd64", "aarch64": "arm64",
+        },
+        "prefer": ["pacman", "brew"],
+        "verify": ["tfsec", "--version"],
+        "update": {
+            "pacman": ["pacman", "-Syu", "--noconfirm", "tfsec"],
+            "brew": ["brew", "upgrade", "tfsec"],
+            "_default": [
+                "bash", "-c",
+                "curl -sSfL -o /tmp/tfsec https://github.com/aquasecurity/"
+                "tfsec/releases/latest/download/tfsec-{os}-{arch}"
+                " && chmod +x /tmp/tfsec && mv /tmp/tfsec /usr/local/bin/tfsec",
+            ],
+        },
+    },
+
+    "checkov": {
+        "cli": "checkov",
+        "label": "Checkov (IaC security scanner)",
+        "category": "security",
+        # checkov is a Python package — pip is canonical.
+        # Also available via brew (handles Python deps automatically).
+        # NOT in apt, dnf, apk, pacman, zypper, snap.
+        # Requires Python 3.9–3.12.
+        # Heavy dependency tree — brew is simpler for end users.
+        "install": {
+            "brew": ["brew", "install", "checkov"],
             "_default": _PIP + ["install", "checkov"],
         },
-        "needs_sudo": {"_default": False},
+        "needs_sudo": {"brew": False, "_default": False},
         "install_via": {"_default": "pip"},
+        "prefer": ["brew"],
         "verify": ["checkov", "--version"],
-        "update": {"_default": _PIP + ["install", "--upgrade", "checkov"]},
-    },
-    "semgrep": {
-        "label": "Semgrep (SAST)",
-        "category": "security",
-        "install": {
-            "_default": _PIP + ["install", "semgrep"],
-            "brew": ["brew", "install", "semgrep"],
+        "update": {
+            "brew": ["brew", "upgrade", "checkov"],
+            "_default": _PIP + ["install", "--upgrade", "checkov"],
         },
-        "needs_sudo": {"_default": False, "brew": False},
+    },
+
+    "semgrep": {
+        "cli": "semgrep",
+        "label": "Semgrep (SAST — static analysis security testing)",
+        "category": "security",
+        # semgrep is a Python package — pip is canonical.
+        # Also available via brew and snap (with ARM64 support).
+        # NOT in apt, dnf, apk, pacman, zypper.
+        # Requires Python 3.10+.
+        # snap is good for ARM64 / Raspbian where pip wheels may fail.
+        "install": {
+            "brew": ["brew", "install", "semgrep"],
+            "snap": ["snap", "install", "semgrep"],
+            "_default": _PIP + ["install", "semgrep"],
+        },
+        "needs_sudo": {"brew": False, "snap": True, "_default": False},
         "install_via": {"_default": "pip"},
+        "prefer": ["brew", "snap"],
         "verify": ["semgrep", "--version"],
         "update": {
-            "_default": _PIP + ["install", "--upgrade", "semgrep"],
             "brew": ["brew", "upgrade", "semgrep"],
+            "snap": ["snap", "refresh", "semgrep"],
+            "_default": _PIP + ["install", "--upgrade", "semgrep"],
         },
     },
+
     "detect-secrets": {
-        "label": "detect-secrets (Yelp)",
+        "cli": "detect-secrets",
+        "label": "detect-secrets (Yelp secret detection tool)",
         "category": "security",
+        # detect-secrets is a pure Python package — pip is canonical.
+        # Also available via brew.
+        # NOT in apt, dnf, apk, pacman (standard), zypper, snap.
+        # Lightweight Python package, few native deps.
         "install": {
+            "brew": ["brew", "install", "detect-secrets"],
             "_default": _PIP + ["install", "detect-secrets"],
         },
-        "needs_sudo": {"_default": False},
+        "needs_sudo": {"brew": False, "_default": False},
         "install_via": {"_default": "pip"},
+        "prefer": ["brew"],
         "verify": ["detect-secrets", "--version"],
-        "update": {"_default": _PIP + ["install", "--upgrade",
-                                       "detect-secrets"]},
+        "update": {
+            "brew": ["brew", "upgrade", "detect-secrets"],
+            "_default": _PIP + ["install", "--upgrade", "detect-secrets"],
+        },
     },
+
 
     # ════════════════════════════════════════════════════════════
     # Container tools
     # ════════════════════════════════════════════════════════════
 
     "buildx": {
-        "label": "Docker Buildx",
-        "category": "container",
         "cli": "docker",
+        "label": "Docker Buildx (extended build capabilities)",
+        "category": "container",
         "cli_verify_args": ["buildx", "version"],
+        # Docker CLI plugin — NOT a standalone binary.
+        # Installs to ~/.docker/cli-plugins/docker-buildx
+        # Available in apt/dnf (docker-buildx-plugin), pacman, brew.
+        # GitHub releases (docker/buildx): raw binary (no archive).
+        # Asset naming: buildx-v{ver}.{os}-{arch} (dot separator!).
+        # OS: linux, darwin. Arch: amd64, arm64 (Go-standard).
+        # /releases/latest/download/ redirect works.
+        # Requires docker as runtime dependency.
         "install": {
             "apt": ["apt-get", "install", "-y", "docker-buildx-plugin"],
             "dnf": ["dnf", "install", "-y", "docker-buildx-plugin"],
-            "_default": {
-                "linux": [
-                    "bash", "-c",
-                    "mkdir -p ~/.docker/cli-plugins"
-                    " && curl -sSL https://github.com/docker/buildx/releases/"
-                    "latest/download/buildx-linux-amd64"
-                    " -o ~/.docker/cli-plugins/docker-buildx"
-                    " && chmod +x ~/.docker/cli-plugins/docker-buildx",
-                ],
-            },
+            "pacman": ["pacman", "-S", "--noconfirm", "docker-buildx"],
+            "brew": ["brew", "install", "docker-buildx"],
+            "_default": [
+                "bash", "-c",
+                "mkdir -p ~/.docker/cli-plugins"
+                " && curl -sSfL https://github.com/docker/buildx/releases/"
+                "latest/download/buildx-v0.31.1.{os}-{arch}"
+                " -o ~/.docker/cli-plugins/docker-buildx"
+                " && chmod +x ~/.docker/cli-plugins/docker-buildx",
+            ],
         },
-        "needs_sudo": {"apt": True, "dnf": True, "_default": False},
-        "install_via": {"_default": "github_release"},
-        "requires": {"binaries": ["docker"]},
+        "needs_sudo": {
+            "apt": True, "dnf": True, "pacman": True,
+            "brew": False, "_default": False,
+        },
+        "install_via": {"_default": "binary_download"},
+        "requires": {"binaries": ["docker", "curl"]},
+        "arch_map": {
+            "x86_64": "amd64", "aarch64": "arm64",
+        },
+        "prefer": ["apt", "dnf", "pacman", "brew"],
         "verify": ["docker", "buildx", "version"],
+        "update": {
+            "apt": ["apt-get", "install", "-y", "--only-upgrade",
+                    "docker-buildx-plugin"],
+            "dnf": ["dnf", "upgrade", "-y", "docker-buildx-plugin"],
+            "pacman": ["pacman", "-Syu", "--noconfirm", "docker-buildx"],
+            "brew": ["brew", "upgrade", "docker-buildx"],
+            "_default": [
+                "bash", "-c",
+                "mkdir -p ~/.docker/cli-plugins"
+                " && curl -sSfL https://github.com/docker/buildx/releases/"
+                "latest/download/buildx-v0.31.1.{os}-{arch}"
+                " -o ~/.docker/cli-plugins/docker-buildx"
+                " && chmod +x ~/.docker/cli-plugins/docker-buildx",
+            ],
+        },
     },
+
     "podman": {
-        "label": "Podman",
+        "cli": "podman",
+        "label": "Podman (daemonless container engine)",
         "category": "container",
+        # Podman is available in ALL native PMs — widest coverage.
+        # By Red Hat / containers project. Go-based.
+        # No _default needed — every PM has it.
+        # snap exists but edge-only — not stable enough.
         "install": {
             "apt": ["apt-get", "install", "-y", "podman"],
             "dnf": ["dnf", "install", "-y", "podman"],
@@ -2945,82 +3178,182 @@ TOOL_RECIPES: dict[str, dict] = {
             "zypper": ["zypper", "install", "-y", "podman"],
             "brew": ["brew", "install", "podman"],
         },
-        "needs_sudo": {"apt": True, "dnf": True, "apk": True,
-                       "pacman": True, "zypper": True, "brew": False},
+        "needs_sudo": {
+            "apt": True, "dnf": True, "apk": True,
+            "pacman": True, "zypper": True, "brew": False,
+        },
+        "prefer": ["apt", "dnf", "apk", "pacman", "zypper", "brew"],
         "verify": ["podman", "--version"],
         "update": {
             "apt": ["apt-get", "install", "-y", "--only-upgrade", "podman"],
             "dnf": ["dnf", "upgrade", "-y", "podman"],
+            "apk": ["apk", "upgrade", "podman"],
+            "pacman": ["pacman", "-Syu", "--noconfirm", "podman"],
+            "zypper": ["zypper", "update", "-y", "podman"],
             "brew": ["brew", "upgrade", "podman"],
         },
     },
     "skopeo": {
-        "label": "Skopeo (container image tool)",
+        "cli": "skopeo",
+        "label": "Skopeo (container image inspection & transfer)",
         "category": "container",
+        # Same containers project as podman. Go-based.
+        # Available in ALL native PMs — wide coverage.
+        # No _default needed — every PM has it.
         "install": {
             "apt": ["apt-get", "install", "-y", "skopeo"],
             "dnf": ["dnf", "install", "-y", "skopeo"],
             "apk": ["apk", "add", "skopeo"],
             "pacman": ["pacman", "-S", "--noconfirm", "skopeo"],
+            "zypper": ["zypper", "install", "-y", "skopeo"],
             "brew": ["brew", "install", "skopeo"],
         },
-        "needs_sudo": {"apt": True, "dnf": True, "apk": True,
-                       "pacman": True, "brew": False},
+        "needs_sudo": {
+            "apt": True, "dnf": True, "apk": True,
+            "pacman": True, "zypper": True, "brew": False,
+        },
+        "prefer": ["apt", "dnf", "apk", "pacman", "zypper", "brew"],
         "verify": ["skopeo", "--version"],
+        "update": {
+            "apt": ["apt-get", "install", "-y", "--only-upgrade", "skopeo"],
+            "dnf": ["dnf", "upgrade", "-y", "skopeo"],
+            "apk": ["apk", "upgrade", "skopeo"],
+            "pacman": ["pacman", "-Syu", "--noconfirm", "skopeo"],
+            "zypper": ["zypper", "update", "-y", "skopeo"],
+            "brew": ["brew", "upgrade", "skopeo"],
+        },
     },
     "dive": {
-        "label": "Dive (Docker image explorer)",
+        "cli": "dive",
+        "label": "Dive (Docker image layer explorer)",
         "category": "container",
+        # Go-based. By wagoodman.
+        # NOT in apt, dnf, apk, zypper.
+        # Available in pacman (extra), brew, snap.
+        # GitHub releases (wagoodman/dive): .tar.gz, .deb, .rpm.
+        # Asset naming: dive_{ver}_{os}_{arch}.tar.gz
+        # OS: linux, darwin. Arch: amd64, arm64 (Go-standard).
+        # Tag has 'v' prefix, filename does NOT.
+        # snap available but may interfere with Docker rootdir.
         "install": {
-            "_default": {
-                "linux": [
-                    "bash", "-c",
-                    "curl -sSfL https://github.com/wagoodman/dive/releases/"
-                    "latest/download/dive_linux_amd64.tar.gz"
-                    " | tar xz -C /usr/local/bin dive",
-                ],
-            },
+            "pacman": ["pacman", "-S", "--noconfirm", "dive"],
             "brew": ["brew", "install", "dive"],
+            "snap": ["snap", "install", "dive"],
+            "_default": [
+                "bash", "-c",
+                "VERSION=$(curl -sSf https://api.github.com/repos/wagoodman/"
+                "dive/releases/latest | grep -o '\"tag_name\": \"v[^\"]*\"'"
+                " | cut -d'\"' -f4 | sed 's/^v//') && "
+                "curl -sSfL https://github.com/wagoodman/dive/releases/"
+                "download/v${VERSION}/dive_${VERSION}_{os}_{arch}.tar.gz"
+                " | tar -xz -C /usr/local/bin dive",
+            ],
         },
-        "needs_sudo": {"_default": True, "brew": False},
+        "needs_sudo": {
+            "pacman": True, "brew": False, "snap": True,
+            "_default": True,
+        },
         "install_via": {"_default": "github_release"},
         "requires": {"binaries": ["curl"]},
+        "arch_map": {
+            "x86_64": "amd64", "aarch64": "arm64",
+        },
+        "prefer": ["pacman", "brew", "snap"],
         "verify": ["dive", "--version"],
+        "update": {
+            "pacman": ["pacman", "-Syu", "--noconfirm", "dive"],
+            "brew": ["brew", "upgrade", "dive"],
+            "snap": ["snap", "refresh", "dive"],
+            "_default": [
+                "bash", "-c",
+                "VERSION=$(curl -sSf https://api.github.com/repos/wagoodman/"
+                "dive/releases/latest | grep -o '\"tag_name\": \"v[^\"]*\"'"
+                " | cut -d'\"' -f4 | sed 's/^v//') && "
+                "curl -sSfL https://github.com/wagoodman/dive/releases/"
+                "download/v${VERSION}/dive_${VERSION}_{os}_{arch}.tar.gz"
+                " | tar -xz -C /usr/local/bin dive",
+            ],
+        },
     },
     "hadolint": {
+        "cli": "hadolint",
         "label": "Hadolint (Dockerfile linter)",
         "category": "container",
+        # Written in Haskell. By hadolint.
+        # NOT in apt, dnf, apk, zypper, snap.
+        # pacman only via AUR (not official).
+        # Available in brew.
+        # GitHub releases (hadolint/hadolint): RAW BINARY (no archive).
+        # NON-STANDARD naming:
+        #   Capital OS: Linux, Darwin (NOT lowercase!)
+        #   Arch: x86_64, arm64 (NOT amd64!)
+        # Asset: hadolint-$(uname -s)-{arch}
+        # Using $(uname -s) instead of {os} because it natively returns
+        # "Linux"/"Darwin" matching hadolint's capital-letter convention.
+        # /releases/latest/download/ redirect works.
         "install": {
-            "_default": {
-                "linux": [
-                    "bash", "-c",
-                    "curl -sSfL -o /usr/local/bin/hadolint "
-                    "https://github.com/hadolint/hadolint/releases/latest/"
-                    "download/hadolint-Linux-x86_64"
-                    " && chmod +x /usr/local/bin/hadolint",
-                ],
-            },
             "brew": ["brew", "install", "hadolint"],
+            "_default": [
+                "bash", "-c",
+                "curl -sSfL -o /usr/local/bin/hadolint"
+                " https://github.com/hadolint/hadolint/releases/latest/"
+                "download/hadolint-$(uname -s)-{arch}"
+                " && chmod +x /usr/local/bin/hadolint",
+            ],
         },
-        "needs_sudo": {"_default": True, "brew": False},
-        "install_via": {"_default": "github_release"},
+        "needs_sudo": {
+            "brew": False, "_default": True,
+        },
+        "install_via": {"_default": "binary_download"},
         "requires": {"binaries": ["curl"]},
+        "arch_map": {
+            "x86_64": "x86_64", "aarch64": "arm64",
+        },
+        "prefer": ["brew"],
         "verify": ["hadolint", "--version"],
+        "update": {
+            "brew": ["brew", "upgrade", "hadolint"],
+            "_default": [
+                "bash", "-c",
+                "curl -sSfL -o /usr/local/bin/hadolint"
+                " https://github.com/hadolint/hadolint/releases/latest/"
+                "download/hadolint-$(uname -s)-{arch}"
+                " && chmod +x /usr/local/bin/hadolint",
+            ],
+        },
     },
     "dagger": {
-        "label": "Dagger (CI/CD engine)",
+        "cli": "dagger",
+        "label": "Dagger (programmable CI/CD engine)",
         "category": "container",
+        # Go-based. By Dagger Inc.
+        # NOT in apt, dnf, apk, pacman, zypper, snap.
+        # Available in brew (custom tap: dagger/tap/dagger).
+        # Official installer: dl.dagger.io/dagger/install.sh
+        # Auto-detects OS and arch — no placeholders needed.
+        # GitHub releases: dagger_v{ver}_{os}_{arch}.tar.gz
+        # Requires Docker as container runtime.
         "install": {
+            "brew": ["brew", "install", "dagger/tap/dagger"],
             "_default": [
                 "bash", "-c",
                 "curl -sSfL https://dl.dagger.io/dagger/install.sh | sh",
             ],
-            "brew": ["brew", "install", "dagger/tap/dagger"],
         },
-        "needs_sudo": {"_default": True, "brew": False},
+        "needs_sudo": {
+            "brew": False, "_default": True,
+        },
         "install_via": {"_default": "curl_pipe_bash"},
-        "requires": {"binaries": ["curl"]},
+        "requires": {"binaries": ["docker", "curl"]},
+        "prefer": ["brew"],
         "verify": ["dagger", "version"],
+        "update": {
+            "brew": ["brew", "upgrade", "dagger/tap/dagger"],
+            "_default": [
+                "bash", "-c",
+                "curl -sSfL https://dl.dagger.io/dagger/install.sh | sh",
+            ],
+        },
     },
 
     # ════════════════════════════════════════════════════════════
@@ -3028,27 +3361,55 @@ TOOL_RECIPES: dict[str, dict] = {
     # ════════════════════════════════════════════════════════════
 
     "direnv": {
-        "label": "direnv",
+        "cli": "direnv",
+        "label": "direnv (environment switcher for the shell)",
         "category": "devtools",
+        # Go-based. Auto-loads/unloads env vars per directory.
+        # Available in ALL native PMs + snap + official installer.
+        # Verify: "direnv version" (no --)
         "install": {
             "apt": ["apt-get", "install", "-y", "direnv"],
             "dnf": ["dnf", "install", "-y", "direnv"],
             "apk": ["apk", "add", "direnv"],
             "pacman": ["pacman", "-S", "--noconfirm", "direnv"],
+            "zypper": ["zypper", "install", "-y", "direnv"],
             "brew": ["brew", "install", "direnv"],
+            "snap": ["snap", "install", "direnv"],
             "_default": [
                 "bash", "-c",
                 "curl -sfL https://direnv.net/install.sh | bash",
             ],
         },
-        "needs_sudo": {"apt": True, "dnf": True, "apk": True,
-                       "pacman": True, "brew": False, "_default": True},
+        "needs_sudo": {
+            "apt": True, "dnf": True, "apk": True,
+            "pacman": True, "zypper": True, "brew": False,
+            "snap": True, "_default": True,
+        },
         "install_via": {"_default": "curl_pipe_bash"},
+        "requires": {"binaries": ["curl"]},
+        "prefer": ["apt", "dnf", "apk", "pacman", "zypper", "brew", "snap"],
         "verify": ["direnv", "version"],
+        "update": {
+            "apt": ["apt-get", "install", "-y", "--only-upgrade", "direnv"],
+            "dnf": ["dnf", "upgrade", "-y", "direnv"],
+            "apk": ["apk", "upgrade", "direnv"],
+            "pacman": ["pacman", "-Syu", "--noconfirm", "direnv"],
+            "zypper": ["zypper", "update", "-y", "direnv"],
+            "brew": ["brew", "upgrade", "direnv"],
+            "snap": ["snap", "refresh", "direnv"],
+            "_default": [
+                "bash", "-c",
+                "curl -sfL https://direnv.net/install.sh | bash",
+            ],
+        },
     },
     "tmux": {
-        "label": "tmux",
+        "cli": "tmux",
+        "label": "tmux (terminal multiplexer)",
         "category": "devtools",
+        # C-based. Classic Unix tool.
+        # Available in ALL native PMs — no _default needed.
+        # Verify: "tmux -V" (capital V, no --)
         "install": {
             "apt": ["apt-get", "install", "-y", "tmux"],
             "dnf": ["dnf", "install", "-y", "tmux"],
@@ -3057,18 +3418,35 @@ TOOL_RECIPES: dict[str, dict] = {
             "zypper": ["zypper", "install", "-y", "tmux"],
             "brew": ["brew", "install", "tmux"],
         },
-        "needs_sudo": {"apt": True, "dnf": True, "apk": True,
-                       "pacman": True, "zypper": True, "brew": False},
+        "needs_sudo": {
+            "apt": True, "dnf": True, "apk": True,
+            "pacman": True, "zypper": True, "brew": False,
+        },
+        "prefer": ["apt", "dnf", "apk", "pacman", "zypper", "brew"],
         "verify": ["tmux", "-V"],
+        "update": {
+            "apt": ["apt-get", "install", "-y", "--only-upgrade", "tmux"],
+            "dnf": ["dnf", "upgrade", "-y", "tmux"],
+            "apk": ["apk", "upgrade", "tmux"],
+            "pacman": ["pacman", "-Syu", "--noconfirm", "tmux"],
+            "zypper": ["zypper", "update", "-y", "tmux"],
+            "brew": ["brew", "upgrade", "tmux"],
+        },
     },
     "fzf": {
-        "label": "fzf (fuzzy finder)",
+        "cli": "fzf",
+        "label": "fzf (command-line fuzzy finder)",
         "category": "devtools",
+        # Go-based. By junegunn.
+        # Available in ALL native PMs.
+        # _default: git clone to ~/.fzf (user-local, no sudo).
+        # Snap exists but unofficial (fzf-slowday) — skipped.
         "install": {
             "apt": ["apt-get", "install", "-y", "fzf"],
             "dnf": ["dnf", "install", "-y", "fzf"],
             "apk": ["apk", "add", "fzf"],
             "pacman": ["pacman", "-S", "--noconfirm", "fzf"],
+            "zypper": ["zypper", "install", "-y", "fzf"],
             "brew": ["brew", "install", "fzf"],
             "_default": [
                 "bash", "-c",
@@ -3076,14 +3454,34 @@ TOOL_RECIPES: dict[str, dict] = {
                 "~/.fzf && ~/.fzf/install --all",
             ],
         },
-        "needs_sudo": {"apt": True, "dnf": True, "apk": True,
-                       "pacman": True, "brew": False, "_default": False},
+        "needs_sudo": {
+            "apt": True, "dnf": True, "apk": True,
+            "pacman": True, "zypper": True, "brew": False,
+            "_default": False,
+        },
+        "requires": {"binaries": ["git"]},
+        "prefer": ["apt", "dnf", "apk", "pacman", "zypper", "brew"],
         "verify": ["fzf", "--version"],
+        "update": {
+            "apt": ["apt-get", "install", "-y", "--only-upgrade", "fzf"],
+            "dnf": ["dnf", "upgrade", "-y", "fzf"],
+            "apk": ["apk", "upgrade", "fzf"],
+            "pacman": ["pacman", "-Syu", "--noconfirm", "fzf"],
+            "zypper": ["zypper", "update", "-y", "fzf"],
+            "brew": ["brew", "upgrade", "fzf"],
+            "_default": [
+                "bash", "-c",
+                "cd ~/.fzf && git pull && ./install --all",
+            ],
+        },
     },
     "ripgrep": {
-        "label": "ripgrep (rg)",
+        "label": "ripgrep (rg — recursive grep replacement)",
         "category": "devtools",
         "cli": "rg",
+        # Rust-based. By BurntSushi.
+        # Available in ALL native PMs.
+        # Package name is "ripgrep" but binary is "rg".
         "install": {
             "apt": ["apt-get", "install", "-y", "ripgrep"],
             "dnf": ["dnf", "install", "-y", "ripgrep"],
@@ -3092,27 +3490,59 @@ TOOL_RECIPES: dict[str, dict] = {
             "zypper": ["zypper", "install", "-y", "ripgrep"],
             "brew": ["brew", "install", "ripgrep"],
         },
-        "needs_sudo": {"apt": True, "dnf": True, "apk": True,
-                       "pacman": True, "zypper": True, "brew": False},
+        "needs_sudo": {
+            "apt": True, "dnf": True, "apk": True,
+            "pacman": True, "zypper": True, "brew": False,
+        },
+        "prefer": ["apt", "dnf", "apk", "pacman", "zypper", "brew"],
         "verify": ["rg", "--version"],
+        "update": {
+            "apt": ["apt-get", "install", "-y", "--only-upgrade", "ripgrep"],
+            "dnf": ["dnf", "upgrade", "-y", "ripgrep"],
+            "apk": ["apk", "upgrade", "ripgrep"],
+            "pacman": ["pacman", "-Syu", "--noconfirm", "ripgrep"],
+            "zypper": ["zypper", "update", "-y", "ripgrep"],
+            "brew": ["brew", "upgrade", "ripgrep"],
+        },
     },
     "bat": {
-        "label": "bat (cat with syntax highlighting)",
+        "cli": "bat",
+        "label": "bat (cat replacement with syntax highlighting)",
         "category": "devtools",
+        # Rust-based. By sharkdp.
+        # Available in ALL native PMs.
+        # Note: on Debian/Ubuntu older versions, binary may be "batcat".
         "install": {
             "apt": ["apt-get", "install", "-y", "bat"],
             "dnf": ["dnf", "install", "-y", "bat"],
             "apk": ["apk", "add", "bat"],
             "pacman": ["pacman", "-S", "--noconfirm", "bat"],
+            "zypper": ["zypper", "install", "-y", "bat"],
             "brew": ["brew", "install", "bat"],
         },
-        "needs_sudo": {"apt": True, "dnf": True, "apk": True,
-                       "pacman": True, "brew": False},
+        "needs_sudo": {
+            "apt": True, "dnf": True, "apk": True,
+            "pacman": True, "zypper": True, "brew": False,
+        },
+        "prefer": ["apt", "dnf", "apk", "pacman", "zypper", "brew"],
         "verify": ["bat", "--version"],
+        "update": {
+            "apt": ["apt-get", "install", "-y", "--only-upgrade", "bat"],
+            "dnf": ["dnf", "upgrade", "-y", "bat"],
+            "apk": ["apk", "upgrade", "bat"],
+            "pacman": ["pacman", "-Syu", "--noconfirm", "bat"],
+            "zypper": ["zypper", "update", "-y", "bat"],
+            "brew": ["brew", "upgrade", "bat"],
+        },
     },
     "eza": {
-        "label": "eza (modern ls)",
+        "cli": "eza",
+        "label": "eza (modern ls replacement)",
         "category": "devtools",
+        # Rust-based. Fork of exa (unmaintained).
+        # Available: apt (24.04+), dnf, pacman, brew.
+        # NOT in apk, zypper.
+        # _default: cargo install — needs Rust toolchain.
         "install": {
             "apt": ["apt-get", "install", "-y", "eza"],
             "dnf": ["dnf", "install", "-y", "eza"],
@@ -3120,48 +3550,109 @@ TOOL_RECIPES: dict[str, dict] = {
             "brew": ["brew", "install", "eza"],
             "_default": ["cargo", "install", "eza"],
         },
-        "needs_sudo": {"apt": True, "dnf": True, "pacman": True,
-                       "brew": False, "_default": False},
+        "needs_sudo": {
+            "apt": True, "dnf": True, "pacman": True,
+            "brew": False, "_default": False,
+        },
         "install_via": {"_default": "cargo"},
+        "prefer": ["apt", "dnf", "pacman", "brew"],
         "verify": ["eza", "--version"],
+        "update": {
+            "apt": ["apt-get", "install", "-y", "--only-upgrade", "eza"],
+            "dnf": ["dnf", "upgrade", "-y", "eza"],
+            "pacman": ["pacman", "-Syu", "--noconfirm", "eza"],
+            "brew": ["brew", "upgrade", "eza"],
+            "_default": ["cargo", "install", "eza"],
+        },
     },
     "fd": {
-        "label": "fd (modern find)",
-        "category": "devtools",
         "cli": "fd",
+        "label": "fd (modern find replacement)",
+        "category": "devtools",
+        # Rust-based. By sharkdp.
+        # Available in ALL native PMs.
+        # Package name varies: fd-find (apt, dnf) vs fd (apk, pacman, zypper, brew).
         "install": {
             "apt": ["apt-get", "install", "-y", "fd-find"],
             "dnf": ["dnf", "install", "-y", "fd-find"],
             "apk": ["apk", "add", "fd"],
             "pacman": ["pacman", "-S", "--noconfirm", "fd"],
+            "zypper": ["zypper", "install", "-y", "fd"],
             "brew": ["brew", "install", "fd"],
         },
-        "needs_sudo": {"apt": True, "dnf": True, "apk": True,
-                       "pacman": True, "brew": False},
+        "needs_sudo": {
+            "apt": True, "dnf": True, "apk": True,
+            "pacman": True, "zypper": True, "brew": False,
+        },
+        "prefer": ["apt", "dnf", "apk", "pacman", "zypper", "brew"],
         "verify": ["fd", "--version"],
+        "update": {
+            "apt": ["apt-get", "install", "-y", "--only-upgrade", "fd-find"],
+            "dnf": ["dnf", "upgrade", "-y", "fd-find"],
+            "apk": ["apk", "upgrade", "fd"],
+            "pacman": ["pacman", "-Syu", "--noconfirm", "fd"],
+            "zypper": ["zypper", "update", "-y", "fd"],
+            "brew": ["brew", "upgrade", "fd"],
+        },
     },
     "starship": {
-        "label": "Starship (shell prompt)",
+        "cli": "starship",
+        "label": "Starship (cross-shell customizable prompt)",
         "category": "devtools",
+        # Rust-based. Minimal, blazing-fast prompt for any shell.
+        # Available: apt (Debian 13+), apk (3.13+), pacman, zypper, brew, snap.
+        # dnf requires COPR repo (atim/starship) — non-standard, skipped.
+        # _default: official installer script from starship.rs.
+        # Recommends Nerd Font for proper icon display.
         "install": {
+            "apt": ["apt-get", "install", "-y", "starship"],
+            "apk": ["apk", "add", "starship"],
+            "pacman": ["pacman", "-S", "--noconfirm", "starship"],
+            "zypper": ["zypper", "install", "-y", "starship"],
+            "brew": ["brew", "install", "starship"],
+            "snap": ["snap", "install", "starship"],
             "_default": [
                 "bash", "-c",
                 "curl -sS https://starship.rs/install.sh | sh -s -- -y",
             ],
-            "brew": ["brew", "install", "starship"],
         },
-        "needs_sudo": {"_default": True, "brew": False},
+        "needs_sudo": {
+            "apt": True, "apk": True, "pacman": True,
+            "zypper": True, "brew": False, "snap": True,
+            "_default": True,
+        },
         "install_via": {"_default": "curl_pipe_bash"},
         "requires": {"binaries": ["curl"]},
+        "prefer": ["apt", "apk", "pacman", "zypper", "brew", "snap"],
         "verify": ["starship", "--version"],
+        "update": {
+            "apt": ["apt-get", "install", "-y", "--only-upgrade", "starship"],
+            "apk": ["apk", "upgrade", "starship"],
+            "pacman": ["pacman", "-Syu", "--noconfirm", "starship"],
+            "zypper": ["zypper", "update", "-y", "starship"],
+            "brew": ["brew", "upgrade", "starship"],
+            "snap": ["snap", "refresh", "starship"],
+            "_default": [
+                "bash", "-c",
+                "curl -sS https://starship.rs/install.sh | sh -s -- -y",
+            ],
+        },
     },
     "zoxide": {
-        "label": "zoxide (smart cd)",
+        "cli": "zoxide",
+        "label": "zoxide (smarter cd command)",
         "category": "devtools",
+        # Rust-based. By ajeetdsouza.
+        # Learns most-used directories, provides smart jump.
+        # Available: apt, dnf, apk, pacman, zypper, brew.
+        # _default: official installer script (no sudo, ~/.local/bin).
+        # NOT available as snap.
         "install": {
             "apt": ["apt-get", "install", "-y", "zoxide"],
             "dnf": ["dnf", "install", "-y", "zoxide"],
+            "apk": ["apk", "add", "zoxide"],
             "pacman": ["pacman", "-S", "--noconfirm", "zoxide"],
+            "zypper": ["zypper", "install", "-y", "zoxide"],
             "brew": ["brew", "install", "zoxide"],
             "_default": [
                 "bash", "-c",
@@ -3169,11 +3660,28 @@ TOOL_RECIPES: dict[str, dict] = {
                 "zoxide/main/install.sh | bash",
             ],
         },
-        "needs_sudo": {"apt": True, "dnf": True, "pacman": True,
-                       "brew": False, "_default": False},
+        "needs_sudo": {
+            "apt": True, "dnf": True, "apk": True,
+            "pacman": True, "zypper": True, "brew": False,
+            "_default": False,
+        },
         "install_via": {"_default": "curl_pipe_bash"},
         "requires": {"binaries": ["curl"]},
+        "prefer": ["apt", "dnf", "apk", "pacman", "zypper", "brew"],
         "verify": ["zoxide", "--version"],
+        "update": {
+            "apt": ["apt-get", "install", "-y", "--only-upgrade", "zoxide"],
+            "dnf": ["dnf", "upgrade", "-y", "zoxide"],
+            "apk": ["apk", "upgrade", "zoxide"],
+            "pacman": ["pacman", "-Syu", "--noconfirm", "zoxide"],
+            "zypper": ["zypper", "update", "-y", "zoxide"],
+            "brew": ["brew", "upgrade", "zoxide"],
+            "_default": [
+                "bash", "-c",
+                "curl -sS https://raw.githubusercontent.com/ajeetdsouza/"
+                "zoxide/main/install.sh | bash",
+            ],
+        },
     },
 
     # ════════════════════════════════════════════════════════════
@@ -3251,86 +3759,211 @@ TOOL_RECIPES: dict[str, dict] = {
         },
     },
     "pyright": {
-        "label": "Pyright (Python type checker)",
+        "cli": "pyright",
+        "label": "Pyright (fast Python type checker — by Microsoft)",
         "category": "python",
+        # TypeScript/Node.js based. By Microsoft.
+        # Primary install via npm (native).
+        # PyPI wrapper exists — bundles Node.js internally,
+        # so pip/pipx work WITHOUT npm installed.
+        # Available: npm, pip, pipx, pacman, brew, snap.
+        # NOT in apt, dnf, apk, zypper.
         "install": {
-            "_default": ["npm", "install", "-g", "pyright"],
+            "pipx": ["pipx", "install", "pyright"],
+            "pacman": ["pacman", "-S", "--noconfirm", "pyright"],
             "brew": ["brew", "install", "pyright"],
+            "snap": ["snap", "install", "pyright", "--classic"],
+            "_default": ["npm", "install", "-g", "pyright"],
         },
-        "needs_sudo": {"_default": False, "brew": False},
+        "needs_sudo": {
+            "pipx": False, "pacman": True,
+            "brew": False, "snap": True,
+            "_default": False,
+        },
         "install_via": {"_default": "npm"},
         "requires": {"binaries": ["npm"]},
+        "prefer": ["pipx", "pacman", "brew", "snap"],
         "verify": ["pyright", "--version"],
         "update": {
-            "_default": ["npm", "update", "-g", "pyright"],
+            "pipx": ["pipx", "upgrade", "pyright"],
+            "pacman": ["pacman", "-Syu", "--noconfirm", "pyright"],
             "brew": ["brew", "upgrade", "pyright"],
+            "snap": ["snap", "refresh", "pyright"],
+            "_default": ["npm", "update", "-g", "pyright"],
         },
     },
     "isort": {
-        "label": "isort (import sorter)",
+        "cli": "isort",
+        "label": "isort (Python import sorter)",
         "category": "python",
-        "install": {"_default": _PIP + ["install", "isort"]},
-        "needs_sudo": {"_default": False},
+        # Pure Python. Sorts imports per PEP 8 / isort profiles.
+        # pipx recommended. pacman: python-isort.
+        # NOT in apt, dnf, apk, zypper system repos.
+        "install": {
+            "pipx": ["pipx", "install", "isort"],
+            "pacman": ["pacman", "-S", "--noconfirm", "python-isort"],
+            "brew": ["brew", "install", "isort"],
+            "_default": _PIP + ["install", "isort"],
+        },
+        "needs_sudo": {
+            "pipx": False, "pacman": True,
+            "brew": False, "_default": False,
+        },
         "install_via": {"_default": "pip"},
+        "prefer": ["pipx", "pacman", "brew"],
         "verify": ["isort", "--version"],
-        "update": {"_default": _PIP + ["install", "--upgrade", "isort"]},
+        "update": {
+            "pipx": ["pipx", "upgrade", "isort"],
+            "pacman": ["pacman", "-Syu", "--noconfirm", "python-isort"],
+            "brew": ["brew", "upgrade", "isort"],
+            "_default": _PIP + ["install", "--upgrade", "isort"],
+        },
     },
     "flake8": {
-        "label": "Flake8 (Python linter)",
+        "cli": "flake8",
+        "label": "Flake8 (Python linter — pycodestyle + pyflakes + mccabe)",
         "category": "python",
-        "install": {"_default": _PIP + ["install", "flake8"]},
-        "needs_sudo": {"_default": False},
+        # Pure Python. Combines pycodestyle, pyflakes, mccabe.
+        # pipx recommended. pacman: flake8 (same name).
+        # NOT in apt, dnf, apk, zypper system repos.
+        "install": {
+            "pipx": ["pipx", "install", "flake8"],
+            "pacman": ["pacman", "-S", "--noconfirm", "flake8"],
+            "brew": ["brew", "install", "flake8"],
+            "_default": _PIP + ["install", "flake8"],
+        },
+        "needs_sudo": {
+            "pipx": False, "pacman": True,
+            "brew": False, "_default": False,
+        },
         "install_via": {"_default": "pip"},
+        "prefer": ["pipx", "pacman", "brew"],
         "verify": ["flake8", "--version"],
-        "update": {"_default": _PIP + ["install", "--upgrade", "flake8"]},
+        "update": {
+            "pipx": ["pipx", "upgrade", "flake8"],
+            "pacman": ["pacman", "-Syu", "--noconfirm", "flake8"],
+            "brew": ["brew", "upgrade", "flake8"],
+            "_default": _PIP + ["install", "--upgrade", "flake8"],
+        },
     },
     "tox": {
-        "label": "tox (test automation)",
+        "cli": "tox",
+        "label": "tox (Python test automation framework)",
         "category": "python",
-        "install": {"_default": _PIP + ["install", "tox"]},
-        "needs_sudo": {"_default": False},
+        # Pure Python. Automates testing across multiple envs.
+        # pipx recommended. pacman: python-tox.
+        # NOT in apt, dnf, apk, zypper system repos.
+        "install": {
+            "pipx": ["pipx", "install", "tox"],
+            "pacman": ["pacman", "-S", "--noconfirm", "python-tox"],
+            "brew": ["brew", "install", "tox"],
+            "_default": _PIP + ["install", "tox"],
+        },
+        "needs_sudo": {
+            "pipx": False, "pacman": True,
+            "brew": False, "_default": False,
+        },
         "install_via": {"_default": "pip"},
+        "prefer": ["pipx", "pacman", "brew"],
         "verify": ["tox", "--version"],
-        "update": {"_default": _PIP + ["install", "--upgrade", "tox"]},
+        "update": {
+            "pipx": ["pipx", "upgrade", "tox"],
+            "pacman": ["pacman", "-Syu", "--noconfirm", "python-tox"],
+            "brew": ["brew", "upgrade", "tox"],
+            "_default": _PIP + ["install", "--upgrade", "tox"],
+        },
     },
     "nox": {
-        "label": "nox (test automation)",
+        "cli": "nox",
+        "label": "nox (flexible Python test automation)",
         "category": "python",
-        "install": {"_default": _PIP + ["install", "nox"]},
-        "needs_sudo": {"_default": False},
+        # Pure Python. Similar to tox but uses Python for config.
+        # pipx recommended. pacman: python-nox.
+        # NOT in apt, dnf, apk, zypper system repos.
+        "install": {
+            "pipx": ["pipx", "install", "nox"],
+            "pacman": ["pacman", "-S", "--noconfirm", "python-nox"],
+            "brew": ["brew", "install", "nox"],
+            "_default": _PIP + ["install", "nox"],
+        },
+        "needs_sudo": {
+            "pipx": False, "pacman": True,
+            "brew": False, "_default": False,
+        },
         "install_via": {"_default": "pip"},
+        "prefer": ["pipx", "pacman", "brew"],
         "verify": ["nox", "--version"],
-        "update": {"_default": _PIP + ["install", "--upgrade", "nox"]},
+        "update": {
+            "pipx": ["pipx", "upgrade", "nox"],
+            "pacman": ["pacman", "-Syu", "--noconfirm", "python-nox"],
+            "brew": ["brew", "upgrade", "nox"],
+            "_default": _PIP + ["install", "--upgrade", "nox"],
+        },
     },
     "pdm": {
-        "label": "PDM (Python package manager)",
+        "cli": "pdm",
+        "label": "PDM (modern Python package and project manager)",
         "category": "python",
+        # Python-based. PEP 582 pioneer, now PEP 621 compliant.
+        # NOT in any native system PMs. Python-ecosystem only.
+        # pipx is recommended (isolated env).
+        # _default: official installer script (pipes to python3).
         "install": {
+            "pipx": ["pipx", "install", "pdm"],
+            "pip": ["pip", "install", "--user", "pdm"],
+            "brew": ["brew", "install", "pdm"],
             "_default": [
                 "bash", "-c",
                 "curl -sSL https://pdm-project.org/install-pdm.py | python3 -",
             ],
-            "brew": ["brew", "install", "pdm"],
         },
-        "needs_sudo": {"_default": False, "brew": False},
-        "requires": {"binaries": ["curl"]},
+        "needs_sudo": {
+            "pipx": False, "pip": False, "brew": False,
+            "_default": False,
+        },
+        "install_via": {"pip": "pip", "_default": "curl_pipe_bash"},
+        "requires": {"binaries": ["curl", "python3"]},
+        "prefer": ["pipx", "brew", "pip"],
         "post_env": 'export PATH="$HOME/.local/bin:$PATH"',
         "verify": ["bash", "-c",
                    'export PATH="$HOME/.local/bin:$PATH" && pdm --version'],
+        "update": {
+            "pipx": ["pipx", "upgrade", "pdm"],
+            "pip": ["pip", "install", "--upgrade", "pdm"],
+            "brew": ["brew", "upgrade", "pdm"],
+            "_default": [
+                "bash", "-c",
+                "curl -sSL https://pdm-project.org/install-pdm.py | python3 -",
+            ],
+        },
     },
     "hatch": {
-        "label": "Hatch (Python project manager)",
+        "cli": "hatch",
+        "label": "Hatch (modern Python project manager — PyPA)",
         "category": "python",
+        # Python-based. Official PyPA project manager.
+        # Handles environments, builds, publishing, version bumping.
+        # pipx recommended. Available on pacman as python-hatch.
+        # NOT in apt, dnf, apk, zypper system repos.
+        # Available on conda-forge but we don't track conda.
         "install": {
-            "_default": _PIP + ["install", "hatch"],
+            "pipx": ["pipx", "install", "hatch"],
+            "pacman": ["pacman", "-S", "--noconfirm", "python-hatch"],
             "brew": ["brew", "install", "hatch"],
+            "_default": _PIP + ["install", "hatch"],
         },
-        "needs_sudo": {"_default": False, "brew": False},
+        "needs_sudo": {
+            "pipx": False, "pacman": True,
+            "brew": False, "_default": False,
+        },
         "install_via": {"_default": "pip"},
+        "prefer": ["pipx", "pacman", "brew"],
         "verify": ["hatch", "--version"],
         "update": {
-            "_default": _PIP + ["install", "--upgrade", "hatch"],
+            "pipx": ["pipx", "upgrade", "hatch"],
+            "pacman": ["pacman", "-Syu", "--noconfirm", "python-hatch"],
             "brew": ["brew", "upgrade", "hatch"],
+            "_default": _PIP + ["install", "--upgrade", "hatch"],
         },
     },
 
@@ -3394,25 +4027,45 @@ TOOL_RECIPES: dict[str, dict] = {
         "post_env": "export PNPM_HOME=\"$HOME/.local/share/pnpm\" && export PATH=\"$PNPM_HOME:$PATH\"",
     },
     "bun": {
-        "label": "Bun (JS runtime)",
+        "cli": "bun",
+        "label": "Bun (fast all-in-one JavaScript runtime, bundler, and PM)",
         "category": "node",
+        # Written in Zig. JS/TS runtime + bundler + package manager.
+        # Official installer script is recommended.
+        # brew uses tap: oven-sh/bun/bun.
+        # npm install works (installs runtime via competitor — ironic).
+        # NOT in apt, dnf, apk, zypper, snap system repos.
+        # pacman: AUR only (bun-bin) — skipped.
         "install": {
+            "brew": ["brew", "install", "oven-sh/bun/bun"],
+            "npm": ["npm", "install", "-g", "bun"],
             "_default": [
                 "bash", "-c",
                 "curl -fsSL https://bun.sh/install | bash",
             ],
-            "brew": ["brew", "install", "oven-sh/bun/bun"],
         },
-        "needs_sudo": {"_default": False, "brew": False},
-        "install_via": {"_default": "curl_pipe_bash"},
+        "needs_sudo": {"brew": False, "npm": False, "_default": False},
+        "install_via": {"_default": "curl_pipe_bash", "npm": "npm"},
         "requires": {"binaries": ["curl"]},
+        "prefer": ["brew", "npm"],
         "post_env": 'export PATH="$HOME/.bun/bin:$PATH"',
         "verify": ["bash", "-c",
                    'export PATH="$HOME/.bun/bin:$PATH" && bun --version'],
+        "update": {
+            "brew": ["brew", "upgrade", "oven-sh/bun/bun"],
+            "npm": ["npm", "update", "-g", "bun"],
+            "_default": [
+                "bash", "-c",
+                "curl -fsSL https://bun.sh/install | bash",
+            ],
+        },
     },
     "tsx": {
-        "label": "tsx (TypeScript execute)",
+        "cli": "tsx",
+        "label": "tsx (TypeScript execute — Node.js enhanced)",
         "category": "node",
+        # npm-only. Runs TypeScript files directly via Node.js.
+        # No brew, no native PMs. npm is the only install method.
         "install": {"_default": ["npm", "install", "-g", "tsx"]},
         "needs_sudo": {"_default": False},
         "install_via": {"_default": "npm"},
@@ -3421,8 +4074,11 @@ TOOL_RECIPES: dict[str, dict] = {
         "update": {"_default": ["npm", "update", "-g", "tsx"]},
     },
     "vitest": {
-        "label": "Vitest (test framework)",
+        "cli": "vitest",
+        "label": "Vitest (Vite-native unit test framework)",
         "category": "node",
+        # npm-only. Blazing fast unit tests powered by Vite.
+        # No brew, no native PMs. npm is the only install method.
         "install": {"_default": ["npm", "install", "-g", "vitest"]},
         "needs_sudo": {"_default": False},
         "install_via": {"_default": "npm"},
@@ -3431,14 +4087,33 @@ TOOL_RECIPES: dict[str, dict] = {
         "update": {"_default": ["npm", "update", "-g", "vitest"]},
     },
     "playwright": {
-        "label": "Playwright (browser testing)",
+        "cli": "npx",
+        "label": "Playwright (cross-browser E2E testing — by Microsoft)",
         "category": "node",
+        # npm-only. By Microsoft. Browser automation + testing.
+        # Uses npx as cli — no global binary, runs via npx playwright.
+        # No brew, no native PMs.
         "install": {"_default": ["npm", "install", "-g", "playwright"]},
         "needs_sudo": {"_default": False},
         "install_via": {"_default": "npm"},
         "requires": {"binaries": ["npm"]},
         "verify": ["npx", "playwright", "--version"],
+        "update": {"_default": ["npm", "update", "-g", "playwright"]},
+    },
+    "storybook": {
         "cli": "npx",
+        "label": "Storybook (UI component explorer and workshop)",
+        "category": "node",
+        # npm-only. Interactive UI development environment.
+        # Best used via npx (npx storybook init / npx storybook dev).
+        # Global npm install of @storybook/cli provides `sb` command.
+        # No brew, no native PMs.
+        "install": {"_default": ["npm", "install", "-g", "@storybook/cli"]},
+        "needs_sudo": {"_default": False},
+        "install_via": {"_default": "npm"},
+        "requires": {"binaries": ["npm"]},
+        "verify": ["npx", "sb", "--version"],
+        "update": {"_default": ["npm", "update", "-g", "@storybook/cli"]},
     },
 
     # ════════════════════════════════════════════════════════════
@@ -3579,31 +4254,59 @@ TOOL_RECIPES: dict[str, dict] = {
     },
 
     "pulumi": {
-        "label": "Pulumi",
+        "cli": "pulumi",
+        "label": "Pulumi (infrastructure as code SDK)",
         "category": "iac",
+        # Written in Go. IaC using real programming languages (Python, TS, Go, etc.).
+        # brew: pulumi. Official installer: get.pulumi.com — auto-detects arch.
+        # Installs to $HOME/.pulumi/bin — NO sudo needed.
+        # NOT in apt, dnf, apk, pacman (official), zypper, snap.
+        # AUR has pulumi-bin but that's yay, not pacman -S.
+        # Verify: `pulumi version` (NOT --version).
         "install": {
+            "brew": ["brew", "install", "pulumi"],
             "_default": [
                 "bash", "-c",
                 "curl -fsSL https://get.pulumi.com | sh",
             ],
-            "brew": ["brew", "install", "pulumi"],
         },
-        "needs_sudo": {"_default": False, "brew": False},
+        "needs_sudo": {"brew": False, "_default": False},
         "install_via": {"_default": "curl_pipe_bash"},
         "requires": {"binaries": ["curl"]},
         "post_env": 'export PATH="$HOME/.pulumi/bin:$PATH"',
+        "prefer": ["brew"],
         "verify": ["bash", "-c",
                    'export PATH="$HOME/.pulumi/bin:$PATH" && pulumi version'],
+        "update": {
+            "brew": ["brew", "upgrade", "pulumi"],
+            "_default": [
+                "bash", "-c",
+                "curl -fsSL https://get.pulumi.com | sh",
+            ],
+        },
     },
     "cdktf": {
-        "label": "CDK for Terraform",
+        "cli": "cdktf",
+        "label": "CDK for Terraform (infrastructure as code with programming languages)",
         "category": "iac",
-        "install": {"_default": ["npm", "install", "-g", "cdktf-cli"]},
-        "needs_sudo": {"_default": False},
+        # Written in TypeScript. By HashiCorp.
+        # ⚠️  DEPRECATED by HashiCorp — archived December 10, 2025.
+        # npm: cdktf-cli (global install). brew: cdktf.
+        # Requires terraform CLI (>= 1.2.0) and Node.js at runtime.
+        # NOT in apt, dnf, apk, pacman, zypper, snap.
+        "install": {
+            "brew": ["brew", "install", "cdktf"],
+            "_default": ["npm", "install", "-g", "cdktf-cli"],
+        },
+        "needs_sudo": {"brew": False, "_default": False},
         "install_via": {"_default": "npm"},
         "requires": {"binaries": ["npm"]},
+        "prefer": ["brew"],
         "verify": ["cdktf", "--version"],
-        "update": {"_default": ["npm", "update", "-g", "cdktf-cli"]},
+        "update": {
+            "brew": ["brew", "upgrade", "cdktf"],
+            "_default": ["npm", "update", "-g", "cdktf-cli"],
+        },
     },
 
     # ════════════════════════════════════════════════════════════
@@ -3611,82 +4314,155 @@ TOOL_RECIPES: dict[str, dict] = {
     # ════════════════════════════════════════════════════════════
 
     "psql": {
-        "label": "PostgreSQL client",
+        "cli": "psql",
+        "label": "PostgreSQL client (psql command-line interface)",
         "category": "database",
+        # Written in C. Available in all major distro repos.
+        # Package names differ: apt=postgresql-client, dnf/pacman/zypper=postgresql,
+        # apk=postgresql-client, brew=libpq (client-only formula).
+        # brew libpq installs to keg-only — needs `brew link --force libpq`
+        # or PATH addition. Formula provides psql without server.
+        # No _default needed — every target platform has it.
         "install": {
             "apt": ["apt-get", "install", "-y", "postgresql-client"],
             "dnf": ["dnf", "install", "-y", "postgresql"],
-            "apk": ["apk", "add", "postgresql-client"],
+            "apk": ["apk", "add", "--no-cache", "postgresql-client"],
             "pacman": ["pacman", "-S", "--noconfirm", "postgresql"],
             "zypper": ["zypper", "install", "-y", "postgresql"],
             "brew": ["brew", "install", "libpq"],
         },
-        "needs_sudo": {"apt": True, "dnf": True, "apk": True,
-                       "pacman": True, "zypper": True, "brew": False},
+        "needs_sudo": {
+            "apt": True, "dnf": True, "apk": True,
+            "pacman": True, "zypper": True, "brew": False,
+        },
+        "prefer": ["apt", "dnf", "apk", "pacman", "zypper", "brew"],
         "verify": ["psql", "--version"],
+        "update": {
+            "apt": ["apt-get", "install", "--only-upgrade", "-y", "postgresql-client"],
+            "dnf": ["dnf", "upgrade", "-y", "postgresql"],
+            "apk": ["apk", "upgrade", "postgresql-client"],
+            "pacman": ["pacman", "-Syu", "--noconfirm", "postgresql"],
+            "zypper": ["zypper", "update", "-y", "postgresql"],
+            "brew": ["brew", "upgrade", "libpq"],
+        },
     },
     "mysql-client": {
-        "label": "MySQL client",
-        "category": "database",
         "cli": "mysql",
+        "label": "MySQL client (mysql command-line interface)",
+        "category": "database",
+        # Written in C/C++. Client-only — no server installed.
+        # Package names differ: apt=mysql-client, dnf=mysql,
+        # apk=mysql-client, pacman=mariadb-clients (provides mysql binary),
+        # zypper=mysql-client, brew=mysql-client (keg-only).
+        # Arch uses MariaDB as default MySQL-compatible client.
+        # No _default needed — every target platform has it.
         "install": {
             "apt": ["apt-get", "install", "-y", "mysql-client"],
             "dnf": ["dnf", "install", "-y", "mysql"],
-            "apk": ["apk", "add", "mysql-client"],
+            "apk": ["apk", "add", "--no-cache", "mysql-client"],
             "pacman": ["pacman", "-S", "--noconfirm", "mariadb-clients"],
             "zypper": ["zypper", "install", "-y", "mysql-client"],
             "brew": ["brew", "install", "mysql-client"],
         },
-        "needs_sudo": {"apt": True, "dnf": True, "apk": True,
-                       "pacman": True, "zypper": True, "brew": False},
+        "needs_sudo": {
+            "apt": True, "dnf": True, "apk": True,
+            "pacman": True, "zypper": True, "brew": False,
+        },
+        "prefer": ["apt", "dnf", "apk", "pacman", "zypper", "brew"],
         "verify": ["mysql", "--version"],
+        "update": {
+            "apt": ["apt-get", "install", "--only-upgrade", "-y", "mysql-client"],
+            "dnf": ["dnf", "upgrade", "-y", "mysql"],
+            "apk": ["apk", "upgrade", "mysql-client"],
+            "pacman": ["pacman", "-Syu", "--noconfirm", "mariadb-clients"],
+            "zypper": ["zypper", "update", "-y", "mysql-client"],
+            "brew": ["brew", "upgrade", "mysql-client"],
+        },
     },
     "mongosh": {
-        "label": "MongoDB Shell",
+        "cli": "mongosh",
+        "label": "MongoDB Shell (mongosh interactive client)",
         "category": "database",
+        # Written in TypeScript/Node.js. Modern replacement for mongo shell.
+        # npm: mongosh (global install). brew: mongosh.
+        # NOT in apt, dnf, apk, pacman, zypper (MongoDB provides own repos
+        # but setup is complex — repo + key. npm is simpler).
+        # _default uses npm because mongosh is a Node.js package.
         "install": {
-            "_default": ["npm", "install", "-g", "mongosh"],
             "brew": ["brew", "install", "mongosh"],
+            "_default": ["npm", "install", "-g", "mongosh"],
         },
-        "needs_sudo": {"_default": False, "brew": False},
+        "needs_sudo": {"brew": False, "_default": False},
         "install_via": {"_default": "npm"},
         "requires": {"binaries": ["npm"]},
+        "prefer": ["brew"],
         "verify": ["mongosh", "--version"],
         "update": {
-            "_default": ["npm", "update", "-g", "mongosh"],
             "brew": ["brew", "upgrade", "mongosh"],
+            "_default": ["npm", "update", "-g", "mongosh"],
         },
     },
     "redis-cli": {
-        "label": "Redis CLI",
-        "category": "database",
         "cli": "redis-cli",
+        "label": "Redis CLI (redis-cli command-line interface)",
+        "category": "database",
+        # Written in C. Client-only — installs redis-cli without server.
+        # Package names: apt=redis-tools (client-only), dnf/apk/pacman/
+        # zypper/brew=redis (full package, includes redis-cli).
+        # No _default needed — every target platform has it.
         "install": {
             "apt": ["apt-get", "install", "-y", "redis-tools"],
             "dnf": ["dnf", "install", "-y", "redis"],
-            "apk": ["apk", "add", "redis"],
+            "apk": ["apk", "add", "--no-cache", "redis"],
             "pacman": ["pacman", "-S", "--noconfirm", "redis"],
             "zypper": ["zypper", "install", "-y", "redis"],
             "brew": ["brew", "install", "redis"],
         },
-        "needs_sudo": {"apt": True, "dnf": True, "apk": True,
-                       "pacman": True, "zypper": True, "brew": False},
+        "needs_sudo": {
+            "apt": True, "dnf": True, "apk": True,
+            "pacman": True, "zypper": True, "brew": False,
+        },
+        "prefer": ["apt", "dnf", "apk", "pacman", "zypper", "brew"],
         "verify": ["redis-cli", "--version"],
+        "update": {
+            "apt": ["apt-get", "install", "--only-upgrade", "-y", "redis-tools"],
+            "dnf": ["dnf", "upgrade", "-y", "redis"],
+            "apk": ["apk", "upgrade", "redis"],
+            "pacman": ["pacman", "-Syu", "--noconfirm", "redis"],
+            "zypper": ["zypper", "update", "-y", "redis"],
+            "brew": ["brew", "upgrade", "redis"],
+        },
     },
     "sqlite3": {
-        "label": "SQLite3",
+        "cli": "sqlite3",
+        "label": "SQLite3 (lightweight embedded SQL database)",
         "category": "database",
+        # Written in C. Self-contained, serverless, zero-configuration.
+        # Package names: apt/zypper=sqlite3, dnf/apk/pacman/brew=sqlite.
+        # Available in ALL major distro repos.
+        # No _default needed — universal availability.
         "install": {
             "apt": ["apt-get", "install", "-y", "sqlite3"],
             "dnf": ["dnf", "install", "-y", "sqlite"],
-            "apk": ["apk", "add", "sqlite"],
+            "apk": ["apk", "add", "--no-cache", "sqlite"],
             "pacman": ["pacman", "-S", "--noconfirm", "sqlite"],
             "zypper": ["zypper", "install", "-y", "sqlite3"],
             "brew": ["brew", "install", "sqlite"],
         },
-        "needs_sudo": {"apt": True, "dnf": True, "apk": True,
-                       "pacman": True, "zypper": True, "brew": False},
+        "needs_sudo": {
+            "apt": True, "dnf": True, "apk": True,
+            "pacman": True, "zypper": True, "brew": False,
+        },
+        "prefer": ["apt", "dnf", "apk", "pacman", "zypper", "brew"],
         "verify": ["sqlite3", "--version"],
+        "update": {
+            "apt": ["apt-get", "install", "--only-upgrade", "-y", "sqlite3"],
+            "dnf": ["dnf", "upgrade", "-y", "sqlite"],
+            "apk": ["apk", "upgrade", "sqlite"],
+            "pacman": ["pacman", "-Syu", "--noconfirm", "sqlite"],
+            "zypper": ["zypper", "update", "-y", "sqlite3"],
+            "brew": ["brew", "upgrade", "sqlite"],
+        },
     },
 
     # ════════════════════════════════════════════════════════════
@@ -3695,37 +4471,71 @@ TOOL_RECIPES: dict[str, dict] = {
 
     "act": {
         "cli": "act",
-        "label": "act (local GitHub Actions)",
+        "label": "act (local GitHub Actions runner)",
         "category": "cicd",
+        # Written in Go. Runs GitHub Actions workflows locally using Docker.
+        # brew formula: act. pacman: act (Arch community repo).
+        # _default uses official install.sh script — auto-detects arch and OS.
+        # Script installs to /usr/local/bin by default (needs sudo).
+        # Also available via COPR (Fedora) but not standard dnf.
+        # NOT in apt, dnf (standard), apk, zypper, snap.
+        # Runtime dependency: Docker Engine (must be running).
         "install": {
+            "brew": ["brew", "install", "act"],
+            "pacman": ["pacman", "-S", "--noconfirm", "act"],
             "_default": [
                 "bash", "-c",
                 "curl -sSfL https://raw.githubusercontent.com/nektos/act/"
                 "master/install.sh | sudo bash",
             ],
-            "brew": ["brew", "install", "act"],
         },
-        "needs_sudo": {"_default": True, "brew": False},
+        "needs_sudo": {"brew": False, "pacman": True, "_default": True},
         "install_via": {"_default": "curl_pipe_bash"},
         "requires": {"binaries": ["curl", "docker"]},
+        "prefer": ["brew", "pacman"],
         "verify": ["act", "--version"],
-    },
-    "gitlab-cli": {
-        "label": "GitLab CLI (glab)",
-        "category": "cicd",
-        "cli": "glab",
-        "install": {
+        "update": {
+            "brew": ["brew", "upgrade", "act"],
+            "pacman": ["pacman", "-Syu", "--noconfirm", "act"],
             "_default": [
                 "bash", "-c",
-                "curl -sSfL https://raw.githubusercontent.com/profclems/"
-                "glab/trunk/scripts/install.sh | sudo sh",
+                "curl -sSfL https://raw.githubusercontent.com/nektos/act/"
+                "master/install.sh | sudo bash",
             ],
-            "brew": ["brew", "install", "glab"],
         },
-        "needs_sudo": {"_default": True, "brew": False},
-        "install_via": {"_default": "curl_pipe_bash"},
-        "requires": {"binaries": ["curl"]},
+    },
+    "gitlab-cli": {
+        "cli": "glab",
+        "label": "GitLab CLI (glab — GitLab command-line tool)",
+        "category": "cicd",
+        # Written in Go. Official repo: gitlab.com/gitlab-org/cli
+        # (formerly profclems/glab — old install script URLs are BROKEN).
+        # brew: glab. snap: glab. pacman: glab (Arch community).
+        # dnf: glab (Fedora 38+). apk: glab (Alpine edge/testing).
+        # Wide PM coverage — no need for curl script.
+        # NOT in apt (standard), zypper.
+        "install": {
+            "brew": ["brew", "install", "glab"],
+            "snap": ["snap", "install", "glab"],
+            "pacman": ["pacman", "-S", "--noconfirm", "glab"],
+            "dnf": ["dnf", "install", "-y", "glab"],
+            "apk": ["apk", "add", "--no-cache", "glab"],
+            "_default": ["snap", "install", "glab"],
+        },
+        "needs_sudo": {
+            "brew": False, "snap": True, "pacman": True,
+            "dnf": True, "apk": True, "_default": True,
+        },
+        "prefer": ["brew", "snap", "pacman", "dnf", "apk"],
         "verify": ["glab", "--version"],
+        "update": {
+            "brew": ["brew", "upgrade", "glab"],
+            "snap": ["snap", "refresh", "glab"],
+            "pacman": ["pacman", "-Syu", "--noconfirm", "glab"],
+            "dnf": ["dnf", "upgrade", "-y", "glab"],
+            "apk": ["apk", "upgrade", "glab"],
+            "_default": ["snap", "refresh", "glab"],
+        },
     },
 
     # ════════════════════════════════════════════════════════════
@@ -3733,42 +4543,105 @@ TOOL_RECIPES: dict[str, dict] = {
     # ════════════════════════════════════════════════════════════
 
     "mkcert": {
-        "label": "mkcert (local TLS certs)",
+        "cli": "mkcert",
+        "label": "mkcert (local TLS certificate authority)",
         "category": "network",
+        # Written in Go. Creates locally-trusted dev certificates.
+        # brew: mkcert. pacman: mkcert (Arch community). apk: mkcert (Alpine).
+        # GitHub releases: mkcert-v{ver}-linux-{amd64|arm64} — raw binary.
+        # Uses amd64/arm64 (NOT x86_64/aarch64) in asset names.
+        # libnss3-tools (certutil) recommended for Firefox/Chrome trust stores
+        # but not required for basic cert generation.
+        # NOT in apt, dnf, zypper, snap.
         "install": {
-            "_default": {
-                "linux": [
-                    "bash", "-c",
-                    "curl -sSfL -o /usr/local/bin/mkcert "
-                    "https://github.com/FiloSottile/mkcert/releases/latest/"
-                    "download/mkcert-linux-amd64"
-                    " && chmod +x /usr/local/bin/mkcert",
-                ],
-            },
             "brew": ["brew", "install", "mkcert"],
-        },
-        "needs_sudo": {"_default": True, "brew": False},
-        "install_via": {"_default": "github_release"},
-        "requires": {"binaries": ["curl"]},
-        "verify": ["mkcert", "--version"],
-    },
-    "caddy": {
-        "label": "Caddy (web server)",
-        "category": "network",
-        "install": {
-            "apt": ["apt-get", "install", "-y", "caddy"],
-            "dnf": ["dnf", "install", "-y", "caddy"],
-            "pacman": ["pacman", "-S", "--noconfirm", "caddy"],
-            "brew": ["brew", "install", "caddy"],
+            "pacman": ["pacman", "-S", "--noconfirm", "mkcert"],
+            "apk": ["apk", "add", "--no-cache", "mkcert"],
             "_default": [
                 "bash", "-c",
-                "curl -sSfL https://getcaddy.com | bash -s personal",
+                "curl -sSfL -o /usr/local/bin/mkcert "
+                "https://github.com/FiloSottile/mkcert/releases/latest/"
+                "download/mkcert-$(uname -s)-{arch}"
+                " && chmod +x /usr/local/bin/mkcert",
             ],
         },
-        "needs_sudo": {"apt": True, "dnf": True, "pacman": True,
-                       "brew": False, "_default": True},
-        "install_via": {"_default": "curl_pipe_bash"},
+        "needs_sudo": {
+            "brew": False, "pacman": True, "apk": True, "_default": True,
+        },
+        "install_via": {"_default": "github_release"},
+        "requires": {"binaries": ["curl"]},
+        "arch_map": {"x86_64": "amd64", "aarch64": "arm64"},
+        "prefer": ["brew", "pacman", "apk"],
+        "verify": ["mkcert", "--version"],
+        "update": {
+            "brew": ["brew", "upgrade", "mkcert"],
+            "pacman": ["pacman", "-Syu", "--noconfirm", "mkcert"],
+            "apk": ["apk", "upgrade", "mkcert"],
+            "_default": [
+                "bash", "-c",
+                "curl -sSfL -o /usr/local/bin/mkcert "
+                "https://github.com/FiloSottile/mkcert/releases/latest/"
+                "download/mkcert-$(uname -s)-{arch}"
+                " && chmod +x /usr/local/bin/mkcert",
+            ],
+        },
+    },
+    "caddy": {
+        "cli": "caddy",
+        "label": "Caddy (automatic HTTPS web server)",
+        "category": "network",
+        # Written in Go. Automatic TLS with Let's Encrypt.
+        # brew: caddy. pacman: caddy (Arch community). apk: caddy (Alpine).
+        # dnf: caddy (Fedora has it, RHEL/CentOS via COPR).
+        # apt: NOT in default Debian/Ubuntu repos — needs official Caddy
+        #   repo setup (apt-key + sources.list). Too complex for a simple
+        #   `apt-get install` — omitted in favor of _default.
+        # zypper: available via OBS but not standard — omitted.
+        # OLD getcaddy.com script is for Caddy v1 — DO NOT USE.
+        # GitHub releases: caddy_{ver}_linux_{amd64|arm64}.tar.gz
+        # Uses amd64/arm64 in asset names.
+        # NOT in snap.
+        "install": {
+            "brew": ["brew", "install", "caddy"],
+            "pacman": ["pacman", "-S", "--noconfirm", "caddy"],
+            "dnf": ["dnf", "install", "-y", "caddy"],
+            "apk": ["apk", "add", "--no-cache", "caddy"],
+            "_default": [
+                "bash", "-c",
+                "curl -sSfL "
+                "https://github.com/caddyserver/caddy/releases/latest/"
+                "download/caddy_$(curl -sSf "
+                "https://api.github.com/repos/caddyserver/caddy/releases/latest"
+                " | grep -o '\"tag_name\":\"[^\"]*' | cut -d'\"' -f4 | sed 's/^v//')"
+                "_linux_{arch}.tar.gz"
+                " | sudo tar -xz -C /usr/local/bin caddy",
+            ],
+        },
+        "needs_sudo": {
+            "brew": False, "pacman": True, "dnf": True,
+            "apk": True, "_default": True,
+        },
+        "install_via": {"_default": "github_release"},
+        "requires": {"binaries": ["curl"]},
+        "arch_map": {"x86_64": "amd64", "aarch64": "arm64"},
+        "prefer": ["brew", "pacman", "dnf", "apk"],
         "verify": ["caddy", "version"],
+        "update": {
+            "brew": ["brew", "upgrade", "caddy"],
+            "pacman": ["pacman", "-Syu", "--noconfirm", "caddy"],
+            "dnf": ["dnf", "upgrade", "-y", "caddy"],
+            "apk": ["apk", "upgrade", "caddy"],
+            "_default": [
+                "bash", "-c",
+                "curl -sSfL "
+                "https://github.com/caddyserver/caddy/releases/latest/"
+                "download/caddy_$(curl -sSf "
+                "https://api.github.com/repos/caddyserver/caddy/releases/latest"
+                " | grep -o '\"tag_name\":\"[^\"]*' | cut -d'\"' -f4 | sed 's/^v//')"
+                "_linux_{arch}.tar.gz"
+                " | sudo tar -xz -C /usr/local/bin caddy",
+            ],
+        },
     },
 
     # ════════════════════════════════════════════════════════════
@@ -4095,24 +4968,55 @@ TOOL_RECIPES: dict[str, dict] = {
     # ════════════════════════════════════════════════════════════
 
     "prometheus": {
-        "label": "Prometheus",
+        "cli": "prometheus",
+        "label": "Prometheus (metrics monitoring and alerting toolkit)",
         "category": "monitoring",
+        # Written in Go. By the CNCF (Cloud Native Computing Foundation).
+        # brew: prometheus. snap: not available.
+        # GitHub releases: prometheus-VERSION.OS-ARCH.tar.gz
+        # Version is in BOTH the tag (v2.x.x) and filename (2.x.x).
+        # Tag has 'v' prefix, filename does not.
+        # Arch: amd64, arm64, armv7. OS: linux, darwin.
+        # NOT in apt, dnf, apk (via community), pacman, zypper as standard.
+        # pacman has prometheus in community but it includes the server service.
+        # Archive contains: prometheus, promtool, config, consoles — we extract
+        # just the binaries.
         "install": {
-            "_default": {
-                "linux": [
-                    "bash", "-c",
-                    "curl -sSfL https://github.com/prometheus/prometheus/"
-                    "releases/latest/download/prometheus-*.linux-amd64.tar.gz"
-                    " | tar xz --strip-components=1 -C /usr/local/bin"
-                    " prometheus promtool",
-                ],
-            },
             "brew": ["brew", "install", "prometheus"],
+            "_default": [
+                "bash", "-c",
+                "VERSION=$(curl -sSf https://api.github.com/repos/prometheus/"
+                "prometheus/releases/latest | grep -o '\"tag_name\": \"v[^\"]*\"'"
+                " | cut -d'\"' -f4 | sed 's/^v//') && "
+                "curl -sSfL https://github.com/prometheus/prometheus/releases/"
+                "download/v${VERSION}/prometheus-${VERSION}.{os}-{arch}.tar.gz"
+                " | sudo tar -xz --strip-components=1 -C /usr/local/bin"
+                " prometheus-${VERSION}.{os}-{arch}/prometheus"
+                " prometheus-${VERSION}.{os}-{arch}/promtool",
+            ],
         },
-        "needs_sudo": {"_default": True, "brew": False},
+        "needs_sudo": {"brew": False, "_default": True},
         "install_via": {"_default": "github_release"},
         "requires": {"binaries": ["curl"]},
+        "arch_map": {
+            "x86_64": "amd64", "aarch64": "arm64", "armv7l": "armv7",
+        },
+        "prefer": ["brew"],
         "verify": ["prometheus", "--version"],
+        "update": {
+            "brew": ["brew", "upgrade", "prometheus"],
+            "_default": [
+                "bash", "-c",
+                "VERSION=$(curl -sSf https://api.github.com/repos/prometheus/"
+                "prometheus/releases/latest | grep -o '\"tag_name\": \"v[^\"]*\"'"
+                " | cut -d'\"' -f4 | sed 's/^v//') && "
+                "curl -sSfL https://github.com/prometheus/prometheus/releases/"
+                "download/v${VERSION}/prometheus-${VERSION}.{os}-{arch}.tar.gz"
+                " | sudo tar -xz --strip-components=1 -C /usr/local/bin"
+                " prometheus-${VERSION}.{os}-{arch}/prometheus"
+                " prometheus-${VERSION}.{os}-{arch}/promtool",
+            ],
+        },
     },
     "grafana-cli": {
         "label": "Grafana CLI",
@@ -5329,22 +6233,41 @@ TOOL_RECIPES: dict[str, dict] = {
         "prefer": ["snap"],
     },
     "step-cli": {
-        "label": "step CLI (Smallstep CA)",
-        "category": "crypto",
         "cli": "step",
+        "label": "step CLI (Smallstep certificate authority toolkit)",
+        "category": "crypto",
+        # Written in Go. Zero-trust PKI, ACME, SSH certificates.
+        # brew: step. GitHub releases: step_linux_{amd64|arm64}.tar.gz
+        # Also provides .deb and .rpm but tar.gz is cross-platform.
+        # Uses amd64/arm64 in asset names (NOT x86_64/aarch64).
+        # NOT in apt, dnf, apk, pacman (standard), zypper, snap.
+        # AUR has step-cli but that's yay, not pacman -S.
         "install": {
+            "brew": ["brew", "install", "step"],
             "_default": [
                 "bash", "-c",
                 "curl -sSfL https://github.com/smallstep/cli/releases/"
-                "latest/download/step-cli_amd64.deb -o /tmp/step-cli.deb"
-                " && sudo dpkg -i /tmp/step-cli.deb && rm /tmp/step-cli.deb",
+                "latest/download/step_linux_{arch}.tar.gz"
+                " | sudo tar -xz -C /usr/local/bin --strip-components=2"
+                " step/bin/step",
             ],
-            "brew": ["brew", "install", "step"],
         },
-        "needs_sudo": {"_default": True, "brew": False},
+        "needs_sudo": {"brew": False, "_default": True},
         "install_via": {"_default": "github_release"},
         "requires": {"binaries": ["curl"]},
+        "arch_map": {"x86_64": "amd64", "aarch64": "arm64"},
+        "prefer": ["brew"],
         "verify": ["step", "--version"],
+        "update": {
+            "brew": ["brew", "upgrade", "step"],
+            "_default": [
+                "bash", "-c",
+                "curl -sSfL https://github.com/smallstep/cli/releases/"
+                "latest/download/step_linux_{arch}.tar.gz"
+                " | sudo tar -xz -C /usr/local/bin --strip-components=2"
+                " step/bin/step",
+            ],
+        },
     },
     "age": {
         "label": "age (file encryption)",
@@ -5967,19 +6890,36 @@ TOOL_RECIPES: dict[str, dict] = {
     # ════════════════════════════════════════════════════════════
 
     "nginx": {
-        "label": "Nginx",
+        "cli": "nginx",
+        "label": "Nginx (high-performance web server and reverse proxy)",
         "category": "proxy",
+        # Written in C. Available in ALL major distro repos.
+        # Best PM coverage in the project — apt, dnf, apk, pacman, zypper, brew.
+        # No _default needed — every target platform has nginx in its repos.
+        # Verify: nginx -v (not --version).
+        # snap: nginx is available but rarely used — omitted.
         "install": {
             "apt": ["apt-get", "install", "-y", "nginx"],
             "dnf": ["dnf", "install", "-y", "nginx"],
-            "apk": ["apk", "add", "nginx"],
+            "apk": ["apk", "add", "--no-cache", "nginx"],
             "pacman": ["pacman", "-S", "--noconfirm", "nginx"],
             "zypper": ["zypper", "install", "-y", "nginx"],
             "brew": ["brew", "install", "nginx"],
         },
-        "needs_sudo": {"apt": True, "dnf": True, "apk": True,
-                       "pacman": True, "zypper": True, "brew": False},
+        "needs_sudo": {
+            "apt": True, "dnf": True, "apk": True,
+            "pacman": True, "zypper": True, "brew": False,
+        },
+        "prefer": ["apt", "dnf", "apk", "pacman", "zypper", "brew"],
         "verify": ["nginx", "-v"],
+        "update": {
+            "apt": ["apt-get", "install", "--only-upgrade", "-y", "nginx"],
+            "dnf": ["dnf", "upgrade", "-y", "nginx"],
+            "apk": ["apk", "upgrade", "nginx"],
+            "pacman": ["pacman", "-Syu", "--noconfirm", "nginx"],
+            "zypper": ["zypper", "update", "-y", "nginx"],
+            "brew": ["brew", "upgrade", "nginx"],
+        },
     },
     "haproxy": {
         "label": "HAProxy",
@@ -6124,8 +7064,12 @@ TOOL_RECIPES: dict[str, dict] = {
         "verify": ["locust", "--version"],
     },
     "cypress": {
-        "label": "Cypress (E2E testing)",
+        "cli": "cypress",
+        "label": "Cypress (JavaScript E2E and component testing)",
         "category": "testing",
+        # npm-only. JavaScript E2E testing framework.
+        # Has a desktop app but CLI is the primary interface.
+        # No brew, no native PMs.
         "install": {
             "_default": ["npm", "install", "-g", "cypress"],
         },
@@ -6133,6 +7077,7 @@ TOOL_RECIPES: dict[str, dict] = {
         "install_via": {"_default": "npm"},
         "requires": {"binaries": ["npm"]},
         "verify": ["cypress", "--version"],
+        "update": {"_default": ["npm", "update", "-g", "cypress"]},
     },
     "artillery": {
         "label": "Artillery (load testing)",
