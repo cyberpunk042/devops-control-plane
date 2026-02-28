@@ -30,8 +30,8 @@ because every session touches them and gets lost.
 | 3 | **vault/** | `vault.py` (630), `vault_io.py`, `vault_env_crud.py`, `vault_env_ops.py` flat | `vault/` folder | 🟢 |
 | 4 | **secrets/** | `secrets_env_ops.py`, `secrets_gh_ops.py`, `secrets_ops.py` flat | `secrets/` folder | 🟢 |
 | 5 | **audit/** (existing) | Already grouped but `l0_detection.py` (1,601), `catalog.py` (~1,100) | Split oversized files | 🟢 |
-| 6 | **tool_install/** (existing) | Already grouped but `recipes.py` (7,435!), `remediation_handlers.py` (3,724), `tool_failure_handlers.py` (3,227) | Split data files | ⬜ |
-| 7 | **ci/** | `ci_compose.py`, `ci_ops.py` (592) flat | `ci/` folder | ⬜ |
+| 6 | **tool_install/data/** | `recipes.py` **✅ DONE** → `recipes/` (29 files). `remediation_handlers.py` **✅ DONE** → `remediation_handlers/` (25 files). `tool_failure_handlers.py` **✅ DONE** → `tool_failure_handlers/` (13 files) | All data files split | 🟢 |
+| 7 | **ci/** | `ci_compose.py` (544), `ci_ops.py` (592) flat → `ci/` package (ops.py + compose.py + __init__.py + README) | `ci/` folder | 🟢 |
 
 ### Routes `ui/web/`
 
@@ -95,7 +95,7 @@ because every session touches them and gets lost.
 
 | Chunk | Items | Done | Remaining |
 |-------|-------|------|-----------|
-| Chunk 1 (Recent Concerns) | 17 | 5 | 12 |
+| Chunk 1 (Recent Concerns) | 17 | 7 | 10 |
 | Chunk 2 (Remaining Backend) | 16 | 0 | 16 |
 | Chunk 3 (Remaining FE + Polish) | 6 | 0 | 6 |
-| **Total** | **39** | **5** | **34** |
+| **Total** | **39** | **7** | **32** |

@@ -159,7 +159,7 @@ flags. The recipe is ONE dict — the intelligence is in the resolver.
        ▼
 ┌──────────────┐
 │ L0 DATA      │
-│ 61 recipes   │
+│ 300 recipes  │
 │ constants    │
 │ undo catalog │
 └──────────────┘
@@ -366,7 +366,7 @@ Steps are ordered: repo_setup → packages → tools → post_install → verify
 
 ## Adding a New Tool
 
-Add ONE recipe dict to `data/recipes.py`. The resolver handles everything else:
+Add ONE recipe dict to the appropriate file in `data/recipes/`. The resolver handles everything else:
 
 ```python
 "my-tool": {

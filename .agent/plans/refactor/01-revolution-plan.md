@@ -213,7 +213,7 @@ These already follow the onion pattern. Just verify no file exceeds 700:
 - `ledger/` — `worktree.py` (609) — OK
 - `trace/` — `trace_recorder.py` (720) — borderline
 - `pages_builders/` — `docusaurus.py` (749) — borderline, `base.py` (400) — OK
-- `tool_install/` — `recipes.py` (7,435!), `remediation_handlers.py` (3,724), `tool_failure_handlers.py` (3,227) → MUST SPLIT
+- `tool_install/` — `recipes.py` ✅ DONE → `recipes/` (29 files), `remediation_handlers.py` ✅ DONE → `remediation_handlers/` (25 files), `tool_failure_handlers.py` ✅ DONE → `tool_failure_handlers/` (13 files)
 
 ---
 
