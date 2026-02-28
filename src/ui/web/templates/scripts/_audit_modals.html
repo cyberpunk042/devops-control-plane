@@ -26,90 +26,16 @@ function _auditShowCrossDep(idx) {
 function _auditShowMissingTool(toolId) {
     const stored = (window._auditMissingTools || {})[toolId] || {};
     const label = stored.label || toolId;
-    const cli = stored.cli || toolId;
 
-    // Tool database with descriptions, commands, and sudo flag
-    const installDb = {
-        'helm':             { desc: 'Kubernetes package manager for deploying charts',       cmd: 'sudo bash -c "curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash"', sudo: true },
-        'kubectl':          { desc: 'Kubernetes CLI for managing clusters',                   cmd: 'sudo snap install kubectl --classic', sudo: true },
-        'terraform':        { desc: 'Infrastructure-as-code provisioning tool',               cmd: 'sudo snap install terraform', sudo: true },
-        'docker':           { desc: 'Container runtime for building and running images',      cmd: 'sudo apt-get install -y docker.io', sudo: true },
-        'docker-compose':   { desc: 'Multi-container orchestration tool',                     cmd: 'sudo apt-get install -y docker-compose-v2', sudo: true },
-        'trivy':            { desc: 'Container and filesystem vulnerability scanner',         cmd: 'sudo bash -c "curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin"', sudo: true },
-        'git':              { desc: 'Distributed version control system',                     cmd: 'sudo apt-get install -y git', sudo: true },
-        'gh':               { desc: 'GitHub CLI for repo, PR, and issue management',          cmd: 'sudo snap install gh', sudo: true },
-        'ffmpeg':           { desc: 'Multimedia framework for video/audio processing',        cmd: 'sudo apt-get install -y ffmpeg', sudo: true },
-        'gzip':             { desc: 'File compression utility',                               cmd: 'sudo apt-get install -y gzip', sudo: true },
-        'curl':             { desc: 'Command-line HTTP client',                               cmd: 'sudo apt-get install -y curl', sudo: true },
-        'jq':               { desc: 'Lightweight JSON processor',                             cmd: 'sudo apt-get install -y jq', sudo: true },
-        'make':             { desc: 'Build automation tool',                                  cmd: 'sudo apt-get install -y make', sudo: true },
-        'python':           { desc: 'Python interpreter',                                     cmd: 'sudo apt-get install -y python3', sudo: true },
-        'pip':              { desc: 'Python package installer',                               cmd: 'sudo apt-get install -y python3-pip', sudo: true },
-        'node':             { desc: 'JavaScript runtime',                                     cmd: 'sudo snap install node --classic', sudo: true },
-        'npm':              { desc: 'Node.js package manager',                                cmd: 'sudo apt-get install -y npm', sudo: true },
-        'npx':              { desc: 'Node.js package runner (included with npm)',              cmd: 'sudo apt-get install -y npm', sudo: true },
-        'go':               { desc: 'Go programming language',                                cmd: 'sudo snap install go --classic', sudo: true },
-        'cargo':            { desc: 'Rust package manager and build system',                  cmd: 'curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh', sudo: true },
-        'rustc':            { desc: 'Rust compiler',                                          cmd: 'curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh', sudo: true },
-        'ruff':             { desc: 'Fast Python linter and formatter',                       cmd: 'pip install ruff', sudo: false },
-        'mypy':             { desc: 'Static type checker for Python',                         cmd: 'pip install mypy', sudo: false },
-        'pytest':           { desc: 'Python testing framework',                               cmd: 'pip install pytest', sudo: false },
-        'black':            { desc: 'Python code formatter',                                  cmd: 'pip install black', sudo: false },
-        'eslint':           { desc: 'JavaScript/TypeScript linter',                           cmd: 'npm install -g eslint', sudo: false },
-        'prettier':         { desc: 'Code formatter for JS, CSS, HTML, and more',             cmd: 'npm install -g prettier', sudo: false },
-        'pip-audit':        { desc: 'Vulnerability scanner for Python dependencies',          cmd: 'pip install pip-audit', sudo: false },
-        'bandit':           { desc: 'Security linter for Python code',                        cmd: 'pip install bandit', sudo: false },
-        'safety':           { desc: 'Python dependency vulnerability checker',                cmd: 'pip install safety', sudo: false },
-        'skaffold':         { desc: 'Kubernetes dev workflow — automates build, push, deploy',  cmd: 'sudo bash -c "curl -Lo /usr/local/bin/skaffold https://storage.googleapis.com/skaffold/releases/latest/skaffold-linux-amd64 && chmod +x /usr/local/bin/skaffold"', sudo: true },
-    };
-
-    const info = installDb[toolId] || { desc: `${label} tool`, cmd: `# Install ${cli} using your package manager`, sudo: false };
-    const btnId = 'audit-install-btn-' + toolId;
-    const logId = 'audit-install-log-' + toolId;
-    const pwId = 'audit-install-pw-' + toolId;
-
-    // Build password row only for sudo tools
-    let pwRow = '';
-    if (info.sudo) {
-        pwRow = `
-        <div id="${pwId}-row" style="margin-bottom:var(--space-md)">
-            <label style="font-size:0.74rem;font-weight:600;display:block;margin-bottom:4px">🔑 Sudo password:</label>
-            <input id="${pwId}" type="password" placeholder="Enter your sudo password"
-                   style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg-primary);color:var(--text-primary);font-size:0.82rem;box-sizing:border-box"
-                   onkeydown="if(event.key==='Enter'){document.getElementById('${btnId}').click()}" />
-        </div>`;
-    }
-
-    let body = `
-        <div style="padding:12px 16px;border-radius:var(--radius-md);background:var(--bg-secondary);margin-bottom:var(--space-md)">
-            <div style="font-size:0.82rem;font-weight:600;margin-bottom:4px">${label}</div>
-            <div style="font-size:0.74rem;color:var(--text-muted)">${info.desc}</div>
-        </div>
-
-        ${pwRow}
-
-        <div style="text-align:center;margin-bottom:var(--space-md)">
-            <button id="${btnId}" class="btn btn-primary" onclick="_auditInstallTool('${esc(toolId)}','${esc(cli)}','${btnId}','${logId}','${pwId}',${info.sudo})" style="min-width:200px;font-size:0.9rem;padding:10px 24px">
-                ⬇️ Install ${label}
-            </button>
-        </div>
-
-        <div id="${logId}" style="display:none;margin-bottom:var(--space-md)">
-            <div style="font-size:0.72rem;font-weight:600;margin-bottom:4px">📋 Output:</div>
-            <pre style="font-size:0.68rem;background:var(--bg-primary);padding:10px;border-radius:var(--radius-sm);max-height:200px;overflow:auto;white-space:pre-wrap;word-break:break-all"></pre>
-        </div>
-
-        <details style="margin-top:var(--space-sm)">
-            <summary style="cursor:pointer;font-size:0.72rem;color:var(--text-muted)">Or install manually:</summary>
-            <pre style="font-size:0.72rem;background:var(--bg-primary);padding:8px;border-radius:var(--radius-sm);margin-top:4px;white-space:pre-wrap;word-break:break-all;cursor:text;user-select:all">${info.cmd}</pre>
-        </details>
-    `;
-    _auditModal(`🔧 ${label} — Not Installed`, body, 480);
-
-    // Auto-focus password field if sudo
-    if (info.sudo) {
-        setTimeout(() => { const el = document.getElementById(pwId); if (el) el.focus(); }, 100);
-    }
+    // Delegate to the unified plan-based install flow.
+    // This uses the actual recipe (sudo, commands, remediation)
+    // instead of the old hardcoded installDb.
+    installWithPlan(toolId, label, {
+        onComplete: () => {
+            // Bust cache and reload the system card after install
+            cardRefresh('audit:system', 'audit-system-badge', 'audit-system-detail', loadAuditSystemCard);
+        },
+    });
 }
 
 async function _auditInstallTool(toolId, cli, btnId, logId, pwId, needsSudo) {

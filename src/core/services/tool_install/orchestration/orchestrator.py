@@ -251,7 +251,7 @@ def execute_plan(
                     "completed": completed,
                 }
 
-            # Step failed — try remediation analysis for tool steps
+            # Step failed — try remediation analysis
             remediation = None
             if step_type == "tool":
                 remediation = _analyse_install_failure(
@@ -261,6 +261,22 @@ def execute_plan(
                     method=step.get("method", plan.get("method", "")),
                     system_profile=system_profile,
                 )
+            elif step_type == "verify":
+                cli = plan.get("cli", tool)
+                remediation = {
+                    "reason": f"'{cli}' not found in PATH after install",
+                    "options": [
+                        {
+                            "label": "Retry install (with sudo)",
+                            "action": "retry",
+                        },
+                        {
+                            "label": f"Refresh server PATH and re-check",
+                            "command": ["which", cli],
+                            "action": "remediate",
+                        },
+                    ],
+                }
 
             _audit(
                 "❌ Step Failed",

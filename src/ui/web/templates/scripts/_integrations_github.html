@@ -114,6 +114,14 @@
         const panel = document.getElementById(panelId);
         if (!panel) return;
 
+        // Gate: ensure gh is installed and authenticated
+        if (!(await ensureGhReady())) {
+            panel.innerHTML = '<span style="color:var(--warning)">⚠️ GitHub CLI not ready — '
+                + '<a href="#" onclick="ensureGhReady().then(ok=>{if(ok)_ghLiveTab(\'' + what + '\',\'' + panelId + '\')});return false" '
+                + 'style="color:var(--accent)">Set up →</a></span>';
+            return;
+        }
+
         // Client cache for live tab data (sub-keyed by tab)
         const liveKey = 'gh-live:' + what;
         const cached = cardCached(liveKey);
@@ -222,7 +230,10 @@
 
     // ── GitHub: Create Environment Modal ────────────────────────────────
 
-    function _ghCreateEnvModal() {
+    async function _ghCreateEnvModal() {
+        // Gate: ensure gh is installed and authenticated
+        if (!(await ensureGhReady())) return;
+
         const body =
             `<p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:var(--space-md)">` +
             `Create a deployment environment on GitHub for managing secrets and deployment rules.</p>` +
@@ -282,6 +293,9 @@
     // ── GitHub: Push secrets ────────────────────────────────────────────
 
     async function _ghPushSecrets(btnEl) {
+        // Gate: ensure gh is installed and authenticated
+        if (!(await ensureGhReady())) return;
+
         const origText = btnEl.textContent;
         btnEl.disabled = true;
         btnEl.textContent = '⏳…';

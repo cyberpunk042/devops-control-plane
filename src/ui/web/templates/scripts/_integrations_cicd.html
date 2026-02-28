@@ -137,6 +137,9 @@
     }
 
     async function triggerWorkflow() {
+        // Gate: ensure gh is installed and authenticated
+        if (!(await ensureGhReady())) return;
+
         const sel = document.getElementById('int-ci-workflow');
         if (!sel) return;
         const wf = sel.value;

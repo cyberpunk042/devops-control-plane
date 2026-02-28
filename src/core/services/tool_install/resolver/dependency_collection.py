@@ -135,7 +135,8 @@ def _collect_deps(
         return
 
     # 4. Batchable or not?
-    if _is_batchable(method, pm):
+    install_cmd = recipe["install"][method]
+    if _is_batchable(method, pm, install_cmd if isinstance(install_cmd, list) else None):
         pkgs = _extract_packages_from_cmd(recipe["install"][method], pm)
         for pkg in pkgs:
             if not _is_pkg_installed(pkg, pm) and pkg not in batch_packages:

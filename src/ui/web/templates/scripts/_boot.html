@@ -46,6 +46,7 @@
             loadSetupProgress(),
             loadProjectGrade(),
             checkGitAuth(),
+            checkGhStatus(),
         ]).then(() => {
             loadAttentionItems();
             // Re-activate to pick up new dynamic children from deferred loads

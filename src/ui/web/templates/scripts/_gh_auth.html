@@ -1,0 +1,178 @@
+<script>
+// ═══════════════════════════════════════════════════════════════
+// GitHub CLI Auth — install + auth gating
+//
+// Mirrors the _git_auth.html pattern:
+//
+// Boot flow:
+//   checkGhStatus()  — probes /integrations/gh/status at boot,
+//                       caches result in _ghAuthStatus.
+//
+// On-demand flow:
+//   ensureGhReady()  — returns Promise<boolean>.
+//                       If gh not installed → installWithPlan modal.
+//                       If gh not authenticated → _showGhAuthModal.
+//                       If both OK → resolves true immediately.
+//
+// Usage in consumers:
+//   if (!(await ensureGhReady())) return;
+//   // ... proceed with gh-dependent API call
+// ═══════════════════════════════════════════════════════════════
+
+let _ghAuthStatus = null;   // cached: {installed, authenticated, ...}
+let _ensureGhResolve = null; // set when ensureGhReady() is waiting
+
+async function checkGhStatus() {
+  try {
+    const data = await api('/integrations/gh/status');
+    _ghAuthStatus = {
+      installed: data.available !== false,
+      authenticated: data.authenticated === true,
+      version: data.version || null,
+      repo: data.repo || null,
+      raw: data,
+    };
+  } catch (e) {
+    // Best-effort — don't block boot
+    _ghAuthStatus = { installed: false, authenticated: false, error: e.message };
+  }
+}
+
+/**
+ * Ensure GitHub CLI is installed and authenticated before a gh operation.
+ * Returns Promise<boolean>:
+ *   true  → gh is installed and authenticated, proceed
+ *   false → user cancelled / still not ready
+ *
+ * If gh needs install or auth, shows the appropriate modal and waits.
+ */
+function ensureGhReady() {
+  // Already good
+  if (_ghAuthStatus && _ghAuthStatus.installed && _ghAuthStatus.authenticated) {
+    return Promise.resolve(true);
+  }
+
+  return new Promise((resolve) => {
+    _ensureGhResolve = resolve;
+
+    if (!_ghAuthStatus) {
+      // Status not fetched yet — fetch first
+      api('/integrations/gh/status').then(data => {
+        _ghAuthStatus = {
+          installed: data.available !== false,
+          authenticated: data.authenticated === true,
+          version: data.version || null,
+          repo: data.repo || null,
+          raw: data,
+        };
+        if (_ghAuthStatus.installed && _ghAuthStatus.authenticated) {
+          _ensureGhResolve = null;
+          resolve(true);
+          return;
+        }
+        _showGhGate();
+      }).catch(() => { _ensureGhResolve = null; resolve(false); });
+    } else {
+      _showGhGate();
+    }
+  });
+}
+
+/**
+ * Internal — show the appropriate gate modal based on _ghAuthStatus.
+ */
+function _showGhGate() {
+  if (!_ghAuthStatus.installed) {
+    // gh CLI not installed → install it
+    _showGhInstallGate();
+  } else if (!_ghAuthStatus.authenticated) {
+    // gh CLI installed but not authenticated → auth modal
+    _showGhAuthGate();
+  } else {
+    // Shouldn't reach here but resolve just in case
+    if (_ensureGhResolve) { _ensureGhResolve(false); _ensureGhResolve = null; }
+  }
+}
+
+/**
+ * Show the install gate — delegates to installWithPlan.
+ */
+function _showGhInstallGate() {
+  // Close any existing modal first
+  if (typeof modalClose === 'function') modalClose();
+
+  // Show a gate modal explaining what's happening
+  modalOpen({
+    title: '⚠️ GitHub CLI Required',
+    body: '<div style="font-size:0.85rem">'
+      + '<div style="padding:0.6rem 0.75rem;background:var(--accent-glow);'
+      + 'border:1px solid var(--accent);border-radius:var(--radius-sm);'
+      + 'margin-bottom:var(--space-md);font-size:0.78rem;line-height:1.5">'
+      + '<strong>🔧 GitHub CLI (gh) is not installed</strong><br>'
+      + 'The feature you're trying to use requires the GitHub CLI. '
+      + 'Install it now to continue.'
+      + '</div>'
+      + '<p style="font-size:0.78rem;color:var(--text-muted);margin-bottom:0.5rem">'
+      + 'The GitHub CLI enables pull requests, actions, secrets sync, '
+      + 'and other GitHub features directly from your control plane.</p>'
+      + '</div>',
+    size: 'narrow',
+    footerButtons: [
+      { label: 'Cancel', cls: 'btn-ghost', onclick: '_ghGateCancel()' },
+      { label: '⬇️ Install GitHub CLI', cls: 'btn-primary', onclick: '_ghGateInstall()' },
+    ],
+    onClose: () => {
+      if (_ensureGhResolve) { _ensureGhResolve(false); _ensureGhResolve = null; }
+    },
+  });
+}
+
+/** User cancelled the gh gate. */
+function _ghGateCancel() {
+  modalClose();
+}
+
+/** User clicked install — delegate to installWithPlan. */
+function _ghGateInstall() {
+  modalClose();
+  // Small delay to let modal close animation finish
+  setTimeout(() => {
+    installWithPlan('gh', 'GitHub CLI', {
+      onComplete: async () => {
+        // Re-check status after install
+        await checkGhStatus();
+        if (_ghAuthStatus && _ghAuthStatus.installed) {
+          if (_ghAuthStatus.authenticated) {
+            // Fully ready
+            toast('✅ GitHub CLI installed and authenticated', 'success');
+            if (_ensureGhResolve) { _ensureGhResolve(true); _ensureGhResolve = null; }
+          } else {
+            // Installed but needs auth — chain to auth gate
+            toast('✅ GitHub CLI installed — authentication required', 'info');
+            setTimeout(() => _showGhAuthGate(), 300);
+          }
+        } else {
+          if (_ensureGhResolve) { _ensureGhResolve(false); _ensureGhResolve = null; }
+        }
+      },
+      onCancel: () => {
+        if (_ensureGhResolve) { _ensureGhResolve(false); _ensureGhResolve = null; }
+      },
+    });
+  }, 200);
+}
+
+/**
+ * Show the auth gate — delegates to _showGhAuthModal with a resolve callback.
+ */
+function _showGhAuthGate() {
+  _showGhAuthModal(async () => {
+    // Auth succeeded — refresh status and resolve
+    await checkGhStatus();
+    if (_ensureGhResolve) {
+      _ensureGhResolve(_ghAuthStatus && _ghAuthStatus.authenticated);
+      _ensureGhResolve = null;
+    }
+  });
+}
+</script>

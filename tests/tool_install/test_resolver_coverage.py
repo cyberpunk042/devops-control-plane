@@ -219,6 +219,62 @@ class TestResolverCoverage:
         "src.core.services.tool_install.resolver.plan_resolution._is_linux_binary",
         return_value=True,
     )
+    def test_plan_has_install_step(
+        self,
+        mock_is_linux_binary,
+        mock_pkg_installed,
+        mock_which,
+        tool_id: str,
+        profile_id: str,
+    ) -> None:
+        """Non-error plans MUST have at least one install step.
+
+        A plan with only a verify step and no install step means the
+        install was silently dropped (Bug 1: _is_batchable treated
+        complex bash -c commands as simple PM packages, extracted zero
+        packages, and generated no install step).
+        """
+        profile = copy.deepcopy(PROFILES[profile_id])
+        recipe = TOOL_RECIPES[tool_id]
+
+        # Skip non-tool recipes (data_pack, config) — they don't have
+        # traditional install steps.
+        if recipe.get("type") in ("data_pack", "config"):
+            return
+
+        result = resolve_install_plan(tool_id, profile)
+
+        if result.get("error") or result.get("already_installed"):
+            return
+
+        steps = result.get("steps", [])
+        if not steps:
+            return
+
+        # If there's a verify step, there MUST also be at least one
+        # install step (tool, packages, source, build).
+        install_types = {"tool", "packages", "source", "build"}
+        has_install = any(s["type"] in install_types for s in steps)
+        has_verify = any(s["type"] == "verify" for s in steps)
+
+        if has_verify:
+            assert has_install, (
+                f"Plan for {tool_id}@{profile_id} has a verify step "
+                f"but NO install step — install was silently dropped. "
+                f"Steps: {[s['type'] for s in steps]}"
+            )
+
+    @pytest.mark.parametrize("tool_id", ALL_TOOLS)
+    @pytest.mark.parametrize("profile_id", ALL_PROFILES)
+    @patch("shutil.which", side_effect=_mock_which)
+    @patch(
+        "src.core.services.tool_install.resolver.dependency_collection._is_pkg_installed",
+        side_effect=_mock_is_pkg_installed,
+    )
+    @patch(
+        "src.core.services.tool_install.resolver.plan_resolution._is_linux_binary",
+        return_value=True,
+    )
     def test_correct_pm_commands(
         self,
         mock_is_linux_binary,

@@ -1202,6 +1202,22 @@ def audit_execute_plan():
                         method=step_method,
                         system_profile=system_profile,
                     )
+                elif step_type == "verify":
+                    cli = plan.get("cli", tool)
+                    remediation = {
+                        "reason": f"'{cli}' not found in PATH after install",
+                        "options": [
+                            {
+                                "label": "Retry install (with sudo)",
+                                "action": "retry",
+                            },
+                            {
+                                "label": f"Refresh server PATH and re-check",
+                                "command": ["which", cli],
+                                "action": "remediate",
+                            },
+                        ],
+                    }
 
                 done_event: dict = {
                     "type": "done",

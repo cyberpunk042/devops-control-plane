@@ -128,9 +128,21 @@ def _pick_install_method(
     return None
 
 
-def _is_batchable(method: str, primary_pm: str) -> bool:
-    """Is this install method a system package install that can be batched?"""
-    return method == primary_pm
+def _is_batchable(method: str, primary_pm: str, cmd: list[str] | None = None) -> bool:
+    """Is this install method a system package install that can be batched?
+
+    A method is batchable when it's a simple PM command (e.g.
+    ``["apt-get", "install", "-y", "git"]``).  Complex ``bash -c``
+    commands (e.g. gh's GPG-key + repo-setup chain) are NOT batchable
+    even when the method matches the primary PM — the package extractor
+    can't parse them and the install step would be silently dropped.
+    """
+    if method != primary_pm:
+        return False
+    # bash -c commands are complex multi-step installs — never batchable
+    if cmd and len(cmd) >= 2 and cmd[0] == "bash" and cmd[1] == "-c":
+        return False
+    return True
 
 
 def _extract_packages_from_cmd(cmd: list[str], pm: str) -> list[str]:
