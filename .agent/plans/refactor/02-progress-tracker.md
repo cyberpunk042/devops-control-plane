@@ -37,9 +37,9 @@ because every session touches them and gets lost.
 
 | # | Domain | Current State | Target | Status |
 |---|--------|--------------|--------|--------|
-| 8 | **routes/ package** | 33 flat `routes_*.py` in `ui/web/` | Move to `routes/` package | ⬜ |
-| 9 | **routes_audit.py** | 1,781 lines | Split into `routes/audit/` | ⬜ |
-| 10 | **routes_integrations.py** | 600 lines | Evaluate split | ⬜ |
+| 8 | **routes/ package** | ~~33 flat `routes_*.py` in `ui/web/`~~ → 5 sub-packages + 23 standalone in `routes/` | `routes/` package (Option B: domain grouping) | 🟢 |
+| 9 | **routes_audit.py** | ~~1,781 lines~~ → 7 sub-modules in `routes/audit/` (1,840 lines) | Split into `routes/audit/` | 🟢 |
+| 10 | **routes_integrations.py** | 520 lines | Evaluate split | ⬜ |
 
 ### Frontend `templates/scripts/`
 
@@ -95,7 +95,7 @@ because every session touches them and gets lost.
 
 | Chunk | Items | Done | Remaining |
 |-------|-------|------|-----------|
-| Chunk 1 (Recent Concerns) | 17 | 7 | 10 |
+| Chunk 1 (Recent Concerns) | 17 | 9 | 8 |
 | Chunk 2 (Remaining Backend) | 16 | 0 | 16 |
 | Chunk 3 (Remaining FE + Polish) | 6 | 0 | 6 |
-| **Total** | **39** | **7** | **32** |
+| **Total** | **39** | **9** | **30** |

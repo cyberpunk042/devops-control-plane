@@ -51,35 +51,37 @@ def create_app(
     app.config["MAX_CONTENT_LENGTH"] = 500 * 1024 * 1024  # 500 MB upload limit
 
     # Register blueprints
-    from src.ui.web.routes_api import api_bp
-    from src.ui.web.routes_backup import backup_bp
-    from src.ui.web.routes_ci import ci_bp
-    from src.ui.web.routes_config import config_bp
-    from src.ui.web.routes_content import content_bp
-    from src.ui.web.routes_docker import docker_bp
-    from src.ui.web.routes_docs import docs_bp
-    from src.ui.web.routes_infra import infra_bp
-    from src.ui.web.routes_k8s import k8s_bp
-    from src.ui.web.routes_terraform import terraform_bp
-    from src.ui.web.routes_dns import dns_bp
-    from src.ui.web.routes_integrations import integrations_bp
-    from src.ui.web.routes_metrics import metrics_bp
-    from src.ui.web.routes_packages import packages_bp
-    from src.ui.web.routes_quality import quality_bp
-    from src.ui.web.routes_security_scan import security_bp2
-    from src.ui.web.routes_testing import testing_bp
-    from src.ui.web.routes_pages import pages_bp
-    from src.ui.web.routes_pages_api import pages_api_bp
-    from src.ui.web.routes_secrets import secrets_bp
-    from src.ui.web.routes_vault import vault_bp
-    from src.ui.web.routes_devops import devops_bp
-    from src.ui.web.routes_audit import audit_bp
-    from src.ui.web.routes_chat import chat_bp
-    from src.ui.web.routes_project import project_bp
-    from src.ui.web.routes_events import events_bp
-    from src.ui.web.routes_git_auth import git_auth_bp
-    from src.ui.web.routes_trace import trace_bp
-    from src.ui.web.routes_dev import dev_bp
+    # ── Grouped sub-packages ─────────────────────────────────
+    from src.ui.web.routes.audit import audit_bp
+    from src.ui.web.routes.backup import backup_bp
+    from src.ui.web.routes.content import content_bp
+    from src.ui.web.routes.devops import devops_bp
+    from src.ui.web.routes.pages import pages_bp, pages_api_bp
+
+    # ── Standalone route modules ────────────────────────────
+    from src.ui.web.routes.api import api_bp
+    from src.ui.web.routes.chat import chat_bp
+    from src.ui.web.routes.ci import ci_bp
+    from src.ui.web.routes.config import config_bp
+    from src.ui.web.routes.dev import dev_bp
+    from src.ui.web.routes.dns import dns_bp
+    from src.ui.web.routes.docker import docker_bp
+    from src.ui.web.routes.docs import docs_bp
+    from src.ui.web.routes.events import events_bp
+    from src.ui.web.routes.git_auth import git_auth_bp
+    from src.ui.web.routes.infra import infra_bp
+    from src.ui.web.routes.integrations import integrations_bp
+    from src.ui.web.routes.k8s import k8s_bp
+    from src.ui.web.routes.metrics import metrics_bp
+    from src.ui.web.routes.packages import packages_bp
+    from src.ui.web.routes.project import project_bp
+    from src.ui.web.routes.quality import quality_bp
+    from src.ui.web.routes.secrets import secrets_bp
+    from src.ui.web.routes.security_scan import security_bp2
+    from src.ui.web.routes.terraform import terraform_bp
+    from src.ui.web.routes.testing import testing_bp
+    from src.ui.web.routes.trace import trace_bp
+    from src.ui.web.routes.vault import vault_bp
 
     app.register_blueprint(pages_bp)
     app.register_blueprint(api_bp, url_prefix="/api")
