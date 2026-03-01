@@ -1,21 +1,28 @@
 """
-Audit staging — pending audit snapshots awaiting save-to-git or discard.
+Audit staging — one pending audit snapshot per card, awaiting save-to-git or discard.
 
 Each time ``devops_cache.get_cached()`` computes a fresh result for a card,
 an audit snapshot (the **full** data blob) is staged here.  The user can then:
 
   - **Save** → promotes to ``.ledger/audits/<snapshot_id>.json`` + git tag
-  - **Discard** → removes from pending list (cache is NOT affected)
+  - **Discard** → removes from staging (cache is NOT affected)
+
+Invariant
+---------
+**One snapshot per card_key.**  A new scan for the same card overwrites the
+previous unsaved snapshot.  If the user wants to keep a scan, they save it
+to the ledger first.
 
 Persistence
 -----------
-Pending audits are persisted to ``.state/pending_audits.json`` and survive
-server restarts, following the same pattern as ``devops_cache.json``.
+Staged audits are persisted to ``.state/pending_audits.json`` as a dict
+keyed by ``card_key``.  The file survives server restarts, following the
+same pattern as ``devops_cache.json``.
 
 Thread safety
 -------------
-A file lock serialises all mutations to the pending list, matching the
-pattern used by ``devops_cache._file_lock``.
+A file lock serialises all mutations, matching the pattern used by
+``devops_cache._file_lock``.
 """
 
 from __future__ import annotations
@@ -32,7 +39,7 @@ logger = logging.getLogger(__name__)
 
 _PENDING_FILE = ".state/pending_audits.json"
 
-# Serialise all mutations to the pending list.
+# Serialise all mutations.
 _file_lock = threading.Lock()
 
 
@@ -61,22 +68,37 @@ def _pending_path(project_root: Path) -> Path:
     return project_root / _PENDING_FILE
 
 
-def _load_pending(project_root: Path) -> list[dict[str, Any]]:
-    """Load the pending list from disk.  Returns ``[]`` on any error."""
+def _load_pending(project_root: Path) -> dict[str, dict[str, Any]]:
+    """Load the staging dict from disk.  Returns ``{}`` on any error.
+
+    Handles migration from the old list format (pre-2026-03) automatically.
+    """
     path = _pending_path(project_root)
     if not path.exists():
-        return []
+        return {}
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-        if isinstance(data, list):
-            return data
-        return []
+        raw = json.loads(path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, IOError):
-        return []
+        return {}
+
+    # Current format: dict keyed by card_key
+    if isinstance(raw, dict):
+        return raw
+
+    # Legacy format: list of snapshots — migrate by keeping latest per card_key
+    if isinstance(raw, list):
+        migrated: dict[str, dict[str, Any]] = {}
+        for s in raw:
+            ck = s.get("card_key")
+            if ck:
+                migrated[ck] = s
+        return migrated
+
+    return {}
 
 
-def _save_pending(project_root: Path, pending: list[dict[str, Any]]) -> None:
-    """Write the pending list to disk.  Caller MUST hold ``_file_lock``."""
+def _save_pending(project_root: Path, pending: dict[str, dict[str, Any]]) -> None:
+    """Write the staging dict to disk.  Caller MUST hold ``_file_lock``."""
     path = _pending_path(project_root)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
@@ -104,8 +126,8 @@ def stage_audit(
 
     Called by ``devops_cache.get_cached()`` after a fresh compute.
 
-    The full data blob is stored so that saving to git later preserves
-    every detail of the scan result.
+    One snapshot per card_key — a new scan overwrites any previous
+    unsaved snapshot for the same card.
 
     Args:
         audit_type: "devops" or "project". If empty, auto-derived from card_key:
@@ -135,7 +157,7 @@ def stage_audit(
 
     with _file_lock:
         pending = _load_pending(project_root)
-        pending.append(snapshot)
+        pending[card_key] = snapshot
         _save_pending(project_root, pending)
 
     logger.debug("Staged pending audit: %s (%s, type=%s)", snapshot_id, card_key, audit_type)
@@ -167,7 +189,7 @@ def list_pending(project_root: Path) -> list[dict[str, Any]]:
             "duration_s": s["duration_s"],
             "summary": s["summary"],
         }
-        for s in pending
+        for s in pending.values()
     ]
 
 
@@ -179,7 +201,7 @@ def get_pending(project_root: Path, snapshot_id: str) -> dict[str, Any] | None:
     with _file_lock:
         pending = _load_pending(project_root)
 
-    return next((s for s in pending if s.get("snapshot_id") == snapshot_id), None)
+    return next((s for s in pending.values() if s.get("snapshot_id") == snapshot_id), None)
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -191,9 +213,9 @@ def save_audit(project_root: Path, snapshot_id: str) -> dict[str, Any]:
     """Promote a pending snapshot to the ledger branch.
 
     Steps:
-      1. Find the snapshot in the pending list.
+      1. Find the snapshot in staging.
       2. Write to ``.ledger/audits/<snapshot_id>.json`` + commit + tag.
-      3. Remove from pending list.
+      3. Remove from staging.
       4. Persist.
 
     Returns:
@@ -201,18 +223,21 @@ def save_audit(project_root: Path, snapshot_id: str) -> dict[str, Any]:
         the frontend to display and for chat referencing.
 
     Raises:
-        ValueError: If ``snapshot_id`` is not found in the pending list.
+        ValueError: If ``snapshot_id`` is not found in staging.
     """
     with _file_lock:
         pending = _load_pending(project_root)
-        idx = next(
-            (i for i, s in enumerate(pending) if s.get("snapshot_id") == snapshot_id),
-            None,
-        )
-        if idx is None:
+        # Find by snapshot_id (value lookup since key is card_key)
+        match_key = None
+        for ck, s in pending.items():
+            if s.get("snapshot_id") == snapshot_id:
+                match_key = ck
+                break
+
+        if match_key is None:
             raise ValueError(f"Pending audit not found: {snapshot_id}")
 
-        snapshot = pending.pop(idx)
+        snapshot = pending.pop(match_key)
         _save_pending(project_root, pending)
 
     # Write to ledger (outside the file lock — ledger has its own locking)
@@ -239,15 +264,14 @@ def save_all_pending(project_root: Path) -> list[str]:
     """
     with _file_lock:
         pending = _load_pending(project_root)
-        # Take a copy and clear the pending list
-        to_save = list(pending)
+        to_save = dict(pending)
         pending.clear()
         _save_pending(project_root, pending)
 
     from src.core.services.ledger.ledger_ops import save_audit_snapshot
 
     saved: list[str] = []
-    for snapshot in to_save:
+    for card_key, snapshot in to_save.items():
         sid = snapshot.get("snapshot_id", "")
         try:
             save_audit_snapshot(project_root, sid, snapshot)
@@ -255,10 +279,10 @@ def save_all_pending(project_root: Path) -> list[str]:
             logger.info("Saved audit snapshot to ledger: %s", sid)
         except Exception:
             logger.warning("Failed to save audit snapshot: %s", sid, exc_info=True)
-            # Put it back in pending so we don't lose it
+            # Put it back in staging so we don't lose it
             with _file_lock:
                 pending = _load_pending(project_root)
-                pending.append(snapshot)
+                pending[card_key] = snapshot
                 _save_pending(project_root, pending)
 
     return saved
@@ -270,22 +294,26 @@ def save_all_pending(project_root: Path) -> list[str]:
 
 
 def discard_audit(project_root: Path, snapshot_id: str) -> bool:
-    """Remove a snapshot from the pending list.  Cache is unaffected.
+    """Remove a snapshot from staging.  Cache is unaffected.
 
     Returns ``True`` if found and removed, ``False`` if not found.
     """
     with _file_lock:
         pending = _load_pending(project_root)
-        original_len = len(pending)
-        pending = [s for s in pending if s.get("snapshot_id") != snapshot_id]
-        removed = len(pending) < original_len
-        if removed:
-            _save_pending(project_root, pending)
+        match_key = None
+        for ck, s in pending.items():
+            if s.get("snapshot_id") == snapshot_id:
+                match_key = ck
+                break
 
-    if removed:
-        logger.debug("Discarded pending audit: %s", snapshot_id)
+        if match_key is None:
+            return False
 
-    return removed
+        del pending[match_key]
+        _save_pending(project_root, pending)
+
+    logger.debug("Discarded pending audit: %s", snapshot_id)
+    return True
 
 
 def discard_all_pending(project_root: Path) -> int:
@@ -297,7 +325,7 @@ def discard_all_pending(project_root: Path) -> int:
         pending = _load_pending(project_root)
         count = len(pending)
         if count > 0:
-            _save_pending(project_root, [])
+            _save_pending(project_root, {})
 
     if count > 0:
         logger.debug("Discarded all %d pending audits", count)
