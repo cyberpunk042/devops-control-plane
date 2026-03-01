@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from src.core.services.content_crypto import (
+from .crypto import (
     _guess_mime,
     classify_file,
     is_covault_file,
@@ -160,7 +160,7 @@ def list_folder_contents(
                 if _status == "uploading":
                     _fid = _meta.get("file_id", "")
                     try:
-                        from src.core.services.content_release import _release_upload_status
+                        from .release import _release_upload_status
                         live = _release_upload_status.get(_fid, {})
                         if not live or live.get("status") not in ("uploading", "queued"):
                             _status = "stale"
@@ -275,7 +275,7 @@ def list_folder_contents_recursive(
                 if _status == "uploading":
                     _fid = _meta.get("file_id", "")
                     try:
-                        from src.core.services.content_release import _release_upload_status
+                        from .release import _release_upload_status
                         live = _release_upload_status.get(_fid, {})
                         if not live or live.get("status") not in ("uploading", "queued"):
                             _status = "stale"

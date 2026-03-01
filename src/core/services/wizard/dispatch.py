@@ -63,7 +63,7 @@ def delete_generated_configs(root: Path, target: str) -> dict:
     """
     import shutil as _shutil
 
-    from src.core.services import devops_cache
+    from src.core.services.devops import cache as devops_cache
 
     deleted: list[str] = []
     errors: list[str] = []

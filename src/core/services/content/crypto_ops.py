@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from src.core.services.content_crypto import encrypt_file, decrypt_file
+from .crypto import encrypt_file, decrypt_file
 from src.core.services.audit_helpers import make_auditor
 
 logger = logging.getLogger(__name__)
@@ -71,7 +71,7 @@ def encrypt_content_file(
 
         # Update release artifact if file is in .large/
         if ".large" in source.parts:
-            from src.core.services.content_release import (
+            from .release import (
                 cleanup_release_sidecar,
                 upload_to_release_bg,
             )
@@ -166,7 +166,7 @@ def decrypt_content_file(
 
         # Update release artifact if file is in .large/
         if ".large" in vault_file.parts:
-            from src.core.services.content_release import (
+            from .release import (
                 cleanup_release_sidecar,
                 upload_to_release_bg,
             )

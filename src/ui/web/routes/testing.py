@@ -30,7 +30,7 @@ testing_bp = Blueprint("testing", __name__)
 @testing_bp.route("/testing/status")
 def testing_status():  # type: ignore[no-untyped-def]
     """Detected test frameworks and stats."""
-    from src.core.services.devops_cache import get_cached
+    from src.core.services.devops.cache import get_cached
 
     root = _project_root()
     force = request.args.get("bust", "") == "1"

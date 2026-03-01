@@ -220,7 +220,7 @@ def release_inventory(project_root: Path) -> dict:
     local_sidecars: list[dict] = []
 
     # Scan content dirs + backup dirs for .release.json files
-    from src.core.services.content_crypto import DEFAULT_CONTENT_DIRS
+    from .crypto import DEFAULT_CONTENT_DIRS
 
     scan_dirs = [project_root / d for d in DEFAULT_CONTENT_DIRS]
     # Also check backup directories (they live under .backup/)

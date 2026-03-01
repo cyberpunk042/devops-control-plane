@@ -28,7 +28,7 @@ from pathlib import Path
 
 from flask import Blueprint, current_app, jsonify, request
 
-from src.core.services.content_crypto import (
+from src.core.services.content.crypto import (
     classify_file,
     decrypt_file_to_memory,
     detect_content_folders,
@@ -89,7 +89,7 @@ def content_folders():  # type: ignore[no-untyped-def]
 @content_bp.route("/content/all-folders")
 def content_all_folders():  # type: ignore[no-untyped-def]
     """List all top-level directories in the project."""
-    from src.core.services.content_file_ops import list_all_project_folders
+    from src.core.services.content.file_ops import list_all_project_folders
 
     folders = list_all_project_folders(_project_root())
     return jsonify({"folders": folders})
@@ -125,7 +125,7 @@ def content_list():  # type: ignore[no-untyped-def]
     # ra=None means "skip orphan check", ra=set() means "check assets"
     ra: set[str] | None = None
     if check_release:
-        from src.core.services.content_release import list_release_assets
+        from src.core.services.content.release import list_release_assets
         remote = list_release_assets(root)
         if remote.get("available"):
             ra = {a["name"] for a in remote["assets"]}

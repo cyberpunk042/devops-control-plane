@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from flask import jsonify, request
 
-from src.core.services import backup_ops
+from src.core.services.backup import ops as backup_ops
 from . import backup_bp
 from src.ui.web.helpers import project_root as _project_root
 

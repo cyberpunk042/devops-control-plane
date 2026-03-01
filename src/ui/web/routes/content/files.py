@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from flask import jsonify, request, send_file
 
-from src.core.services import content_file_ops
+from src.core.services.content import file_ops as content_file_ops
 
 from . import content_bp
 from .helpers import project_root as _project_root, resolve_safe_path as _resolve_safe_path, get_enc_key as _get_enc_key
@@ -136,7 +136,7 @@ def content_enc_key_status():  # type: ignore[no-untyped-def]
 @content_bp.route("/content/optimize-status")
 def content_optimize_status():  # type: ignore[no-untyped-def]
     """Poll optimization progress (used by frontend during upload)."""
-    from src.core.services.content_optimize import get_optimization_status
+    from src.core.services.content.optimize import get_optimization_status
 
     return jsonify(get_optimization_status())
 
@@ -144,7 +144,7 @@ def content_optimize_status():  # type: ignore[no-untyped-def]
 @content_bp.route("/content/optimize-cancel", methods=["POST"])
 def content_optimize_cancel():  # type: ignore[no-untyped-def]
     """Cancel the active optimization (kills ffmpeg)."""
-    from src.core.services.content_optimize import cancel_active_optimization
+    from src.core.services.content.optimize import cancel_active_optimization
 
     killed = cancel_active_optimization()
     return jsonify({"cancelled": killed})

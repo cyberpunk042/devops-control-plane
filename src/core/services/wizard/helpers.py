@@ -59,7 +59,7 @@ def _wizard_k8s_status(root: Path) -> dict:
 def _wizard_terraform_status(root: Path) -> dict:
     """Full Terraform detection (CLI, files, providers, modules, backend) for wizard use."""
     try:
-        from src.core.services.terraform_ops import terraform_status
+        from src.core.services.terraform.ops import terraform_status
         return terraform_status(root)
     except Exception:
         return {"has_terraform": False, "cli": {"available": False, "version": None}}

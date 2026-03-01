@@ -34,7 +34,7 @@ k8s_bp = Blueprint("k8s", __name__)
 @k8s_bp.route("/k8s/status")
 def k8s_status():  # type: ignore[no-untyped-def]
     """Manifest detection and kubectl availability."""
-    from src.core.services.devops_cache import get_cached
+    from src.core.services.devops.cache import get_cached
 
     root = _project_root()
     force = request.args.get("bust", "") == "1"

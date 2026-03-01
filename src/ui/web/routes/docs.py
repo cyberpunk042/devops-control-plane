@@ -30,7 +30,7 @@ docs_bp = Blueprint("docs", __name__)
 @docs_bp.route("/docs/status")
 def docs_status():  # type: ignore[no-untyped-def]
     """Documentation inventory."""
-    from src.core.services.devops_cache import get_cached
+    from src.core.services.devops.cache import get_cached
 
     root = _project_root()
     force = request.args.get("bust", "") == "1"

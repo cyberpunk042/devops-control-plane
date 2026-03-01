@@ -26,7 +26,7 @@ from pathlib import Path
 
 from flask import Blueprint, current_app, jsonify, request
 
-from src.core.services import devops_cache
+from src.core.services.devops import cache as devops_cache
 from src.ui.web.helpers import project_root as _project_root
 
 devops_bp = Blueprint("devops", __name__)
@@ -150,7 +150,7 @@ def _ensure_registry() -> None:
     from src.core.services import ci_ops
     from src.core.services import git_ops
 
-    from src.core.services import terraform_ops
+    from src.core.services.terraform import ops as terraform_ops
 
     def _compute_security(root: Path) -> dict:
         scan = _sec_ops.scan_secrets(root)

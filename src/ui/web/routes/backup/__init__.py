@@ -31,7 +31,7 @@ from flask import (
     request,
 )
 
-from src.core.services import backup_ops
+from src.core.services.backup import ops as backup_ops
 from src.ui.web.helpers import project_root as _project_root
 
 backup_bp = Blueprint("backup", __name__)

@@ -218,7 +218,7 @@ def setup_ci(root: Path, data: dict) -> dict:
     """
     import yaml as _yaml
 
-    from src.core.services import devops_cache
+    from src.core.services.devops import cache as devops_cache
 
     # ── Parse inputs ────────────────────────────────────────────────
     branches_str = data.get("branches", "main, master")

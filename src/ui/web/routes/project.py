@@ -17,7 +17,7 @@ from pathlib import Path
 
 from flask import Blueprint, current_app, jsonify, request
 
-from src.core.services.devops_cache import get_cached
+from src.core.services.devops.cache import get_cached
 from src.core.services.project_probes import (
     compute_progress,
     run_all_probes,

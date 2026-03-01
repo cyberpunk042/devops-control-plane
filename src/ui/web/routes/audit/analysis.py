@@ -21,7 +21,7 @@ from __future__ import annotations
 
 from flask import jsonify, request
 
-from src.core.services import devops_cache
+from src.core.services.devops import cache as devops_cache
 from src.core.services.audit import (
     audit_scores,
     audit_scores_enriched,

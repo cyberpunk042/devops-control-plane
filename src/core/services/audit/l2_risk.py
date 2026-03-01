@@ -34,7 +34,7 @@ def _cached_or_compute(project_root: Path, key: str) -> dict | None:
     Callers should fall back to live ops calls if this returns None.
     """
     try:
-        from src.core.services.devops_cache import _load_cache
+        from src.core.services.devops.cache import _load_cache
         cache = _load_cache(project_root)
         entry = cache.get(key)
         if entry and "data" in entry:

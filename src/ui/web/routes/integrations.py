@@ -24,7 +24,7 @@ from pathlib import Path
 from flask import Blueprint, current_app, jsonify, request
 
 from src.core.services import git_ops
-from src.core.services.devops_cache import get_cached
+from src.core.services.devops.cache import get_cached
 from src.core.services.run_tracker import run_tracked
 from src.ui.web.helpers import requires_git_auth
 from src.ui.web.helpers import project_root as _project_root
@@ -263,7 +263,7 @@ def gh_auth_login():  # type: ignore[no-untyped-def]
     # Cache-bust on successful token auth so status is fresh
     if result.get("ok") and result.get("authenticated"):
         try:
-            from src.core.services import devops_cache
+            from src.core.services.devops import cache as devops_cache
             root = _project_root()
             devops_cache.invalidate(root, "github")
             devops_cache.invalidate(root, "wiz:detect")
@@ -316,7 +316,7 @@ def gh_auth_device_poll_route():  # type: ignore[no-untyped-def]
     # Cache-bust on successful auth — only the github card
     if result.get("complete") and result.get("authenticated"):
         try:
-            from src.core.services import devops_cache
+            from src.core.services.devops import cache as devops_cache
             devops_cache.invalidate(root, "github")
             devops_cache.invalidate(root, "wiz:detect")
         except Exception:
@@ -352,7 +352,7 @@ def gh_auth_terminal_poll_route():  # type: ignore[no-untyped-def]
         # If success, bust cache
         if data.get("status") == "success":
             try:
-                from src.core.services import devops_cache
+                from src.core.services.devops import cache as devops_cache
                 devops_cache.invalidate(root, "github")
                 devops_cache.invalidate(root, "wiz:detect")
             except Exception:
@@ -376,7 +376,7 @@ def gh_auth_terminal_poll_route():  # type: ignore[no-untyped-def]
                     data = {"status": "success", "ts": data.get("ts", "")}
                     signal_file.write_text(_json.dumps(data))
                     try:
-                        from src.core.services import devops_cache
+                        from src.core.services.devops import cache as devops_cache
                         devops_cache.invalidate(root, "github")
                         devops_cache.invalidate(root, "wiz:detect")
                     except Exception:

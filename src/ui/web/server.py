@@ -151,7 +151,7 @@ def create_app(
 
     @app.context_processor
     def _inject_data_catalogs():  # type: ignore[no-untyped-def]
-        from src.core.services.devops_cache import _load_cache
+        from src.core.services.devops.cache import _load_cache
         from src.core.config.stack_loader import discover_stacks
 
         # Build initial state from disk cache (available even on cold start)

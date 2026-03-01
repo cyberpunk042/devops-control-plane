@@ -399,7 +399,7 @@ def cancel_release_upload(file_id: str) -> dict:
 # Re-exports — backward compatibility
 # ═══════════════════════════════════════════════════════════════════
 
-from src.core.services.content_release_sync import (  # noqa: F401, E402
+from .release_sync import (  # noqa: F401, E402
     restore_large_files,
     list_release_assets,
     release_inventory,

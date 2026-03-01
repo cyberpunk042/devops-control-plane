@@ -392,7 +392,7 @@ def _resolve_release(ref_id: str, project_root: Path) -> dict | None:
         asset_name = None
 
     try:
-        from src.core.services.content_release_sync import list_release_assets
+        from src.core.services.content.release_sync import list_release_assets
         data = list_release_assets(project_root)
     except Exception as e:
         logger.debug("Failed to resolve release %s: %s", ref_id, e)
@@ -839,7 +839,7 @@ def _autocomplete_audits(partial_id: str, project_root: Path) -> list[dict]:
 
     # ── 3. Activity log entries (scan history) ─────────────────────
     try:
-        from src.core.services.devops_activity import load_activity
+        from src.core.services.devops.activity import load_activity
         activities = load_activity(project_root, n=100)
         # Reverse so newest-first
         activities = list(reversed(activities))
@@ -1057,11 +1057,11 @@ def _content_vault_files(
     Walks content vault dirs and returns rich dicts for files
     matching the given categories (or all if None).
     """
-    from src.core.services.content_listing import (
+    from src.core.services.content.listing import (
         DEFAULT_CONTENT_DIRS,
         detect_content_folders,
     )
-    from src.core.services.content_crypto import classify_file
+    from src.core.services.content.crypto import classify_file
 
     folders = detect_content_folders(project_root)
     if not folders:
@@ -1229,7 +1229,7 @@ def _autocomplete_release_assets(
 ) -> list[dict]:
     """List assets attached to a specific GitHub release tag."""
     try:
-        from src.core.services.content_release_sync import list_release_assets
+        from src.core.services.content.release_sync import list_release_assets
         data = list_release_assets(project_root)
     except Exception as e:
         logger.debug("Failed to list release assets: %s", e)

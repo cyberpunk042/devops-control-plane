@@ -36,7 +36,7 @@ packages_bp = Blueprint("packages", __name__)
 @packages_bp.route("/packages/status")
 def package_status():  # type: ignore[no-untyped-def]
     """Detected package managers and dependency files."""
-    from src.core.services.devops_cache import get_cached
+    from src.core.services.devops.cache import get_cached
 
     root = _project_root()
     force = request.args.get("bust", "") == "1"

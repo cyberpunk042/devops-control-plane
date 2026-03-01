@@ -63,10 +63,10 @@ because every session touches them and gets lost.
 |---|--------|--------------|--------|--------|
 | 18 | **docker/** | ~~6 flat files (~2,600 lines)~~ → `docker/` package (5 modules + `__init__` + README), `docker_ops.py` compat shim | `docker/` folder | 🟢 |
 | 19 | **k8s/** | ~~12 flat files (~10,500), `k8s_validate.py` (4,004!)~~ → `k8s/` package (19 modules + `__init__` + README), validate split into 7 layers, `k8s_ops.py` compat shim | `k8s/` folder, split validate | 🟢 |
-| 20 | **content/** | 9 flat files (~4,800) | `content/` folder | ⬜ |
-| 21 | **terraform/** | 3 flat files (~1,600) | `terraform/` folder | ⬜ |
-| 22 | **backup/** | 5 flat files (~2,100) | `backup/` folder | ⬜ |
-| 23 | **devops/** | 4 flat files (~2,600), `activity.py` (864) | `devops/` folder, split activity | ⬜ |
+| 20 | **content/** | ~~9 flat files (~3,680)~~ → `content/` package (9 modules + `__init__`), no facade needed (consumers import directly) | `content/` folder | 🟢 |
+| 21 | **terraform/** | ~~3 flat files (~1,420)~~ → `terraform/` package (3 modules + `__init__`), 3 backward-compat shims | `terraform/` folder | 🟢 |
+| 22 | **backup/** | ~~5 flat files (~1,700)~~ → `backup/` package (5 modules + `__init__`), 5 backward-compat shims | `backup/` folder | 🟢 |
+| 23 | **devops/** | ~~2 flat files (~1,560)~~ → `devops/` package (2 modules + `__init__`), 2 backward-compat shims | `devops/` folder | 🟢 |
 | 24 | **security/** | 4 flat files (~1,300) | `security/` folder | ⬜ |
 | 25 | **pages/** | 6 flat files (~1,700) | `pages/` folder | ⬜ |
 | 26 | **dns/** | 1 file (564) | `dns/` folder | ⬜ |

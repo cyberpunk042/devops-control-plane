@@ -36,7 +36,7 @@ def terraform() -> None:
 @click.pass_context
 def status(ctx: click.Context, as_json: bool) -> None:
     """Show Terraform configuration status."""
-    from src.core.services.terraform_ops import terraform_status
+    from src.core.services.terraform.ops import terraform_status
 
     project_root = _resolve_project_root(ctx)
     result = terraform_status(project_root)
@@ -111,7 +111,7 @@ def status(ctx: click.Context, as_json: bool) -> None:
 @click.pass_context
 def validate(ctx: click.Context, as_json: bool) -> None:
     """Validate Terraform configuration (syntax check)."""
-    from src.core.services.terraform_ops import terraform_validate
+    from src.core.services.terraform.ops import terraform_validate
 
     project_root = _resolve_project_root(ctx)
 
@@ -149,7 +149,7 @@ def validate(ctx: click.Context, as_json: bool) -> None:
 @click.pass_context
 def plan(ctx: click.Context, as_json: bool) -> None:
     """Run terraform plan (dry-run)."""
-    from src.core.services.terraform_ops import terraform_plan
+    from src.core.services.terraform.ops import terraform_plan
 
     project_root = _resolve_project_root(ctx)
 
@@ -191,7 +191,7 @@ def plan(ctx: click.Context, as_json: bool) -> None:
 @click.pass_context
 def state(ctx: click.Context, as_json: bool) -> None:
     """List resources in terraform state."""
-    from src.core.services.terraform_ops import terraform_state
+    from src.core.services.terraform.ops import terraform_state
 
     project_root = _resolve_project_root(ctx)
     result = terraform_state(project_root)
@@ -223,7 +223,7 @@ def state(ctx: click.Context, as_json: bool) -> None:
 @click.pass_context
 def workspaces(ctx: click.Context, as_json: bool) -> None:
     """List terraform workspaces."""
-    from src.core.services.terraform_ops import terraform_workspaces
+    from src.core.services.terraform.ops import terraform_workspaces
 
     project_root = _resolve_project_root(ctx)
     result = terraform_workspaces(project_root)
@@ -262,7 +262,7 @@ def generate(
     write: bool,
 ) -> None:
     """Generate Terraform scaffolding (main, variables, outputs)."""
-    from src.core.services.terraform_ops import generate_terraform
+    from src.core.services.terraform.ops import generate_terraform
     from src.core.services.docker_ops import write_generated_file
 
     project_root = _resolve_project_root(ctx)

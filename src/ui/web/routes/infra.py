@@ -130,7 +130,7 @@ def iac_resources():  # type: ignore[no-untyped-def]
 @infra_bp.route("/env/card-status")
 def env_card_status():  # type: ignore[no-untyped-def]
     """Aggregated environment data for the DevOps dashboard card."""
-    from src.core.services.devops_cache import get_cached
+    from src.core.services.devops.cache import get_cached
 
     root = _project_root()
     force = request.args.get("bust", "") == "1"

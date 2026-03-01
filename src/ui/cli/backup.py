@@ -58,7 +58,7 @@ def create(
 
         controlplane backup create content content/ --encrypt
     """
-    from src.core.services.backup_ops import create_backup
+    from src.core.services.backup.ops import create_backup
 
     project_root = _resolve_project_root(ctx)
     result = create_backup(
@@ -98,7 +98,7 @@ def create(
 @click.pass_context
 def list_backups_cmd(ctx: click.Context, folder: str, check_release: bool, as_json: bool) -> None:
     """List backups in a folder's .backup/ directory."""
-    from src.core.services.backup_ops import list_backups
+    from src.core.services.backup.ops import list_backups
 
     project_root = _resolve_project_root(ctx)
     result = list_backups(project_root, folder, check_release=check_release)
@@ -127,7 +127,7 @@ def list_backups_cmd(ctx: click.Context, folder: str, check_release: bool, as_js
 @click.pass_context
 def preview(ctx: click.Context, path: str, as_json: bool) -> None:
     """Preview the file tree inside a backup archive."""
-    from src.core.services.backup_ops import preview_backup
+    from src.core.services.backup.ops import preview_backup
 
     project_root = _resolve_project_root(ctx)
     result = preview_backup(project_root, path)
@@ -160,7 +160,7 @@ def preview(ctx: click.Context, path: str, as_json: bool) -> None:
 @click.pass_context
 def delete(ctx: click.Context, path: str) -> None:
     """Delete a backup archive."""
-    from src.core.services.backup_ops import delete_backup
+    from src.core.services.backup.ops import delete_backup
 
     project_root = _resolve_project_root(ctx)
     result = delete_backup(project_root, path)
@@ -177,7 +177,7 @@ def delete(ctx: click.Context, path: str) -> None:
 @click.pass_context
 def folders(ctx: click.Context, as_json: bool) -> None:
     """List scannable project folders."""
-    from src.core.services.backup_ops import list_folders
+    from src.core.services.backup.ops import list_folders
 
     project_root = _resolve_project_root(ctx)
     result = list_folders(project_root)

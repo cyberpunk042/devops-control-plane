@@ -312,7 +312,7 @@ def batch_dismiss_findings(
     Returns:
         ``{"ok": bool, "count": int, "results": [...]}``
     """
-    from src.core.services import devops_cache
+    from src.core.services.devops import cache as devops_cache
 
     results = []
     errors = []
@@ -359,7 +359,7 @@ def undismiss_finding_audited(
 
     Returns the raw ``undismiss_finding`` result.
     """
-    from src.core.services import devops_cache
+    from src.core.services.devops import cache as devops_cache
 
     result = undismiss_finding(project_root, file, line)
 

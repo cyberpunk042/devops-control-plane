@@ -35,7 +35,7 @@ quality_bp = Blueprint("quality", __name__)
 @quality_bp.route("/quality/status")
 def quality_status():  # type: ignore[no-untyped-def]
     """Detected quality tools and their availability."""
-    from src.core.services.devops_cache import get_cached
+    from src.core.services.devops.cache import get_cached
 
     root = _project_root()
     force = request.args.get("bust", "") == "1"

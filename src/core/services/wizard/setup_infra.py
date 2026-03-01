@@ -21,7 +21,7 @@ def setup_pages(root: Path, data: dict) -> dict:
     Supported data keys:
         auto_init  – bool, run init_pages_from_project to create segments
     """
-    from src.core.services import devops_cache
+    from src.core.services.devops import cache as devops_cache
 
     results: list[str] = []
 
@@ -68,7 +68,7 @@ def setup_docker(root: Path, data: dict) -> dict:
         base_image, workdir, install_cmd, port, cmd, overwrite, compose,
         dockerignore, registry, image_name, build_args.
     """
-    from src.core.services import devops_cache
+    from src.core.services.devops import cache as devops_cache
 
     base_image = data.get("base_image", "python:3.12-slim")
     workdir = data.get("workdir", "/app")
@@ -179,7 +179,7 @@ def setup_docker(root: Path, data: dict) -> dict:
 
 def setup_k8s(root: Path, data: dict) -> dict:
     """Generate Kubernetes manifests from wizard state."""
-    from src.core.services import devops_cache
+    from src.core.services.devops import cache as devops_cache
     from src.core.services.k8s import (
         wizard_state_to_resources,
         generate_k8s_wizard,
@@ -253,8 +253,8 @@ def setup_terraform(root: Path, data: dict) -> dict:
     Delegates to the generator to produce main.tf, variables.tf,
     outputs.tf, and .gitignore — then writes them to disk.
     """
-    from src.core.services import devops_cache
-    from src.core.services.terraform_generate import generate_terraform
+    from src.core.services.devops import cache as devops_cache
+    from src.core.services.terraform.generate import generate_terraform
 
     provider = data.get("provider", "aws")
     backend = data.get("backend", "local")

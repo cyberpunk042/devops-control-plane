@@ -84,7 +84,7 @@ def bust_tool_caches() -> None:
     Called after any operation that changes tool availability so
     that the UI picks up the new state on next poll.
     """
-    from src.core.services import devops_cache
+    from src.core.services.devops import cache as devops_cache
 
     try:
         root = project_root()

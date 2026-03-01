@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 def setup_git(root: Path, data: dict) -> dict:
     """Configure git: init, branch, .gitignore, remote, hooks, commit."""
-    from src.core.services import devops_cache
+    from src.core.services.devops import cache as devops_cache
 
     results: list[str] = []
     files_created: list[str] = []
@@ -148,7 +148,7 @@ def setup_git(root: Path, data: dict) -> dict:
 
 def setup_github(root: Path, data: dict) -> dict:
     """Configure GitHub: environments, secrets, CODEOWNERS."""
-    from src.core.services import devops_cache, secrets_ops
+    from src.core.services.devops import cache as devops_cache, secrets_ops
 
     results: dict = {
         "environments_created": [],

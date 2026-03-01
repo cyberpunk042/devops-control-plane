@@ -25,7 +25,7 @@ import time as _time
 from pathlib import Path
 from typing import Optional, Tuple
 
-from src.core.services.content_optimize import (
+from .optimize import (
     VIDEO_MAX_HEIGHT,
     VIDEO_BITRATE,
     AUDIO_BITRATE,

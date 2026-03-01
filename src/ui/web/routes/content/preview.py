@@ -21,7 +21,7 @@ from flask import jsonify, request
 
 from . import content_bp
 from .helpers import project_root as _project_root, resolve_safe_path as _resolve_safe_path, get_enc_key as _get_enc_key
-from src.core.services.content_crypto import (
+from src.core.services.content.crypto import (
     _guess_mime,
     decrypt_file_to_memory,
     DOC_EXTS,
@@ -69,7 +69,7 @@ def content_preview():  # type: ignore[no-untyped-def]
     is_text = suffix in _TEXT_EXTS or mime.startswith("text/")
 
     # Check release sidecar (delegated to core)
-    from src.core.services.content_file_ops import check_release_sidecar
+    from src.core.services.content.file_ops import check_release_sidecar
     rs = check_release_sidecar(target, _project_root())
 
     # Common release fields for all response shapes
@@ -237,7 +237,7 @@ def content_preview_encrypted():  # type: ignore[no-untyped-def]
 @content_bp.route("/content/save-encrypted", methods=["POST"])
 def content_save_encrypted():  # type: ignore[no-untyped-def]
     """Save edited content back to an encrypted file."""
-    from src.core.services.content_file_ops import save_encrypted_content
+    from src.core.services.content.file_ops import save_encrypted_content
 
     data = request.get_json(silent=True) or {}
     rel_path = data.get("path", "").strip()

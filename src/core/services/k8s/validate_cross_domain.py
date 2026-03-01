@@ -11,7 +11,7 @@ from pathlib import Path
 
 from src.core.services.docker.detect import docker_status
 from src.core.services.ci_ops import ci_status, ci_workflows
-from src.core.services.terraform_ops import terraform_status
+from src.core.services.terraform.ops import terraform_status
 from .cluster import cluster_status
 
 

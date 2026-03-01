@@ -134,7 +134,7 @@ def api_audit_activity():  # type: ignore[no-untyped-def]
         q       — text search in label + summary + target fields
         n       — (legacy) alias for limit, kept for backward compat
     """
-    from src.core.services import devops_cache
+    from src.core.services.devops import cache as devops_cache
 
     # Load all entries (they're stored oldest-first on disk)
     n_legacy = request.args.get("n", 0, type=int)

@@ -27,7 +27,7 @@ def restore_large_files_from_release(project_root: Path) -> dict:
     Returns:
         {"success": True, "restored": N, "skipped": N, "failed": N}.
     """
-    from src.core.services.content_release import restore_large_files
+    from .release import restore_large_files
 
     result = restore_large_files(project_root)
 
@@ -119,7 +119,7 @@ def check_release_sidecar(
         if release_status == "uploading":
             _fid = sidecar.get("file_id", "")
             try:
-                from src.core.services.content_release import (
+                from .release import (
                     _release_upload_status,
                 )
 
@@ -139,7 +139,7 @@ def check_release_sidecar(
                 or sidecar.get("asset_name")
                 or target.name
             )
-            from src.core.services.content_release import list_release_assets
+            from .release import list_release_assets
 
             remote = list_release_assets(project_root)
             if remote.get("available"):
@@ -185,7 +185,7 @@ def save_encrypted_content(
     import difflib
     import tempfile
 
-    from src.core.services.content_crypto import (
+    from .crypto import (
         decrypt_file_to_memory,
         encrypt_file,
     )

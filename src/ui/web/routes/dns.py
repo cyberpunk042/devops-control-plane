@@ -28,7 +28,7 @@ dns_bp = Blueprint("dns", __name__)
 @dns_bp.route("/dns/status")
 def dns_status():  # type: ignore[no-untyped-def]
     """DNS/CDN provider detection."""
-    from src.core.services.devops_cache import get_cached
+    from src.core.services.devops.cache import get_cached
 
     root = _project_root()
     force = request.args.get("bust", "") == "1"

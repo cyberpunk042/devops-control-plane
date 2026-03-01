@@ -37,7 +37,7 @@ security_bp2 = Blueprint("security2", __name__)
 @security_bp2.route("/security/status")
 def security_status():  # type: ignore[no-untyped-def]
     """Combined security status — scan findings + posture score."""
-    from src.core.services.devops_cache import get_cached
+    from src.core.services.devops.cache import get_cached
 
     root = _project_root()
     force = request.args.get("bust", "") == "1"
@@ -66,7 +66,7 @@ def security_posture_summary():  # type: ignore[no-untyped-def]
     1. ``security`` — from a previous /security/status call
     2. ``audit:l2:risks`` — from the Audit tab's Risks card
     """
-    from src.core.services.devops_cache import _load_cache
+    from src.core.services.devops.cache import _load_cache
 
     root = _project_root()
     cache = _load_cache(root)

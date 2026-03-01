@@ -52,7 +52,7 @@ def wizard_detect(root: Path) -> dict:
     Returns a dict used by the setup wizard to suggest which
     integrations to enable and which tools to install.
     """
-    from src.core.services import devops_cache
+    from src.core.services.devops import cache as devops_cache
     from src.core.services.project_probes import run_all_probes
 
     # ── Tool availability ───────────────────────────────────────

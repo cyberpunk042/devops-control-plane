@@ -38,7 +38,7 @@ def content() -> None:
 @click.pass_context
 def encrypt(ctx: click.Context, file: str, passphrase: str, output: str | None) -> None:
     """Encrypt a file into COVAULT binary envelope (.enc)."""
-    from src.core.services.content_crypto import encrypt_file
+    from src.core.services.content.crypto import encrypt_file
 
     source = Path(file).resolve()
     out = Path(output).resolve() if output else None
@@ -66,7 +66,7 @@ def encrypt(ctx: click.Context, file: str, passphrase: str, output: str | None) 
 @click.pass_context
 def decrypt(ctx: click.Context, file: str, passphrase: str, output: str | None) -> None:
     """Decrypt a COVAULT .enc file back to its original."""
-    from src.core.services.content_crypto import decrypt_file
+    from src.core.services.content.crypto import decrypt_file
 
     vault_path = Path(file).resolve()
     out = Path(output).resolve() if output else None
@@ -92,7 +92,7 @@ def decrypt(ctx: click.Context, file: str, passphrase: str, output: str | None) 
 @click.option("--json-output", "--json", "as_json", is_flag=True, help="Output as JSON.")
 def inspect(file: str, as_json: bool) -> None:
     """Read metadata from an encrypted .enc file (no decryption)."""
-    from src.core.services.content_crypto import read_metadata
+    from src.core.services.content.crypto import read_metadata
 
     vault_path = Path(file).resolve()
 
@@ -117,7 +117,7 @@ def inspect(file: str, as_json: bool) -> None:
 @click.argument("file", type=click.Path(exists=True))
 def classify(file: str) -> None:
     """Classify a file into a content category."""
-    from src.core.services.content_crypto import classify_file
+    from src.core.services.content.crypto import classify_file
 
     path = Path(file).resolve()
     category = classify_file(path)
@@ -129,7 +129,7 @@ def classify(file: str) -> None:
 @click.pass_context
 def detect_folders(ctx: click.Context, as_json: bool) -> None:
     """Detect content folders in the project."""
-    from src.core.services.content_crypto import detect_content_folders, format_size
+    from src.core.services.content.crypto import detect_content_folders, format_size
 
     project_root = _resolve_project_root(ctx)
     folders = detect_content_folders(project_root)
@@ -160,8 +160,8 @@ def detect_folders(ctx: click.Context, as_json: bool) -> None:
 @click.option("--json-output", "--json", "as_json", is_flag=True, help="Output as JSON.")
 def optimize(file: str, as_json: bool) -> None:
     """Optimize a media file (image → WebP, video → H.264, text → gzip)."""
-    from src.core.services.content_crypto import format_size
-    from src.core.services.content_optimize import classify_storage, optimize_media
+    from src.core.services.content.crypto import format_size
+    from src.core.services.content.optimize import classify_storage, optimize_media
 
     source = Path(file).resolve()
     data = source.read_bytes()
@@ -214,8 +214,8 @@ def release() -> None:
 @click.pass_context
 def release_list(ctx: click.Context, as_json: bool) -> None:
     """List assets on the content-vault GitHub Release."""
-    from src.core.services.content_crypto import format_size
-    from src.core.services.content_release import list_release_assets
+    from src.core.services.content.crypto import format_size
+    from src.core.services.content.release import list_release_assets
 
     project_root = _resolve_project_root(ctx)
     result = list_release_assets(project_root)
@@ -245,7 +245,7 @@ def release_list(ctx: click.Context, as_json: bool) -> None:
 @click.pass_context
 def restore(ctx: click.Context, as_json: bool) -> None:
     """Download missing large files from the content-vault release."""
-    from src.core.services.content_release import restore_large_files
+    from src.core.services.content.release import restore_large_files
 
     project_root = _resolve_project_root(ctx)
     result = restore_large_files(project_root)
@@ -286,7 +286,7 @@ def restore(ctx: click.Context, as_json: bool) -> None:
 @click.pass_context
 def inventory(ctx: click.Context, as_json: bool) -> None:
     """Cross-reference local sidecars with remote release assets."""
-    from src.core.services.content_release import release_inventory
+    from src.core.services.content.release import release_inventory
 
     project_root = _resolve_project_root(ctx)
     result = release_inventory(project_root)

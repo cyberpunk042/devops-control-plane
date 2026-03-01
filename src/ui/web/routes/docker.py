@@ -43,7 +43,7 @@ docker_bp = Blueprint("docker", __name__)
 @docker_bp.route("/docker/status")
 def docker_status():  # type: ignore[no-untyped-def]
     """Docker availability, version, daemon, project files."""
-    from src.core.services.devops_cache import get_cached
+    from src.core.services.devops.cache import get_cached
 
     root = _project_root()
     force = request.args.get("bust", "") == "1"

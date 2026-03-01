@@ -453,7 +453,7 @@ def is_covault_file(path: Path) -> bool:
 # Re-exports — backward compatibility
 # ═══════════════════════════════════════════════════════════════════
 
-from src.core.services.content_listing import (  # noqa: F401, E402
+from .listing import (  # noqa: F401, E402
     DEFAULT_CONTENT_DIRS,
     detect_content_folders,
     list_folder_contents,
@@ -461,7 +461,7 @@ from src.core.services.content_listing import (  # noqa: F401, E402
     format_size,
 )
 
-from src.core.services.content_crypto_ops import (  # noqa: F401, E402
+from .crypto_ops import (  # noqa: F401, E402
     encrypt_content_file,
     decrypt_content_file,
 )

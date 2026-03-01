@@ -25,7 +25,7 @@ import logging
 
 from flask import jsonify, request
 
-from src.core.services import content_file_ops
+from src.core.services.content import file_ops as content_file_ops
 
 from . import content_bp
 from .helpers import project_root as _project_root, resolve_safe_path as _resolve_safe_path
@@ -122,7 +122,7 @@ def content_move():  # type: ignore[no-untyped-def]
 @content_bp.route("/content/release-status")
 def content_release_status():  # type: ignore[no-untyped-def]
     """Poll the status of all background release uploads."""
-    from src.core.services.content_release import get_all_release_statuses
+    from src.core.services.content.release import get_all_release_statuses
 
     return jsonify(get_all_release_statuses())
 
@@ -130,7 +130,7 @@ def content_release_status():  # type: ignore[no-untyped-def]
 @content_bp.route("/content/release-status/<file_id>")
 def content_release_status_single(file_id):  # type: ignore[no-untyped-def]
     """Poll the status of a specific background release upload."""
-    from src.core.services.content_release import get_release_status
+    from src.core.services.content.release import get_release_status
 
     status = get_release_status(file_id)
     if not status:
@@ -141,7 +141,7 @@ def content_release_status_single(file_id):  # type: ignore[no-untyped-def]
 @content_bp.route("/content/release-cancel/<file_id>", methods=["POST"])
 def content_release_cancel(file_id):  # type: ignore[no-untyped-def]
     """Cancel a running release upload."""
-    from src.core.services.content_release import cancel_release_upload
+    from src.core.services.content.release import cancel_release_upload
 
     result = cancel_release_upload(file_id)
     return jsonify(result)
@@ -157,7 +157,7 @@ def content_restore_large():  # type: ignore[no-untyped-def]
 @content_bp.route("/content/release-inventory")
 def content_release_inventory():  # type: ignore[no-untyped-def]
     """Cross-reference local release sidecars with actual GitHub assets."""
-    from src.core.services.content_release import release_inventory
+    from src.core.services.content.release import release_inventory
 
     result = release_inventory(_project_root())
     # Strip raw meta dicts from response (too verbose for the API)
@@ -170,7 +170,7 @@ def content_release_inventory():  # type: ignore[no-untyped-def]
 @content_bp.route("/content/clean-release-sidecar", methods=["POST"])
 def content_clean_release_sidecar():  # type: ignore[no-untyped-def]
     """Delete a stale .release.json sidecar without touching the content file."""
-    from src.core.services.content_release import remove_orphaned_sidecar
+    from src.core.services.content.release import remove_orphaned_sidecar
 
     data = request.get_json(silent=True) or {}
     rel_path = data.get("path", "").strip()

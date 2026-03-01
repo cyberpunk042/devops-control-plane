@@ -45,7 +45,7 @@ def setup_dns(root: Path, data: dict) -> dict:
         tf_ssl         – bool, generate Terraform ssl.tf
         overwrite      – bool, replace existing files
     """
-    from src.core.services import devops_cache
+    from src.core.services.devops import cache as devops_cache
     from src.core.services.dns_cdn_ops import generate_dns_records
 
     domain = data.get("domain", "").strip()

@@ -56,7 +56,7 @@ def audit_event(
         return
 
     try:
-        from src.core.services.devops_cache import record_event
+        from src.core.services.devops.cache import record_event
 
         record_event(root, label=label, summary=summary, card=card, **kwargs)
     except Exception as exc:

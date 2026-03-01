@@ -54,7 +54,7 @@ def start_watcher(project_root: Path) -> threading.Thread:
 
 def _poll_loop(project_root: Path) -> None:
     """Main poll loop — runs forever until process exits."""
-    from src.core.services.devops_cache import _WATCH_PATHS, _load_cache, _max_mtime
+    from src.core.services.devops.cache import _WATCH_PATHS, _load_cache, _max_mtime
 
     # Track the last mtime we fired state:stale for, per key.
     # This prevents re-firing every poll for the same change.

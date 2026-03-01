@@ -89,7 +89,7 @@ pages_api_bp = Blueprint("pages_api", __name__)
 @pages_api_bp.route("/pages/segments")
 def list_segments():  # type: ignore[no-untyped-def]
     """List all configured segments."""
-    from src.core.services.devops_cache import get_cached
+    from src.core.services.devops.cache import get_cached
 
     root = _project_root()
     force = request.args.get("bust", "") == "1"

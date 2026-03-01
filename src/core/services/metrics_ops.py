@@ -44,7 +44,7 @@ def _max_score() -> int:
 def _probe_git(project_root: Path) -> dict:
     """Git health: is repo clean? on main? has remote?"""
     try:
-        from src.core.services.devops_cache import get_cached
+        from src.core.services.devops.cache import get_cached
         from src.core.services.git_ops import git_status
 
         result = get_cached(project_root, "git", lambda: git_status(project_root))
@@ -83,7 +83,7 @@ def _probe_git(project_root: Path) -> dict:
 def _probe_docker(project_root: Path) -> dict:
     """Docker health: Dockerfile exists? compose? daemon running?"""
     try:
-        from src.core.services.devops_cache import get_cached
+        from src.core.services.devops.cache import get_cached
         from src.core.services.docker_ops import docker_status
 
         result = get_cached(project_root, "docker", lambda: docker_status(project_root))
@@ -128,7 +128,7 @@ def _probe_docker(project_root: Path) -> dict:
 def _probe_ci(project_root: Path) -> dict:
     """CI health: has CI? workflows valid? coverage?"""
     try:
-        from src.core.services.devops_cache import get_cached
+        from src.core.services.devops.cache import get_cached
         from src.core.services.ci_ops import ci_status, ci_workflows
 
         status = get_cached(project_root, "ci", lambda: ci_status(project_root))
@@ -184,7 +184,7 @@ def _probe_ci(project_root: Path) -> dict:
 def _probe_packages(project_root: Path) -> dict:
     """Package health: has lock file? outdated count?"""
     try:
-        from src.core.services.devops_cache import get_cached
+        from src.core.services.devops.cache import get_cached
         from src.core.services.package_ops import package_status, package_outdated
 
         status = get_cached(project_root, "packages", lambda: package_status(project_root))
@@ -235,7 +235,7 @@ def _probe_packages(project_root: Path) -> dict:
 def _probe_env(project_root: Path) -> dict:
     """Environment health: has .env? has .env.example? in sync?"""
     try:
-        from src.core.services.devops_cache import get_cached
+        from src.core.services.devops.cache import get_cached
         from src.core.services.env_ops import env_status, env_diff
 
         status = get_cached(project_root, "env", lambda: env_status(project_root))
@@ -287,7 +287,7 @@ def _probe_env(project_root: Path) -> dict:
 def _probe_quality(project_root: Path) -> dict:
     """Quality health: has lint/type/test tools? configured?"""
     try:
-        from src.core.services.devops_cache import get_cached
+        from src.core.services.devops.cache import get_cached
         from src.core.services.quality_ops import quality_status
 
         # Reuse card-level cache.  The card endpoint computes

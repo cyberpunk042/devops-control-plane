@@ -34,7 +34,7 @@ ci_bp = Blueprint("ci", __name__)
 @ci_bp.route("/ci/status")
 def ci_status():  # type: ignore[no-untyped-def]
     """CI/CD availability: detected providers, workflow count."""
-    from src.core.services.devops_cache import get_cached
+    from src.core.services.devops.cache import get_cached
 
     root = _project_root()
     force = request.args.get("bust", "") == "1"

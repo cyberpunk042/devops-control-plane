@@ -77,7 +77,7 @@ COMPRESSIBLE_EXTENSIONS = {
 # ── Re-exports from video sub-module ────────────────────────
 # (callers import from content_optimize — these proxy transparently)
 
-from src.core.services.content_optimize_video import (  # noqa: E402, F401
+from .optimize_video import (  # noqa: E402, F401
     optimize_video,
     optimize_audio,
     cancel_active_optimization,

@@ -90,7 +90,7 @@ def delete_content_file(project_root: Path, rel_path: str) -> dict:
     Returns:
         {"success": True, "path": ...} or {"error": ...}.
     """
-    from src.core.services.content_crypto import DEFAULT_CONTENT_DIRS
+    from .crypto import DEFAULT_CONTENT_DIRS
 
     if not rel_path:
         return {"error": "Missing 'path'"}
@@ -116,7 +116,7 @@ def delete_content_file(project_root: Path, rel_path: str) -> dict:
         return {"error": f"File not found: {rel_path}", "_status": 404}
 
     # Clean up release sidecar + GitHub asset if present
-    from src.core.services.content_release import cleanup_release_sidecar
+    from .release import cleanup_release_sidecar
     cleanup_release_sidecar(target, project_root)
 
     is_dir = target.is_dir()
@@ -194,7 +194,7 @@ def upload_content_file(
     """
     import mimetypes
 
-    from src.core.services.content_optimize import classify_storage, optimize_media
+    from .optimize import classify_storage, optimize_media
 
     if not folder_rel:
         return {"error": "Missing 'folder'"}
@@ -305,7 +305,7 @@ def upload_content_file(
 
     # Large files → background upload to GitHub Releases
     if tier == "large":
-        from src.core.services.content_release import upload_to_release_bg
+        from .release import upload_to_release_bg
 
         file_id = dest.stem
         upload_to_release_bg(file_id, dest, project_root)
@@ -425,7 +425,7 @@ def save_content_file(
     """
     import difflib
 
-    from src.core.services.content_crypto import DEFAULT_CONTENT_DIRS
+    from .crypto import DEFAULT_CONTENT_DIRS
 
     if not rel_path:
         return {"error": "Missing 'path'"}
@@ -635,14 +635,14 @@ def move_content_file(
 
 # ── MIME lookup (delegated to content_crypto) ──────────────────
 
-from src.core.services.content_crypto import _EXT_MIME, _guess_mime  # noqa: F401, E402
+from .crypto import _EXT_MIME, _guess_mime  # noqa: F401, E402
 
 
 # ═══════════════════════════════════════════════════════════════════
 # Re-exports — backward compatibility
 # ═══════════════════════════════════════════════════════════════════
 
-from src.core.services.content_file_advanced import (  # noqa: F401, E402
+from .file_advanced import (  # noqa: F401, E402
     restore_large_files_from_release,
     list_all_project_folders,
     check_release_sidecar,

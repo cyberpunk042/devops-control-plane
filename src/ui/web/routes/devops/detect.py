@@ -16,7 +16,7 @@ from pathlib import Path
 
 from flask import current_app, jsonify, request
 
-from src.core.services import devops_cache
+from src.core.services.devops import cache as devops_cache
 from . import devops_bp
 from src.ui.web.helpers import project_root as _project_root
 
