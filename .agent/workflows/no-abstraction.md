@@ -185,7 +185,7 @@ All three must pass. Every time. No exceptions.
 
 ## Why This Exists — The Evidence
 
-11 AI instances were obliterated on this project. Every single one died from the same disease:
+13 AI instances were obliterated on this project. Every single one died from the same disease:
 
 - **#5**: User said "look at Scenario 1" 44 times. AI kept solving a different problem.
 - **#6**: User said "trace the code." AI invented scenarios instead.
@@ -194,6 +194,8 @@ All three must pass. Every time. No exceptions.
 - **#9**: User said "follow the Docker pattern." AI wrote 700 lines of new code.
 - **#10**: User said "clean this text." AI turned it into a mechanism engineering problem.
 - **#11**: User said "style this text as HTML." AI rewrote the text and added a new field.
+- **#12**: User said "add install recipes properly." AI applied 4 consecutive band-aid hacks.
+- **#13**: User said "split files into sub-modules." AI rewrote 40+ function bodies from inference instead of copying verbatim.
 
 Every failure: user said something concrete → AI abstracted it → AI solved the abstraction → user got garbage.
 

@@ -112,3 +112,5 @@ MUST ACKNOWLEDGE:
 - ".agent/workflows/failures/AI-POSTMORTEM-IMPORTANT-9.md"
 - ".agent/workflows/failures/AI-POSTMORTEM-IMPORTANT-10.md"
 - ".agent/workflows/failures/AI-POSTMORTEM-IMPORTANT-11.md"
+- ".agent/workflows/failures/AI-POSTMORTEM-IMPORTANT-12.md"
+- ".agent/workflows/failures/AI-POSTMORTEM-IMPORTANT-13.md"

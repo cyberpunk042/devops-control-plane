@@ -27,7 +27,7 @@ If ANY answer is wrong → **STOP. Re-read. Start over.**
 
 ## Where This Comes From
 
-11 AI instances obliterated. Same root cause every time: the AI read the user's concrete instruction, abstracted it into a different goal, solved the different goal, and delivered garbage.
+13 AI instances obliterated. Same root cause every time: the AI read the user's concrete instruction, abstracted it into a different goal, solved the different goal, and delivered garbage.
 
 Full documentation: `.agent/workflows/no-abstraction.md`
 Post-mortems: `.agent/workflows/failures/AI-POSTMORTEM-IMPORTANT-*.md`
