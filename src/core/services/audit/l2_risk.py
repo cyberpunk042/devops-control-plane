@@ -88,7 +88,7 @@ def _security_findings(project_root: Path) -> list[dict]:
     findings = []
 
     try:
-        from src.core.services.security_ops import (
+        from src.core.services.security.ops import (
             detect_sensitive_files,
             gitignore_analysis,
             scan_secrets,
@@ -212,7 +212,7 @@ def _dependency_findings(project_root: Path) -> list[dict]:
     findings = []
 
     try:
-        from src.core.services.package_ops import package_audit, package_outdated
+        from src.core.services.packages_svc.ops import package_audit, package_outdated
 
         # Vulnerability audit
         try:
@@ -286,7 +286,7 @@ def _docs_findings(project_root: Path) -> list[dict]:
     findings = []
 
     try:
-        from src.core.services.docs_ops import check_links, docs_status
+        from src.core.services.docs_svc.ops import check_links, docs_status
 
         try:
             status = docs_status(project_root)
@@ -364,7 +364,7 @@ def _testing_findings(project_root: Path) -> list[dict]:
     try:
         status = _cached_or_compute(project_root, "testing")
         if status is None:
-            from src.core.services.testing_ops import testing_status
+            from src.core.services.testing.ops import testing_status
             status = testing_status(project_root)
 
         if not status.get("has_tests"):
@@ -420,7 +420,7 @@ def _infra_findings(project_root: Path) -> list[dict]:
     findings = []
 
     try:
-        from src.core.services.env_ops import env_status, env_validate
+        from src.core.services.env.ops import env_status, env_validate
 
         try:
             status = env_status(project_root)

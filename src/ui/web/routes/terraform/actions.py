@@ -1,0 +1,119 @@
+"""Terraform mutation endpoints — validate, plan, init, apply, destroy, generate, fmt."""
+
+from __future__ import annotations
+
+from flask import jsonify, request
+
+from src.core.services.terraform import ops as terraform_ops
+from src.core.services.run_tracker import run_tracked
+from src.ui.web.helpers import project_root as _project_root
+
+from . import terraform_bp
+
+
+@terraform_bp.route("/terraform/validate", methods=["POST"])
+@run_tracked("validate", "validate:terraform")
+def tf_validate():  # type: ignore[no-untyped-def]
+    """Validate Terraform configuration."""
+    result = terraform_ops.terraform_validate(_project_root())
+    if "error" in result:
+        return jsonify(result), 400
+    return jsonify(result)
+
+
+@terraform_bp.route("/terraform/plan", methods=["POST"])
+@run_tracked("plan", "plan:terraform")
+def tf_plan():  # type: ignore[no-untyped-def]
+    """Run terraform plan."""
+    root = _project_root()
+    result = terraform_ops.terraform_plan(root)
+    if "error" in result:
+        return jsonify(result), 400
+
+    return jsonify(result)
+
+
+@terraform_bp.route("/terraform/init", methods=["POST"])
+@run_tracked("setup", "setup:terraform")
+def tf_init():  # type: ignore[no-untyped-def]
+    """Initialize Terraform."""
+    data = request.get_json(silent=True) or {}
+    upgrade = data.get("upgrade", False)
+    root = _project_root()
+    result = terraform_ops.terraform_init(root, upgrade=upgrade)
+    if not result.get("ok"):
+        return jsonify(result), 400
+
+    return jsonify(result)
+
+
+@terraform_bp.route("/terraform/apply", methods=["POST"])
+@run_tracked("deploy", "deploy:terraform")
+def tf_apply():  # type: ignore[no-untyped-def]
+    """Apply Terraform plan."""
+    root = _project_root()
+    result = terraform_ops.terraform_apply(root)
+    if not result.get("ok"):
+        return jsonify(result), 400
+
+    return jsonify(result)
+
+
+@terraform_bp.route("/terraform/destroy", methods=["POST"])
+@run_tracked("destroy", "destroy:terraform")
+def tf_destroy():  # type: ignore[no-untyped-def]
+    """Destroy Terraform resources."""
+    root = _project_root()
+    result = terraform_ops.terraform_destroy(root)
+    if not result.get("ok"):
+        return jsonify(result), 400
+
+    return jsonify(result)
+
+
+@terraform_bp.route("/terraform/generate", methods=["POST"])
+@run_tracked("generate", "generate:terraform")
+def tf_generate():  # type: ignore[no-untyped-def]
+    """Generate Terraform scaffolding."""
+    data = request.get_json(silent=True) or {}
+    root = _project_root()
+    provider = data.get("provider", "aws")
+    backend = data.get("backend", "local")
+
+    result = terraform_ops.generate_terraform(
+        root, provider,
+        backend=backend,
+        project_name=data.get("project_name", ""),
+    )
+    if "error" in result:
+        return jsonify(result), 400
+
+    return jsonify(result)
+
+
+@terraform_bp.route("/terraform/workspace/select", methods=["POST"])
+@run_tracked("setup", "setup:terraform_ws")
+def tf_workspace_select():  # type: ignore[no-untyped-def]
+    """Switch Terraform workspace."""
+    data = request.get_json(silent=True) or {}
+    workspace = data.get("workspace", "")
+    if not workspace:
+        return jsonify({"error": "Missing 'workspace' field"}), 400
+    root = _project_root()
+    result = terraform_ops.terraform_workspace_select(root, workspace)
+    if not result.get("ok"):
+        return jsonify(result), 400
+
+    return jsonify(result)
+
+
+@terraform_bp.route("/terraform/fmt", methods=["POST"])
+@run_tracked("format", "format:terraform")
+def tf_fmt():  # type: ignore[no-untyped-def]
+    """Format Terraform files."""
+    root = _project_root()
+    result = terraform_ops.terraform_fmt(root)
+    if not result.get("ok"):
+        return jsonify(result), 400
+
+    return jsonify(result)

@@ -26,7 +26,7 @@ def setup_pages(root: Path, data: dict) -> dict:
     results: list[str] = []
 
     if data.get("auto_init"):
-        from src.core.services.pages_discovery import init_pages_from_project
+        from src.core.services.pages.discovery import init_pages_from_project
 
         init_result = init_pages_from_project(root)
         added = init_result.get("added", [])

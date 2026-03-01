@@ -38,7 +38,7 @@ from pathlib import Path
 
 from flask import Blueprint, Response, current_app, jsonify, request
 
-from src.core.services.pages_engine import (
+from src.core.services.pages.engine import (
     # Segment CRUD
     get_segments as _get_segments,
     add_segment,

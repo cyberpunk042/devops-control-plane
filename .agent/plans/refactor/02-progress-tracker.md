@@ -67,14 +67,18 @@ because every session touches them and gets lost.
 | 21 | **terraform/** | ~~3 flat files (~1,420)~~ → `terraform/` package (3 modules + `__init__`), 3 backward-compat shims | `terraform/` folder | 🟢 |
 | 22 | **backup/** | ~~5 flat files (~1,700)~~ → `backup/` package (5 modules + `__init__`), 5 backward-compat shims | `backup/` folder | 🟢 |
 | 23 | **devops/** | ~~2 flat files (~1,560)~~ → `devops/` package (2 modules + `__init__`), 2 backward-compat shims | `devops/` folder | 🟢 |
-| 24 | **security/** | 4 flat files (~1,300) | `security/` folder | ⬜ |
-| 25 | **pages/** | 6 flat files (~1,700) | `pages/` folder | ⬜ |
-| 26 | **dns/** | 1 file (564) | `dns/` folder | ⬜ |
-| 27 | **docs/** (service) | 2 files (~730) | `docs/` folder | ⬜ |
-| 28 | **quality/** | 1 file (500) | `quality/` folder | ⬜ |
-| 29 | **testing/** | 2 files (~900) | `testing/` folder | ⬜ |
-| 30 | **metrics/** | 1 file (570) | `metrics/` folder | ⬜ |
-| 31 | **shared/** | 10+ cross-cutting files (~3,000) | `shared/` folder | ⬜ |
+| 24 | **security/** | ~~4 flat files (~1,086)~~ → `security/` package (4 modules + `__init__`), 4 shims | `security/` folder | 🟢 |
+| 25 | **pages/** | ~~6 flat files (~1,394)~~ → `pages/` package (6 modules + `__init__`), 6 shims | `pages/` folder | 🟢 |
+| 26 | **dns/** | ~~1 flat file (564)~~ → `dns/` package (1 module + `__init__`), 1 shim | `dns/` folder | 🟢 |
+| 27 | **docs_svc/** | ~~2 flat files (~691)~~ → `docs_svc/` package (2 modules + `__init__`), 2 shims | `docs_svc/` folder | 🟢 |
+| 28 | **quality/** | ~~1 flat file (531)~~ → `quality/` package (1 module + `__init__`), 1 shim | `quality/` folder | 🟢 |
+| 29 | **testing/** | ~~2 flat files (~847)~~ → `testing/` package (2 modules + `__init__`), 2 shims | `testing/` folder | 🟢 |
+| 30 | **metrics/** | ~~1 flat file (504)~~ → `metrics/` package (1 module + `__init__`), 1 shim | `metrics/` folder | 🟢 |
+| 31a | **env/** | ~~2 flat files (~679)~~ → `env/` package (2 modules + `__init__`), 2 shims | `env/` folder | 🟢 |
+| 31b | **packages_svc/** | ~~2 flat files (~782)~~ → `packages_svc/` package (2 modules + `__init__`), 2 shims | `packages_svc/` folder | 🟢 |
+| 31c | **routes → folders** | ~~23 flat route files~~ → 23 domain folders (each file → `domain/__init__.py`) | All routes in folders | 🟢 |
+| 31d | **CLI → folders** | ~~19 flat CLI files~~ → 19 domain folders (each file → `domain/__init__.py`) | All CLI in folders | 🟢 |
+| 31e | **shared cross-cutting** | ~15 cross-cutting files remain at services root (shims + standalone) | Evaluate in doc sweep | ⬜ |
 | 32 | **chat/** (existing) | `chat_refs.py` (1,280), `chat_ops.py` (731) | Split oversized | ⬜ |
 | 33 | **generators/** (existing) | `github_workflow.py` (1,081) | Split oversized | ⬜ |
 

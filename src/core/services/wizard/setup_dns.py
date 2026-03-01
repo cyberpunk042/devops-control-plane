@@ -46,7 +46,7 @@ def setup_dns(root: Path, data: dict) -> dict:
         overwrite      – bool, replace existing files
     """
     from src.core.services.devops import cache as devops_cache
-    from src.core.services.dns_cdn_ops import generate_dns_records
+    from src.core.services.dns.cdn_ops import generate_dns_records
 
     domain = data.get("domain", "").strip()
     if not domain:

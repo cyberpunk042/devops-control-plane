@@ -68,7 +68,7 @@ def _wizard_terraform_status(root: Path) -> dict:
 def _wizard_dns_status(root: Path) -> dict:
     """Full DNS/CDN detection (providers, domains, certs, files) for wizard use."""
     try:
-        from src.core.services.dns_cdn_ops import dns_cdn_status
+        from src.core.services.dns.cdn_ops import dns_cdn_status
         return dns_cdn_status(root)
     except Exception:
         return {"has_dns": False, "has_cdn": False, "cdn_providers": [], "domains": []}
@@ -77,7 +77,7 @@ def _wizard_dns_status(root: Path) -> dict:
 def _wizard_env_status(root: Path) -> dict:
     """Env var status (files, vars, validation) for wizard use."""
     try:
-        from src.core.services.env_ops import env_status
+        from src.core.services.env.ops import env_status
         return env_status(root)
     except Exception:
         return {"files": [], "has_env": False, "has_example": False, "total_vars": 0}
@@ -127,7 +127,7 @@ def _wizard_ci_status(root: Path) -> dict:
 def _wizard_gitignore_analysis(root: Path) -> dict:
     """Gitignore analysis for wizard use."""
     try:
-        from src.core.services.security_ops import gitignore_analysis
+        from src.core.services.security.ops import gitignore_analysis
         return gitignore_analysis(root)
     except Exception:
         return {"exists": False, "coverage": 0, "missing_patterns": []}
@@ -184,8 +184,8 @@ def _wizard_pages_status(root: Path) -> dict:
         "builders_available": [],
     }
     try:
-        from src.core.services.pages_engine import get_pages_meta, get_segments
-        from src.core.services.pages_discovery import (
+        from src.core.services.pages.engine import get_pages_meta, get_segments
+        from src.core.services.pages.discovery import (
             detect_best_builder,
             list_builders_detail,
         )

@@ -30,7 +30,7 @@ def audit_dismissals_add():  # type: ignore[no-untyped-def]
     Body (batch):  {"items": [{"file": "...", "line": N}, ...], "comment": "reason"}
     Body (single): {"file": "path/to/file.py", "line": 42, "comment": "reason"}
     """
-    from src.core.services.security_ops import batch_dismiss_findings
+    from src.core.services.security.ops import batch_dismiss_findings
 
     data = request.get_json(silent=True) or {}
     comment = data.get("comment", "")
@@ -54,7 +54,7 @@ def audit_dismissals_remove():  # type: ignore[no-untyped-def]
 
     Body: {"file": "path/to/file.py", "line": 42}
     """
-    from src.core.services.security_ops import undismiss_finding_audited
+    from src.core.services.security.ops import undismiss_finding_audited
 
     data = request.get_json(silent=True) or {}
     file = data.get("file", "")

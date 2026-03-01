@@ -51,7 +51,7 @@ def setup_git(root: Path, data: dict) -> dict:
     gitignore_content = data.get("gitignore_content", "").strip()
     if not gitignore_content and data.get("generate_gitignore"):
         # Auto-generate from detected stacks
-        from src.core.services.security_scan import generate_gitignore as _gen_gi
+        from src.core.services.security.scan import generate_gitignore as _gen_gi
         try:
             from src.core.config.loader import load_project
             from src.core.config.stack_loader import discover_stacks

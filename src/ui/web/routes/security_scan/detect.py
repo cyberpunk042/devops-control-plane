@@ -1,0 +1,100 @@
+"""Security detection — status, scan, files, gitignore, posture."""
+
+from __future__ import annotations
+
+from flask import jsonify, request
+
+from src.core.services.security import ops as security_ops
+from src.ui.web.helpers import project_root as _project_root, get_stack_names as _get_stack_names
+
+from . import security_bp2
+
+
+@security_bp2.route("/security/status")
+def security_status():  # type: ignore[no-untyped-def]
+    """Combined security status — scan findings + posture score."""
+    from src.core.services.devops.cache import get_cached
+
+    root = _project_root()
+    force = request.args.get("bust", "") == "1"
+
+    def _compute() -> dict:
+        scan = security_ops.scan_secrets(root)
+        posture = security_ops.security_posture(root)
+        return {
+            "findings": scan.get("findings", []),
+            "finding_count": scan.get("count", 0),
+            "posture": posture,
+        }
+
+    return jsonify(get_cached(root, "security", _compute, force=force))
+
+
+@security_bp2.route("/security/posture-summary")
+def security_posture_summary():  # type: ignore[no-untyped-def]
+    """Read-only: return cached security data if available, else empty.
+
+    This endpoint NEVER triggers a scan — it only reads the server-side
+    devops_cache.  Used by the DevOps tab Security card to show a
+    lightweight summary without blocking on pip-audit / secret scanning.
+
+    Tries two cache sources in order:
+    1. ``security`` — from a previous /security/status call
+    2. ``audit:l2:risks`` — from the Audit tab's Risks card
+    """
+    from src.core.services.devops.cache import _load_cache
+
+    root = _project_root()
+    cache = _load_cache(root)
+
+    # 1. Try direct security cache
+    sec_entry = cache.get("security")
+    if sec_entry and "data" in sec_entry:
+        return jsonify(sec_entry["data"])
+
+    # 2. Fallback: extract from audit risks cache
+    risks_entry = cache.get("audit:l2:risks")
+    if risks_entry and "data" in risks_entry:
+        risk_data = risks_entry["data"]
+        all_findings = risk_data.get("findings", [])
+        sec_findings = [
+            f for f in all_findings
+            if f.get("category") in ("secrets", "security")
+        ]
+        # Only use this fallback if we actually have findings to show.
+        # Returning posture:{} causes the card to render with score=0/grade=?
+        # which is misleading — better to show the "not yet loaded" state.
+        if sec_findings:
+            return jsonify({
+                "findings": sec_findings,
+                "finding_count": len(sec_findings),
+                "posture": {},  # No posture from audit cache
+                "_source": "audit:l2:risks",
+            })
+
+    return jsonify({"empty": True})
+
+
+@security_bp2.route("/security/scan")
+def security_scan():  # type: ignore[no-untyped-def]
+    """Scan source code for hardcoded secrets."""
+    return jsonify(security_ops.scan_secrets(_project_root()))
+
+
+@security_bp2.route("/security/files")
+def security_files():  # type: ignore[no-untyped-def]
+    """Detect sensitive files."""
+    return jsonify(security_ops.detect_sensitive_files(_project_root()))
+
+
+@security_bp2.route("/security/gitignore")
+def security_gitignore():  # type: ignore[no-untyped-def]
+    """Analyze .gitignore coverage."""
+    stack_names = _get_stack_names()
+    return jsonify(security_ops.gitignore_analysis(_project_root(), stack_names=stack_names))
+
+
+@security_bp2.route("/security/posture")
+def security_posture():  # type: ignore[no-untyped-def]
+    """Unified security posture score."""
+    return jsonify(security_ops.security_posture(_project_root()))
