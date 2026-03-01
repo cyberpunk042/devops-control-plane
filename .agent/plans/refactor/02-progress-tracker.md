@@ -39,19 +39,21 @@ because every session touches them and gets lost.
 |---|--------|--------------|--------|--------|
 | 8 | **routes/ package** | ~~33 flat `routes_*.py` in `ui/web/`~~ → 5 sub-packages + 23 standalone in `routes/` | `routes/` package (Option B: domain grouping) | 🟢 |
 | 9 | **routes_audit.py** | ~~1,781 lines~~ → 7 sub-modules in `routes/audit/` (1,840 lines) | Split into `routes/audit/` | 🟢 |
-| 10 | **routes_integrations.py** | 520 lines | Evaluate split | ⬜ |
+| 10 | **routes_integrations.py** | 520 lines, 27 routes — all git/GitHub thin dispatchers | Evaluated: stays as-is (single domain, under threshold) | 🟢 |
 
 ### Frontend `templates/scripts/`
 
 | # | Domain | Current State | Target | Status |
 |---|--------|--------------|--------|--------|
-| 11 | **globals/ split** | `_globals.html` (3,606) god file | Split into `globals/` folder (10+ focused files) | ⬜ |
-| 12 | **auth/ group** | `_git_auth.html`, `_gh_auth.html` flat | `auth/` folder | ⬜ |
-| 13 | **integrations/ group** | 12 flat `_integrations_*.html` files, several >700 | `integrations/` + `integrations/setup/` folders | ⬜ |
-| 14 | **secrets/ group** | 6 flat `_secrets_*.html` | `secrets/` folder | ⬜ |
-| 15 | **audit/ group** | 6 flat `_audit_*.html` | `audit/` folder | ⬜ |
-| 16 | **wizard/ group** | `_wizard_*.html` (5 files), `_setup_wizard.html`, `_wizard_integrations.html` (2,051) | `wizard/` folder, split `_wizard_integrations.html` | ⬜ |
-| 17 | **assistant/ group** | 6 flat `_assistant_*.html`, engine (1,117), docker resolvers (1,256) | `assistant/` folder, split oversized | ⬜ |
+| 11 | **globals/ split** | ~~`_globals.html` (3,606)~~ → 7 files in `globals/` (api, cache, card_builders, modal, missing_tools, ops_modal, auth_modal) | Split into `globals/` folder | 🟢 |
+| 12 | **auth/ group** | ~~flat~~ → 2 files in `auth/` | `auth/` folder | 🟢 |
+| 13 | **integrations/ group** | ~~22 flat~~ → 13 + `setup/` (10) in `integrations/` | `integrations/` + `setup/` folders | 🟢 |
+| 14 | **secrets/ group** | ~~6 flat~~ → 7 files in `secrets/` | `secrets/` folder | 🟢 |
+| 15 | **audit/ group** | ~~6 flat~~ → 6 files in `audit/` (manager stays in devops) | `audit/` folder | 🟢 |
+| 16 | **wizard/ group** | ~~8 flat~~ → 9 files in `wizard/` (incl. modal + setup) | `wizard/` folder | 🟢 |
+| 17 | **assistant/ group** | ~~6 flat~~ → 6 files in `assistant/` | `assistant/` folder | 🟢 |
+| 17b | **content/ group** | ~~14 flat~~ → 14 files in `content/` | `content/` folder | 🟢 |
+| 17c | **devops/ group** | ~~11 flat~~ → 12 files in `devops/` (incl. audit_manager) | `devops/` folder | 🟢 |
 
 ---
 

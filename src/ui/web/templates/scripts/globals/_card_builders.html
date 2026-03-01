@@ -1,0 +1,110 @@
+<script>
+    // ═══════════════════════════════════════════════════════════════════
+    // ── Phase 1: Reusable Card Section Builders ────────────────────────
+    // ═══════════════════════════════════════════════════════════════════
+
+    /**
+     * Build a status grid HTML string.
+     * @param {Array<{label:string, value:string, cls?:string}>} stats
+     * @returns {string} HTML
+     */
+    function cardStatusGrid(stats) {
+        return `<div class="card-status-grid">${stats.map(s =>
+            `<div class="card-stat"><span class="card-stat-label">${esc(s.label)}</span>` +
+            `<span class="card-stat-value${s.cls ? ' ' + s.cls : ''}">${esc(String(s.value))}</span></div>`
+        ).join('')}</div>`;
+    }
+
+    /**
+     * Build a detection list HTML string.
+     * @param {Array<{icon:string, label:string, value?:string, click?:string}>} items
+     * @returns {string} HTML
+     */
+    function cardDetectionList(items) {
+        return `<div class="card-detection">${items.map(i => {
+            const valCls = i.click ? ' clickable' : '';
+            const valAttr = i.click ? ` onclick="${i.click}"` : '';
+            return `<div class="card-detect-row">` +
+                `<span class="card-detect-icon">${i.icon}</span>` +
+                `<span class="card-detect-label">${esc(i.label)}</span>` +
+                (i.value != null ? `<span class="card-detect-value${valCls}"${valAttr}>${esc(i.value)}</span>` : '') +
+                `</div>`;
+        }).join('')}</div>`;
+    }
+
+    /**
+     * Build a data table HTML string (for live panels).
+     * @param {string[]} columns - header labels
+     * @param {Array<Array<{text:string, cls?:string, click?:string}>>} rows
+     * @returns {string} HTML
+     */
+    function cardDataTable(columns, rows) {
+        const thead = columns.map(c => `<th>${esc(c)}</th>`).join('');
+        const tbody = rows.map(row =>
+            `<tr>${row.map(cell => {
+                const cls = cell.cls ? ` class="${cell.cls}"` : '';
+                const onclick = cell.click ? ` onclick="${cell.click}" style="cursor:pointer"` : '';
+                return `<td${cls}${onclick}>${esc(String(cell.text ?? '—'))}</td>`;
+            }).join('')}</tr>`
+        ).join('');
+        return `<table class="card-data-table"><thead><tr>${thead}</tr></thead><tbody>${tbody}</tbody></table>`;
+    }
+
+    /**
+     * Build an action toolbar HTML string.
+     * @param {Array<{label:string, icon?:string, cls?:string, onclick:string, id?:string, disabled?:boolean}>} actions
+     * @returns {string} HTML
+     */
+    function cardActionToolbar(actions) {
+        return `<div class="card-actions">${actions.map(a =>
+            `<button class="btn btn-sm ${a.cls || 'btn-secondary'}" ` +
+            `onclick="${a.onclick}"${a.id ? ` id="${a.id}"` : ''}${a.disabled ? ' disabled' : ''}>` +
+            `${a.icon ? a.icon + ' ' : ''}${esc(a.label)}</button>`
+        ).join('')}</div>`;
+    }
+
+    /**
+     * Build an empty state HTML string with optional CTA button.
+     * @param {string} icon - emoji
+     * @param {string} text - message
+     * @param {Object|null} action - optional CTA {label, onclick}
+     * @returns {string} HTML
+     */
+    function cardEmpty(icon, text, action) {
+        return `<div class="card-empty">` +
+            `<div class="card-empty-icon">${icon}</div>` +
+            `<div class="card-empty-text">${esc(text)}</div>` +
+            (action ? `<button class="card-empty-action" onclick="${action.onclick}">${esc(action.label)}</button>` : '') +
+            `</div>`;
+    }
+
+    /**
+     * Build a live panel with tabs.
+     * @param {string} panelId - unique ID for the panel content area
+     * @param {Array<{key:string, label:string}>} tabs - tab definitions
+     * @param {string} onTabClick - JS function name called with (key, panelId)
+     * @returns {string} HTML
+     */
+    function cardLivePanel(panelId, tabs, onTabClick) {
+        return `<div class="card-live">` +
+            `<div class="card-live-tabs">${tabs.map(t =>
+                `<button class="card-live-tab" data-tab="${t.key}" ` +
+                `onclick="this.parentElement.querySelectorAll('.card-live-tab').forEach(b=>b.classList.remove('active'));` +
+                `this.classList.add('active');${onTabClick}('${t.key}','${panelId}')">${t.label}</button>`
+            ).join('')}</div>` +
+            `<div class="card-live-panel" id="${panelId}">` +
+            `<span style="color:var(--text-muted)">Select a tab above</span></div>` +
+            `</div>`;
+    }
+
+    /**
+     * Build a generate toolbar HTML string.
+     * @param {Array<{label:string, icon?:string, onclick:string}>} items
+     * @returns {string} HTML
+     */
+    function cardGenerateToolbar(items) {
+        return `<div class="card-generate">${items.map(g =>
+            `<button class="card-gen-btn" onclick="${g.onclick}">${g.icon ? g.icon + ' ' : ''}${esc(g.label)}</button>`
+        ).join('')}</div>`;
+    }
+</script>

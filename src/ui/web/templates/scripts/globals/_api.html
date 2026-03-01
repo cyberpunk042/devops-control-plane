@@ -1,0 +1,92 @@
+<script>
+    // ── Global helpers ──────────────────────────────────────────────────
+
+    // ── API concurrency control ──────────────────────────────────
+    //
+    // HTTP/1.1 browsers cap at 6 TCP connections per origin.
+    // Without throttling, 15+ parallel fetch() calls cause the
+    // browser to silently queue excess requests.  Our AbortController
+    // timeout would tick during that invisible queue wait, killing
+    // perfectly healthy requests that simply hadn't gotten a
+    // connection slot yet.
+    //
+    // Fix: a JS-level semaphore (max 5 in-flight) keeps requests
+    // queued HERE where the timeout hasn't started yet.  Slot 6
+    // is left free for static assets / WebSocket / other traffic.
+
+    const _API_MAX_CONCURRENT = 3;
+    let _apiInFlight = 0;
+    const _apiQueue = [];
+
+    function _apiAcquire() {
+        if (_apiInFlight < _API_MAX_CONCURRENT) {
+            _apiInFlight++;
+            return Promise.resolve();
+        }
+        return new Promise(resolve => _apiQueue.push(resolve));
+    }
+
+    function _apiRelease() {
+        if (_apiQueue.length > 0) {
+            _apiQueue.shift()();   // hand slot to next waiter
+        } else {
+            _apiInFlight--;
+        }
+    }
+
+    async function api(path, opts = {}) {
+        // Wait for a connection slot BEFORE starting the timeout.
+        await _apiAcquire();
+        const controller = new AbortController();
+        const ms = opts.timeout || 30000;
+        const timer = setTimeout(() => controller.abort(), ms);
+        try {
+            const res = await fetch('/api' + path, {
+                headers: { 'Content-Type': 'application/json' },
+                ...opts,
+                signal: controller.signal,
+            });
+            clearTimeout(timer);
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+            return data;
+        } catch (e) {
+            if (e.name === 'AbortError') throw new Error(`Request timed out after ${ms / 1000}s`);
+            throw e;
+        } finally {
+            clearTimeout(timer);
+            _apiRelease();
+        }
+    }
+
+    /** POST JSON convenience wrapper. */
+    async function apiPost(path, body = {}) {
+        return api(path, {
+            method: 'POST',
+            body: JSON.stringify(body),
+        });
+    }
+
+    function toast(message, type = 'success') {
+        const container = document.getElementById('toast-container');
+        const el = document.createElement('div');
+        el.className = `toast ${type}`;
+        el.textContent = message;
+        container.appendChild(el);
+        setTimeout(() => el.remove(), 6000);
+    }
+
+    function esc(str) {
+        const div = document.createElement('div');
+        div.textContent = str;
+        return div.innerHTML;
+    }
+
+    function showRefreshBar() {
+        document.getElementById('refresh-bar').classList.add('active');
+    }
+
+    function hideRefreshBar() {
+        document.getElementById('refresh-bar').classList.remove('active');
+    }
+</script>

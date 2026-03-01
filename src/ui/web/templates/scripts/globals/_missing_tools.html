@@ -1,0 +1,153 @@
+<script>
+    // ── Missing Tools Banner ───────────────────────────────────────
+    //
+    // Shared function to render missing tool banners with install buttons.
+    // Any tab can call: renderMissingTools(data.missing_tools, 'container-id')
+
+    /**
+     * Render a missing-tools banner into a container element.
+     * @param {Array} missingTools - Array of {id, label, install_type, has_recipe, needs_sudo}
+     * @param {string} containerId - DOM id to render into
+     * @param {Function} [onInstalled] - Optional callback after successful install
+     */
+    async function renderMissingTools(missingTools, containerId, onInstalled) {
+        const el = document.getElementById(containerId);
+        if (!el) return;
+        if (!missingTools || missingTools.length === 0) {
+            el.innerHTML = '';
+            el.style.display = 'none';
+            return;
+        }
+        el.style.display = 'block';
+
+        // Fetch pending plans to show resume buttons
+        var pending = await _fetchPendingPlans();
+
+        let html = '<div class="missing-tools-banner">'
+            + '<div class="missing-tools-header">'
+            + '<span style="font-size:1rem">⚠️</span>'
+            + '<span><strong>' + missingTools.length + ' tool'
+            + (missingTools.length > 1 ? 's' : '') + ' missing</strong></span>'
+            + '</div>'
+            + '<div class="missing-tools-list">';
+
+        for (const tool of missingTools) {
+            const dataAttr = ' data-tool-id="' + esc(tool.id) + '"'
+                + ' data-tool-label="' + esc(tool.label) + '"'
+                + ' data-needs-sudo="' + (tool.needs_sudo ? '1' : '0') + '"';
+
+            var pendingPlan = _getPendingPlanForTool(tool.id, pending);
+
+            html += '<div class="missing-tool-item">'
+                + '<span class="missing-tool-label">' + esc(tool.label) + '</span>';
+
+            if (pendingPlan) {
+                html += '<button class="btn btn-sm" style="background:var(--warning,#e8a735);color:#000;margin-right:4px"'
+                    + ' data-plan-id="' + esc(pendingPlan.plan_id) + '"'
+                    + ' data-tool-label="' + esc(tool.label) + '"'
+                    + ' onclick="resumeToolFromBanner(this)">'
+                    + '🔄 Resume (' + pendingPlan.completed_count + '/' + pendingPlan.total_steps + ')</button>';
+            }
+
+            html += '<button class="btn btn-sm btn-install-tool"'
+                + dataAttr
+                + ' onclick="installToolFromBanner(this'
+                + (onInstalled ? ',true' : '') + ')">'
+                + '📦 Install</button>'
+                + '</div>';
+        }
+
+        html += '</div></div>';
+        el.innerHTML = html;
+    }
+
+    /**
+     * Return missing-tools HTML string for inline use (e.g. inside modals).
+     * Does NOT need a container id.
+     */
+    function renderMissingToolsInline(missingTools) {
+        if (!missingTools || missingTools.length === 0) return '';
+
+        let html = '<div class="missing-tools-banner" style="margin:0.75rem 0">'
+            + '<div class="missing-tools-header">'
+            + '<span style="font-size:0.9rem">⚠️</span>'
+            + '<span style="font-size:0.82rem"><strong>' + missingTools.length + ' tool'
+            + (missingTools.length > 1 ? 's' : '') + ' not installed</strong></span>'
+            + '</div>'
+            + '<div class="missing-tools-list">';
+
+        for (const tool of missingTools) {
+            html += '<div class="missing-tool-item">'
+                + '<span class="missing-tool-label">' + esc(tool.label) + '</span>'
+                + '<button class="btn btn-sm btn-install-tool"'
+                + ' data-tool-id="' + esc(tool.id) + '"'
+                + ' data-tool-label="' + esc(tool.label) + '"'
+                + ' data-needs-sudo="' + (tool.needs_sudo ? '1' : '0') + '"'
+                + ' onclick="installToolFromBanner(this)">'
+                + '📦 Install</button>'
+                + '</div>';
+        }
+
+        html += '</div></div>';
+        return html;
+    }
+
+    /**
+     * Install a tool via the banner install button.
+     * Delegates to the plan-based flow (Phase 3).
+     */
+    async function installToolFromBanner(btn, triggerRefresh) {
+        const toolId = btn.dataset.toolId;
+        const toolLabel = btn.dataset.toolLabel;
+
+        btn.disabled = true;
+        btn.textContent = '⏳ Loading…';
+
+        installWithPlan(toolId, toolLabel || toolId, {
+            onComplete: function() {
+                btn.textContent = '✅ Installed';
+                btn.classList.add('btn-success');
+                if (triggerRefresh) _refreshAfterInstall();
+            },
+        });
+
+        // Re-enable button after a short delay (modal takes over)
+        setTimeout(function() {
+            if (btn.textContent === '⏳ Loading…') {
+                btn.disabled = false;
+                btn.textContent = '📦 Install';
+            }
+        }, 3000);
+    }
+
+    async function resumeToolFromBanner(btn) {
+        const planId = btn.dataset.planId;
+        const toolLabel = btn.dataset.toolLabel;
+
+        btn.disabled = true;
+        btn.textContent = '⏳ Loading…';
+
+        resumeWithPlan(planId, toolLabel, {
+            onComplete: function() {
+                btn.textContent = '✅ Done';
+                btn.classList.add('btn-success');
+                _refreshAfterInstall();
+            },
+        });
+
+        // Re-enable button after a short delay (modal takes over)
+        setTimeout(function() {
+            if (btn.textContent === '⏳ Loading…') {
+                btn.disabled = false;
+                btn.textContent = '🔄 Resume';
+            }
+        }, 3000);
+    }
+
+    // ── Backwards-compatible wrapper (used by 6+ integration templates) ──
+    function _showSudoInstallModal(toolId, toolLabel, originBtn, triggerRefresh) {
+        installWithPlan(toolId, toolLabel || toolId, {
+            onComplete: triggerRefresh ? () => _refreshAfterInstall() : null,
+        });
+    }
+</script>
