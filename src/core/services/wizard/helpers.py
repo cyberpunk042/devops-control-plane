@@ -50,7 +50,7 @@ def _wizard_docker_status(root: Path) -> dict:
 def _wizard_k8s_status(root: Path) -> dict:
     """Full K8s detection (manifests, helm, kustomize, tools) for wizard use."""
     try:
-        from src.core.services.k8s_detect import k8s_status
+        from src.core.services.k8s.detect import k8s_status
         return k8s_status(root)
     except Exception:
         return {"has_k8s": False, "kubectl": {"available": False, "version": None}}

@@ -61,8 +61,8 @@ because every session touches them and gets lost.
 
 | # | Domain | Current State | Target | Status |
 |---|--------|--------------|--------|--------|
-| 18 | **docker/** | 6 flat files (~2,600 lines) | `docker/` folder | ⬜ |
-| 19 | **k8s/** | 12 flat files (~10,500), `k8s_validate.py` (4,004!) | `k8s/` folder, split validate | ⬜ |
+| 18 | **docker/** | ~~6 flat files (~2,600 lines)~~ → `docker/` package (5 modules + `__init__` + README), `docker_ops.py` compat shim | `docker/` folder | 🟢 |
+| 19 | **k8s/** | ~~12 flat files (~10,500), `k8s_validate.py` (4,004!)~~ → `k8s/` package (19 modules + `__init__` + README), validate split into 7 layers, `k8s_ops.py` compat shim | `k8s/` folder, split validate | 🟢 |
 | 20 | **content/** | 9 flat files (~4,800) | `content/` folder | ⬜ |
 | 21 | **terraform/** | 3 flat files (~1,600) | `terraform/` folder | ⬜ |
 | 22 | **backup/** | 5 flat files (~2,100) | `backup/` folder | ⬜ |
@@ -84,8 +84,8 @@ because every session touches them and gets lost.
 
 | # | Domain | Current State | Target | Status |
 |---|--------|--------------|--------|--------|
-| 34 | **content/ group** | 10 flat `_content_*.html`, chat (1,159), refs (955) | `content/` folder, split oversized | ⬜ |
-| 35 | **devops/ group** | 10 flat `_devops_*.html` | `devops/` folder | ⬜ |
+| 34 | **content/ group** | ~~duplicate of #17b~~ | Done in Chunk 1 | 🟢 |
+| 35 | **devops/ group** | ~~duplicate of #17c~~ | Done in Chunk 1 | 🟢 |
 | 36 | **debug/ group** | `_debugging.html` (1,145), `_stage_debugger.html` (702) | `debug/` folder, split debugging | ⬜ |
 | 37 | **CSS split** | `admin.css` (5,948) single file | Domain-scoped CSS files | ⬜ |
 | 38 | **Tests follow** | Large test files mirror old paths | Rename/split to match new structure | ⬜ |
@@ -97,7 +97,7 @@ because every session touches them and gets lost.
 
 | Chunk | Items | Done | Remaining |
 |-------|-------|------|-----------|
-| Chunk 1 (Recent Concerns) | 17 | 9 | 8 |
+| Chunk 1 (Recent Concerns) | 19 | 19 | 0 |
 | Chunk 2 (Remaining Backend) | 16 | 0 | 16 |
-| Chunk 3 (Remaining FE + Polish) | 6 | 0 | 6 |
-| **Total** | **39** | **9** | **30** |
+| Chunk 3 (Remaining FE + Polish) | 6 | 2 | 4 |
+| **Total** | **39** | **21** | **18** |

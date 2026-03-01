@@ -180,12 +180,12 @@ def setup_docker(root: Path, data: dict) -> dict:
 def setup_k8s(root: Path, data: dict) -> dict:
     """Generate Kubernetes manifests from wizard state."""
     from src.core.services import devops_cache
-    from src.core.services.k8s_ops import (
+    from src.core.services.k8s import (
         wizard_state_to_resources,
         generate_k8s_wizard,
         _generate_skaffold,
     )
-    from src.core.services.k8s_helm_generate import generate_helm_chart
+    from src.core.services.k8s.helm_generate import generate_helm_chart
 
     files_created: list[str] = []
 

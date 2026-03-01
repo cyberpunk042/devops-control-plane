@@ -6,7 +6,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from src.core.services.k8s_generate import (
+from .generate import (
     _build_probe, _build_wizard_volume, _build_pod_template,
     _build_env_vars, _build_mesh_annotations, _api_version_for_kind,
 )
@@ -552,12 +552,12 @@ def wipe_wizard_state(project_root: Path) -> dict:
 # Re-exports — backward compatibility
 # ═══════════════════════════════════════════════════════════════════
 
-from src.core.services.k8s_wizard_detect import (  # noqa: F401, E402
+from .wizard_detect import (  # noqa: F401, E402
     skaffold_status,
     k8s_env_namespaces,
 )
 
-from src.core.services.k8s_wizard_generate import (  # noqa: F401, E402
+from .wizard_generate import (  # noqa: F401, E402
     generate_k8s_wizard,
     _generate_skaffold,
 )

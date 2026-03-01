@@ -185,7 +185,7 @@ def generate_manifests(
 # Re-exports — backward compatibility
 # ═══════════════════════════════════════════════════════════════════
 
-from src.core.services.k8s_pod_builder import (  # noqa: F401, E402
+from .pod_builder import (  # noqa: F401, E402
     _build_probe,
     _build_wizard_volume,
     _build_pod_template,

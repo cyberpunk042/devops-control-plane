@@ -8,7 +8,7 @@ import logging
 import re
 from pathlib import Path
 
-from src.core.services.k8s_common import _run_kubectl, _kubectl_available
+from .common import _run_kubectl, _kubectl_available
 
 
 logger = logging.getLogger(__name__)

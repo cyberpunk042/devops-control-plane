@@ -8,13 +8,13 @@ import time
 from collections.abc import Generator
 from pathlib import Path
 
-from src.core.services.docker_common import (
+from .common import (
     run_docker,
     run_compose,
     run_docker_stream,
     run_compose_stream,
 )
-from src.core.services.docker_detect import find_compose_file
+from .detect import find_compose_file
 
 logger = logging.getLogger(__name__)
 

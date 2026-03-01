@@ -8,7 +8,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-from src.core.services.docker_common import run_docker, run_compose
+from .common import run_docker, run_compose
 
 import re
 

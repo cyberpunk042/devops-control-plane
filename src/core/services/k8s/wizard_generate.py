@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from src.core.services.k8s_generate import (
+from .generate import (
     _build_pod_template,
     _api_version_for_kind,
 )
