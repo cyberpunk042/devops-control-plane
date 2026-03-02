@@ -35,8 +35,8 @@ recipes/
 │   ├── system.py                ← system, compression, process, backup, utility
 │   └── shell.py                 ← shell, terminal
 │
-├── languages/                   ← Programming language ecosystems (109 tools)
-│   ├── __init__.py              ← Merges all 14 language files
+├── languages/                   ← Programming language ecosystems (87 tools)
+│   ├── __init__.py              ← Merges all 15 language files
 │   ├── python.py                ← python (pip, poetry, ruff, mypy, etc.)
 │   ├── node.py                  ← node, pages (npm, eslint, prettier, hugo)
 │   ├── rust.py                  ← rust, language (cargo, rustup, ripgrep, etc.)
@@ -457,7 +457,7 @@ Critical for tools that install to non-standard paths
 
 ---
 
-### 10. Version Constraints (1 tool)
+### 10. Version Constraints (3 tools)
 
 Declarative version compatibility rules. The resolver can warn or
 auto-select the right version.
@@ -471,6 +471,7 @@ auto-select the right version.
         "description": "kubectl should be within ±1 minor version of the K8s cluster.",
     },
 }
+# Also: node (≥18.0.0 for ESM+fetch), docker-compose (≥2.0.0 for V2)
 ```
 
 ---
@@ -484,13 +485,13 @@ auto-select the right version.
 | `post_env` propagation | 30 | rustup, nvm, go, wasmtime |
 | `arch_map` portability | 26 | kubectl, k9s, grype, gh |
 | `risk` classification | 13 | nvidia-driver, pytorch, vfio |
-| `update` commands | ~60 | kubectl, helm, all PMs |
+| `update` commands | 125 | kubectl, helm, all PMs |
 | `type: data_pack` | 6 | trivy-db, hf-model, vfio |
 | `type: config` | 4 | docker-daemon, nginx-vhost |
 | `choices` + `variants` | 3 | pytorch, opencv, mkdocs |
 | `inputs` (credentials) | 2 | geoip-db, hf-model |
 | `repo_setup` | 1 | nvidia-driver |
-| `version_constraint` | 1 | kubectl |
+| `version_constraint` | 3 | kubectl, node, docker-compose |
 | `rollback` | 3 | nvidia, vfio, rocm |
 | `restart_required` | 3 | nvidia, vfio, rocm |
 | `config_templates` | 4 | docker-daemon, journald, nginx |

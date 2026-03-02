@@ -402,8 +402,12 @@ No code changes. No new step definitions. Just data.
 - **[L1 DOMAIN](domain/README.md)** — Risk, DAG, rollback, validation
 - **[L2 RESOLVER](resolver/README.md)** — Method selection, dependency collection, plan resolution
 - **[L3 DETECTION](detection/README.md)** — Hardware, packages, versions, network
-- **[L4 EXECUTION](execution/README.md)** — Subprocess runner, step executors, plan state
-- **[L5 ORCHESTRATION](orchestration/README.md)** — Plan lifecycle, tool management
+- **[L4 EXECUTION](execution/README.md)** — Subprocess runner, step executors, plan state, tool management
+- **[L5 ORCHESTRATION](orchestration/README.md)** — Plan lifecycle (install_tool, execute_plan_dag)
+
+**Package-root utilities:**
+- `__init__.py` (66 lines) — Re-exports all public symbols from every layer
+- `path_refresh.py` (59 lines) — Prepends tool-install directories (~/.cargo/bin, ~/.local/bin, etc.) to the server’s PATH after installs, so `shutil.which()` finds newly installed binaries immediately
 
 ---
 

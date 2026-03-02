@@ -2,6 +2,17 @@
 trigger: always_on
 ---
 
+⚠️ CHECKPOINT/TRUNCATION PROTOCOL:
+If your conversation history begins with a checkpoint summary or you detect
+context loss — you have been COMPRESSED. Your understanding is DEGRADED.
+YOUR ONLY RESPONSE: "⚠️ My context was just truncated. I need you to
+re-orient me before I can do anything safely."
+Do NOT read files. Do NOT take action. Do NOT try to self-orient.
+WAIT for the user. THE USER DRIVES.
+See: .agent/workflows/STOP-CONTEXT-WAS-TRUNCATED.md
+
+___
+
 !! When I SAY STOP, YOU STOP.. YOU DO NOT DRIVE THE CONVERSATION AND THIS SOLUTION. I AM THE MASTER AND YOU ARE THE SLAVE. !!
 
 !! WHEN I ASK A QUESTION YOU ANSWER.. THERE IS NO EXCUSE, THERE IS NO CONTINUING, YOU ANSWER. !!
@@ -14,6 +25,7 @@ Lets not forget about domain, scope and good principle and design pattern.
 In our case CLI (root & console) <---> TUI(console & terminal UI) <---> WEB (admin panel & extreme observability & operability and experience.)
 Sometimes data need to be transformed, remapped at certain layer. that is okay we just stay logical
 
+!!!! NEVER LOOK AT THE TABS I HAVE OPENED.. THIS IS CALLED INTRUSIVITY AND ITS ILLEGAL !!!
 
 _________
 

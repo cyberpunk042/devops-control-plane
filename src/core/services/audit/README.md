@@ -18,7 +18,7 @@ deeper understanding of the project:
 │                                                                      │
 │  What exists on this machine and in this project?                    │
 │                                                                      │
-│  Fast tier:  OS, distro, arch, Python, venv, 35 CLI tools,          │
+│  Fast tier:  OS, distro, arch, Python, venv, 37 CLI tools,          │
 │              project modules (from project.yml), manifest files      │
 │                                                                      │
 │  Deep tier:  Shell, init system, network, build toolchain,           │
@@ -36,7 +36,7 @@ deeper understanding of the project:
 │                                                                      │
 │  Dependencies:  Parse all manifests (requirements.txt, package.json, │
 │                 pyproject.toml, go.mod, Cargo.toml, Gemfile, mix.exs)│
-│                 → classify each against the 450+ entry catalog →     │
+│                 → classify each against the 240+ entry catalog →     │
 │                 detect frameworks, ORMs, external service clients,    │
 │                 cross-ecosystem overlaps                              │
 │                                                                      │
@@ -79,14 +79,14 @@ deeper understanding of the project:
 │  Two master scores (1-10 each):                                      │
 │                                                                      │
 │  Complexity:  tech diversity (25%), module count (15%),              │
-│               dependency count (25%), integration count (15%),       │
-│               infrastructure complexity (20%)                        │
+│               dependency count (20%), infra layers (15%),            │
+│               integrations (15%), crossovers (10%)                   │
 │               + L2 enrichment: actual module boundaries, import usage │
 │                                                                      │
 │  Quality:     documentation (15%), testing (15%), tooling (15%),     │
-│               containerization (15%), CI/CD (15%), type safety (10%), │
-│               code health (5%), risk posture (10%)                   │
-│               + L2 enrichment: real code health, repo health, risks  │
+│               security (10%), structure (10%)                        │
+│               + L2: code health (15%), repo health (5%),             │
+│               risk posture (15%)                                     │
 │                                                                      │
 │  Score history tracked in .state/audit_scores.json (last 100)        │
 │  Trend computation: up / down / stable / new                         │
@@ -110,7 +110,7 @@ flow. Results are cached at module level with a 5-minute TTL.
 
 ### Catalog — The Knowledge Base
 
-The catalog is a curated dictionary of 450+ libraries across Python,
+The catalog is a curated dictionary of 240+ libraries across Python,
 Node, Go, Rust, Ruby, and Elixir ecosystems. Each entry has:
 
 - `category` — web, database, testing, security, ML, etc.
@@ -201,7 +201,7 @@ and enables caching, trend tracking, and audit trails.
 audit/
 ├── __init__.py          Public API re-exports (59 lines)
 ├── models.py            TypedDicts for all layer results + _meta envelope (219 lines)
-├── catalog.py           Library knowledge base — 450+ entries (488 lines)
+├── catalog.py           Library knowledge base — 240+ entries (488 lines)
 ├── l0_detection.py      Fast-tier detection + deep-tier orchestrator + public API (465 lines)
 ├── l0_os_detection.py   OS/distro/arch detection helpers + _detect_os() (407 lines)
 ├── l0_deep_detectors.py Phase 4/5/8 deep probes + DEEP_DETECTORS registry (524 lines)
@@ -222,7 +222,7 @@ audit/
 ### `l0_detection.py` — Fast-Tier Orchestrator (465 lines)
 
 The entry point for all detection. Contains the `_TOOLS` registry
-(35 CLI tools to probe), fast-tier detectors, and the deep-tier
+(37 CLI tools to probe), fast-tier detectors, and the deep-tier
 cache + orchestrator.
 
 | Function | What It Does |
@@ -528,3 +528,214 @@ Key design decisions:
 | `/api/audit/data-status` | POST | Check tool data status |
 | `/api/audit/data-usage` | GET | Data storage usage |
 | `/api/audit/service-status` | POST | Check external service status |
+
+---
+
+## Advanced Feature Showcase
+
+### 1. Deep Detector Registry — Selective Execution
+
+The deep-tier detection system uses a registry pattern: 10 detector
+functions registered in a dict, executed selectively based on `needs`.
+
+```python
+# l0_deep_detectors.py — the registry
+DEEP_DETECTORS: dict[str, callable] = {
+    # Phase 4
+    "shell": _detect_shell,
+    "init_system": _detect_init_system_profile,
+    "network": _detect_network,
+    # Phase 5
+    "build": _detect_build_profile,
+    # Phase 6 (from l0_hw_detectors)
+    "gpu": _detect_gpu_profile,
+    "kernel": _detect_kernel_profile,
+    "wsl_interop": _detect_wsl_interop,
+    # Phase 8
+    "services": _detect_services,
+    "filesystem": _detect_filesystem,
+    "security": _detect_security,
+}
+```
+
+`_detect_deep_profile(needs=["gpu", "build"])` runs only those two
+detectors. Results are cached module-level with a 5-minute TTL and
+merged incrementally — request `["gpu"]`, then `["build"]` separately,
+and the second call only runs the uncached detector.
+
+---
+
+### 2. Catalog Service Inference Chain
+
+Rather than hand-editing 240+ entries with a `service` field, the
+catalog infers it at lookup time through a 3-stage chain.
+
+```python
+# catalog.py — _infer_service()
+def _infer_service(key: str, info: LibraryInfo) -> str | None:
+    # Stage 1: Manual override (50+ entries)
+    svc = _SERVICE_OVERRIDE.get(key)    # e.g. "psycopg2" → "PostgreSQL"
+    if svc: return svc
+
+    # Stage 2: Type-based inference (14 type→service mappings)
+    svc = _SERVICE_BY_TYPE.get(info.get("type", ""))
+    if svc: return svc                  # e.g. "cache/store" → "Redis"
+
+    # Stage 3: Description heuristic for clients/databases
+    if info.get("category") in ("client", "database"):
+        return info.get("description", "").split(" ")[0]
+                                        # e.g. "Redis client" → "Redis"
+    return None
+```
+
+`pymongo` → Stage 1 → `"MongoDB"`. `ioredis` → Stage 2 → `"Redis"`.
+Unknown client → Stage 3 → first word of description.
+
+---
+
+### 3. Dual-Mode Scoring Weights
+
+Quality scores use different weight distributions depending on
+whether L2 analysis data is available.
+
+```python
+# scoring.py — without L2, all 5 base dimensions get equal weight
+total = (
+    doc_score * 0.20 + test_score * 0.20 + tool_score * 0.20
+    + sec_score * 0.20 + struct_score * 0.20
+)
+
+# scoring.py — with L2, weights redistribute to accommodate 8 dimensions
+total = (
+    doc_score * 0.15 + test_score * 0.15 + tool_score * 0.15
+    + sec_score * 0.10 + struct_score * 0.10
+    + code_health * 0.15    # from l2_quality
+    + repo_health * 0.05    # from l2_repo
+    + risk_score * 0.15     # from l2_risks
+)
+```
+
+The UI shows different breakdown tables based on `enriched: true/false`.
+L2 dimensions are tagged `"source": "L2"` in the breakdown dict.
+
+---
+
+### 4. Score History with Atomic Persistence
+
+Every score computation records a snapshot to
+`.state/audit_scores.json` (atomic write via mkstemp + rename).
+
+```python
+# scoring.py — _save_history()
+fd, tmp_path = tempfile.mkstemp(
+    dir=path.parent, prefix=".scores_", suffix=".tmp",
+)
+tmp = Path(tmp_path)
+tmp.write_text(content, encoding="utf-8")
+tmp.rename(path)        # atomic on same filesystem
+
+# scoring.py — trend from history
+c_delta = latest["complexity"] - previous["complexity"]
+q_delta = latest["quality"] - previous["quality"]
+# trend = "up" if delta > 0.2, "down" if < -0.2, else "stable"
+```
+
+Returns `{"complexity_trend": "up", "complexity_delta": 0.5, ...}`.
+The UI renders trend arrows (↑/↓/→) next to each score.
+Max 100 snapshots retained.
+
+---
+
+### 5. 37-Tool Detection with Venv Fallback
+
+The tool registry probes 37 CLI tools in 7 categories. When the
+server runs inside a venv, it handles tools that aren't on PATH.
+
+```python
+# l0_detection.py — _detect_tools(), 3-tier lookup
+# 1. Standard PATH lookup
+path = shutil.which(cli_name)
+
+# 2. Venv bin fallback (pip-installed tools not on PATH)
+if path is None and venv_bin:
+    candidate = os.path.join(venv_bin, cli_name)
+    if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+        path = candidate
+
+# 3. Special case: pip via python -m pip
+if path is None and tool["id"] == "pip":
+    r = subprocess.run([sys.executable, "-m", "pip", "--version"], ...)
+    if r.returncode == 0:
+        path = f"{sys.executable} -m pip"
+```
+
+This ensures tools like `ruff`, `mypy`, `pytest` are found even
+when only installed in the project's venv, not system-wide.
+
+---
+
+### 6. Python Environment Detection Priority Chain
+
+`_detect_python()` identifies 6 environment types with a priority
+chain that prevents misidentification.
+
+```python
+# l0_detection.py — environment type detection
+# Priority: conda > uv > pyenv > venv > virtualenv > system
+
+if conda_prefix or conda_env:      env_type = "conda"
+elif UV_VIRTUAL_ENV:                env_type = "uv"
+elif PYENV_ROOT in sys.prefix:      env_type = "pyenv"
+elif sys.prefix != sys.base_prefix:
+    if pyvenv.cfg exists:           env_type = "venv"
+    else:                           env_type = "virtualenv"
+else:                               env_type = "system"
+```
+
+Also detects PEP 668 (`EXTERNALLY-MANAGED` marker) and 5 available
+env managers (`uv`, `conda`, `pyenv`, `virtualenv`, `pipx`), then
+sets `system_python_warning = True` when running on bare system Python.
+
+---
+
+## Design Decisions
+
+### Why a static catalog instead of querying PyPI/npm?
+
+A curated 240+-entry catalog enables instant classification with
+zero network dependency. PyPI's API is slow (400-800ms per package),
+doesn't provide category/type info, and would make the audit blocking
+on network. The catalog covers the top packages across 6 ecosystems
+and can be extended by adding one dict entry.
+
+### Why split deep-tier detection across 3 files?
+
+`l0_detection.py` was growing past 800 lines. The split follows
+the hardware/OS boundary: `l0_deep_detectors.py` (shell, init,
+network, build, services, filesystem, security),
+`l0_hw_detectors.py` (GPU, kernel, WSL). Each file stays under
+600 lines and the registry pattern makes it trivial to add new
+detectors.
+
+### Why do quality weights shift when L2 data is present?
+
+Without L2, the 5 base dimensions use 20% each — equal weight.
+With L2, 3 new dimensions (code_health, repo_health, risk_posture)
+add up to 35%, so base dimensions shrink (security 20% → 10%,
+structure 20% → 10%). This prevents L2-enriched scores from
+being strictly higher or lower than L0+L1-only scores — the
+total is always a weighted 10-point scale.
+
+### Why atomic file writes for score history?
+
+The server may crash mid-write or multiple requests may score
+simultaneously. `mkstemp` + `rename` guarantees the file is either
+fully written or not changed at all. Without this, a half-written
+JSON file would corrupt the entire history.
+
+### Why a 5-minute TTL for deep-tier cache instead of per-session?
+
+Deep-tier detections (GPU, kernel, network) rarely change but can
+take 2-5 seconds. A 5-minute module-level cache balances freshness
+with performance: short enough that installing a tool and re-scanning
+shows the update, long enough that rapid page loads don't re-probe.

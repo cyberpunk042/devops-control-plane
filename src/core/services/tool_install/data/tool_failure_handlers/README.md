@@ -132,7 +132,7 @@ Only handlers for the failing tool are searched — no cross-tool scanning.
 
 ## Domain Coverage
 
-### Languages (11 tools, 30 handlers, 69 options)
+### Languages (11 tools, 29 handlers, 59 options)
 
 | File | Tools | Failure Modes Covered |
 |------|-------|-----------------------|
@@ -345,20 +345,20 @@ where `_default` downloads the wrong binary.
 
 ## Feature Coverage Summary
 
-| Feature | Handlers Using It | Example |
-|---------|------------------|---------|
-| Regex pattern matching | 52 | Every handler |
-| Multi-option remediation | 18 | docker daemon (4 options), python not found (3) |
-| `env_fix` with commands | 8 | Start Docker, add docker group, start containerd |
-| `switch_method` escalation | 15 | helm apt → get-helm-3, terraform apt → binary |
-| `manual` instructions | 14 | Docker Desktop startup, kubectl version fix |
-| `install_dep` | 5 | Install Docker, install Node |
-| `install_packages` | 2 | containerd.io packages |
-| `cleanup_retry` | 1 | Docker storage reset |
-| `retry_with_modifier` | 1 | Docker with sudo |
-| `requires` system gates | 10 | has_systemd, is_linux, not_root, not_container |
-| `risk` classification | 3 | Docker storage reset (high), cgroup fallback (high) |
-| Distro-aware `packages` | 2 | containerd per distro family |
+| Feature | Count | Example |
+|---------|------|---------|
+| Regex pattern matching | 52 handlers | Every handler |
+| Multi-option remediation | 42 handlers | docker daemon (4 options), python not found (3) |
+| `env_fix` with commands | 13 handlers | Start Docker, add docker group, start containerd |
+| `switch_method` escalation | 25 handlers | helm apt → get-helm-3, terraform apt → binary |
+| `manual` instructions | 19 handlers | Docker Desktop startup, kubectl version fix |
+| `install_dep` | 11 handlers | Install Docker, install Node |
+| `install_packages` | 9 handlers | containerd.io packages |
+| `cleanup_retry` | 2 handlers | Docker storage reset |
+| `retry_with_modifier` | 3 handlers | Docker with sudo |
+| `requires` system gates | 5 handlers | has_systemd, is_linux, not_root, not_container |
+| `risk` classification | 27 handlers | Docker storage reset (high), cgroup fallback (high) |
+| Distro-aware `packages` | 9 handlers | containerd per distro family |
 
 ---
 

@@ -54,8 +54,10 @@ If you can't articulate all four points, you don't understand the feature yet.
 
 ### 2. Moving forward without context
 **If conversation context is lost (truncation, new session, etc.):**
-- STOP immediately
-- Ask the user to recap the current task and requirements
+- STOP immediately — see `.agent/workflows/STOP-CONTEXT-WAS-TRUNCATED.md`
+- Tell the user: "⚠️ My context was just truncated. I need you to re-orient me."
+- Do NOT read files, do NOT take action, do NOT try to self-orient
+- The USER drives the re-alignment — not the AI
 - Do NOT guess from plan documents alone — they may not capture the user's
   exact intent or the nuances discussed in conversation
 

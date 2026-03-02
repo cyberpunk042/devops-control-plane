@@ -93,91 +93,91 @@ is just the SSE transport wrapper.
 
 ## Package Architecture
 
-Five domain sub-packages for related features that were already multi-file.
-Twenty-three standalone modules for self-contained domains.
+Twenty-eight domain sub-packages, each with its own blueprint and
+self-contained route modules. **8,860 lines total.**
 
 ```
 routes/
 │
-├── audit/                      42 routes — Tool provisioning + system analysis
-│   ├── __init__.py             Blueprint (audit_bp, url_prefix="/api")
-│   ├── analysis.py             L0/L1/L2 audit data — profiles, deps, structure, scores
-│   ├── staging.py              Snapshot lifecycle — pending, save, discard, delete
-│   ├── tool_install.py         Install, resolve, check, version, update, remove
-│   ├── tool_execution.py       SSE plan execution, resume, cancel, archive
-│   ├── deep_detection.py       Hardware/GPU/kernel/network detection (on-demand)
-│   └── offline_cache.py        Offline install cache, data packs, service status
+├── api/                        4 files, 230 lines — Core API + health/status
+├── audit/                      7 files, 1,840 lines — Tool provisioning + system analysis
+├── backup/                     5 files, 495 lines — Backup & restore
+├── chat/                       5 files, 581 lines — Chat sync — messages, refs, threads
+├── ci/                         3 files, 88 lines — CI pipeline status + badges
+├── config/                     1 file, 83 lines — Project configuration CRUD
+├── content/                    5 files, 864 lines — Encrypted content vault
+├── dev/                        1 file, 86 lines — Developer/debug endpoints
+├── devops/                     4 files, 459 lines — DevOps dashboard control
+├── dns/                        1 file, 78 lines — DNS/CDN zone status
+├── docker/                     6 files, 428 lines — Docker status, compose, containers
+├── docs/                       3 files, 88 lines — Documentation generation
+├── events/                     1 file, 69 lines — SSE event stream
+├── git_auth/                   3 files, 162 lines — SSH key auth
+├── infra/                      3 files, 134 lines — Infrastructure status overview
+├── integrations/               7 files, 514 lines — GitHub integration
+├── k8s/                        8 files, 395 lines — Kubernetes config + status
+├── metrics/                    3 files, 130 lines — Project metrics
+├── packages/                   3 files, 119 lines — Package management
+├── pages/                      3 files, 430 lines — Documentation site management
+├── project/                    1 file, 67 lines — Project metadata CRUD
+├── quality/                    3 files, 117 lines — Code quality scans
+├── secrets/                    3 files, 210 lines — Secrets management
+├── security_scan/              3 files, 143 lines — Security scanning
+├── terraform/                  3 files, 182 lines — Terraform state/plan/apply
+├── testing/                    3 files, 106 lines — Test runner
+├── trace/                      4 files, 340 lines — Execution trace + replay
+├── vault/                      7 files, 421 lines — Vault lock/unlock/encrypt
 │
-├── content/                    20 routes — Encrypted content vault
-│   ├── __init__.py             Blueprint (content_bp) + core listing/crypto
-│   ├── files.py                Create, delete, download, upload
-│   ├── manage.py               Setup key, save, rename, move, release
-│   └── preview.py              Preview plain text, encrypted, save edited
-│
-├── backup/                     16 routes — Backup & restore
-│   ├── __init__.py             Blueprint (backup_bp) + folder listing
-│   ├── archive.py              Export, list, preview, download, upload
-│   ├── ops.py                  Encrypt, decrypt, upload-release, rename
-│   ├── restore.py              Restore, import, wipe, delete
-│   └── tree.py                 Expandable file tree for selection UI
-│
-├── devops/                      8 routes — DevOps dashboard control
-│   ├── __init__.py             Blueprint (devops_bp) + card prefs + cache bust
-│   ├── apply.py                Wizard setup actions (Docker, K8s, Terraform…)
-│   ├── audit.py                Audit finding dismissals
-│   └── detect.py               Wizard environment detection
-│
-├── pages/                      24 routes — Documentation site management
-│   ├── __init__.py             Re-exports pages_bp + pages_api_bp
-│   ├── serving.py              Dashboard HTML + built site static serving
-│   └── api.py                  Pages API — segments, build, deploy, status
-│
-├── api.py                       8  Core API — status, health, project config
-├── chat.py                     12  Chat sync — messages, references, threads
-├── ci.py                        5  CI pipeline — status, badges, workflows
-├── config.py                    3  Project configuration CRUD
-├── dev.py                       3  Developer/debug endpoints
-├── dns.py                       4  DNS/CDN — zone status, record generation
-├── docker.py                   24  Docker — status, compose, containers, logs
-├── docs.py                      5  Documentation generation triggers
-├── events.py                    1  SSE event stream (server → browser push)
-├── git_auth.py                  4  SSH key auth — check, unlock, status
-├── infra.py                    10  Infrastructure status overview
-├── integrations.py             27  GitHub integration — repos, branches, PRs
-├── k8s.py                      24  Kubernetes — config, status, namespaces
-├── metrics.py                   2  Project metrics (LOC, complexity, deps)
-├── packages.py                  6  Package management — status, outdated
-├── project.py                   2  Project metadata CRUD
-├── quality.py                   7  Code quality scans — lint, complexity
-├── secrets.py                  11  Secrets management — env vars, .env files
-├── security_scan.py             7  Security scanning — secrets, dependencies
-├── terraform.py                12  Terraform — state, plan, apply, import
-├── testing.py                   5  Test runner — execute, coverage, history
-├── trace.py                    10  Execution trace — replay, timeline, export
-└── vault.py                    21  Vault — lock, unlock, encrypt, decrypt
+├── __init__.py                 Package root
+└── README.md                   This file
 ```
+
+### Domain Size Distribution
+
+| Size | Domains |
+|------|---------|
+| **Large** (500+ lines) | audit, content, chat, integrations, devops, pages, backup |
+| **Medium** (100–499 lines) | docker, vault, k8s, trace, api, secrets, terraform, git_auth, infra, metrics, packages, quality, security_scan, testing |
+| **Small** (<100 lines) | ci, config, dev, dns, docs, events, project |
+
+Small domains are often single-file sub-packages that were converted
+for structural consistency. They may grow as features expand.
 
 ---
 
-## Why Sub-Packages vs Flat Files
+## Why Everything Is a Sub-Package
 
-The sub-package boundary is NOT arbitrary. A domain becomes a sub-package
-when it has **multiple modules that share a single Blueprint**:
+Every domain is a sub-package — even single-file domains like `dns/`
+or `events/`. This ensures:
+
+1. **Consistency** — one pattern for everything, no special cases
+2. **Extensibility** — adding a second file to `dns/` doesn't require
+   restructuring
+3. **Blueprint isolation** — each `__init__.py` owns its blueprint
+4. **Import uniformity** — `from src.ui.web.routes.X import X_bp`
+   works for every domain
+
+For multi-module domains, the sub-package boundary maps to a shared
+blueprint:
 
 ```
 content_bp is defined in content/__init__.py
-    ├── files.py registers 7 routes on content_bp
-    ├── manage.py registers 10 routes on content_bp
-    └── preview.py registers 3 routes on content_bp
+    ├── files.py registers routes on content_bp
+    ├── manage.py registers routes on content_bp
+    └── preview.py registers routes on content_bp
 ```
 
-This is the exact same structural pattern used by the original codebase
-(`routes_content.py` + `routes_content_files.py` + ...), just with
-proper package boundaries instead of underscore-concatenated filenames.
+### Route Naming Conventions
 
-Standalone files (like `docker.py` with 24 routes, or `k8s.py` with 24)
-stay flat because they're self-contained — one module, one blueprint,
-no sub-file dependencies.
+| Convention | Example |
+|-----------|---------|
+| `__init__.py` owns the blueprint | `audit_bp = Blueprint("audit", ...)` |
+| Sub-modules import the blueprint | `from . import audit_bp` |
+| Function names match the endpoint | `/api/vault/status` → `vault_status()` |
+| GET for reads | `@bp.route("/X/status")` |
+| POST for mutations | `@bp.route("/X/lock", methods=["POST"])` |
+| `_project_root()` via helpers | Never defined locally |
+| Cache-aware reads | `devops_cache.get_cached(root, key, fn, ...)` |
 
 ---
 
@@ -283,14 +283,12 @@ routes_content_manage.py            routes/content/manage.py
 routes_content_preview.py           routes/content/preview.py
 ```
 
-Standalone files without sub-modules stay flat — no artificial nesting.
-
 ### Why not group docker + k8s + terraform into an "infra/" sub-package?
 
 Because they don't share a blueprint. Each has its own blueprint registered
 independently. Grouping them would be **organizational** (for humans) but
 would add an import indirection layer with no structural benefit. If they
-grow sub-modules in the future, they become sub-packages then — not before.
+grow inter-dependencies in the future, they can be grouped then — not before.
 
 ### Why is tool_execution.py 822 lines?
 
@@ -304,6 +302,114 @@ route layer because they're transport concerns, not business logic.
 This is the one exception to the "< 350 lines" target. Splitting it
 further would separate the SSE `yield` statements from their setup
 code, making the streaming flow harder to trace.
+
+### Why does audit_bp bake in its url_prefix?
+
+The audit sub-package was the first to be split (1,781 lines → 7 modules),
+and baking the prefix into the blueprint means sub-modules don't need
+to repeat it. The other sub-packages receive their prefix at
+`register_blueprint()` time. Both approaches work — audit just
+predates the convention. Changing it now would break existing tests.
+
+### Why helpers.py instead of a base class or decorator factory?
+
+Routes are plain functions, not class methods. Flask doesn't benefit
+from inheritance. A `helpers.py` module with 6 pure functions is the
+simplest approach — no metaclasses, no mixin chains, no magic.
+Every route file has the same `from src.ui.web.helpers import ...` line,
+making the dependency explicit and grep-able.
+
+---
+
+## Error Handling Patterns
+
+All route handlers follow Flask's standard error patterns:
+
+```python
+# Validation error — 400
+if not data or not data.get("key"):
+    return jsonify({"error": "Missing required field: key"}), 400
+
+# Not found — 404
+if not result:
+    return jsonify({"error": "Resource not found"}), 404
+
+# Service error — the service returns {"error": "..."}
+result = some_service_function(root, ...)
+if "error" in result:
+    return jsonify(result), 400  # or 500 depending on context
+
+# Happy path — 200
+return jsonify(result)
+```
+
+**Path traversal guard:**
+```python
+safe_path = resolve_safe_path(root, user_path)
+if safe_path is None:
+    return jsonify({"error": "Invalid path"}), 400
+```
+
+This is enforced for all endpoints that accept user-provided file paths.
+The `resolve_safe_path()` function resolves the path, then checks it
+doesn't escape the project root via `../` or symlink attacks.
+
+---
+
+## Testing Patterns
+
+Routes are tested by calling them via Flask's test client:
+
+```python
+def test_audit_system(client, project_root):
+    """Every route test follows the same pattern."""
+    response = client.get("/api/audit/system")
+    assert response.status_code == 200
+    data = response.get_json()
+    assert "os" in data
+    assert "distro" in data
+```
+
+**Cache busting in tests:**
+```python
+# Force a fresh computation, bypassing cache
+response = client.get("/api/audit/system?bust")
+```
+
+**SSE stream testing:**
+```python
+response = client.post(
+    "/api/audit/install-plan/execute",
+    json={"plan": plan_data},
+)
+assert response.content_type == "text/event-stream"
+events = [
+    json.loads(line.removeprefix("data: "))
+    for line in response.data.decode().strip().split("\n\n")
+    if line.startswith("data: ")
+]
+assert events[-1]["type"] == "complete"
+```
+
+---
+
+## Debugging Routes
+
+**Route list:** Flask provides a built-in route listing:
+```python
+# In Flask shell or dev endpoint
+for rule in app.url_map.iter_rules():
+    print(f"{rule.methods} {rule.rule} → {rule.endpoint}")
+```
+
+**Common issues:**
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| 404 on valid path | Blueprint not registered | Check `server.py` registration |
+| 500 with ImportError | Circular import in route | Use lazy import inside function |
+| Empty response | Service returns None | Check service function return value |
+| CORS error | Missing headers | Check `after_request` handler in `server.py` |
 
 ---
 
@@ -347,15 +453,17 @@ src/ui/web/
 ├── helpers.py                 Shared utilities (was scattered across 28 files)
 ├── server.py                  App factory + blueprint registration
 └── routes/
-    ├── audit/                 7 modules, 1,840 lines (from 1 × 1,781)
-    ├── backup/                5 modules, 495 lines
-    ├── content/               4 modules, 851 lines
-    ├── devops/                4 modules, 459 lines
-    ├── pages/                 3 modules, 430 lines
-    └── 23 standalone modules  ~4,600 lines
+    ├── 28 domain sub-packages  ~8,860 lines total
+    │   ├── audit/              7 modules, 1,840 lines (from 1 × 1,781)
+    │   ├── content/            5 modules, 864 lines
+    │   ├── backup/             5 modules, 495 lines
+    │   ├── ... 25 more domains
+    │   └── README.md           This file
+    └── __init__.py
 ```
 
 - 0 copies of `_project_root()` — one definition in `helpers.py`
 - 0 inter-route imports — all shared logic in `helpers.py`
 - 0 copy-pasted cache-bust blocks — one `bust_tool_caches()` call
-- Largest file: 822 lines (down from 1,781), largest non-SSE file: 555 lines
+- 28 self-contained sub-packages with uniform blueprint pattern
+- Largest file: 822 lines (down from 1,781), largest non-SSE file: 345 lines

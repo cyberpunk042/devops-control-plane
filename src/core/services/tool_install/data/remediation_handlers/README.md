@@ -511,24 +511,24 @@ happen on bare metal:
 
 ## Feature Coverage Summary
 
-| Feature | Handlers Using It | Example |
-|---------|------------------|---------|
-| Regex pattern matching | 77 | Every handler |
-| Multi-option remediation | 30 | pip pep668 (6 options), pip permission (4) |
-| Distro-aware packages | 17 | npm node-gyp, pip wheel build, cargo compiler |
-| `retry_with_modifier` | 14 | pip --force-reinstall, npm --legacy-peer-deps |
-| `switch_method` escalation | 11 | github_release → brew, no_sudo → _default |
-| `env_fix` with commands | 8 | pip venv creation, npm prefix fix |
-| `manual` instructions | 15 | conda guidance, corporate CA setup |
-| `install_dep_then_switch` | 4 | pip → uv, pip → pipx |
-| `install_packages` | 13 | build-essential, ca-certificates |
-| `dynamic_packages` | 5 | cargo -lssl, source header, CMake |
-| `env_override` | 2 | cargo gcc→gcc-12, cargo gcc→clang |
-| `pre_packages` chain | 3 | python3-venv before venv creation |
-| `cleanup_retry` | 3 | npm cache, pip cache, apt cache |
-| `exit_code` matching | 1 | OOM kill (exit 137) |
-| `risk` classification | 5 | break-system-packages (critical), --force (high) |
-| Container/K8s awareness | 1 | read-only rootfs |
+| Feature | Count | Example |
+|---------|------|---------:|
+| Regex pattern matching | 77 handlers | Every handler |
+| Multi-option remediation | 61 handlers | pip pep668 (6 options), pip permission (4) |
+| Distro-aware packages | 14 handlers | npm node-gyp, pip wheel build, cargo compiler |
+| `retry_with_modifier` | 27 handlers | pip --force-reinstall, npm --legacy-peer-deps |
+| `switch_method` escalation | 19 handlers | github_release → brew, no_sudo → _default |
+| `env_fix` with commands | 12 handlers | pip venv creation, npm prefix fix |
+| `manual` instructions | 33 handlers | conda guidance, corporate CA setup |
+| `install_dep_then_switch` | 4 handlers | pip → uv, pip → pipx |
+| `install_packages` | 20 handlers | build-essential, ca-certificates |
+| `dynamic_packages` | 6 handlers | cargo -lssl, source header, CMake |
+| `env_override` | 2 options | cargo gcc→gcc-12, cargo gcc→clang |
+| `pre_packages` chain | 4 handlers | python3-venv before venv creation |
+| `cleanup_retry` | 7 handlers | npm cache, pip cache, apt cache |
+| `exit_code` matching | 1 handler | OOM kill (exit 137) |
+| `risk` classification | 11 handlers | break-system-packages (critical), --force (high) |
+| Container/K8s awareness | 1 handler | read-only rootfs |
 
 ---
 
@@ -556,7 +556,7 @@ development package names. Used by `dynamic_dep_resolver.py`.
 | `jpeg` | `libjpeg-dev` | `libjpeg-turbo-devel` | `libjpeg-turbo-dev` | `libjpeg-turbo` | `libjpeg-turbo-devel` |
 | `pcre2-8` | `libpcre2-dev` | `pcre2-devel` | `pcre2-dev` | `pcre2` | `pcre2-devel` |
 
-6 distro families × 16 libraries = 96 package mappings.
+16 libraries × 5–6 distro families each = 83 package mappings.
 
 ---
 

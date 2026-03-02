@@ -3,6 +3,7 @@
 > Started: 2026-02-28
 > Rule: <500 lines per file. ~700 absolute max exception. SRP. Onion folders.
 > Process: Refactor → fix imports → verify → document README per domain.
+> **Done = moved + split + imports fixed + app verified + README ≥ 450 lines.**
 
 ---
 
@@ -11,97 +12,136 @@
 - ⬜ Not started
 - 🔵 Planned (chunk scoped)
 - 🟡 In progress
-- 🟢 Complete
+- 🟢 Complete (structure + imports + README)
+- 🏗️ Structure done, README missing or below standard
 - ⏸️ Blocked / Parked
 
 ---
 
 ## Chunk 1 — Recent Concerns (Priority)
 
-These are the domains we've been actively working in. They hurt the most
-because every session touches them and gets lost.
-
 ### Backend `core/services/`
 
-| # | Domain | Current State | Target | Status |
-|---|--------|--------------|--------|--------|
-| 1 | **git/** | `git_auth.py`, `git_ops.py`, `git_gh_ops.py` (951) flat | `git/` folder, split `gh_ops.py` | 🟢 |
-| 2 | **wizard/** | `wizard_ops.py` (748), `wizard_setup.py` (1,568), `wizard_validate.py` flat | `wizard/` folder, split `setup.py` by integration | 🟢 |
-| 3 | **vault/** | `vault.py` (630), `vault_io.py`, `vault_env_crud.py`, `vault_env_ops.py` flat | `vault/` folder | 🟢 |
-| 4 | **secrets/** | `secrets_env_ops.py`, `secrets_gh_ops.py`, `secrets_ops.py` flat | `secrets/` folder | 🟢 |
-| 5 | **audit/** (existing) | Already grouped but `l0_detection.py` (1,601), `catalog.py` (~1,100) | Split oversized files | 🟢 |
-| 6 | **tool_install/data/** | `recipes.py` **✅ DONE** → `recipes/` (29 files). `remediation_handlers.py` **✅ DONE** → `remediation_handlers/` (25 files). `tool_failure_handlers.py` **✅ DONE** → `tool_failure_handlers/` (13 files) | All data files split | 🟢 |
-| 7 | **ci/** | `ci_compose.py` (544), `ci_ops.py` (592) flat → `ci/` package (ops.py + compose.py + __init__.py + README) | `ci/` folder | 🟢 |
+| # | Domain | Structure | README | Status |
+|---|--------|-----------|--------|--------|
+| 1 | **git/** | ✅ `git/` folder, split `gh_ops.py` | ✅ 937 lines ⭐ | 🟢 |
+| 2 | **wizard/** | ✅ `wizard/` folder, split `setup.py` by integration | ✅ 579 lines ⭐ | 🟢 |
+| 3 | **vault/** | ✅ `vault/` folder | ✅ 628 lines ⭐ | 🟢 |
+| 4 | **secrets/** | ✅ `secrets/` folder | ✅ 546 lines ⭐ | 🟢 |
+| 5 | **audit/** (existing) | ✅ Split oversized files | ✅ 530 lines | 🟢 |
+| 6 | **tool_install/data/** | ✅ All data files split | ✅ recipes 562, handlers 643, failures 455 | 🟢 |
+| 7 | **ci/** | ✅ `ci/` folder | ✅ 954 lines ⭐ | 🟢 |
 
 ### Routes `ui/web/`
 
-| # | Domain | Current State | Target | Status |
-|---|--------|--------------|--------|--------|
-| 8 | **routes/ package** | ~~33 flat `routes_*.py` in `ui/web/`~~ → 5 sub-packages + 23 standalone in `routes/` | `routes/` package (Option B: domain grouping) | 🟢 |
-| 9 | **routes_audit.py** | ~~1,781 lines~~ → 7 sub-modules in `routes/audit/` (1,840 lines) | Split into `routes/audit/` | 🟢 |
-| 10 | **routes_integrations.py** | 520 lines, 27 routes — all git/GitHub thin dispatchers | Evaluated: stays as-is (single domain, under threshold) | 🟢 |
+| # | Domain | Structure | README | Status |
+|---|--------|-----------|--------|--------|
+| 8 | **routes/ package** | ✅ `routes/` package (Option B: domain grouping) | ✅ 469 lines | 🟢 |
+| 9 | **routes_audit.py** | ✅ Split into `routes/audit/` (7 modules) | ✅ 507 lines | 🟢 |
+| 10 | **routes_integrations.py** | ✅ Evaluated: stays as-is | N/A (covered by routes README) | 🟢 |
 
 ### Frontend `templates/scripts/`
 
-| # | Domain | Current State | Target | Status |
-|---|--------|--------------|--------|--------|
-| 11 | **globals/ split** | ~~`_globals.html` (3,606)~~ → 7 files in `globals/` (api, cache, card_builders, modal, missing_tools, ops_modal, auth_modal) | Split into `globals/` folder | 🟢 |
-| 12 | **auth/ group** | ~~flat~~ → 2 files in `auth/` | `auth/` folder | 🟢 |
-| 13 | **integrations/ group** | ~~22 flat~~ → 13 + `setup/` (10) in `integrations/` | `integrations/` + `setup/` folders | 🟢 |
-| 14 | **secrets/ group** | ~~6 flat~~ → 7 files in `secrets/` | `secrets/` folder | 🟢 |
-| 15 | **audit/ group** | ~~6 flat~~ → 6 files in `audit/` (manager stays in devops) | `audit/` folder | 🟢 |
-| 16 | **wizard/ group** | ~~8 flat~~ → 9 files in `wizard/` (incl. modal + setup) | `wizard/` folder | 🟢 |
-| 17 | **assistant/ group** | ~~6 flat~~ → 6 files in `assistant/` | `assistant/` folder | 🟢 |
-| 17b | **content/ group** | ~~14 flat~~ → 14 files in `content/` | `content/` folder | 🟢 |
-| 17c | **devops/ group** | ~~11 flat~~ → 12 files in `devops/` (incl. audit_manager) | `devops/` folder | 🟢 |
+| # | Domain | Structure | README | Status |
+|---|--------|-----------|--------|--------|
+| 11 | **globals/ split** | ✅ 7 files in `globals/` | ✅ 699 lines | 🟢 |
+| 12 | **auth/ group** | ✅ 2 files in `auth/` | ✅ 402 lines (small domain exception) | 🟢 |
+| 13 | **integrations/ group** | ✅ 13 + `setup/` (10) in `integrations/` | ✅ 590 lines | 🟢 |
+| 14 | **secrets/ group** | ✅ 7 files in `secrets/` | ✅ 503 lines | 🟢 |
+| 15 | **audit/ group** | ✅ 6 files in `audit/` | ✅ 455 lines | 🟢 |
+| 16 | **wizard/ group** | ✅ 9 files in `wizard/` | ✅ 698 lines | 🟢 |
+| 17 | **assistant/ group** | ✅ 6 files in `assistant/` | ✅ 533 lines | 🟢 |
+| 17b | **content/ group** | ✅ 14 files in `content/` | ✅ 656 lines | 🟢 |
+| 17c | **devops/ group** | ✅ 12 files in `devops/` | ✅ 480 lines | 🟢 |
 
 ---
 
 ## Chunk 2 — Remaining Backend Domains
 
-| # | Domain | Current State | Target | Status |
-|---|--------|--------------|--------|--------|
-| 18 | **docker/** | ~~6 flat files (~2,600 lines)~~ → `docker/` package (5 modules + `__init__` + README), `docker_ops.py` compat shim | `docker/` folder | 🟢 |
-| 19 | **k8s/** | ~~12 flat files (~10,500), `k8s_validate.py` (4,004!)~~ → `k8s/` package (19 modules + `__init__` + README), validate split into 7 layers, `k8s_ops.py` compat shim | `k8s/` folder, split validate | 🟢 |
-| 20 | **content/** | ~~9 flat files (~3,680)~~ → `content/` package (9 modules + `__init__`), no facade needed (consumers import directly) | `content/` folder | 🟢 |
-| 21 | **terraform/** | ~~3 flat files (~1,420)~~ → `terraform/` package (3 modules + `__init__`), 3 backward-compat shims | `terraform/` folder | 🟢 |
-| 22 | **backup/** | ~~5 flat files (~1,700)~~ → `backup/` package (5 modules + `__init__`), 5 backward-compat shims | `backup/` folder | 🟢 |
-| 23 | **devops/** | ~~2 flat files (~1,560)~~ → `devops/` package (2 modules + `__init__`), 2 backward-compat shims | `devops/` folder | 🟢 |
-| 24 | **security/** | ~~4 flat files (~1,086)~~ → `security/` package (4 modules + `__init__`), 4 shims | `security/` folder | 🟢 |
-| 25 | **pages/** | ~~6 flat files (~1,394)~~ → `pages/` package (6 modules + `__init__`), 6 shims | `pages/` folder | 🟢 |
-| 26 | **dns/** | ~~1 flat file (564)~~ → `dns/` package (1 module + `__init__`), 1 shim | `dns/` folder | 🟢 |
-| 27 | **docs_svc/** | ~~2 flat files (~691)~~ → `docs_svc/` package (2 modules + `__init__`), 2 shims | `docs_svc/` folder | 🟢 |
-| 28 | **quality/** | ~~1 flat file (531)~~ → `quality/` package (1 module + `__init__`), 1 shim | `quality/` folder | 🟢 |
-| 29 | **testing/** | ~~2 flat files (~847)~~ → `testing/` package (2 modules + `__init__`), 2 shims | `testing/` folder | 🟢 |
-| 30 | **metrics/** | ~~1 flat file (504)~~ → `metrics/` package (1 module + `__init__`), 1 shim | `metrics/` folder | 🟢 |
-| 31a | **env/** | ~~2 flat files (~679)~~ → `env/` package (2 modules + `__init__`), 2 shims | `env/` folder | 🟢 |
-| 31b | **packages_svc/** | ~~2 flat files (~782)~~ → `packages_svc/` package (2 modules + `__init__`), 2 shims | `packages_svc/` folder | 🟢 |
-| 31c | **routes → folders** | ~~23 flat route files~~ → 23 domain folders (each file → `domain/__init__.py`) | All routes in folders | 🟢 |
-| 31d | **CLI → folders** | ~~19 flat CLI files~~ → 19 domain folders (each file → `domain/__init__.py`) | All CLI in folders | 🟢 |
-| 31e | **shared cross-cutting** | ~15 cross-cutting files remain at services root (shims + standalone) | Evaluate in doc sweep | ⬜ |
-| 32 | **chat/** (existing) | `chat_refs.py` (1,280), `chat_ops.py` (731) | Split oversized | ⬜ |
-| 33 | **generators/** (existing) | `github_workflow.py` (1,081) | Split oversized | ⬜ |
+| # | Domain | Structure | README | Status |
+|---|--------|-----------|--------|--------|
+| 18 | **docker/** | ✅ `docker/` package (5 modules + shim) | ✅ 784 lines | 🟢 |
+| 19 | **k8s/** | ✅ `k8s/` package (19 modules + shim) | ✅ 757 lines ⭐ | 🟢 |
+| 20 | **content/** | ✅ `content/` package (9 modules) | ✅ 1,073 lines ⭐ | 🟢 |
+| 21 | **terraform/** | ✅ `terraform/` package (3 modules + shims) | ✅ 861 lines ⭐ | 🟢 |
+| 22 | **backup/** | ✅ `backup/` package (5 modules + shims) | ✅ 782 lines ⭐ | 🟢 |
+| 23 | **devops/** | ✅ `devops/` package (2 modules + shims) | ✅ 478 lines | 🟢 |
+| 24 | **security/** | ✅ `security/` package (4 modules + shims) | ✅ 475 lines | 🟢 |
+| 25 | **pages/** | ✅ `pages/` package (6 modules + shims) | ✅ 484 lines | 🟢 |
+| 26 | **dns/** | ✅ `dns/` package (1 module + shim) | ✅ 476 lines | 🟢 |
+| 27 | **docs_svc/** | ✅ `docs_svc/` package (2 modules + shims) | ✅ 809 lines | 🟢 |
+| 28 | **quality/** | ✅ `quality/` package (1 module + shim) | ✅ 725 lines | 🟢 |
+| 29 | **testing/** | ✅ `testing/` package (2 modules + shims) | ✅ 979 lines | 🟢 |
+| 30 | **metrics/** | ✅ `metrics/` package (1 module + shim) | ✅ 836 lines | 🟢 |
+| 31a | **env/** | ✅ `env/` package (2 modules + shims) | ✅ 690 lines | 🟢 |
+| 31b | **packages_svc/** | ✅ `packages_svc/` package (2 modules + shims) | ✅ 636 lines | 🟢 |
+| 31c | **routes → folders** | ✅ All routes in domain folders | ❌ Per-domain READMEs missing | 🏗️ |
+| 31d | **CLI → folders** | ✅ All CLI in domain folders | ❌ Per-domain READMEs missing | 🏗️ |
+| 31e | **shared cross-cutting** | ~15 cross-cutting files at services root | ⬜ Evaluate in doc sweep | ⬜ |
+| 32 | **chat/** (existing) | `chat_refs.py` (1,280), `chat_ops.py` (731) | ⬜ Split first | ⬜ |
+| 33 | **generators/** (existing) | `github_workflow.py` (1,081) | ⬜ Split first | ⬜ |
 
 ---
 
 ## Chunk 3 — Remaining Frontend + Polish
 
-| # | Domain | Current State | Target | Status |
-|---|--------|--------------|--------|--------|
+| # | Domain | Structure | README | Status |
+|---|--------|-----------|--------|--------|
 | 34 | **content/ group** | ~~duplicate of #17b~~ | Done in Chunk 1 | 🟢 |
 | 35 | **devops/ group** | ~~duplicate of #17c~~ | Done in Chunk 1 | 🟢 |
-| 36 | **debug/ group** | `_debugging.html` (1,145), `_stage_debugger.html` (702) | `debug/` folder, split debugging | ⬜ |
-| 37 | **CSS split** | `admin.css` (5,948) single file | Domain-scoped CSS files | ⬜ |
-| 38 | **Tests follow** | Large test files mirror old paths | Rename/split to match new structure | ⬜ |
-| 39 | **Stale docs** | `docs/ARCHITECTURE.md` etc. outdated | Update to reflect new structure | ⬜ |
+| 36 | **debug/ group** | `_debugging.html` (1,145), `_stage_debugger.html` (702) | ⬜ Split first | ⬜ |
+| 37 | **CSS split** | `admin.css` (5,948) single file | ⬜ | ⬜ |
+| 38 | **Tests follow** | Large test files mirror old paths | ⬜ | ⬜ |
+| 39 | **Stale docs** | `docs/ARCHITECTURE.md` etc. outdated | ⬜ | ⬜ |
 
 ---
 
 ## Completion Summary
 
-| Chunk | Items | Done | Remaining |
-|-------|-------|------|-----------|
-| Chunk 1 (Recent Concerns) | 19 | 19 | 0 |
-| Chunk 2 (Remaining Backend) | 16 | 0 | 16 |
-| Chunk 3 (Remaining FE + Polish) | 6 | 2 | 4 |
-| **Total** | **39** | **21** | **18** |
+| Chunk | Items | 🟢 Done | 🏗️ Structure only | ⬜ Not started |
+|-------|-------|---------|-------------------|---------------|
+| Chunk 1 (Recent Concerns) | 19 | 19 | 0 | 0 |
+| Chunk 2 (Remaining Backend) | 18 | 15 | 2 | 3 |
+| Chunk 3 (Remaining FE + Polish) | 6 | 2 | 0 | 4 |
+| **Total** | **43** | **36** | **2** | **7** |
+
+### README Queue (in order)
+
+Items with structure done but README missing or below standard:
+
+**Missing READMEs (❌):**
+1. ~~globals/~~ ✅ 699 lines — done
+2. auth/ (frontend)
+3. integrations/ (frontend)
+4. secrets/ (frontend)
+5. audit/ (frontend scripts)
+6. wizard/ (frontend)
+7. assistant/ (frontend)
+8. content/ (frontend)
+9. devops/ (frontend)
+10. routes/audit/ (route domain)
+11. ~~content/ (backend)~~ ✅ 1,073 lines — gold standard (rewritten)
+12. ~~terraform/ (backend)~~ ✅ 861 lines — gold standard (rewritten)
+13. ~~backup/ (backend)~~ ✅ 782 lines — gold standard (rewritten)
+14. ~~devops/ (backend)~~ ✅ 478 lines — done
+15. ~~security/ (backend)~~ ✅ 475 lines — done
+16. ~~pages/ (backend)~~ ✅ 484 lines — done
+17. ~~dns/ (backend)~~ ✅ 476 lines — done
+18. ~~docs_svc/ (backend)~~ ✅ 809 lines — done (gold)
+19. ~~quality/ (backend)~~ ✅ 725 lines — done (gold)
+20. ~~testing/ (backend)~~ ✅ 979 lines — done (gold)
+21. ~~metrics/ (backend)~~ ✅ 836 lines — done (gold)
+22. ~~env/ (backend)~~ ✅ 690 lines — done (gold)
+23. ~~packages_svc/ (backend)~~ ✅ 636 lines — done (gold)
+24. routes per-domain (31c)
+25. CLI per-domain (31d)
+
+**At minimum bar (450+) — candidates for gold-standard upgrade (700+):**
+26. ~~k8s/~~ ✅ 757 lines — gold standard
+27. ~~secrets/~~ ✅ 546 lines — gold standard
+28. ~~docker/~~ ✅ 784 lines — gold standard
+29. ~~git/~~ ✅ 937 lines — gold standard
+30. ~~ci/~~ ✅ 954 lines — gold standard
+31. ~~vault/~~ ✅ 628 lines — gold standard
+32. ~~wizard/~~ ✅ 579 lines — gold standard
+33. ~~routes/ top-level~~ ✅ 343 lines — services/README.md (lower standard ok)

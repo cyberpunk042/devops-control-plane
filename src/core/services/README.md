@@ -227,6 +227,107 @@ zones, proxy configs). One dispatch endpoint, eight handlers. The
 detection response embeds status from 15 other services so the
 frontend never needs follow-up calls.
 
+### [ci/](ci/README.md) — The CI Intelligence Layer
+
+Detects 7 CI providers by scanning signature files, parses GitHub Actions
+and GitLab CI workflow YAML (triggers, jobs, steps, issues), analyzes
+per-module CI coverage using stack markers, and generates individual
+workflows. The compose module takes full wizard state and produces
+coherent multi-domain pipelines (test → build → deploy → post-deploy)
+in unified or split strategies.
+
+### [docker/](docker/README.md) — The Docker Engine
+
+Docker container lifecycle, daemon detection, Dockerfile generation,
+image management, and Kubernetes bridge. 6 files covering detection
+(daemon, images, containers), generation (multi-stage Dockerfiles with
+stack-aware templates), and orchestration (compose, bridge to K8s).
+
+### [k8s/](k8s/README.md) — The Kubernetes Engine
+
+Kubernetes cluster operations, manifest generation (Deployments, Services,
+Ingresses, ConfigMaps, Secrets, HPAs), Helm chart scaffolding, validation
+with 50+ check rules, and cluster status monitoring. The largest domain
+in the codebase (19 files, 8,600+ lines).
+
+### [content/](content/README.md) — Content Management
+
+Content file management — CRUD operations, per-file encryption (AES-256-GCM),
+image/video optimization (resize, compress, format conversion), release
+artifact management, and bulk operations. 10 files covering the full
+content lifecycle from creation to encrypted backup.
+
+### [backup/](backup/README.md) — Archive & Restore
+
+Archive creation with selective inclusion, restoration with conflict
+resolution, extras management (supplementary files outside the main
+content tree). 6 files covering the complete backup lifecycle.
+
+### [terraform/](terraform/README.md) — Terraform Operations
+
+Terraform actions (init, plan, apply, destroy), HCL generation for
+common cloud patterns (AWS, GCP, Azure), and ops orchestration.
+4 files, 1,463 lines.
+
+### [security/](security/README.md) — Security Analysis
+
+Security scanning (dependency vulnerabilities, secret detection,
+configuration auditing), posture assessment with scoring, and common
+utilities. 5 files covering multi-layer security analysis.
+
+### [dns/](dns/README.md) — DNS & CDN
+
+DNS record generation and CDN/proxy configuration. Produces zone files,
+CNAME records, and reverse-proxy configs for Nginx/Caddy/Traefik.
+
+### [env/](env/README.md) — Environment & Infrastructure
+
+Two layers: (1) `.env` file detection, parsing, comparison, validation,
+and generation, (2) IaC provider detection (Terraform, Kubernetes,
+Pulumi, CloudFormation, Ansible) with resource inventory. Both feed
+the dashboard environment card.
+
+### [pages/](pages/README.md) — Pages Engine
+
+Static site pipeline — discovery, build orchestration with streaming
+output, CI integration (GitHub Pages deployment), and multi-builder
+support (Docusaurus, Hugo via `pages_builders/`).
+
+### [docs_svc/](docs_svc/README.md) — Documentation Generation
+
+Documentation generation and ops — README scaffolding, API doc extraction,
+and documentation quality analysis.
+
+### [quality/](quality/README.md) — Code Quality
+
+Code quality analysis — linter/formatter/typechecker detection, tool
+configuration parsing, and quality scoring across stacks.
+
+### [testing/](testing/README.md) — Test Analysis
+
+Test framework detection (pytest, unittest, jest, vitest, go test,
+cargo test), test inventory, and coverage measurement via multi-strategy
+waterfall (pytest-cov → coverage.py → heuristic).
+
+### [metrics/](metrics/README.md) — Project Health
+
+Unified project health scoring with 7 probes (git, docker, CI, packages,
+env, quality, structure). Produces a 0–100 score with letter grade,
+per-probe findings, and prioritized recommendations.
+
+### [packages_svc/](packages_svc/README.md) — Package Management
+
+Multi-ecosystem package management — detects 9 package managers
+(pip, npm, go, cargo, Maven, Gradle, .NET, Mix, Bundler), checks
+outdated packages, runs security audits, lists installed packages,
+and provides install/update actions.
+
+### [devops/](devops/README.md) — Activity & Dashboard
+
+Activity tracking and dashboard cache management. Records DevOps events,
+maintains cached status for the dashboard cards, and provides the
+activity log timeline.
+
 ### chat/ — Conversation Persistence
 
 Git-backed chat synchronization. Stores conversation threads, manages
@@ -250,15 +351,6 @@ Activity ledger and git worktree management. Tracks what happened when
 Records command execution traces for debugging. Captures subprocess
 calls, timing, output, and exit codes for replay and post-mortem analysis.
 
-### [ci/](ci/README.md) — The CI Intelligence Layer
-
-Detects 7 CI providers by scanning signature files, parses GitHub Actions
-and GitLab CI workflow YAML (triggers, jobs, steps, issues), analyzes
-per-module CI coverage using stack markers, and generates individual
-workflows. The compose module takes full wizard state and produces
-coherent multi-domain pipelines (test → build → deploy → post-deploy)
-in unified or split strategies.
-
 ### pages_builders/ — Static Site Builders
 
 Builder framework for static site generation. Docusaurus and Hugo
@@ -267,33 +359,11 @@ architecture. Used by the Pages pipeline for site deployment.
 
 ---
 
-## Flat Domains (Awaiting Refactor)
-
-These groups are still flat `prefix_*.py` files at the `services/` root.
-Each will become its own folder during the ongoing refactor. They work
-correctly — they just don't have the folder structure yet.
-
-| Domain | What It Does |
-|--------|-------------|
-| **k8s_\*** (12 files) | Kubernetes cluster ops, manifest generation, Helm charts, validation (includes `k8s_validate.py` at 4,004 lines — the largest file in the codebase) |
-| **docker_\*** (6 files) | Docker container lifecycle, daemon detection, Dockerfile generation, K8s bridge |
-| **content_\*** (9 files) | Content file management — CRUD, encryption, optimization (image/video), releases |
-| **backup_\*** (5 files) | Archive creation, restoration, extras management |
-| **devops_\*** + env_\* (4 files) | Activity tracking, dashboard cache, environment/infra operations |
-| **security_\*** (4 files) | Security scanning, posture assessment, common utilities |
-| **pages_\*** (6 files) | Pages engine, build streaming, CI integration, discovery |
-| **terraform_\*** (3 files) | Terraform actions, HCL generation, ops |
-| **testing_\*** (2 files) | Test execution and reporting |
-| **docs_\*** (2 files) | Documentation generation and ops |
-| **package_\*** (2 files) | Package management actions (pip-audit, outdated checks) |
-| **dns_cdn_ops** (1 file) | DNS record generation, CDN/proxy configuration |
-| **quality_ops** (1 file) | Code quality analysis |
-| **metrics_ops** (1 file) | Metrics collection |
-
-### Cross-Cutting Utilities (remain at root)
+## Cross-Cutting Utilities
 
 These are service-wide utilities used by multiple domains. They don't
-belong to any single domain:
+belong to any single domain and remain as flat files at the `services/`
+root:
 
 | File | What It Does |
 |------|-------------|
@@ -306,6 +376,8 @@ belong to any single domain:
 | `staleness_watcher.py` | File staleness tracking for cache invalidation |
 | `terminal_ops.py` | Terminal session management |
 | `md_transforms.py` | Markdown transformation utilities |
+| `audit_helpers.py` | Shared audit utilities (`make_auditor`) |
+| `tool_requirements.py` | Tool requirement checking for missing CLI tools |
 
 ---
 
@@ -333,11 +405,12 @@ once all consumers are migrated.
 
 ## Refactor Status
 
-The codebase is being restructured from ~80 flat files into domain
+The codebase has been restructured from ~80 flat files into 27 domain
 folders. Progress is tracked in `.agent/plans/refactor/`:
 
 - **[Progress Tracker](../../.agent/plans/refactor/02-progress-tracker.md)** — per-domain status
-- **[Revolution Plan](../../.agent/plans/refactor/01-revolution-plan.md)** — execution order and rules
+- **[README Audit](../../.agent/plans/refactor/readme-audit.md)** — per-domain README verification
 
-**Done**: audit, git, vault, secrets, wizard, tool_install/data (recipes, remediation_handlers, tool_failure_handlers)
-**Next**: ci, routes, frontend scripts
+**All 27 domain packages** are complete with `__init__.py` re-exports,
+internal SRP splits, backward-compat shims, and audited README documentation.
+
