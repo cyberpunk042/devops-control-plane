@@ -225,7 +225,13 @@
                 if (statusEl) {
                     statusEl.style.display = 'block';
                     statusEl.style.color = 'var(--error)';
-                    statusEl.textContent = '❌ ' + errMsg;
+                    let html = '❌ ' + esc(errMsg);
+                    if (res.raw_output) {
+                        html += '<pre style="margin-top:8px;padding:8px;background:var(--bg-primary);border-radius:var(--radius-sm);'
+                              + 'font-size:0.72rem;text-align:left;white-space:pre-wrap;word-break:break-all;max-height:120px;overflow:auto">'
+                              + esc(res.raw_output) + '</pre>';
+                    }
+                    statusEl.innerHTML = html;
                 }
                 if (res.raw_output) {
                     console.warn('Device flow raw output:', res.raw_output);

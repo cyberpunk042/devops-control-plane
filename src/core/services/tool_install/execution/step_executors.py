@@ -29,6 +29,7 @@ from src.core.services.tool_install.execution.script_verify import (
     cleanup_script,
 )
 from src.core.services.tool_install.execution.subprocess_runner import _run_subprocess
+from src.core.services.tool_install.resolver.method_selection import _build_pkg_install_cmd
 
 logger = logging.getLogger(__name__)
 

@@ -326,11 +326,31 @@ def gh_auth_device_start(project_root: Path) -> dict:
     answered_enter = False
 
     while time.time() < deadline:
+        # Check if process died early
+        rc = proc.poll()
+        if rc is not None:
+            # Drain remaining output
+            try:
+                while True:
+                    ready, _, _ = select.select([master_fd], [], [], 0)
+                    if not ready:
+                        break
+                    chunk = os.read(master_fd, 4096).decode(errors="replace")
+                    if not chunk:
+                        break
+                    output += chunk
+            except OSError:
+                pass
+            logger.warning("gh process exited early with rc=%d", rc)
+            break
+
         ready, _, _ = select.select([master_fd], [], [], 0.5)
         if ready:
             try:
                 chunk = os.read(master_fd, 4096).decode(errors="replace")
                 output += chunk
+                logger.info("Device flow chunk (%d bytes): %s",
+                            len(chunk), repr(chunk[:200]))
             except OSError:
                 break
 
@@ -346,7 +366,7 @@ def gh_auth_device_start(project_root: Path) -> dict:
             try:
                 os.write(master_fd, b"Y\n")
                 answered_yn = True
-                logger.debug("Device flow: answered Y/n prompt")
+                logger.info("Device flow: answered Y/n prompt")
             except OSError:
                 pass
 
@@ -368,18 +388,22 @@ def gh_auth_device_start(project_root: Path) -> dict:
 
     if not user_code:
         # Failed to extract code — kill the process
-        proc.terminate()
+        exit_code = proc.poll()
+        if exit_code is None:
+            proc.terminate()
+            exit_code = "timeout"
         try:
             os.close(master_fd)
         except OSError:
             pass
         clean = re.sub(r"\x1b\[[0-9;]*[a-zA-Z]", "", output)
-        logger.warning("Could not extract device code from gh output: %s",
-                       clean[:300])
+        logger.warning("Could not extract device code from gh output "
+                       "(exit=%s): %s", exit_code, clean[:500])
         return {
             "ok": False,
             "error": "Could not start device flow",
-            "raw_output": clean[:300],
+            "raw_output": clean[:500],
+            "exit_code": str(exit_code),
         }
 
     # Extract verification URL (default to known URL)
