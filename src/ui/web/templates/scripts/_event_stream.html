@@ -399,8 +399,8 @@
             const data = payload.data || {};
             console.info('[SSE] auth:needed — %s', data.needs || 'unknown');
 
-            // Already aware — don't re-show modal
-            if (_gitAuthStatus && !_gitAuthStatus.ok) return;
+            // Only skip if the auth modal is already displayed
+            if (_gitAuthModalOpen) return;
 
             // Update cached auth status
             _gitAuthStatus = { ok: false, needs: data.needs, remote_url: data.remote_url, ssh_key: data.ssh_key };

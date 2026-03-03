@@ -134,6 +134,9 @@ function _ghGateCancel() {
 
 /** User clicked install — delegate to installWithPlan. */
 function _ghGateInstall() {
+  // Clear onClose BEFORE modalClose() so it doesn't resolve _ensureGhResolve(false)
+  // prematurely — the promise is handed to onComplete/onCancel instead.
+  if (_activeModal) _activeModal.onClose = null;
   modalClose();
   // Small delay to let modal close animation finish
   setTimeout(() => {
