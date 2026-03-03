@@ -8,7 +8,7 @@ Pure data, no logic.
 from __future__ import annotations
 
 
-_GH_HANDLERS: list[dict] = [
+_GH_INSTALL_HANDLERS: list[dict] = [
             # ── GPG key / repo setup failure ─────────────────────
             # The apt/dnf/zypper install requires adding GitHub's
             # official repo + GPG key. This can fail due to network
@@ -116,6 +116,85 @@ _GH_HANDLERS: list[dict] = [
                         "recommended": False,
                         "strategy": "switch_method",
                         "method": "brew",
+                        "risk": "low",
+                    },
+                ],
+            },
+]
+
+_GH_HANDLERS: list[dict] = _GH_INSTALL_HANDLERS + [
+            # ── gh config migration failure (v2.40+ multi-account) ──
+            # gh CLI v2.40+ introduced multi-account support and tries
+            # to migrate old config format to new format. During
+            # migration, it calls the GitHub API to look up the
+            # username. If the API is unreachable (DNS failure, VM
+            # network restrictions), migration fails and ALL gh
+            # commands break with:
+            #   "failed to migrate config: cowardly refusing to
+            #    continue with multi account migration"
+            # This is NOT an install failure — gh is installed and
+            # the binary works. The config file is the problem.
+            {
+                "pattern": (
+                    r"failed to migrate config.*multi account migration|"
+                    r"cowardly refusing to continue.*multi account|"
+                    r"couldn't get user name.*github\.com"
+                ),
+                "failure_id": "gh_config_migration_failed",
+                "category": "configuration",
+                "label": "GitHub CLI config migration failed",
+                "description": (
+                    "The GitHub CLI v2.40+ tries to migrate your config "
+                    "to the new multi-account format. During migration, "
+                    "it calls the GitHub API to look up your username. "
+                    "If the API is unreachable (DNS issues, restricted VM "
+                    "network), migration fails and ALL gh commands break. "
+                    "The fix is to reset the config so gh can start fresh."
+                ),
+                "example_stderr": (
+                    "failed to migrate config: cowardly refusing to "
+                    "continue with multi account migration: couldn't "
+                    "get user name for \"github.com\""
+                ),
+                "options": [
+                    {
+                        "id": "reset-gh-config",
+                        "label": "Reset gh config (back up and recreate)",
+                        "description": (
+                            "Back up the current hosts.yml to "
+                            "hosts.yml.bak, then delete it so gh can "
+                            "start with a fresh config. You will need "
+                            "to re-authenticate after this."
+                        ),
+                        "icon": "🔄",
+                        "recommended": True,
+                        "strategy": "run_command",
+                        "command": [
+                            "bash", "-c",
+                            "GH_DIR=${GH_CONFIG_DIR:-$HOME/.config/gh}"
+                            " && cp -f \"$GH_DIR/hosts.yml\""
+                            " \"$GH_DIR/hosts.yml.bak\" 2>/dev/null;"
+                            " rm -f \"$GH_DIR/hosts.yml\""
+                            " && echo 'Config reset. Ready for re-auth.'",
+                        ],
+                        "risk": "low",
+                    },
+                    {
+                        "id": "use-device-flow",
+                        "label": "Re-authenticate via Browser Auth",
+                        "description": (
+                            "Use the browser-based device flow to "
+                            "authenticate. This creates a fresh token "
+                            "and writes a clean config, bypassing the "
+                            "migration entirely."
+                        ),
+                        "icon": "🌐",
+                        "recommended": False,
+                        "strategy": "manual",
+                        "instructions": (
+                            "Use the Browser Auth option in the GitHub "
+                            "integration card to re-authenticate."
+                        ),
                         "risk": "low",
                     },
                 ],

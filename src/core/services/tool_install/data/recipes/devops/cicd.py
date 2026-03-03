@@ -87,6 +87,27 @@ _CICD_RECIPES: dict[str, dict] = {
         "arch_map": {"x86_64": "amd64", "aarch64": "arm64", "armv7l": "armv6"},
         "prefer": ["apt", "dnf", "apk", "pacman", "zypper", "brew"],
         "verify": ["gh", "--version"],
+        "post_install": [
+            {
+                "label": "Fix gh config migration (v2.40+ multi-account)",
+                "command": [
+                    "bash", "-c",
+                    # Check if gh auth status fails with migration error.
+                    # If so, back up and delete hosts.yml so gh starts fresh.
+                    "if gh auth status 2>&1"
+                    " | grep -q 'failed to migrate config'; then"
+                    "  GH_DIR=${GH_CONFIG_DIR:-$HOME/.config/gh};"
+                    "  cp -f \"$GH_DIR/hosts.yml\""
+                    " \"$GH_DIR/hosts.yml.bak\" 2>/dev/null;"
+                    "  rm -f \"$GH_DIR/hosts.yml\";"
+                    "  echo 'Fixed: reset gh config for v2.40+ migration';"
+                    " else"
+                    "  echo 'No migration issue detected';"
+                    " fi",
+                ],
+                "needs_sudo": False,
+            },
+        ],
         "update": {
             "apt": [
                 "bash", "-c",

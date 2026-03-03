@@ -38,7 +38,21 @@ def requires_gh_auth(fn):  # type: ignore[no-untyped-def]
             _publish_auth_needed(status)
             return jsonify(status), 401
 
-        # 2. Is gh authenticated?
+        # 2. Check local state file first (instant, no network).
+        #    Written by the HTTP device flow on success.
+        from pathlib import Path
+        state_file = Path.home() / ".config" / "devops-cp" / "gh_authenticated"
+        try:
+            if state_file.exists():
+                token = state_file.read_text().strip()
+                if token:
+                    # Token exists — user authenticated via device flow.
+                    # Skip gh auth status (it hangs/fails on restricted VMs).
+                    return fn(*args, **kwargs)
+        except Exception:
+            pass
+
+        # 3. Fallback: check gh auth status (standard Linux)
         import subprocess
         try:
             r = subprocess.run(
