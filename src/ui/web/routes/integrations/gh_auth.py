@@ -75,10 +75,13 @@ def gh_auth_token_route():  # type: ignore[no-untyped-def]
 @integrations_bp.route("/gh/auth/device", methods=["POST"])
 @run_tracked("setup", "setup:gh_device_flow")
 def gh_auth_device_start_route():  # type: ignore[no-untyped-def]
-    """Start a GitHub device flow — returns one-time code + URL."""
+    """Start a GitHub device flow — returns one-time code + URL.
+
+    Always returns 200 so the frontend can inspect raw_output
+    and exit_code from the response body on failure.
+    """
     result = git_ops.gh_auth_device_start(_project_root())
-    status = 200 if result.get("ok") else 400
-    return jsonify(result), status
+    return jsonify(result), 200
 
 
 @integrations_bp.route("/gh/auth/device/poll")

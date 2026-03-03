@@ -226,16 +226,17 @@
                     statusEl.style.display = 'block';
                     statusEl.style.color = 'var(--error)';
                     let html = '❌ ' + esc(errMsg);
-                    if (res.raw_output) {
-                        html += '<pre style="margin-top:8px;padding:8px;background:var(--bg-primary);border-radius:var(--radius-sm);'
-                              + 'font-size:0.72rem;text-align:left;white-space:pre-wrap;word-break:break-all;max-height:120px;overflow:auto">'
-                              + esc(res.raw_output) + '</pre>';
-                    }
+                    // Always show diagnostic details
+                    const diag = [];
+                    if (res.exit_code) diag.push('exit_code: ' + res.exit_code);
+                    if (res.raw_output) diag.push(res.raw_output);
+                    if (diag.length === 0) diag.push('(no output captured from gh)');
+                    html += '<pre style="margin-top:8px;padding:8px;background:var(--bg-primary);border-radius:var(--radius-sm);'
+                          + 'font-size:0.72rem;text-align:left;white-space:pre-wrap;word-break:break-all;max-height:150px;overflow:auto">'
+                          + esc(diag.join('\n')) + '</pre>';
                     statusEl.innerHTML = html;
                 }
-                if (res.raw_output) {
-                    console.warn('Device flow raw output:', res.raw_output);
-                }
+                console.warn('Device flow failed:', res);
                 toast(errMsg, 'error');
             }
         } catch (err) {
