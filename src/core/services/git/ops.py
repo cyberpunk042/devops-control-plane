@@ -149,10 +149,19 @@ def run_git(
     timeout: int = 15,
     check: bool = False,
 ) -> subprocess.CompletedProcess[str]:
-    """Run a git command and return the result."""
+    """Run a git command and return the result.
+
+    Uses ``git_env()`` from the auth module so that SSH agent
+    variables (SSH_AUTH_SOCK, SSH_AGENT_PID) and HTTPS askpass
+    scripts reach the subprocess.
+    """
+    from src.core.services.git.auth import git_env
+
     return subprocess.run(
         ["git", *args],
         cwd=str(cwd),
+        stdin=subprocess.DEVNULL,
+        env=git_env(),
         capture_output=True,
         text=True,
         timeout=timeout,

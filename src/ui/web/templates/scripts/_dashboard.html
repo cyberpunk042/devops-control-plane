@@ -282,7 +282,7 @@
             try { prefs = await _fetchDevopsPrefs(); } catch (_) {}
 
             const integrationMeta = {
-                git:       { icon: '🔀', label: 'Git Repository', wizKey: 'git' },
+                git:       { icon: '🔀', label: 'Git', wizKey: 'git' },
                 docker:    { icon: '🐳', label: 'Docker',         wizKey: 'docker' },
                 github:    { icon: '🐙', label: 'GitHub',         wizKey: 'github' },
                 cicd:      { icon: '⚡', label: 'CI/CD Pipeline', wizKey: 'cicd' },
@@ -347,7 +347,6 @@
                     <span style="font-size:1rem">${meta.icon}</span>
                     <span style="flex:1;font-size:0.82rem;font-weight:500;color:var(--text-primary)">${esc(meta.label)}</span>
                     <span style="font-size:0.68rem;font-weight:600;color:${statusColors[st]}">${statusLabels[st]}</span>
-                    <span id="dash-int-actions-${key}" style="display:flex;gap:4px;align-items:center;margin-left:auto"></span>
                     ${st !== 'ready' && meta.wizKey
                         ? `<button class="btn btn-sm ${isSuggested ? 'btn-primary' : 'btn-secondary'}"
                             onclick="openSetupWizard('${meta.wizKey}')"
@@ -396,54 +395,80 @@
         }
     }
 
-    /** Populate Git quick actions in the dashboard Integration Status row */
+    /** Populate Git status detail below the integration grid */
     async function _dashGitQuickActions(integrations) {
-        const slot = document.getElementById('dash-int-actions-git');
-        if (!slot) return;
         const gitInt = integrations.git || {};
         if (gitInt.status !== 'ready') return;
 
         // Try to get live git status (use cache if available)
-        let gitStatus;
+        let g;
         try {
             const cached = cardCached('git');
             if (cached) {
-                gitStatus = cached;
+                g = cached;
             } else {
-                gitStatus = await api('/git/status');
+                g = await api('/git/status');
             }
         } catch (_) {
-            return; // Can't get status — silently skip quick actions
+            return; // Can't get status — silently skip
         }
 
-        if (!gitStatus || !gitStatus.branch) return;
+        if (!g || !g.branch) return;
 
-        const btnStyle = 'font-size:0.62rem;padding:1px 6px;cursor:pointer';
-        let html = '';
+        // Find the integration grid container and insert a detail panel after it
+        const content = document.getElementById('setup-progress-content');
+        if (!content) return;
 
-        // Branch + state info
-        const branchLabel = gitStatus.branch.length > 16
-            ? gitStatus.branch.slice(0, 15) + '…'
-            : gitStatus.branch;
-        html += `<span style="font-size:0.65rem;color:var(--accent);font-family:var(--font-mono);font-weight:500">${esc(branchLabel)}</span>`;
+        // Remove previous if exists
+        const prev = document.getElementById('dash-git-detail');
+        if (prev) prev.remove();
 
-        if (gitStatus.dirty) {
-            const cnt = (gitStatus.staged_count || 0) + (gitStatus.modified_count || 0) + (gitStatus.untracked_count || 0);
-            html += `<span style="font-size:0.62rem;color:var(--warning)">${cnt}⬡</span>`;
-            html += `<button class="btn btn-sm btn-secondary" onclick="gitCommitModal()" style="${btnStyle}" title="Commit changes">💾</button>`;
+        const syncIcon = !g.dirty ? '✅' : g.total_changes > 0 ? '🟡' : '🟢';
+        const abHtml = (g.ahead || g.behind)
+            ? `${g.ahead ? `<span style="color:var(--warning)">↑${g.ahead}</span>` : ''} ${g.behind ? `<span style="color:var(--warning)">↓${g.behind}</span>` : ''}`
+            : '<span style="color:var(--success)">In sync</span>';
+
+        // Changes breakdown
+        let changesDetail = `${syncIcon} ${g.total_changes || 0} pending`;
+        if (g.staged_count > 0) changesDetail += ` (${g.staged_count} staged)`;
+
+        // Last commit
+        let lastCommitHtml = '—';
+        if (g.last_commit) {
+            const c = g.last_commit;
+            const ago = _timeAgo(c.date);
+            lastCommitHtml = `<code style="color:var(--accent);font-family:var(--font-mono);font-size:0.78rem">${esc(c.short_hash)}</code> <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:200px;display:inline-block;vertical-align:bottom">${esc(c.message)}</span> <span style="color:var(--text-muted)">${ago}</span>`;
         }
 
-        // Always show sync
-        html += `<button class="btn btn-sm btn-primary" onclick="gitSync()" style="${btnStyle}" title="Sync">🔄</button>`;
+        const panel = document.createElement('div');
+        panel.id = 'dash-git-detail';
+        panel.style.cssText = 'margin-top:var(--space-md);padding:var(--space-md);border:1px solid var(--border-subtle);border-radius:var(--radius-sm);background:var(--surface-raised,var(--bg-card))';
+        panel.innerHTML = `
+            <div style="font-weight:600;font-size:0.82rem;margin-bottom:var(--space-sm);display:flex;align-items:center;gap:0.4rem">
+                <span>🔀</span> <span>Git Status</span>
+            </div>
+            <div style="display:grid;grid-template-columns:auto 1fr;gap:4px 12px;font-size:0.8rem">
+                <span style="color:var(--text-muted);font-weight:500">Branch</span>
+                <span style="font-family:var(--font-mono)">${esc(g.branch)}</span>
 
-        if (gitStatus.ahead > 0) {
-            html += `<button class="btn btn-sm btn-secondary" onclick="gitPush()" style="${btnStyle}" title="Push ${gitStatus.ahead} commit(s)">⬆️ ${gitStatus.ahead}</button>`;
-        }
-        if (gitStatus.behind > 0) {
-            html += `<button class="btn btn-sm btn-secondary" onclick="gitPull()" style="${btnStyle}" title="Pull ${gitStatus.behind} commit(s)">⬇️ ${gitStatus.behind}</button>`;
-        }
+                <span style="color:var(--text-muted);font-weight:500">Last commit</span>
+                <span>${lastCommitHtml}</span>
 
-        slot.innerHTML = html;
+                <span style="color:var(--text-muted);font-weight:500">Changes</span>
+                <span>${changesDetail}</span>
+
+                <span style="color:var(--text-muted);font-weight:500">Remote</span>
+                <span>${abHtml}</span>
+            </div>
+            <div style="display:flex;gap:0.5rem;margin-top:var(--space-sm);flex-wrap:wrap">
+                <button class="btn btn-sm btn-primary" onclick="gitSync()" style="font-size:0.72rem">🔄 Sync</button>
+                ${g.dirty ? `<button class="btn btn-sm btn-secondary" onclick="gitCommitModal()" style="font-size:0.72rem">💾 Commit</button>` : ''}
+                ${g.behind > 0 ? `<button class="btn btn-sm btn-secondary" onclick="gitPull()" style="font-size:0.72rem">⬇️ Pull (${g.behind})</button>` : ''}
+                ${g.ahead > 0 ? `<button class="btn btn-sm btn-secondary" onclick="gitPush()" style="font-size:0.72rem">⬆️ Push (${g.ahead})</button>` : ''}
+            </div>
+        `;
+
+        content.appendChild(panel);
     }
 
     // ── 4. Project Grade (simplified health) ──────────────────────────
