@@ -79,3 +79,21 @@ def git_push():  # type: ignore[no-untyped-def]
     if "error" in result:
         return jsonify(result), 400
     return jsonify(result)
+
+
+@integrations_bp.route("/ledger/resolve-conflict", methods=["POST"])
+def ledger_resolve_conflict_route():  # type: ignore[no-untyped-def]
+    """Resolve a ledger rebase conflict.
+
+    JSON body:
+        action: "retry" | "skip" | "reset"
+    """
+    data = request.get_json(silent=True) or {}
+    action = data.get("action", "").strip()
+    if action not in ("retry", "skip", "reset"):
+        return jsonify({"ok": False, "error": "action must be retry, skip, or reset"}), 400
+
+    from src.core.services.ledger.worktree import ledger_resolve_conflict
+    result = ledger_resolve_conflict(_project_root(), action)
+    status = 200 if result.get("ok") else 400
+    return jsonify(result), status

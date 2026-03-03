@@ -131,13 +131,14 @@ def _safe_rebase(project_root: Path, *, label: str = "rebase") -> bool:
         # Set cooldown to prevent retry loop
         _rebase_fail_ts = _time.time()
 
-        # Notify user once
+        # Notify user with resolution options
         try:
             from src.core.services.event_bus import bus
             bus.publish("ledger:conflict", key="rebase", data={
-                "error": "Ledger rebase conflict — remote sync paused for 5 minutes.",
+                "error": "Ledger rebase conflict — remote sync paused.",
                 "detail": stderr[:200] if stderr else "",
                 "label": label,
+                "needs_resolution": True,
             })
         except Exception:
             pass
@@ -153,6 +154,102 @@ def _safe_rebase(project_root: Path, *, label: str = "rebase") -> bool:
         )
 
     return ok
+
+
+def ledger_resolve_conflict(project_root: Path, action: str) -> dict:
+    """Resolve a ledger rebase conflict.
+
+    Args:
+        project_root: Repository root.
+        action: One of:
+          - ``"retry"``  — abort current rebase, fetch fresh, rebase again.
+                           Safest option. With ``.gitattributes`` union merge,
+                           JSONL conflicts auto-resolve. No data loss.
+          - ``"skip"``   — skip the conflicting commit and continue rebase.
+                           The local commit is dropped (message still in file
+                           but won't sync to remote). Moderate risk.
+          - ``"reset"``  — hard-reset local ledger to remote. ALL local
+                           unpushed commits are discarded. Clean state.
+
+    Returns:
+        ``{"ok": True, "message": "..."}`` or ``{"ok": False, "error": "..."}``.
+    """
+    global _rebase_fail_ts
+
+    if action == "retry":
+        # Abort any in-progress rebase
+        _run_ledger_git("rebase", "--abort", project_root=project_root)
+
+        # Fetch latest from remote
+        r = _run_ledger_git(
+            "fetch", "origin",
+            f"+refs/heads/{LEDGER_BRANCH}:refs/remotes/origin/{LEDGER_BRANCH}",
+            project_root=project_root,
+            timeout=30,
+        )
+        if r.returncode != 0:
+            return {"ok": False, "error": f"Fetch failed: {r.stderr.strip()[:200]}"}
+
+        # Clear cooldown and retry rebase
+        _rebase_fail_ts = 0
+        ok = _safe_rebase(project_root, label="conflict_retry")
+        if ok:
+            return {"ok": True, "message": "Rebase succeeded — sync restored."}
+        return {"ok": False, "error": "Rebase still conflicts. Try 'Skip' or 'Reset'."}
+
+    elif action == "skip":
+        # Abort current rebase, then rebase with --skip for conflicting commits
+        _run_ledger_git("rebase", "--abort", project_root=project_root)
+
+        # Fetch + rebase, but this time if it fails, skip
+        _run_ledger_git(
+            "fetch", "origin",
+            f"+refs/heads/{LEDGER_BRANCH}:refs/remotes/origin/{LEDGER_BRANCH}",
+            project_root=project_root,
+            timeout=30,
+        )
+        r = _run_ledger_git(
+            "rebase", f"origin/{LEDGER_BRANCH}",
+            project_root=project_root, timeout=15,
+        )
+        if r.returncode != 0:
+            # Skip the conflicting commit(s)
+            for _ in range(10):  # max 10 skips
+                _run_ledger_git("rebase", "--skip", project_root=project_root, timeout=10)
+                # Check if rebase is done
+                check = _run_ledger_git(
+                    "status", project_root=project_root, timeout=5,
+                )
+                if "rebase in progress" not in check.stdout.lower():
+                    break
+
+        _rebase_fail_ts = 0
+        return {"ok": True, "message": "Conflicting commit(s) skipped — sync restored."}
+
+    elif action == "reset":
+        # Abort any in-progress rebase
+        _run_ledger_git("rebase", "--abort", project_root=project_root)
+
+        # Fetch latest
+        _run_ledger_git(
+            "fetch", "origin",
+            f"+refs/heads/{LEDGER_BRANCH}:refs/remotes/origin/{LEDGER_BRANCH}",
+            project_root=project_root,
+            timeout=30,
+        )
+
+        # Hard reset to remote
+        r = _run_ledger_git(
+            "reset", "--hard", f"origin/{LEDGER_BRANCH}",
+            project_root=project_root, timeout=15,
+        )
+        _rebase_fail_ts = 0
+        if r.returncode == 0:
+            return {"ok": True, "message": "Ledger reset to remote — clean state."}
+        return {"ok": False, "error": f"Reset failed: {r.stderr.strip()[:200]}"}
+
+    else:
+        return {"ok": False, "error": f"Unknown action: {action}"}
 
 
 # ═══════════════════════════════════════════════════════════════════════
