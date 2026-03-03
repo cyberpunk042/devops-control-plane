@@ -14,6 +14,11 @@ logger = logging.getLogger(__name__)
 def requires_gh_auth(fn):  # type: ignore[no-untyped-def]
     """Decorator for Flask routes that require GitHub CLI (gh) installed + authenticated.
 
+    **Transport-aware:** If the project remote is SSH (``git@…``), the gh CLI
+    is not needed — authentication is handled by SSH keys.  The decorator
+    only enforces gh auth when the remote uses HTTPS, which relies on
+    ``gh`` for token-based access.
+
     Checks ``shutil.which('gh')`` and ``gh auth status`` before calling
     the handler.  If gh is missing or not authenticated, the decorator:
 
@@ -31,6 +36,16 @@ def requires_gh_auth(fn):  # type: ignore[no-untyped-def]
     """
     @wraps(fn)
     def wrapper(*args, **kwargs):  # type: ignore[no-untyped-def]
+        # Skip gh auth check when remote is SSH — gh CLI is not needed
+        try:
+            from src.ui.web.helpers import project_root as _project_root
+            from src.core.services.git.auth import get_remote_url
+            remote = get_remote_url(_project_root())
+            if remote.startswith("git@") or remote.startswith("ssh://"):
+                return fn(*args, **kwargs)
+        except Exception:
+            pass  # fall through to normal gh check
+
         # 1. Is gh installed?
         if not shutil.which("gh"):
             status = {"ok": False, "needs": "gh_install",
