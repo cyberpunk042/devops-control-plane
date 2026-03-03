@@ -15,6 +15,7 @@ from src.core.services.chat import (
 )
 from src.core.services.git_auth import is_auth_ok
 from src.ui.web.helpers import project_root as _project_root, requires_git_auth
+from src.ui.web.routes.integrations.gh_helpers import requires_gh_auth
 
 from . import chat_bp
 
@@ -50,6 +51,7 @@ def chat_threads():
 
 
 @chat_bp.route("/chat/threads/create", methods=["POST"])
+@requires_gh_auth
 @requires_git_auth
 def chat_thread_create():
     """Create a new chat thread."""
@@ -85,6 +87,7 @@ def chat_thread_create():
 
 
 @chat_bp.route("/chat/delete-thread", methods=["POST"])
+@requires_gh_auth
 @requires_git_auth
 def chat_delete_thread():
     """Delete an entire thread and all its messages.

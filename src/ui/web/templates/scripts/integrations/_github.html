@@ -22,7 +22,7 @@
                     'Install the gh CLI to manage repositories, pull requests, and CI/CD from here.',
                     'github', 'Set up GitHub →') +
                     cardEmpty('🐙', 'The gh CLI is not installed.',
-                    { label: '📦 Install gh', onclick: "_showSudoInstallModal('gh','gh',this,true)" });
+                    { label: '📦 Install gh', onclick: "ensureGhReady()" });
                 detail.innerHTML = emptyHtml;
                 renderMissingTools(data.missing_tools, 'gh-missing-tools');
                 return;
@@ -43,7 +43,7 @@
                     `Once authenticated: Pull requests, Actions, Environments, Secrets management.</div>`;
                 html += '<div id="gh-missing-tools"></div>';
                 html += cardActionToolbar([
-                    { label: '🔑 Authenticate', onclick: '_showGhAuthModal()', cls: 'btn-primary' },
+                    { label: '🔑 Authenticate', onclick: 'ensureGhReady()', cls: 'btn-primary' },
                     { label: 'Set up GitHub →', icon: '⚙️', onclick: 'openGitHubSetupWizard()' },
                 ]);
                 detail.innerHTML = html;

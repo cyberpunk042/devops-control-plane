@@ -17,6 +17,7 @@ from src.core.services.chat import (
 )
 from src.core.services.git_auth import is_auth_ok
 from src.ui.web.helpers import project_root as _project_root, requires_git_auth
+from src.ui.web.routes.integrations.gh_helpers import requires_gh_auth
 
 from . import chat_bp
 
@@ -72,6 +73,7 @@ def chat_messages():
 
 
 @chat_bp.route("/chat/send", methods=["POST"])
+@requires_gh_auth
 @requires_git_auth
 def chat_send():
     """Send a chat message.
@@ -130,6 +132,7 @@ def chat_send():
 
 
 @chat_bp.route("/chat/delete-message", methods=["POST"])
+@requires_gh_auth
 @requires_git_auth
 def chat_delete_message():
     """Delete a chat message by ID.
@@ -166,6 +169,7 @@ def chat_delete_message():
 
 
 @chat_bp.route("/chat/update-message", methods=["POST"])
+@requires_gh_auth
 @requires_git_auth
 def chat_update_message():
     """Update flags on an existing chat message.
@@ -219,6 +223,7 @@ def chat_update_message():
 
 
 @chat_bp.route("/chat/move-message", methods=["POST"])
+@requires_gh_auth
 @requires_git_auth
 def chat_move_message():
     """Move or copy a message to a different thread.

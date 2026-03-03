@@ -13,6 +13,7 @@ from src.core.services.chat import (
     push_chat,
 )
 from src.ui.web.helpers import project_root as _project_root, requires_git_auth
+from src.ui.web.routes.integrations.gh_helpers import requires_gh_auth
 
 from . import chat_bp
 
@@ -20,6 +21,7 @@ logger = logging.getLogger(__name__)
 
 
 @chat_bp.route("/chat/poll", methods=["POST"])
+@requires_gh_auth
 @requires_git_auth
 def chat_poll():
     """Single poll endpoint: pull remote, return threads + messages.
@@ -82,6 +84,7 @@ def chat_poll():
 
 
 @chat_bp.route("/chat/sync", methods=["POST"])
+@requires_gh_auth
 @requires_git_auth
 def chat_sync():
     """Push and/or pull chat data to/from origin.
