@@ -524,10 +524,30 @@
                         overlay.remove();
                         return;
                     }
-                    // Failed — show error and re-enable buttons so user can try another option
-                    toast(j.error || 'Resolution failed.', 'danger', 8000);
+                    // Failed — show the actual error IN the modal
+                    let errBox = overlay.querySelector('#lc-error-box');
+                    if (!errBox) {
+                        errBox = document.createElement('div');
+                        errBox.id = 'lc-error-box';
+                        // Insert before the buttons
+                        const btnContainer = overlay.querySelector('div > div:last-child');
+                        btnContainer.parentNode.insertBefore(errBox, btnContainer);
+                    }
+                    const errText = (j.error || 'Resolution failed.').replace(/</g, '&lt;');
+                    errBox.innerHTML = `
+                        <div style="margin:0 0 12px;">
+                            <strong style="color:var(--clr-danger,#ef4444);font-size:.9rem;">❌ ${action} failed</strong>
+                            <pre style="background:var(--clr-bg,#111);padding:10px 12px;border-radius:6px;font-size:.75rem;max-height:200px;overflow:auto;margin:6px 0 0;white-space:pre-wrap;word-break:break-word;border:1px solid var(--clr-danger,#ef4444);">${errText}</pre>
+                        </div>`;
                 } catch (e) {
-                    toast('Network error: ' + e.message, 'danger', 8000);
+                    let errBox = overlay.querySelector('#lc-error-box');
+                    if (!errBox) {
+                        errBox = document.createElement('div');
+                        errBox.id = 'lc-error-box';
+                        const btnContainer = overlay.querySelector('div > div:last-child');
+                        btnContainer.parentNode.insertBefore(errBox, btnContainer);
+                    }
+                    errBox.innerHTML = `<p style="color:var(--clr-danger,#ef4444);font-size:.85rem;margin:0 0 12px;">❌ Network error: ${e.message}</p>`;
                 }
                 // Re-enable buttons on failure
                 btns.forEach(b => { b.disabled = false; b.style.opacity = '1'; });

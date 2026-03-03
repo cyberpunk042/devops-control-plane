@@ -89,6 +89,7 @@ import time as _time
 # When rebase fails (e.g., conflict), wait before retrying.
 _rebase_fail_ts: float = 0
 _REBASE_COOLDOWN = 300  # 5 minutes
+_last_rebase_stderr: str = ""
 
 
 def _safe_rebase(project_root: Path, *, label: str = "rebase") -> bool:
@@ -123,7 +124,9 @@ def _safe_rebase(project_root: Path, *, label: str = "rebase") -> bool:
     )
     ok = r.returncode == 0
     if not ok:
+        global _last_rebase_stderr
         stderr = r.stderr.strip()
+        _last_rebase_stderr = stderr
         if stderr:
             logger.warning("Ledger %s issue: %s", label, stderr)
         _run_ledger_git("rebase", "--abort", project_root=project_root)
@@ -196,6 +199,9 @@ def ledger_resolve_conflict(project_root: Path, action: str) -> dict:
             return {"ok": False, "error": msg}
         logger.info("Ledger resolve (retry): fetch succeeded")
 
+        # Ensure .gitattributes exists before rebase (git reads it from working tree)
+        _ensure_ledger_gitattributes(project_root)
+
         # Clear cooldown and retry rebase
         _rebase_fail_ts = 0
         ok = _safe_rebase(project_root, label="conflict_retry")
@@ -203,7 +209,7 @@ def ledger_resolve_conflict(project_root: Path, action: str) -> dict:
             logger.info("Ledger resolve (retry): rebase succeeded — sync restored")
             return {"ok": True, "message": "Rebase succeeded — sync restored."}
         logger.warning("Ledger resolve (retry): rebase still conflicts")
-        return {"ok": False, "error": "Rebase still conflicts. Try 'Skip' or 'Reset'."}
+        return {"ok": False, "error": _last_rebase_stderr or "Rebase failed (no stderr captured)"}
 
     elif action == "skip":
         # Abort current rebase, then rebase with --skip for conflicting commits
@@ -313,7 +319,11 @@ def ensure_worktree(project_root: Path) -> Path:
     if not _worktree_is_valid(project_root):
         _attach_worktree(project_root)
 
-    # 4. Fetch + rebase latest from origin into worktree.
+    # 4. Ensure .gitattributes in worktree BEFORE rebase
+    #    (git reads merge drivers from the working tree)
+    _ensure_ledger_gitattributes(project_root)
+
+    # 5. Fetch + rebase latest from origin into worktree.
     #    We avoid `pull --rebase` because VS Code injects vscode-merge-base
     #    config entries that cause "Cannot rebase onto multiple branches."
     #    Using fetch + rebase bypasses branch tracking config entirely.
@@ -340,14 +350,11 @@ def ensure_worktree(project_root: Path) -> Path:
                     from src.core.services.git.gh_api import check_and_notify_github_outage
                     check_and_notify_github_outage(stderr)
 
-    # 5. Ensure .gitignore contains the entry
+    # 6. Ensure .gitignore contains the entry
     _ensure_gitignore(project_root)
 
-    # 6. Ensure VS Code ignores the worktree repository
+    # 7. Ensure VS Code ignores the worktree repository
     _ensure_vscode_git_ignored(project_root)
-
-    # 7. Ensure .gitattributes in worktree for union merge on JSONL
-    _ensure_ledger_gitattributes(project_root)
 
     return wt
 
