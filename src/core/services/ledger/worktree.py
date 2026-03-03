@@ -453,6 +453,20 @@ def ledger_add_and_commit(project_root: Path, paths: list[str], message: str) ->
         if "nothing to commit" in stderr or "nothing to commit" in r.stdout:
             logger.debug("Nothing to commit in ledger worktree")
             return True
+
+        # Git identity not configured — surface to frontend
+        if "please tell me who you are" in stderr.lower():
+            logger.warning("Git identity not configured — commit blocked")
+            try:
+                from src.core.services.event_bus import bus
+                bus.publish("auth:needed", key="git", data={
+                    "needs": "git_identity",
+                    "error": "Git user.name and user.email are not configured",
+                })
+            except Exception:
+                pass
+            return False
+
         logger.error("Ledger commit failed: %s", stderr)
         return False
     return True

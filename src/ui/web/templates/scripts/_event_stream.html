@@ -410,6 +410,12 @@
                 return;
             }
 
+            // ── Git identity gate ──
+            if (data.needs === 'git_identity') {
+                if (typeof showGitIdentityModal === 'function') showGitIdentityModal();
+                return;
+            }
+
             // ── Git SSH / HTTPS gates ──
             // Only skip if the auth modal is already displayed
             if (_gitAuthModalOpen) return;

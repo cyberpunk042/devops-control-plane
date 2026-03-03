@@ -296,5 +296,102 @@ async function submitGitAuthHTTPS() {
     if (btn) { btn.disabled = false; btn.textContent = 'Save \u2192'; }
   }
 }
+
+// ═══════════════════════════════════════════════════════════════
+// Git Identity Modal — user.name / user.email
+// ═══════════════════════════════════════════════════════════════
+
+let _gitIdentityModalOpen = false;
+
+function showGitIdentityModal() {
+  if (_gitIdentityModalOpen) return;
+  _gitIdentityModalOpen = true;
+
+  const html = `
+    <div style="max-width:420px;margin:0 auto">
+      <div style="text-align:center;margin-bottom:var(--space-md)">
+        <div style="font-size:2rem;margin-bottom:var(--space-xs)">👤</div>
+        <h3 style="margin:0;font-weight:700;color:var(--text)">Git Identity Required</h3>
+        <p style="margin:var(--space-xs) 0 0;font-size:0.82rem;color:var(--text-muted)">
+          Git needs your name and email to create commits.<br>
+          This is used for the chat sync and ledger features.
+        </p>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:var(--space-sm)">
+        <label style="font-size:0.82rem;font-weight:600;color:var(--text)">
+          Name
+          <input type="text" id="git-identity-name"
+                 placeholder="Your Name"
+                 style="width:100%;margin-top:4px;padding:8px 10px;
+                        background:var(--bg-secondary);border:1px solid var(--border);
+                        border-radius:var(--radius-sm);color:var(--text);
+                        font-size:0.88rem">
+        </label>
+        <label style="font-size:0.82rem;font-weight:600;color:var(--text)">
+          Email
+          <input type="email" id="git-identity-email"
+                 placeholder="you@example.com"
+                 style="width:100%;margin-top:4px;padding:8px 10px;
+                        background:var(--bg-secondary);border:1px solid var(--border);
+                        border-radius:var(--radius-sm);color:var(--text);
+                        font-size:0.88rem">
+        </label>
+      </div>
+
+      <div id="git-identity-error" style="color:var(--error);font-size:0.78rem;
+           margin-top:var(--space-xs);min-height:1.2em"></div>
+
+      <div style="display:flex;gap:var(--space-sm);margin-top:var(--space-md);
+                  justify-content:flex-end">
+        <button onclick="_gitIdentityCancel()" class="btn btn-ghost"
+                style="font-size:0.82rem">Cancel</button>
+        <button id="git-identity-save" onclick="_gitIdentitySave()"
+                class="btn btn-primary" style="font-size:0.82rem">
+          Save →
+        </button>
+      </div>
+    </div>
+  `;
+
+  modalShow('Git Identity Setup', html);
+}
+
+function _gitIdentityCancel() {
+  _gitIdentityModalOpen = false;
+  modalClose();
+}
+
+async function _gitIdentitySave() {
+  const nameEl = document.getElementById('git-identity-name');
+  const emailEl = document.getElementById('git-identity-email');
+  const errEl = document.getElementById('git-identity-error');
+  const btn = document.getElementById('git-identity-save');
+  const name = (nameEl?.value || '').trim();
+  const email = (emailEl?.value || '').trim();
+
+  if (!name || !email) {
+    if (errEl) errEl.textContent = 'Both name and email are required';
+    return;
+  }
+
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+  if (errEl) errEl.textContent = '';
+
+  try {
+    const result = await apiPost('/git/identity', { name, email });
+    if (result.ok) {
+      _gitIdentityModalOpen = false;
+      modalClose();
+      toast('👤 Git identity configured — ' + name + ' <' + email + '>', 'success');
+    } else {
+      if (errEl) errEl.textContent = result.error || 'Failed to set identity';
+    }
+  } catch (e) {
+    if (errEl) errEl.textContent = e.message || 'Request failed';
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Save →'; }
+  }
+}
 </script>
 

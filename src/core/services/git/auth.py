@@ -508,3 +508,80 @@ def is_auth_ok() -> bool:
 def is_auth_tested() -> bool:
     """Check if auth has been tested at all this session."""
     return _auth_tested
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  Git identity (user.name / user.email)
+# ═══════════════════════════════════════════════════════════════════
+
+
+def check_git_identity() -> dict:
+    """Check if git user.name and user.email are configured.
+
+    Returns::
+
+        {
+            "ok": bool,       # True if both are set
+            "name": str,      # current user.name (or "")
+            "email": str,     # current user.email (or "")
+            "needs": "git_identity" | None,
+        }
+    """
+    name = ""
+    email = ""
+    try:
+        r = subprocess.run(
+            ["git", "config", "--global", "user.name"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if r.returncode == 0:
+            name = r.stdout.strip()
+    except Exception:
+        pass
+    try:
+        r = subprocess.run(
+            ["git", "config", "--global", "user.email"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if r.returncode == 0:
+            email = r.stdout.strip()
+    except Exception:
+        pass
+
+    ok = bool(name and email)
+    return {
+        "ok": ok,
+        "name": name,
+        "email": email,
+        "needs": None if ok else "git_identity",
+    }
+
+
+def set_git_identity(name: str, email: str) -> dict:
+    """Set git user.name and user.email globally.
+
+    Returns::
+
+        {"ok": True} or {"ok": False, "error": "..."}
+    """
+    errors = []
+    for key, value in [("user.name", name), ("user.email", email)]:
+        if not value.strip():
+            errors.append(f"{key} is required")
+            continue
+        try:
+            r = subprocess.run(
+                ["git", "config", "--global", key, value.strip()],
+                capture_output=True, text=True, timeout=5,
+            )
+            if r.returncode != 0:
+                errors.append(f"Failed to set {key}: {r.stderr.strip()}")
+        except Exception as e:
+            errors.append(f"Failed to set {key}: {e}")
+
+    if errors:
+        return {"ok": False, "error": "; ".join(errors)}
+
+    logger.info("Git identity set: %s <%s>", name.strip(), email.strip())
+    return {"ok": True, "name": name.strip(), "email": email.strip()}
+

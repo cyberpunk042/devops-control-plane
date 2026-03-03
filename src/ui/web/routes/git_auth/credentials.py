@@ -1,4 +1,4 @@
-"""Git auth credentials — auth status check, SSH passphrase, HTTPS token."""
+"""Git auth credentials — auth status check, SSH passphrase, HTTPS token, identity."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ import logging
 from flask import jsonify, request
 
 from src.core.services.git_auth import add_https_credentials, add_ssh_key, check_auth
+from src.core.services.git.auth import check_git_identity, set_git_identity
 from src.ui.web.helpers import project_root as _project_root
 
 from . import git_auth_bp
@@ -86,3 +87,47 @@ def auth_https():
     except Exception as e:
         logger.exception("Failed to store HTTPS credentials")
         return jsonify({"ok": False, "error": str(e)}), 500
+
+
+# ── Git Identity (user.name / user.email) ───────────────────────
+
+
+@git_auth_bp.route("/git/identity")
+def identity_status():
+    """Check if git user.name and user.email are configured.
+
+    Returns JSON with:
+        ok, name, email, needs
+    """
+    try:
+        return jsonify(check_git_identity())
+    except Exception as e:
+        logger.exception("Failed to check git identity")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@git_auth_bp.route("/git/identity", methods=["POST"])
+def identity_set():
+    """Set git user.name and user.email globally.
+
+    Body (JSON):
+        name  — git user.name
+        email — git user.email
+    """
+    try:
+        body = request.get_json(silent=True) or {}
+        name = body.get("name", "").strip()
+        email = body.get("email", "").strip()
+
+        if not name or not email:
+            return jsonify({"ok": False, "error": "Both name and email are required"}), 400
+
+        result = set_git_identity(name, email)
+        if not result.get("ok"):
+            return jsonify(result), 400
+
+        return jsonify(result)
+    except Exception as e:
+        logger.exception("Failed to set git identity")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
