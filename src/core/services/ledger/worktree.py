@@ -308,13 +308,20 @@ def ledger_sync_status(project_root: Path) -> dict:
     if not wt.is_dir():
         return {"status": "no_worktree", "error": "Ledger worktree not found"}
 
-    # Fetch latest (so rev-list is accurate)
-    _run_ledger_git(
-        "fetch", "origin",
-        f"+refs/heads/{LEDGER_BRANCH}:refs/remotes/origin/{LEDGER_BRANCH}",
-        project_root=project_root,
-        timeout=30,
-    )
+    # Fetch latest (so rev-list is accurate) — only if auth is ready
+    from src.core.services.git_auth import is_auth_ok
+    fetch_ok = False
+    if is_auth_ok():
+        try:
+            r = _run_ledger_git(
+                "fetch", "origin",
+                f"+refs/heads/{LEDGER_BRANCH}:refs/remotes/origin/{LEDGER_BRANCH}",
+                project_root=project_root,
+                timeout=30,
+            )
+            fetch_ok = r.returncode == 0
+        except (subprocess.TimeoutExpired, OSError) as e:
+            logger.warning("Ledger sync-status fetch timed out: %s", e)
 
     # Commit counts
     r_local = _run_ledger_git(
