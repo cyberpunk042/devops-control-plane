@@ -521,13 +521,16 @@
                     const j = await r.json();
                     if (j.ok) {
                         toast(j.message || 'Resolved!', 'success', 5000);
-                    } else {
-                        toast(j.error || 'Resolution failed.', 'danger', 8000);
+                        overlay.remove();
+                        return;
                     }
+                    // Failed — show error and re-enable buttons so user can try another option
+                    toast(j.error || 'Resolution failed.', 'danger', 8000);
                 } catch (e) {
                     toast('Network error: ' + e.message, 'danger', 8000);
                 }
-                overlay.remove();
+                // Re-enable buttons on failure
+                btns.forEach(b => { b.disabled = false; b.style.opacity = '1'; });
             };
 
             overlay.querySelector('#lc-retry').onclick = () => resolve('retry');

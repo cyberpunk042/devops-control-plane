@@ -176,9 +176,12 @@ def ledger_resolve_conflict(project_root: Path, action: str) -> dict:
     """
     global _rebase_fail_ts
 
+    logger.info("Ledger conflict resolution: action=%s", action)
+
     if action == "retry":
         # Abort any in-progress rebase
         _run_ledger_git("rebase", "--abort", project_root=project_root)
+        logger.info("Ledger resolve (retry): aborted any in-progress rebase")
 
         # Fetch latest from remote
         r = _run_ledger_git(
@@ -188,18 +191,24 @@ def ledger_resolve_conflict(project_root: Path, action: str) -> dict:
             timeout=30,
         )
         if r.returncode != 0:
-            return {"ok": False, "error": f"Fetch failed: {r.stderr.strip()[:200]}"}
+            msg = f"Fetch failed: {r.stderr.strip()[:200]}"
+            logger.warning("Ledger resolve (retry): %s", msg)
+            return {"ok": False, "error": msg}
+        logger.info("Ledger resolve (retry): fetch succeeded")
 
         # Clear cooldown and retry rebase
         _rebase_fail_ts = 0
         ok = _safe_rebase(project_root, label="conflict_retry")
         if ok:
+            logger.info("Ledger resolve (retry): rebase succeeded — sync restored")
             return {"ok": True, "message": "Rebase succeeded — sync restored."}
+        logger.warning("Ledger resolve (retry): rebase still conflicts")
         return {"ok": False, "error": "Rebase still conflicts. Try 'Skip' or 'Reset'."}
 
     elif action == "skip":
         # Abort current rebase, then rebase with --skip for conflicting commits
         _run_ledger_git("rebase", "--abort", project_root=project_root)
+        logger.info("Ledger resolve (skip): aborted rebase, starting fresh rebase")
 
         # Fetch + rebase, but this time if it fails, skip
         _run_ledger_git(
@@ -213,22 +222,27 @@ def ledger_resolve_conflict(project_root: Path, action: str) -> dict:
             project_root=project_root, timeout=15,
         )
         if r.returncode != 0:
+            logger.info("Ledger resolve (skip): rebase conflict, skipping commit(s)")
             # Skip the conflicting commit(s)
-            for _ in range(10):  # max 10 skips
-                _run_ledger_git("rebase", "--skip", project_root=project_root, timeout=10)
+            for i in range(10):  # max 10 skips
+                skip_r = _run_ledger_git("rebase", "--skip", project_root=project_root, timeout=10)
+                logger.info("Ledger resolve (skip): skip #%d rc=%d", i + 1, skip_r.returncode)
                 # Check if rebase is done
                 check = _run_ledger_git(
                     "status", project_root=project_root, timeout=5,
                 )
                 if "rebase in progress" not in check.stdout.lower():
+                    logger.info("Ledger resolve (skip): rebase completed after %d skip(s)", i + 1)
                     break
 
         _rebase_fail_ts = 0
+        logger.info("Ledger resolve (skip): done — sync restored")
         return {"ok": True, "message": "Conflicting commit(s) skipped — sync restored."}
 
     elif action == "reset":
         # Abort any in-progress rebase
         _run_ledger_git("rebase", "--abort", project_root=project_root)
+        logger.info("Ledger resolve (reset): aborted rebase, fetching remote")
 
         # Fetch latest
         _run_ledger_git(
@@ -245,8 +259,11 @@ def ledger_resolve_conflict(project_root: Path, action: str) -> dict:
         )
         _rebase_fail_ts = 0
         if r.returncode == 0:
+            logger.info("Ledger resolve (reset): hard reset succeeded — clean state")
             return {"ok": True, "message": "Ledger reset to remote — clean state."}
-        return {"ok": False, "error": f"Reset failed: {r.stderr.strip()[:200]}"}
+        msg = f"Reset failed: {r.stderr.strip()[:200]}"
+        logger.warning("Ledger resolve (reset): %s", msg)
+        return {"ok": False, "error": msg}
 
     else:
         return {"ok": False, "error": f"Unknown action: {action}"}
