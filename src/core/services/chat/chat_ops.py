@@ -689,8 +689,10 @@ def push_chat(project_root: Path) -> bool:
     notes_ok = r.returncode == 0
     if not notes_ok:
         stderr = r.stderr.strip()
-        # "everything up-to-date" or "remote rejected" for nonexistent ref are OK
-        if "up-to-date" in stderr.lower() or "everything" in stderr.lower():
+        # "everything up-to-date" or non-existent ref are OK
+        if ("up-to-date" in stderr.lower()
+                or "everything" in stderr.lower()
+                or "does not match any" in stderr.lower()):
             notes_ok = True
         else:
             logger.warning("Chat notes push issue: %s", stderr)
