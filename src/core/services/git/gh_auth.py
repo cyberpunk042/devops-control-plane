@@ -841,7 +841,7 @@ def gh_auth_device_poll_http(
         # Delegate to PTY-based poll
         return gh_auth_device_poll(session_id, project_root)
 
-    # Check timeout (5 minutes)
+    # Check timeout (5 minutes — extended for saving phase)
     if time.time() - session["started"] > 300:
         del _device_sessions[session_id]
         return {
@@ -850,6 +850,25 @@ def gh_auth_device_poll_http(
             "error": "Authentication timed out (5 min)",
         }
 
+    # ── Saving state: gh auth login running in background ──
+    if session.get("state") == "saving":
+        bg_result = session.get("bg_result")
+        if bg_result is not None:
+            # Background thread finished — return final result
+            del _device_sessions[session_id]
+            logger.info("Device flow save complete: authenticated=%s",
+                        bg_result.get("authenticated"))
+            return bg_result
+        else:
+            # Still saving — return progress
+            return {
+                "ok": True,
+                "complete": False,
+                "poll_status": "saving",
+                "message": session.get("message", "Saving token to gh CLI…"),
+            }
+
+    # ── Normal state: poll GitHub for token exchange ──
     device_code = session["device_code"]
 
     body = urllib.parse.urlencode({
@@ -920,58 +939,93 @@ def gh_auth_device_poll_http(
             "error": "GitHub returned empty access token",
         }
 
-    del _device_sessions[session_id]
-
     token_prefix = access_token[:8] + "..." if len(access_token) > 8 else "???"
-    logger.info("HTTP device flow got token: %s (len=%d)", token_prefix, len(access_token))
+    logger.info("Token received: %s (len=%d) — transitioning to saving state",
+                token_prefix, len(access_token))
 
-    # Feed token to gh CLI in background — don't block the poll response.
-    # gh auth login --with-token validates against GitHub API which can
-    # take 10-30s. The token itself is already valid (GitHub gave it to us).
+    # ── Transition session to "saving" state ──
+    # Keep session alive. Frontend continues polling.
+    # Background thread runs gh auth login and updates bg_result.
+    session["state"] = "saving"
+    session["message"] = "Token received — saving to gh CLI…"
+    session["bg_result"] = None
+    # Extend timeout for the saving phase
+    session["started"] = time.time()
+
     import threading
 
     def _bg_gh_login():
+        """Save token to gh CLI. Updates session dict with result."""
         try:
-            if shutil.which("gh"):
-                logger.info("Background: running gh auth login --with-token...")
-                r = run_gh(
-                    "auth", "login",
-                    "--hostname", "github.com",
-                    "--with-token",
-                    cwd=project_root,
-                    timeout=60,
-                    stdin=access_token + "\n",
+            if not shutil.which("gh"):
+                msg = "gh CLI not found in PATH"
+                logger.warning("Save token: %s", msg)
+                session["bg_result"] = {
+                    "ok": False, "complete": True,
+                    "authenticated": False, "error": msg,
+                }
+                return
+
+            session["message"] = "Running gh auth login --with-token…"
+            logger.info("Save token: running gh auth login --with-token…")
+
+            r = run_gh(
+                "auth", "login",
+                "--hostname", "github.com",
+                "--with-token",
+                cwd=project_root,
+                timeout=60,
+                stdin=access_token + "\n",
+            )
+
+            if r.returncode == 0:
+                msg = "Token saved — authenticated"
+                logger.info("Save token: %s", msg)
+                session["bg_result"] = {
+                    "ok": True, "complete": True,
+                    "authenticated": True, "message": msg,
+                }
+            else:
+                detail = r.stderr.strip()[:200]
+                logger.warning("Save token: gh auth login failed (rc=%d): %s",
+                               r.returncode, detail)
+                session["message"] = "gh auth login failed — writing config directly…"
+
+                # Fallback: write directly to gh hosts.yml
+                import os
+                gh_config_dir = Path(os.environ.get(
+                    "GH_CONFIG_DIR",
+                    Path.home() / ".config" / "gh",
+                ))
+                gh_config_dir.mkdir(parents=True, exist_ok=True)
+                hosts_file = gh_config_dir / "hosts.yml"
+                hosts_content = (
+                    "github.com:\n"
+                    f"    oauth_token: {access_token}\n"
+                    "    user: \"\"\n"
+                    "    git_protocol: https\n"
                 )
-                if r.returncode == 0:
-                    logger.info("Background: gh auth login succeeded")
-                else:
-                    logger.warning("Background: gh auth login rc=%d: %s",
-                                   r.returncode, r.stderr.strip())
-                    # Fallback: write directly to gh hosts.yml
-                    import os
-                    gh_config_dir = Path(os.environ.get(
-                        "GH_CONFIG_DIR",
-                        Path.home() / ".config" / "gh",
-                    ))
-                    gh_config_dir.mkdir(parents=True, exist_ok=True)
-                    hosts_file = gh_config_dir / "hosts.yml"
-                    hosts_content = (
-                        "github.com:\n"
-                        f"    oauth_token: {access_token}\n"
-                        "    user: \"\"\n"
-                        "    git_protocol: https\n"
-                    )
-                    hosts_file.write_text(hosts_content)
-                    logger.info("Background: wrote token to %s", hosts_file)
+                hosts_file.write_text(hosts_content)
+                msg = "Token saved to gh config (direct write)"
+                logger.info("Save token: %s (%s)", msg, hosts_file)
+                session["bg_result"] = {
+                    "ok": True, "complete": True,
+                    "authenticated": True, "message": msg,
+                }
+
         except Exception as exc:
-            logger.warning("Background gh login error: %s", exc)
+            msg = f"Save token error: {exc}"
+            logger.warning(msg)
+            session["bg_result"] = {
+                "ok": False, "complete": True,
+                "authenticated": False, "error": str(exc),
+            }
 
     threading.Thread(target=_bg_gh_login, daemon=True).start()
 
-    logger.info("HTTP device flow complete — gh login running in background")
-
     return {
         "ok": True,
-        "complete": True,
-        "authenticated": True,
+        "complete": False,
+        "poll_status": "saving",
+        "message": "Token received — saving to gh CLI…",
     }

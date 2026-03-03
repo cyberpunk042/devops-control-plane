@@ -308,6 +308,12 @@
                         pollInterval = Math.max(pollInterval, 12000);
                         const elapsedEl5 = document.getElementById('ops-device-elapsed');
                         if (elapsedEl5) elapsedEl5.textContent = `Backing off… ${mins > 0 ? mins + 'm ' : ''}${secs}s elapsed`;
+                    } else if (data.poll_status === 'saving') {
+                        // Token received — gh auth login running in background
+                        const pollEl = document.getElementById('ops-device-poll-status');
+                        if (pollEl) pollEl.innerHTML = `<span style="color:var(--info)">💾 ${esc(data.message || 'Saving token…')}</span>`;
+                        const elapsedEl6 = document.getElementById('ops-device-elapsed');
+                        if (elapsedEl6) elapsedEl6.textContent = `${mins > 0 ? mins + 'm ' : ''}${secs}s elapsed`;
                     } else if (data.poll_error) {
                         const elapsedEl2 = document.getElementById('ops-device-elapsed');
                         if (elapsedEl2) elapsedEl2.textContent = '⚠️ ' + data.poll_error;
@@ -797,9 +803,6 @@
                 try { wizInvalidate('detect'); wizInvalidate('gh:detect'); } catch {}
             }
 
-            // Reload the GitHub card — but on Android/restricted platforms,
-            // gh auth status can't reach GitHub so it may still report
-            // unauthenticated. Preserve our authenticated=true override.
             cardInvalidate('github');  // clear sessionStorage
             if (typeof loadGitHubCard === 'function') {
                 const ghDetail = document.getElementById('int-gh-detail');
@@ -807,9 +810,6 @@
                 if (ghDetail) ghDetail.innerHTML = '<span class="spinner"></span>';
                 if (ghBadge) { ghBadge.className = 'status-badge'; ghBadge.textContent = '—'; }
                 await loadGitHubCard();
-                // Re-force authenticated flag after reload (restricted env may
-                // report false because gh auth status can't reach GitHub)
-                if (_ghAuthStatus) _ghAuthStatus.authenticated = true;
             }
         })();
 
