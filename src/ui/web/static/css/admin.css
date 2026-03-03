@@ -1879,6 +1879,69 @@ body {
     font-weight: 600;
 }
 
+.content-preview-rendered blockquote {
+    border-left: 3px solid var(--accent);
+    margin: 0.75em 0;
+    padding: 0.5em 1em;
+    background: rgba(99, 102, 241, 0.06);
+    border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+    color: var(--text-secondary);
+}
+
+.content-preview-rendered blockquote p {
+    margin-bottom: 0.25em;
+}
+
+.content-preview-rendered table {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 1em 0;
+    font-size: 0.88rem;
+    overflow-x: auto;
+    display: block;
+}
+
+.content-preview-rendered thead {
+    background: var(--bg-inset);
+}
+
+.content-preview-rendered th,
+.content-preview-rendered td {
+    border: 1px solid var(--border-subtle);
+    padding: 0.45rem 0.75rem;
+    text-align: left;
+}
+
+.content-preview-rendered th {
+    font-weight: 600;
+    color: var(--text-primary);
+    white-space: nowrap;
+}
+
+.content-preview-rendered tbody tr:nth-child(even) {
+    background: rgba(255, 255, 255, 0.02);
+}
+
+.content-preview-rendered tbody tr:hover {
+    background: rgba(99, 102, 241, 0.05);
+}
+
+.content-preview-rendered ol {
+    padding-left: 1.5em;
+    margin-bottom: 0.75em;
+}
+
+.content-preview-rendered img {
+    max-width: 100%;
+    border-radius: var(--radius-sm);
+    margin: 0.5em 0;
+}
+
+.content-preview-rendered input[type="checkbox"] {
+    margin-right: 0.3em;
+    pointer-events: none;
+}
+
 /* ── Content editor ──────────────────────────────────────────────── */
 
 .content-editor {

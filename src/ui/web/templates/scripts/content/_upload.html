@@ -88,62 +88,92 @@
     // ═════════════════════════════════════════════════════════════════
 
     /**
-     * Basic markdown → HTML renderer.
-     * Handles headers, bold, italic, code blocks, inline code, links, lists, and paragraphs.
+     * Markdown → HTML renderer using marked.js library.
+     * Custom link handling: anchor links (#section) → data-anchor,
+     * relative doc links → data-doclink, external links → target=_blank.
+     * Falls back to basic regex renderer if marked is not loaded.
      */
     function renderMarkdown(md) {
-        let html = esc(md);
+        // ── Use marked.js if available ──────────────────────────────
 
-        // Code blocks (``` ... ```)
-        html = html.replace(/```(\w*)\n([\s\S]*?)```/g, '<pre class="content-preview-code notranslate" translate="no"><code>$2</code></pre>');
+        if (typeof marked !== 'undefined') {
+            const renderer = new marked.Renderer();
 
-        // Headers — generate slug IDs for anchor links (GitHub-compatible)
-        function _slugify(text) {
-            return text.toLowerCase()
-                .replace(/<[^>]+>/g, '')          // strip HTML tags
-                .replace(/&[^;]+;/g, '')          // strip HTML entities
-                .replace(/[^\w\s-]/g, '')          // strip non-word chars (keep hyphens)
-                .trim()
-                .replace(/\s+/g, '-');             // spaces → dashes (preserve consecutive -)
+            // Custom link renderer: preserve data-anchor / data-doclink behavior
+            renderer.link = function({ href, title, text }) {
+                const titleAttr = title ? ` title="${esc(title)}"` : '';
+                if (href.startsWith('#')) {
+                    return `<a href="#" data-anchor="${esc(href.substring(1))}"${titleAttr}>${text}</a>`;
+                }
+                // Relative doc/media links
+                if (!href.startsWith('http://') && !href.startsWith('https://') && !href.startsWith('//')) {
+                    return `<a href="#" data-doclink="${esc(href)}"${titleAttr}>${text}</a>`;
+                }
+                return `<a href="${esc(href)}" target="_blank" rel="noopener"${titleAttr}>${text}</a>`;
+            };
+
+            // Code blocks: add our preview-code class + notranslate
+            renderer.code = function({ text, lang }) {
+                const langClass = lang ? ` language-${esc(lang)}` : '';
+                return `<pre class="content-preview-code notranslate" translate="no"><code class="${langClass}">${esc(text)}</code></pre>`;
+            };
+
+            // Inline code: styled + notranslate
+            renderer.codespan = function({ text }) {
+                return `<code class="notranslate" translate="no" style="background:var(--bg-inset);padding:0.1em 0.3em;border-radius:3px;font-size:0.9em">${text}</code>`;
+            };
+
+            // Images: responsive
+            renderer.image = function({ href, title, text }) {
+                const titleAttr = title ? ` title="${esc(title)}"` : '';
+                return `<img src="${esc(href)}" alt="${esc(text)}"${titleAttr} style="max-width:100%;border-radius:var(--radius-sm)">`;
+            };
+
+            // Headings: generate slug IDs for anchor links
+            renderer.heading = function({ text, depth }) {
+                const slug = text.toLowerCase()
+                    .replace(/<[^>]+>/g, '')
+                    .replace(/&[^;]+;/g, '')
+                    .replace(/[^\w\s-]/g, '')
+                    .trim()
+                    .replace(/\s+/g, '-');
+                return `<h${depth} id="${slug}">${text}</h${depth}>`;
+            };
+
+            // Checkboxes in task lists: disable interaction
+            renderer.checkbox = function({ checked }) {
+                return `<input type="checkbox" ${checked ? 'checked' : ''} disabled style="margin-right:0.3em;pointer-events:none">`;
+            };
+
+            try {
+                return marked.parse(md, {
+                    renderer: renderer,
+                    gfm: true,
+                    breaks: false,
+                });
+            } catch (e) {
+                console.warn('[renderMarkdown] marked.parse failed, falling back:', e);
+            }
         }
-        html = html.replace(/^######\s+(.+)$/gm, (_, t) => `<h6 id="${_slugify(t)}">${t}</h6>`);
-        html = html.replace(/^#####\s+(.+)$/gm, (_, t) => `<h5 id="${_slugify(t)}">${t}</h5>`);
-        html = html.replace(/^####\s+(.+)$/gm, (_, t) => `<h4 id="${_slugify(t)}">${t}</h4>`);
-        html = html.replace(/^###\s+(.+)$/gm, (_, t) => `<h3 id="${_slugify(t)}">${t}</h3>`);
-        html = html.replace(/^##\s+(.+)$/gm, (_, t) => `<h2 id="${_slugify(t)}">${t}</h2>`);
-        html = html.replace(/^#\s+(.+)$/gm, (_, t) => `<h1 id="${_slugify(t)}">${t}</h1>`);
 
-        // Bold and italic
+        // ── Fallback: basic regex renderer ──────────────────────────
+        let html = esc(md);
+        html = html.replace(/```(\w*)\n([\s\S]*?)```/g, '<pre class="content-preview-code notranslate" translate="no"><code>$2</code></pre>');
+        html = html.replace(/^######\s+(.+)$/gm, (_, t) => `<h6>${t}</h6>`);
+        html = html.replace(/^#####\s+(.+)$/gm, (_, t) => `<h5>${t}</h5>`);
+        html = html.replace(/^####\s+(.+)$/gm, (_, t) => `<h4>${t}</h4>`);
+        html = html.replace(/^###\s+(.+)$/gm, (_, t) => `<h3>${t}</h3>`);
+        html = html.replace(/^##\s+(.+)$/gm, (_, t) => `<h2>${t}</h2>`);
+        html = html.replace(/^#\s+(.+)$/gm, (_, t) => `<h1>${t}</h1>`);
         html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
         html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
-
-        // Inline code
-        html = html.replace(/`([^`]+)`/g, '<code class="notranslate" translate="no" style="background:var(--bg-inset);padding:0.1em 0.3em;border-radius:3px;font-size:0.9em">$1</code>');
-
-        // Links — anchor links use data-anchor, doc links use data-doclink
-        html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, text, href) => {
-            if (href.startsWith('#')) {
-                return `<a href="#" data-anchor="${href.substring(1)}">${text}</a>`;
-            }
-            // Relative doc/media links (./file.md, ../other/file.md, file.md)
-            if (!href.startsWith('http://') && !href.startsWith('https://') && !href.startsWith('//')) {
-                return `<a href="#" data-doclink="${href}">${text}</a>`;
-            }
-            return `<a href="${href}" target="_blank" rel="noopener">${text}</a>`;
-        });
-
-        // Unordered lists
+        html = html.replace(/`([^`]+)`/g, '<code style="background:var(--bg-inset);padding:0.1em 0.3em;border-radius:3px;font-size:0.9em">$1</code>');
+        html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>');
         html = html.replace(/^[\-\*]\s+(.+)$/gm, '<li>$1</li>');
         html = html.replace(/((?:<li>.*<\/li>\n?)+)/g, '<ul>$1</ul>');
-
-        // Horizontal rules
         html = html.replace(/^---+$/gm, '<hr>');
-
-        // Line breaks → paragraphs
         html = html.replace(/\n\n/g, '</p><p>');
         html = '<p>' + html + '</p>';
-
-        // Clean up
         html = html.replace(/<p><\/p>/g, '');
         html = html.replace(/<p>\s*(<h[1-6]>)/g, '$1');
         html = html.replace(/(<\/h[1-6]>)\s*<\/p>/g, '$1');
@@ -152,7 +182,6 @@
         html = html.replace(/<p>\s*(<ul>)/g, '$1');
         html = html.replace(/(<\/ul>)\s*<\/p>/g, '$1');
         html = html.replace(/<p>\s*(<hr>)/g, '$1');
-
         return html;
     }
 
