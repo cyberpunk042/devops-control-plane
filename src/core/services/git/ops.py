@@ -28,12 +28,13 @@ _audit = make_auditor("git")
 #  config migration is broken (headless, no dbus-launch, etc).
 #  On normal systems _gh_migration_broken stays False and none of
 #  this is used — run_gh() behaves exactly as before.
+#
+#  Token is stored in:
+#    - os.environ["GH_TOKEN"] (hot-reloaded, immediate effect)
+#    - .env file (persisted, survives server restart)
 # ═══════════════════════════════════════════════════════════════════
 
 _gh_migration_broken: bool = False
-_gh_token_cache: str | None = None
-
-_GH_TOKEN_FILE = Path.home() / ".config" / "devops-cp" / "gh_token"
 
 
 def gh_migration_is_broken() -> bool:
@@ -51,32 +52,90 @@ def set_gh_migration_broken(broken: bool) -> None:
 
 
 def get_stored_gh_token() -> str | None:
-    """Return stored GH token (memory → file fallback)."""
-    global _gh_token_cache
-    if _gh_token_cache:
-        return _gh_token_cache
+    """Return GH_TOKEN from os.environ (which includes .env on startup)."""
+    import os
+    token = os.environ.get("GH_TOKEN", "").strip()
+    if token:
+        return token
+    # Fallback: read .env directly in case os.environ is stale
+    return _read_gh_token_from_dotenv()
+
+
+def _read_gh_token_from_dotenv() -> str | None:
+    """Read GH_TOKEN directly from the project .env file."""
     try:
-        if _GH_TOKEN_FILE.exists():
-            token = _GH_TOKEN_FILE.read_text().strip()
-            if token:
-                _gh_token_cache = token
-                return token
+        # Find project root — look for .env relative to this package
+        # src/core/services/git/ops.py → 4 levels up → project root
+        ops_dir = Path(__file__).resolve().parent
+        project_root = ops_dir.parent.parent.parent.parent
+        env_file = project_root / ".env"
+        if not env_file.exists():
+            return None
+        with open(env_file) as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith("GH_TOKEN="):
+                    value = line.partition("=")[2].strip()
+                    # Strip surrounding quotes
+                    if (
+                        len(value) >= 2
+                        and value[0] == value[-1]
+                        and value[0] in ('"', "'")
+                    ):
+                        value = value[1:-1]
+                    if value:
+                        return value
     except Exception:
         pass
     return None
 
 
-def store_gh_token(token: str) -> None:
-    """Store token in memory and persist to file (600 perms)."""
-    global _gh_token_cache
-    _gh_token_cache = token
+def store_gh_token(token: str, project_root: Path | None = None) -> None:
+    """Store token in os.environ AND persist to .env file.
+
+    Args:
+        token: The GitHub OAuth token.
+        project_root: Project root directory (for .env file).
+                      If None, derived from this file's location.
+    """
+    import os
+
+    # 1. Hot-reload into os.environ — immediate effect
+    os.environ["GH_TOKEN"] = token
+    logger.info("Set GH_TOKEN in os.environ")
+
+    # 2. Persist to .env file
+    if project_root is None:
+        ops_dir = Path(__file__).resolve().parent
+        project_root = ops_dir.parent.parent.parent.parent
+
+    env_file = project_root / ".env"
     try:
-        _GH_TOKEN_FILE.parent.mkdir(parents=True, exist_ok=True)
-        _GH_TOKEN_FILE.write_text(token)
-        _GH_TOKEN_FILE.chmod(0o600)
-        logger.info("Stored GH token to %s", _GH_TOKEN_FILE)
+        if env_file.exists():
+            # Read existing content, replace or append GH_TOKEN
+            lines = env_file.read_text().splitlines()
+            found = False
+            for i, line in enumerate(lines):
+                stripped = line.strip()
+                if stripped.startswith("GH_TOKEN="):
+                    lines[i] = f"GH_TOKEN={token}"
+                    found = True
+                    break
+            if not found:
+                # Append under a comment section
+                lines.append("")
+                lines.append("# ── GitHub Token (auto-managed) ──")
+                lines.append(f"GH_TOKEN={token}")
+            env_file.write_text("\n".join(lines) + "\n")
+        else:
+            # Create .env with just the token
+            env_file.write_text(
+                "# ── GitHub Token (auto-managed) ──\n"
+                f"GH_TOKEN={token}\n"
+            )
+        logger.info("Persisted GH_TOKEN to %s", env_file)
     except Exception as exc:
-        logger.warning("Could not persist GH token to file: %s", exc)
+        logger.warning("Could not persist GH_TOKEN to .env: %s", exc)
 
 
 # ═══════════════════════════════════════════════════════════════════
