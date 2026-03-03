@@ -45,25 +45,24 @@ def gh_status(project_root: Path) -> dict:
         else "unknown"
     )
 
-    # ── Check auth via gh auth status ──
+    # ── Check auth ──
+    # If GH_TOKEN is available (set by device flow into .env),
+    # skip gh auth status entirely — it's broken on headless systems
+    # (migration error) and GH_TOKEN doesn't bypass migration on
+    # all gh versions. The token's presence means auth succeeded.
     authenticated = False
     auth_detail = ""
-    r_auth = run_gh("auth", "status", cwd=project_root, timeout=10)
-    authenticated = r_auth.returncode == 0
-    auth_detail = r_auth.stdout.strip() or r_auth.stderr.strip()
 
-    # gh v2.40+ migration error on headless systems (no dbus-launch).
-    # If we have a stored token, switch to GH_TOKEN mode and retry.
-    if not authenticated and "failed to migrate config" in auth_detail:
-        from src.core.services.git.ops import (
-            get_stored_gh_token,
-            set_gh_migration_broken,
-        )
-        if get_stored_gh_token():
-            set_gh_migration_broken(True)
-            r_auth = run_gh("auth", "status", cwd=project_root, timeout=10)
-            authenticated = r_auth.returncode == 0
-            auth_detail = r_auth.stdout.strip() or r_auth.stderr.strip()
+    from src.core.services.git.ops import get_stored_gh_token
+    gh_token = get_stored_gh_token()
+
+    if gh_token:
+        authenticated = True
+        auth_detail = "Authenticated via GH_TOKEN"
+    else:
+        r_auth = run_gh("auth", "status", cwd=project_root, timeout=10)
+        authenticated = r_auth.returncode == 0
+        auth_detail = r_auth.stdout.strip() or r_auth.stderr.strip()
 
     slug = repo_slug(project_root)
 
