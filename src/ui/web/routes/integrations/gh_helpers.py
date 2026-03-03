@@ -39,13 +39,6 @@ def requires_gh_auth(fn):  # type: ignore[no-untyped-def]
             return jsonify(status), 401
 
         # 2. Is gh authenticated?
-        # If GH_TOKEN is set (device flow saved to .env), skip gh auth status
-        # entirely — it's broken on headless systems and GH_TOKEN can't
-        # bypass migration on all gh versions.
-        from src.core.services.git.ops import get_stored_gh_token
-        if get_stored_gh_token():
-            return fn(*args, **kwargs)
-
         import subprocess
         try:
             r = subprocess.run(
@@ -53,6 +46,13 @@ def requires_gh_auth(fn):  # type: ignore[no-untyped-def]
                 capture_output=True, text=True, timeout=5,
             )
             if r.returncode != 0:
+                stderr = r.stderr.strip()
+                # Migration error on headless systems — fall back to GH_TOKEN
+                if "migration" in stderr.lower():
+                    from src.core.services.git.ops import get_stored_gh_token, set_gh_migration_broken
+                    set_gh_migration_broken(True)
+                    if get_stored_gh_token():
+                        return fn(*args, **kwargs)
                 status = {"ok": False, "needs": "gh_auth",
                           "error": "GitHub CLI is not authenticated"}
                 _publish_auth_needed(status)

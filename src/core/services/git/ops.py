@@ -168,18 +168,18 @@ def run_gh(
 ) -> subprocess.CompletedProcess[str]:
     """Run a gh CLI command and return the result.
 
-    If ``GH_TOKEN`` is available (from .env / device-flow),
-    it is injected into the subprocess env so gh commands
+    On systems where ``gh auth status`` fails due to the migration error,
+    ``GH_TOKEN`` is injected into the subprocess env so gh commands
     authenticate without needing hosts.yml / keyring.
-    On systems without GH_TOKEN this is never activated —
-    run_gh() behaves exactly as before.
+    On normal systems this is never activated — run_gh() behaves as before.
     """
-    # Build env — inject GH_TOKEN when available
+    # Build env — only inject GH_TOKEN when migration is broken
     env = None
-    token = get_stored_gh_token()
-    if token:
-        import os
-        env = {**os.environ, "GH_TOKEN": token}
+    if _gh_migration_broken:
+        token = get_stored_gh_token()
+        if token:
+            import os
+            env = {**os.environ, "GH_TOKEN": token}
 
     try:
         return subprocess.run(

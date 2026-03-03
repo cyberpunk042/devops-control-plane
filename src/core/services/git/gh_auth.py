@@ -961,25 +961,102 @@ def gh_auth_device_poll_http(
     import threading
 
     def _bg_gh_login():
-        """Finalize token storage. Token is already in .env + os.environ.
-
-        On headless systems, hosts.yml causes migration errors.
-        Delete it if present so gh doesn't try to migrate.
-        All gh commands use GH_TOKEN from the environment.
-        """
+        """Save token to gh CLI. Updates session dict with result."""
         try:
+            if not shutil.which("gh"):
+                msg = "gh CLI not found in PATH"
+                logger.warning("Save token: %s", msg)
+                session["bg_result"] = {
+                    "ok": False, "complete": True,
+                    "authenticated": False, "error": msg,
+                }
+                return
+
+            session["message"] = "Running gh auth login --with-token…"
+            logger.info("Save token: running gh auth login --with-token --insecure-storage…")
+
+            r = run_gh(
+                "auth", "login",
+                "--hostname", "github.com",
+                "--with-token",
+                "--insecure-storage",
+                cwd=project_root,
+                timeout=60,
+                stdin=access_token + "\n",
+            )
+
+            if r.returncode == 0:
+                msg = "Token saved — authenticated"
+                logger.info("Save token: %s", msg)
+                session["bg_result"] = {
+                    "ok": True, "complete": True,
+                    "authenticated": True, "message": msg,
+                }
+                return
+
+            # gh auth login failed even with --insecure-storage.
+            # Last resort: write hosts.yml directly using Python's urllib
+            # to get the username for v2.40+ format.
+            detail = r.stderr.strip()[:200]
+            logger.warning("Save token: gh auth login failed (rc=%d): %s",
+                           r.returncode, detail)
+            session["message"] = "gh auth login failed — trying Python fallback…"
+
+            # If migration error, set the flag so run_gh uses GH_TOKEN
+            if "migration" in detail.lower():
+                from src.core.services.git.ops import set_gh_migration_broken
+                set_gh_migration_broken(True)
+
+            # Look up username via Python's urllib
+            username = ""
+            try:
+                api_req = urllib.request.Request(
+                    "https://api.github.com/user",
+                    headers={
+                        "Authorization": f"Bearer {access_token}",
+                        "Accept": "application/json",
+                        "User-Agent": "devops-control-plane",
+                    },
+                )
+                with urllib.request.urlopen(api_req, timeout=15) as resp:
+                    user_data = json.loads(resp.read().decode())
+                    username = user_data.get("login", "")
+                logger.info("Save token: got username '%s' from GitHub API", username)
+            except Exception as api_exc:
+                logger.warning("Save token: could not get username: %s", api_exc)
+
+            if not username:
+                msg = (
+                    "gh auth login failed and could not look up username. "
+                    f"Detail: {detail}"
+                )
+                logger.warning("Save token: %s", msg)
+                session["bg_result"] = {
+                    "ok": False, "complete": True,
+                    "authenticated": False, "error": msg,
+                    "detail": detail,
+                }
+                return
+
+            # Write v2.40+ multi-account format
             import os
             gh_config_dir = Path(os.environ.get(
                 "GH_CONFIG_DIR",
                 Path.home() / ".config" / "gh",
             ))
+            gh_config_dir.mkdir(parents=True, exist_ok=True)
             hosts_file = gh_config_dir / "hosts.yml"
-            if hosts_file.exists():
-                hosts_file.unlink()
-                logger.info("Deleted %s to prevent migration errors", hosts_file)
-
-            msg = "Token saved to .env — authenticated via GH_TOKEN"
-            logger.info("Save token: %s", msg)
+            hosts_content = (
+                "github.com:\n"
+                "    users:\n"
+                f"        {username}:\n"
+                f"            oauth_token: {access_token}\n"
+                f"    user: {username}\n"
+                "    git_protocol: https\n"
+            )
+            hosts_file.write_text(hosts_content)
+            msg = f"Token saved for {username} (v2.40+ format)"
+            logger.info("Save token: %s → %s", msg, hosts_file)
             session["bg_result"] = {
                 "ok": True, "complete": True,
                 "authenticated": True, "message": msg,
@@ -999,5 +1076,5 @@ def gh_auth_device_poll_http(
         "ok": True,
         "complete": False,
         "poll_status": "saving",
-        "message": "Token received — saving…",
+        "message": "Token received — saving to gh CLI…",
     }
