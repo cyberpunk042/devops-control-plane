@@ -88,18 +88,24 @@ function _chatStartPoll() {
     }
 
     _chatPollCycles++;
+    // Capture current thread BEFORE async request
+    const pollThreadId = _chatSelectedThread;
+
     // Show sync indicator
     var syncEl = document.getElementById('chat-sync-indicator');
     if (syncEl) syncEl.style.display = 'inline-flex';
     try {
       // Single combined request: sync + threads + messages
       const poll = await apiPost('/chat/poll', {
-        thread_id: _chatSelectedThread,
+        thread_id: pollThreadId,
         n: 100,
       });
 
       // Hide sync indicator
       if (syncEl) syncEl.style.display = 'none';
+
+      // ── Stale response guard: user switched threads while request was in-flight ──
+      if (_chatSelectedThread !== pollThreadId) return;
 
       // Update thread list
       if (poll.threads) {
