@@ -6479,3 +6479,268 @@ select option {
         display: block;
     }
 }
+
+/* ═══════════════════════════════════════════════════════════════════
+   Git Commit Modal — file list, diff viewer, conventional commits
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ── File list ─────────────────────────────────────────────────────── */
+
+.git-file-list {
+    max-height: 260px;
+    overflow-y: auto;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    margin-bottom: var(--space-md);
+}
+
+.git-file-group-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.35rem 0.75rem;
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-muted);
+    background: var(--bg-inset);
+    border-bottom: 1px solid var(--border-subtle);
+    position: sticky;
+    top: 0;
+    z-index: 1;
+}
+
+.git-file-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.4rem 0.75rem;
+    font-size: 0.78rem;
+    border-bottom: 1px solid var(--border-subtle);
+    cursor: pointer;
+    transition: background 0.1s ease;
+}
+
+.git-file-row:last-child {
+    border-bottom: none;
+}
+
+.git-file-row:hover {
+    background: var(--bg-card-hover);
+}
+
+.git-file-row.active {
+    background: var(--accent-glow);
+    border-left: 2px solid var(--accent);
+}
+
+.git-file-row input[type="checkbox"] {
+    flex-shrink: 0;
+    width: 14px;
+    height: 14px;
+    accent-color: var(--accent);
+}
+
+.git-file-status {
+    flex-shrink: 0;
+    width: 18px;
+    text-align: center;
+    font-size: 0.72rem;
+    font-weight: 700;
+    border-radius: 3px;
+    padding: 1px 3px;
+}
+
+.git-file-status.staged {
+    color: var(--success);
+}
+
+.git-file-status.modified {
+    color: var(--warning);
+}
+
+.git-file-status.untracked {
+    color: var(--text-muted);
+}
+
+.git-file-status.deleted {
+    color: var(--error);
+}
+
+.git-file-path {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    color: var(--text-secondary);
+}
+
+.git-file-stat {
+    flex-shrink: 0;
+    font-size: 0.65rem;
+    font-family: var(--font-mono);
+    display: flex;
+    gap: 0.3rem;
+}
+
+.git-file-stat .ins {
+    color: var(--success);
+}
+
+.git-file-stat .del {
+    color: var(--error);
+}
+
+/* ── Diff viewer ──────────────────────────────────────────────────── */
+
+.git-diff-viewer {
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    margin-bottom: var(--space-md);
+    overflow: hidden;
+}
+
+.git-diff-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.4rem 0.75rem;
+    background: var(--bg-inset);
+    border-bottom: 1px solid var(--border-subtle);
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+}
+
+.git-diff-header .path {
+    font-family: var(--font-mono);
+    font-weight: 500;
+    color: var(--text-primary);
+}
+
+.git-diff-content {
+    max-height: 300px;
+    overflow: auto;
+    background: var(--bg-primary);
+    padding: 0.5rem 0;
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    line-height: 1.55;
+    white-space: pre;
+    tab-size: 4;
+}
+
+.git-diff-line {
+    padding: 0 0.75rem;
+    min-height: 1.55em;
+}
+
+.git-diff-line.addition {
+    color: hsl(142, 76%, 65%);
+    background: hsla(142, 76%, 36%, 0.08);
+}
+
+.git-diff-line.deletion {
+    color: hsl(0, 84%, 70%);
+    background: hsla(0, 84%, 60%, 0.08);
+}
+
+.git-diff-line.hunk {
+    color: var(--accent);
+    font-weight: 600;
+    background: hsla(210, 100%, 62%, 0.06);
+    margin-top: 0.3rem;
+    padding-top: 0.15rem;
+    padding-bottom: 0.15rem;
+}
+
+.git-diff-line.context {
+    color: var(--text-muted);
+}
+
+.git-diff-empty {
+    padding: 2rem;
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 0.78rem;
+    font-family: var(--font-body);
+}
+
+/* ── Conventional commits helper ──────────────────────────────────── */
+
+.git-cc-bar {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    margin-bottom: var(--space-sm);
+    flex-wrap: wrap;
+}
+
+.git-cc-bar select {
+    font-size: 0.78rem;
+    padding: 0.3rem 0.5rem;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-subtle);
+    background: var(--bg-input);
+    color: var(--text-primary);
+    min-width: 110px;
+}
+
+.git-cc-bar input[type="text"] {
+    font-size: 0.78rem;
+    padding: 0.3rem 0.5rem;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-subtle);
+    background: var(--bg-input);
+    color: var(--text-primary);
+    width: 120px;
+}
+
+.git-cc-hint {
+    font-size: 0.68rem;
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    margin-top: var(--space-xs);
+}
+
+.git-cc-hint a {
+    color: var(--accent);
+    text-decoration: none;
+    font-weight: 500;
+}
+
+.git-cc-hint a:hover {
+    text-decoration: underline;
+}
+
+.git-commit-textarea {
+    width: 100%;
+    min-height: 60px;
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    padding: 0.5rem 0.75rem;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-subtle);
+    background: var(--bg-input);
+    color: var(--text-primary);
+    resize: vertical;
+    transition: border-color 0.15s ease;
+}
+
+.git-commit-textarea:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+
+.git-commit-footer-stats {
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    display: flex;
+    gap: 0.75rem;
+    align-items: center;
+}

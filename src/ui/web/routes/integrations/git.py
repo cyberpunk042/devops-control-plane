@@ -1,4 +1,4 @@
-"""Git operations — status, log, commit, pull, push."""
+"""Git operations — status, log, diff, commit, pull, push, stash, merge."""
 
 from __future__ import annotations
 
@@ -76,6 +76,86 @@ def git_push():  # type: ignore[no-untyped-def]
     force = data.get("force", False)
 
     result = git_ops.git_push(_project_root(), force=force)
+    if "error" in result:
+        return jsonify(result), 400
+    return jsonify(result)
+
+
+@integrations_bp.route("/git/diff")
+def git_diff_route():  # type: ignore[no-untyped-def]
+    """Per-file diff summary for staged + unstaged + untracked changes."""
+    return jsonify(git_ops.git_diff(_project_root()))
+
+
+@integrations_bp.route("/git/diff/file")
+def git_diff_file_route():  # type: ignore[no-untyped-def]
+    """Full diff content for a single file."""
+    path = request.args.get("path", "")
+    staged = request.args.get("staged", "") == "1"
+    if not path:
+        return jsonify({"error": "path is required"}), 400
+    return jsonify(git_ops.git_diff_file(_project_root(), path, staged=staged))
+
+
+@integrations_bp.route("/git/stash", methods=["POST"])
+@run_tracked("git", "git:stash")
+def git_stash_route():  # type: ignore[no-untyped-def]
+    """Stash working directory changes."""
+    data = request.get_json(silent=True) or {}
+    message = data.get("message")
+    result = git_ops.git_stash(_project_root(), message=message)
+    if "error" in result:
+        return jsonify(result), 400
+    return jsonify(result)
+
+
+@integrations_bp.route("/git/stash/pop", methods=["POST"])
+@run_tracked("git", "git:stash-pop")
+def git_stash_pop_route():  # type: ignore[no-untyped-def]
+    """Pop the most recent stash."""
+    result = git_ops.git_stash_pop(_project_root())
+    if "error" in result:
+        return jsonify(result), 400
+    return jsonify(result)
+
+
+@integrations_bp.route("/git/stash/list")
+def git_stash_list_route():  # type: ignore[no-untyped-def]
+    """List stash entries."""
+    return jsonify(git_ops.git_stash_list(_project_root()))
+
+
+@integrations_bp.route("/git/merge-status")
+def git_merge_status_route():  # type: ignore[no-untyped-def]
+    """Detect ongoing merge/rebase and list conflicted files."""
+    return jsonify(git_ops.git_merge_status(_project_root()))
+
+
+@integrations_bp.route("/git/merge/abort", methods=["POST"])
+@run_tracked("git", "git:merge-abort")
+def git_merge_abort_route():  # type: ignore[no-untyped-def]
+    """Abort a merge or rebase in progress."""
+    result = git_ops.git_merge_abort(_project_root())
+    if "error" in result:
+        return jsonify(result), 400
+    return jsonify(result)
+
+
+@integrations_bp.route("/git/checkout-file", methods=["POST"])
+@run_tracked("git", "git:checkout-file")
+def git_checkout_file_route():  # type: ignore[no-untyped-def]
+    """Resolve a single conflicted file.
+
+    JSON body:
+        path: file path (required)
+        strategy: "ours" | "theirs" (required)
+    """
+    data = request.get_json(silent=True) or {}
+    path = data.get("path", "").strip()
+    strategy = data.get("strategy", "").strip()
+    if not path or strategy not in ("ours", "theirs"):
+        return jsonify({"error": "path and strategy (ours|theirs) required"}), 400
+    result = git_ops.git_checkout_file(_project_root(), path, strategy)
     if "error" in result:
         return jsonify(result), 400
     return jsonify(result)

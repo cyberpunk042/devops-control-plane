@@ -73,6 +73,7 @@
 
             // ── Actions ──
             html += cardActionToolbar([
+                { label: 'Sync', icon: '🔄', onclick: 'gitSync()' },
                 { label: 'Commit', icon: '💾', onclick: 'gitCommitModal()' },
                 { label: 'Pull', icon: '⬇️', onclick: 'gitPull()' },
                 { label: `Push${data.ahead > 0 ? ' (' + data.ahead + ')' : ''}`, icon: '⬆️', onclick: 'gitPush()', disabled: data.ahead === 0 },
@@ -100,42 +101,239 @@
 
     // ── Git Actions ────────────────────────────────────────────────────
 
-    function gitCommitModal() {
-        const body =
-            `<div class="modal-form-grid">` +
-            modalFormField({
-                name: 'commit-msg', label: 'Commit Message', type: 'text',
-                placeholder: 'feat: describe your change', required: true, fullWidth: true,
-                hint: 'Press Enter to commit'
-            }) +
-            `</div>`;
+    // ── Conventional Commit types ──
+    const _ccTypes = [
+        { value: 'feat',     label: 'feat',     desc: 'A new feature' },
+        { value: 'fix',      label: 'fix',      desc: 'A bug fix' },
+        { value: 'docs',     label: 'docs',     desc: 'Documentation changes' },
+        { value: 'style',    label: 'style',    desc: 'Formatting, whitespace' },
+        { value: 'refactor', label: 'refactor', desc: 'Code restructuring' },
+        { value: 'test',     label: 'test',     desc: 'Adding/fixing tests' },
+        { value: 'chore',    label: 'chore',    desc: 'Maintenance tasks' },
+        { value: 'ci',       label: 'ci',       desc: 'CI/CD changes' },
+        { value: 'build',    label: 'build',    desc: 'Build system changes' },
+        { value: 'perf',     label: 'perf',     desc: 'Performance improvements' },
+    ];
+
+    // State for the commit modal
+    let _commitDiffData = null;
+    let _commitActivePath = null;
+    let _commitOnDone = null;      // callback for gitSync flow
+
+    /**
+     * Full commit modal — shows changed files, inline diff viewer,
+     * conventional commits guidance.
+     *
+     * @param {Object} [opts]
+     * @param {Function} [opts.onDone] — called after successful commit (for sync flow)
+     */
+    async function gitCommitModal(opts) {
+        _commitOnDone = (opts && opts.onDone) || null;
+        _commitDiffData = null;
+        _commitActivePath = null;
 
         modalOpen({
             title: '💾 Commit Changes',
-            body,
-            size: 'narrow',
+            body: '<div style="text-align:center;padding:2rem"><span class="spinner"></span> Loading changes…</div>',
+            size: 'wide',
             footerButtons: [
                 { label: 'Cancel', cls: 'btn-secondary', onclick: 'modalClose()' },
-                { label: 'Commit All', cls: 'btn-primary', id: 'git-commit-btn', onclick: 'doGitCommit()' },
+                { label: 'Commit', cls: 'btn-primary', id: 'git-commit-btn', onclick: 'doGitCommit()', disabled: true },
             ],
         });
 
-        // Focus the input and enable Enter to submit
-        setTimeout(() => {
-            const input = document.getElementById('mf-commit-msg');
-            if (input) {
-                input.focus();
-                input.addEventListener('keydown', e => {
-                    if (e.key === 'Enter') doGitCommit();
-                });
+        try {
+            const diffData = await api('/git/diff');
+            _commitDiffData = diffData;
+
+            if (!diffData.files || diffData.files.length === 0) {
+                const body = document.querySelector('.modal-body');
+                if (body) body.innerHTML = '<div class="git-diff-empty">No changes to commit.</div>';
+                return;
             }
+
+            _renderCommitModalBody(diffData);
+        } catch (e) {
+            const body = document.querySelector('.modal-body');
+            if (body) body.innerHTML = `<div class="modal-inline-error">${esc(e.message)}</div>`;
+        }
+    }
+
+    function _renderCommitModalBody(diffData) {
+        const body = document.querySelector('.modal-body');
+        if (!body) return;
+
+        const files = diffData.files;
+
+        // ── Group files ──
+        const staged = files.filter(f => f.staged);
+        const modified = files.filter(f => !f.staged && f.status !== '?');
+        const untracked = files.filter(f => f.status === '?');
+
+        // ── File list ──
+        let fileListHtml = '<div class="git-file-list" id="git-commit-files">';
+
+        const renderGroup = (label, items, statusCls) => {
+            if (items.length === 0) return '';
+            let html = `<div class="git-file-group-header"><span>${label} (${items.length})</span></div>`;
+            for (const f of items) {
+                const statusLabel = { A: 'A', M: 'M', D: 'D', R: 'R', '?': '?' }[f.status] || f.status;
+                html += `<div class="git-file-row" data-path="${esc(f.path)}" onclick="_commitFileClick(this)">
+                    <input type="checkbox" checked data-file-path="${esc(f.path)}" onclick="event.stopPropagation(); _commitUpdateBtn()">
+                    <span class="git-file-status ${statusCls}">${statusLabel}</span>
+                    <span class="git-file-path" title="${esc(f.path)}">${esc(f.path)}</span>
+                    <span class="git-file-stat">
+                        ${f.insertions > 0 ? `<span class="ins">+${f.insertions}</span>` : ''}
+                        ${f.deletions > 0 ? `<span class="del">-${f.deletions}</span>` : ''}
+                    </span>
+                </div>`;
+            }
+            return html;
+        };
+
+        fileListHtml += renderGroup('Staged', staged, 'staged');
+        fileListHtml += renderGroup('Modified', modified, 'modified');
+        fileListHtml += renderGroup('Untracked', untracked, 'untracked');
+        fileListHtml += '</div>';
+
+        // ── Diff preview ──
+        const diffViewerHtml = `<div id="git-commit-diff" class="git-diff-viewer" style="display:none">
+            <div class="git-diff-header"><span class="path" id="git-diff-path"></span></div>
+            <div class="git-diff-content" id="git-diff-content"></div>
+        </div>`;
+
+        // ── Conventional commits bar ──
+        const typeOptions = _ccTypes.map(t =>
+            `<option value="${t.value}" title="${esc(t.desc)}">${t.label}</option>`
+        ).join('');
+
+        const ccHtml = `<div style="margin-top:var(--space-md)">
+            <div style="font-size:0.78rem;font-weight:600;color:var(--text-primary);margin-bottom:var(--space-xs)">Commit Message</div>
+            <div class="git-cc-bar">
+                <select id="git-cc-type" onchange="_ccUpdateMsg()">${typeOptions}</select>
+                <input type="text" id="git-cc-scope" placeholder="scope (optional)" onchange="_ccUpdateMsg()" oninput="_ccUpdateMsg()">
+            </div>
+            <textarea id="git-cc-desc" class="git-commit-textarea"
+                placeholder="describe your change…"
+                oninput="_ccUpdateMsg()"></textarea>
+            <div class="git-cc-hint">
+                <span>💡</span>
+                <span>Following <a href="https://www.conventionalcommits.org/en/v1.0.0/" target="_blank" rel="noopener">Conventional Commits</a> — format: <code>&lt;type&gt;(&lt;scope&gt;): &lt;description&gt;</code></span>
+            </div>
+            <input type="hidden" id="git-cc-full-msg">
+        </div>`;
+
+        // ── Stats footer ──
+        const statsHtml = `<div class="git-commit-footer-stats" id="git-commit-stats">
+            ${staged.length > 0 ? `<span style="color:var(--success)">${staged.length} staged</span>` : ''}
+            ${modified.length > 0 ? `<span style="color:var(--warning)">${modified.length} modified</span>` : ''}
+            ${untracked.length > 0 ? `<span style="color:var(--text-muted)">${untracked.length} untracked</span>` : ''}
+            <span>+${diffData.total_insertions} / -${diffData.total_deletions}</span>
+        </div>`;
+
+        body.innerHTML = fileListHtml + diffViewerHtml + ccHtml + statsHtml;
+
+        // Enable commit button
+        const btn = document.getElementById('git-commit-btn');
+        if (btn) btn.disabled = false;
+
+        // Focus description
+        setTimeout(() => {
+            const desc = document.getElementById('git-cc-desc');
+            if (desc) desc.focus();
         }, 100);
     }
 
+    /** Click a file row → load its diff preview */
+    async function _commitFileClick(row) {
+        const path = row.dataset.path;
+        if (!path) return;
+
+        // Highlight active row
+        document.querySelectorAll('#git-commit-files .git-file-row').forEach(r => r.classList.remove('active'));
+        row.classList.add('active');
+
+        const viewer = document.getElementById('git-commit-diff');
+        const pathEl = document.getElementById('git-diff-path');
+        const contentEl = document.getElementById('git-diff-content');
+        if (!viewer || !pathEl || !contentEl) return;
+
+        viewer.style.display = '';
+        pathEl.textContent = path;
+        contentEl.innerHTML = '<div style="padding:1rem;text-align:center"><span class="spinner"></span></div>';
+        _commitActivePath = path;
+
+        try {
+            const file = (_commitDiffData?.files || []).find(f => f.path === path);
+            const staged = file ? (file.staged ? '1' : '0') : '0';
+            const data = await api(`/git/diff/file?path=${encodeURIComponent(path)}&staged=${staged}`);
+            // Only render if still showing this file
+            if (_commitActivePath !== path) return;
+            _renderDiffContent(contentEl, data);
+        } catch (e) {
+            contentEl.innerHTML = `<div class="git-diff-empty">${esc(e.message)}</div>`;
+        }
+    }
+
+    /** Render diff text into DOM with syntax coloring */
+    function _renderDiffContent(container, data) {
+        if (data.is_binary) {
+            container.innerHTML = '<div class="git-diff-empty">Binary file — cannot display diff</div>';
+            return;
+        }
+        if (!data.diff) {
+            container.innerHTML = '<div class="git-diff-empty">No changes</div>';
+            return;
+        }
+
+        const lines = data.diff.split('\n');
+        let html = '';
+        for (const line of lines) {
+            let cls = 'context';
+            if (line.startsWith('+')) cls = 'addition';
+            else if (line.startsWith('-')) cls = 'deletion';
+            else if (line.startsWith('@@')) cls = 'hunk';
+            html += `<div class="git-diff-line ${cls}">${esc(line)}</div>`;
+        }
+        container.innerHTML = html;
+    }
+
+    /** Update full message from CC fields */
+    function _ccUpdateMsg() {
+        const type = document.getElementById('git-cc-type')?.value || 'feat';
+        const scope = (document.getElementById('git-cc-scope')?.value || '').trim();
+        const desc = (document.getElementById('git-cc-desc')?.value || '').trim();
+
+        let msg = type;
+        if (scope) msg += `(${scope})`;
+        msg += ': ' + desc;
+
+        const hidden = document.getElementById('git-cc-full-msg');
+        if (hidden) hidden.value = msg;
+    }
+
+    /** Update commit button state based on checked files */
+    function _commitUpdateBtn() {
+        const btn = document.getElementById('git-commit-btn');
+        if (!btn) return;
+        const checked = document.querySelectorAll('#git-commit-files input[type="checkbox"]:checked');
+        btn.disabled = checked.length === 0;
+    }
+
     async function doGitCommit() {
-        const message = mfVal('commit-msg').trim();
-        if (!message) {
-            modalError('Commit message is required');
+        _ccUpdateMsg();
+        const fullMsg = document.getElementById('git-cc-full-msg')?.value || '';
+        const desc = (document.getElementById('git-cc-desc')?.value || '').trim();
+        if (!desc) {
+            modalError('Please enter a commit description');
+            return;
+        }
+
+        // Collect checked files
+        const checkboxes = document.querySelectorAll('#git-commit-files input[type="checkbox"]:checked');
+        const files = Array.from(checkboxes).map(cb => cb.dataset.filePath);
+        if (files.length === 0) {
+            modalError('Select at least one file');
             return;
         }
 
@@ -145,20 +343,94 @@
         try {
             const data = await api('/git/commit', {
                 method: 'POST',
-                body: JSON.stringify({ message }),
+                body: JSON.stringify({ message: fullMsg, files }),
             });
             modalClose();
-            toast(`Committed ${data.hash}: ${message}`, 'success');
+            toast(`Committed ${data.hash}: ${fullMsg}`, 'success');
             cardInvalidate('git');
             await loadGitCard();
+            if (_commitOnDone) _commitOnDone();
         } catch (e) {
             modalError(e.message);
-            if (btn) { btn.disabled = false; btn.textContent = 'Commit All'; }
+            if (btn) { btn.disabled = false; btn.textContent = 'Commit'; }
         }
     }
 
+    // ── Smart Pull ────────────────────────────────────────────────────
+
     async function gitPull() {
         if (!(await ensureGitAuth())) return;
+
+        // Check for dirty state
+        try {
+            const status = await api('/git/status?bust=1');
+            if (status.dirty) {
+                const stash = await _confirmDialog(
+                    '⬇️ Pull — Uncommitted Changes',
+                    'You have local changes. Stash them before pulling?',
+                    'Stash & Pull', 'Pull Anyway'
+                );
+                if (stash === null) return; // cancelled
+                if (stash) {
+                    toast('Stashing changes…', 'info');
+                    try {
+                        await api('/git/stash', { method: 'POST', body: JSON.stringify({ message: 'Auto-stash before pull' }) });
+                    } catch (e) {
+                        toast('Stash failed: ' + e.message, 'error');
+                        return;
+                    }
+                }
+
+                toast('Pulling…', 'info');
+                try {
+                    const pullResult = await api('/git/pull', { method: 'POST', body: '{}' });
+                    toast('Pull complete: ' + (pullResult.output || 'up to date'), 'success');
+                } catch (e) {
+                    if (e.message && (e.message.toLowerCase().includes('conflict') || e.message.includes('CONFLICT'))) {
+                        toast('Pull resulted in conflicts', 'warning');
+                        cardInvalidate('git');
+                        await loadGitCard();
+                        gitConflictModal();
+                        return;
+                    }
+                    toast('Pull failed: ' + e.message, 'error');
+                    return;
+                }
+
+                // Pop stash if we stashed
+                if (stash) {
+                    toast('Restoring stashed changes…', 'info');
+                    try {
+                        const popResult = await api('/git/stash/pop', { method: 'POST', body: '{}' });
+                        if (popResult.conflicts) {
+                            toast('Stash pop had conflicts — resolve manually', 'warning');
+                            cardInvalidate('git');
+                            await loadGitCard();
+                            gitConflictModal();
+                            return;
+                        }
+                        toast('Stashed changes restored', 'success');
+                    } catch (e) {
+                        if (e.message && e.message.toLowerCase().includes('conflict')) {
+                            toast('Stash pop had conflicts', 'warning');
+                            cardInvalidate('git');
+                            await loadGitCard();
+                            gitConflictModal();
+                            return;
+                        }
+                        toast('Stash pop failed: ' + e.message, 'error');
+                    }
+                }
+
+                cardInvalidate('git');
+                await loadGitCard();
+                return;
+            }
+        } catch (_) {
+            // Status check failed — proceed with simple pull
+        }
+
+        // Simple pull (clean state)
         toast('Pulling…', 'info');
         try {
             const data = await api('/git/pull', { method: 'POST', body: '{}' });
@@ -166,12 +438,57 @@
             cardInvalidate('git');
             await loadGitCard();
         } catch (e) {
+            if (e.message && (e.message.toLowerCase().includes('conflict') || e.message.includes('CONFLICT'))) {
+                toast('Pull resulted in conflicts', 'warning');
+                cardInvalidate('git');
+                await loadGitCard();
+                gitConflictModal();
+                return;
+            }
             toast('Pull failed: ' + e.message, 'error');
         }
     }
 
+    // ── Smart Push ───────────────────────────────────────────────────
+
     async function gitPush() {
         if (!(await ensureGitAuth())) return;
+
+        // Check for uncommitted changes
+        try {
+            const status = await api('/git/status?bust=1');
+            if (status.dirty) {
+                const commitFirst = await _confirmDialog(
+                    '⬆️ Push — Uncommitted Changes',
+                    `You have ${status.total_changes} uncommitted change(s). Commit them first?`,
+                    'Commit First', 'Push Without'
+                );
+                if (commitFirst === null) return; // cancelled
+                if (commitFirst) {
+                    gitCommitModal({
+                        onDone: async () => {
+                            toast('Pushing…', 'info');
+                            try {
+                                await api('/git/push', { method: 'POST', body: '{}' });
+                                toast('Push complete', 'success');
+                                cardInvalidate('git');
+                                await loadGitCard();
+                            } catch (e) {
+                                toast('Push failed: ' + e.message, 'error');
+                            }
+                        }
+                    });
+                    return;
+                }
+            }
+            if (!status.dirty && status.ahead === 0) {
+                toast('Nothing to push — already up to date', 'info');
+                return;
+            }
+        } catch (_) {
+            // Status check failed — proceed anyway
+        }
+
         toast('Pushing…', 'info');
         try {
             const data = await api('/git/push', { method: 'POST', body: '{}' });
@@ -181,6 +498,230 @@
         } catch (e) {
             toast('Push failed: ' + e.message, 'error');
         }
+    }
+
+    // ── Sync Flow ────────────────────────────────────────────────────
+
+    async function gitSync() {
+        if (!(await ensureGitAuth())) return;
+        toast('Syncing…', 'info');
+
+        try {
+            // 1) Check status
+            const status = await api('/git/status?bust=1');
+
+            // 2) If dirty → open commit modal and wait
+            if (status.dirty) {
+                gitCommitModal({
+                    onDone: async () => {
+                        // After commit completes, continue sync
+                        await _gitSyncPullPush();
+                    }
+                });
+                return; // commit modal handles the rest
+            }
+
+            // 3) If clean, go straight to pull+push
+            await _gitSyncPullPush();
+
+        } catch (e) {
+            toast('Sync failed: ' + e.message, 'error');
+        }
+    }
+
+    /** Internal: pull then push (called after optional commit in sync flow) */
+    async function _gitSyncPullPush() {
+        try {
+            // Pull first
+            const freshStatus = await api('/git/status?bust=1');
+            if (freshStatus.behind > 0) {
+                toast('Pulling remote changes…', 'info');
+                try {
+                    await api('/git/pull', { method: 'POST', body: '{}' });
+                } catch (e) {
+                    if (e.message && (e.message.toLowerCase().includes('conflict') || e.message.includes('CONFLICT'))) {
+                        toast('Conflicts detected during pull', 'warning');
+                        cardInvalidate('git');
+                        await loadGitCard();
+                        gitConflictModal();
+                        return;
+                    }
+                    toast('Pull failed: ' + e.message, 'error');
+                    return;
+                }
+            }
+
+            // Push
+            const afterPull = await api('/git/status?bust=1');
+            if (afterPull.ahead > 0) {
+                toast('Pushing…', 'info');
+                await api('/git/push', { method: 'POST', body: '{}' });
+            }
+
+            toast('Sync complete ✅', 'success');
+            cardInvalidate('git');
+            await loadGitCard();
+
+        } catch (e) {
+            toast('Sync failed: ' + e.message, 'error');
+        }
+    }
+
+    // ── Merge Conflict Resolution ────────────────────────────────────
+
+    async function gitConflictModal() {
+        modalOpen({
+            title: '⚠️ Merge Conflicts',
+            body: '<div style="text-align:center;padding:2rem"><span class="spinner"></span> Checking conflicts…</div>',
+            size: 'wide',
+            footerButtons: [
+                { label: 'Abort Merge', cls: 'btn-secondary', id: 'git-abort-merge-btn', onclick: '_gitAbortMerge()' },
+                { label: 'Done — Commit Resolution', cls: 'btn-primary', id: 'git-resolve-btn', onclick: '_gitCommitResolution()', disabled: true },
+            ],
+        });
+
+        try {
+            const mergeStatus = await api('/git/merge-status');
+            const body = document.querySelector('.modal-body');
+            if (!body) return;
+
+            if (!mergeStatus.in_progress && mergeStatus.conflicted_files.length === 0) {
+                body.innerHTML = '<div class="git-diff-empty">No merge conflicts detected.</div>';
+                return;
+            }
+
+            const typeLabel = mergeStatus.type === 'rebase' ? 'Rebase' : 'Merge';
+            const files = mergeStatus.conflicted_files;
+
+            let html = `<div style="margin-bottom:var(--space-md)">
+                <div style="font-size:0.88rem;font-weight:600;color:var(--warning);margin-bottom:var(--space-xs)">
+                    ${typeLabel} in progress — ${files.length} conflicted file${files.length !== 1 ? 's' : ''}
+                </div>
+                <div style="font-size:0.75rem;color:var(--text-muted)">
+                    Resolve each file then click "Done" to commit the resolution.
+                </div>
+            </div>`;
+
+            html += '<div id="git-conflict-files">';
+            for (const filePath of files) {
+                html += `<div class="git-file-row" data-conflict-path="${esc(filePath)}" id="conflict-${esc(filePath.replace(/[^a-zA-Z0-9]/g, '-'))}">
+                    <span class="git-file-status" style="color:var(--warning)">⚠️</span>
+                    <span class="git-file-path" title="${esc(filePath)}">${esc(filePath)}</span>
+                    <button class="btn btn-sm btn-secondary" onclick="_gitResolveFile('${esc(filePath)}', 'ours')" style="font-size:0.68rem">Accept Ours</button>
+                    <button class="btn btn-sm btn-secondary" onclick="_gitResolveFile('${esc(filePath)}', 'theirs')" style="font-size:0.68rem">Accept Theirs</button>
+                    <button class="btn btn-sm btn-ghost" onclick="_gitViewConflictDiff('${esc(filePath)}')" style="font-size:0.68rem">View</button>
+                </div>`;
+            }
+            html += '</div>';
+
+            html += `<div id="git-conflict-diff" class="git-diff-viewer" style="display:none;margin-top:var(--space-md)">
+                <div class="git-diff-header"><span class="path" id="git-conflict-diff-path"></span></div>
+                <div class="git-diff-content" id="git-conflict-diff-content"></div>
+            </div>`;
+
+            body.innerHTML = html;
+
+            const resolveBtn = document.getElementById('git-resolve-btn');
+            if (resolveBtn) resolveBtn.disabled = false;
+
+        } catch (e) {
+            const body = document.querySelector('.modal-body');
+            if (body) body.innerHTML = `<div class="modal-inline-error">${esc(e.message)}</div>`;
+        }
+    }
+
+    async function _gitResolveFile(path, strategy) {
+        try {
+            await api('/git/checkout-file', {
+                method: 'POST',
+                body: JSON.stringify({ path, strategy }),
+            });
+            const safeId = 'conflict-' + path.replace(/[^a-zA-Z0-9]/g, '-');
+            const row = document.getElementById(safeId);
+            if (row) {
+                row.style.opacity = '0.5';
+                row.innerHTML = `<span class="git-file-status" style="color:var(--success)">✅</span>
+                    <span class="git-file-path">${esc(path)}</span>
+                    <span style="font-size:0.72rem;color:var(--success)">Resolved (${strategy})</span>`;
+            }
+            toast(`Resolved ${path} → ${strategy}`, 'success');
+        } catch (e) {
+            toast(`Failed to resolve ${path}: ${e.message}`, 'error');
+        }
+    }
+
+    async function _gitViewConflictDiff(path) {
+        const viewer = document.getElementById('git-conflict-diff');
+        const pathEl = document.getElementById('git-conflict-diff-path');
+        const contentEl = document.getElementById('git-conflict-diff-content');
+        if (!viewer || !pathEl || !contentEl) return;
+
+        viewer.style.display = '';
+        pathEl.textContent = path;
+        contentEl.innerHTML = '<div style="padding:1rem;text-align:center"><span class="spinner"></span></div>';
+
+        try {
+            const data = await api(`/git/diff/file?path=${encodeURIComponent(path)}&staged=0`);
+            _renderDiffContent(contentEl, data);
+        } catch (e) {
+            contentEl.innerHTML = `<div class="git-diff-empty">${esc(e.message)}</div>`;
+        }
+    }
+
+    async function _gitAbortMerge() {
+        try {
+            await api('/git/merge/abort', { method: 'POST', body: '{}' });
+            modalClose();
+            toast('Merge aborted', 'info');
+            cardInvalidate('git');
+            await loadGitCard();
+        } catch (e) {
+            toast('Abort failed: ' + e.message, 'error');
+        }
+    }
+
+    async function _gitCommitResolution() {
+        const btn = document.getElementById('git-resolve-btn');
+        if (btn) { btn.disabled = true; btn.textContent = 'Committing…'; }
+
+        try {
+            // Use auto-generated merge commit message
+            await api('/git/commit', {
+                method: 'POST',
+                body: JSON.stringify({ message: 'merge: resolve conflicts' }),
+            });
+            modalClose();
+            toast('Merge resolved and committed', 'success');
+            cardInvalidate('git');
+            await loadGitCard();
+        } catch (e) {
+            modalError(e.message);
+            if (btn) { btn.disabled = false; btn.textContent = 'Done — Commit Resolution'; }
+        }
+    }
+
+    // ── Confirm dialog helper ────────────────────────────────────────
+
+    /**
+     * Show a small confirm dialog via the modal system.
+     * Returns: true = primary, false = secondary, null = cancelled
+     */
+    function _confirmDialog(title, message, primaryLabel, secondaryLabel) {
+        return new Promise(resolve => {
+            // Store resolve on window so onclick handlers can access it
+            window._confirmResolve = resolve;
+
+            modalOpen({
+                title,
+                body: `<div style="font-size:0.88rem;color:var(--text-secondary);padding:var(--space-md) 0">${esc(message)}</div>`,
+                size: 'narrow',
+                footerButtons: [
+                    { label: 'Cancel', cls: 'btn-ghost', onclick: 'window._confirmResolve(null); modalClose()' },
+                    { label: secondaryLabel, cls: 'btn-secondary', onclick: 'window._confirmResolve(false); modalClose()' },
+                    { label: primaryLabel, cls: 'btn-primary', onclick: 'window._confirmResolve(true); modalClose()' },
+                ],
+            });
+        });
     }
 
     async function gitLogModal() {

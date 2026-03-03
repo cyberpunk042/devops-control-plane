@@ -265,7 +265,7 @@
     }
 
 
-    // ── 3. Integration Progress (Setup Progress — unchanged) ──────────
+    // ── 2. Integration Status ──────────────────────────────────────────
 
     async function loadSetupProgress() {
         const badge = document.getElementById('setup-progress-badge');
@@ -321,7 +321,7 @@
             const barColor = pct >= 80 ? 'var(--success)' : pct >= 50 ? 'var(--warning)' : 'var(--accent)';
             html += `<div style="margin-bottom:var(--space-lg)">
                 <div style="display:flex;justify-content:space-between;font-size:0.72rem;color:var(--text-muted);margin-bottom:4px">
-                    <span>Integration progress</span>
+                    <span>Integration status</span>
                     <span>${pct}%</span>
                 </div>
                 <div style="height:6px;background:var(--border-subtle);border-radius:3px;overflow:hidden">
@@ -347,6 +347,7 @@
                     <span style="font-size:1rem">${meta.icon}</span>
                     <span style="flex:1;font-size:0.82rem;font-weight:500;color:var(--text-primary)">${esc(meta.label)}</span>
                     <span style="font-size:0.68rem;font-weight:600;color:${statusColors[st]}">${statusLabels[st]}</span>
+                    <span id="dash-int-actions-${key}" style="display:flex;gap:4px;align-items:center;margin-left:auto"></span>
                     ${st !== 'ready' && meta.wizKey
                         ? `<button class="btn btn-sm ${isSuggested ? 'btn-primary' : 'btn-secondary'}"
                             onclick="openSetupWizard('${meta.wizKey}')"
@@ -386,10 +387,63 @@
 
             content.innerHTML = html;
 
+            // Populate git quick actions asynchronously
+            _dashGitQuickActions(integrations);
+
         } catch (e) {
-            console.warn('Setup progress load failed:', e);
+            console.warn('Integration status load failed:', e);
             content.innerHTML = `<p style="color:var(--text-muted);font-size:0.82rem">Could not load integration status.</p>`;
         }
+    }
+
+    /** Populate Git quick actions in the dashboard Integration Status row */
+    async function _dashGitQuickActions(integrations) {
+        const slot = document.getElementById('dash-int-actions-git');
+        if (!slot) return;
+        const gitInt = integrations.git || {};
+        if (gitInt.status !== 'ready') return;
+
+        // Try to get live git status (use cache if available)
+        let gitStatus;
+        try {
+            const cached = cardCached('git');
+            if (cached) {
+                gitStatus = cached;
+            } else {
+                gitStatus = await api('/git/status');
+            }
+        } catch (_) {
+            return; // Can't get status — silently skip quick actions
+        }
+
+        if (!gitStatus || !gitStatus.branch) return;
+
+        const btnStyle = 'font-size:0.62rem;padding:1px 6px;cursor:pointer';
+        let html = '';
+
+        // Branch + state info
+        const branchLabel = gitStatus.branch.length > 16
+            ? gitStatus.branch.slice(0, 15) + '…'
+            : gitStatus.branch;
+        html += `<span style="font-size:0.65rem;color:var(--accent);font-family:var(--font-mono);font-weight:500">${esc(branchLabel)}</span>`;
+
+        if (gitStatus.dirty) {
+            const cnt = (gitStatus.staged_count || 0) + (gitStatus.modified_count || 0) + (gitStatus.untracked_count || 0);
+            html += `<span style="font-size:0.62rem;color:var(--warning)">${cnt}⬡</span>`;
+            html += `<button class="btn btn-sm btn-secondary" onclick="gitCommitModal()" style="${btnStyle}" title="Commit changes">💾</button>`;
+        }
+
+        // Always show sync
+        html += `<button class="btn btn-sm btn-primary" onclick="gitSync()" style="${btnStyle}" title="Sync">🔄</button>`;
+
+        if (gitStatus.ahead > 0) {
+            html += `<button class="btn btn-sm btn-secondary" onclick="gitPush()" style="${btnStyle}" title="Push ${gitStatus.ahead} commit(s)">⬆️ ${gitStatus.ahead}</button>`;
+        }
+        if (gitStatus.behind > 0) {
+            html += `<button class="btn btn-sm btn-secondary" onclick="gitPull()" style="${btnStyle}" title="Pull ${gitStatus.behind} commit(s)">⬇️ ${gitStatus.behind}</button>`;
+        }
+
+        slot.innerHTML = html;
     }
 
     // ── 4. Project Grade (simplified health) ──────────────────────────

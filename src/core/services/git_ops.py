@@ -15,6 +15,14 @@ from src.core.services.git.ops import (  # noqa: F401
     git_commit,
     git_pull,
     git_push,
+    git_diff,
+    git_diff_file,
+    git_stash,
+    git_stash_pop,
+    git_stash_list,
+    git_merge_status,
+    git_merge_abort,
+    git_checkout_file,
 )
 
 from src.core.services.git.gh_api import (  # noqa: F401
