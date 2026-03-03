@@ -37,6 +37,7 @@ async function checkGhStatus() {
     _ghAuthStatus = { installed: false, authenticated: false, error: e.message };
   }
 }
+let _ensureGhPending = null;  // shared promise when a gate is already open
 
 /**
  * Ensure GitHub CLI is installed and authenticated before a gh operation.
@@ -45,6 +46,7 @@ async function checkGhStatus() {
  *   false → user cancelled / still not ready
  *
  * If gh needs install or auth, shows the appropriate modal and waits.
+ * Re-entrant safe: concurrent callers share the same promise.
  */
 function ensureGhReady() {
   // Already good
@@ -52,8 +54,16 @@ function ensureGhReady() {
     return Promise.resolve(true);
   }
 
-  return new Promise((resolve) => {
-    _ensureGhResolve = resolve;
+  // Already showing the gate — chain to existing promise
+  if (_ensureGhPending) {
+    return _ensureGhPending;
+  }
+
+  _ensureGhPending = new Promise((resolve) => {
+    _ensureGhResolve = (result) => {
+      _ensureGhPending = null;
+      resolve(result);
+    };
 
     if (!_ghAuthStatus) {
       // Status not fetched yet — fetch first
@@ -66,16 +76,17 @@ function ensureGhReady() {
           raw: data,
         };
         if (_ghAuthStatus.installed && _ghAuthStatus.authenticated) {
+          _ensureGhResolve(true);
           _ensureGhResolve = null;
-          resolve(true);
           return;
         }
         _showGhGate();
-      }).catch(() => { _ensureGhResolve = null; resolve(false); });
+      }).catch(() => { _ensureGhResolve(false); _ensureGhResolve = null; });
     } else {
       _showGhGate();
     }
   });
+  return _ensureGhPending;
 }
 
 /**
