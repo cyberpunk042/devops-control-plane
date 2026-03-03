@@ -93,67 +93,22 @@
      * relative doc links → data-doclink, external links → target=_blank.
      * Falls back to basic regex renderer if marked is not loaded.
      */
+
     function renderMarkdown(md) {
         // ── Use marked.js if available ──────────────────────────────
-
         if (typeof marked !== 'undefined') {
-            const renderer = new marked.Renderer();
-
-            // Custom link renderer: preserve data-anchor / data-doclink behavior
-            renderer.link = function({ href, title, text }) {
-                const titleAttr = title ? ` title="${esc(title)}"` : '';
-                if (href.startsWith('#')) {
-                    return `<a href="#" data-anchor="${esc(href.substring(1))}"${titleAttr}>${text}</a>`;
-                }
-                // Relative doc/media links
-                if (!href.startsWith('http://') && !href.startsWith('https://') && !href.startsWith('//')) {
-                    return `<a href="#" data-doclink="${esc(href)}"${titleAttr}>${text}</a>`;
-                }
-                return `<a href="${esc(href)}" target="_blank" rel="noopener"${titleAttr}>${text}</a>`;
-            };
-
-            // Code blocks: add our preview-code class + notranslate
-            renderer.code = function({ text, lang }) {
-                const langClass = lang ? ` language-${esc(lang)}` : '';
-                return `<pre class="content-preview-code notranslate" translate="no"><code class="${langClass}">${esc(text)}</code></pre>`;
-            };
-
-            // Inline code: styled + notranslate
-            renderer.codespan = function({ text }) {
-                return `<code class="notranslate" translate="no" style="background:var(--bg-inset);padding:0.1em 0.3em;border-radius:3px;font-size:0.9em">${text}</code>`;
-            };
-
-            // Images: responsive
-            renderer.image = function({ href, title, text }) {
-                const titleAttr = title ? ` title="${esc(title)}"` : '';
-                return `<img src="${esc(href)}" alt="${esc(text)}"${titleAttr} style="max-width:100%;border-radius:var(--radius-sm)">`;
-            };
-
-            // Headings: generate slug IDs for anchor links
-            renderer.heading = function({ text, depth }) {
-                const slug = text.toLowerCase()
-                    .replace(/<[^>]+>/g, '')
-                    .replace(/&[^;]+;/g, '')
-                    .replace(/[^\w\s-]/g, '')
-                    .trim()
-                    .replace(/\s+/g, '-');
-                return `<h${depth} id="${slug}">${text}</h${depth}>`;
-            };
-
-            // Checkboxes in task lists: disable interaction
-            renderer.checkbox = function({ checked }) {
-                return `<input type="checkbox" ${checked ? 'checked' : ''} disabled style="margin-right:0.3em;pointer-events:none">`;
-            };
-
             try {
-                return marked.parse(md, {
-                    renderer: renderer,
-                    gfm: true,
-                    breaks: false,
-                });
+                // Debug: log that marked is available
+                if (!window._markedLogged) {
+                    console.log('[renderMarkdown] marked loaded:', typeof marked.parse, typeof marked.Marked);
+                    window._markedLogged = true;
+                }
+                return marked.parse(md, { gfm: true, breaks: false });
             } catch (e) {
-                console.warn('[renderMarkdown] marked.parse failed, falling back:', e);
+                console.error('[renderMarkdown] FAILED:', e);
             }
+        } else {
+            console.warn('[renderMarkdown] marked not loaded, using fallback');
         }
 
         // ── Fallback: basic regex renderer ──────────────────────────
