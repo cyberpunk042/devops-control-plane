@@ -75,9 +75,72 @@
 | 30 | **metrics/** | ✅ `metrics/` package (1 module + shim) | ✅ 836 lines | 🟢 |
 | 31a | **env/** | ✅ `env/` package (2 modules + shims) | ✅ 690 lines | 🟢 |
 | 31b | **packages_svc/** | ✅ `packages_svc/` package (2 modules + shims) | ✅ 636 lines | 🟢 |
-| 31c | **routes → folders** | ✅ All routes in domain folders | ❌ Per-domain READMEs missing | 🏗️ |
-| 31d | **CLI → folders** | ✅ All CLI in domain folders | ❌ Per-domain READMEs missing | 🏗️ |
-| 31e | **shared cross-cutting** | ~15 cross-cutting files at services root | ⬜ Evaluate in doc sweep | ⬜ |
+### 31c — Route Domain READMEs (`ui/web/routes/`)
+
+| # | Domain | Files | Lines | README | Status |
+|---|--------|-------|-------|--------|--------|
+| 31c-1 | routes/api | 4 | 230 | ✅ 574 lines | 🟢 |
+| 31c-2 | routes/audit | 7 | 1,840 | ✅ 507 lines | 🟢 |
+| 31c-3 | routes/backup | 5 | 495 | ✅ 616 lines | 🟢 |
+| 31c-4 | routes/chat | 5 | 581 | ✅ 689 lines | 🟢 |
+| 31c-5 | routes/ci | 3 | 88 | ✅ 631 lines | 🟢 |
+| 31c-6 | routes/config | 1 | 83 | ✅ 637 lines | 🟢 |
+| 31c-7 | routes/content | 5 | 864 | ✅ 636 lines | 🟢 |
+| 31c-8 | routes/dev | 1 | 86 | ✅ 568 lines | 🟢 |
+| 31c-9 | routes/devops | 4 | 459 | ✅ 727 lines | 🟢 |
+| 31c-10 | routes/dns | 1 | 78 | ✅ 728 lines | 🟢 |
+| 31c-11 | routes/docker | 6 | 428 | ✅ 864 lines | 🟢 |
+| 31c-12 | routes/docs | 3 | 88 | ✅ 790 lines | 🟢 |
+| 31c-13 | routes/events | 1 | 69 | ✅ 669 lines | 🟢 |
+| 31c-14 | routes/git_auth | 3 | 162 | ✅ 748 lines | 🟢 |
+| 31c-15 | routes/infra | 3 | 134 | ✅ 933 lines | 🟢 |
+| 31c-16 | routes/integrations | 7 | 514 | ✅ 1216 lines | 🟢 |
+| 31c-17 | routes/k8s | 8 | 395 | ✅ 1039 lines | 🟢 |
+| 31c-18 | routes/metrics | 3 | 130 | ✅ 414 lines | 🟢 |
+| 31c-19 | routes/packages | 3 | 119 | ✅ 438 lines | 🟢 |
+| 31c-20 | routes/pages | 3 | 430 | ✅ 839 lines | 🟢 |
+| 31c-21 | routes/project | 1 | 67 | ✅ 382 lines | 🟢 |
+| 31c-22 | routes/quality | 3 | 117 | ✅ 409 lines | 🟢 |
+| 31c-23 | routes/secrets | 3 | 210 | ✅ 528 lines | 🟢 |
+| 31c-24 | routes/security_scan | 3 | 143 | ✅ 423 lines | 🟢 |
+| 31c-25 | routes/terraform | 3 | 182 | ✅ 427 lines | 🟢 |
+| 31c-26 | routes/testing | 3 | 106 | ✅ 382 lines | 🟢 |
+| 31c-27 | routes/trace | 4 | 340 | ✅ 432 lines | 🟢 |
+| 31c-28 | routes/vault | 7 | 421 | ✅ 640 lines | 🟢 |
+
+**Routes total: 28 domains · 28 done · 0 remaining** ✅
+
+### 31d — CLI Domain READMEs (`ui/cli/`)
+
+| # | Domain | Files | Lines | README | Status |
+|---|--------|-------|-------|--------|--------|
+| 31d-1 | cli/audit | 4 | 377 | ✅ 450+ | 🟢 |
+| 31d-2 | cli/backup | 1 | 196 | ✅ exception | 🟢 |
+| 31d-3 | cli/ci | 1 | 236 | ✅ 450+ | 🟢 |
+| 31d-4 | cli/content | 4 | 341 | ✅ 450+ | 🟢 |
+| 31d-5 | cli/dns | 1 | 229 | ✅ 450+ | 🟢 |
+| 31d-6 | cli/docker | 5 | 463 | ✅ 658 | 🟢 |
+| 31d-7 | cli/docs | 1 | 264 | ✅ 489 | 🟢 |
+| 31d-8 | cli/git | 3 | 303 | ✅ 544 | 🟢 |
+| 31d-9 | cli/infra | 4 | 360 | ✅ 503 | 🟢 |
+| 31d-10 | cli/k8s | 4 | 334 | ✅ 538 | 🟢 |
+| 31d-11 | cli/metrics | 1 | 197 | ✅ exception | 🟢 |
+| 31d-12 | cli/packages | 1 | 205 | ✅ 483 | 🟢 |
+| 31d-13 | cli/pages | 4 | 304 | ✅ 556 | 🟢 |
+| 31d-14 | cli/quality | 1 | 221 | ✅ 478 | 🟢 |
+| 31d-15 | cli/secrets | 4 | 385 | ✅ 481 | 🟢 |
+| 31d-16 | cli/security | 4 | 313 | ✅ 451 | 🟢 |
+| 31d-17 | cli/terraform | 4 | 322 | ✅ 491 | 🟢 |
+| 31d-18 | cli/testing | 4 | 341 | ✅ 513 | 🟢 |
+| 31d-19 | cli/vault | 4 | 400 | ✅ 545 | 🟢 |
+
+**CLI total: 19 domains · 19 done · 0 remaining**
+
+### Remaining Items
+
+| # | Domain | Structure | README | Status |
+|---|--------|-----------|--------|--------|
+| 31e | **shared cross-cutting** | 14 cross-cutting files at services root | ✅ 652 lines (CROSS_CUTTING.md) | 🟢 |
 | 32 | **chat/** (existing) | `chat_refs.py` (1,280), `chat_ops.py` (731) | ⬜ Split first | ⬜ |
 | 33 | **generators/** (existing) | `github_workflow.py` (1,081) | ⬜ Split first | ⬜ |
 
@@ -101,9 +164,12 @@
 | Chunk | Items | 🟢 Done | 🏗️ Structure only | ⬜ Not started |
 |-------|-------|---------|-------------------|---------------|
 | Chunk 1 (Recent Concerns) | 19 | 19 | 0 | 0 |
-| Chunk 2 (Remaining Backend) | 18 | 15 | 2 | 3 |
+| Chunk 2 (Backend services) | 15 | 15 | 0 | 0 |
+| 31c (Route READMEs) | 28 | 28 | 0 | 0 |
+| 31d (CLI READMEs) | 19 | 19 | 0 | 0 |
+| Remaining (31e, 32, 33) | 3 | 1 | 0 | 2 |
 | Chunk 3 (Remaining FE + Polish) | 6 | 2 | 0 | 4 |
-| **Total** | **43** | **36** | **2** | **7** |
+| **Total** | **90** | **84** | **0** | **6** |
 
 ### README Queue (in order)
 
