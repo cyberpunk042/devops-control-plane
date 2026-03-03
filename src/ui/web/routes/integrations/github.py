@@ -95,3 +95,13 @@ def gh_user():  # type: ignore[no-untyped-def]
 def gh_repo_info():  # type: ignore[no-untyped-def]
     """Detailed repository information (visibility, description, etc)."""
     return jsonify(git_ops.gh_repo_info(_project_root()))
+
+
+@integrations_bp.route("/github/status")
+def github_operational_status():  # type: ignore[no-untyped-def]
+    """GitHub operational status from githubstatus.com.
+
+    No auth required — queries public status API.
+    """
+    from src.core.services.git.gh_api import check_github_status
+    return jsonify(check_github_status())

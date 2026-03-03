@@ -254,3 +254,144 @@ def gh_repo_info(project_root: Path) -> dict:
         "ssh_url": data.get("sshUrl", ""),
         "homepage_url": data.get("homepageUrl", "") or "",
     }
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  GitHub Status — check githubstatus.com for outages
+# ═══════════════════════════════════════════════════════════════════
+
+import time
+import urllib.request
+
+_gh_status_cache: dict = {}
+_gh_status_cache_ts: float = 0
+_GH_STATUS_CACHE_TTL = 60  # seconds
+
+
+def check_github_status() -> dict:
+    """Check GitHub's operational status via the public API.
+
+    Returns::
+
+        {
+            "status": "operational" | "degraded_performance" | "partial_outage" | "major_outage",
+            "description": "All Systems Operational",
+            "components": {
+                "Git Operations": "major_outage",
+                "API Requests": "operational",
+                ...
+            },
+            "git_operations": "operational" | "degraded_performance" | ...,
+            "degraded": True/False,
+        }
+
+    Caches results for 60 seconds to avoid hammering the API.
+    """
+    global _gh_status_cache, _gh_status_cache_ts
+
+    now = time.time()
+    if _gh_status_cache and (now - _gh_status_cache_ts) < _GH_STATUS_CACHE_TTL:
+        return _gh_status_cache
+
+    try:
+        # Component-level status
+        req = urllib.request.Request(
+            "https://www.githubstatus.com/api/v2/components.json",
+            headers={"Accept": "application/json", "User-Agent": "devops-control-plane"},
+        )
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            data = json.loads(resp.read().decode())
+
+        components = {}
+        git_ops_status = "operational"
+        for comp in data.get("components", []):
+            name = comp.get("name", "")
+            status = comp.get("status", "operational")
+            components[name] = status
+            if name == "Git Operations":
+                git_ops_status = status
+
+        # Overall status
+        req2 = urllib.request.Request(
+            "https://www.githubstatus.com/api/v2/status.json",
+            headers={"Accept": "application/json", "User-Agent": "devops-control-plane"},
+        )
+        with urllib.request.urlopen(req2, timeout=5) as resp2:
+            status_data = json.loads(resp2.read().decode())
+
+        overall = status_data.get("status", {})
+        indicator = overall.get("indicator", "none")
+        description = overall.get("description", "")
+
+        result = {
+            "status": indicator,
+            "description": description,
+            "components": components,
+            "git_operations": git_ops_status,
+            "degraded": indicator != "none" or git_ops_status != "operational",
+        }
+
+        _gh_status_cache = result
+        _gh_status_cache_ts = now
+        return result
+
+    except Exception as exc:
+        logger.debug("Failed to check GitHub status: %s", exc)
+        return {
+            "status": "unknown",
+            "description": "Could not check GitHub status",
+            "components": {},
+            "git_operations": "unknown",
+            "degraded": False,
+        }
+
+
+# Error patterns that suggest a GitHub outage (not a local auth issue)
+_OUTAGE_PATTERNS = [
+    "internal error performing authentication",
+    "no healthy upstream",
+    "upstream connect error",
+    "the requested url returned error: 500",
+    "internal server error",
+    "connection refused",
+    "service unavailable",
+]
+
+
+def check_and_notify_github_outage(git_stderr: str) -> bool:
+    """If git_stderr matches known outage patterns, check GitHub status
+    and publish an SSE event if GitHub is degraded.
+
+    Returns True if a GitHub outage was detected and the user was notified.
+    """
+    stderr_lower = git_stderr.lower()
+
+    # Only check if the error matches known outage patterns
+    if not any(pat in stderr_lower for pat in _OUTAGE_PATTERNS):
+        return False
+
+    status = check_github_status()
+    if not status.get("degraded"):
+        return False
+
+    # Publish SSE event so the frontend can notify the user
+    try:
+        from src.core.services.event_bus import bus
+        bus.publish("github:status", key="outage", data={
+            "status": status["status"],
+            "description": status["description"],
+            "git_operations": status["git_operations"],
+            "message": (
+                f"GitHub is experiencing issues: {status['description']}. "
+                f"Git Operations: {status['git_operations'].replace('_', ' ')}. "
+                "Remote sync may fail until GitHub resolves this."
+            ),
+        })
+    except Exception:
+        pass
+
+    logger.warning(
+        "GitHub outage detected — %s (Git Operations: %s)",
+        status["description"], status["git_operations"],
+    )
+    return True

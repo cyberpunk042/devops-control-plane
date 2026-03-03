@@ -696,6 +696,8 @@ def push_chat(project_root: Path) -> bool:
             notes_ok = True
         else:
             logger.warning("Chat notes push issue: %s", stderr)
+            from src.core.services.git.gh_api import check_and_notify_github_outage
+            check_and_notify_github_outage(stderr)
 
     # Push ledger branch (includes thread files)
     ledger_ok = push_ledger(project_root)
@@ -726,6 +728,8 @@ def pull_chat(project_root: Path) -> bool:
             notes_ok = True  # Notes don't exist on remote yet — fine
         else:
             logger.warning("Chat notes fetch issue: %s", stderr)
+            from src.core.services.git.gh_api import check_and_notify_github_outage
+            check_and_notify_github_outage(stderr)
 
     # Pull ledger branch (includes thread files)
     ledger_ok = pull_ledger(project_root)

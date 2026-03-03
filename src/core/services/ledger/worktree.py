@@ -83,12 +83,29 @@ def _run_main_git(
     )
 
 
+import time as _time
+
+# Rebase cooldown — prevents retrying the same failed rebase every 5 seconds.
+# When rebase fails (e.g., conflict), wait before retrying.
+_rebase_fail_ts: float = 0
+_REBASE_COOLDOWN = 300  # 5 minutes
+
+
 def _safe_rebase(project_root: Path, *, label: str = "rebase") -> bool:
     """Stash → rebase origin/ledger → pop.  Returns True on success.
 
     Wraps the common stash/rebase/pop pattern so uncommitted changes
     (e.g. updated trace metadata) don't block the rebase.
+
+    Includes a cooldown: if a rebase failed recently, skip the attempt
+    to avoid an infinite retry loop on every poll.
     """
+    global _rebase_fail_ts
+
+    # Skip if a recent rebase failed (cooldown active)
+    if _rebase_fail_ts and (_time.time() - _rebase_fail_ts) < _REBASE_COOLDOWN:
+        return False
+
     # Stash uncommitted changes (modified tracked files only —
     # local traces now live outside the worktree in .state/traces/)
     stash_r = _run_ledger_git(
@@ -110,6 +127,23 @@ def _safe_rebase(project_root: Path, *, label: str = "rebase") -> bool:
         if stderr:
             logger.warning("Ledger %s issue: %s", label, stderr)
         _run_ledger_git("rebase", "--abort", project_root=project_root)
+
+        # Set cooldown to prevent retry loop
+        _rebase_fail_ts = _time.time()
+
+        # Notify user once
+        try:
+            from src.core.services.event_bus import bus
+            bus.publish("ledger:conflict", key="rebase", data={
+                "error": "Ledger rebase conflict — remote sync paused for 5 minutes.",
+                "detail": stderr[:200] if stderr else "",
+                "label": label,
+            })
+        except Exception:
+            pass
+    else:
+        # Success — clear any previous cooldown
+        _rebase_fail_ts = 0
 
     # Restore stashed changes
     if did_stash:
@@ -189,6 +223,8 @@ def ensure_worktree(project_root: Path) -> Path:
                     "invalid upstream",
                 )):
                     logger.warning("Ledger fetch in ensure_worktree: %s", stderr)
+                    from src.core.services.git.gh_api import check_and_notify_github_outage
+                    check_and_notify_github_outage(stderr)
 
     # 5. Ensure .gitignore contains the entry
     _ensure_gitignore(project_root)
@@ -611,6 +647,8 @@ def pull_ledger_branch(project_root: Path) -> bool:
         stderr = r.stderr.strip()
         if "no tracking" not in stderr.lower() and "couldn't find remote" not in stderr.lower():
             logger.warning("Ledger fetch issue: %s", stderr)
+            from src.core.services.git.gh_api import check_and_notify_github_outage
+            check_and_notify_github_outage(stderr)
             return False
 
     if not _safe_rebase(project_root, label="fetch_and_rebase"):

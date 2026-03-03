@@ -142,6 +142,8 @@
                 case 'run:started':    this._onRunStarted(payload);   break;
                 case 'run:completed':  this._onRunCompleted(payload); break;
                 case 'auth:needed':    this._onAuthNeeded(payload);   break;
+                case 'github:status':  this._onGithubStatus(payload); break;
+                case 'ledger:conflict': this._onLedgerConflict(payload); break;
                 // sys:warming, sys:warm, sys:heartbeat — silently ignored for now
             }
         },
@@ -430,6 +432,47 @@
             } else if (data.needs === 'https_credentials') {
                 showGitAuthModal('https', 'event');
             }
+        },
+
+        /** GitHub status — outage detected by backend. */
+        _lastGhStatusShown: '',
+        _onGithubStatus(payload) {
+            const data = payload.data || {};
+            console.warn('[SSE] github:status —', data.message || data.description);
+
+            // Only show once per status change (avoid spamming on every poll)
+            const statusKey = `${data.status}:${data.git_operations}`;
+            if (statusKey === this._lastGhStatusShown) return;
+            this._lastGhStatusShown = statusKey;
+
+            // Show a persistent warning toast
+            const gitOps = (data.git_operations || '').replace(/_/g, ' ');
+            const msg = `⚠️ GitHub is experiencing issues — Git Operations: ${gitOps}. Remote sync may fail until GitHub resolves this.`;
+            toast(msg, 'warning', 15000);
+
+            // Also update a banner if the status-bar exists
+            let banner = document.getElementById('github-status-banner');
+            if (!banner) {
+                banner = document.createElement('div');
+                banner.id = 'github-status-banner';
+                banner.style.cssText = 'background: var(--clr-warning, #f59e0b); color: #000; padding: 8px 16px; text-align: center; font-size: 0.85rem; font-weight: 500; position: sticky; top: 0; z-index: 9999;';
+                document.body.prepend(banner);
+            }
+            banner.textContent = `⚠️ GitHub Outage — ${data.description || 'Git Operations degraded'}. Remote sync may be affected.`;
+            banner.style.display = 'block';
+
+            // Auto-hide banner after 2 minutes (status is cached for 60s server-side)
+            setTimeout(() => {
+                if (banner) banner.style.display = 'none';
+                this._lastGhStatusShown = '';
+            }, 120000);
+        },
+
+        /** Ledger rebase conflict — sync paused. */
+        _onLedgerConflict(payload) {
+            const data = payload.data || {};
+            console.warn('[SSE] ledger:conflict —', data.error);
+            toast(data.error || 'Ledger sync conflict — remote sync paused.', 'warning', 10000);
         },
 
         /**
