@@ -7,12 +7,14 @@ from flask import jsonify, request
 from src.core.services import git_ops
 from src.core.services.run_tracker import run_tracked
 from src.ui.web.helpers import project_root as _project_root
+from src.ui.web.routes.integrations.gh_helpers import requires_gh_auth
 
 from . import integrations_bp
 
 
 @integrations_bp.route("/gh/repo/create", methods=["POST"])
 @run_tracked("setup", "setup:gh_repo")
+@requires_gh_auth
 def gh_repo_create():  # type: ignore[no-untyped-def]
     """Create a new GitHub repository."""
     data = request.get_json(silent=True) or {}
@@ -34,6 +36,7 @@ def gh_repo_create():  # type: ignore[no-untyped-def]
 
 @integrations_bp.route("/gh/repo/visibility", methods=["POST"])
 @run_tracked("setup", "setup:gh_visibility")
+@requires_gh_auth
 def gh_repo_set_visibility():  # type: ignore[no-untyped-def]
     """Change repository visibility (public/private)."""
     data = request.get_json(silent=True) or {}
@@ -49,6 +52,7 @@ def gh_repo_set_visibility():  # type: ignore[no-untyped-def]
 
 @integrations_bp.route("/gh/repo/default-branch", methods=["POST"])
 @run_tracked("setup", "setup:gh_default_branch")
+@requires_gh_auth
 def gh_repo_set_default_branch():  # type: ignore[no-untyped-def]
     """Change the default branch on GitHub."""
     data = request.get_json(silent=True) or {}

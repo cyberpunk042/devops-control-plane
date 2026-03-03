@@ -394,11 +394,23 @@
             }
         },
 
-        /** Server detected a git operation that requires auth. */
+        /** Server detected an operation that requires auth. */
         _onAuthNeeded(payload) {
             const data = payload.data || {};
             console.info('[SSE] auth:needed — %s', data.needs || 'unknown');
 
+            // ── GitHub CLI gates ──
+            if (data.needs === 'gh_install' || data.needs === 'gh_auth') {
+                // Update gh status cache, then trigger the gate
+                if (_ghAuthStatus) {
+                    _ghAuthStatus.installed = data.needs !== 'gh_install';
+                    _ghAuthStatus.authenticated = false;
+                }
+                if (typeof ensureGhReady === 'function') ensureGhReady();
+                return;
+            }
+
+            // ── Git SSH / HTTPS gates ──
             // Only skip if the auth modal is already displayed
             if (_gitAuthModalOpen) return;
 

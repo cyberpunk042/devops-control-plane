@@ -8,6 +8,7 @@ from src.core.services import git_ops
 from src.core.services.devops.cache import get_cached
 from src.core.services.run_tracker import run_tracked
 from src.ui.web.helpers import project_root as _project_root
+from src.ui.web.routes.integrations.gh_helpers import requires_gh_auth
 
 from . import integrations_bp
 
@@ -25,6 +26,7 @@ def gh_status_extended():  # type: ignore[no-untyped-def]
 
 
 @integrations_bp.route("/gh/pulls")
+@requires_gh_auth
 def gh_pulls():  # type: ignore[no-untyped-def]
     """List open pull requests."""
     root = _project_root()
@@ -37,6 +39,7 @@ def gh_pulls():  # type: ignore[no-untyped-def]
 
 
 @integrations_bp.route("/gh/actions/runs")
+@requires_gh_auth
 def gh_actions_runs():  # type: ignore[no-untyped-def]
     """Recent workflow run history."""
     root = _project_root()
@@ -51,6 +54,7 @@ def gh_actions_runs():  # type: ignore[no-untyped-def]
 
 @integrations_bp.route("/gh/actions/dispatch", methods=["POST"])
 @run_tracked("ci", "ci:gh_dispatch")
+@requires_gh_auth
 def gh_actions_dispatch():  # type: ignore[no-untyped-def]
     """Trigger a workflow via repository dispatch."""
     data = request.get_json(silent=True) or {}
@@ -67,6 +71,7 @@ def gh_actions_dispatch():  # type: ignore[no-untyped-def]
 
 
 @integrations_bp.route("/gh/actions/workflows")
+@requires_gh_auth
 def gh_actions_workflows():  # type: ignore[no-untyped-def]
     """List available workflows."""
     root = _project_root()
@@ -79,12 +84,14 @@ def gh_actions_workflows():  # type: ignore[no-untyped-def]
 
 
 @integrations_bp.route("/gh/user")
+@requires_gh_auth
 def gh_user():  # type: ignore[no-untyped-def]
     """Currently authenticated GitHub user."""
     return jsonify(git_ops.gh_user(_project_root()))
 
 
 @integrations_bp.route("/gh/repo/info")
+@requires_gh_auth
 def gh_repo_info():  # type: ignore[no-untyped-def]
     """Detailed repository information (visibility, description, etc)."""
     return jsonify(git_ops.gh_repo_info(_project_root()))
