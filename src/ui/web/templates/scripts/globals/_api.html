@@ -57,8 +57,9 @@
                             remote_url: data.remote_url, ssh_key: data.ssh_key };
                         if (!_gitAuthModalOpen) ensureGitAuth();
                     } else if (data.needs === 'gh_install' || data.needs === 'gh_auth') {
-                        // gh CLI auth needed — trigger gh gate
-                        if (typeof ensureGhReady === 'function') ensureGhReady();
+                        // gh CLI auth needed — trigger gh gate (skip during grace period)
+                        if (typeof _ghAuthJustSucceeded !== 'undefined' && _ghAuthJustSucceeded) { /* skip */ }
+                        else if (typeof ensureGhReady === 'function') ensureGhReady();
                     }
                 }
                 throw new Error(data.error || `HTTP ${res.status}`);

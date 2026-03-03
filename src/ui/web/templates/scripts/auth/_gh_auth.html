@@ -49,6 +49,11 @@ let _ensureGhPending = null;  // shared promise when a gate is already open
  * Re-entrant safe: concurrent callers share the same promise.
  */
 function ensureGhReady() {
+  // Grace period after successful auth — don't re-trigger
+  if (typeof _ghAuthJustSucceeded !== 'undefined' && _ghAuthJustSucceeded) {
+    return Promise.resolve(true);
+  }
+
   // Already good
   if (_ghAuthStatus && _ghAuthStatus.installed && _ghAuthStatus.authenticated) {
     return Promise.resolve(true);
