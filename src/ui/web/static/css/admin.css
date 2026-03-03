@@ -1201,7 +1201,6 @@ body {
 }
 
 /* Mobile tab menu elements — hidden on desktop */
-.tabs-active-label,
 .tabs-menu-chevron {
     display: none;
 }
@@ -1226,20 +1225,7 @@ body {
         font-size: 0.88rem;
     }
 
-    /* Show the active tab label + chevron */
-    .tabs-active-label {
-        display: inline;
-        font-size: 0.78rem;
-        font-weight: 500;
-        color: var(--text-muted);
-        margin-left: 0.15rem;
-    }
-
-    .tabs-active-label::before {
-        content: '·';
-        margin-right: 0.3rem;
-        color: var(--border);
-    }
+    /* Show the chevron */
 
     .tabs-menu-chevron {
         display: inline;
