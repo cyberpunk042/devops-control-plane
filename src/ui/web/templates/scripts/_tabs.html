@@ -6,6 +6,30 @@
     let _navDepth = 0;       // how many pushState calls we've made
     let _popstateActive = false; // suppress hashchange during popstate
 
+    // ── Mobile tab menu ─────────────────────────────────────────────────
+
+    function toggleTabsMenu() {
+        // Only toggle on mobile (when the chevron is visible)
+        if (window.innerWidth > 768) return;
+        const nav = document.querySelector('.tabs');
+        nav.classList.toggle('tabs-menu-open');
+    }
+
+    function _closeTabsMenu() {
+        const nav = document.querySelector('.tabs');
+        if (nav) nav.classList.remove('tabs-menu-open');
+    }
+
+    function _updateTabsActiveLabel() {
+        const label = document.getElementById('tabs-active-label');
+        if (!label) return;
+        const activeBtn = document.querySelector('.tabs-group .tab.active');
+        if (activeBtn) {
+            // Extract just the text name (skip the emoji)
+            label.textContent = activeBtn.textContent.trim();
+        }
+    }
+
     function switchTab(tabId, { fromPopstate = false } = {}) {
         // Guard unsaved editor changes before navigating away
         if (typeof monacoIsDirty === 'function' && monacoIsDirty()) {
@@ -44,6 +68,10 @@
         }
 
         activeTab = tabId;
+
+        // Close mobile menu + update label
+        _closeTabsMenu();
+        _updateTabsActiveLabel();
 
         // Stop chat poll when leaving the content tab
         if (typeof _chatCleanup === 'function' && tabId !== 'content') {
@@ -99,6 +127,7 @@
         } else {
             history.replaceState({ tab: 'dashboard', depth: 0 }, '', '#dashboard');
         }
+        _updateTabsActiveLabel();
     }
 
     // Handle back/forward navigation

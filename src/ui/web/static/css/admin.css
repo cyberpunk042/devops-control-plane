@@ -1200,6 +1200,102 @@ body {
     flex-shrink: 0;
 }
 
+/* Mobile tab menu elements — hidden on desktop */
+.tabs-active-label,
+.tabs-menu-chevron {
+    display: none;
+}
+
+/* ── Navbar: Mobile responsive ───────────────────────────────────── */
+
+@media (max-width: 768px) {
+    .tabs {
+        flex-wrap: wrap;
+        padding: 0.5rem 0.75rem;
+        gap: 0.25rem;
+    }
+
+    /* Brand becomes tappable menu toggle */
+    .tabs-brand {
+        cursor: pointer;
+        min-width: auto;
+        gap: 0.35rem;
+    }
+
+    .tabs-brand .logo-text {
+        font-size: 0.88rem;
+    }
+
+    /* Show the active tab label + chevron */
+    .tabs-active-label {
+        display: inline;
+        font-size: 0.78rem;
+        font-weight: 500;
+        color: var(--text-muted);
+        margin-left: 0.15rem;
+    }
+
+    .tabs-active-label::before {
+        content: '·';
+        margin-right: 0.3rem;
+        color: var(--border);
+    }
+
+    .tabs-menu-chevron {
+        display: inline;
+        font-size: 0.55rem;
+        color: var(--text-muted);
+        transition: transform 0.2s ease;
+        margin-left: 0.15rem;
+    }
+
+    .tabs-menu-open .tabs-menu-chevron {
+        transform: rotate(180deg);
+    }
+
+    /* Hide tabs by default on mobile */
+    .tabs-group {
+        display: none;
+        flex-basis: 100%;
+        order: 10;
+        flex-direction: column;
+        gap: 2px;
+        padding-top: 0.4rem;
+        border-top: 1px solid var(--border-subtle);
+        margin-top: 0.3rem;
+    }
+
+    /* Show tabs when menu is open */
+    .tabs-menu-open .tabs-group {
+        display: flex;
+    }
+
+    /* Tabs become full-width vertical list */
+    .tabs-group .tab {
+        width: 100%;
+        text-align: left;
+        padding: 0.55rem 0.75rem;
+        border-radius: var(--radius-sm);
+        font-size: 0.85rem;
+    }
+
+    .tabs-group .tab.active {
+        background: var(--accent);
+        color: white;
+    }
+
+    /* Nav controls: compact */
+    .nav-controls {
+        gap: 0.3rem;
+        margin-left: auto;
+    }
+
+    /* Hide less-important controls on very narrow screens */
+    .nav-controls .status-badge span:last-child {
+        display: none;
+    }
+}
+
 .theme-toggle {
     background: var(--bg-input);
     border: 1px solid var(--border);

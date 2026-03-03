@@ -1,11 +1,13 @@
 <body>
     <!-- Tab Navigation -->
     <nav class="tabs">
-        <div class="tabs-brand">
+        <div class="tabs-brand" onclick="toggleTabsMenu()">
             <div class="logo-icon">⚡</div>
             <span class="logo-text">Control Plane</span>
+            <span class="tabs-active-label" id="tabs-active-label"></span>
+            <span class="tabs-menu-chevron" id="tabs-menu-chevron">▾</span>
         </div>
-        <div class="tabs-group">
+        <div class="tabs-group" id="tabs-group">
             <button class="tab active" onclick="switchTab('dashboard')">📊 Dashboard</button>
             <button class="tab" onclick="switchTab('wizard')">🧙 Setup</button>
             <button class="tab" onclick="switchTab('secrets')">🔐 Secrets</button>
