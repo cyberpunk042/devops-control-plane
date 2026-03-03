@@ -985,33 +985,72 @@ def gh_auth_device_poll_http(
                     "ok": True, "complete": True,
                     "authenticated": True, "message": msg,
                 }
-            else:
-                detail = r.stderr.strip()[:200]
-                logger.warning("Save token: gh auth login failed (rc=%d): %s",
-                               r.returncode, detail)
-                session["message"] = "gh auth login failed — writing config directly…"
+                return
 
-                # Fallback: write directly to gh hosts.yml
-                import os
-                gh_config_dir = Path(os.environ.get(
-                    "GH_CONFIG_DIR",
-                    Path.home() / ".config" / "gh",
-                ))
-                gh_config_dir.mkdir(parents=True, exist_ok=True)
-                hosts_file = gh_config_dir / "hosts.yml"
-                hosts_content = (
-                    "github.com:\n"
-                    f"    oauth_token: {access_token}\n"
-                    "    user: \"\"\n"
-                    "    git_protocol: https\n"
+            # gh auth login failed (likely DNS timeout for api.github.com
+            # with Go's resolver). Fallback: write hosts.yml in the v2.40+
+            # format using Python's urllib to get the username.
+            detail = r.stderr.strip()[:200]
+            logger.warning("Save token: gh auth login failed (rc=%d): %s",
+                           r.returncode, detail)
+            session["message"] = "gh auth login failed — trying Python fallback…"
+
+            # Look up username via Python's urllib (different DNS resolver)
+            username = ""
+            try:
+                api_req = urllib.request.Request(
+                    "https://api.github.com/user",
+                    headers={
+                        "Authorization": f"Bearer {access_token}",
+                        "Accept": "application/json",
+                        "User-Agent": "devops-control-plane",
+                    },
                 )
-                hosts_file.write_text(hosts_content)
-                msg = "Token saved to gh config (direct write)"
-                logger.info("Save token: %s (%s)", msg, hosts_file)
+                with urllib.request.urlopen(api_req, timeout=15) as resp:
+                    user_data = json.loads(resp.read().decode())
+                    username = user_data.get("login", "")
+                logger.info("Save token: got username '%s' from GitHub API", username)
+            except Exception as api_exc:
+                logger.warning("Save token: could not get username: %s", api_exc)
+
+            if not username:
+                # Can't get username — can't write v2.40+ format safely.
+                # Report failure honestly instead of writing broken config.
+                msg = (
+                    "gh auth login failed and could not look up username. "
+                    f"Detail: {detail}"
+                )
+                logger.warning("Save token: %s", msg)
                 session["bg_result"] = {
-                    "ok": True, "complete": True,
-                    "authenticated": True, "message": msg,
+                    "ok": False, "complete": True,
+                    "authenticated": False, "error": msg,
+                    "detail": detail,
                 }
+                return
+
+            # Write v2.40+ multi-account format
+            import os
+            gh_config_dir = Path(os.environ.get(
+                "GH_CONFIG_DIR",
+                Path.home() / ".config" / "gh",
+            ))
+            gh_config_dir.mkdir(parents=True, exist_ok=True)
+            hosts_file = gh_config_dir / "hosts.yml"
+            hosts_content = (
+                "github.com:\n"
+                "    users:\n"
+                f"        {username}:\n"
+                f"            oauth_token: {access_token}\n"
+                f"    user: {username}\n"
+                "    git_protocol: https\n"
+            )
+            hosts_file.write_text(hosts_content)
+            msg = f"Token saved for {username} (v2.40+ format)"
+            logger.info("Save token: %s → %s", msg, hosts_file)
+            session["bg_result"] = {
+                "ok": True, "complete": True,
+                "authenticated": True, "message": msg,
+            }
 
         except Exception as exc:
             msg = f"Save token error: {exc}"
