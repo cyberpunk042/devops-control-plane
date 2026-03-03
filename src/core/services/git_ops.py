@@ -33,6 +33,9 @@ from src.core.services.git.gh_auth import (  # noqa: F401
     gh_auth_token,
     gh_auth_device_start,
     gh_auth_device_poll,
+    detect_platform_capabilities,
+    gh_auth_device_start_http,
+    gh_auth_device_poll_http,
 )
 
 from src.core.services.git.gh_repo import (  # noqa: F401

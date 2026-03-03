@@ -583,13 +583,26 @@ def _cleanup_stale_sessions() -> None:
 #  Platform Detection
 # ═══════════════════════════════════════════════════════════════════
 
+_platform_cache: dict | None = None
+
 
 def detect_platform_capabilities() -> dict:
     """Detect platform capabilities for auth flow selection.
 
+    Cached after first call — results don't change at runtime.
+
     On Android VMs (UserLAnd, Termux, etc.) the PTY-based device flow
-    and terminal spawning don't work because the Linux VM can't reach
-    GitHub's API or open a browser.
+    and terminal spawning don't work because gh CLI can't reach
+    GitHub's API from inside the VM.
+
+    Detection strategy (in order):
+    1. ANDROID_ROOT or ANDROID_DATA env vars
+    2. Termux PREFIX path
+    3. /proc/version contains "android"
+    4. /system/build.prop exists
+    5. /host-rootfs/ exists (UserLAnd mounts Android host here)
+    6. /proc/1/cgroup contains android paths
+    7. Practical test: can gh reach GitHub API?
 
     Returns:
         {
@@ -598,18 +611,23 @@ def detect_platform_capabilities() -> dict:
             "can_spawn_terminal": bool,
         }
     """
+    global _platform_cache
+    if _platform_cache is not None:
+        return _platform_cache
+
     import os
 
     is_android = False
 
-    # Check ANDROID_ROOT env var
-    if os.environ.get("ANDROID_ROOT"):
+    # Check ANDROID_ROOT or ANDROID_DATA env vars
+    if os.environ.get("ANDROID_ROOT") or os.environ.get("ANDROID_DATA"):
         is_android = True
 
     # Check Termux-style PREFIX
-    prefix = os.environ.get("PREFIX", "")
-    if "termux" in prefix.lower() or "/data/data/" in prefix:
-        is_android = True
+    if not is_android:
+        prefix = os.environ.get("PREFIX", "")
+        if "termux" in prefix.lower() or "/data/data/" in prefix:
+            is_android = True
 
     # Check /proc/version for android kernel
     if not is_android:
@@ -626,11 +644,43 @@ def detect_platform_capabilities() -> dict:
         if _P("/system/build.prop").exists():
             is_android = True
 
-    return {
+    # Check for UserLAnd host mount
+    if not is_android:
+        from pathlib import Path as _P
+        if _P("/host-rootfs").exists():
+            is_android = True
+
+    # Check /proc/1/cgroup for android indicators
+    if not is_android:
+        try:
+            with open("/proc/1/cgroup", "r") as f:
+                cgroup = f.read().lower()
+                if "android" in cgroup or "/lxc/" in cgroup:
+                    is_android = True
+        except Exception:
+            pass
+
+    # Practical fallback: test if gh CLI can actually reach GitHub.
+    # If gh exists but can't reach the API, the PTY device flow won't
+    # work regardless of platform detection.
+    if not is_android and shutil.which("gh"):
+        try:
+            from src.core.services.git.ops import run_gh as _run_gh
+            r = _run_gh("api", "/", cwd=Path.cwd(), timeout=8)
+            if r.returncode != 0:
+                # gh can't reach GitHub → treat as restricted
+                is_android = True
+                logger.info("gh API unreachable — treating as restricted env")
+        except Exception:
+            is_android = True
+
+    _platform_cache = {
         "is_android": is_android,
         "can_pty_device_flow": not is_android,
         "can_spawn_terminal": not is_android,
     }
+    logger.info("Platform detection: %s", _platform_cache)
+    return _platform_cache
 
 
 # ═══════════════════════════════════════════════════════════════════
