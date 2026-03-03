@@ -4742,23 +4742,17 @@ select option {
         min-width: 64px;
     }
 
-    /* Messages: tighter padding + overflow safety */
+    /* Messages: tighter padding on mobile */
     .chat-message {
         padding: 10px 12px;
-        overflow: hidden;
-        /* clip overflow from trace cards */
-        max-width: 100%;
-        box-sizing: border-box;
     }
 
     .chat-msg-header {
         margin-bottom: 4px;
     }
 
-    /* Trace card / code blocks: force wrapping on mobile */
-    .chat-message pre,
-    .chat-message code,
-    .chat-message .chat-msg-body pre {
+    /* Trace card / code blocks: allow wrapping on mobile */
+    .chat-message pre {
         white-space: pre-wrap;
         word-break: break-word;
         overflow-x: auto;
