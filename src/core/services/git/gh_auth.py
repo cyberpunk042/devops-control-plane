@@ -320,10 +320,11 @@ def gh_auth_device_start(project_root: Path) -> dict:
 
     # Read output non-blockingly, answering prompts along the way
     output = ""
-    deadline = time.time() + 15  # Allow extra time for prompt round-trips
+    deadline = time.time() + 25  # Allow time for prompts + API call
     user_code = None
     answered_yn = False
     answered_enter = False
+    yn_answered_at = 0.0  # timestamp when Y/n was answered
 
     while time.time() < deadline:
         # Check if process died early
@@ -366,9 +367,26 @@ def gh_auth_device_start(project_root: Path) -> dict:
             try:
                 os.write(master_fd, b"Y\n")
                 answered_yn = True
+                yn_answered_at = time.time()
                 logger.info("Device flow: answered Y/n prompt")
             except OSError:
                 pass
+
+        # After Y/n, gh may show a survey-style menu for auth method
+        # (arrow-key selection).  Even with -w flag, some gh versions
+        # render this and wait for Enter.  Send Enter periodically
+        # to advance past menu confirmation and "Press Enter to open".
+        if answered_yn:
+            elapsed_since_yn = time.time() - yn_answered_at
+            if elapsed_since_yn > 1.0 and (not answered_enter
+                    or time.time() - yn_answered_at > answered_enter + 2.0):
+                try:
+                    os.write(master_fd, b"\n")
+                    answered_enter = time.time() - yn_answered_at
+                    logger.info("Device flow: sent Enter (%.1fs after Y/n)",
+                                elapsed_since_yn)
+                except OSError:
+                    pass
 
         # Answer terminal size query (\x1b[6n) if present
         if "\x1b[6n" in output:
