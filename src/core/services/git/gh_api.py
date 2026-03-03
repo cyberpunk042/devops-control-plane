@@ -45,29 +45,42 @@ def gh_status(project_root: Path) -> dict:
         else "unknown"
     )
 
-    # Check auth — skip on restricted platforms where gh can't reach
-    # GitHub's API (would hang for 30s).
-    if caps.get("can_pty_device_flow"):
-        r_auth = run_gh("auth", "status", cwd=project_root, timeout=10)
-        authenticated = r_auth.returncode == 0
-        auth_detail = r_auth.stdout.strip() or r_auth.stderr.strip()
-    else:
-        # On restricted platforms, check if gh config has a token
-        authenticated = False
-        auth_detail = "Restricted environment — use Browser Auth or Paste Token"
-        try:
-            import os
-            gh_config = Path(os.environ.get(
-                "GH_CONFIG_DIR",
-                Path.home() / ".config" / "gh",
-            )) / "hosts.yml"
-            if gh_config.exists():
-                content = gh_config.read_text()
-                if "oauth_token:" in content and "oauth_token: \n" not in content:
-                    authenticated = True
-                    auth_detail = "Token found in gh config"
-        except Exception:
-            pass
+    # ── Check auth: local state file first (instant, no network) ──
+    # Written by the HTTP device flow on success.
+    authenticated = False
+    auth_detail = ""
+    state_file = Path.home() / ".config" / "devops-cp" / "gh_authenticated"
+    try:
+        if state_file.exists():
+            token = state_file.read_text().strip()
+            if token:
+                authenticated = True
+                auth_detail = "Authenticated via device flow"
+    except Exception:
+        pass
+
+    # ── Fallback: check gh auth status (only if no local state) ──
+    if not authenticated:
+        if caps.get("can_pty_device_flow"):
+            r_auth = run_gh("auth", "status", cwd=project_root, timeout=10)
+            authenticated = r_auth.returncode == 0
+            auth_detail = r_auth.stdout.strip() or r_auth.stderr.strip()
+        else:
+            # On restricted platforms, check gh config file
+            auth_detail = "Not authenticated"
+            try:
+                import os
+                gh_config = Path(os.environ.get(
+                    "GH_CONFIG_DIR",
+                    Path.home() / ".config" / "gh",
+                )) / "hosts.yml"
+                if gh_config.exists():
+                    content = gh_config.read_text()
+                    if "oauth_token:" in content and "oauth_token: \n" not in content:
+                        authenticated = True
+                        auth_detail = "Token found in gh config"
+            except Exception:
+                pass
 
     slug = repo_slug(project_root)
 

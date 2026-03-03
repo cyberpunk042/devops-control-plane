@@ -925,66 +925,69 @@ def gh_auth_device_poll_http(
     token_prefix = access_token[:8] + "..." if len(access_token) > 8 else "???"
     logger.info("HTTP device flow got token: %s (len=%d)", token_prefix, len(access_token))
 
-    # Feed token to gh auth login --with-token
-    # Give 30s — on mobile networks `gh` needs time to validate the token.
-    # The user already waited minutes for the device code,
-    # 30 more seconds is fine.
-    gh_login_ok = False
-    gh_login_detail = ""
-    if shutil.which("gh"):
-        logger.info("Running gh auth login --with-token (30s timeout)...")
-        r = run_gh(
-            "auth", "login",
-            "--hostname", "github.com",
-            "--with-token",
-            cwd=project_root,
-            timeout=30,
-            stdin=access_token + "\n",
-        )
-        if r.returncode == 0:
-            gh_login_ok = True
-            gh_login_detail = "gh auth login succeeded"
-            logger.info("gh auth login --with-token succeeded")
-        else:
-            gh_login_detail = f"gh auth login failed (rc={r.returncode}): {r.stderr.strip()}"
-            logger.warning("gh auth login --with-token rc=%d: %s",
-                           r.returncode, r.stderr.strip())
+    # ── Save auth state locally (instant, no network) ──
+    # This file is OUR ground truth for "user authenticated via device flow".
+    # We check it in gh_status BEFORE calling slow gh commands.
+    try:
+        state_dir = Path.home() / ".config" / "devops-cp"
+        state_dir.mkdir(parents=True, exist_ok=True)
+        state_file = state_dir / "gh_authenticated"
+        state_file.write_text(access_token)
+        logger.info("Saved token to local state file: %s", state_file)
+    except Exception as exc:
+        logger.warning("Could not write local state: %s", exc)
 
-    # If gh login failed (timeout, network issue), write token directly
-    # to gh's config so it's available for later use.
-    if not gh_login_ok:
+    # ── Background: feed token to gh CLI (non-blocking) ──
+    # gh auth login --with-token validates the token against GitHub's API,
+    # which can take 10-30s on mobile networks. We do NOT wait for it.
+    import threading
+
+    def _bg_gh_login():
         try:
-            import os
-            gh_config_dir = Path(os.environ.get(
-                "GH_CONFIG_DIR",
-                Path.home() / ".config" / "gh",
-            ))
-            gh_config_dir.mkdir(parents=True, exist_ok=True)
-            hosts_file = gh_config_dir / "hosts.yml"
-            hosts_content = (
-                "github.com:\n"
-                f"    oauth_token: {access_token}\n"
-                "    user: \"\"\n"
-                "    git_protocol: https\n"
-            )
-            hosts_file.write_text(hosts_content)
-            logger.info("Wrote GitHub token directly to %s", hosts_file)
-            gh_login_ok = True
-            gh_login_detail += " | fallback config write succeeded"
+            if shutil.which("gh"):
+                logger.info("Background: running gh auth login --with-token...")
+                r = run_gh(
+                    "auth", "login",
+                    "--hostname", "github.com",
+                    "--with-token",
+                    cwd=project_root,
+                    timeout=60,
+                    stdin=access_token + "\n",
+                )
+                if r.returncode == 0:
+                    logger.info("Background: gh auth login succeeded")
+                else:
+                    logger.warning("Background: gh auth login rc=%d: %s",
+                                   r.returncode, r.stderr.strip())
+                    # Fallback: write directly to gh config
+                    import os
+                    gh_config_dir = Path(os.environ.get(
+                        "GH_CONFIG_DIR",
+                        Path.home() / ".config" / "gh",
+                    ))
+                    gh_config_dir.mkdir(parents=True, exist_ok=True)
+                    hosts_file = gh_config_dir / "hosts.yml"
+                    hosts_content = (
+                        "github.com:\n"
+                        f"    oauth_token: {access_token}\n"
+                        "    user: \"\"\n"
+                        "    git_protocol: https\n"
+                    )
+                    hosts_file.write_text(hosts_content)
+                    logger.info("Background: wrote token to %s", hosts_file)
         except Exception as exc:
-            logger.warning("Could not write gh config: %s", exc)
-            gh_login_detail += f" | fallback write failed: {exc}"
+            logger.warning("Background gh login error: %s", exc)
 
-    logger.info("HTTP device flow complete — session=%s login=%s detail=%s",
-                session_id, gh_login_ok, gh_login_detail)
+    threading.Thread(target=_bg_gh_login, daemon=True).start()
 
-    # Invalidate cached platform detection so next gh_status re-checks
+    # Invalidate cached platform detection
     global _platform_cache
     _platform_cache = None
+
+    logger.info("HTTP device flow complete — token saved, gh login in background")
 
     return {
         "ok": True,
         "complete": True,
-        "authenticated": gh_login_ok,
-        "detail": gh_login_detail,
+        "authenticated": True,
     }
