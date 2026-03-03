@@ -1229,14 +1229,15 @@ body {
 
     .tabs-menu-chevron {
         display: inline;
-        font-size: 0.55rem;
+        font-size: 0.72rem;
+        font-weight: 500;
         color: var(--text-muted);
-        transition: transform 0.2s ease;
-        margin-left: 0.15rem;
+        transition: color 0.2s ease;
+        margin-left: 0.25rem;
     }
 
     .tabs-menu-open .tabs-menu-chevron {
-        transform: rotate(180deg);
+        color: var(--accent);
     }
 
     /* Hide tabs by default on mobile */
@@ -1279,6 +1280,31 @@ body {
     /* Hide less-important controls on very narrow screens */
     .nav-controls .status-badge span:last-child {
         display: none;
+    }
+
+    /* Debug sub-tabs: wrap to two lines */
+    .debug-modes {
+        flex-wrap: wrap;
+        gap: 4px 6px;
+    }
+
+    .debug-modes .content-mode {
+        font-size: 0.72rem;
+        padding: 0.35rem 0.6rem;
+    }
+
+    /* Trace toolbar: wrap select/input/button */
+    #debug-traces>div:first-child>div:last-child {
+        flex-wrap: wrap;
+    }
+
+    #debug-traces>div:first-child>div:last-child input[type="text"] {
+        width: 100% !important;
+        min-width: 0;
+    }
+
+    #debug-traces>div:first-child>div:last-child .btn {
+        width: 100%;
     }
 }
 
