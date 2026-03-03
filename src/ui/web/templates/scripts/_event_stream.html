@@ -513,7 +513,7 @@
                 const btns = overlay.querySelectorAll('button');
                 btns.forEach(b => { b.disabled = true; b.style.opacity = '.5'; });
                 try {
-                    const r = await fetch('/api/integrations/ledger/resolve-conflict', {
+                    const r = await fetch('/api/ledger/resolve-conflict', {
                         method: 'POST',
                         headers: {'Content-Type': 'application/json'},
                         body: JSON.stringify({action}),
