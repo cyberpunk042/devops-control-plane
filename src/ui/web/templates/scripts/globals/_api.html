@@ -61,6 +61,10 @@
                         if (typeof ensureGhReady === 'function') ensureGhReady();
                     }
                 }
+                // ── Git identity missing ──
+                if (data && data.needs === 'git_identity') {
+                    if (typeof showGitIdentityModal === 'function') showGitIdentityModal();
+                }
                 throw new Error(data.error || `HTTP ${res.status}`);
             }
             return data;

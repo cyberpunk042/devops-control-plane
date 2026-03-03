@@ -16,6 +16,7 @@ from src.core.services.chat import (
     update_message_flags,
 )
 from src.core.services.git_auth import is_auth_ok
+from src.core.services.ledger.worktree import GitIdentityError
 from src.ui.web.helpers import project_root as _project_root, requires_git_auth
 from src.ui.web.routes.integrations.gh_helpers import requires_gh_auth
 
@@ -123,6 +124,12 @@ def chat_send():
             threading.Thread(target=_bg_push, args=(root,), daemon=True).start()
 
         return jsonify(result)
+    except GitIdentityError as e:
+        return jsonify({
+            "ok": False,
+            "needs": "git_identity",
+            "error": str(e),
+        }), 400
     except ValueError as e:
         # ValueError raised when encrypt=True but no key configured
         return jsonify({"error": str(e)}), 400

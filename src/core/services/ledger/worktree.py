@@ -28,6 +28,10 @@ GITIGNORE_ENTRY = ".ledger/"
 TAG_PREFIX = "scp/run/"
 
 
+class GitIdentityError(Exception):
+    """Raised when git user.name / user.email are not configured."""
+
+
 # ═══════════════════════════════════════════════════════════════════════
 #  Low-level git runners
 # ═══════════════════════════════════════════════════════════════════════
@@ -436,6 +440,9 @@ def ledger_add_and_commit(project_root: Path, paths: list[str], message: str) ->
 
     Returns:
         True if commit succeeded.
+
+    Raises:
+        GitIdentityError: If git user.name/email are not configured.
     """
     for p in paths:
         r = _run_ledger_git("add", p, project_root=project_root)
@@ -454,7 +461,7 @@ def ledger_add_and_commit(project_root: Path, paths: list[str], message: str) ->
             logger.debug("Nothing to commit in ledger worktree")
             return True
 
-        # Git identity not configured — surface to frontend
+        # Git identity not configured — surface to frontend via SSE AND raise
         if "please tell me who you are" in stderr.lower():
             logger.warning("Git identity not configured — commit blocked")
             try:
@@ -465,7 +472,11 @@ def ledger_add_and_commit(project_root: Path, paths: list[str], message: str) ->
                 })
             except Exception:
                 pass
-            return False
+            raise GitIdentityError(
+                "Git user.name and user.email are not configured. "
+                "Run: git config --global user.name 'Your Name' && "
+                "git config --global user.email 'you@example.com'"
+            )
 
         logger.error("Ledger commit failed: %s", stderr)
         return False

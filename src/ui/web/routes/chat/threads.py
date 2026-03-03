@@ -14,6 +14,7 @@ from src.core.services.chat import (
     push_chat,
 )
 from src.core.services.git_auth import is_auth_ok
+from src.core.services.ledger.worktree import GitIdentityError
 from src.ui.web.helpers import project_root as _project_root, requires_git_auth
 from src.ui.web.routes.integrations.gh_helpers import requires_gh_auth
 
@@ -81,6 +82,12 @@ def chat_thread_create():
             threading.Thread(target=_bg_push, args=(root,), daemon=True).start()
 
         return jsonify(thread.model_dump(mode="json"))
+    except GitIdentityError as e:
+        return jsonify({
+            "ok": False,
+            "needs": "git_identity",
+            "error": str(e),
+        }), 400
     except Exception as e:
         logger.exception("Failed to create thread")
         return jsonify({"error": str(e)}), 500
