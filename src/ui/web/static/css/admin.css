@@ -4663,6 +4663,10 @@ select option {
     .chat-conversation {
         display: none;
         padding: var(--space-sm) var(--space-md);
+        min-height: 0;
+        /* critical: override flex min-height:auto */
+        overflow: hidden;
+        /* prevent content from pushing parent */
     }
 
     /* When a thread is selected — show conversation, hide sidebar */
@@ -4673,6 +4677,20 @@ select option {
     .chat-panel.chat-mobile-conv .chat-conversation {
         display: flex;
         flex: 1;
+        min-height: 0;
+    }
+
+    /* Messages container must be constrained to scroll */
+    .chat-messages {
+        min-height: 0;
+        /* allow flexbox to shrink it */
+        flex: 1;
+        overflow-y: auto;
+    }
+
+    /* Compose must never be pushed off-screen */
+    .chat-compose {
+        flex-shrink: 0;
     }
 
     /* Show the back button on mobile */
@@ -4683,6 +4701,10 @@ select option {
     }
 
     /* Compact header on mobile */
+    .chat-conv-header {
+        flex-shrink: 0;
+    }
+
     .chat-conv-header-row {
         flex-wrap: nowrap;
     }
@@ -4698,9 +4720,10 @@ select option {
         white-space: nowrap;
     }
 
-    /* Filter bar: scrollable on mobile */
+    /* Filter bar: scrollable, never grows */
     .chat-filter-bar {
         flex-wrap: nowrap;
+        flex-shrink: 0;
         overflow-x: auto;
         -webkit-overflow-scrolling: touch;
         scrollbar-width: none;
@@ -4719,13 +4742,33 @@ select option {
         min-width: 64px;
     }
 
-    /* Messages: tighter padding */
+    /* Messages: tighter padding + overflow safety */
     .chat-message {
         padding: 10px 12px;
+        overflow: hidden;
+        /* clip overflow from trace cards */
+        max-width: 100%;
+        box-sizing: border-box;
     }
 
     .chat-msg-header {
         margin-bottom: 4px;
+    }
+
+    /* Trace card / code blocks: force wrapping on mobile */
+    .chat-message pre,
+    .chat-message code,
+    .chat-message .chat-msg-body pre {
+        white-space: pre-wrap;
+        word-break: break-word;
+        overflow-x: auto;
+        max-width: 100%;
+    }
+
+    .chat-message table {
+        display: block;
+        overflow-x: auto;
+        max-width: 100%;
     }
 
     /* Media embeds: full width */
