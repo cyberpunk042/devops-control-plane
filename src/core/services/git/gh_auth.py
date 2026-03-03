@@ -943,6 +943,11 @@ def gh_auth_device_poll_http(
     logger.info("Token received: %s (len=%d) — transitioning to saving state",
                 token_prefix, len(access_token))
 
+    # Store token immediately — available for GH_TOKEN fallback
+    # on systems where gh config migration is broken.
+    from src.core.services.git.ops import store_gh_token
+    store_gh_token(access_token)
+
     # ── Transition session to "saving" state ──
     # Keep session alive. Frontend continues polling.
     # Background thread runs gh auth login and updates bg_result.

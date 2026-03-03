@@ -24,6 +24,62 @@ _audit = make_auditor("git")
 
 
 # ═══════════════════════════════════════════════════════════════════
+#  GH token management — fallback for systems where gh v2.40+
+#  config migration is broken (headless, no dbus-launch, etc).
+#  On normal systems _gh_migration_broken stays False and none of
+#  this is used — run_gh() behaves exactly as before.
+# ═══════════════════════════════════════════════════════════════════
+
+_gh_migration_broken: bool = False
+_gh_token_cache: str | None = None
+
+_GH_TOKEN_FILE = Path.home() / ".config" / "devops-cp" / "gh_token"
+
+
+def gh_migration_is_broken() -> bool:
+    """Return True if gh v2.40+ config migration has been detected as broken."""
+    return _gh_migration_broken
+
+
+def set_gh_migration_broken(broken: bool) -> None:
+    """Set/clear the migration-broken flag."""
+    global _gh_migration_broken
+    _gh_migration_broken = broken
+    if broken:
+        logger.warning("gh config migration is broken on this system — "
+                       "using GH_TOKEN fallback for all gh commands")
+
+
+def get_stored_gh_token() -> str | None:
+    """Return stored GH token (memory → file fallback)."""
+    global _gh_token_cache
+    if _gh_token_cache:
+        return _gh_token_cache
+    try:
+        if _GH_TOKEN_FILE.exists():
+            token = _GH_TOKEN_FILE.read_text().strip()
+            if token:
+                _gh_token_cache = token
+                return token
+    except Exception:
+        pass
+    return None
+
+
+def store_gh_token(token: str) -> None:
+    """Store token in memory and persist to file (600 perms)."""
+    global _gh_token_cache
+    _gh_token_cache = token
+    try:
+        _GH_TOKEN_FILE.parent.mkdir(parents=True, exist_ok=True)
+        _GH_TOKEN_FILE.write_text(token)
+        _GH_TOKEN_FILE.chmod(0o600)
+        logger.info("Stored GH token to %s", _GH_TOKEN_FILE)
+    except Exception as exc:
+        logger.warning("Could not persist GH token to file: %s", exc)
+
+
+# ═══════════════════════════════════════════════════════════════════
 #  Low-level runners
 # ═══════════════════════════════════════════════════════════════════
 
@@ -51,7 +107,21 @@ def run_gh(
     timeout: int = 30,
     stdin: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
-    """Run a gh CLI command and return the result."""
+    """Run a gh CLI command and return the result.
+
+    On systems where gh v2.40+ config migration is broken,
+    automatically injects ``GH_TOKEN`` into the subprocess
+    environment so gh bypasses all config/keyring access.
+    On normal systems this is never activated.
+    """
+    # Build env — only inject GH_TOKEN when migration is broken
+    env = None
+    if _gh_migration_broken:
+        token = get_stored_gh_token()
+        if token:
+            import os
+            env = {**os.environ, "GH_TOKEN": token}
+
     try:
         return subprocess.run(
             ["gh", *args],
@@ -60,6 +130,7 @@ def run_gh(
             text=True,
             timeout=timeout,
             input=stdin,
+            env=env,
         )
     except FileNotFoundError:
         return subprocess.CompletedProcess(

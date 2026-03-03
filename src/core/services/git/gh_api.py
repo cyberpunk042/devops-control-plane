@@ -52,6 +52,19 @@ def gh_status(project_root: Path) -> dict:
     authenticated = r_auth.returncode == 0
     auth_detail = r_auth.stdout.strip() or r_auth.stderr.strip()
 
+    # gh v2.40+ migration error on headless systems (no dbus-launch).
+    # If we have a stored token, switch to GH_TOKEN mode and retry.
+    if not authenticated and "failed to migrate config" in auth_detail:
+        from src.core.services.git.ops import (
+            get_stored_gh_token,
+            set_gh_migration_broken,
+        )
+        if get_stored_gh_token():
+            set_gh_migration_broken(True)
+            r_auth = run_gh("auth", "status", cwd=project_root, timeout=10)
+            authenticated = r_auth.returncode == 0
+            auth_detail = r_auth.stdout.strip() or r_auth.stderr.strip()
+
     slug = repo_slug(project_root)
 
     return {
