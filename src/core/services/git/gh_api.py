@@ -24,12 +24,17 @@ logger = logging.getLogger(__name__)
 
 def gh_status(project_root: Path) -> dict:
     """Extended GitHub status — version, repo, auth details."""
+    from src.core.services.git.gh_auth import detect_platform_capabilities
     from src.core.services.tool_requirements import check_required_tools
+
+    caps = detect_platform_capabilities()
+
     if not shutil.which("gh"):
         return {
             "available": False,
             "error": "gh CLI not installed",
             "missing_tools": check_required_tools(["gh"]),
+            "platform": caps,
         }
 
     # Get version
@@ -53,6 +58,7 @@ def gh_status(project_root: Path) -> dict:
         "auth_detail": r_auth.stdout.strip() or r_auth.stderr.strip(),
         "repo": slug,
         "missing_tools": check_required_tools(["gh"]),
+        "platform": caps,
     }
 
 

@@ -19,6 +19,12 @@
             onSuccess = null,
         } = config;
 
+        // ── Platform capabilities from cached gh status ──
+        const platform = (_ghAuthStatus && _ghAuthStatus.raw && _ghAuthStatus.raw.platform) || {};
+        const canTerminal = platform.can_spawn_terminal !== false;
+        const pathCount = canTerminal ? 3 : 2;
+        const gridCols = canTerminal ? '1fr 1fr 1fr' : '1fr 1fr';
+
         document.getElementById('ops-modal')?.remove();
         if (_opsPollingTimer) { clearInterval(_opsPollingTimer); _opsPollingTimer = null; }
         _opsDeviceSession = null;
@@ -34,8 +40,8 @@
             <div class="vault-modal-body" id="ops-auth-body">
                 ${description ? `<div style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:var(--space-md)">${description}</div>` : ''}
 
-                <!-- 3-path selector -->
-                <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:var(--space-sm);margin-bottom:var(--space-md)">
+                <!-- Path selector (2 or 3 columns based on platform) -->
+                <div style="display:grid;grid-template-columns:${gridCols};gap:var(--space-sm);margin-bottom:var(--space-md)">
                     <button class="btn btn-sm" id="ops-path-browser"
                             style="padding:10px;display:flex;flex-direction:column;align-items:center;gap:3px;border:2px solid var(--accent);background:color-mix(in srgb, var(--accent) 8%, var(--bg-primary))"
                             onclick="_opsAuthSelectPath('browser')">
@@ -43,13 +49,13 @@
                         <strong style="font-size:0.74rem">Browser Auth</strong>
                         <span style="font-size:0.62rem;color:var(--text-muted)">Recommended</span>
                     </button>
-                    <button class="btn btn-sm" id="ops-path-terminal"
+                    ${canTerminal ? `<button class="btn btn-sm" id="ops-path-terminal"
                             style="padding:10px;display:flex;flex-direction:column;align-items:center;gap:3px;border:2px solid var(--border);background:var(--bg-primary)"
                             onclick="_opsAuthSelectPath('terminal')">
                         <span style="font-size:1.2rem">🖥️</span>
                         <strong style="font-size:0.74rem">Open Terminal</strong>
                         <span style="font-size:0.62rem;color:var(--text-muted)">Interactive</span>
-                    </button>
+                    </button>` : ''}
                     <button class="btn btn-sm" id="ops-path-token"
                             style="padding:10px;display:flex;flex-direction:column;align-items:center;gap:3px;border:2px solid var(--border);background:var(--bg-primary)"
                             onclick="_opsAuthSelectPath('token')">
@@ -69,7 +75,7 @@
                             onclick="_opsAuthDeviceStart()">🌐 Start Browser Authentication</button>
                 </div>
 
-                <!-- Terminal path panel (hidden) -->
+                ${canTerminal ? `<!-- Terminal path panel (hidden) -->
                 <div id="ops-panel-terminal" style="display:none">
                     <div style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:var(--space-sm)">
                         Opens a terminal window for interactive <code>gh auth login</code>.
@@ -82,7 +88,7 @@
                     </label>
                     <button class="btn btn-sm btn-primary" id="ops-auth-spawn" style="width:100%;padding:10px"
                             onclick="_opsAuthSpawnTerminal()">🖥️ Launch Terminal Authentication</button>
-                </div>
+                </div>` : ''}
 
                 <!-- Token path panel (hidden) -->
                 <div id="ops-panel-token" style="display:none">
@@ -109,6 +115,7 @@
         document.body.appendChild(modal);
         modal.addEventListener('click', e => { if (e.target === modal) _opsModalClose(); });
     }
+
 
     function _opsModalClose() {
         if (_opsPollingTimer) { clearInterval(_opsPollingTimer); _opsPollingTimer = null; }

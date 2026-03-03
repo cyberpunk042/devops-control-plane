@@ -320,7 +320,7 @@ def gh_auth_device_start(project_root: Path) -> dict:
 
     # Read output non-blockingly, answering prompts along the way
     output = ""
-    deadline = time.time() + 25  # Allow time for prompts + API call
+    deadline = time.time() + 15  # Allow extra time for prompt round-trips
     user_code = None
     answered_yn = False
     answered_enter = False
@@ -374,17 +374,16 @@ def gh_auth_device_start(project_root: Path) -> dict:
 
         # After Y/n, gh may show a survey-style menu for auth method
         # (arrow-key selection).  Even with -w flag, some gh versions
-        # render this and wait for Enter.  Send Enter periodically
-        # to advance past menu confirmation and "Press Enter to open".
-        if answered_yn:
+        # render this and wait for Enter.  Send Enter after a short
+        # delay to confirm the pre-selected "web browser" option.
+        # Also handles the "Press Enter to open github.com" prompt.
+        if answered_yn and not answered_enter:
             elapsed_since_yn = time.time() - yn_answered_at
-            if elapsed_since_yn > 1.0 and (not answered_enter
-                    or time.time() - yn_answered_at > answered_enter + 2.0):
+            if elapsed_since_yn > 1.0:
                 try:
                     os.write(master_fd, b"\n")
-                    answered_enter = time.time() - yn_answered_at
-                    logger.info("Device flow: sent Enter (%.1fs after Y/n)",
-                                elapsed_since_yn)
+                    answered_enter = True
+                    logger.info("Device flow: sent Enter for menu/prompt")
                 except OSError:
                     pass
 
@@ -571,8 +570,307 @@ def _cleanup_stale_sessions() -> None:
         session = _device_sessions.pop(sid, None)
         if session:
             try:
-                session["proc"].terminate()
-                os.close(session["master_fd"])
+                if "proc" in session:
+                    session["proc"].terminate()
+                if "master_fd" in session:
+                    os.close(session["master_fd"])
             except Exception:
                 pass
             logger.info("Cleaned up stale device flow session: %s", sid)
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  Platform Detection
+# ═══════════════════════════════════════════════════════════════════
+
+
+def detect_platform_capabilities() -> dict:
+    """Detect platform capabilities for auth flow selection.
+
+    On Android VMs (UserLAnd, Termux, etc.) the PTY-based device flow
+    and terminal spawning don't work because the Linux VM can't reach
+    GitHub's API or open a browser.
+
+    Returns:
+        {
+            "is_android": bool,
+            "can_pty_device_flow": bool,
+            "can_spawn_terminal": bool,
+        }
+    """
+    import os
+
+    is_android = False
+
+    # Check ANDROID_ROOT env var
+    if os.environ.get("ANDROID_ROOT"):
+        is_android = True
+
+    # Check Termux-style PREFIX
+    prefix = os.environ.get("PREFIX", "")
+    if "termux" in prefix.lower() or "/data/data/" in prefix:
+        is_android = True
+
+    # Check /proc/version for android kernel
+    if not is_android:
+        try:
+            with open("/proc/version", "r") as f:
+                if "android" in f.read().lower():
+                    is_android = True
+        except Exception:
+            pass
+
+    # Check for /system/build.prop (Android-specific)
+    if not is_android:
+        from pathlib import Path as _P
+        if _P("/system/build.prop").exists():
+            is_android = True
+
+    return {
+        "is_android": is_android,
+        "can_pty_device_flow": not is_android,
+        "can_spawn_terminal": not is_android,
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  HTTP-based Device Flow (no PTY, no gh CLI for API calls)
+# ═══════════════════════════════════════════════════════════════════
+#
+#  Uses GitHub's OAuth device flow REST API directly with stdlib
+#  urllib.  Works on any platform, including Android VMs where
+#  gh CLI can't reach the network.
+#
+#  Flow:
+#  1. POST https://github.com/login/device/code
+#  2. Get device_code + user_code + verification_uri
+#  3. User opens URL in their browser, enters code
+#  4. Poll https://github.com/login/oauth/access_token
+#  5. When approved, pipe token to `gh auth login --with-token`
+#
+#  Uses gh CLI's public OAuth client_id.
+
+# gh CLI's public OAuth client_id (well-known, not a secret)
+_GH_CLIENT_ID = "178c6fc778ccc68e1d6a"
+_GH_SCOPES = "repo,read:org,gist,workflow"
+
+
+def gh_auth_device_start_http() -> dict:
+    """Start a GitHub device flow using HTTP (no PTY).
+
+    Calls GitHub's device code API directly using urllib.
+    Returns the user_code and verification_url for the frontend
+    to display.  The device_code is stored server-side for polling.
+
+    Returns:
+        {"ok": True, "session_id": "…", "user_code": "XXXX-XXXX",
+         "verification_url": "https://github.com/login/device",
+         "method": "http"}
+        {"ok": False, "error": "…"}
+    """
+    import json
+    import time
+    import urllib.error
+    import urllib.parse
+    import urllib.request
+    import uuid
+
+    _cleanup_stale_sessions()
+
+    body = urllib.parse.urlencode({
+        "client_id": _GH_CLIENT_ID,
+        "scope": _GH_SCOPES,
+    }).encode()
+
+    req = urllib.request.Request(
+        "https://github.com/login/device/code",
+        data=body,
+        headers={
+            "Accept": "application/json",
+            "Content-Type": "application/x-www-form-urlencoded",
+        },
+    )
+
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            data = json.loads(resp.read().decode())
+    except urllib.error.URLError as exc:
+        logger.warning("HTTP device flow failed: %s", exc)
+        return {
+            "ok": False,
+            "error": f"Could not reach GitHub API: {exc.reason}",
+        }
+    except Exception as exc:
+        logger.warning("HTTP device flow failed: %s", exc)
+        return {"ok": False, "error": f"Device flow request failed: {exc}"}
+
+    if "error" in data:
+        return {
+            "ok": False,
+            "error": data.get("error_description", data["error"]),
+        }
+
+    device_code = data.get("device_code", "")
+    user_code = data.get("user_code", "")
+    verification_uri = data.get("verification_uri",
+                                "https://github.com/login/device")
+    interval = data.get("interval", 5)  # poll interval in seconds
+
+    if not device_code or not user_code:
+        return {"ok": False, "error": "GitHub API returned incomplete data"}
+
+    session_id = str(uuid.uuid4())[:8]
+    _device_sessions[session_id] = {
+        "device_code": device_code,
+        "interval": interval,
+        "started": time.time(),
+        "method": "http",
+    }
+
+    logger.info("HTTP device flow started — session=%s code=%s",
+                session_id, user_code)
+
+    return {
+        "ok": True,
+        "session_id": session_id,
+        "user_code": user_code,
+        "verification_url": verification_uri,
+        "method": "http",
+    }
+
+
+def gh_auth_device_poll_http(
+    session_id: str,
+    project_root: Path,
+) -> dict:
+    """Poll a HTTP-based device flow session for completion.
+
+    Checks GitHub's token endpoint.  When the user authorizes,
+    pipes the token to ``gh auth login --with-token``.
+
+    Returns:
+        {"ok": True, "complete": True, "authenticated": True}
+        {"ok": True, "complete": False}
+        {"ok": False, "error": "…"}
+    """
+    import json
+    import time
+    import urllib.error
+    import urllib.parse
+    import urllib.request
+
+    session = _device_sessions.get(session_id)
+    if not session:
+        # Unknown session — check if already authed
+        r = run_gh("auth", "status", cwd=project_root, timeout=10)
+        if r.returncode == 0:
+            return {"ok": True, "complete": True, "authenticated": True}
+        return {"ok": False, "error": "Unknown session (may have expired)"}
+
+    if session.get("method") != "http":
+        # Delegate to PTY-based poll
+        return gh_auth_device_poll(session_id, project_root)
+
+    # Check timeout (5 minutes)
+    if time.time() - session["started"] > 300:
+        del _device_sessions[session_id]
+        return {
+            "ok": False,
+            "complete": True,
+            "error": "Authentication timed out (5 min)",
+        }
+
+    device_code = session["device_code"]
+
+    body = urllib.parse.urlencode({
+        "client_id": _GH_CLIENT_ID,
+        "device_code": device_code,
+        "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
+    }).encode()
+
+    req = urllib.request.Request(
+        "https://github.com/login/oauth/access_token",
+        data=body,
+        headers={
+            "Accept": "application/json",
+            "Content-Type": "application/x-www-form-urlencoded",
+        },
+    )
+
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode())
+    except Exception as exc:
+        logger.debug("HTTP device poll error: %s", exc)
+        return {"ok": True, "complete": False}
+
+    error = data.get("error")
+
+    if error == "authorization_pending":
+        return {"ok": True, "complete": False}
+
+    if error == "slow_down":
+        # GitHub wants us to back off — increase interval
+        session["interval"] = data.get("interval", session["interval"] + 5)
+        return {"ok": True, "complete": False}
+
+    if error == "expired_token":
+        del _device_sessions[session_id]
+        return {
+            "ok": False,
+            "complete": True,
+            "error": "Device code expired — please try again",
+        }
+
+    if error:
+        del _device_sessions[session_id]
+        return {
+            "ok": False,
+            "complete": True,
+            "error": data.get("error_description", error),
+        }
+
+    # Success! We have an access token
+    access_token = data.get("access_token", "")
+    if not access_token:
+        del _device_sessions[session_id]
+        return {
+            "ok": False,
+            "complete": True,
+            "error": "GitHub returned empty access token",
+        }
+
+    del _device_sessions[session_id]
+
+    # Feed token to gh auth login --with-token
+    if shutil.which("gh"):
+        r = run_gh(
+            "auth", "login",
+            "--hostname", "github.com",
+            "--with-token",
+            cwd=project_root,
+            timeout=15,
+            stdin=access_token + "\n",
+        )
+        if r.returncode != 0:
+            logger.warning("gh auth login --with-token failed: %s",
+                           r.stderr.strip())
+            return {
+                "ok": False,
+                "complete": True,
+                "error": f"Token obtained but gh login failed: "
+                         f"{r.stderr.strip()}",
+            }
+
+    # Verify
+    r_check = run_gh("auth", "status", cwd=project_root, timeout=10)
+    authenticated = r_check.returncode == 0
+
+    logger.info("HTTP device flow complete — session=%s auth=%s",
+                session_id, authenticated)
+
+    return {
+        "ok": True,
+        "complete": True,
+        "authenticated": authenticated,
+    }

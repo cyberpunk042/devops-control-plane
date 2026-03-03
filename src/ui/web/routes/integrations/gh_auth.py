@@ -77,22 +77,36 @@ def gh_auth_token_route():  # type: ignore[no-untyped-def]
 def gh_auth_device_start_route():  # type: ignore[no-untyped-def]
     """Start a GitHub device flow — returns one-time code + URL.
 
-    Always returns 200 so the frontend can inspect raw_output
-    and exit_code from the response body on failure.
+    Auto-selects the implementation:
+    - Normal Linux: PTY-based (drives gh auth login)
+    - Android VM: HTTP-based (calls GitHub API directly)
+
+    Always returns 200 so the frontend can inspect diagnostics.
     """
-    result = git_ops.gh_auth_device_start(_project_root())
+    caps = git_ops.detect_platform_capabilities()
+
+    if caps.get("can_pty_device_flow"):
+        result = git_ops.gh_auth_device_start(_project_root())
+    else:
+        result = git_ops.gh_auth_device_start_http()
+
     return jsonify(result), 200
 
 
 @integrations_bp.route("/gh/auth/device/poll")
 def gh_auth_device_poll_route():  # type: ignore[no-untyped-def]
-    """Poll a device flow session for completion."""
+    """Poll a device flow session for completion.
+
+    Dispatches to PTY or HTTP poll based on session method.
+    """
     session_id = request.args.get("session", "").strip()
     if not session_id:
         return jsonify({"error": "session parameter required"}), 400
 
     root = _project_root()
-    result = git_ops.gh_auth_device_poll(session_id, root)
+
+    # Try HTTP poll first (checks session method internally)
+    result = git_ops.gh_auth_device_poll_http(session_id, root)
 
     # Cache-bust on successful auth — only the github card
     if result.get("complete") and result.get("authenticated"):
