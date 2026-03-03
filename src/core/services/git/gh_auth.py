@@ -967,12 +967,13 @@ def gh_auth_device_poll_http(
                 return
 
             session["message"] = "Running gh auth login --with-token…"
-            logger.info("Save token: running gh auth login --with-token…")
+            logger.info("Save token: running gh auth login --with-token --insecure-storage…")
 
             r = run_gh(
                 "auth", "login",
                 "--hostname", "github.com",
                 "--with-token",
+                "--insecure-storage",
                 cwd=project_root,
                 timeout=60,
                 stdin=access_token + "\n",
@@ -987,15 +988,15 @@ def gh_auth_device_poll_http(
                 }
                 return
 
-            # gh auth login failed (likely DNS timeout for api.github.com
-            # with Go's resolver). Fallback: write hosts.yml in the v2.40+
-            # format using Python's urllib to get the username.
+            # gh auth login failed even with --insecure-storage.
+            # Last resort: write hosts.yml directly using Python's urllib
+            # to get the username for v2.40+ format.
             detail = r.stderr.strip()[:200]
             logger.warning("Save token: gh auth login failed (rc=%d): %s",
                            r.returncode, detail)
             session["message"] = "gh auth login failed — trying Python fallback…"
 
-            # Look up username via Python's urllib (different DNS resolver)
+            # Look up username via Python's urllib
             username = ""
             try:
                 api_req = urllib.request.Request(
@@ -1014,8 +1015,6 @@ def gh_auth_device_poll_http(
                 logger.warning("Save token: could not get username: %s", api_exc)
 
             if not username:
-                # Can't get username — can't write v2.40+ format safely.
-                # Report failure honestly instead of writing broken config.
                 msg = (
                     "gh auth login failed and could not look up username. "
                     f"Detail: {detail}"
