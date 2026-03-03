@@ -293,7 +293,8 @@
                         _opsPollingTimer = null;
                         const pollEl = document.getElementById('ops-device-poll-status');
                         if (pollEl) {
-                            pollEl.innerHTML = `<span style="color:var(--error)">❌ ${esc(data.error || 'Authentication failed')}</span>
+                            const detail = data.detail ? `<br><small style="color:var(--text-muted)">${esc(data.detail)}</small>` : '';
+                            pollEl.innerHTML = `<span style="color:var(--error)">❌ ${esc(data.error || 'Token save failed')}</span>${detail}
                                 <br><button class="btn btn-xs btn-primary" style="margin-top:var(--space-sm)"
                                     onclick="_opsAuthDeviceStart()">🔄 Try Again</button>`;
                         }

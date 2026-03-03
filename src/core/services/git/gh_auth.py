@@ -922,22 +922,31 @@ def gh_auth_device_poll_http(
 
     del _device_sessions[session_id]
 
+    token_prefix = access_token[:8] + "..." if len(access_token) > 8 else "???"
+    logger.info("HTTP device flow got token: %s (len=%d)", token_prefix, len(access_token))
+
     # Feed token to gh auth login --with-token
-    # Use short timeout — on restricted platforms, gh may try to validate
-    # the token against GitHub's API and hang.
+    # Give 30s — on mobile networks `gh` needs time to validate the token.
+    # The user already waited minutes for the device code,
+    # 30 more seconds is fine.
     gh_login_ok = False
+    gh_login_detail = ""
     if shutil.which("gh"):
+        logger.info("Running gh auth login --with-token (30s timeout)...")
         r = run_gh(
             "auth", "login",
             "--hostname", "github.com",
             "--with-token",
             cwd=project_root,
-            timeout=5,
+            timeout=30,
             stdin=access_token + "\n",
         )
         if r.returncode == 0:
             gh_login_ok = True
+            gh_login_detail = "gh auth login succeeded"
+            logger.info("gh auth login --with-token succeeded")
         else:
+            gh_login_detail = f"gh auth login failed (rc={r.returncode}): {r.stderr.strip()}"
             logger.warning("gh auth login --with-token rc=%d: %s",
                            r.returncode, r.stderr.strip())
 
@@ -961,14 +970,21 @@ def gh_auth_device_poll_http(
             hosts_file.write_text(hosts_content)
             logger.info("Wrote GitHub token directly to %s", hosts_file)
             gh_login_ok = True
+            gh_login_detail += " | fallback config write succeeded"
         except Exception as exc:
             logger.warning("Could not write gh config: %s", exc)
+            gh_login_detail += f" | fallback write failed: {exc}"
 
-    logger.info("HTTP device flow complete — session=%s login=%s",
-                session_id, gh_login_ok)
+    logger.info("HTTP device flow complete — session=%s login=%s detail=%s",
+                session_id, gh_login_ok, gh_login_detail)
+
+    # Invalidate cached platform detection so next gh_status re-checks
+    global _platform_cache
+    _platform_cache = None
 
     return {
         "ok": True,
         "complete": True,
         "authenticated": gh_login_ok,
+        "detail": gh_login_detail,
     }
