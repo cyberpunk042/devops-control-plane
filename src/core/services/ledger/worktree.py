@@ -473,9 +473,7 @@ def ledger_add_and_commit(project_root: Path, paths: list[str], message: str) ->
             except Exception:
                 pass
             raise GitIdentityError(
-                "Git user.name and user.email are not configured. "
-                "Run: git config --global user.name 'Your Name' && "
-                "git config --global user.email 'you@example.com'"
+                "Git identity not configured — please set your name and email."
             )
 
         logger.error("Ledger commit failed: %s", stderr)

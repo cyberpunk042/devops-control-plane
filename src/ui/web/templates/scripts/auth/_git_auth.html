@@ -354,7 +354,7 @@ function showGitIdentityModal() {
     </div>
   `;
 
-  modalShow('Git Identity Setup', html);
+  modalOpen({ title: 'Git Identity Setup', body: html });
 }
 
 function _gitIdentityCancel() {
