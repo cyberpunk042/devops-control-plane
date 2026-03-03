@@ -291,12 +291,27 @@
                             <br><button class="btn btn-xs btn-primary" style="margin-top:var(--space-sm)"
                                 onclick="_opsAuthDeviceStart()">🔄 Try Again</button>`;
                     }
+                } else if (!data.ok && data.error) {
+                    // Session lost (server restart, expiry)
+                    clearInterval(_opsPollingTimer);
+                    _opsPollingTimer = null;
+                    const pollEl = document.getElementById('ops-device-poll-status');
+                    if (pollEl) {
+                        pollEl.innerHTML = `<span style="color:var(--error)">⚠️ ${esc(data.error)}</span>
+                            <br><button class="btn btn-xs btn-primary" style="margin-top:var(--space-sm)"
+                                onclick="_opsAuthDeviceStart()">🔄 Try Again</button>`;
+                    }
                 } else if (data.poll_error) {
-                    // Show backend poll error in elapsed area
+                    // Show backend poll error
                     const elapsedEl2 = document.getElementById('ops-device-elapsed');
                     if (elapsedEl2) elapsedEl2.textContent = '⚠️ ' + data.poll_error;
+                } else {
+                    // Show poll status (authorization_pending, slow_down, etc)
+                    const timeStr = mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
+                    const statusStr = data.poll_status ? ` (${data.poll_status})` : '';
+                    const elapsedEl4 = document.getElementById('ops-device-elapsed');
+                    if (elapsedEl4) elapsedEl4.textContent = `${timeStr} elapsed${statusStr}`;
                 }
-                // else: still waiting, do nothing
             } catch (pollErr) {
                 // Show the error instead of silently ignoring
                 const elapsedEl3 = document.getElementById('ops-device-elapsed');

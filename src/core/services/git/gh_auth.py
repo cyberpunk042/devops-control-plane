@@ -812,10 +812,30 @@ def gh_auth_device_poll_http(
     session = _device_sessions.get(session_id)
     if not session:
         # Unknown session — check if already authed
-        r = run_gh("auth", "status", cwd=project_root, timeout=10)
-        if r.returncode == 0:
-            return {"ok": True, "complete": True, "authenticated": True}
-        return {"ok": False, "error": "Unknown session (may have expired)"}
+        caps = detect_platform_capabilities()
+        if caps.get("can_pty_device_flow"):
+            r = run_gh("auth", "status", cwd=project_root, timeout=10)
+            if r.returncode == 0:
+                return {"ok": True, "complete": True, "authenticated": True}
+        else:
+            # On restricted platforms, check config file
+            try:
+                import os as _os
+                gh_config = Path(_os.environ.get(
+                    "GH_CONFIG_DIR",
+                    Path.home() / ".config" / "gh",
+                )) / "hosts.yml"
+                if gh_config.exists():
+                    content = gh_config.read_text()
+                    if "oauth_token:" in content and "oauth_token: \n" not in content:
+                        return {"ok": True, "complete": True, "authenticated": True}
+            except Exception:
+                pass
+        return {
+            "ok": False,
+            "complete": True,
+            "error": "Session expired or server restarted — please try again",
+        }
 
     if session.get("method") != "http":
         # Delegate to PTY-based poll
@@ -859,12 +879,20 @@ def gh_auth_device_poll_http(
     error = data.get("error")
 
     if error == "authorization_pending":
-        return {"ok": True, "complete": False}
+        return {
+            "ok": True,
+            "complete": False,
+            "poll_status": "authorization_pending",
+        }
 
     if error == "slow_down":
         # GitHub wants us to back off — increase interval
         session["interval"] = data.get("interval", session["interval"] + 5)
-        return {"ok": True, "complete": False}
+        return {
+            "ok": True,
+            "complete": False,
+            "poll_status": "slow_down",
+        }
 
     if error == "expired_token":
         del _device_sessions[session_id]
