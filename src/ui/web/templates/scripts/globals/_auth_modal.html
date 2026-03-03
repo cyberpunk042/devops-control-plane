@@ -1,12 +1,6 @@
 <script>
     // ── Auth Modal (multi-path: browser + terminal + token) ──────────
 
-    // Grace period flag: when true, blocks re-triggering of ensureGhReady()
-    // after a successful device flow auth. On restricted platforms, gh auth
-    // status and gh API calls fail (no network), causing SSE/card reload
-    // to think auth is needed again. This 10s window prevents that loop.
-    let _ghAuthJustSucceeded = false;
-
     let _opsPollingTimer = null;
     let _opsDeviceSession = null;
 
@@ -767,9 +761,6 @@
         if (typeof _ghAuthStatus !== 'undefined' && _ghAuthStatus) {
             _ghAuthStatus.authenticated = true;
         }
-        // Grace period: block re-trigger from SSE/card reload for 10s
-        _ghAuthJustSucceeded = true;
-        setTimeout(() => { _ghAuthJustSucceeded = false; }, 10000);
 
         // Replace the entire modal body with a success state
         const body = document.getElementById('ops-auth-body');

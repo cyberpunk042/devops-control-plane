@@ -535,10 +535,6 @@
                 if (needsSudo) {
                     var pwField = document.getElementById('rem-sudo-pw-' + idx);
                     sudoPw = pwField ? pwField.value : '';
-                    if (!sudoPw) {
-                        if (pwField) { pwField.style.borderColor = 'var(--danger)'; pwField.focus(); }
-                        return { ok: false, error: 'Sudo password required' };
-                    }
                 }
 
                 var res = await fetch('/api/audit/remediate', {
@@ -1146,14 +1142,7 @@
         for (var s = 0; s < steps.length; s++) {
             if (steps[s].needs_sudo) { needsSudo = true; break; }
         }
-        if (needsSudo && !pw) {
-            if (pwInput) {
-                pwInput.style.borderColor = 'var(--error,#e55)';
-                pwInput.placeholder = '⚠️ Password required';
-                pwInput.focus();
-            }
-            return;
-        }
+        // (Sudo password may be blank on systems with passwordless sudo)
 
         // Lock UI
         if (btn) { btn.disabled = true; btn.textContent = '⏳ Installing…'; }

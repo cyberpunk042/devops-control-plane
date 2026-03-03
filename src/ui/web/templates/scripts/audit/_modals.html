@@ -48,12 +48,6 @@ async function _auditInstallTool(toolId, cli, btnId, logId, pwId, needsSudo) {
     if (needsSudo) {
         const pwInput = document.getElementById(pwId);
         if (pwInput) sudoPassword = pwInput.value;
-        if (!sudoPassword) {
-            const pwRow = document.getElementById(pwId + '-row');
-            if (pwRow) pwRow.style.border = '1px solid var(--danger)';
-            if (pwInput) { pwInput.focus(); pwInput.placeholder = '⚠️ Password required'; }
-            return;
-        }
     }
 
     const logPre = logBox.querySelector('pre');

@@ -401,8 +401,6 @@
 
             // ── GitHub CLI gates ──
             if (data.needs === 'gh_install' || data.needs === 'gh_auth') {
-                // Skip during grace period after successful auth
-                if (typeof _ghAuthJustSucceeded !== 'undefined' && _ghAuthJustSucceeded) return;
                 // Update gh status cache, then trigger the gate
                 if (_ghAuthStatus) {
                     _ghAuthStatus.installed = data.needs !== 'gh_install';
