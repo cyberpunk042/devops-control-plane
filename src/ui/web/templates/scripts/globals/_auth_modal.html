@@ -19,10 +19,13 @@
             onSuccess = null,
         } = config;
 
-        // ── Platform capabilities from cached gh status ──
-        const platform = (_ghAuthStatus && _ghAuthStatus.raw && _ghAuthStatus.raw.platform) || {};
-        const canTerminal = platform.can_spawn_terminal !== false;
-        const pathCount = canTerminal ? 3 : 2;
+        // ── Platform detection (instant, no backend dependency) ──
+        // Primary: UA check — the browser runs on the same device as the backend.
+        // If accessed from Android browser, the backend is on Android too.
+        const isAndroid = /Android/i.test(navigator.userAgent);
+        // Secondary: backend platform info if available
+        const backendPlatform = (_ghAuthStatus && _ghAuthStatus.raw && _ghAuthStatus.raw.platform) || {};
+        const canTerminal = !isAndroid && backendPlatform.can_spawn_terminal !== false;
         const gridCols = canTerminal ? '1fr 1fr 1fr' : '1fr 1fr';
 
         document.getElementById('ops-modal')?.remove();
@@ -288,9 +291,18 @@
                             <br><button class="btn btn-xs btn-primary" style="margin-top:var(--space-sm)"
                                 onclick="_opsAuthDeviceStart()">🔄 Try Again</button>`;
                     }
+                } else if (data.poll_error) {
+                    // Show backend poll error in elapsed area
+                    const elapsedEl2 = document.getElementById('ops-device-elapsed');
+                    if (elapsedEl2) elapsedEl2.textContent = '⚠️ ' + data.poll_error;
                 }
                 // else: still waiting, do nothing
-            } catch { /* ignore poll errors */ }
+            } catch (pollErr) {
+                // Show the error instead of silently ignoring
+                const elapsedEl3 = document.getElementById('ops-device-elapsed');
+                if (elapsedEl3) elapsedEl3.textContent = '⚠️ Poll error: ' + pollErr.message;
+                console.warn('Device poll error:', pollErr);
+            }
         }, 3000);
     }
 

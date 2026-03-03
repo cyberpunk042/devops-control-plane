@@ -666,7 +666,7 @@ def detect_platform_capabilities() -> dict:
     if not is_android and shutil.which("gh"):
         try:
             from src.core.services.git.ops import run_gh as _run_gh
-            r = _run_gh("api", "/", cwd=Path.cwd(), timeout=8)
+            r = _run_gh("api", "/", cwd=Path.cwd(), timeout=3)
             if r.returncode != 0:
                 # gh can't reach GitHub → treat as restricted
                 is_android = True
@@ -849,10 +849,12 @@ def gh_auth_device_poll_http(
 
     try:
         with urllib.request.urlopen(req, timeout=10) as resp:
-            data = json.loads(resp.read().decode())
+            raw_body = resp.read().decode()
+            data = json.loads(raw_body)
+            logger.info("Token endpoint response: %s", raw_body[:300])
     except Exception as exc:
-        logger.debug("HTTP device poll error: %s", exc)
-        return {"ok": True, "complete": False}
+        logger.warning("HTTP device poll error: %s", exc)
+        return {"ok": True, "complete": False, "poll_error": str(exc)}
 
     error = data.get("error")
 
