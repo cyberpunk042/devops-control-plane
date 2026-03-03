@@ -893,34 +893,52 @@ def gh_auth_device_poll_http(
     del _device_sessions[session_id]
 
     # Feed token to gh auth login --with-token
+    # Use short timeout — on restricted platforms, gh may try to validate
+    # the token against GitHub's API and hang.
+    gh_login_ok = False
     if shutil.which("gh"):
         r = run_gh(
             "auth", "login",
             "--hostname", "github.com",
             "--with-token",
             cwd=project_root,
-            timeout=15,
+            timeout=5,
             stdin=access_token + "\n",
         )
-        if r.returncode != 0:
-            logger.warning("gh auth login --with-token failed: %s",
-                           r.stderr.strip())
-            return {
-                "ok": False,
-                "complete": True,
-                "error": f"Token obtained but gh login failed: "
-                         f"{r.stderr.strip()}",
-            }
+        if r.returncode == 0:
+            gh_login_ok = True
+        else:
+            logger.warning("gh auth login --with-token rc=%d: %s",
+                           r.returncode, r.stderr.strip())
 
-    # Verify
-    r_check = run_gh("auth", "status", cwd=project_root, timeout=10)
-    authenticated = r_check.returncode == 0
+    # If gh login failed (timeout, network issue), write token directly
+    # to gh's config so it's available for later use.
+    if not gh_login_ok:
+        try:
+            import os
+            gh_config_dir = Path(os.environ.get(
+                "GH_CONFIG_DIR",
+                Path.home() / ".config" / "gh",
+            ))
+            gh_config_dir.mkdir(parents=True, exist_ok=True)
+            hosts_file = gh_config_dir / "hosts.yml"
+            hosts_content = (
+                "github.com:\n"
+                f"    oauth_token: {access_token}\n"
+                "    user: \"\"\n"
+                "    git_protocol: https\n"
+            )
+            hosts_file.write_text(hosts_content)
+            logger.info("Wrote GitHub token directly to %s", hosts_file)
+            gh_login_ok = True
+        except Exception as exc:
+            logger.warning("Could not write gh config: %s", exc)
 
-    logger.info("HTTP device flow complete — session=%s auth=%s",
-                session_id, authenticated)
+    logger.info("HTTP device flow complete — session=%s login=%s",
+                session_id, gh_login_ok)
 
     return {
         "ok": True,
         "complete": True,
-        "authenticated": authenticated,
+        "authenticated": gh_login_ok,
     }

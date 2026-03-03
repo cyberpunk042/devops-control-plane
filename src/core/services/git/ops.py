@@ -68,6 +68,13 @@ def run_gh(
             stdout="",
             stderr="gh CLI not found — install it first",
         )
+    except subprocess.TimeoutExpired:
+        return subprocess.CompletedProcess(
+            args=["gh", *args],
+            returncode=124,
+            stdout="",
+            stderr=f"gh command timed out after {timeout}s",
+        )
 
 
 def repo_slug(project_root: Path) -> str | None:

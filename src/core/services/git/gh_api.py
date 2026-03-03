@@ -37,17 +37,37 @@ def gh_status(project_root: Path) -> dict:
             "platform": caps,
         }
 
-    # Get version
-    r = run_gh("--version", cwd=project_root)
+    # Get version (local command, no network needed)
+    r = run_gh("--version", cwd=project_root, timeout=5)
     version = (
         r.stdout.strip().splitlines()[0]
         if r.returncode == 0 and r.stdout.strip()
         else "unknown"
     )
 
-    # Check auth
-    r_auth = run_gh("auth", "status", cwd=project_root)
-    authenticated = r_auth.returncode == 0
+    # Check auth — skip on restricted platforms where gh can't reach
+    # GitHub's API (would hang for 30s).
+    if caps.get("can_pty_device_flow"):
+        r_auth = run_gh("auth", "status", cwd=project_root, timeout=10)
+        authenticated = r_auth.returncode == 0
+        auth_detail = r_auth.stdout.strip() or r_auth.stderr.strip()
+    else:
+        # On restricted platforms, check if gh config has a token
+        authenticated = False
+        auth_detail = "Restricted environment — use Browser Auth or Paste Token"
+        try:
+            import os
+            gh_config = Path(os.environ.get(
+                "GH_CONFIG_DIR",
+                Path.home() / ".config" / "gh",
+            )) / "hosts.yml"
+            if gh_config.exists():
+                content = gh_config.read_text()
+                if "oauth_token:" in content and "oauth_token: \n" not in content:
+                    authenticated = True
+                    auth_detail = "Token found in gh config"
+        except Exception:
+            pass
 
     slug = repo_slug(project_root)
 
@@ -55,7 +75,7 @@ def gh_status(project_root: Path) -> dict:
         "available": True,
         "version": version,
         "authenticated": authenticated,
-        "auth_detail": r_auth.stdout.strip() or r_auth.stderr.strip(),
+        "auth_detail": auth_detail,
         "repo": slug,
         "missing_tools": check_required_tools(["gh"]),
         "platform": caps,
