@@ -490,14 +490,60 @@ def add_https_credentials(project_root: Path, token: str) -> dict:
 def git_env() -> dict[str, str]:
     """Get the environment dict for git subprocess calls.
 
-    Includes ssh-agent vars if an agent is running.
+    Includes:
+      - ssh-agent vars if an agent is running (SSH mode)
+      - GIT_ASKPASS + GH_TOKEN for HTTPS mode when a stored token exists
+
     All git runners (``_run_main_git``, ``_run_ledger_git``) should
     pass this as ``env=git_env()``.
     """
     env = {**os.environ}
     if _ssh_agent_env:
         env.update(_ssh_agent_env)
+
+    # ── HTTPS support: inject GH_TOKEN via GIT_ASKPASS ──────────────
+    # If there's a stored GH_TOKEN, create a tiny askpass script so that
+    # plain `git push/fetch` can authenticate without credential helpers.
+    # GIT_TERMINAL_PROMPT=0 prevents git from trying interactive prompts
+    # (which hang forever in subprocess mode).
+    if not _ssh_agent_env:
+        try:
+            from src.core.services.git.ops import get_stored_gh_token
+            token = get_stored_gh_token()
+            if token:
+                env["GH_TOKEN"] = token
+                env["GIT_TERMINAL_PROMPT"] = "0"
+                # GIT_ASKPASS: git calls this script with a prompt string;
+                # it must print the password to stdout.
+                askpass = _get_or_create_askpass_script(token)
+                if askpass:
+                    env["GIT_ASKPASS"] = str(askpass)
+        except Exception:
+            pass  # non-fatal — fall through to credential helper
+
     return env
+
+
+def _get_or_create_askpass_script(token: str) -> Path | None:
+    """Create a temporary askpass script that echoes the GH_TOKEN.
+
+    Returns the path to the script, or None on failure.
+    The script is cached in /tmp so we don't create one per git call.
+    """
+    import tempfile
+    import stat
+
+    askpass_path = Path(tempfile.gettempdir()) / ".dcp_git_askpass.sh"
+    try:
+        # Always rewrite — token may have changed
+        askpass_path.write_text(
+            f"#!/bin/sh\necho '{token}'\n",
+            encoding="utf-8",
+        )
+        askpass_path.chmod(stat.S_IRWXU)  # 700
+        return askpass_path
+    except Exception:
+        return None
 
 
 def is_auth_ok() -> bool:
