@@ -141,8 +141,8 @@
 | # | Domain | Structure | README | Status |
 |---|--------|-----------|--------|--------|
 | 31e | **shared cross-cutting** | 14 cross-cutting files at services root | ✅ 652 lines (CROSS_CUTTING.md) | 🟢 |
-| 32 | **chat/** (existing) | `chat_refs.py` (1,280), `chat_ops.py` (731) | ⬜ Split first | ⬜ |
-| 33 | **generators/** (existing) | `github_workflow.py` (1,081) | ⬜ Split first | ⬜ |
+| 32 | **chat/** (existing) | ✅ Split: `chat_refs.py` → `refs_parse` (109) + `refs_resolve` (335) + `refs_autocomplete` (885) + shim (41) | ✅ 772 lines | 🟢 |
+| 33 | **generators/** (existing) | ✅ Split: `github_workflow.py` → `wf_ci_jobs` (218) + `wf_docker` (205) + `wf_k8s_deploy` (213) + `wf_terraform` (145) + `wf_post_deploy` (157) + `wf_lint` (123) + shim (127) | ✅ 714 lines | 🟢 |
 
 ---
 
@@ -167,9 +167,9 @@
 | Chunk 2 (Backend services) | 15 | 15 | 0 | 0 |
 | 31c (Route READMEs) | 28 | 28 | 0 | 0 |
 | 31d (CLI READMEs) | 19 | 19 | 0 | 0 |
-| Remaining (31e, 32, 33) | 3 | 1 | 0 | 2 |
+| Remaining (31e, 32, 33) | 3 | 3 | 0 | 0 |
 | Chunk 3 (Remaining FE + Polish) | 6 | 2 | 0 | 4 |
-| **Total** | **90** | **84** | **0** | **6** |
+| **Total** | **90** | **86** | **0** | **4** |
 
 ### README Queue (in order)
 

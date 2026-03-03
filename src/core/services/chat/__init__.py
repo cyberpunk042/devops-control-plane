@@ -25,10 +25,15 @@ from src.core.services.chat.chat_ops import (
     send_message,
     update_message_flags,
 )
-from src.core.services.chat.chat_refs import (
-    autocomplete,
+from src.core.services.chat.refs_parse import (
+    parse_ref_parts,
     parse_refs,
+)
+from src.core.services.chat.refs_resolve import (
     resolve_ref,
+)
+from src.core.services.chat.refs_autocomplete import (
+    autocomplete,
 )
 from src.core.services.chat.models import (
     ChatMessage,
@@ -49,6 +54,7 @@ __all__ = [
     "is_encrypted",
     "list_messages",
     "list_threads",
+    "parse_ref_parts",
     "parse_refs",
     "pull_chat",
     "push_chat",
@@ -56,4 +62,3 @@ __all__ = [
     "send_message",
     "update_message_flags",
 ]
-
