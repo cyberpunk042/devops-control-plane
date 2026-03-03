@@ -271,8 +271,329 @@ def ledger_resolve_conflict(project_root: Path, action: str) -> dict:
         logger.warning("Ledger resolve (reset): %s", msg)
         return {"ok": False, "error": msg}
 
+    elif action == "content_merge":
+        logger.info("Ledger resolve (content_merge): starting content-level merge")
+        return _content_merge(project_root)
+
+    elif action == "force_push":
+        # Abort any in-progress rebase first
+        _run_ledger_git("rebase", "--abort", project_root=project_root)
+        logger.info("Ledger resolve (force_push): pushing local state to remote")
+
+        r = _run_ledger_git(
+            "push", "--force", "origin", LEDGER_BRANCH,
+            project_root=project_root, timeout=30,
+        )
+        _rebase_fail_ts = 0
+        if r.returncode == 0:
+            logger.info("Ledger resolve (force_push): succeeded")
+            return {"ok": True, "message": "Force push succeeded — remote overwritten with local state."}
+        msg = f"Force push failed: {r.stderr.strip()[:200]}"
+        logger.warning("Ledger resolve (force_push): %s", msg)
+        return {"ok": False, "error": msg}
+
     else:
         return {"ok": False, "error": f"Unknown action: {action}"}
+
+
+def ledger_sync_status(project_root: Path) -> dict:
+    """Inspect ledger branch divergence between local and remote.
+
+    Returns commit-level and message-level diff so the user can see
+    exactly what would be lost with each resolution option.
+    """
+    import json as _json
+
+    wt = worktree_path(project_root)
+    if not wt.is_dir():
+        return {"status": "no_worktree", "error": "Ledger worktree not found"}
+
+    # Fetch latest (so rev-list is accurate)
+    _run_ledger_git(
+        "fetch", "origin",
+        f"+refs/heads/{LEDGER_BRANCH}:refs/remotes/origin/{LEDGER_BRANCH}",
+        project_root=project_root,
+        timeout=30,
+    )
+
+    # Commit counts
+    r_local = _run_ledger_git(
+        "rev-list", "--count", f"origin/{LEDGER_BRANCH}..HEAD",
+        project_root=project_root, timeout=5,
+    )
+    r_remote = _run_ledger_git(
+        "rev-list", "--count", f"HEAD..origin/{LEDGER_BRANCH}",
+        project_root=project_root, timeout=5,
+    )
+    local_ahead = int(r_local.stdout.strip() or "0") if r_local.returncode == 0 else 0
+    remote_ahead = int(r_remote.stdout.strip() or "0") if r_remote.returncode == 0 else 0
+
+    # Commit details
+    local_commits = []
+    if local_ahead > 0:
+        r = _run_ledger_git(
+            "log", "--oneline", f"origin/{LEDGER_BRANCH}..HEAD",
+            project_root=project_root, timeout=5,
+        )
+        if r.returncode == 0:
+            for line in r.stdout.strip().splitlines():
+                parts = line.strip().split(" ", 1)
+                if len(parts) == 2:
+                    local_commits.append({"sha": parts[0], "message": parts[1]})
+
+    remote_commits = []
+    if remote_ahead > 0:
+        r = _run_ledger_git(
+            "log", "--oneline", f"HEAD..origin/{LEDGER_BRANCH}",
+            project_root=project_root, timeout=5,
+        )
+        if r.returncode == 0:
+            for line in r.stdout.strip().splitlines():
+                parts = line.strip().split(" ", 1)
+                if len(parts) == 2:
+                    remote_commits.append({"sha": parts[0], "message": parts[1]})
+
+    # Determine status
+    if local_ahead == 0 and remote_ahead == 0:
+        status = "synced"
+    elif local_ahead > 0 and remote_ahead == 0:
+        status = "ahead"
+    elif local_ahead == 0 and remote_ahead > 0:
+        status = "behind"
+    else:
+        status = "diverged"
+
+    # If there's a cooldown, it's a conflict
+    if _rebase_fail_ts and (_time.time() - _rebase_fail_ts) < _REBASE_COOLDOWN:
+        status = "conflict"
+
+    # Message-level diff across threads
+    local_only_messages = []
+    remote_only_messages = []
+
+    threads_dir = wt / "chat" / "threads"
+    if threads_dir.is_dir():
+        for thread_dir in threads_dir.iterdir():
+            if not thread_dir.is_dir():
+                continue
+            thread_id = thread_dir.name
+            jsonl_rel = f"chat/threads/{thread_id}/messages.jsonl"
+
+            # Read local messages
+            local_msgs = {}
+            local_file = thread_dir / "messages.jsonl"
+            if local_file.is_file():
+                for line in local_file.read_text(encoding="utf-8").splitlines():
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        d = _json.loads(line)
+                        mid = d.get("id", "")
+                        if mid:
+                            local_msgs[mid] = d
+                    except Exception:
+                        pass
+
+            # Read remote messages
+            remote_msgs = {}
+            r = _run_ledger_git(
+                "show", f"origin/{LEDGER_BRANCH}:{jsonl_rel}",
+                project_root=project_root, timeout=5,
+            )
+            if r.returncode == 0:
+                for line in r.stdout.splitlines():
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        d = _json.loads(line)
+                        mid = d.get("id", "")
+                        if mid:
+                            remote_msgs[mid] = d
+                    except Exception:
+                        pass
+
+            # Diff
+            for mid, d in local_msgs.items():
+                if mid not in remote_msgs:
+                    local_only_messages.append({
+                        "id": mid,
+                        "thread_id": thread_id,
+                        "user": d.get("user", "?"),
+                        "preview": (d.get("text", "")[:60] + "...") if len(d.get("text", "")) > 60 else d.get("text", ""),
+                        "ts": d.get("ts", ""),
+                    })
+            for mid, d in remote_msgs.items():
+                if mid not in local_msgs:
+                    remote_only_messages.append({
+                        "id": mid,
+                        "thread_id": thread_id,
+                        "user": d.get("user", "?"),
+                        "preview": (d.get("text", "")[:60] + "...") if len(d.get("text", "")) > 60 else d.get("text", ""),
+                        "ts": d.get("ts", ""),
+                    })
+
+    # .gitattributes check
+    ga = wt / ".gitattributes"
+    has_gitattributes = ga.is_file() and "merge=union" in ga.read_text(encoding="utf-8")
+
+    cooldown_active = bool(_rebase_fail_ts and (_time.time() - _rebase_fail_ts) < _REBASE_COOLDOWN)
+    cooldown_remaining = max(0, int(_REBASE_COOLDOWN - (_time.time() - _rebase_fail_ts))) if cooldown_active else 0
+
+    return {
+        "status": status,
+        "local_ahead": local_ahead,
+        "remote_ahead": remote_ahead,
+        "local_commits": local_commits,
+        "remote_commits": remote_commits,
+        "local_only_messages": local_only_messages,
+        "remote_only_messages": remote_only_messages,
+        "has_gitattributes": has_gitattributes,
+        "cooldown_active": cooldown_active,
+        "cooldown_remaining_s": cooldown_remaining,
+        "last_error": _last_rebase_stderr,
+    }
+
+
+def _content_merge(project_root: Path) -> dict:
+    """Content-level merge: keep ALL messages from both local and remote.
+
+    1. Read all local messages across all threads (by id)
+    2. Reset to remote (git reset --hard origin/ledger)
+    3. Read remote messages (now in working tree)
+    4. Find local-only messages (not in remote)
+    5. Append them to appropriate thread files
+    6. Commit + push
+    """
+    import json as _json
+    global _rebase_fail_ts
+
+    wt = worktree_path(project_root)
+    threads_dir = wt / "chat" / "threads"
+
+    # Step 1: Read all local messages keyed by (thread_id, msg_id)
+    local_by_thread: dict[str, list[str]] = {}  # thread_id → [jsonl lines]
+    local_ids: dict[str, set[str]] = {}  # thread_id → {msg_ids}
+
+    if threads_dir.is_dir():
+        for thread_dir in threads_dir.iterdir():
+            if not thread_dir.is_dir():
+                continue
+            tid = thread_dir.name
+            local_file = thread_dir / "messages.jsonl"
+            if not local_file.is_file():
+                continue
+            local_by_thread[tid] = []
+            local_ids[tid] = set()
+            for line in local_file.read_text(encoding="utf-8").splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    d = _json.loads(line)
+                    mid = d.get("id", "")
+                    if mid:
+                        local_by_thread[tid].append(line)
+                        local_ids[tid].add(mid)
+                except Exception:
+                    local_by_thread[tid].append(line)  # keep unparseable lines
+
+    logger.info("Content merge: read %d threads locally", len(local_by_thread))
+
+    # Step 2: Reset to remote
+    _run_ledger_git("rebase", "--abort", project_root=project_root)
+    r = _run_ledger_git(
+        "reset", "--hard", f"origin/{LEDGER_BRANCH}",
+        project_root=project_root, timeout=15,
+    )
+    if r.returncode != 0:
+        return {"ok": False, "error": f"Reset failed: {r.stderr.strip()[:200]}"}
+
+    logger.info("Content merge: reset to origin/ledger")
+
+    # Step 3: Read remote messages (now in working tree after reset)
+    remote_ids: dict[str, set[str]] = {}
+    if threads_dir.is_dir():
+        for thread_dir in threads_dir.iterdir():
+            if not thread_dir.is_dir():
+                continue
+            tid = thread_dir.name
+            remote_ids[tid] = set()
+            remote_file = thread_dir / "messages.jsonl"
+            if not remote_file.is_file():
+                continue
+            for line in remote_file.read_text(encoding="utf-8").splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    d = _json.loads(line)
+                    mid = d.get("id", "")
+                    if mid:
+                        remote_ids[tid].add(mid)
+                except Exception:
+                    pass
+
+    # Step 4: Find local-only messages and append them
+    recovered = 0
+    paths_to_commit = []
+    for tid, lines in local_by_thread.items():
+        remote_set = remote_ids.get(tid, set())
+        missing_lines = []
+        for line in lines:
+            try:
+                d = _json.loads(line)
+                mid = d.get("id", "")
+                if mid and mid not in remote_set:
+                    missing_lines.append(line)
+            except Exception:
+                pass  # skip unparseable
+
+        if not missing_lines:
+            continue
+
+        # Ensure thread dir exists
+        thread_dir = threads_dir / tid
+        thread_dir.mkdir(parents=True, exist_ok=True)
+        msgs_file = thread_dir / "messages.jsonl"
+
+        with msgs_file.open("a", encoding="utf-8") as f:
+            for line in missing_lines:
+                f.write(line + "\n")
+                recovered += 1
+
+        rel_path = f"chat/threads/{tid}/messages.jsonl"
+        paths_to_commit.append(rel_path)
+
+    logger.info("Content merge: recovered %d local-only messages", recovered)
+
+    # Step 5: Commit + push
+    if paths_to_commit:
+        ledger_add_and_commit(
+            project_root,
+            paths=paths_to_commit,
+            message=f"ledger: content merge — recovered {recovered} message(s)",
+        )
+
+    # Push
+    r = _run_ledger_git(
+        "push", "origin", LEDGER_BRANCH,
+        project_root=project_root, timeout=30,
+    )
+    _rebase_fail_ts = 0
+    if r.returncode != 0:
+        return {
+            "ok": False,
+            "error": f"Push after merge failed: {r.stderr.strip()[:200]}",
+            "recovered": recovered,
+        }
+
+    return {
+        "ok": True,
+        "message": f"Content merge complete — {recovered} message(s) recovered. Sync restored.",
+        "recovered": recovered,
+    }
 
 
 # ═══════════════════════════════════════════════════════════════════════

@@ -469,93 +469,25 @@
             }, 120000);
         },
 
-        /** Ledger rebase conflict — show resolution modal. */
+        /** Ledger rebase conflict — update badge and open sync modal. */
         _onLedgerConflict(payload) {
             const data = payload.data || {};
             console.warn('[SSE] ledger:conflict —', data.error);
+
+            // Update badge to conflict state
+            if (typeof ledgerUpdateBadge === 'function') {
+                ledgerUpdateBadge('conflict');
+            }
 
             if (!data.needs_resolution) {
                 toast(data.error || 'Ledger sync issue.', 'warning', 10000);
                 return;
             }
 
-            // Don't show duplicate modals
-            if (document.getElementById('ledger-conflict-modal')) return;
-
-            const overlay = document.createElement('div');
-            overlay.id = 'ledger-conflict-modal';
-            overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:10000;display:flex;align-items:center;justify-content:center;';
-            overlay.innerHTML = `
-                <div style="background:var(--clr-surface,#1e1e2e);border:1px solid var(--clr-border,#333);border-radius:12px;padding:28px 32px;max-width:520px;width:90%;color:var(--clr-text,#e0e0e0);font-family:var(--ff-sans,sans-serif);">
-                    <h3 style="margin:0 0 8px;color:var(--clr-warning,#f59e0b);font-size:1.15rem;">⚠️ Ledger Sync Conflict</h3>
-                    <p style="margin:0 0 16px;font-size:.9rem;opacity:.85;">
-                        Two machines wrote to the same chat thread simultaneously. Remote sync is paused until you choose how to resolve this.
-                    </p>
-                    ${data.detail ? `<pre style="background:var(--clr-bg,#111);padding:8px 12px;border-radius:6px;font-size:.75rem;max-height:100px;overflow:auto;margin:0 0 16px;white-space:pre-wrap;word-break:break-word;">${data.detail.replace(/</g,'&lt;')}</pre>` : ''}
-                    <div style="display:flex;flex-direction:column;gap:10px;">
-                        <button id="lc-retry" style="padding:10px 16px;border-radius:8px;border:1px solid var(--clr-success,#22c55e);background:transparent;color:var(--clr-success,#22c55e);cursor:pointer;text-align:left;font-size:.85rem;">
-                            <strong>🔄 Retry Rebase</strong><br>
-                            <span style="opacity:.7;font-size:.8rem;">Safest option — no data loss. Fetches latest and tries again.</span>
-                        </button>
-                        <button id="lc-skip" style="padding:10px 16px;border-radius:8px;border:1px solid var(--clr-warning,#f59e0b);background:transparent;color:var(--clr-warning,#f59e0b);cursor:pointer;text-align:left;font-size:.85rem;">
-                            <strong>⏭ Skip Conflicting Commit</strong><br>
-                            <span style="opacity:.7;font-size:.8rem;">Drops the conflicting local commit. Message stays in file but won't sync to remote.</span>
-                        </button>
-                        <button id="lc-reset" style="padding:10px 16px;border-radius:8px;border:1px solid var(--clr-danger,#ef4444);background:transparent;color:var(--clr-danger,#ef4444);cursor:pointer;text-align:left;font-size:.85rem;">
-                            <strong>🔥 Reset to Remote</strong><br>
-                            <span style="opacity:.7;font-size:.8rem;">Discards ALL local unpushed ledger commits. Guarantees clean state.</span>
-                        </button>
-                    </div>
-                </div>`;
-            document.body.appendChild(overlay);
-
-            const resolve = async (action) => {
-                const btns = overlay.querySelectorAll('button');
-                btns.forEach(b => { b.disabled = true; b.style.opacity = '.5'; });
-                try {
-                    const r = await fetch('/api/ledger/resolve-conflict', {
-                        method: 'POST',
-                        headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({action}),
-                    });
-                    const j = await r.json();
-                    if (j.ok) {
-                        toast(j.message || 'Resolved!', 'success', 5000);
-                        overlay.remove();
-                        return;
-                    }
-                    // Failed — show the actual error IN the modal
-                    let errBox = overlay.querySelector('#lc-error-box');
-                    if (!errBox) {
-                        errBox = document.createElement('div');
-                        errBox.id = 'lc-error-box';
-                        // Insert before the buttons
-                        const btnContainer = overlay.querySelector('div > div:last-child');
-                        btnContainer.parentNode.insertBefore(errBox, btnContainer);
-                    }
-                    const errText = (j.error || 'Resolution failed.').replace(/</g, '&lt;');
-                    errBox.innerHTML = `
-                        <div style="margin:0 0 12px;">
-                            <strong style="color:var(--clr-danger,#ef4444);font-size:.9rem;">❌ ${action} failed</strong>
-                            <pre style="background:var(--clr-bg,#111);padding:10px 12px;border-radius:6px;font-size:.75rem;max-height:200px;overflow:auto;margin:6px 0 0;white-space:pre-wrap;word-break:break-word;border:1px solid var(--clr-danger,#ef4444);">${errText}</pre>
-                        </div>`;
-                } catch (e) {
-                    let errBox = overlay.querySelector('#lc-error-box');
-                    if (!errBox) {
-                        errBox = document.createElement('div');
-                        errBox.id = 'lc-error-box';
-                        const btnContainer = overlay.querySelector('div > div:last-child');
-                        btnContainer.parentNode.insertBefore(errBox, btnContainer);
-                    }
-                    errBox.innerHTML = `<p style="color:var(--clr-danger,#ef4444);font-size:.85rem;margin:0 0 12px;">❌ Network error: ${e.message}</p>`;
-                }
-                // Re-enable buttons on failure
-                btns.forEach(b => { b.disabled = false; b.style.opacity = '1'; });
-            };
-
-            overlay.querySelector('#lc-retry').onclick = () => resolve('retry');
-            overlay.querySelector('#lc-skip').onclick  = () => resolve('skip');
-            overlay.querySelector('#lc-reset').onclick = () => resolve('reset');
+            // Open the full sync status modal (if not already open)
+            if (typeof ledgerOpenSyncModal === 'function') {
+                ledgerOpenSyncModal();
+            }
         },
 
         /**

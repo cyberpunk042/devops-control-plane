@@ -86,14 +86,27 @@ def ledger_resolve_conflict_route():  # type: ignore[no-untyped-def]
     """Resolve a ledger rebase conflict.
 
     JSON body:
-        action: "retry" | "skip" | "reset"
+        action: "retry" | "skip" | "reset" | "content_merge" | "force_push"
     """
     data = request.get_json(silent=True) or {}
     action = data.get("action", "").strip()
-    if action not in ("retry", "skip", "reset"):
-        return jsonify({"ok": False, "error": "action must be retry, skip, or reset"}), 400
+    valid = ("retry", "skip", "reset", "content_merge", "force_push")
+    if action not in valid:
+        return jsonify({"ok": False, "error": f"action must be one of {valid}"}), 400
 
     from src.core.services.ledger.worktree import ledger_resolve_conflict
     result = ledger_resolve_conflict(_project_root(), action)
     status = 200 if result.get("ok") else 400
     return jsonify(result), status
+
+
+@integrations_bp.route("/ledger/sync-status")
+def ledger_sync_status_route():  # type: ignore[no-untyped-def]
+    """Inspect ledger branch divergence between local and remote.
+
+    Returns commit-level and message-level diff so the user can see
+    exactly what would be lost with each resolution option.
+    """
+    from src.core.services.ledger.worktree import ledger_sync_status
+    return jsonify(ledger_sync_status(_project_root()))
+
