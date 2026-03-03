@@ -4613,6 +4613,127 @@ select option {
     font-weight: 600 !important;
 }
 
+/* ── Chat: Mobile back button (hidden on desktop) ────────────────── */
+
+.chat-mobile-back {
+    display: none;
+    background: none;
+    border: none;
+    color: var(--accent);
+    font-size: 0.88rem;
+    font-weight: 600;
+    cursor: pointer;
+    padding: 4px 8px 4px 2px;
+    border-radius: var(--radius-sm);
+    transition: all 0.15s ease;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.chat-mobile-back:hover {
+    background: var(--accent-glow);
+}
+
+/* ── Chat: Mobile Navigation Push Pattern ────────────────────────── */
+
+@media (max-width: 768px) {
+    .chat-panel {
+        flex-direction: column;
+        height: calc(100vh - 180px);
+        min-height: 300px;
+    }
+
+    .chat-sidebar-card {
+        width: 100%;
+        min-width: 0;
+        flex: 1;
+        border-right: none;
+        border-bottom: 1px solid var(--border);
+    }
+
+    .chat-sidebar-header {
+        padding: var(--space-sm) var(--space-md);
+    }
+
+    .chat-sidebar-actions {
+        flex-wrap: wrap;
+        gap: 3px;
+    }
+
+    .chat-conversation {
+        display: none;
+        padding: var(--space-sm) var(--space-md);
+    }
+
+    /* When a thread is selected — show conversation, hide sidebar */
+    .chat-panel.chat-mobile-conv .chat-sidebar-card {
+        display: none;
+    }
+
+    .chat-panel.chat-mobile-conv .chat-conversation {
+        display: flex;
+        flex: 1;
+    }
+
+    /* Show the back button on mobile */
+    .chat-mobile-back {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+    }
+
+    /* Compact header on mobile */
+    .chat-conv-header-row {
+        flex-wrap: nowrap;
+    }
+
+    .chat-header-meta {
+        display: none;
+    }
+
+    .chat-conv-title {
+        font-size: 0.92rem;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    /* Filter bar: scrollable on mobile */
+    .chat-filter-bar {
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+    }
+
+    .chat-filter-bar::-webkit-scrollbar {
+        display: none;
+    }
+
+    /* Compose: compact on mobile */
+    .chat-compose-footer {
+        flex-wrap: wrap;
+    }
+
+    .chat-send-btn {
+        min-width: 64px;
+    }
+
+    /* Messages: tighter padding */
+    .chat-message {
+        padding: 10px 12px;
+    }
+
+    .chat-msg-header {
+        margin-bottom: 4px;
+    }
+
+    /* Media embeds: full width */
+    .chat-ref-media-embed {
+        margin-left: 0;
+        max-width: 100%;
+    }
+}
 
 
 /* ── Modal ────────────────────────────────────────────────────────── */

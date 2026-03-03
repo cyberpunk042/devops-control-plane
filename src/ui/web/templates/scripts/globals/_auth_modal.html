@@ -25,7 +25,8 @@
         // Secondary: backend platform info if available
         const backendPlatform = (_ghAuthStatus && _ghAuthStatus.raw && _ghAuthStatus.raw.platform) || {};
         const canTerminal = !isAndroid && backendPlatform.can_spawn_terminal !== false;
-        const gridCols = canTerminal ? '1fr 1fr 1fr' : '1fr 1fr';
+        const isMobile = isAndroid || /iPhone|iPad|iPod/i.test(navigator.userAgent);
+        const gridCols = '1fr 1fr 1fr';
 
         document.getElementById('ops-modal')?.remove();
         if (_opsPollingTimer) { clearTimeout(_opsPollingTimer); _opsPollingTimer = null; }
@@ -51,13 +52,13 @@
                         <strong style="font-size:0.74rem">Browser Auth</strong>
                         <span style="font-size:0.62rem;color:var(--text-muted)">Recommended</span>
                     </button>
-                    ${canTerminal ? `<button class="btn btn-sm" id="ops-path-terminal"
+                    <button class="btn btn-sm" id="ops-path-terminal"
                             style="padding:10px;display:flex;flex-direction:column;align-items:center;gap:3px;border:2px solid var(--border);background:var(--bg-primary)"
                             onclick="_opsAuthSelectPath('terminal')">
                         <span style="font-size:1.2rem">🖥️</span>
                         <strong style="font-size:0.74rem">Open Terminal</strong>
-                        <span style="font-size:0.62rem;color:var(--text-muted)">Interactive</span>
-                    </button>` : ''}
+                        <span style="font-size:0.62rem;color:var(--text-muted)">${isMobile ? '⚠ May not work' : 'Interactive'}</span>
+                    </button>
                     <button class="btn btn-sm" id="ops-path-token"
                             style="padding:10px;display:flex;flex-direction:column;align-items:center;gap:3px;border:2px solid var(--border);background:var(--bg-primary)"
                             onclick="_opsAuthSelectPath('token')">
@@ -77,8 +78,9 @@
                             onclick="_opsAuthDeviceStart()">🌐 Start Browser Authentication</button>
                 </div>
 
-                ${canTerminal ? `<!-- Terminal path panel (hidden) -->
+                <!-- Terminal path panel (hidden) -->
                 <div id="ops-panel-terminal" style="display:none">
+                    ${isMobile ? `<div style="font-size:0.78rem;color:var(--warning);margin-bottom:var(--space-sm);padding:8px;border-radius:var(--radius-sm);background:color-mix(in srgb, var(--warning) 10%, var(--bg-primary))">⚠ Terminal authentication requires a terminal emulator app on your device. It may not work on mobile browsers.</div>` : ''}
                     <div style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:var(--space-sm)">
                         Opens a terminal window for interactive <code>gh auth login</code>.
                     </div>
@@ -90,7 +92,7 @@
                     </label>
                     <button class="btn btn-sm btn-primary" id="ops-auth-spawn" style="width:100%;padding:10px"
                             onclick="_opsAuthSpawnTerminal()">🖥️ Launch Terminal Authentication</button>
-                </div>` : ''}
+                </div>
 
                 <!-- Token path panel (hidden) -->
                 <div id="ops-panel-token" style="display:none">
@@ -224,10 +226,26 @@
                     if (hint) hint.textContent = '⚠ Click the code above to copy it, then paste on GitHub';
                 });
 
-                // 3) Open GitHub URL LAST (steals focus)
-                try {
-                    window.open(res.verification_url, '_blank', 'noopener');
-                } catch { /* popup blocked — user can click the link */ }
+                // 3) On mobile: show instructional message before opening URL
+                const _isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+                if (_isMobile) {
+                    const hint = document.getElementById('ops-code-hint');
+                    if (hint) {
+                        hint.style.color = 'var(--accent)';
+                        hint.style.fontWeight = '600';
+                        hint.style.fontSize = '0.82rem';
+                        hint.innerHTML = '📋 Code copied! A GitHub page will open — <strong>paste the code</strong> there and authorize.';
+                    }
+                    // Brief delay so user reads the message before tab opens
+                    setTimeout(() => {
+                        try { window.open(res.verification_url, '_blank', 'noopener'); } catch {}
+                    }, 1500);
+                } else {
+                    // Desktop: open immediately
+                    try {
+                        window.open(res.verification_url, '_blank', 'noopener');
+                    } catch { /* popup blocked — user can click the link */ }
+                }
             } else {
                 if (btn) { btn.disabled = false; btn.textContent = '🌐 Start Browser Authentication'; }
                 const errMsg = res.error || 'Failed to start device flow';

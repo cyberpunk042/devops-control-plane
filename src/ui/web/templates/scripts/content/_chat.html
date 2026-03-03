@@ -427,13 +427,26 @@ async function chatSelectThread(threadId) {
       ? '<span class="chat-header-anchor">&#x1F517; ' + esc(thread.anchor_run) + '</span>' : '';
 
     header.innerHTML = '<div class="chat-conv-header-row">'
+      + '<button class="chat-mobile-back" onclick="chatMobileBack()" title="Back to threads">← Threads</button>'
       + '<h3 class="chat-conv-title">' + esc(thread.title) + '</h3>'
       + tagsHtml + anchorHtml
       + '<span class="chat-header-meta">by ' + esc(thread.created_by)
       + ' &middot; ' + _chatRelativeTime(thread.created_at) + '</span>'
       + '</div>';
   }
+
+  // Mobile: push to conversation view
+  const chatPanel = document.querySelector('.chat-panel');
+  if (chatPanel) chatPanel.classList.add('chat-mobile-conv');
+
   await chatLoadMessages(threadId);
+}
+
+// ── Mobile: back to thread list ────────────────────────────────────
+
+function chatMobileBack() {
+  const chatPanel = document.querySelector('.chat-panel');
+  if (chatPanel) chatPanel.classList.remove('chat-mobile-conv');
 }
 
 // ── Seen / Unseen helpers (localStorage) ───────────────────────────
