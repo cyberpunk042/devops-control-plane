@@ -457,6 +457,7 @@ from .discovery import (  # noqa: F401, E402
     resolve_file_to_segments,
     detect_best_builder,
     init_pages_from_project,
+    detect_pages_setup,
 )
 
 from .install import (  # noqa: F401, E402
@@ -468,3 +469,6 @@ from .build_stream import (  # noqa: F401, E402
     build_segment_stream,
 )
 
+from .pipeline_scanner import (  # noqa: F401, E402
+    scan_project_pipelines,
+)

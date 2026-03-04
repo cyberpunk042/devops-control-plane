@@ -412,4 +412,300 @@
         }
     }
 
+// ── Smart Folder helpers ────────────────────────────────────────
+
+    async function _wizRenderSmartFolders(parentEl) {
+        const sfDiv = document.createElement('div');
+        sfDiv.id = 'wiz-smart-folders';
+        sfDiv.style.cssText = 'margin-top:1.5rem';
+        sfDiv.innerHTML = `
+            <div style="font-size:0.85rem;font-weight:600;margin-bottom:0.5rem;color:var(--text-secondary)">
+                🔬 Smart Folders — Code Documentation
+            </div>
+            <p style="color:var(--text-muted);font-size:0.78rem;margin-bottom:0.5rem">
+                Smart folders automatically discover documentation (README.md files) inside your code directories
+                and make them browsable in the Content tab and buildable with Pages.
+            </p>
+            <div id="wiz-smart-folders-body">
+                <span class="spinner" style="width:14px;height:14px"></span>
+                <span style="font-size:0.82rem;color:var(--text-muted)">Scanning code directories…</span>
+            </div>
+        `;
+        parentEl.appendChild(sfDiv);
+
+        const cfg = _wizardConfig;
+        if (!cfg) return;
+
+        // Initialize smart_folders on config if missing
+        if (!cfg.smart_folders) cfg.smart_folders = [];
+
+        const bodyEl = document.getElementById('wiz-smart-folders-body');
+        if (!bodyEl) return;
+
+        try {
+            const discoverData = await api('/smart-folders/discover');
+            const totalFiles = discoverData.total_files || 0;
+            const moduleCounts = discoverData.module_counts || {};
+            const moduleList = Object.entries(moduleCounts)
+                .sort((a, b) => b[1] - a[1])
+                .map(([mod, count]) => `${mod} (${count})`)
+                .join(', ');
+
+            // Cache discovery for use in add form
+            window._wizSmartDiscovery = { totalFiles, moduleCounts, moduleList, sources: discoverData.sources_scanned || [] };
+
+            let html = '';
+
+            if (totalFiles === 0 && cfg.smart_folders.length === 0) {
+                html += `<p style="color:var(--text-muted);font-size:0.82rem;padding:0.5rem 0">
+                    No documentation files found in code directories.
+                </p>`;
+            } else {
+                // Discovery summary (always show)
+                if (totalFiles > 0) {
+                    html += `
+                        <div style="padding:0.5rem 0.75rem;background:var(--bg-inset);border:1px solid var(--border-subtle);border-radius:6px;font-size:0.78rem;margin-bottom:0.75rem;color:var(--text-muted)">
+                            📄 <strong>${totalFiles}</strong> documentation files found — Modules: ${esc(moduleList)}
+                        </div>
+                    `;
+                }
+
+                // Render each configured smart folder as an editable card
+                for (let i = 0; i < cfg.smart_folders.length; i++) {
+                    html += _wizSmartFolderCard(cfg, i);
+                }
+
+                // Add button
+                html += `
+                    <button class="btn btn-sm" onclick="_wizSmartFolderAdd()"
+                        style="margin-top:0.5rem;font-size:0.78rem;border:1px dashed var(--accent);color:var(--accent);background:transparent;padding:0.4rem 0.8rem;border-radius:8px;cursor:pointer">
+                        ＋ Add Smart Folder
+                    </button>
+                `;
+            }
+
+            bodyEl.innerHTML = html;
+        } catch (e) {
+            bodyEl.innerHTML = `<p style="color:var(--error);font-size:0.82rem">❌ ${esc(e.message)}</p>`;
+        }
+    }
+
+    /**
+     * Render one smart folder config card (editable).
+     */
+    function _wizSmartFolderCard(cfg, i) {
+        const sf = cfg.smart_folders[i];
+        const contentFolders = cfg._contentFolders || ['docs'];
+
+        // Target folder options
+        const targetOpts = contentFolders.map(f =>
+            `<option value="${esc(f)}" ${sf.target === f ? 'selected' : ''}>${esc(f)}</option>`
+        ).join('');
+        // Also allow the folder name itself (standalone)
+        const standaloneOpt = !contentFolders.includes(sf.name)
+            ? `<option value="${esc(sf.name)}" ${sf.target === sf.name ? 'selected' : ''}>${esc(sf.name)} (standalone)</option>`
+            : '';
+
+        // Sources list
+        let sourcesHtml = '';
+        const sources = sf.sources || [];
+        for (let j = 0; j < sources.length; j++) {
+            const s = sources[j];
+            sourcesHtml += `
+                <div style="display:flex;gap:0.4rem;align-items:center;margin-bottom:0.3rem">
+                    <input type="text" value="${esc(s.path)}" placeholder="src/"
+                        onchange="_wizSmartFolderUpdateSource(${i}, ${j}, 'path', this.value)"
+                        style="flex:1;font-size:0.78rem;padding:0.25rem 0.5rem;border:1px solid var(--border-subtle);border-radius:6px;background:var(--bg-tertiary);color:var(--text-primary);font-family:var(--font-mono)">
+                    <input type="text" value="${esc(s.pattern)}" placeholder="**/README.md"
+                        onchange="_wizSmartFolderUpdateSource(${i}, ${j}, 'pattern', this.value)"
+                        style="flex:1;font-size:0.78rem;padding:0.25rem 0.5rem;border:1px solid var(--border-subtle);border-radius:6px;background:var(--bg-tertiary);color:var(--text-primary);font-family:var(--font-mono)">
+                    <button onclick="_wizSmartFolderRemoveSource(${i}, ${j})" title="Remove source"
+                        style="background:none;border:none;cursor:pointer;color:var(--error);font-size:0.85rem;padding:0.15rem 0.3rem">✕</button>
+                </div>
+            `;
+        }
+
+        return `
+            <div id="wiz-sf-card-${i}" style="padding:0.75rem 1rem;background:var(--bg-inset);border:1px solid var(--accent);border-radius:8px;font-size:0.82rem;margin-bottom:0.5rem">
+                <!-- Header -->
+                <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.6rem">
+                    <span style="font-size:1rem">🔬</span>
+                    <span style="font-weight:600;font-size:0.88rem">Smart Folder #${i + 1}</span>
+                    <span style="margin-left:auto">
+                        <button onclick="wizardRemoveSmartFolder(${i})" title="Remove this smart folder"
+                            style="background:none;border:1px solid var(--error);border-radius:6px;padding:0.15rem 0.5rem;cursor:pointer;color:var(--error);font-size:0.72rem">✕ Remove</button>
+                    </span>
+                </div>
+
+                <!-- Name + Label row -->
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.5rem;margin-bottom:0.5rem">
+                    <div>
+                        <label style="font-size:0.72rem;color:var(--text-muted);display:block;margin-bottom:0.15rem">Name (slug)</label>
+                        <input type="text" value="${esc(sf.name)}" placeholder="code-docs"
+                            onchange="_wizSmartFolderUpdate(${i}, 'name', this.value)"
+                            style="width:100%;font-size:0.8rem;padding:0.3rem 0.5rem;border:1px solid var(--border-subtle);border-radius:6px;background:var(--bg-tertiary);color:var(--text-primary);font-family:var(--font-mono);box-sizing:border-box">
+                    </div>
+                    <div>
+                        <label style="font-size:0.72rem;color:var(--text-muted);display:block;margin-bottom:0.15rem">Label</label>
+                        <input type="text" value="${esc(sf.label || '')}" placeholder="Code Documentation"
+                            onchange="_wizSmartFolderUpdate(${i}, 'label', this.value)"
+                            style="width:100%;font-size:0.8rem;padding:0.3rem 0.5rem;border:1px solid var(--border-subtle);border-radius:6px;background:var(--bg-tertiary);color:var(--text-primary);box-sizing:border-box">
+                    </div>
+                </div>
+
+                <!-- Target folder -->
+                <div style="margin-bottom:0.5rem">
+                    <label style="font-size:0.72rem;color:var(--text-muted);display:block;margin-bottom:0.15rem">Target (appears inside this content folder)</label>
+                    <select onchange="_wizSmartFolderUpdate(${i}, 'target', this.value)"
+                        style="width:100%;font-size:0.8rem;padding:0.3rem 0.5rem;border:1px solid var(--border-subtle);border-radius:6px;background:var(--bg-tertiary);color:var(--text-primary);box-sizing:border-box">
+                        ${targetOpts}
+                        ${standaloneOpt}
+                    </select>
+                </div>
+
+                <!-- Sources -->
+                <div>
+                    <label style="font-size:0.72rem;color:var(--text-muted);display:block;margin-bottom:0.25rem">Sources (path + glob pattern)</label>
+                    ${sourcesHtml}
+                    <button onclick="_wizSmartFolderAddSource(${i})"
+                        style="font-size:0.72rem;padding:0.2rem 0.5rem;border:1px dashed var(--border-subtle);border-radius:4px;background:transparent;color:var(--text-muted);cursor:pointer;margin-top:0.15rem">
+                        ＋ Add source
+                    </button>
+                </div>
+
+                <!-- Preview path -->
+                <div style="font-size:0.72rem;color:var(--text-muted);margin-top:0.5rem;padding-top:0.4rem;border-top:1px solid var(--border-subtle)">
+                    Virtual path: <code id="wiz-sf-preview-${i}">${esc(sf.target)}/${esc(sf.name)}/</code>
+                </div>
+            </div>
+        `;
+    }
+
+    /**
+     * Update a field on a smart folder config.
+     */
+    function _wizSmartFolderUpdate(index, field, value) {
+        if (!_wizardConfig || !_wizardConfig.smart_folders) return;
+        if (field.startsWith('_')) return;
+        const sf = _wizardConfig.smart_folders[index];
+
+        if (field === 'name') {
+            const oldName = sf.name;
+            sf.name = value;
+            // If target was the old name (standalone), follow the rename
+            if (sf.target === oldName) {
+                sf.target = value;
+            }
+            wizardDirty = true;
+            // Re-render just this one card (name affects the dropdown)
+            const cardEl = document.getElementById('wiz-sf-card-' + index);
+            if (cardEl) {
+                const tmp = document.createElement('div');
+                tmp.innerHTML = _wizSmartFolderCard(_wizardConfig, index);
+                cardEl.replaceWith(tmp.firstElementChild);
+            }
+            return;
+        }
+
+        sf[field] = value;
+        wizardDirty = true;
+        // Only update the virtual path preview — do NOT re-render the section
+        const preview = document.getElementById('wiz-sf-preview-' + index);
+        if (preview) {
+            preview.textContent = (sf.target || '') + '/' + (sf.name || '') + '/';
+        }
+    }
+
+    /**
+     * Re-render just the smart folders body (without full wizard re-render).
+     */
+    function _wizSmartFolderRerender() {
+        const bodyEl = document.getElementById('wiz-smart-folders-body');
+        if (!bodyEl || !_wizardConfig) return;
+        let html = '';
+        const disc = window._wizSmartDiscovery || {};
+        if (disc.totalFiles > 0) {
+            html += `
+                <div style="padding:0.5rem 0.75rem;background:var(--bg-inset);border:1px solid var(--border-subtle);border-radius:6px;font-size:0.78rem;margin-bottom:0.75rem;color:var(--text-muted)">
+                    📄 <strong>${disc.totalFiles}</strong> documentation files found — Modules: ${esc(disc.moduleList || '')}
+                </div>
+            `;
+        }
+        for (let i = 0; i < _wizardConfig.smart_folders.length; i++) {
+            html += _wizSmartFolderCard(_wizardConfig, i);
+        }
+        html += `
+            <button class="btn btn-sm" onclick="_wizSmartFolderAdd()"
+                style="margin-top:0.5rem;font-size:0.78rem;border:1px dashed var(--accent);color:var(--accent);background:transparent;padding:0.4rem 0.8rem;border-radius:8px;cursor:pointer">
+                ＋ Add Smart Folder
+            </button>
+        `;
+        bodyEl.innerHTML = html;
+    }
+
+    /**
+     * Update a source entry on a smart folder.
+     */
+    function _wizSmartFolderUpdateSource(sfIndex, srcIndex, field, value) {
+        if (!_wizardConfig || !_wizardConfig.smart_folders) return;
+        const sf = _wizardConfig.smart_folders[sfIndex];
+        if (!sf || !sf.sources || !sf.sources[srcIndex]) return;
+        sf.sources[srcIndex][field] = value;
+        wizardDirty = true;
+    }
+
+    /**
+     * Add a new source entry to a smart folder.
+     */
+    function _wizSmartFolderAddSource(sfIndex) {
+        if (!_wizardConfig || !_wizardConfig.smart_folders) return;
+        const sf = _wizardConfig.smart_folders[sfIndex];
+        if (!sf) return;
+        if (!sf.sources) sf.sources = [];
+        sf.sources.push({ path: '', pattern: '**/README.md' });
+        wizardDirty = true;
+        _wizSmartFolderRerender();
+    }
+
+    /**
+     * Remove a source entry from a smart folder.
+     */
+    function _wizSmartFolderRemoveSource(sfIndex, srcIndex) {
+        if (!_wizardConfig || !_wizardConfig.smart_folders) return;
+        const sf = _wizardConfig.smart_folders[sfIndex];
+        if (!sf || !sf.sources) return;
+        sf.sources.splice(srcIndex, 1);
+        wizardDirty = true;
+        _wizSmartFolderRerender();
+    }
+
+    /**
+     * Add a new smart folder with sensible defaults.
+     */
+    function _wizSmartFolderAdd() {
+        if (!_wizardConfig) return;
+        if (!_wizardConfig.smart_folders) _wizardConfig.smart_folders = [];
+
+        _wizardConfig.smart_folders.push({
+            name: 'code-docs',
+            label: 'Code Documentation',
+            target: _wizardConfig._contentFolders?.[0] || 'docs',
+            sources: [
+                { path: 'src/', pattern: '**/README.md' },
+            ],
+        });
+        wizardDirty = true;
+        _wizSmartFolderRerender();
+    }
+
+    /**
+     * Remove a smart folder entirely.
+     */
+    function wizardRemoveSmartFolder(index) {
+        if (!_wizardConfig || !_wizardConfig.smart_folders) return;
+        _wizardConfig.smart_folders.splice(index, 1);
+        wizardDirty = true;
+        _wizSmartFolderRerender();
+    }
+
 // ── Integration step helpers ────────────────────────────────────

@@ -307,6 +307,10 @@ def run_pipeline(
     Returns:
         PipelineResult with aggregated stage results.
     """
+    # Set segment on builder so dynamic pipeline_stages() works
+    if hasattr(builder, '_segment'):
+        builder._segment = segment
+
     stages_info = builder.pipeline_stages()
     result = PipelineResult(
         segment=segment.name,

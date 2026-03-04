@@ -15,6 +15,14 @@ let _contentCategoryFilters = {}; // mode → { category: bool }
 let _contentLastRenderData = null; // cached for filter re-render
 let _contentMediaShowAll = false; // recursive media listing
 
+// ── Smart Folders state ──────────────────────────────────────────
+let _smartFolders = [];           // configured smart folders from API
+let _smartFoldersLoaded = false;  // whether we've fetched them
+let _smartFolderActive = null;    // currently active smart folder config or null
+let _smartFolderTree = null;      // resolved tree data for active smart folder
+let _smartFolderViewRaw = false;  // true = raw mode, false = smart mode
+let _smartFolderLastRoot = '';    // saved smart root path for toggle-back
+
 // ── Chat mode state ──────────────────────────────────────────────
 let _chatThreads = []; // loaded threads
 let _chatSelectedThread = null; // current thread_id

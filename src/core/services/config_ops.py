@@ -133,6 +133,7 @@ def read_config(project_root: Path, config_path: Path | None = None) -> dict:
             "environments": conf.get("environments", []),
             "modules": conf.get("modules", []),
             "content_folders": conf.get("content_folders", []),
+            "smart_folders": conf.get("smart_folders", []),
             "external": conf.get("external", {}),
         },
     }
@@ -187,6 +188,11 @@ def save_config(
     if content_folders:
         yml["content_folders"] = content_folders
 
+    # Smart folders
+    smart_folders = config.get("smart_folders")
+    if smart_folders:
+        yml["smart_folders"] = smart_folders
+
     # External
     ext = config.get("external", {})
     if ext:
@@ -206,7 +212,7 @@ def save_config(
     _WIZARD_KEYS = {
         "version", "name", "description", "repository",
         "domains", "environments", "modules",
-        "content_folders", "external",
+        "content_folders", "smart_folders", "external",
     }
     if config_path.is_file():
         try:

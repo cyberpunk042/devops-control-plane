@@ -122,30 +122,35 @@ class DocusaurusBuilder(PageBuilder):
         file_count = 0
         skip_count = 0
 
-        for src_file in sorted(source.rglob("*")):
-            rel = src_file.relative_to(source)
+        if source.is_dir():
+            for src_file in sorted(source.rglob("*")):
+                rel = src_file.relative_to(source)
 
-            # Skip hidden directories and their contents
-            parts = rel.parts
-            if any(p.startswith(".") for p in parts):
-                skip_count += 1
-                continue
-            if any(p == "__pycache__" for p in parts):
-                skip_count += 1
-                continue
+                # Skip hidden directories and their contents
+                parts = rel.parts
+                if any(p.startswith(".") for p in parts):
+                    skip_count += 1
+                    continue
+                if any(p == "__pycache__" for p in parts):
+                    skip_count += 1
+                    continue
 
-            dst_file = docs_dir / rel
+                dst_file = docs_dir / rel
 
-            if src_file.is_dir():
-                dst_file.mkdir(parents=True, exist_ok=True)
-                continue
+                if src_file.is_dir():
+                    dst_file.mkdir(parents=True, exist_ok=True)
+                    continue
 
-            # Copy file
-            dst_file.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(str(src_file), str(dst_file))
-            file_count += 1
+                # Copy file
+                dst_file.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(str(src_file), str(dst_file))
+                file_count += 1
 
-        yield f"Copied {file_count} files (skipped {skip_count} hidden)"
+            yield f"Copied {file_count} files (skipped {skip_count} hidden)"
+        else:
+            # Source dir doesn't exist (standalone smart folder) — skip copy
+            docs_dir.mkdir(parents=True, exist_ok=True)
+            yield f"Virtual source (standalone smart folder)"
 
         # Ensure a root index page exists — Docusaurus needs it for the landing
         index_candidates = [
@@ -178,6 +183,87 @@ class DocusaurusBuilder(PageBuilder):
 
             (docs_dir / "index.md").write_text(index_content, encoding="utf-8")
             yield "Generated docs/index.md (landing page)"
+
+        # ── Smart folder staging ─────────────────────────────────────
+        # If any smart folders target this segment's source folder,
+        # copy their discovered files into docs/<smart_folder_name>/
+        try:
+            from src.core.services.config_ops import read_config
+            from src.core.services import smart_folders as sf
+
+            # Find the project root (walk up from source path)
+            project_root = source
+            for parent in [source] + list(source.parents):
+                if (parent / "project.yml").is_file():
+                    project_root = parent
+                    break
+
+            cfg = read_config(project_root).get("config", {})
+            smart_list = cfg.get("smart_folders", [])
+            modules = cfg.get("modules", [])
+
+            # The segment source relative to project root
+            seg_source_rel = str(source.relative_to(project_root))
+
+            for smart in smart_list:
+                target = smart.get("target", "")
+                name = smart.get("name", "")
+                if not target or not name:
+                    continue
+                # Match if segment source equals the target folder,
+                # or if this is a standalone smart folder (target == name)
+                # and the segment source is the smart folder name
+                is_standalone = (target == name)
+                if seg_source_rel != target and seg_source_rel != name:
+                    continue
+
+                # Discover and resolve
+                files = sf.discover(project_root, smart.get("sources", []))
+                if not files:
+                    continue
+
+                resolved = sf.resolve(project_root, smart, modules)
+
+                # Standalone: files go directly into docs_dir (root of the site)
+                # Targeted: files go into docs_dir/<name>/ (subfolder of parent site)
+                staging_root = docs_dir if is_standalone else docs_dir / name
+                staging_root.mkdir(parents=True, exist_ok=True)
+                sf_count = 0
+
+                for group in resolved.get("groups", []):
+                    mod_name = group["module"]
+                    tree = group["tree"]
+
+                    def _copy_tree_files(node, dest_dir):
+                        nonlocal sf_count
+                        dest_dir.mkdir(parents=True, exist_ok=True)
+                        for f in node.get("files", []):
+                            src = project_root / f["source_path"]
+                            dst = dest_dir / f["name"]
+                            if src.is_file():
+                                shutil.copy2(str(src), str(dst))
+                                sf_count += 1
+                        for child in node.get("children", []):
+                            _copy_tree_files(child, dest_dir / child["name"])
+
+                    _copy_tree_files(tree, staging_root / mod_name)
+
+                if sf_count > 0:
+                    yield f"📂 Smart folder '{name}': staged {sf_count} docs from code"
+
+                # ── Run enrichment pipeline ──────────────────────────
+                from src.core.services.pages_builders.smart_folder_enrichment import enrich
+                enrich_logs = enrich(
+                    docs_dir=docs_dir,
+                    resolved=resolved,
+                    modules=modules,
+                    smart_folder=smart,
+                )
+                for log_line in enrich_logs:
+                    yield log_line
+
+        except Exception as e:
+            yield f"⚠️ Smart folder staging skipped: {e}"
 
     # ── Stage 2: Transform ───────────────────────────────────────────
 
@@ -272,6 +358,42 @@ class DocusaurusBuilder(PageBuilder):
 
         # ── 1. docusaurus.config.ts ──
         navbar_items = segment.config.get("navbar_items", None)
+
+        # Auto-inject sibling segment links if no explicit navbar_items
+        if navbar_items is None:
+            try:
+                import yaml
+                # Derive project root from workspace path
+                # workspace = project_root / .pages / segment_name
+                project_root = workspace.parent.parent
+                proj_yml = project_root / "project.yml"
+                if proj_yml.is_file():
+                    with open(proj_yml, encoding="utf-8") as f:
+                        raw = yaml.safe_load(f) or {}
+                    all_segments = raw.get("pages", {}).get("segments", [])
+                    sibling_links = []
+                    for seg in all_segments:
+                        seg_name = seg.get("name", "")
+                        if seg_name == segment.name:
+                            continue  # Skip self
+                        seg_title = seg.get("config", {}).get(
+                            "title",
+                            seg_name.replace("-", " ").replace("_", " ").title(),
+                        )
+                        # Use type: 'html' with a raw <a> tag to bypass
+                        # Docusaurus SPA router — forces real page load
+                        seg_url = f"/pages/site/{seg_name}/"
+                        sibling_links.append({
+                            "type": "html",
+                            "value": f'<a href="{seg_url}" class="navbar__link">{seg_title}</a>',
+                            "position": "left",
+                        })
+                    if sibling_links:
+                        navbar_items = sibling_links
+                        yield f"Navbar: added {len(sibling_links)} sibling segment link(s)"
+            except Exception as e:
+                log.warning("Failed to inject sibling segment links: %s", e)
+
         extra_rehype = segment.config.get("rehype_plugins", None)
         config_content = process_docusaurus_config(
             features, placeholders,

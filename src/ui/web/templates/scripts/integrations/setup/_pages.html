@@ -1,0 +1,721 @@
+<!-- Integrations — Pages Setup Wizard
+     Full setup and re-configuration wizard for Pages.
+     Called from the Pages card "Full Setup" button or Integrations dispatcher.
+     Depends on: _wizard/_modal.html (wizardModalOpen, wizSection, wizStatusRow)
+-->
+<script>
+
+    // ── Pages Setup Wizard ────────────────────────────────────────────
+
+    function openPagesSetupWizard() {
+
+        let _detection = null;
+        let _pipelineScan = null;
+
+        wizardModalOpen({
+            title: '📄 Pages Setup',
+            assistantContext: 'setup/pages',
+            size: 'wide',
+            steps: [
+
+                // ══════════════════════════════════════════════════════
+                // Step 1: Scan — show what we found in the project
+                // ══════════════════════════════════════════════════════
+                {
+                    label: 'Scan',
+                    title: 'Scan',
+                    render: async (data, el) => {
+                        // Wire wizard data to window so helper functions can access it
+                        window._wizPagesData = data;
+                        // If we haven't scanned yet, show the path input + scan trigger
+                        if (!data._scanned) {
+                            el.innerHTML = `
+                                <div style="margin-bottom:var(--space-md)">
+                                    <label style="font-size:0.78rem;font-weight:600;display:block;margin-bottom:0.3rem">Project Path</label>
+                                    <div style="display:flex;gap:0.4rem;align-items:center">
+                                        <input id="wiz-scan-path" type="text" value="${esc(data._projectPath || '')}"
+                                            placeholder="Leave empty for current project, or e.g. ../systems-course"
+                                            style="flex:1;font-size:0.72rem;padding:0.35rem 0.5rem;background:var(--bg-inset);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text);font-family:var(--font-mono)">
+                                        <button class="btn btn-sm btn-primary" id="wiz-scan-btn" onclick="_wizPagesDoScan()">🔍 Scan</button>
+                                    </div>
+                                    <div style="font-size:0.6rem;color:var(--text-muted);margin-top:0.2rem">
+                                        Relative to the control plane root. Example: <code>../systems-course</code> to scan a sibling project.
+                                    </div>
+                                </div>
+                                <div id="wiz-scan-results" style="text-align:center;padding:var(--space-md);color:var(--text-muted)">
+                                    Enter a path and click Scan, or leave empty to scan the current project.
+                                </div>`;
+
+                            // Auto-scan if re-entering this step and already have a path
+                            if (data._projectPath !== undefined) {
+                                _wizPagesDoScan();
+                            }
+                            return;
+                        }
+
+                        // Already scanned — show results
+                        _wizPagesRenderScanResults(el, data);
+                    },
+                    collect: (data) => {
+                        const pathEl = document.getElementById('wiz-scan-path');
+                        if (pathEl) data._projectPath = pathEl.value.trim();
+                    },
+                },
+
+
+
+                // ══════════════════════════════════════════════════════
+                // Step 2: Configure — choose what to plug in
+                // ══════════════════════════════════════════════════════
+                {
+                    label: 'Configure',
+                    title: 'Configure',
+                    render: (data, el) => {
+                        const d = data._detection;
+                        const p = data._pipelineScan;
+                        if (!d || !p) {
+                            el.innerHTML = '<p style="color:var(--error)">No scan data — go back to Scan step.</p>';
+                            return;
+                        }
+
+                        let html = '';
+                        const suggestion = p.suggested_config || {};
+                        const hasScript = p.scripts.length > 0 && Object.keys(suggestion).length > 0;
+                        const newFolders = d.detected_folders.filter(f => !f.exists);
+                        const newSmart = d.detected_smart_folders.filter(s => !s.exists);
+
+                        // ── Section 1: Plug a build script ──
+                        if (hasScript) {
+                            html += wizSection('Plug Build Script', 'Wire a detected script into the Pages pipeline');
+
+                            const primaryScript = p.scripts.find(s => s.path.toLowerCase().includes('build')) || p.scripts[0];
+                            const stagesText = (suggestion.stages || []).map(s => s.label).join(' → ');
+                            const segName = suggestion.framework || 'site';
+
+                            html += `
+                            <div style="padding:0.6rem 0.75rem;background:rgba(99,102,241,0.04);border:1px solid rgba(99,102,241,0.15);border-radius:6px;margin-bottom:var(--space-md)">
+                                <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer;font-size:0.82rem;font-weight:600;margin-bottom:0.4rem">
+                                    <input type="checkbox" id="wiz-plug-script" checked style="accent-color:#818cf8">
+                                    Create Pages segment from ${esc(primaryScript.path)}
+                                </label>
+                                <div style="font-size:0.68rem;color:var(--text-muted);margin-bottom:0.3rem">
+                                    Build command: <code style="font-size:0.65rem">${esc(suggestion.build_cmd || '')}</code>
+                                    ${stagesText ? `<br>Pipeline: ${esc(stagesText)}` : ''}
+                                </div>`;
+
+                            // Data flow diagram
+                            html += `
+                                <div style="font-size:0.68rem;padding:0.35rem 0.5rem;background:rgba(34,197,94,0.04);border:1px solid rgba(34,197,94,0.12);border-radius:4px;margin-bottom:0.4rem">
+                                    <div style="font-weight:600;color:var(--success);margin-bottom:0.2rem">📦 How it works</div>
+                                    <div style="color:var(--text-muted)">
+                                        Script runs → output read from <strong>Source Output Dir</strong> → copied into <code style="font-size:0.62rem">.pages/&lt;segment&gt;/</code> workspace → served as a Pages segment
+                                    </div>
+                                </div>`;
+
+                            // Operability: check the PRIMARY build script's own operability,
+                            // not p.compatibility (which may lag behind after an Apply Fix)
+                            const primaryScriptForFix = p.scripts.find(s => s.path.toLowerCase().includes('build')) || p.scripts[0];
+                            const scriptOp = primaryScriptForFix ? primaryScriptForFix.operability : p.compatibility;
+                            const fixAvailable = primaryScriptForFix && primaryScriptForFix.remediation && primaryScriptForFix.remediation.type === 'replace_line';
+
+                            if (scriptOp === 'partial' && fixAvailable) {
+                                const rx = primaryScriptForFix.remediation;
+                                html += `
+                                <div id="configure-remediation" style="font-size:0.68rem;padding:0.5rem 0.6rem;background:rgba(99,102,241,0.04);border:1px solid rgba(99,102,241,0.12);border-radius:4px;margin-bottom:0.4rem">
+                                    <div style="font-weight:600;color:#818cf8;margin-bottom:0.2rem">🔧 One-click fix available</div>
+                                    <div style="color:var(--text-muted);margin-bottom:0.3rem">${esc(rx.explanation)}</div>
+                                    <div style="font-size:0.62rem;margin-bottom:0.3rem">
+                                        <div style="color:var(--text-muted);margin-bottom:0.1rem">Line ${rx.line_number} in ${esc(primaryScriptForFix.path)} — current:</div>
+                                        <code style="display:block;font-size:0.6rem;padding:0.2rem 0.4rem;background:rgba(239,68,68,0.06);border:1px solid rgba(239,68,68,0.15);border-radius:3px;color:#f87171;word-break:break-all">${esc(rx.current_line)}</code>
+                                        <div style="color:var(--text-muted);margin-top:0.15rem;margin-bottom:0.1rem">After fix:</div>
+                                        <code style="display:block;font-size:0.6rem;padding:0.2rem 0.4rem;background:rgba(34,197,94,0.06);border:1px solid rgba(34,197,94,0.15);border-radius:3px;color:#4ade80;word-break:break-all">${esc(rx.proposed_line)}</code>
+                                    </div>
+                                    <button class="btn btn-sm btn-primary" id="configure-fix-btn" onclick="_applyScriptFix(${p.scripts.indexOf(primaryScriptForFix)})" style="font-size:0.68rem">
+                                        🔧 Apply Fix to ${esc(primaryScriptForFix.path)}
+                                    </button>
+                                </div>`;
+                            } else if (scriptOp === 'partial') {
+                                html += `
+                                <div style="font-size:0.68rem;padding:0.35rem 0.5rem;background:rgba(245,158,11,0.04);border:1px solid rgba(245,158,11,0.12);border-radius:4px;margin-bottom:0.4rem">
+                                    <div style="font-weight:600;color:var(--warning);margin-bottom:0.2rem">⚠️ Partial operability</div>
+                                    <div style="color:var(--text-muted)">
+                                        The script will build, but output goes to its own default location.
+                                        The control plane will <strong>read</strong> from that location after build.
+                                    </div>
+                                </div>`;
+                            } else if (scriptOp === 'full') {
+                                html += `
+                                <div style="font-size:0.68rem;padding:0.35rem 0.5rem;background:rgba(34,197,94,0.04);border:1px solid rgba(34,197,94,0.12);border-radius:4px;margin-bottom:0.4rem">
+                                    <div style="color:var(--success)">✅ Script reads DEVOPS_* env vars — output will be redirected directly into <code style="font-size:0.62rem">.pages/&lt;segment&gt;/</code></div>
+                                </div>`;
+                            }
+
+                            // Editable fields
+                            html += `
+                                <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.4rem;font-size:0.72rem">
+                                    <label style="display:flex;flex-direction:column;gap:0.15rem">
+                                        <span style="color:var(--text-muted);font-size:0.62rem;font-weight:600">Segment Name</span>
+                                        <input id="wiz-plug-name" type="text" value="${esc(segName)}"
+                                            style="font-size:0.72rem;padding:0.3rem 0.5rem;background:var(--bg-inset);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text)">
+                                        <span style="font-size:0.58rem;color:var(--text-muted)">→ served at .pages/${esc(segName)}/ and /pages/site/${esc(segName)}/</span>
+                                    </label>
+                                    <label style="display:flex;flex-direction:column;gap:0.15rem">
+                                        <span style="color:var(--text-muted);font-size:0.62rem;font-weight:600">Source Output Dir</span>
+                                        <input id="wiz-plug-output" type="text" value="${esc(suggestion.output_dir || 'build')}"
+                                            style="font-size:0.72rem;padding:0.3rem 0.5rem;background:var(--bg-inset);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text)">
+                                        <span style="font-size:0.58rem;color:var(--text-muted)">Where the script outputs its build (relative to project root)</span>
+                                    </label>
+                                </div>`;
+
+                            // Preview options — depend on operability
+                            if (scriptOp === 'full') {
+                                // Full mode: output goes to .pages/ → admin panel serves it
+                                html += `
+                                <div style="margin-top:0.4rem;font-size:0.72rem">
+                                    <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer;padding:0.3rem 0;font-weight:600">
+                                        <input type="checkbox" id="wiz-plug-admin-preview" checked style="accent-color:#818cf8"
+                                            onchange="_wizPreviewToggle()">
+                                        Use admin panel preview
+                                    </label>
+                                    <div style="font-size:0.58rem;color:var(--text-muted);margin-left:1.6rem;margin-bottom:0.3rem">
+                                        Output goes to <code style="font-size:0.56rem">.pages/&lt;segment&gt;/</code> — the admin panel serves it directly at <code style="font-size:0.56rem">/pages/site/&lt;segment&gt;/</code>. No external dev server needed.
+                                    </div>`;
+
+                                if (suggestion.preview_cmd) {
+                                    html += `
+                                    <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer;padding:0.3rem 0;color:var(--text-muted)" id="wiz-script-preview-label">
+                                        <input type="checkbox" id="wiz-plug-script-preview" style="accent-color:#818cf8"
+                                            onchange="_wizPreviewToggle()">
+                                        <span id="wiz-script-preview-label-text">Also configure script's own dev server</span>
+                                    </label>
+                                    <div id="wiz-script-preview-fields" style="display:none;grid-template-columns:2fr 1fr;gap:0.4rem;margin-left:1.6rem">
+                                        <label style="display:flex;flex-direction:column;gap:0.15rem">
+                                            <span style="color:var(--text-muted);font-size:0.62rem;font-weight:600">Preview Command</span>
+                                            <input id="wiz-plug-preview" type="text" value="${esc(suggestion.preview_cmd)}"
+                                                style="font-size:0.72rem;padding:0.3rem 0.5rem;background:var(--bg-inset);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text)">
+                                        </label>
+                                        <label style="display:flex;flex-direction:column;gap:0.15rem">
+                                            <span style="color:var(--text-muted);font-size:0.62rem;font-weight:600">Preview Port</span>
+                                            <input id="wiz-plug-port" type="number" value="${suggestion.preview_port || 3000}"
+                                                style="font-size:0.72rem;padding:0.3rem 0.5rem;background:var(--bg-inset);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text)">
+                                        </label>
+                                    </div>`;
+                                }
+                                html += `</div>`;
+
+                            } else if (suggestion.preview_cmd) {
+                                // Partial mode: script output stays in its own dir → use script's dev server
+                                html += `
+                                <div style="display:grid;grid-template-columns:2fr 1fr;gap:0.4rem;font-size:0.72rem;margin-top:0.4rem">
+                                    <label style="display:flex;flex-direction:column;gap:0.15rem">
+                                        <span style="color:var(--text-muted);font-size:0.62rem;font-weight:600">Preview Command</span>
+                                        <input id="wiz-plug-preview" type="text" value="${esc(suggestion.preview_cmd)}"
+                                            style="font-size:0.72rem;padding:0.3rem 0.5rem;background:var(--bg-inset);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text)">
+                                    </label>
+                                    <label style="display:flex;flex-direction:column;gap:0.15rem">
+                                        <span style="color:var(--text-muted);font-size:0.62rem;font-weight:600">Preview Port</span>
+                                        <input id="wiz-plug-port" type="number" value="${suggestion.preview_port || 3000}"
+                                            style="font-size:0.72rem;padding:0.3rem 0.5rem;background:var(--bg-inset);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text)">
+                                    </label>
+                                </div>
+                                <div style="font-size:0.58rem;color:var(--text-muted);margin-top:0.15rem">
+                                    Script output stays in its own directory — use the script's dev server for preview.
+                                </div>`;
+                            }
+
+                            if (suggestion.env_vars) {
+                                html += `
+                                <label style="display:flex;flex-direction:column;gap:0.15rem;margin-top:0.4rem;font-size:0.72rem">
+                                    <span style="color:var(--text-muted);font-size:0.62rem;font-weight:600">Environment Variables (from CI config)</span>
+                                    <textarea id="wiz-plug-env" rows="2"
+                                        style="font-size:0.68rem;padding:0.3rem 0.5rem;background:var(--bg-inset);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text);font-family:var(--font-mono);resize:vertical">${esc(suggestion.env_vars)}</textarea>
+                                </label>`;
+                            }
+
+                            html += `</div>`;
+                        }
+
+                        // ── Section 2: Auto-init content folder segments ──
+                        if (newFolders.length > 0 || newSmart.length > 0) {
+                            html += wizSection('Auto-Init Segments', 'Create segments from detected content folders');
+                            for (const f of newFolders) {
+                                html += `
+                                <label style="display:flex;align-items:center;gap:0.5rem;padding:0.3rem 0.5rem;font-size:0.78rem;cursor:pointer">
+                                    <input type="checkbox" class="wiz-pages-new" data-name="${esc(f.name)}" checked style="accent-color:#818cf8">
+                                    <span style="font-weight:600">${esc(f.name)}</span>
+                                    <span style="color:var(--text-muted);font-size:0.68rem">${esc(f.builder)} · ${esc(f.reason || 'content folder')}</span>
+                                </label>`;
+                            }
+                            for (const sf of newSmart) {
+                                html += `
+                                <label style="display:flex;align-items:center;gap:0.5rem;padding:0.3rem 0.5rem;font-size:0.78rem;cursor:pointer">
+                                    <input type="checkbox" class="wiz-pages-new" data-name="${esc(sf.name)}" checked style="accent-color:#818cf8">
+                                    <span style="font-weight:600">${esc(sf.name)}</span>
+                                    <span style="color:var(--text-muted);font-size:0.68rem">${esc(sf.builder)} · ${esc(sf.label)}</span>
+                                </label>`;
+                            }
+                        }
+
+                        if (!html) {
+                            html = `<p style="color:var(--text-muted);text-align:center;padding:var(--space-lg)">Nothing new to configure — your segments are already set up.</p>`;
+                        }
+
+                        el.innerHTML = html;
+                    },
+                    collect: (data) => {
+                        const plugEl = document.getElementById('wiz-plug-script');
+                        data._plugScript = plugEl ? plugEl.checked : false;
+                        if (data._plugScript) {
+                            data._plugConfig = {
+                                name: document.getElementById('wiz-plug-name')?.value || 'site',
+                                output_dir: document.getElementById('wiz-plug-output')?.value || 'build',
+                                preview_cmd: document.getElementById('wiz-plug-preview')?.value || '',
+                                preview_port: parseInt(document.getElementById('wiz-plug-port')?.value || '3000', 10),
+                                env_vars: document.getElementById('wiz-plug-env')?.value || '',
+                            };
+                        }
+                        data._newSegments = [];
+                        document.querySelectorAll('.wiz-pages-new').forEach(cb => {
+                            if (cb.checked) data._newSegments.push(cb.dataset.name);
+                        });
+                    },
+                },
+
+                // ══════════════════════════════════════════════════════
+                // Step 3: Review — show what will happen
+                // ══════════════════════════════════════════════════════
+                {
+                    label: 'Review',
+                    title: 'Review',
+                    render: (data, el) => {
+                        let html = wizSection('Actions', 'What will happen when you apply');
+
+                        if (data._plugScript && data._plugConfig) {
+                            const p = data._pipelineScan;
+                            const suggestion = p?.suggested_config || {};
+                            const stagesText = (suggestion.stages || []).map(s => s.label).join(' → ');
+                            html += wizStatusRow(
+                                '🔌',
+                                `Create "${data._plugConfig.name}" segment`,
+                                `custom builder · ${suggestion.build_cmd || 'build script'}`,
+                                'ok',
+                                false
+                            );
+                            if (stagesText) {
+                                html += `<div style="margin-left:2rem;margin-bottom:0.3rem;font-size:0.68rem;color:var(--text-muted)">
+                                    Pipeline: ${esc(stagesText)}
+                                </div>`;
+                            }
+                        }
+
+                        if (data._newSegments && data._newSegments.length > 0) {
+                            for (const name of data._newSegments) {
+                                html += wizStatusRow('✨', `Init segment "${name}"`, 'from content folder', 'ok', false);
+                            }
+                        }
+
+                        if (!data._plugScript && (!data._newSegments || data._newSegments.length === 0)) {
+                            html += `<div style="text-align:center;padding:var(--space-md);color:var(--text-muted);font-size:0.82rem">No changes to apply.</div>`;
+                        }
+
+                        // Build option
+                        html += `
+                        <div style="margin-top:var(--space-md);padding:0.5rem 0.75rem;background:var(--bg-inset);border:1px solid var(--border-subtle);border-radius:6px">
+                            <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.78rem;cursor:pointer">
+                                <input type="checkbox" id="wiz-pages-build-after" style="accent-color:#818cf8">
+                                <strong>Build all segments after setup</strong>
+                            </label>
+                            <div style="font-size:0.62rem;color:var(--text-muted);margin-top:0.15rem;margin-left:1.5rem">
+                                This may take a few minutes depending on segment count and builder.
+                            </div>
+                        </div>`;
+
+                        el.innerHTML = html;
+                    },
+                    collect: (data) => {
+                        const buildEl = document.getElementById('wiz-pages-build-after');
+                        data._buildAfter = buildEl ? buildEl.checked : false;
+                    },
+                },
+            ],
+
+            onComplete: async (data) => {
+                const results = [];
+
+                // 1. Plug detected script as custom builder segment
+                if (data._plugScript && data._plugConfig) {
+                    try {
+                        const p = data._pipelineScan;
+                        const suggestion = p?.suggested_config || {};
+
+                        const segConfig = {
+                            name: data._plugConfig.name,
+                            source: suggestion.output_dir || 'build',
+                            builder: 'custom',
+                            path: '/',
+                            config: {
+                                build_cmd: suggestion.build_cmd || '',
+                                build_cwd: suggestion.build_cwd || 'project_root',
+                                output_dir: data._plugConfig.output_dir,
+                                preview_cmd: data._plugConfig.preview_cmd || '',
+                                preview_port: String(data._plugConfig.preview_port || 3000),
+                                env_vars: data._plugConfig.env_vars || '',
+                            },
+                        };
+
+                        // Include stages if detected
+                        if (suggestion.stages && suggestion.stages.length > 0) {
+                            segConfig.config.stages = suggestion.stages;
+                        }
+
+                        await api('/pages/segments', {
+                            method: 'POST',
+                            body: JSON.stringify(segConfig),
+                        });
+                        results.push(`🔌 Created segment "${data._plugConfig.name}" from detected script`);
+                    } catch (e) {
+                        results.push(`❌ Failed to create script segment: ${e.message}`);
+                    }
+                }
+
+                // 2. Auto-init content folder segments
+                if (data._newSegments && data._newSegments.length > 0) {
+                    try {
+                        const res = await api('/pages/init', { method: 'POST', body: '{}' });
+                        if (res.added && res.added.length > 0) {
+                            results.push(`✨ Added ${res.added.length} segment(s)`);
+                        }
+                    } catch (e) {
+                        results.push(`❌ Init failed: ${e.message}`);
+                    }
+                }
+
+                // 3. Build all if requested
+                if (data._buildAfter) {
+                    try {
+                        toast('Building all segments…', 'info');
+                        const res = await api('/pages/build-all', { method: 'POST', body: '{}' });
+                        const ok = res.results ? res.results.filter(r => r.ok).length : 0;
+                        const fail = res.results ? res.results.filter(r => !r.ok).length : 0;
+                        results.push(`🔨 Built: ${ok} ok, ${fail} failed`);
+                    } catch (e) {
+                        results.push(`❌ Build failed: ${e.message}`);
+                    }
+                }
+
+                for (const msg of results) {
+                    toast(msg, msg.startsWith('❌') ? 'error' : 'success');
+                }
+                cardInvalidate('pages');
+            },
+            successMessage: 'Pages setup complete!',
+        });
+    }
+    // ── Scan helpers ────────────────────────────────────────────────
+
+    async function _wizPagesDoScan() {
+        const pathInput = document.getElementById('wiz-scan-path');
+        const resultsEl = document.getElementById('wiz-scan-results');
+        const scanBtn = document.getElementById('wiz-scan-btn');
+        const projectPath = pathInput ? pathInput.value.trim() : '';
+
+        if (resultsEl) {
+            resultsEl.innerHTML = `
+                <div style="text-align:center;padding:var(--space-md)">
+                    <span class="spinner" style="width:1.2rem;height:1.2rem;display:inline-block;vertical-align:middle;margin-right:0.4rem"></span>
+                    <span style="color:var(--text-muted)">Scanning ${projectPath ? esc(projectPath) : 'current project'}…</span>
+                </div>`;
+        }
+        if (scanBtn) { scanBtn.disabled = true; scanBtn.textContent = 'Scanning…'; }
+
+        try {
+            const scanBody = projectPath ? JSON.stringify({ project_path: projectPath }) : '{}';
+            const [detect, scan] = await Promise.all([
+                api('/pages/detect', { method: 'POST', body: '{}' }),
+                api('/pages/scan-pipeline', { method: 'POST', body: scanBody }),
+            ]);
+
+            // Store in wizard data (accessed via the modal's internal data object)
+            window._wizPagesData = window._wizPagesData || {};
+            window._wizPagesData._detection = detect;
+            window._wizPagesData._pipelineScan = scan;
+            window._wizPagesData._projectPath = projectPath;
+            window._wizPagesData._scanned = true;
+
+            if (resultsEl) {
+                _wizPagesRenderScanResults(resultsEl, window._wizPagesData);
+            }
+        } catch (e) {
+            if (resultsEl) {
+                resultsEl.innerHTML = `<p style="color:var(--error);padding:var(--space-md)">Scan failed: ${esc(e.message)}</p>`;
+            }
+        }
+        if (scanBtn) { scanBtn.disabled = false; scanBtn.textContent = '🔍 Scan'; }
+    }
+
+    function _wizPagesRenderScanResults(el, data) {
+        const d = data._detection;
+        const p = data._pipelineScan;
+        if (!d || !p) {
+            el.innerHTML = '<p style="color:var(--error)">No scan data available.</p>';
+            return;
+        }
+
+        let html = '';
+
+        // Scanned path indicator
+        if (data._projectPath) {
+            html += `<div style="font-size:0.68rem;color:var(--text-muted);margin-bottom:var(--space-sm);padding:0.3rem 0.5rem;background:rgba(99,102,241,0.04);border:1px solid rgba(99,102,241,0.1);border-radius:4px">
+                📁 Scanning: <code style="font-size:0.65rem">${esc(data._projectPath)}</code>
+            </div>`;
+        }
+
+        // ── Existing segments ──
+        if (d.existing_segments && d.existing_segments.length > 0) {
+            html += wizSection('Existing Segments', `${d.existing_segments.length} configured`);
+            for (const seg of d.existing_segments) {
+                const built = seg.has_build ? '✅ Built' : '⏳ Not built';
+                const tag = seg.auto ? 'auto' : 'custom';
+                html += wizStatusRow(
+                    seg.has_build ? '🟢' : '⚪',
+                    seg.name,
+                    `${seg.builder} · ${built} · ${tag}`,
+                    seg.has_build ? 'ok' : 'muted',
+                    false
+                );
+            }
+        }
+
+        // ── Detected build scripts ──
+        if (p.scripts.length > 0) {
+            html += wizSection('Build Scripts', 'Detected in your project');
+            for (const s of p.scripts) {
+                const opLabel = s.operability === 'full' ? 'Fully Operable' :
+                                s.operability === 'partial' ? 'Partially Operable' : 'Manual';
+                let detail = `${s.type} · ${opLabel}`;
+                if (s.stages.length > 0) {
+                    detail += ` · ${s.stages.length} stages`;
+                }
+                html += wizStatusRow(
+                    s.operability === 'full' ? '🟢' : s.operability === 'partial' ? '🟡' : '🔴',
+                    s.path,
+                    detail,
+                    s.operability === 'full' ? 'ok' : s.operability === 'partial' ? 'warn' : 'error',
+                    false
+                );
+                // Description
+                if (s.description) {
+                    html += `<div style="margin-left:2rem;margin-bottom:0.3rem;font-size:0.68rem;color:var(--text-muted);font-style:italic">${esc(s.description)}</div>`;
+                }
+                // Stages pills
+                if (s.stages.length > 0) {
+                    html += `<div style="margin-left:2rem;margin-bottom:0.3rem"><span style="font-size:0.6rem;color:var(--text-muted);margin-right:0.3rem">Stages:</span>`;
+                    html += `<span style="display:inline-flex;flex-wrap:wrap;gap:0.25rem">`;
+                    for (const st of s.stages) {
+                        html += `<span style="font-size:0.6rem;padding:0.08rem 0.4rem;background:rgba(99,102,241,0.1);color:#818cf8;border-radius:3px;border:1px solid rgba(99,102,241,0.15)">${esc(st.label)}</span>`;
+                    }
+                    html += `</span></div>`;
+                }
+                // Flags
+                if (s.flags.length > 0) {
+                    html += `<div style="margin-left:2rem;margin-bottom:0.3rem"><span style="font-size:0.6rem;color:var(--text-muted);margin-right:0.3rem">Flags:</span>`;
+                    html += `<span style="display:inline-flex;flex-wrap:wrap;gap:0.25rem">`;
+                    for (const flag of s.flags) {
+                        html += `<code style="font-size:0.58rem;padding:0.05rem 0.35rem;background:rgba(255,255,255,0.04);color:var(--text-muted);border-radius:3px;border:1px solid var(--border-subtle)">${esc(flag)}</code>`;
+                    }
+                    html += `</span></div>`;
+                }
+                // Operability notes
+                if (s.operability_notes.length > 0) {
+                    html += `<div style="margin-left:2rem;margin-bottom:0.3rem;font-size:0.68rem;color:var(--text-muted)">`;
+                    for (const note of s.operability_notes) {
+                        // Multi-line notes (fix instructions) get preserved formatting
+                        const noteHtml = esc(note).replace(/\n/g, '<br>');
+                        html += `<div style="margin-bottom:0.15rem">${noteHtml}</div>`;
+                    }
+                    html += `</div>`;
+                }
+                // Remediation block — auto-fix offer
+                if (s.remediation && s.remediation.type === 'replace_line') {
+                    const r = s.remediation;
+                    const scriptIdx = p.scripts.indexOf(s);
+                    html += `
+                    <div id="remediation-${scriptIdx}" style="margin-left:2rem;margin-bottom:0.5rem;padding:0.5rem 0.6rem;background:rgba(99,102,241,0.04);border:1px solid rgba(99,102,241,0.12);border-radius:6px">
+                        <div style="font-size:0.7rem;font-weight:600;color:#818cf8;margin-bottom:0.3rem">🔧 Auto-fix available</div>
+                        <div style="font-size:0.66rem;color:var(--text-muted);margin-bottom:0.35rem">${esc(r.explanation)}</div>
+                        <div style="font-size:0.62rem;margin-bottom:0.35rem">
+                            <div style="color:var(--text-muted);margin-bottom:0.1rem">Line ${r.line_number} — current:</div>
+                            <code style="display:block;font-size:0.6rem;padding:0.2rem 0.4rem;background:rgba(239,68,68,0.06);border:1px solid rgba(239,68,68,0.15);border-radius:3px;color:#f87171;word-break:break-all">${esc(r.current_line)}</code>
+                            <div style="color:var(--text-muted);margin-top:0.2rem;margin-bottom:0.1rem">Proposed:</div>
+                            <code style="display:block;font-size:0.6rem;padding:0.2rem 0.4rem;background:rgba(34,197,94,0.06);border:1px solid rgba(34,197,94,0.15);border-radius:3px;color:#4ade80;word-break:break-all">${esc(r.proposed_line)}</code>
+                        </div>
+                        <button class="btn btn-sm btn-primary" id="fix-btn-${scriptIdx}" onclick="_applyScriptFix(${scriptIdx})" style="font-size:0.68rem">
+                            🔧 Apply Fix to ${esc(s.path)}
+                        </button>
+                    </div>`;
+                }
+            }
+        }
+
+        // ── Detected frameworks ──
+        if (p.frameworks.length > 0) {
+            html += wizSection('Frameworks', 'Static site generators found');
+            for (const fw of p.frameworks) {
+                const ver = fw.version ? ` v${fw.version}` : '';
+                html += wizStatusRow(
+                    '🏗️',
+                    fw.name + ver,
+                    `Config: ${fw.config_path} · Output: ${fw.output_dir}`,
+                    'ok',
+                    false
+                );
+            }
+        }
+
+        // ── CI workflows ──
+        if (p.ci_workflows.length > 0) {
+            html += wizSection('CI Workflows', 'Detected pipelines');
+            for (const ci of p.ci_workflows) {
+                let detail = ci.provider;
+                if (ci.deploy_target) detail += ` → ${ci.deploy_target}`;
+                html += wizStatusRow('⚙️', ci.name, detail, 'muted', false);
+            }
+        }
+
+        // ── New content folders available ──
+        const newFolders = (d.detected_folders || []).filter(f => !f.exists);
+        const newSmart = (d.detected_smart_folders || []).filter(s => !s.exists);
+        if (newFolders.length > 0 || newSmart.length > 0) {
+            const total = newFolders.length + newSmart.length;
+            html += wizSection('Available Sources', `${total} new segment(s) can be created`);
+            for (const f of newFolders) {
+                html += wizStatusRow('🆕', f.name, `${f.builder} · content folder`, 'muted', false);
+            }
+            for (const sf of newSmart) {
+                html += wizStatusRow('🆕', sf.name, `${sf.builder} · ${sf.label}`, 'muted', false);
+            }
+        }
+
+        // ── Compatibility summary ──
+        if (p.compatibility_notes.length > 0) {
+            const bg = p.compatibility === 'full' ? 'rgba(34,197,94,0.06)' :
+                       p.compatibility === 'partial' ? 'rgba(245,158,11,0.06)' :
+                       'rgba(239,68,68,0.06)';
+            const border = p.compatibility === 'full' ? 'rgba(34,197,94,0.2)' :
+                           p.compatibility === 'partial' ? 'rgba(245,158,11,0.2)' :
+                           'rgba(239,68,68,0.2)';
+            html += `<div style="margin-top:var(--space-md);padding:0.5rem 0.75rem;background:${bg};border:1px solid ${border};border-radius:6px;font-size:0.72rem">`;
+            for (const note of p.compatibility_notes) {
+                html += `<div style="margin-bottom:0.1rem">${esc(note)}</div>`;
+            }
+            html += `</div>`;
+        }
+
+        // Re-scan button
+        html += `<div style="margin-top:var(--space-md);text-align:center">
+            <button class="btn btn-sm btn-ghost" onclick="window._wizPagesData._scanned=false;document.querySelector('[data-wiz-step-body]')?.closest('.vault-modal')?.querySelector('[data-wiz-step=\"0\"]')?.click()">🔄 Re-scan</button>
+        </div>`;
+
+        if (!html) {
+            html = `<p style="color:var(--text-muted);text-align:center;padding:var(--space-lg)">No build infrastructure detected.</p>`;
+        }
+
+        el.innerHTML = html;
+    }
+
+    async function _applyScriptFix(scriptIdx) {
+        const data = window._wizPagesData;
+        if (!data || !data._pipelineScan) return;
+
+        const script = data._pipelineScan.scripts[scriptIdx];
+        if (!script || !script.remediation) return;
+
+        const r = script.remediation;
+        const btn = document.getElementById(`fix-btn-${scriptIdx}`);
+        const block = document.getElementById(`remediation-${scriptIdx}`);
+
+        if (btn) { btn.disabled = true; btn.textContent = 'Applying…'; }
+
+        try {
+            const body = {
+                script_path: script.path,
+                line_number: r.line_number,
+                current_line: r.current_line,
+                proposed_line: r.proposed_line,
+            };
+            if (data._projectPath) {
+                body.project_path = data._projectPath;
+            }
+
+            const result = await api('/pages/patch-script', {
+                method: 'POST',
+                body: JSON.stringify(body),
+            });
+
+            if (result.ok) {
+                toast(`✅ Patched ${script.path} line ${r.line_number}`, 'success');
+                // Update the remediation block to show success
+                if (block) {
+                    block.innerHTML = `
+                        <div style="font-size:0.7rem;font-weight:600;color:var(--success);margin-bottom:0.2rem">✅ Fix applied</div>
+                        <div style="font-size:0.62rem;color:var(--text-muted)">
+                            Line ${r.line_number} in ${esc(script.path)} has been updated.<br>
+                            The script is now control-plane-operable. Re-scan to verify.
+                        </div>
+                        <div style="font-size:0.6rem;margin-top:0.2rem">
+                            <code style="display:block;padding:0.2rem 0.4rem;background:rgba(34,197,94,0.06);border:1px solid rgba(34,197,94,0.15);border-radius:3px;color:#4ade80;word-break:break-all">${esc(r.proposed_line)}</code>
+                        </div>`;
+                    block.style.borderColor = 'rgba(34,197,94,0.2)';
+                    block.style.background = 'rgba(34,197,94,0.04)';
+                }
+                // Mark script as full operability in local data
+                script.operability = 'full';
+                script.remediation = {};
+                // Also update p.compatibility if this was the primary build script
+                const primaryBuild = data._pipelineScan.scripts.find(s => s.path.toLowerCase().includes('build')) || data._pipelineScan.scripts[0];
+                if (primaryBuild && primaryBuild.path === script.path) {
+                    data._pipelineScan.compatibility = 'full';
+                }
+            } else {
+                toast(`❌ Patch failed: ${result.error || 'Unknown error'}`, 'error');
+                if (btn) { btn.disabled = false; btn.textContent = `🔧 Apply Fix to ${script.path}`; }
+            }
+        } catch (e) {
+            toast(`❌ Patch failed: ${e.message}`, 'error');
+            if (btn) { btn.disabled = false; btn.textContent = `🔧 Apply Fix to ${script.path}`; }
+        }
+    }
+
+    function _wizPreviewToggle() {
+        const adminCb = document.getElementById('wiz-plug-admin-preview');
+        const scriptCb = document.getElementById('wiz-plug-script-preview');
+        const scriptFields = document.getElementById('wiz-script-preview-fields');
+        const scriptLabel = document.getElementById('wiz-script-preview-label-text');
+
+        if (!adminCb || !scriptCb) return;
+
+        // If admin preview was just unchecked → auto-check script preview
+        if (!adminCb.checked && !scriptCb.checked) {
+            scriptCb.checked = true;
+        }
+        // If script preview was just unchecked → auto-check admin preview
+        if (!scriptCb.checked && !adminCb.checked) {
+            adminCb.checked = true;
+        }
+
+        // Update label text based on whether admin preview is active
+        if (scriptLabel) {
+            if (adminCb.checked) {
+                scriptLabel.textContent = 'Also configure script\u2019s own dev server';
+            } else {
+                scriptLabel.textContent = 'Configure script\u2019s own dev server';
+            }
+        }
+
+        // Show/hide script preview fields
+        if (scriptFields) {
+            scriptFields.style.display = scriptCb.checked ? 'grid' : 'none';
+        }
+    }
+
+</script>

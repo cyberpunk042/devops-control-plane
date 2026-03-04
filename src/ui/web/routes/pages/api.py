@@ -66,11 +66,15 @@ from src.core.services.pages.engine import (
     resolve_file_to_segments,
     # Auto-init
     init_pages_from_project,
+    # Setup detection
+    detect_pages_setup,
     # Install streaming
     install_builder_stream,
     install_builder_events,
     # Build streaming
     build_segment_stream,
+    # Pipeline scanner
+    scan_project_pipelines,
 )
 from src.core.services.pages_builders import SegmentConfig
 from src.core.services.run_tracker import run_tracked
@@ -289,7 +293,114 @@ def deploy_route():  # type: ignore[no-untyped-def]
 @run_tracked("setup", "setup:pages")
 def init_pages():  # type: ignore[no-untyped-def]
     """Initialize pages config from project.yml content_folders."""
-    return jsonify(init_pages_from_project(_project_root()))
+    data = request.get_json(silent=True) or {}
+    flush_auto = data.get("flush_auto", False)
+    keep_segments = data.get("keep_segments", None)
+    return jsonify(init_pages_from_project(
+        _project_root(),
+        flush_auto=flush_auto,
+        keep_segments=keep_segments,
+    ))
+
+
+@pages_api_bp.route("/pages/detect", methods=["POST"])
+def detect_pages():  # type: ignore[no-untyped-def]
+    """Detect pages setup state for the full setup wizard."""
+    return jsonify(detect_pages_setup(_project_root()))
+
+
+@pages_api_bp.route("/pages/scan-pipeline", methods=["POST"])
+def scan_pipeline():  # type: ignore[no-untyped-def]
+    """Scan project for existing build pipelines.
+
+    Accepts optional ``project_path`` in POST body to scan an external
+    project.  Paths are resolved relative to the control plane's
+    project root, so ``../systems-course`` works.
+
+    Returns detected build scripts, frameworks, CI workflows,
+    and a suggested Pages segment configuration.
+    """
+    from dataclasses import asdict
+
+    data = request.get_json(silent=True) or {}
+    custom_path = data.get("project_path", "").strip()
+
+    if custom_path:
+        scan_root = (_project_root() / custom_path).resolve()
+        if not scan_root.is_dir():
+            return jsonify({"error": f"Path not found: {custom_path}"}), 400
+    else:
+        scan_root = _project_root()
+
+    result = scan_project_pipelines(scan_root)
+    return jsonify(asdict(result))
+
+
+@pages_api_bp.route("/pages/patch-script", methods=["POST"])
+def patch_script():  # type: ignore[no-untyped-def]
+    """Apply a remediation patch to a build script.
+
+    Expects JSON body with:
+        script_path:   Relative path to the script
+        line_number:   1-indexed line number to replace
+        current_line:  Expected current content (safety check)
+        proposed_line: Replacement content
+        project_path:  Optional, resolve relative to project root
+    """
+    data = request.get_json(silent=True) or {}
+    script_path = data.get("script_path", "").strip()
+    line_number = data.get("line_number", 0)
+    current_line = data.get("current_line", "")
+    proposed_line = data.get("proposed_line", "")
+    custom_path = data.get("project_path", "").strip()
+
+    if not script_path or not line_number or not proposed_line:
+        return jsonify({"error": "Missing required fields"}), 400
+
+    root = _project_root()
+    if custom_path:
+        root = (root / custom_path).resolve()
+
+    script_file = root / script_path
+    if not script_file.is_file():
+        return jsonify({"error": f"Script not found: {script_path}"}), 404
+
+    try:
+        lines = script_file.read_text(encoding="utf-8").splitlines(True)
+    except Exception as e:
+        return jsonify({"error": f"Cannot read script: {e}"}), 500
+
+    idx = line_number - 1
+    if idx < 0 or idx >= len(lines):
+        return jsonify({
+            "error": f"Line {line_number} out of range (file has {len(lines)} lines)"
+        }), 400
+
+    actual_line = lines[idx].rstrip("\n\r")
+    if current_line and actual_line.rstrip() != current_line.rstrip():
+        return jsonify({
+            "error": "Line content mismatch — the script may have been "
+                     "modified since scanning.",
+            "expected": current_line.rstrip(),
+            "actual": actual_line.rstrip(),
+        }), 409
+
+    # Apply the patch
+    old_line = lines[idx]
+    lines[idx] = proposed_line + "\n"
+
+    try:
+        script_file.write_text("".join(lines), encoding="utf-8")
+    except Exception as e:
+        return jsonify({"error": f"Cannot write script: {e}"}), 500
+
+    return jsonify({
+        "ok": True,
+        "script_path": script_path,
+        "line_number": line_number,
+        "old_line": old_line.rstrip(),
+        "new_line": proposed_line,
+    })
 
 
 # ── Preview ─────────────────────────────────────────────────────────

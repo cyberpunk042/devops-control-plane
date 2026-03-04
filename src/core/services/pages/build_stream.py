@@ -57,8 +57,19 @@ def build_segment_stream(
 
     source_path = (project_root / segment.source).resolve()
     if not source_path.is_dir():
-        yield {"type": "error", "message": f"Source not found: {segment.source}"}
-        return
+        # Check if this is a standalone smart folder (virtual source)
+        from src.core.services.config_ops import read_config
+        cfg = read_config(project_root).get("config", {})
+        smart_list = cfg.get("smart_folders", [])
+        is_virtual = any(
+            sf.get("name") == segment.source and sf.get("target") == sf.get("name")
+            for sf in smart_list
+        )
+        if not is_virtual:
+            yield {"type": "error", "message": f"Source not found: {segment.source}"}
+            return
+        # Virtual source — builder will stage from smart folder sources
+        source_path = project_root / segment.source
 
     segment.source = str(source_path)
     workspace = project_root / PAGES_WORKSPACE / name
@@ -73,6 +84,12 @@ def build_segment_stream(
         segment.config["build_mode"] = "no-minify"
 
     pipeline_start = time.monotonic()
+
+    # Set segment on builder so dynamic pipeline_stages() works
+    # (CustomBuilder reads stages from segment config)
+    if hasattr(builder, '_segment'):
+        builder._segment = segment
+
     stages_info = builder.pipeline_stages()
 
     yield {

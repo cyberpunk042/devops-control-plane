@@ -26,6 +26,13 @@ const config: Config = {
 // __IF_FEATURE_mermaid__
   markdown: {
     mermaid: true,
+    format: 'md',
+  },
+// __ENDIF__
+
+// __IF_NOT_FEATURE_mermaid__
+  markdown: {
+    format: 'md',
   },
 // __ENDIF__
 

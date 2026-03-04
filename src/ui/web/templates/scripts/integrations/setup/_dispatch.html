@@ -16,16 +16,11 @@
             k8s: openK8sSetupWizard,
             terraform: openTerraformSetupWizard,
             github: openGitHubSetupWizard,
-            pages: () => {
-                toast('Pages setup is available via the Pages card — check the Integrations tab.', 'info');
-                switchTab('integrations');
-            },
+            pages: openPagesSetupWizard,
             dns: openDnsSetupWizard,
         };
         const fn = wizards[key];
         if (fn) fn();
         else toast(`No setup wizard for "${key}" yet`, 'warn');
     }
-</script>
-
 </script>

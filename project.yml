@@ -1,15 +1,7 @@
-# project.yml — Control Plane Configuration
-#
-# Generated/updated by the Setup Wizard.
-# Manual edits are welcome.
-
 version: 1
 name: devops-control-plane
 description: A general-purpose project control plane for DevOps automation
 repository: github.com/cyberpunk042/devops-control-plane
-owners:
-  - name: "Cyberpunk 042"
-    github: "cyberpunk042"
 domains:
 - library
 - ops
@@ -49,13 +41,29 @@ modules:
   stack: markdown
 content_folders:
 - docs
+smart_folders:
+- name: code-docs
+  label: Code Documentation
+  target: code-docs
+  sources:
+  - path: src/
+    pattern: '**/README.md'
 external:
   ci: github-actions
+owners:
+- name: Cyberpunk 042
+  github: cyberpunk042
 pages:
   segments:
   - name: docs
     source: docs
     builder: docusaurus
     path: /docs
+    auto: true
+    config: {}
+  - name: code-docs
+    source: code-docs
+    builder: docusaurus
+    path: /code-docs
     auto: true
     config: {}

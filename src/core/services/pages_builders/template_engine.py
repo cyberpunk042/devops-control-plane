@@ -295,7 +295,16 @@ def process_docusaurus_config(
         for item in navbar_items:
             label = item.get("label", "Link")
             position = item.get("position", "right")
-            if "href" in item:
+            if item.get("type") == "html":
+                value = item.get("value", "")
+                items.append(
+                    f"        {{\n"
+                    f"          type: 'html',\n"
+                    f"          position: '{position}',\n"
+                    f"          value: `{value}`,\n"
+                    f"        }},"
+                )
+            elif "href" in item:
                 items.append(
                     f"        {{\n"
                     f"          href: '{item['href']}',\n"

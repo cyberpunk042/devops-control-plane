@@ -570,6 +570,9 @@
                 }
 
                 el.innerHTML = html;
+
+                // ── Smart Folders section (async, appended after main render) ──
+                _wizRenderSmartFolders(el);
             } catch (e) {
                 const el = document.getElementById('wiz-content-folders');
                 if (el) el.innerHTML = `<p style="color:var(--error);font-size:0.85rem">❌ ${esc(e.message)}</p>`;

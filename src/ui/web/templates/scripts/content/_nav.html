@@ -27,10 +27,11 @@ const browser = document.getElementById('content-browser');
 browser.innerHTML = '<p class="empty-state"><span class="spinner"></span> Detecting folders…</p>';
 
 try {
-// Check enc key status in parallel with folder detection
+// Check enc key status in parallel with folder detection + smart folders
 const [data, keyStatus] = await Promise.all([
 api('/content/folders'),
 api('/content/enc-key-status').catch(() => ({ configured: false })),
+_smartFoldersLoad(),
 ]);
 
 encKeyConfigured = keyStatus.configured;
@@ -102,6 +103,20 @@ const select = document.getElementById('content-folder-select');
 select.innerHTML = contentFolders.map(f =>
 `<option value="${esc(f.path)}">${esc(f.name)} (${f.file_count} files)</option>`
 ).join('');
+
+// Inject standalone smart folders (target not in content_folders)
+if (_smartFolders && _smartFolders.length > 0) {
+const cfPaths = new Set(contentFolders.map(f => f.path));
+for (const sf of _smartFolders) {
+if (!cfPaths.has(sf.target)) {
+const opt = document.createElement('option');
+// Standalone: target === name → smartRoot is just the name
+opt.value = (sf.target === sf.name) ? sf.name : sf.target + '/' + sf.name;
+opt.textContent = '🔬 ' + (sf.label || sf.name) + ' (' + sf.total_files + ' files)';
+select.appendChild(opt);
+}
+}
+}
 }
 
 async function contentToggleExploreAll(enabled) {
@@ -196,6 +211,15 @@ sel.value = rootFolder;
 }
 }
 
+// ── Smart folder interception ──────────────────────────────────
+const smartFolder = _smartFolderForPath(folderPath);
+if (smartFolder && !_smartFolderViewRaw) {
+    _smartFolderRender(folderPath, smartFolder);
+    return;
+}
+// Clear smart folder state when leaving
+_smartFolderActive = null;
+
 try {
 let listUrl = `/content/list?path=${encodeURIComponent(folderPath)}&check_release=true`;
 if (_contentMediaShowAll && contentCurrentMode === 'media') {
@@ -203,6 +227,26 @@ listUrl += '&recursive=true';
 }
 const data = await api(listUrl);
 renderContentFiles(data, folderPath);
+// Inject smart folder virtual entries into file listing
+_smartFoldersInjectEntries(folderPath);
+// If we're in raw mode, show the Smart/Raw toggle so user can switch back
+if (_smartFolderViewRaw && _smartFolderLastRoot) {
+    const bc = document.getElementById('content-breadcrumb');
+    if (bc) {
+        bc.style.display = 'block';
+        const toggle = document.createElement('div');
+        toggle.style.cssText = 'display:flex;align-items:center;gap:0.3rem';
+        toggle.innerHTML = `
+            📁 <span style="color:var(--text-muted)">Raw view of source</span>
+            <span style="margin-left:auto;display:inline-flex;gap:0.25rem;font-size:0.72rem">
+                <button onclick="_smartFolderToggleView(false)" style="padding:0.15rem 0.5rem;border-radius:4px;border:1px solid var(--border-subtle);background:transparent;color:var(--text-muted);cursor:pointer;font-size:0.72rem">📖 Smart</button>
+                <button disabled style="padding:0.15rem 0.5rem;border-radius:4px;border:1px solid var(--accent);background:var(--accent-glow);color:var(--accent);cursor:default;font-size:0.72rem">📁 Raw</button>
+            </span>
+        `;
+        bc.innerHTML = '';
+        bc.appendChild(toggle);
+    }
+}
 } catch (e) {
 browser.innerHTML = `<p class="empty-state" style="color:var(--error)">❌ ${esc(e.message)}</p>`;
 }

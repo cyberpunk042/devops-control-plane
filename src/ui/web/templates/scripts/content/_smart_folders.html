@@ -1,0 +1,462 @@
+// ─────────────────────────────────────────────────────────────────
+// _smart_folders.html
+// Content Vault — Smart Folders integration
+// Documentation navigator — module-aware, tree-based table of contents.
+// Directories ARE the documentation topics. README.md is invisible.
+// Included by: _content.html (Jinja2 include)
+// ─────────────────────────────────────────────────────────────────
+
+
+// ═════════════════════════════════════════════════════════════════
+// Smart Folders — Load & Detect
+// ═════════════════════════════════════════════════════════════════
+
+async function _smartFoldersLoad() {
+    if (_smartFoldersLoaded) return;
+    try {
+        const data = await api('/smart-folders');
+        _smartFolders = data.smart_folders || [];
+        _smartFoldersLoaded = true;
+    } catch (e) {
+        console.warn('Smart folders load failed:', e);
+        _smartFolders = [];
+        _smartFoldersLoaded = true;
+    }
+}
+
+/**
+ * Check if a path is inside a smart folder.
+ * Returns the smart folder config if matched, or null.
+ *
+ * A path matches if it equals or starts with "<target>/<name>/"
+ * For standalone (target === name): matches just "<name>"
+ */
+function _smartFolderForPath(folderPath) {
+    for (const sf of _smartFolders) {
+        const target = sf.target || '';
+        const name = sf.name || '';
+        const smartRoot = target === name ? name : target + '/' + name;
+        if (folderPath === smartRoot || folderPath.startsWith(smartRoot + '/')) {
+            return { ...sf, _smartRoot: smartRoot };
+        }
+    }
+    return null;
+}
+
+/**
+ * Get the sub-path within the smart folder.
+ * e.g. "docs/code-docs/core/services" → "core/services"
+ */
+function _smartFolderSubPath(folderPath, sf) {
+    const root = sf._smartRoot || '';
+    if (folderPath === root) return '';
+    return folderPath.substring(root.length + 1);
+}
+
+
+// ═════════════════════════════════════════════════════════════════
+// Smart Folders — Inject virtual entries into content listing
+// ═════════════════════════════════════════════════════════════════
+
+/**
+ * Called after renderContentFiles to inject smart folder virtual entries
+ * into the directory listing when we're at a target folder root.
+ */
+function _smartFoldersInjectEntries(folderPath) {
+    if (!_smartFoldersLoaded || _smartFolders.length === 0) return;
+
+    for (const sf of _smartFolders) {
+        const target = sf.target || '';
+        const name = sf.name || '';
+        // Show smart folder entry when browsing the target folder
+        if (folderPath !== target) continue;
+        // Skip standalone folders (they have their own dropdown entry)
+        if (target === name) continue;
+
+        // Check if the entry already exists (avoid duplicates)
+        const existingId = `smart-folder-entry-${name}`;
+        if (document.getElementById(existingId)) continue;
+
+        const fileList = document.querySelector('.content-file-list');
+        if (!fileList) continue;
+
+        const smartPath = target + '/' + name;
+        const entry = document.createElement('div');
+        entry.id = existingId;
+        entry.className = 'content-file-row';
+        entry.style.cssText = 'cursor:pointer;border:1px solid var(--accent);border-radius:8px;margin-bottom:0.2rem;background:var(--accent-glow)';
+        entry.onclick = () => contentLoadFolder(smartPath);
+        entry.innerHTML = `
+            <div class="content-file-icon" style="font-size:1.3rem">📖</div>
+            <div class="content-file-info">
+                <div class="content-file-name" style="font-weight:600" translate="no">${esc(sf.label || name)}</div>
+                <div class="content-file-meta" style="color:var(--accent)">
+                    ${sf.total_files || 0} documentation topics from code
+                </div>
+            </div>
+            <div class="content-file-size" style="font-size:0.75rem;color:var(--accent)">📖 docs</div>
+        `;
+
+        // Insert at top of file list (before first child)
+        fileList.insertBefore(entry, fileList.firstChild);
+    }
+}
+
+
+// ═════════════════════════════════════════════════════════════════
+// Smart Folders — Documentation Navigator
+// ═════════════════════════════════════════════════════════════════
+
+/**
+ * Main entry: load and render a smart folder.
+ * Called from contentLoadFolder when a smart folder path is detected.
+ */
+async function _smartFolderRender(folderPath, sf) {
+    _smartFolderActive = sf;
+    _smartFolderViewRaw = false;
+    contentCurrentPath = folderPath;
+    contentUpdateHash();
+
+    const browser = document.getElementById('content-browser');
+    const breadcrumb = document.getElementById('content-breadcrumb');
+    browser.innerHTML = '<p style="text-align:center;padding:2rem"><span class="spinner"></span></p>';
+
+    // Load tree if not cached or different folder
+    if (!_smartFolderTree || _smartFolderTree.name !== sf.name) {
+        try {
+            _smartFolderTree = await api(`/smart-folders/${encodeURIComponent(sf.name)}/tree`);
+        } catch (e) {
+            browser.innerHTML = `<p class="empty-state" style="color:var(--error)">❌ ${esc(e.message)}</p>`;
+            return;
+        }
+    }
+
+    const subPath = _smartFolderSubPath(folderPath, sf);
+
+    // Render breadcrumb
+    _smartFolderBreadcrumb(breadcrumb, sf, subPath);
+
+    // Render the documentation view
+    if (!subPath) {
+        // Module root — show module overview
+        _smartFolderRenderModules(browser, sf);
+    } else {
+        // Inside a module — show documentation table of contents
+        _smartFolderRenderDocTree(browser, sf, subPath);
+    }
+}
+
+/**
+ * Render breadcrumbs for smart folder navigation.
+ */
+function _smartFolderBreadcrumb(breadcrumbEl, sf, subPath) {
+    if (!breadcrumbEl) return;
+    breadcrumbEl.style.display = 'block';
+
+    const root = sf._smartRoot;
+    let crumbs = '';
+
+    // Target folder link (only for non-standalone)
+    if (sf.target !== sf.name) {
+        crumbs += `<a href="#" onclick="event.preventDefault();contentLoadFolder('${esc(sf.target)}')"
+            style="color:var(--primary)">${esc(sf.target)}</a>`;
+        crumbs += ' <span style="color:var(--text-muted)">›</span> ';
+    }
+
+    // Smart folder root
+    if (subPath) {
+        crumbs += `<a href="#" onclick="event.preventDefault();contentLoadFolder('${esc(root)}')"
+            style="color:var(--accent)">${esc(sf.label || sf.name)}</a>`;
+    } else {
+        crumbs += `<span style="color:var(--accent);font-weight:600">${esc(sf.label || sf.name)}</span>`;
+    }
+
+    // Sub-path segments
+    if (subPath) {
+        const parts = subPath.split('/');
+        let accumulated = root;
+        for (let i = 0; i < parts.length; i++) {
+            accumulated += '/' + parts[i];
+            crumbs += ' <span style="color:var(--text-muted)">›</span> ';
+            if (i === parts.length - 1) {
+                crumbs += `<span style="color:var(--text-primary);font-weight:600">${esc(parts[i])}</span>`;
+            } else {
+                crumbs += `<a href="#" onclick="event.preventDefault();contentLoadFolder('${esc(accumulated)}')"
+                    style="color:var(--primary)">${esc(parts[i])}</a>`;
+            }
+        }
+    }
+
+    // Smart/Raw toggle
+    const toggleHtml = `
+        <span style="margin-left:auto;display:inline-flex;gap:0.25rem;font-size:0.72rem">
+            <button onclick="_smartFolderToggleView(false)" style="padding:0.15rem 0.5rem;border-radius:4px;border:1px solid ${!_smartFolderViewRaw ? 'var(--accent)' : 'var(--border-subtle)'};background:${!_smartFolderViewRaw ? 'var(--accent-glow)' : 'transparent'};color:${!_smartFolderViewRaw ? 'var(--accent)' : 'var(--text-muted)'};cursor:pointer;font-size:0.72rem">📖 Smart</button>
+            <button onclick="_smartFolderToggleView(true)" style="padding:0.15rem 0.5rem;border-radius:4px;border:1px solid ${_smartFolderViewRaw ? 'var(--accent)' : 'var(--border-subtle)'};background:${_smartFolderViewRaw ? 'var(--accent-glow)' : 'transparent'};color:${_smartFolderViewRaw ? 'var(--accent)' : 'var(--text-muted)'};cursor:pointer;font-size:0.72rem">📁 Raw</button>
+        </span>
+    `;
+
+    breadcrumbEl.innerHTML = '<div style="display:flex;align-items:center;gap:0.3rem">📖 ' + crumbs + toggleHtml + '</div>';
+}
+
+/**
+ * Toggle between smart and raw views (only for non-standalone).
+ */
+function _smartFolderToggleView(raw) {
+    console.log('[SmartFolder] toggleView raw=', raw, 'currentPath=', contentCurrentPath);
+    _smartFolderViewRaw = raw;
+    if (raw) {
+        // Remember the smart root so we can switch back
+        const sf = _smartFolders.find(s => contentCurrentPath.includes(s.name));
+        console.log('[SmartFolder] found sf=', sf ? sf.name : 'null');
+        if (sf) {
+            _smartFolderLastRoot = (sf.target === sf.name) ? sf.name : sf.target + '/' + sf.name;
+        }
+        _smartFolderActive = null;
+        if (sf && sf.sources && sf.sources.length > 0) {
+            const rawPath = sf.sources[0].path.replace(/\/$/, '');
+            console.log('[SmartFolder] switching to raw path:', rawPath);
+            // Use explore-all to list non-content-folder paths
+            contentToggleExploreAll(true);
+            setTimeout(() => contentLoadFolder(rawPath), 200);
+        }
+    } else {
+        // Switch back to smart mode
+        console.log('[SmartFolder] switching back to smart root:', _smartFolderLastRoot);
+        if (_smartFolderLastRoot) {
+            contentLoadFolder(_smartFolderLastRoot);
+        }
+    }
+}
+
+
+// ═════════════════════════════════════════════════════════════════
+// Module Overview — Root level of smart folder
+// ═════════════════════════════════════════════════════════════════
+
+/**
+ * Render module cards at the smart folder root.
+ */
+function _smartFolderRenderModules(browserEl, sf) {
+    if (!_smartFolderTree) return;
+
+    const groups = _smartFolderTree.groups || [];
+    let html = '';
+
+    // Header
+    html += `<div style="margin-bottom:1rem">
+        <div style="font-size:0.95rem;font-weight:600;margin-bottom:0.3rem">
+            📖 ${esc(sf.label || sf.name)}
+        </div>
+        <div style="font-size:0.82rem;color:var(--text-muted)">
+            ${_smartFolderTree.total_files} documentation topics across ${groups.length} module${groups.length !== 1 ? 's' : ''}
+        </div>
+    </div>`;
+
+    // Module cards
+    html += '<div style="display:flex;flex-direction:column;gap:0.5rem">';
+    for (const g of groups) {
+        const smartPath = sf._smartRoot + '/' + g.module;
+        const docCount = g.file_count;
+        const topTopics = _smartFolderGetTopics(g.tree, 4);
+
+        html += `
+            <div onclick="contentLoadFolder('${esc(smartPath)}')"
+                style="padding:0.75rem 1rem;background:var(--bg-inset);border:1px solid var(--border-subtle);border-radius:10px;cursor:pointer;transition:border-color 0.15s"
+                onmouseenter="this.style.borderColor='var(--accent)'" onmouseleave="this.style.borderColor='var(--border-subtle)'">
+                <div style="display:flex;align-items:center;gap:0.6rem;margin-bottom:0.3rem">
+                    <span style="font-size:1.2rem">📦</span>
+                    <span style="font-weight:600;font-size:0.92rem">${esc(g.module)}</span>
+                    <code style="font-size:0.72rem;color:var(--text-muted)">${esc(g.module_path)}</code>
+                    <span style="margin-left:auto;font-size:0.78rem;color:var(--accent);font-weight:500">
+                        ${docCount} topic${docCount !== 1 ? 's' : ''}
+                    </span>
+                </div>
+                ${topTopics.length > 0 ? `
+                    <div style="display:flex;flex-wrap:wrap;gap:0.25rem;margin-top:0.3rem">
+                        ${topTopics.map(t => `
+                            <span style="font-size:0.72rem;padding:0.1rem 0.4rem;background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-muted)">${esc(t)}</span>
+                        `).join('')}
+                        ${docCount > topTopics.length ? `<span style="font-size:0.72rem;color:var(--text-muted)">+${docCount - topTopics.length} more</span>` : ''}
+                    </div>
+                ` : ''}
+            </div>
+        `;
+    }
+    html += '</div>';
+
+    browserEl.innerHTML = html;
+}
+
+/**
+ * Get the top N topic names (directory names that have docs) from a tree node.
+ */
+function _smartFolderGetTopics(node, max) {
+    const topics = [];
+    function walk(n) {
+        if (topics.length >= max) return;
+        for (const child of (n.children || [])) {
+            if ((child.files || []).length > 0) {
+                topics.push(child.name);
+            }
+            if (topics.length >= max) return;
+            walk(child);
+        }
+    }
+    walk(node);
+    return topics;
+}
+
+
+// ═════════════════════════════════════════════════════════════════
+// Documentation Tree — Table of contents inside a module
+// ═════════════════════════════════════════════════════════════════
+
+/**
+ * Render the documentation tree for a module.
+ * Each directory with a README.md = a documentation topic.
+ * The tree is a collapsible table of contents.
+ */
+function _smartFolderRenderDocTree(browserEl, sf, subPath) {
+    if (!_smartFolderTree) return;
+
+    const groups = _smartFolderTree.groups || [];
+    const parts = subPath.split('/');
+    const moduleName = parts[0];
+    const group = groups.find(g => g.module === moduleName);
+
+    if (!group) {
+        browserEl.innerHTML = `<div class="empty-state" style="padding:2rem">
+            <span style="font-size:2rem;display:block;margin-bottom:0.5rem">🔍</span>
+            <p>Module "${esc(moduleName)}" not found.</p>
+        </div>`;
+        return;
+    }
+
+    // Navigate to the right node in the tree
+    let node = group.tree;
+    for (let i = 1; i < parts.length; i++) {
+        const child = (node.children || []).find(c => c.name === parts[i]);
+        if (!child) {
+            browserEl.innerHTML = `<div class="empty-state" style="padding:2rem">
+                <span style="font-size:2rem;display:block;margin-bottom:0.5rem">🔍</span>
+                <p>Path not found: ${esc(parts.slice(1).join('/'))}</p>
+            </div>`;
+            return;
+        }
+        node = child;
+    }
+
+    let html = '';
+
+    // Module/section header
+    const sectionName = parts[parts.length - 1];
+    const hasOwnDoc = (node.files || []).length > 0;
+    const totalTopics = _smartFolderCountDocs(node);
+
+    html += `<div style="margin-bottom:1rem">
+        <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.3rem">
+            <span style="font-size:1.2rem">${parts.length === 1 ? '📦' : '📖'}</span>
+            <span style="font-weight:600;font-size:0.95rem">${esc(sectionName)}</span>
+            <code style="font-size:0.72rem;color:var(--text-muted)">${esc(group.module_path)}${parts.length > 1 ? '/' + parts.slice(1).join('/') : ''}</code>
+        </div>
+        <div style="font-size:0.82rem;color:var(--text-muted)">
+            ${totalTopics} documentation topic${totalTopics !== 1 ? 's' : ''}
+        </div>
+    </div>`;
+
+    // If the current node itself has a doc, show a "read this" card
+    if (hasOwnDoc) {
+        const file = node.files[0];
+        html += `
+            <div onclick="contentPreviewFile('${esc(file.source_path)}', '${esc(sectionName + " — Overview")}')"
+                style="padding:0.6rem 0.8rem;background:var(--accent-glow);border:1px solid var(--accent);border-radius:8px;margin-bottom:1rem;cursor:pointer;display:flex;align-items:center;gap:0.5rem;transition:opacity 0.15s"
+                onmouseenter="this.style.opacity='0.85'" onmouseleave="this.style.opacity='1'">
+                <span style="font-size:1rem">📖</span>
+                <div>
+                    <div style="font-weight:600;font-size:0.85rem">${esc(sectionName)} — Overview</div>
+                    <div style="font-size:0.72rem;color:var(--text-muted)">${esc(file.source_path)}</div>
+                </div>
+                <span style="margin-left:auto;font-size:0.72rem;color:var(--accent)">Read →</span>
+            </div>
+        `;
+    }
+
+    // Render children as a documentation table of contents
+    const children = node.children || [];
+    if (children.length > 0) {
+        html += '<div style="display:flex;flex-direction:column;gap:0.2rem">';
+        html += _smartFolderRenderTocEntries(children, sf, subPath, 0);
+        html += '</div>';
+    }
+
+    if (!hasOwnDoc && children.length === 0) {
+        html += `<div class="empty-state" style="padding:2rem">
+            <span style="font-size:2rem;display:block;margin-bottom:0.5rem">📭</span>
+            <p>No documentation topics in this section.</p>
+        </div>`;
+    }
+
+    browserEl.innerHTML = html;
+}
+
+/**
+ * Recursively render table of contents entries.
+ * Each directory with files = a clickable documentation topic.
+ * Each directory without files but with documented children = a section header.
+ */
+function _smartFolderRenderTocEntries(children, sf, parentPath, depth) {
+    let html = '';
+    const indent = depth * 1.2;
+
+    for (const child of children) {
+        const hasDoc = (child.files || []).length > 0;
+        const hasChildren = (child.children || []).length > 0;
+        const childPath = sf._smartRoot + '/' + parentPath + '/' + child.name;
+        const childDocCount = _smartFolderCountDocs(child);
+        const icon = hasDoc ? '📖' : (hasChildren ? '📂' : '📄');
+
+        if (hasDoc && !hasChildren) {
+            // Leaf topic — clicking previews the README.md directly
+            const file = child.files[0];
+            html += `
+                <div onclick="contentPreviewFile('${esc(file.source_path)}', '${esc(child.name)}')"
+                    style="display:flex;align-items:center;gap:0.5rem;padding:0.45rem 0.7rem;padding-left:${0.7 + indent}rem;background:var(--bg-inset);border:1px solid var(--border-subtle);border-radius:6px;cursor:pointer;transition:border-color 0.15s;font-size:0.85rem"
+                    onmouseenter="this.style.borderColor='var(--accent)'" onmouseleave="this.style.borderColor='var(--border-subtle)'">
+                    <span>${icon}</span>
+                    <span style="font-weight:500">${esc(child.name)}</span>
+                    <span style="margin-left:auto;font-size:0.72rem;color:var(--accent)">Read →</span>
+                </div>
+            `;
+        } else if (hasChildren) {
+            // Section with sub-topics — clicking navigates deeper
+            html += `
+                <div onclick="contentLoadFolder('${esc(childPath)}')"
+                    style="display:flex;align-items:center;gap:0.5rem;padding:0.45rem 0.7rem;padding-left:${0.7 + indent}rem;background:var(--bg-inset);border:1px solid var(--border-subtle);border-radius:6px;cursor:pointer;transition:border-color 0.15s;font-size:0.85rem"
+                    onmouseenter="this.style.borderColor='var(--accent)'" onmouseleave="this.style.borderColor='var(--border-subtle)'">
+                    <span>${icon}</span>
+                    <span style="font-weight:500">${esc(child.name)}</span>
+                    ${hasDoc ? '<span style="font-size:0.65rem;padding:0.05rem 0.3rem;background:var(--accent-glow);border:1px solid var(--accent);border-radius:4px;color:var(--accent)">has doc</span>' : ''}
+                    <span style="margin-left:auto;font-size:0.72rem;color:var(--text-muted)">${childDocCount} topic${childDocCount !== 1 ? 's' : ''} →</span>
+                </div>
+            `;
+        }
+    }
+
+    return html;
+}
+
+
+// ═════════════════════════════════════════════════════════════════
+// Smart Folders — Helpers
+// ═════════════════════════════════════════════════════════════════
+
+/**
+ * Count total documented directories (nodes with files) recursively.
+ */
+function _smartFolderCountDocs(node) {
+    let count = (node.files || []).length > 0 ? 1 : 0;
+    for (const child of (node.children || [])) {
+        count += _smartFolderCountDocs(child);
+    }
+    return count;
+}
