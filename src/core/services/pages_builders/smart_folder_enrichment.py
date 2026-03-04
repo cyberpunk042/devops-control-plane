@@ -393,21 +393,19 @@ def _inject_audit_directives(
     docs_dir: Path,
     groups: list[dict],
 ) -> int:
-    """Append :::audit-data directives to module landing pages.
+    """Inject :::audit-data directives into ALL index.md files in the docs tree.
 
-    Adds the directive to each module's index.md so the build pipeline
-    can resolve it with pre-computed audit data. Uses an HTML comment
-    marker to prevent double-injection on re-runs.
+    Walks every index.md under docs_dir — not just top-level module roots
+    — so that sub-module pages (e.g. core/services/docker/index.md) also
+    receive the audit-data block.  Uses an HTML comment marker to prevent
+    double-injection on re-runs.
     """
     count = 0
     marker = "<!-- audit-data-directive -->"
 
-    for g in groups:
-        mod_name = g["module"]
-        mod_dir = docs_dir / mod_name
-        index = mod_dir / "index.md"
-
-        if not index.is_file():
+    for index in sorted(docs_dir.rglob("index.md")):
+        # Skip the root landing page itself
+        if index.parent == docs_dir:
             continue
 
         content = index.read_text(encoding="utf-8")
@@ -416,13 +414,22 @@ def _inject_audit_directives(
         if marker in content:
             continue
 
-        # Append the directive at the end of the file
+        # Insert after the first heading (if present) so it appears at
+        # the top of the rendered page, not appended at the bottom.
         directive_block = (
-            f"\n\n{marker}\n"
+            f"\n{marker}\n"
             f":::audit-data\n"
             f":::\n"
         )
-        content = content.rstrip() + directive_block
+
+        heading_match = re.search(r"^#\s+.+$", content, re.MULTILINE)
+        if heading_match:
+            insert_pos = heading_match.end()
+            content = content[:insert_pos] + "\n" + directive_block + content[insert_pos:]
+        else:
+            # No heading — append at the end
+            content = content.rstrip() + "\n" + directive_block
+
         index.write_text(content, encoding="utf-8")
         count += 1
 
