@@ -1,7 +1,7 @@
 <!-- Integrations — Artifacts Setup Wizard
      Full setup wizard for artifact build targets.
-     Called from the Artifacts card "Full Setup" button.
-     Depends on: _wizard/_modal.html (wizardModalOpen, wizSection, wizStatusRow)
+     Steps: Detect → Evolve Makefile → Configure → Apply
+     Depends on: _wizard/_modal.html, _artifacts_sse.html
 -->
 <script>
 
@@ -10,6 +10,7 @@
     function openArtifactsSetupWizard() {
 
         let _candidates = null;
+        let _evolution = null;
 
         wizardModalOpen({
             title: '📦 Artifacts Setup',
@@ -21,33 +22,42 @@
                 // Step 1: Detect — scan project for buildable targets
                 // ══════════════════════════════════════════════════════
                 {
-                    label: 'Detect',
-                    render: async (body, data) => {
-                        body.innerHTML = wizSection('Scanning project…', '<span class="spinner"></span>');
+                    title: 'Detect',
+                    render: async (data, el) => {
+                        let html = wizSection('Scanning project…');
+                        html += '<div style="text-align:center;padding:var(--space-lg)"><span class="spinner"></span></div>';
+                        el.innerHTML = html;
 
                         try {
-                            const res = await api('/artifacts/detect', { method: 'POST' });
-                            _candidates = res.candidates || [];
+                            // Fetch both detection and evolution in parallel
+                            const [detectRes, evoRes] = await Promise.all([
+                                api('/artifacts/detect', { method: 'POST' }),
+                                api('/artifacts/makefile/evolution'),
+                            ]);
+                            _candidates = detectRes.candidates || [];
+                            _evolution = evoRes;
 
                             if (_candidates.length === 0) {
-                                body.innerHTML = wizSection('Detection Results',
-                                    `<p style="color:var(--text-muted)">No buildable targets detected in this project.</p>
-                                     <p style="color:var(--text-muted);font-size:0.8rem;margin-top:var(--space-sm)">
-                                       The scanner looks for: Makefile, pyproject.toml, Dockerfile, and scripts in scripts/
-                                     </p>`
-                                );
+                                html = wizSection('Detection Results', 'No buildable targets found');
+                                html += `<div style="padding:var(--space-md)">
+                                    <p style="color:var(--text-muted);font-size:0.82rem">The scanner looked for:</p>
+                                    <ul style="color:var(--text-muted);font-size:0.78rem;margin-top:var(--space-xs)">
+                                        <li>Makefile with known targets (install, check, clean)</li>
+                                        <li>pyproject.toml / setup.py (pip package)</li>
+                                        <li>Dockerfile / Containerfile (container image)</li>
+                                        <li>Release scripts in scripts/</li>
+                                    </ul>
+                                </div>`;
+                                el.innerHTML = html;
                                 return;
                             }
 
-                            const rows = _candidates.map((c, i) => {
-                                const confBadge = c.confidence === 'high'
-                                    ? '<span style="color:var(--success);font-size:0.7rem">●</span>'
-                                    : '<span style="color:var(--warning);font-size:0.7rem">◐</span>';
+                            // ── Detection results ──
+                            html = wizSection('Detection Results', `Found ${_candidates.length} buildable target${_candidates.length > 1 ? 's' : ''}`);
 
-                                const alreadyBadge = c.already_configured
-                                    ? ' <span style="font-size:0.62rem;padding:0.05rem 0.3rem;border:1px solid var(--accent);border-radius:3px;color:var(--accent)">configured</span>'
-                                    : '';
-
+                            for (let i = 0; i < _candidates.length; i++) {
+                                const c = _candidates[i];
+                                const isConfigured = c.already_configured;
                                 const kindColors = {
                                     local: 'var(--success)',
                                     package: '#818cf8',
@@ -55,116 +65,317 @@
                                     container: '#06b6d4',
                                 };
                                 const kindColor = kindColors[c.kind] || 'var(--text-muted)';
+                                const confIcon = c.confidence === 'high' ? '🟢' : '🟡';
 
-                                return `
-                                <div style="display:flex;align-items:center;gap:0.5rem;padding:0.5rem 0;border-bottom:1px solid var(--border-subtle);font-size:0.82rem">
-                                    <input type="checkbox" id="artc-${i}" ${c.already_configured ? 'disabled' : 'checked'}
-                                        data-candidate-idx="${i}" style="margin:0">
-                                    ${confBadge}
-                                    <label for="artc-${i}" style="font-weight:600;cursor:pointer">${esc(c.name)}</label>
-                                    <span style="font-size:0.62rem;padding:0.05rem 0.35rem;border:1px solid ${kindColor};border-radius:3px;color:${kindColor}">${esc(c.kind)}</span>
-                                    <span style="background:var(--bg-inset);border:1px solid var(--border-subtle);border-radius:4px;padding:0 0.4rem;font-size:0.68rem;color:var(--accent)">${esc(c.builder)}</span>
-                                    ${alreadyBadge}
-                                    <span style="color:var(--text-muted);font-size:0.68rem;margin-left:auto">${esc(c.detected_from)}</span>
-                                </div>`;
-                            }).join('');
+                                // Operability badge
+                                const opBadges = { full: '🟢', partial: '🟡', none: '🔴' };
+                                const opLabels = { full: 'Operable', partial: 'Fixable', none: 'Blocked' };
+                                const opBadge = opBadges[c.operability] || '';
+                                const opLabel = opLabels[c.operability] || '';
 
-                            body.innerHTML = wizSection('Detection Results',
-                                `<p style="color:var(--text-muted);font-size:0.82rem;margin-bottom:var(--space-sm)">
-                                    Found <strong>${_candidates.length}</strong> buildable target${_candidates.length > 1 ? 's' : ''}.
-                                    Select which to configure:
-                                </p>
-                                ${rows}`
-                            );
+                                html += `
+                                <div style="border-bottom:1px solid var(--border-subtle);padding:0.5rem;font-size:0.82rem">
+                                    <div style="display:flex;align-items:center;gap:0.5rem">
+                                        <input type="checkbox" id="artc-${i}" ${isConfigured ? 'disabled checked' : 'checked'}
+                                            data-candidate-idx="${i}" style="margin:0;flex-shrink:0">
+                                        <span>${confIcon}</span>
+                                        <label for="artc-${i}" style="font-weight:600;cursor:pointer;min-width:100px">${esc(c.name)}</label>
+                                        <span style="font-size:0.62rem;padding:0.05rem 0.35rem;border:1px solid ${kindColor};border-radius:3px;color:${kindColor}">${esc(c.kind)}</span>
+                                        <span style="background:var(--bg-inset);border:1px solid var(--border-subtle);border-radius:4px;padding:0 0.4rem;font-size:0.68rem;color:var(--accent)">${esc(c.builder)}</span>
+                                        ${isConfigured ? '<span style="font-size:0.62rem;padding:0.05rem 0.3rem;border:1px solid var(--accent);border-radius:3px;color:var(--accent)">configured</span>' : ''}
+                                        ${opBadge ? `<span style="font-size:0.62rem;margin-left:auto" title="${opLabel}">${opBadge} ${opLabel}</span>` : ''}
+                                    </div>
+                                    <div style="padding-left:1.6rem;margin-top:0.2rem;font-size:0.72rem;color:var(--text-muted)">${esc(c.description)}</div>`;
+
+                                // Operability notes inline (collapsed by default if more than 1)
+                                const opNotes = c.operability_notes || [];
+                                if (opNotes.length > 0) {
+                                    html += `<div style="padding-left:1.6rem;margin-top:0.25rem">`;
+                                    for (const note of opNotes) {
+                                        html += `<div style="font-size:0.68rem;color:var(--text-muted);line-height:1.4">${esc(note)}</div>`;
+                                    }
+                                    if (c.remediation) {
+                                        html += `<div style="font-size:0.68rem;color:#818cf8;margin-top:0.15rem">🔧 Fix available in next step</div>`;
+                                    }
+                                    html += `</div>`;
+                                }
+
+                                html += `</div>`;
+                            }
+
+                            // ── Makefile evolution summary ──
+                            if (_evolution && (_evolution.proposed_additions?.length > 0 || _evolution.remediation)) {
+                                html += `<div style="margin-top:var(--space-md);padding:var(--space-sm);background:rgba(129,140,248,0.06);border:1px solid rgba(129,140,248,0.2);border-radius:var(--radius-sm)">`;
+                                html += `<div style="font-size:0.82rem;font-weight:600;color:#818cf8;margin-bottom:0.3rem">🔧 Makefile Evolution Available</div>`;
+                                if (_evolution.remediation) {
+                                    html += `<div style="font-size:0.72rem;color:var(--text-muted)">⚠️ ${esc(_evolution.remediation.description)}</div>`;
+                                }
+                                if (_evolution.proposed_additions?.length > 0) {
+                                    html += `<div style="font-size:0.72rem;color:var(--text-muted);margin-top:0.15rem">+ ${_evolution.proposed_additions.length} new target(s) can be added</div>`;
+                                }
+                                html += `<div style="font-size:0.68rem;color:var(--text-muted);margin-top:0.15rem">→ Review and apply in the next step</div>`;
+                                html += `</div>`;
+                            }
+
+                            html += `<p style="color:var(--text-muted);font-size:0.72rem;margin-top:var(--space-sm);padding:0 0.5rem">
+                                Detected from: ${[...new Set(_candidates.map(c => c.detected_from))].map(s => '<code style="background:var(--bg-inset);padding:0 0.25rem;border-radius:2px;font-size:0.68rem">' + esc(s) + '</code>').join(', ')}
+                            </p>`;
+
+                            el.innerHTML = html;
 
                         } catch (e) {
-                            body.innerHTML = wizSection('Error',
-                                `<p style="color:var(--error)">${esc(e.message)}</p>`
-                            );
+                            let errHtml = wizSection('Detection Error');
+                            errHtml += `<p style="color:var(--error);padding:var(--space-md)">${esc(e.message)}</p>`;
+                            el.innerHTML = errHtml;
                         }
+                    },
+                    collect: (data) => {
+                        const checks = document.querySelectorAll('[data-candidate-idx]:checked:not(:disabled)');
+                        const selected = [];
+                        checks.forEach(cb => {
+                            const idx = parseInt(cb.dataset.candidateIdx);
+                            if (_candidates[idx] && !_candidates[idx].already_configured) {
+                                selected.push(_candidates[idx]);
+                            }
+                        });
+                        data._selected = selected;
                     },
                     validate: () => {
                         if (!_candidates || _candidates.length === 0) {
                             return 'No candidates found. Check your project structure.';
                         }
-                        // At least one checked
-                        const checks = document.querySelectorAll('[data-candidate-idx]:checked');
+                        const checks = document.querySelectorAll('[data-candidate-idx]:checked:not(:disabled)');
                         if (checks.length === 0) {
-                            return 'Select at least one target to configure.';
+                            return 'Select at least one new target to configure.';
                         }
                         return true;
                     },
                 },
 
                 // ══════════════════════════════════════════════════════
-                // Step 2: Configure — review selected targets
+                // Step 2: Evolve — fix Makefile operability + add targets
                 // ══════════════════════════════════════════════════════
                 {
-                    label: 'Configure',
-                    render: async (body, data) => {
-                        // Collect selected candidates
-                        const checks = document.querySelectorAll('[data-candidate-idx]:checked');
-                        const selected = [];
-                        checks.forEach(cb => {
-                            const idx = parseInt(cb.dataset.candidateIdx);
-                            if (_candidates[idx]) selected.push(_candidates[idx]);
-                        });
-                        data._selected = selected;
+                    title: 'Evolve',
+                    render: (data, el) => {
+                        const evo = _evolution;
+                        if (!evo || (!evo.remediation && (!evo.proposed_additions || evo.proposed_additions.length === 0))) {
+                            let html = wizSection('Makefile Evolution', 'Nothing to evolve — your Makefile is in good shape');
+                            html += wizStatusRow('✅', 'Operability', evo ? evo.operability : 'N/A', 'ok');
+                            if (evo && evo.operability_notes) {
+                                for (const note of evo.operability_notes) {
+                                    html += `<div style="padding-left:2rem;font-size:0.72rem;color:var(--text-muted)">${esc(note)}</div>`;
+                                }
+                            }
+                            html += `<p style="color:var(--text-muted);font-size:0.78rem;padding:var(--space-md)">Click Next to configure your selected targets.</p>`;
+                            el.innerHTML = html;
+                            return;
+                        }
 
-                        const detailRows = selected.map((c, i) => {
-                            const cmd = c.build_cmd || `make ${c.build_target}`;
-                            const modules = c.modules || [];
+                        let html = wizSection('Makefile Evolution', 'Review proposed changes to your Makefile');
 
-                            return `
-                            <div style="border:1px solid var(--border-subtle);border-radius:var(--radius-sm);padding:var(--space-sm);margin-bottom:var(--space-sm)">
-                                <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.3rem">
-                                    <span style="font-weight:600;font-size:0.85rem">${esc(c.name)}</span>
-                                    <span style="font-size:0.62rem;padding:0.05rem 0.3rem;border:1px solid var(--accent);border-radius:3px;color:var(--accent)">${esc(c.kind)}</span>
-                                    <span style="font-size:0.62rem;padding:0.05rem 0.3rem;border:1px solid var(--success);border-radius:3px;color:var(--success)">${esc(c.builder)}</span>
+                        // ── Remediation section ──
+                        if (evo.remediation) {
+                            const rem = evo.remediation;
+                            html += `
+                            <div style="border:1px solid rgba(234,179,8,0.3);border-radius:var(--radius-sm);padding:var(--space-sm);margin-bottom:var(--space-md);background:rgba(234,179,8,0.04)">
+                                <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.4rem">
+                                    <input type="checkbox" id="evo-remediation" checked style="margin:0">
+                                    <label for="evo-remediation" style="font-weight:600;font-size:0.85rem;cursor:pointer">🔧 Fix Operability</label>
+                                    <span style="font-size:0.62rem;padding:0.05rem 0.3rem;border:1px solid var(--warning);border-radius:3px;color:var(--warning)">recommended</span>
                                 </div>
-                                <div style="font-size:0.78rem;color:var(--text-muted);margin-bottom:0.3rem">${esc(c.description)}</div>
-                                <div style="font-size:0.72rem">
-                                    <span style="color:var(--text-muted)">Command:</span>
-                                    <code style="background:var(--bg-inset);padding:0.1rem 0.3rem;border-radius:3px;font-size:0.7rem">${esc(cmd)}</code>
-                                </div>
-                                ${c.output_dir ? `
-                                <div style="font-size:0.72rem;margin-top:0.15rem">
-                                    <span style="color:var(--text-muted)">Output:</span>
-                                    <code style="background:var(--bg-inset);padding:0.1rem 0.3rem;border-radius:3px;font-size:0.7rem">${esc(c.output_dir)}</code>
-                                </div>` : ''}
+                                <p style="font-size:0.78rem;color:var(--text-muted);margin-bottom:0.4rem">${esc(rem.description)}</p>`;
+
+                            // Show preamble
+                            if (rem.preamble) {
+                                html += `
+                                <div style="font-size:0.68rem;color:var(--text-muted);margin-bottom:0.2rem">Add at top of Makefile:</div>
+                                <code style="display:block;background:#0d0f17;color:#22c55e;padding:0.4rem 0.6rem;border-radius:4px;font-size:0.7rem;margin-bottom:0.4rem;white-space:pre-wrap">+ ${esc(rem.preamble)}</code>`;
+                            }
+
+                            // Show line changes as diff
+                            if (rem.changes && rem.changes.length > 0) {
+                                html += `<div style="font-size:0.68rem;color:var(--text-muted);margin-bottom:0.2rem">Line changes (${rem.changes.length}):</div>`;
+                                html += `<div style="background:#0d0f17;border-radius:4px;padding:0.4rem 0.6rem;font-family:var(--font-mono);font-size:0.66rem;max-height:200px;overflow-y:auto">`;
+                                for (const ch of rem.changes) {
+                                    html += `<div style="color:#ef4444">- <span style="opacity:0.7">L${ch.line_number}:</span> ${esc(ch.current.trim())}</div>`;
+                                    html += `<div style="color:#22c55e">+ <span style="opacity:0.7">L${ch.line_number}:</span> ${esc(ch.proposed.trim())}</div>`;
+                                    html += `<div style="height:0.3rem"></div>`;
+                                }
+                                html += `</div>`;
+                            }
+
+                            html += `</div>`;
+                        }
+
+                        // ── Proposed new targets ──
+                        if (evo.proposed_additions && evo.proposed_additions.length > 0) {
+                            html += `<div style="margin-bottom:var(--space-sm)">
+                                <div style="font-size:0.85rem;font-weight:600;margin-bottom:0.4rem">➕ Proposed New Targets</div>
+                                <p style="font-size:0.72rem;color:var(--text-muted);margin-bottom:0.4rem">
+                                    Based on your project structure, these targets could be added to your Makefile:
+                                </p>
                             </div>`;
-                        }).join('');
 
-                        body.innerHTML = wizSection('Configure Targets',
-                            `<p style="color:var(--text-muted);font-size:0.82rem;margin-bottom:var(--space-sm)">
-                                Review the <strong>${selected.length}</strong> target${selected.length > 1 ? 's' : ''} to be added:
-                            </p>
-                            ${detailRows}`
-                        );
+                            for (const p of evo.proposed_additions) {
+                                html += `
+                                <div style="border:1px solid var(--border-subtle);border-radius:var(--radius-sm);padding:var(--space-sm);margin-bottom:0.4rem">
+                                    <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.3rem">
+                                        <input type="checkbox" id="evo-add-${esc(p.target)}" data-evo-target="${esc(p.target)}" style="margin:0">
+                                        <label for="evo-add-${esc(p.target)}" style="font-weight:600;font-size:0.82rem;cursor:pointer">make ${esc(p.target)}</label>
+                                        ${p.description ? `<span style="font-size:0.68rem;color:var(--text-muted);margin-left:auto">${esc(p.description)}</span>` : ''}
+                                    </div>
+                                    <div style="font-size:0.72rem;color:var(--text-muted);padding-left:1.5rem;margin-bottom:0.2rem">${esc(p.reason)}</div>
+                                    <code style="display:block;background:#0d0f17;color:#8892a8;padding:0.3rem 0.5rem;border-radius:4px;font-size:0.66rem;margin-left:1.5rem;white-space:pre-wrap">${esc(p.target)}:${p.deps ? ' ' + esc(p.deps) : ''}\n\t${esc(p.recipe)}</code>
+                                </div>`;
+                            }
+                        }
+
+                        // ── Existing targets summary ──
+                        if (evo.existing_targets && evo.existing_targets.length > 0) {
+                            html += `<div style="margin-top:var(--space-sm);padding:var(--space-sm);background:var(--bg-inset);border-radius:var(--radius-sm)">
+                                <div style="font-size:0.72rem;color:var(--text-muted);margin-bottom:0.2rem">Existing Makefile targets:</div>
+                                <div style="display:flex;flex-wrap:wrap;gap:0.25rem">
+                                    ${evo.existing_targets.map(t => `<code style="font-size:0.66rem;padding:0.1rem 0.3rem;background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:3px">${esc(t)}</code>`).join('')}
+                                </div>
+                            </div>`;
+                        }
+
+                        el.innerHTML = html;
                     },
-                    validate: () => true,
+                    collect: (data) => {
+                        // Save evolution choices
+                        data._applyRemediation = !!document.getElementById('evo-remediation')?.checked;
+                        const addTargets = [];
+                        document.querySelectorAll('[data-evo-target]:checked').forEach(cb => {
+                            addTargets.push(cb.dataset.evoTarget);
+                        });
+                        data._addTargets = addTargets;
+                    },
+                    validate: () => true,  // All evolution is optional
                 },
 
                 // ══════════════════════════════════════════════════════
-                // Step 3: Apply — save to project.yml
+                // Step 3: Configure — review and customize targets
                 // ══════════════════════════════════════════════════════
                 {
-                    label: 'Apply',
-                    render: async (body, data) => {
+                    title: 'Configure',
+                    render: (data, el) => {
                         const selected = data._selected || [];
-                        body.innerHTML = wizSection('Applying…', '<span class="spinner"></span>');
 
-                        let added = 0;
-                        let skipped = 0;
-                        const results = [];
+                        let html = wizSection('Configure Targets', `${selected.length} target${selected.length > 1 ? 's' : ''} to add`);
 
-                        for (const c of selected) {
-                            if (c.already_configured) {
-                                skipped++;
-                                results.push(wizStatusRow(c.name, 'skipped', 'Already configured'));
-                                continue;
+                        for (let i = 0; i < selected.length; i++) {
+                            const c = selected[i];
+                            const cmd = c.build_cmd || (c.build_target ? `make ${c.build_target}` : '(auto)');
+
+                            html += `
+                            <div style="border:1px solid var(--border-subtle);border-radius:var(--radius-sm);padding:var(--space-sm);margin-bottom:var(--space-sm)">
+                                <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.4rem">
+                                    <span style="font-weight:600;font-size:0.85rem">${esc(c.name)}</span>
+                                    <span style="font-size:0.62rem;padding:0.05rem 0.3rem;border:1px solid var(--accent);border-radius:3px;color:var(--accent)">${esc(c.kind)}</span>
+                                    <span style="font-size:0.62rem;padding:0.05rem 0.3rem;border:1px solid var(--success);border-radius:3px;color:var(--success)">${esc(c.builder)}</span>
+                                </div>`;
+
+                            // Builder-specific configuration
+                            if (c.builder === 'makefile') {
+                                html += _artConfigMakefile(c, i, cmd);
+                            } else if (c.builder === 'pip') {
+                                html += _artConfigPip(c, i);
+                            } else if (c.builder === 'docker') {
+                                html += _artConfigDocker(c, i);
+                            } else if (c.builder === 'script') {
+                                html += _artConfigScript(c, i);
+                            } else {
+                                html += `<div style="font-size:0.78rem;color:var(--text-muted);margin-bottom:0.3rem">${esc(c.description)}</div>
+                                <div style="display:grid;grid-template-columns:auto 1fr;gap:0.2rem 0.6rem;font-size:0.72rem">
+                                    <span style="color:var(--text-muted)">Command:</span>
+                                    <code style="background:var(--bg-inset);padding:0.1rem 0.3rem;border-radius:3px;font-size:0.7rem">${esc(cmd)}</code>
+                                </div>`;
                             }
 
+                            html += `</div>`;
+                        }
+
+                        if (selected.length === 0) {
+                            html += `<p style="color:var(--text-muted);padding:var(--space-md)">No new targets selected.</p>`;
+                        }
+
+                        el.innerHTML = html;
+                    },
+                    collect: (data) => {
+                        // Collect editable fields back into _selected
+                        const selected = data._selected || [];
+                        for (let i = 0; i < selected.length; i++) {
+                            const c = selected[i];
+                            // Name override
+                            const nameEl = document.getElementById(`art-cfg-name-${i}`);
+                            if (nameEl) c.name = nameEl.value.trim() || c.name;
+                            // Output dir
+                            const outEl = document.getElementById(`art-cfg-output-${i}`);
+                            if (outEl) c.output_dir = outEl.value.trim();
+                            // Build cmd override
+                            const cmdEl = document.getElementById(`art-cfg-cmd-${i}`);
+                            if (cmdEl) c.build_cmd = cmdEl.value.trim();
+
+                            // Docker-specific
+                            const tagEl = document.getElementById(`art-cfg-tag-${i}`);
+                            if (tagEl) { c.config = c.config || {}; c.config.tag = tagEl.value.trim(); }
+                            const dfEl = document.getElementById(`art-cfg-dockerfile-${i}`);
+                            if (dfEl) { c.config = c.config || {}; c.config.dockerfile = dfEl.value.trim(); }
+                        }
+                    },
+                    validate: () => {
+                        const selected = _wizModal?.data?._selected || [];
+                        if (selected.length === 0) {
+                            return 'No new targets to add. Go back and select at least one.';
+                        }
+                        return true;
+                    },
+                },
+
+                // ══════════════════════════════════════════════════════
+                // Step 4: Apply — save to project.yml + patch Makefile
+                // ══════════════════════════════════════════════════════
+                {
+                    title: 'Apply',
+                    render: async (data, el) => {
+                        const selected = data._selected || [];
+                        let applyHtml = wizSection('Applying Configuration');
+                        applyHtml += '<div style="text-align:center;padding:var(--space-md)"><span class="spinner"></span> Saving…</div>';
+                        el.innerHTML = applyHtml;
+
+                        const resultRows = [];
+                        let added = 0, skipped = 0;
+
+                        // ── Apply Makefile evolution first ──
+                        const applyRemediation = data._applyRemediation || false;
+                        const addTargets = data._addTargets || [];
+
+                        if (applyRemediation || addTargets.length > 0) {
+                            try {
+                                const patchRes = await api('/artifacts/makefile/patch', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({
+                                        apply_remediation: applyRemediation,
+                                        add_targets: addTargets,
+                                    }),
+                                });
+                                if (patchRes.ok) {
+                                    for (const change of (patchRes.changes || [])) {
+                                        resultRows.push(wizStatusRow('🔧', 'Makefile', change, 'ok'));
+                                    }
+                                } else {
+                                    resultRows.push(wizStatusRow('❌', 'Makefile', patchRes.error || 'Patch failed', 'error'));
+                                }
+                            } catch (e) {
+                                resultRows.push(wizStatusRow('❌', 'Makefile patch', e.message || 'Failed', 'error'));
+                            }
+                        }
+
+                        // ── Save artifact targets ──
+                        for (const c of selected) {
                             try {
                                 await api('/artifacts/targets', {
                                     method: 'POST',
@@ -177,31 +388,44 @@
                                         build_cmd: c.build_cmd || '',
                                         output_dir: c.output_dir || 'dist/',
                                         description: c.description || '',
-                                        config: {},
+                                        config: c.config || {},
                                     }),
                                 });
                                 added++;
-                                results.push(wizStatusRow(c.name, 'ok', 'Added'));
+                                resultRows.push(wizStatusRow('✅', c.name, 'Added to project.yml', 'ok'));
                             } catch (e) {
                                 if (e.message && e.message.includes('already exists')) {
                                     skipped++;
-                                    results.push(wizStatusRow(c.name, 'skipped', 'Already exists'));
+                                    resultRows.push(wizStatusRow('⏭️', c.name, 'Already configured', 'muted'));
                                 } else {
-                                    results.push(wizStatusRow(c.name, 'error', e.message || 'Failed'));
+                                    resultRows.push(wizStatusRow('❌', c.name, e.message || 'Failed', 'error'));
                                 }
                             }
                         }
 
-                        const summary = added > 0
-                            ? `✅ Added <strong>${added}</strong> target${added > 1 ? 's' : ''}${skipped > 0 ? ` (${skipped} skipped)` : ''}.`
-                            : `No new targets added${skipped > 0 ? ` (${skipped} already configured)` : ''}.`;
+                        // ── Build results view ──
+                        let html = wizSection('Results');
 
-                        body.innerHTML = wizSection('Results',
-                            `<p style="font-size:0.82rem;margin-bottom:var(--space-sm)">${summary}</p>
-                             ${results.join('')}`
-                        );
+                        if (added > 0) {
+                            html += `<p style="font-size:0.85rem;color:var(--success);margin-bottom:var(--space-sm)">
+                                ✅ Added <strong>${added}</strong> artifact target${added > 1 ? 's' : ''} to project.yml
+                            </p>`;
+                        }
+                        if (skipped > 0) {
+                            html += `<p style="font-size:0.82rem;color:var(--text-muted);margin-bottom:var(--space-sm)">
+                                ${skipped} target${skipped > 1 ? 's' : ''} already configured — skipped
+                            </p>`;
+                        }
 
-                        // Refresh the card
+                        html += resultRows.join('');
+
+                        html += `<div style="margin-top:var(--space-md);padding:var(--space-sm);background:var(--bg-inset);border-radius:var(--radius-sm);font-size:0.78rem;color:var(--text-muted)">
+                            <strong>What's next:</strong> Close this wizard and use the 🔨 button on any target to build it.
+                            Builds open in a full modal with stage tracking, logs, and abort/retry.
+                        </div>`;
+
+                        el.innerHTML = html;
+
                         cardInvalidate('artifacts');
                         loadArtifactsCard();
                     },
@@ -209,6 +433,103 @@
                 },
             ],
         });
+    }
+
+    // ── Builder-specific config panels ──────────────────────────────
+
+    function _artConfigMakefile(c, idx, cmd) {
+        const opBadges = { full: '🟢 Operable', partial: '🟡 Partial', none: '🔴 Blocked' };
+        const opBadge = opBadges[c.operability] || '';
+
+        let html = `
+        <div style="font-size:0.78rem;color:var(--text-muted);margin-bottom:0.4rem">${esc(c.description)}</div>
+        <div class="modal-form-grid" style="gap:0.3rem 0.6rem;font-size:0.75rem">
+            <div class="modal-form-group">
+                <label class="modal-form-label" for="art-cfg-name-${idx}">Target Name</label>
+                <input class="modal-form-input" type="text" id="art-cfg-name-${idx}" value="${esc(c.name)}" style="font-size:0.75rem">
+            </div>
+            <div class="modal-form-group">
+                <label class="modal-form-label">Build Command</label>
+                <code style="display:block;background:var(--bg-inset);padding:0.35rem 0.5rem;border-radius:4px;font-size:0.72rem;color:var(--accent);border:1px solid var(--border-subtle)">${esc(cmd)}</code>
+            </div>
+        </div>`;
+
+        // Operability status
+        if (c.operability) {
+            html += `<div style="margin-top:0.4rem;display:flex;align-items:center;gap:0.4rem;font-size:0.72rem">
+                <span>Operability:</span> <span>${opBadge}</span>
+            </div>`;
+        }
+
+        // Operability notes
+        const opNotes = c.operability_notes || [];
+        if (opNotes.length > 0) {
+            html += `<div style="margin-top:0.2rem">`;
+            for (const note of opNotes) {
+                html += `<div style="font-size:0.68rem;color:var(--text-muted);padding-left:0.5rem;line-height:1.4">${esc(note)}</div>`;
+            }
+            html += `</div>`;
+        }
+
+        return html;
+    }
+
+    function _artConfigPip(c, idx) {
+        return `
+        <div style="font-size:0.78rem;color:var(--text-muted);margin-bottom:0.4rem">${esc(c.description)}</div>
+        <div class="modal-form-grid" style="gap:0.3rem 0.6rem;font-size:0.75rem">
+            <div class="modal-form-group">
+                <label class="modal-form-label" for="art-cfg-name-${idx}">Target Name</label>
+                <input class="modal-form-input" type="text" id="art-cfg-name-${idx}" value="${esc(c.name)}" style="font-size:0.75rem">
+            </div>
+            <div class="modal-form-group">
+                <label class="modal-form-label" for="art-cfg-output-${idx}">Output Directory</label>
+                <input class="modal-form-input" type="text" id="art-cfg-output-${idx}" value="${esc(c.output_dir || 'dist/')}" style="font-size:0.75rem">
+            </div>
+            <div class="modal-form-group">
+                <label class="modal-form-label" for="art-cfg-cmd-${idx}">Build Command</label>
+                <input class="modal-form-input" type="text" id="art-cfg-cmd-${idx}" value="${esc(c.build_cmd || '')}" placeholder="python -m build" style="font-size:0.75rem">
+                <span class="modal-form-hint">Leave empty for auto-detection (.venv/bin/python -m build)</span>
+            </div>
+        </div>`;
+    }
+
+    function _artConfigDocker(c, idx) {
+        return `
+        <div style="font-size:0.78rem;color:var(--text-muted);margin-bottom:0.4rem">${esc(c.description)}</div>
+        <div class="modal-form-grid" style="gap:0.3rem 0.6rem;font-size:0.75rem">
+            <div class="modal-form-group">
+                <label class="modal-form-label" for="art-cfg-name-${idx}">Target Name</label>
+                <input class="modal-form-input" type="text" id="art-cfg-name-${idx}" value="${esc(c.name)}" style="font-size:0.75rem">
+            </div>
+            <div class="modal-form-group">
+                <label class="modal-form-label" for="art-cfg-tag-${idx}">Image Tag</label>
+                <input class="modal-form-input" type="text" id="art-cfg-tag-${idx}" value="${esc((c.config || {}).tag || '')}" placeholder="auto (project-name:latest)" style="font-size:0.75rem">
+            </div>
+            <div class="modal-form-group">
+                <label class="modal-form-label" for="art-cfg-dockerfile-${idx}">Dockerfile</label>
+                <input class="modal-form-input" type="text" id="art-cfg-dockerfile-${idx}" value="${esc((c.config || {}).dockerfile || 'Dockerfile')}" style="font-size:0.75rem">
+            </div>
+        </div>`;
+    }
+
+    function _artConfigScript(c, idx) {
+        return `
+        <div style="font-size:0.78rem;color:var(--text-muted);margin-bottom:0.4rem">${esc(c.description)}</div>
+        <div class="modal-form-grid" style="gap:0.3rem 0.6rem;font-size:0.75rem">
+            <div class="modal-form-group">
+                <label class="modal-form-label" for="art-cfg-name-${idx}">Target Name</label>
+                <input class="modal-form-input" type="text" id="art-cfg-name-${idx}" value="${esc(c.name)}" style="font-size:0.75rem">
+            </div>
+            <div class="modal-form-group">
+                <label class="modal-form-label" for="art-cfg-cmd-${idx}">Script Path / Command</label>
+                <input class="modal-form-input" type="text" id="art-cfg-cmd-${idx}" value="${esc(c.build_cmd || '')}" style="font-size:0.75rem">
+            </div>
+            <div class="modal-form-group">
+                <label class="modal-form-label" for="art-cfg-output-${idx}">Output Directory</label>
+                <input class="modal-form-input" type="text" id="art-cfg-output-${idx}" value="${esc(c.output_dir || 'dist/')}" style="font-size:0.75rem">
+            </div>
+        </div>`;
     }
 
 </script>

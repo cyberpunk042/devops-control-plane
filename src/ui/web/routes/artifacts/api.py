@@ -143,9 +143,8 @@ def build_stream(name: str):
         return jsonify({"ok": False, "error": f"Target '{name}' not found"}), 404
 
     def generate():
-        for line in build_target_stream(root, name):
-            yield f"data: {line}\n\n"
-        yield "data: __done__\n\n"
+        for event_json in build_target_stream(root, name):
+            yield f"data: {event_json}\n\n"
 
     return Response(
         generate(),
@@ -207,3 +206,192 @@ def list_builders():
             "available": b is not None,
         })
     return jsonify({"builders": result})
+
+
+# ── Makefile Evolution ──────────────────────────────────────────────
+
+@bp.route("/makefile/evolution", methods=["GET"])
+def makefile_evolution():
+    """Analyze Makefile for operability issues and propose evolution."""
+    from src.core.services.artifacts.discovery import detect_makefile_evolution
+
+    root = _project_root()
+    result = detect_makefile_evolution(root)
+    return jsonify({"ok": True, **result})
+
+
+@bp.route("/makefile/patch", methods=["POST"])
+def makefile_patch():
+    """Apply remediation patches to the Makefile.
+
+    Request body:
+      {
+        "apply_remediation": true,     # Apply venv prefix changes
+        "add_targets": ["build", ...]  # Add proposed targets
+      }
+    """
+    from src.core.services.artifacts.discovery import detect_makefile_evolution
+
+    root = _project_root()
+    data = request.get_json(force=True) if request.data else {}
+    apply_remediation = data.get("apply_remediation", False)
+    add_targets = data.get("add_targets", [])
+
+    makefile = root / "Makefile"
+    if not makefile.exists() and not add_targets:
+        return jsonify({"ok": False, "error": "No Makefile found"}), 404
+
+    evolution = detect_makefile_evolution(root)
+    changes_made = []
+
+    try:
+        if makefile.exists():
+            content = makefile.read_text()
+            lines = content.splitlines()
+        else:
+            lines = [
+                ".PHONY: help " + " ".join(add_targets),
+                "",
+                "help: ## Show this help",
+                "\t@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \\",
+                "\t\tawk 'BEGIN {FS = \":.*?## \"}; {printf \"  \\033[36m%-15s\\033[0m %s\\n\", $$1, $$2}'",
+                "",
+            ]
+            changes_made.append("Created new Makefile with help target")
+
+        # Apply venv remediation
+        if apply_remediation and evolution.get("remediation"):
+            rem = evolution["remediation"]
+
+            # Add preamble (VENV variable) if not already present
+            if rem.get("preamble") and "VENV" not in "\n".join(lines):
+                insert_at = rem.get("preamble_after_line", 0)
+                lines.insert(insert_at + 1, "")
+                lines.insert(insert_at + 1, rem["preamble"])
+                changes_made.append(f"Added VENV auto-detection variable")
+
+                # Adjust line numbers for subsequent changes (we inserted 2 lines)
+                offset = 2
+            else:
+                offset = 0
+
+            # Apply line changes
+            for change in rem.get("changes", []):
+                target_line = change["line_number"] - 1 + offset  # 0-indexed + offset
+                if 0 <= target_line < len(lines):
+                    lines[target_line] = change["proposed"]
+                    changes_made.append(
+                        f"Line {change['line_number']}: "
+                        f"prefixed with $(VENV)"
+                    )
+
+        # Add new targets
+        proposed_map = {p["target"]: p for p in evolution.get("proposed_additions", [])}
+        for target_name in add_targets:
+            if target_name not in proposed_map:
+                continue
+            p = proposed_map[target_name]
+
+            # Update .PHONY line
+            for i, line in enumerate(lines):
+                if line.startswith(".PHONY:"):
+                    if target_name not in line:
+                        lines[i] = line.rstrip() + " " + target_name
+                    break
+
+            # Add target at the end
+            desc = p.get("description", "")
+            deps = p.get("deps", "")
+            recipe = p.get("recipe", "")
+
+            lines.append("")
+            lines.append(f"{target_name}: {deps}## {desc}".rstrip())
+            for recipe_line in recipe.split("\n"):
+                lines.append(f"\t{recipe_line.lstrip(chr(9))}")
+
+            changes_made.append(f"Added target: {target_name}")
+
+        # Write the file
+        makefile.write_text("\n".join(lines) + "\n")
+
+    except OSError as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+    return jsonify({
+        "ok": True,
+        "changes": changes_made,
+        "total_changes": len(changes_made),
+    })
+
+
+# ── Publish endpoints ──────────────────────────────────────────────
+
+@bp.route("/publish/capabilities", methods=["GET"])
+def publish_capabilities():
+    """Detect available publishing tools and auth."""
+    from src.core.services.artifacts.engine import detect_publish_capabilities
+
+    root = _project_root()
+    return jsonify(detect_publish_capabilities(root))
+
+
+@bp.route("/<name>/publishable", methods=["GET"])
+def publishable_artifacts(name: str):
+    """List publishable files and available publish options for a target."""
+    from src.core.services.artifacts.engine import get_publishable_artifacts
+
+    root = _project_root()
+    result = get_publishable_artifacts(root, name)
+    if "error" in result:
+        return jsonify(result), 404
+    return jsonify(result)
+
+
+@bp.route("/publish/<name>/stream", methods=["POST"])
+def publish_stream(name: str):
+    """Publish an artifact with SSE streaming output."""
+    from src.core.services.artifacts.engine import publish_target_stream
+
+    root = _project_root()
+    data = request.get_json(force=True) if request.data else {}
+    publish_target = data.get("publish_target", "github-release")
+    version = data.get("version", "")
+    release_notes = data.get("release_notes", "")
+    tag_name = data.get("tag_name", "")
+
+    def generate():
+        for event_json in publish_target_stream(
+            root, name, publish_target,
+            version=version,
+            release_notes=release_notes,
+            tag_name=tag_name,
+        ):
+            yield f"data: {event_json}\n\n"
+
+    return Response(
+        generate(),
+        mimetype="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@bp.route("/<name>/release-notes", methods=["GET"])
+def release_notes_preview(name: str):
+    """Generate release notes preview for a target."""
+    from src.core.services.artifacts.release_notes import generate_release_notes
+    from src.core.services.artifacts.version import resolve_version
+
+    root = _project_root()
+    version, version_source = resolve_version(root)
+    since_tag = request.args.get("since_tag")
+    notes = generate_release_notes(root, version, since_tag=since_tag)
+
+    return jsonify({
+        "version": version,
+        "version_source": version_source,
+        "notes": notes,
+    })
+

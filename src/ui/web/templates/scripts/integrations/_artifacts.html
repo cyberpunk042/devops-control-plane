@@ -72,6 +72,7 @@
                     <span style="background:var(--bg-inset);border:1px solid var(--border-subtle);border-radius:4px;padding:0 0.4rem;font-size:0.68rem;color:var(--accent)">${esc(t.builder)}</span>
                     <span style="color:var(--text-muted);font-size:0.68rem;margin-left:auto">${timeInfo}</span>
                     <button class="btn btn-sm btn-ghost" onclick="buildArtifactTarget('${esc(t.name)}')" title="Build" style="padding:0.1rem 0.3rem;font-size:0.72rem">🔨</button>
+                    ${['package','container','bundle'].includes(t.kind) ? `<button class="btn btn-sm btn-ghost" onclick="publishArtifactTarget('${esc(t.name)}')" title="Publish / Release" style="padding:0.1rem 0.3rem;font-size:0.72rem">🚀</button>` : ''}
                     <button class="btn btn-sm btn-ghost" onclick="removeArtifactTarget('${esc(t.name)}')" title="Remove" style="padding:0.1rem 0.3rem;font-size:0.72rem;color:var(--error)">✕</button>
                 </div>`;
             }).join('');
@@ -136,90 +137,86 @@
     }
 
     function buildArtifactTarget(name) {
-        // Show build log panel
-        const card = document.getElementById('int-artifacts-card');
-        let logPanel = document.getElementById('artifact-build-log');
-        if (!logPanel) {
-            logPanel = document.createElement('div');
-            logPanel.id = 'artifact-build-log';
-            logPanel.style.cssText = 'margin-top:var(--space-md);background:var(--bg-inset);border:1px solid var(--border-subtle);border-radius:var(--radius-sm);padding:0.5rem;max-height:300px;overflow-y:auto;font-family:var(--font-mono);font-size:0.7rem;line-height:1.5;color:var(--text-secondary)';
-            card.appendChild(logPanel);
-        }
-        logPanel.innerHTML = `<div style="color:var(--text-muted);font-style:italic">⏳ Building ${esc(name)}…</div>`;
-        logPanel.style.display = 'block';
-
-        // Disable build buttons during build
-        const btns = card.querySelectorAll('button[onclick*="buildArtifact"]');
-        btns.forEach(b => { b.disabled = true; });
-
-        // SSE stream
-        fetch(`/api/artifacts/build/${encodeURIComponent(name)}/stream`, { method: 'POST' })
-            .then(response => {
-                const reader = response.body.getReader();
-                const decoder = new TextDecoder();
-                let buffer = '';
-
-                function read() {
-                    reader.read().then(({ done, value }) => {
-                        if (done) {
-                            _artifactBuildDone(name, card, btns);
-                            return;
-                        }
-                        buffer += decoder.decode(value, { stream: true });
-                        const lines = buffer.split('\n');
-                        buffer = lines.pop(); // Keep incomplete line in buffer
-
-                        for (const raw of lines) {
-                            if (!raw.startsWith('data: ')) continue;
-                            const line = raw.slice(6);
-                            if (line === '__done__') {
-                                _artifactBuildDone(name, card, btns);
-                                return;
-                            }
-                            if (line.startsWith('__BUILD_RESULT__:')) {
-                                // Parse result but don't display as log
-                                continue;
-                            }
-                            const div = document.createElement('div');
-                            // Color success/error lines
-                            if (line.startsWith('✅')) div.style.color = 'var(--success)';
-                            else if (line.startsWith('❌')) div.style.color = 'var(--error)';
-                            else if (line.startsWith('━━━')) {
-                                div.style.color = 'var(--accent)';
-                                div.style.fontWeight = '600';
-                            }
-                            div.textContent = line;
-                            logPanel.appendChild(div);
-                            logPanel.scrollTop = logPanel.scrollHeight;
-                        }
-                        read();
-                    });
-                }
-                read();
-            })
-            .catch(err => {
-                logPanel.innerHTML += `<div style="color:var(--error)">❌ Stream error: ${esc(err.message)}</div>`;
-                btns.forEach(b => { b.disabled = false; });
-            });
+        // Delegate to the full build modal system
+        buildArtifactStream(name);
     }
 
-    function _artifactBuildDone(name, card, btns) {
-        btns.forEach(b => { b.disabled = false; });
-        cardInvalidate('artifacts');
-        loadArtifactsCard();
-        toast(`Build complete: ${name}`, 'success');
+    async function publishArtifactTarget(name) {
+        // Check build status first — offer build if not yet built
+        try {
+            const data = await api('/artifacts/targets/' + encodeURIComponent(name) + '/status');
+            const build = data.build;
+            if (!build || !build.ok) {
+                // No successful build — offer to build first
+                const doBuild = confirm(
+                    `"${name}" has no successful build yet.\n\n` +
+                    `Build it first before publishing?`
+                );
+                if (doBuild) {
+                    buildArtifactStream(name);
+                }
+                return;
+            }
+            // Has a successful build — go straight to promotion panel
+            _showStandalonePublishPanel(name);
+        } catch (e) {
+            // Fallback — try showing publish panel anyway
+            _showStandalonePublishPanel(name);
+        }
+    }
+
+    async function _showStandalonePublishPanel(name) {
+        // Create a lightweight modal for publish (not a build modal)
+        const oldModal = document.getElementById('artifact-build-modal');
+        if (oldModal) oldModal.remove();
+
+        const modal = document.createElement('div');
+        modal.className = 'vault-modal-overlay';
+        modal.id = 'artifact-build-modal';
+        modal.onclick = (e) => { if (e.target === modal) closeArtifactBuildModal(); };
+        modal.innerHTML = `
+        <div class="vault-modal" style="max-width:760px;max-height:92vh;overflow-y:auto">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-md)">
+                <h3 style="margin:0">🚀 Publish: <code style="font-size:0.9em;color:#818cf8">${esc(name)}</code></h3>
+                <button class="btn btn-sm btn-ghost" onclick="closeArtifactBuildModal()" style="font-size:1.1rem;padding:0.1rem 0.4rem" title="Close">✕</button>
+            </div>
+            <div id="art-build-stages"></div>
+            <div id="art-build-status"></div>
+            <div id="art-build-actions" style="display:flex;gap:var(--space-sm);justify-content:flex-end;padding-top:var(--space-sm);border-top:1px solid var(--border-subtle)">
+                <button class="btn btn-sm btn-secondary" onclick="closeArtifactBuildModal()">Close</button>
+            </div>
+        </div>`;
+        document.body.appendChild(modal);
+
+        const stagesEl = document.getElementById('art-build-stages');
+        const actionsEl = document.getElementById('art-build-actions');
+        await _showPromotionPanel(name, actionsEl, stagesEl);
     }
 
     async function buildAllArtifacts() {
         try {
             const data = await api('/artifacts/targets');
             const targets = data.targets || [];
-            for (const t of targets) {
-                buildArtifactTarget(t.name);
-                // Wait a bit between builds to avoid overlap
-                await new Promise(r => setTimeout(r, 500));
+            if (targets.length === 0) {
+                toast('No artifact targets configured', 'info');
+                return;
             }
+            // Build sequentially — each one gets its own modal
+            let i = 0;
+            function buildNext() {
+                if (i >= targets.length) return;
+                const t = targets[i++];
+                buildArtifactStream(t.name, {
+                    onComplete: (ok) => {
+                        if (ok && i < targets.length) {
+                            setTimeout(buildNext, 500);
+                        }
+                    },
+                });
+            }
+            buildNext();
         } catch (e) {
             toast(`Error: ${e.message}`, 'error');
         }
     }
+

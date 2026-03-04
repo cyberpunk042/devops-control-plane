@@ -1,0 +1,811 @@
+/* Integrations Tab JS — Artifacts SSE & Build Modal
+     SSE build streaming with structured events, stage cards,
+     batched log rendering, build progress tracking.
+     Depends on: _artifacts.html (Artifacts card context)
+*/
+    // ── SSE Build Streaming ──────────────────────────────────────────────
+
+    let _artBuildAbort = null;
+    let _artBuildTimerIds = {};
+    let _artActiveBuild = null;  // { name, stage, startTs }
+
+    function _updateArtifactRowStatus(name, stage, done) {
+        const rows = document.querySelectorAll('[data-artifact-row]');
+        for (const row of rows) {
+            if (row.dataset.artifactRow === name) {
+                const statusEl = row.querySelector('.artifact-build-status');
+                if (!statusEl) {
+                    // Create inline status element
+                    const span = document.createElement('span');
+                    span.className = 'artifact-build-status';
+                    span.style.cssText = 'margin-left:0.3rem';
+                    row.insertBefore(span, row.querySelector('button'));
+                    if (done) { span.remove(); return; }
+                    span.innerHTML = `<span onclick="showArtifactBuildModal()" style="display:inline-flex;align-items:center;gap:0.25rem;font-size:0.65rem;color:#818cf8;cursor:pointer" title="Click to view build log"><span style="animation:pulse 1.2s infinite;font-size:0.5rem">●</span> ${stage || 'building…'} 👁</span>`;
+                } else {
+                    if (done) { statusEl.remove(); return; }
+                    statusEl.innerHTML = `<span onclick="showArtifactBuildModal()" style="display:inline-flex;align-items:center;gap:0.25rem;font-size:0.65rem;color:#818cf8;cursor:pointer" title="Click to view build log"><span style="animation:pulse 1.2s infinite;font-size:0.5rem">●</span> ${stage || 'building…'} 👁</span>`;
+                }
+                break;
+            }
+        }
+    }
+
+    function showArtifactBuildModal() {
+        const modal = document.getElementById('artifact-build-modal');
+        if (modal) modal.style.display = '';
+    }
+
+    function abortArtifactBuild() {
+        if (_artBuildAbort) { try { _artBuildAbort.abort(); } catch(_){} _artBuildAbort = null; }
+        for (const id of Object.values(_artBuildTimerIds)) clearInterval(id);
+        _artBuildTimerIds = {};
+        if (_artActiveBuild) { _updateArtifactRowStatus(_artActiveBuild.name, null, true); _artActiveBuild = null; }
+        const modal = document.getElementById('artifact-build-modal');
+        if (modal) modal.remove();
+        cardInvalidate('artifacts');
+        loadArtifactsCard();
+    }
+
+    function closeArtifactBuildModal() {
+        const modal = document.getElementById('artifact-build-modal');
+        if (_artActiveBuild) {
+            // Build still running — just hide
+            if (modal) modal.style.display = 'none';
+        } else {
+            // Build finished — full cleanup
+            if (_artBuildAbort) { try { _artBuildAbort.abort(); } catch(_){} _artBuildAbort = null; }
+            for (const id of Object.values(_artBuildTimerIds)) clearInterval(id);
+            _artBuildTimerIds = {};
+            if (modal) modal.remove();
+            cardInvalidate('artifacts');
+            loadArtifactsCard();
+        }
+    }
+
+    function buildArtifactStream(name, opts) {
+        opts = opts || {};
+        const onComplete = opts.onComplete || null;
+
+        // Kill any previous build
+        if (_artBuildAbort) { try { _artBuildAbort.abort(); } catch(_){} }
+        if (_artActiveBuild) { _updateArtifactRowStatus(_artActiveBuild.name, null, true); }
+        for (const id of Object.values(_artBuildTimerIds)) clearInterval(id);
+        _artBuildTimerIds = {};
+        const oldModal = document.getElementById('artifact-build-modal');
+        if (oldModal) oldModal.remove();
+        // Also remove any old inline log panel
+        const oldLog = document.getElementById('artifact-build-log');
+        if (oldLog) oldLog.remove();
+
+        _artBuildAbort = new AbortController();
+        _artActiveBuild = { name, stage: null, startTs: performance.now() };
+        _updateArtifactRowStatus(name, 'starting…', false);
+
+        // ── Create modal ──
+        const modal = document.createElement('div');
+        modal.className = 'vault-modal-overlay';
+        modal.id = 'artifact-build-modal';
+        modal.onclick = (e) => { if (e.target === modal) closeArtifactBuildModal(); };
+        modal.innerHTML = `
+        <div class="vault-modal" style="max-width:760px;max-height:92vh;overflow-y:auto">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-md)">
+                <h3 style="margin:0">🔨 Building: <code style="font-size:0.9em;color:#818cf8">${esc(name)}</code></h3>
+                <button class="btn btn-sm btn-ghost" onclick="closeArtifactBuildModal()" style="font-size:1.1rem;padding:0.1rem 0.4rem" title="Close">✕</button>
+            </div>
+            <div id="art-build-timer" style="font-size:0.72rem;color:var(--text-muted);margin-bottom:var(--space-sm)">⏱ Elapsed: 0.0s</div>
+            <div id="art-build-stages" style="display:flex;flex-direction:column;gap:0.5rem;margin-bottom:var(--space-md)">
+                <div style="color:var(--text-muted);font-size:0.78rem;padding:0.5rem">Connecting…</div>
+            </div>
+            <div id="art-build-status" style="font-size:0.82rem;padding:0.5rem 0">
+                <span style="color:var(--text-muted)">⏳ Waiting for pipeline…</span>
+            </div>
+            <div id="art-build-actions" style="display:flex;gap:var(--space-sm);justify-content:flex-end;padding-top:var(--space-sm);border-top:1px solid var(--border-subtle)">
+                <button id="art-build-cancel-btn" class="btn btn-sm" onclick="abortArtifactBuild()" style="background:var(--error);color:white;border:none">⛔ Abort Build</button>
+                <button class="btn btn-sm btn-ghost" onclick="closeArtifactBuildModal()" title="Hide modal (build keeps running)">Minimize</button>
+            </div>
+        </div>`;
+        document.body.appendChild(modal);
+
+        const stagesEl = document.getElementById('art-build-stages');
+        const statusEl = document.getElementById('art-build-status');
+        const actionsEl = document.getElementById('art-build-actions');
+        const timerEl = document.getElementById('art-build-timer');
+
+        // Per-stage state
+        const stages = {};
+        let currentStage = '';
+        const pipelineStart = performance.now();
+
+        // Live pipeline timer
+        const pipelineTimerId = setInterval(() => {
+            const elapsed = ((performance.now() - pipelineStart) / 1000).toFixed(1);
+            timerEl.textContent = `⏱ Elapsed: ${elapsed}s`;
+        }, 100);
+        _artBuildTimerIds['_pipeline'] = pipelineTimerId;
+
+        function _fmtMs(ms) { return ms < 1000 ? ms + 'ms' : (ms / 1000).toFixed(1) + 's'; }
+
+        function _makeStageCard(stageName, label) {
+            const wrapper = document.createElement('div');
+            wrapper.id = 'art-stage-' + stageName;
+            wrapper.style.cssText = 'border:1px solid var(--border-subtle);border-radius:8px;overflow:hidden;transition:border-color 0.2s';
+
+            const header = document.createElement('div');
+            header.className = 'stage-header';
+            header.style.cssText = 'display:flex;align-items:center;gap:0.5rem;padding:0.5rem 0.75rem;background:var(--bg-inset);cursor:pointer;user-select:none';
+            header.innerHTML = `
+                <span class="stage-icon" style="min-width:1.2rem;text-align:center;font-size:0.85rem">○</span>
+                <span class="stage-label" style="font-weight:600;font-size:0.82rem;color:var(--text-muted)">${esc(label)}</span>
+                <span class="stage-detail" style="margin-left:auto;font-size:0.68rem;color:var(--text-muted)"></span>
+                <span class="stage-lines" style="font-size:0.6rem;color:var(--text-muted);background:var(--bg-elevated);padding:0 0.25rem;border-radius:3px;display:none">0</span>
+                <span class="stage-toggle" style="font-size:0.6rem;color:var(--text-muted);transition:transform 0.15s">▶</span>`;
+            wrapper.appendChild(header);
+
+            const logArea = document.createElement('div');
+            logArea.className = 'stage-log';
+            logArea.style.cssText = 'display:none;background:#0d0f17;padding:0.5rem 0.75rem;font-family:var(--font-mono);font-size:0.66rem;max-height:200px;overflow-y:auto;line-height:1.5;color:#8892a8;white-space:pre-wrap;border-top:1px solid #1a1f2e';
+            wrapper.appendChild(logArea);
+
+            header.onclick = () => {
+                const showing = logArea.style.display !== 'none';
+                logArea.style.display = showing ? 'none' : 'block';
+                header.querySelector('.stage-toggle').textContent = showing ? '▶' : '▼';
+                if (!showing) logArea.scrollTop = logArea.scrollHeight;
+            };
+
+            return wrapper;
+        }
+
+        function _setStageStatus(stageName, status, detail) {
+            const info = stages[stageName];
+            if (!info) return;
+            const wrapper = info.el;
+            const iconEl = wrapper.querySelector('.stage-icon');
+            const labelEl = wrapper.querySelector('.stage-label');
+            const detailEl = wrapper.querySelector('.stage-detail');
+
+            const icons = { pending: '○', running: '⟳', done: '✅', error: '❌', skipped: '⊘' };
+            const colors = { pending: 'var(--text-muted)', running: '#818cf8', done: 'var(--success)', error: 'var(--error)', skipped: 'var(--text-muted)' };
+            const borders = { pending: 'var(--border-subtle)', running: '#818cf8', done: '#22c55e40', error: '#ef444460', skipped: 'var(--border-subtle)' };
+            const bgs = { running: 'rgba(129,140,248,0.04)', error: 'rgba(239,68,68,0.04)' };
+
+            iconEl.textContent = icons[status] || '○';
+            if (status === 'running') iconEl.style.animation = 'spin 1s linear infinite';
+            else iconEl.style.animation = '';
+            labelEl.style.color = colors[status] || 'var(--text-muted)';
+            detailEl.textContent = detail || '';
+            wrapper.style.borderColor = borders[status] || 'var(--border-subtle)';
+            wrapper.querySelector('.stage-header').style.background = bgs[status] || 'var(--bg-inset)';
+        }
+
+        // ── Batched log rendering ──
+        const _logBuffers = {};
+
+        function _addStageLine(stageName, line) {
+            const info = stages[stageName];
+            if (!info) return;
+            info.lineCount++;
+
+            if (!_logBuffers[stageName]) {
+                _logBuffers[stageName] = { lines: [], scheduled: false };
+            }
+            _logBuffers[stageName].lines.push(line);
+
+            if (!_logBuffers[stageName].scheduled) {
+                _logBuffers[stageName].scheduled = true;
+                requestAnimationFrame(() => _flushStageLog(stageName));
+            }
+        }
+
+        function _flushStageLog(stageName) {
+            const buf = _logBuffers[stageName];
+            if (!buf || buf.lines.length === 0) {
+                if (buf) buf.scheduled = false;
+                return;
+            }
+            const info = stages[stageName];
+            if (!info) { buf.lines = []; buf.scheduled = false; return; }
+
+            info.logEl.textContent += buf.lines.join('\n') + '\n';
+            buf.lines = [];
+            buf.scheduled = false;
+
+            info.logEl.scrollTop = info.logEl.scrollHeight;
+            const linesEl = info.el.querySelector('.stage-lines');
+            linesEl.style.display = 'inline';
+            linesEl.textContent = info.lineCount;
+        }
+
+        function _flushAllStageLogs() {
+            for (const name of Object.keys(_logBuffers)) {
+                _flushStageLog(name);
+            }
+        }
+
+        function _expandStageLog(stageName) {
+            const info = stages[stageName];
+            if (!info) return;
+            info.logEl.style.display = 'block';
+            info.el.querySelector('.stage-toggle').textContent = '▼';
+        }
+
+        function _collapseStageLog(stageName) {
+            const info = stages[stageName];
+            if (!info) return;
+            info.logEl.style.display = 'none';
+            info.el.querySelector('.stage-toggle').textContent = '▶';
+        }
+
+        function _startStageTimer(stageName) {
+            const info = stages[stageName];
+            if (!info) return;
+            info.startTs = performance.now();
+            const tid = setInterval(() => {
+                const elapsed = ((performance.now() - info.startTs) / 1000).toFixed(1);
+                info.el.querySelector('.stage-detail').textContent = elapsed + 's…';
+            }, 100);
+            _artBuildTimerIds[stageName] = tid;
+        }
+
+        function _stopStageTimer(stageName) {
+            if (_artBuildTimerIds[stageName]) {
+                clearInterval(_artBuildTimerIds[stageName]);
+                delete _artBuildTimerIds[stageName];
+            }
+        }
+
+        // ── SSE connection ────────────────────────────────────────
+        const buildUrl = '/api/artifacts/build/' + encodeURIComponent(name) + '/stream';
+        fetch(buildUrl, {
+            method: 'POST',
+            signal: _artBuildAbort.signal,
+        })
+        .then(response => {
+            if (!response.ok) throw new Error(`Server ${response.status}: ${response.statusText}`);
+            stagesEl.innerHTML = '';
+            statusEl.innerHTML = '<span style="color:#818cf8">🔨 Pipeline starting…</span>';
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+
+            function read() {
+                reader.read().then(({ done, value }) => {
+                    if (done) {
+                        _flushAllStageLogs();
+                        if (!statusEl.querySelector('.build-final')) {
+                            statusEl.innerHTML = '<span style="color:var(--warning)" class="build-final">⚠️ Stream ended unexpectedly</span>';
+                            if (currentStage && stages[currentStage]) _expandStageLog(currentStage);
+                        }
+                        clearInterval(pipelineTimerId);
+                        for (const id of Object.values(_artBuildTimerIds)) clearInterval(id);
+                        _artActiveBuild = null;
+                        _updateArtifactRowStatus(name, null, true);
+                        cardInvalidate('artifacts');
+                        loadArtifactsCard();
+                        return;
+                    }
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop();
+
+                    for (const line of lines) {
+                        if (!line.startsWith('data: ')) continue;
+                        let evt;
+                        try { evt = JSON.parse(line.slice(6)); } catch(e) { continue; }
+
+                        if (evt.type === 'pipeline_start') {
+                            stagesEl.innerHTML = '';
+                            statusEl.innerHTML = '<span style="color:#818cf8">🔨 Building…</span>';
+                            for (const s of (evt.stages || [])) {
+                                const card = _makeStageCard(s.name, s.label || s.name);
+                                stagesEl.appendChild(card);
+                                stages[s.name] = {
+                                    el: card,
+                                    label: s.label || s.name,
+                                    logEl: card.querySelector('.stage-log'),
+                                    lineCount: 0,
+                                    startTs: 0,
+                                };
+                                _setStageStatus(s.name, 'pending', '');
+                            }
+
+                        } else if (evt.type === 'stage_start') {
+                            if (currentStage && currentStage !== evt.stage) _collapseStageLog(currentStage);
+                            currentStage = evt.stage;
+                            _setStageStatus(evt.stage, 'running', 'starting…');
+                            _expandStageLog(evt.stage);
+                            _startStageTimer(evt.stage);
+                            statusEl.innerHTML = `<span style="color:#818cf8">▶ ${esc(evt.label || evt.stage)}</span>`;
+                            if (_artActiveBuild) { _artActiveBuild.stage = evt.label || evt.stage; }
+                            _updateArtifactRowStatus(name, evt.label || evt.stage, false);
+
+                        } else if (evt.type === 'log') {
+                            _addStageLine(evt.stage || currentStage, evt.line || '');
+
+                        } else if (evt.type === 'stage_done') {
+                            _flushAllStageLogs();
+                            _stopStageTimer(evt.stage);
+                            _setStageStatus(evt.stage, 'done', _fmtMs(evt.duration_ms || 0));
+                            _collapseStageLog(evt.stage);
+
+                        } else if (evt.type === 'stage_error') {
+                            _flushAllStageLogs();
+                            _stopStageTimer(evt.stage);
+                            const errLines = (evt.error || 'failed').split('\n');
+                            _setStageStatus(evt.stage, 'error', esc(errLines[0]));
+                            for (const eLine of errLines) {
+                                _addStageLine(evt.stage, `❌ ${eLine}`);
+                            }
+                            _expandStageLog(evt.stage);
+
+                        } else if (evt.type === 'pipeline_done') {
+                            _flushAllStageLogs();
+                            clearInterval(pipelineTimerId);
+                            for (const id of Object.values(_artBuildTimerIds)) clearInterval(id);
+                            _artBuildTimerIds = {};
+
+                            const totalT = _fmtMs(evt.total_ms || 0);
+                            timerEl.textContent = `⏱ Total: ${totalT}`;
+
+                            if (currentStage) _collapseStageLog(currentStage);
+
+                            // Update skipped stages
+                            if (evt.stages) {
+                                for (const s of evt.stages) {
+                                    if (s.status === 'skipped') _setStageStatus(s.name, 'skipped', 'skipped');
+                                }
+                            }
+
+                            if (evt.ok) {
+                                statusEl.innerHTML = `<span style="color:var(--success)" class="build-final">✅ Pipeline complete — ${totalT}</span>`;
+                                // ── Post-build promotion panel ──
+                                _showPromotionPanel(name, actionsEl, stagesEl);
+                            } else {
+                                const errFirst = (evt.error || 'unknown').split('\n')[0];
+                                statusEl.innerHTML = `<span style="color:var(--error)" class="build-final">❌ Pipeline failed: ${esc(errFirst)}</span>`;
+                                actionsEl.innerHTML = `
+                                    <button class="btn btn-sm" onclick="closeArtifactBuildModal(); buildArtifactStream('${esc(name)}')" style="background:#818cf8;color:white;border:none">🔄 Retry</button>
+                                    <button class="btn btn-sm btn-secondary" onclick="closeArtifactBuildModal()">Close</button>`;
+                                // Expand failed stages
+                                if (evt.stages) {
+                                    for (const s of evt.stages) {
+                                        if (s.status === 'error') _expandStageLog(s.name);
+                                    }
+                                }
+                            }
+                            _artActiveBuild = null;
+                            _updateArtifactRowStatus(name, null, true);
+                            cardInvalidate('artifacts');
+                            loadArtifactsCard();
+                            if (onComplete) onComplete(evt.ok);
+                        }
+                    }
+                    read();
+                }).catch(err => {
+                    if (err.name === 'AbortError') { if (onComplete) onComplete(false); return; }
+                    clearInterval(pipelineTimerId);
+                    statusEl.innerHTML = `<span style="color:var(--error)" class="build-final">⚠️ Stream interrupted: ${esc(err.message)}</span>`;
+                    actionsEl.innerHTML = `<button class="btn btn-sm btn-secondary" onclick="closeArtifactBuildModal()">Close</button>`;
+                    if (currentStage) _expandStageLog(currentStage);
+                    _artActiveBuild = null;
+                    _updateArtifactRowStatus(name, null, true);
+                    cardInvalidate('artifacts');
+                    loadArtifactsCard();
+                    if (onComplete) onComplete(false);
+                });
+            }
+            read();
+        })
+        .catch(err => {
+            if (err.name === 'AbortError') { if (onComplete) onComplete(false); return; }
+            clearInterval(pipelineTimerId);
+            statusEl.innerHTML = `<span style="color:var(--error)" class="build-final">❌ Connection failed: ${esc(err.message)}</span>`;
+            if (onComplete) onComplete(false);
+        });
+    }
+
+
+    // ── Post-build promotion panel ──────────────────────────────────────
+
+    async function _showPromotionPanel(targetName, actionsEl, stagesEl) {
+        // Insert a promotion section after the stages
+        const promoDiv = document.createElement('div');
+        promoDiv.id = 'art-promote-panel';
+        promoDiv.style.cssText = 'margin-top:var(--space-md);border-top:1px solid var(--border-subtle);padding-top:var(--space-md)';
+        promoDiv.innerHTML = '<div style="color:var(--text-muted);font-size:0.78rem"><span class="spinner" style="margin-right:0.3rem"></span>Checking publish options…</div>';
+        stagesEl.parentElement.insertBefore(promoDiv, actionsEl);
+
+        try {
+            const info = await api('/artifacts/' + encodeURIComponent(targetName) + '/publishable');
+
+            if (!info.artifacts || info.artifacts.length === 0) {
+                promoDiv.innerHTML = '<div style="color:var(--text-muted);font-size:0.78rem">No artifacts to publish.</div>';
+                actionsEl.innerHTML = `<button class="btn btn-sm btn-secondary" onclick="closeArtifactBuildModal()">Close</button>`;
+                return;
+            }
+
+            let html = '';
+
+            // Artifacts listing
+            html += '<div style="margin-bottom:var(--space-sm)">';
+            html += '<div style="font-size:0.82rem;font-weight:600;margin-bottom:0.3rem">📦 Built Artifacts</div>';
+            html += '<div style="background:var(--bg-inset);border:1px solid var(--border-subtle);border-radius:var(--radius-sm);padding:0.4rem 0.6rem;font-family:var(--font-mono);font-size:0.72rem">';
+            for (const a of info.artifacts) {
+                const sizeStr = a.size > 1024 * 1024
+                    ? (a.size / 1024 / 1024).toFixed(1) + ' MB'
+                    : (a.size / 1024).toFixed(1) + ' KB';
+                const typeColor = a.type === 'wheel' ? '#818cf8' : a.type === 'sdist' ? '#22c55e' : 'var(--text-muted)';
+                html += `<div style="display:flex;justify-content:space-between;padding:0.15rem 0">
+                    <span>${esc(a.name)}</span>
+                    <span style="color:${typeColor}">${sizeStr}</span>
+                </div>`;
+            }
+            html += '</div></div>';
+
+            // Version + source + existing release check
+            html += `<div style="font-size:0.72rem;color:var(--text-muted);margin-bottom:var(--space-sm)">
+                Version: <strong style="color:var(--text-primary)">${esc(info.version)}</strong>
+                <span style="opacity:0.6">(from ${esc(info.version_source)})</span>
+            </div>`;
+
+            // Check if this version already has a release
+            if (info.existing_release) {
+                html += `<div style="background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.3);border-radius:var(--radius-sm);padding:0.5rem 0.6rem;margin-bottom:var(--space-sm);font-size:0.75rem">
+                    <div style="color:var(--warning);font-weight:600;margin-bottom:0.2rem">⚠️ Release v${esc(info.version)} already exists</div>
+                    <div style="color:var(--text-muted)">Published ${esc(info.existing_release.published_at || '—')}</div>
+                    <div style="display:flex;gap:0.3rem;margin-top:0.4rem">
+                        <button class="btn btn-sm" onclick="_startPublish('${esc(targetName)}', 'github-release', '${esc(info.bumps?.patch || '')}')" style="background:var(--bg-inset);border:1px solid var(--border-subtle);font-size:0.7rem" title="Bump patch">patch → ${esc(info.bumps?.patch || '')}</button>
+                        <button class="btn btn-sm" onclick="_startPublish('${esc(targetName)}', 'github-release', '${esc(info.bumps?.minor || '')}')" style="background:var(--bg-inset);border:1px solid var(--border-subtle);font-size:0.7rem" title="Bump minor">minor → ${esc(info.bumps?.minor || '')}</button>
+                        <button class="btn btn-sm" onclick="_startPublish('${esc(targetName)}', 'github-release', '${esc(info.bumps?.major || '')}')" style="background:var(--bg-inset);border:1px solid var(--border-subtle);font-size:0.7rem" title="Bump major">major → ${esc(info.bumps?.major || '')}</button>
+                    </div>
+                </div>`;
+            }
+
+            // Publish options
+            const available = info.publish_options.filter(o => o.available);
+            const unavailable = info.publish_options.filter(o => !o.available);
+
+            if (available.length > 0) {
+                html += '<div style="font-size:0.82rem;font-weight:600;margin-bottom:0.4rem">Promote to:</div>';
+                html += '<div style="display:flex;flex-wrap:wrap;gap:0.4rem;margin-bottom:var(--space-sm)">';
+                for (const opt of available) {
+                    html += `<button class="btn btn-sm" onclick="_startPublish('${esc(targetName)}', '${esc(opt.target)}')"
+                        style="background:#818cf8;color:white;border:none;font-size:0.78rem;display:inline-flex;align-items:center;gap:0.3rem">
+                        ${esc(opt.label)}
+                    </button>`;
+                }
+                html += '</div>';
+            }
+
+            if (unavailable.length > 0) {
+                html += '<div style="font-size:0.68rem;color:var(--text-muted);margin-top:0.2rem">';
+                for (const opt of unavailable) {
+                    html += `<div style="display:flex;align-items:center;gap:0.3rem;opacity:0.6;margin-bottom:0.15rem">
+                        <span>${opt.icon || '📦'}</span>
+                        <span>${esc(opt.label)}</span>
+                        <span style="font-size:0.62rem">— ${esc(opt.reason)}</span>
+                    </div>`;
+                }
+                html += '</div>';
+            }
+
+            promoDiv.innerHTML = html;
+            actionsEl.innerHTML = `<button class="btn btn-sm btn-secondary" onclick="closeArtifactBuildModal()">Close</button>`;
+
+        } catch (e) {
+            promoDiv.innerHTML = `<div style="color:var(--text-muted);font-size:0.78rem">Could not load publish options: ${esc(e.message)}</div>`;
+            actionsEl.innerHTML = `<button class="btn btn-sm btn-secondary" onclick="closeArtifactBuildModal()">Close</button>`;
+        }
+    }
+
+
+    // ── Publish confirmation + streaming ────────────────────────────────
+
+    async function _startPublish(targetName, publishTarget, overrideVersion) {
+        // Show confirmation with release notes preview
+        const promoPanel = document.getElementById('art-promote-panel');
+        if (!promoPanel) return;
+
+        promoPanel.innerHTML = '<div style="text-align:center;padding:var(--space-md)"><span class="spinner"></span> Loading release info…</div>';
+
+        try {
+            const notesRes = await api('/artifacts/' + encodeURIComponent(targetName) + '/release-notes');
+            const version = overrideVersion || notesRes.version || '0.0.0';
+            const tagName = 'v' + version;
+
+            let html = '';
+            html += `<div style="font-size:0.85rem;font-weight:600;margin-bottom:var(--space-sm)">
+                🚀 Publish to ${publishTarget === 'github-release' ? 'GitHub Release' : esc(publishTarget)}
+            </div>`;
+
+            // Version + tag
+            html += `<div style="display:grid;grid-template-columns:auto 1fr;gap:0.2rem 0.6rem;font-size:0.78rem;margin-bottom:var(--space-sm)">
+                <span style="color:var(--text-muted)">Version:</span>
+                <input type="text" id="art-pub-version" value="${esc(version)}" style="background:var(--bg-inset);border:1px solid var(--border-subtle);border-radius:4px;padding:0.2rem 0.4rem;font-size:0.75rem;color:var(--text-primary);font-family:var(--font-mono)">
+                <span style="color:var(--text-muted)">Tag:</span>
+                <input type="text" id="art-pub-tag" value="${esc(tagName)}" style="background:var(--bg-inset);border:1px solid var(--border-subtle);border-radius:4px;padding:0.2rem 0.4rem;font-size:0.75rem;color:var(--text-primary);font-family:var(--font-mono)">
+            </div>`;
+
+            // Release notes
+            html += `<div style="font-size:0.78rem;color:var(--text-muted);margin-bottom:0.2rem">Release Notes:</div>`;
+            html += `<textarea id="art-pub-notes" rows="8" style="width:100%;background:#0d0f17;color:#c9d1d9;border:1px solid var(--border-subtle);border-radius:var(--radius-sm);padding:0.5rem;font-family:var(--font-mono);font-size:0.7rem;resize:vertical">${esc(notesRes.notes || '')}</textarea>`;
+
+            // Actions
+            html += `<div style="display:flex;gap:var(--space-sm);justify-content:flex-end;margin-top:var(--space-sm)">
+                <button class="btn btn-sm btn-secondary" onclick="_cancelPublish('${esc(targetName)}')">← Back</button>
+                <button class="btn btn-sm" onclick="_executePublish('${esc(targetName)}', '${esc(publishTarget)}')"
+                    style="background:#22c55e;color:white;border:none">🚀 Publish</button>
+            </div>`;
+
+            promoPanel.innerHTML = html;
+
+        } catch (e) {
+            promoPanel.innerHTML = `<div style="color:var(--error);font-size:0.78rem;padding:var(--space-sm)">
+                Failed to load release info: ${esc(e.message)}
+                <div style="margin-top:0.3rem">
+                    <button class="btn btn-sm btn-secondary" onclick="_cancelPublish('${esc(targetName)}')">← Back</button>
+                </div>
+            </div>`;
+        }
+    }
+
+    async function _cancelPublish(targetName) {
+        // Re-show the promotion panel
+        const modal = document.getElementById('artifact-build-modal');
+        const stagesEl = document.getElementById('art-build-stages');
+        const actionsEl = document.getElementById('art-build-actions');
+        if (stagesEl && actionsEl) {
+            _showPromotionPanel(targetName, actionsEl, stagesEl);
+        }
+    }
+
+    function _executePublish(targetName, publishTarget) {
+        const version = document.getElementById('art-pub-version')?.value || '';
+        const tagName = document.getElementById('art-pub-tag')?.value || '';
+        const notes = document.getElementById('art-pub-notes')?.value || '';
+
+        publishArtifactStream(targetName, publishTarget, {
+            version, tag_name: tagName, release_notes: notes,
+        });
+    }
+
+    function publishArtifactStream(targetName, publishTarget, opts) {
+        opts = opts || {};
+
+        // Clean up existing build modal
+        if (_artBuildAbort) { try { _artBuildAbort.abort(); } catch(_){} }
+        for (const id of Object.values(_artBuildTimerIds)) clearInterval(id);
+        _artBuildTimerIds = {};
+        const oldModal = document.getElementById('artifact-build-modal');
+        if (oldModal) oldModal.remove();
+
+        _artBuildAbort = new AbortController();
+        _artActiveBuild = { name: targetName, stage: null, startTs: performance.now() };
+
+        // Create publish modal (same structure as build modal)
+        const modal = document.createElement('div');
+        modal.className = 'vault-modal-overlay';
+        modal.id = 'artifact-build-modal';
+        modal.onclick = (e) => { if (e.target === modal) closeArtifactBuildModal(); };
+        modal.innerHTML = `
+        <div class="vault-modal" style="max-width:760px;max-height:92vh;overflow-y:auto">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-md)">
+                <h3 style="margin:0">🚀 Publishing: <code style="font-size:0.9em;color:#818cf8">${esc(targetName)}</code>
+                    <span style="font-size:0.7em;color:var(--text-muted);font-weight:400">→ ${esc(publishTarget)}</span></h3>
+                <button class="btn btn-sm btn-ghost" onclick="closeArtifactBuildModal()" style="font-size:1.1rem;padding:0.1rem 0.4rem" title="Close">✕</button>
+            </div>
+            <div id="art-build-timer" style="font-size:0.72rem;color:var(--text-muted);margin-bottom:var(--space-sm)">⏱ Elapsed: 0.0s</div>
+            <div id="art-build-stages" style="display:flex;flex-direction:column;gap:0.5rem;margin-bottom:var(--space-md)">
+                <div style="color:var(--text-muted);font-size:0.78rem;padding:0.5rem">Connecting…</div>
+            </div>
+            <div id="art-build-status" style="font-size:0.82rem;padding:0.5rem 0">
+                <span style="color:var(--text-muted)">⏳ Waiting for publisher…</span>
+            </div>
+            <div id="art-build-actions" style="display:flex;gap:var(--space-sm);justify-content:flex-end;padding-top:var(--space-sm);border-top:1px solid var(--border-subtle)">
+                <button class="btn btn-sm" onclick="abortArtifactBuild()" style="background:var(--error);color:white;border:none">⛔ Abort</button>
+                <button class="btn btn-sm btn-ghost" onclick="closeArtifactBuildModal()">Minimize</button>
+            </div>
+        </div>`;
+        document.body.appendChild(modal);
+
+        const stagesEl = document.getElementById('art-build-stages');
+        const statusEl = document.getElementById('art-build-status');
+        const actionsEl = document.getElementById('art-build-actions');
+        const timerEl = document.getElementById('art-build-timer');
+
+        const stages = {};
+        let currentStage = '';
+        const pipelineStart = performance.now();
+
+        const pipelineTimerId = setInterval(() => {
+            const elapsed = ((performance.now() - pipelineStart) / 1000).toFixed(1);
+            timerEl.textContent = `⏱ Elapsed: ${elapsed}s`;
+        }, 100);
+        _artBuildTimerIds['_pipeline'] = pipelineTimerId;
+
+        function _fmtMs(ms) { return ms < 1000 ? ms + 'ms' : (ms / 1000).toFixed(1) + 's'; }
+
+        // Reuse makeStageCard from buildArtifactStream scope — redeclare locally
+        function _makeStageCard(stageName, label) {
+            const wrapper = document.createElement('div');
+            wrapper.id = 'art-stage-' + stageName;
+            wrapper.style.cssText = 'border:1px solid var(--border-subtle);border-radius:8px;overflow:hidden;transition:border-color 0.2s';
+            const header = document.createElement('div');
+            header.style.cssText = 'display:flex;align-items:center;gap:0.5rem;padding:0.5rem 0.75rem;background:var(--bg-inset);cursor:pointer;user-select:none';
+            header.innerHTML = `
+                <span class="stage-icon" style="min-width:1.2rem;text-align:center;font-size:0.85rem">○</span>
+                <span class="stage-label" style="font-weight:600;font-size:0.82rem;color:var(--text-muted)">${esc(label)}</span>
+                <span class="stage-detail" style="margin-left:auto;font-size:0.68rem;color:var(--text-muted)"></span>
+                <span class="stage-lines" style="font-size:0.6rem;color:var(--text-muted);background:var(--bg-elevated);padding:0 0.25rem;border-radius:3px;display:none">0</span>
+                <span class="stage-toggle" style="font-size:0.6rem;color:var(--text-muted)">▶</span>`;
+            wrapper.appendChild(header);
+            const logArea = document.createElement('div');
+            logArea.className = 'stage-log';
+            logArea.style.cssText = 'display:none;background:#0d0f17;padding:0.5rem 0.75rem;font-family:var(--font-mono);font-size:0.66rem;max-height:200px;overflow-y:auto;line-height:1.5;color:#8892a8;white-space:pre-wrap;border-top:1px solid #1a1f2e';
+            wrapper.appendChild(logArea);
+            header.onclick = () => {
+                const showing = logArea.style.display !== 'none';
+                logArea.style.display = showing ? 'none' : 'block';
+                header.querySelector('.stage-toggle').textContent = showing ? '▶' : '▼';
+                if (!showing) logArea.scrollTop = logArea.scrollHeight;
+            };
+            return wrapper;
+        }
+
+        function _setStageStatus(stageName, status, detail) {
+            const info = stages[stageName]; if (!info) return;
+            const wrapper = info.el;
+            const icons = { pending: '○', running: '⟳', done: '✅', error: '❌', skipped: '⊘' };
+            const colors = { pending: 'var(--text-muted)', running: '#818cf8', done: 'var(--success)', error: 'var(--error)', skipped: 'var(--text-muted)' };
+            const borders = { pending: 'var(--border-subtle)', running: '#818cf8', done: '#22c55e40', error: '#ef444460', skipped: 'var(--border-subtle)' };
+            const bgs = { running: 'rgba(129,140,248,0.04)', error: 'rgba(239,68,68,0.04)' };
+            wrapper.querySelector('.stage-icon').textContent = icons[status] || '○';
+            if (status === 'running') wrapper.querySelector('.stage-icon').style.animation = 'spin 1s linear infinite';
+            else wrapper.querySelector('.stage-icon').style.animation = '';
+            wrapper.querySelector('.stage-label').style.color = colors[status] || 'var(--text-muted)';
+            wrapper.querySelector('.stage-detail').textContent = detail || '';
+            wrapper.style.borderColor = borders[status] || 'var(--border-subtle)';
+            wrapper.querySelector('div').style.background = bgs[status] || 'var(--bg-inset)';
+        }
+
+        const _logBuffers = {};
+        function _addStageLine(stageName, line) {
+            const info = stages[stageName]; if (!info) return;
+            info.lineCount++;
+            if (!_logBuffers[stageName]) _logBuffers[stageName] = { lines: [], scheduled: false };
+            _logBuffers[stageName].lines.push(line);
+            if (!_logBuffers[stageName].scheduled) {
+                _logBuffers[stageName].scheduled = true;
+                requestAnimationFrame(() => {
+                    const buf = _logBuffers[stageName]; if (!buf) return;
+                    const info2 = stages[stageName]; if (!info2) { buf.lines = []; buf.scheduled = false; return; }
+                    info2.logEl.textContent += buf.lines.join('\n') + '\n';
+                    buf.lines = []; buf.scheduled = false;
+                    info2.logEl.scrollTop = info2.logEl.scrollHeight;
+                    const linesEl = info2.el.querySelector('.stage-lines');
+                    linesEl.style.display = 'inline'; linesEl.textContent = info2.lineCount;
+                });
+            }
+        }
+
+        function _expandStageLog(sn) { const i = stages[sn]; if (!i) return; i.logEl.style.display = 'block'; i.el.querySelector('.stage-toggle').textContent = '▼'; }
+        function _collapseStageLog(sn) { const i = stages[sn]; if (!i) return; i.logEl.style.display = 'none'; i.el.querySelector('.stage-toggle').textContent = '▶'; }
+        function _startStageTimer(sn) { const i = stages[sn]; if (!i) return; i.startTs = performance.now(); const tid = setInterval(() => { const e = ((performance.now() - i.startTs) / 1000).toFixed(1); i.el.querySelector('.stage-detail').textContent = e + 's…'; }, 100); _artBuildTimerIds[sn] = tid; }
+        function _stopStageTimer(sn) { if (_artBuildTimerIds[sn]) { clearInterval(_artBuildTimerIds[sn]); delete _artBuildTimerIds[sn]; } }
+
+        // ── SSE connection ──
+        const publishUrl = '/api/artifacts/publish/' + encodeURIComponent(targetName) + '/stream';
+        fetch(publishUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                publish_target: publishTarget,
+                version: opts.version || '',
+                release_notes: opts.release_notes || '',
+                tag_name: opts.tag_name || '',
+            }),
+            signal: _artBuildAbort.signal,
+        })
+        .then(response => {
+            if (!response.ok) throw new Error(`Server ${response.status}`);
+            stagesEl.innerHTML = '';
+            statusEl.innerHTML = '<span style="color:#818cf8">🚀 Publishing…</span>';
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+
+            function read() {
+                reader.read().then(({ done, value }) => {
+                    if (done) {
+                        clearInterval(pipelineTimerId);
+                        for (const id of Object.values(_artBuildTimerIds)) clearInterval(id);
+                        _artActiveBuild = null;
+                        return;
+                    }
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop();
+
+                    for (const line of lines) {
+                        if (!line.startsWith('data: ')) continue;
+                        let evt;
+                        try { evt = JSON.parse(line.slice(6)); } catch(e) { continue; }
+
+                        if (evt.type === 'pipeline_start') {
+                            stagesEl.innerHTML = '';
+                            for (const s of (evt.stages || [])) {
+                                const card = _makeStageCard(s.name, s.label || s.name);
+                                stagesEl.appendChild(card);
+                                stages[s.name] = { el: card, label: s.label || s.name, logEl: card.querySelector('.stage-log'), lineCount: 0, startTs: 0 };
+                                _setStageStatus(s.name, 'pending', '');
+                            }
+                        } else if (evt.type === 'stage_start') {
+                            if (currentStage && currentStage !== evt.stage) _collapseStageLog(currentStage);
+                            currentStage = evt.stage;
+                            _setStageStatus(evt.stage, 'running', 'starting…');
+                            _expandStageLog(evt.stage);
+                            _startStageTimer(evt.stage);
+                            statusEl.innerHTML = `<span style="color:#818cf8">▶ ${esc(evt.label || evt.stage)}</span>`;
+                        } else if (evt.type === 'log') {
+                            _addStageLine(evt.stage || currentStage, evt.line || '');
+                        } else if (evt.type === 'stage_done') {
+                            _stopStageTimer(evt.stage);
+                            _setStageStatus(evt.stage, 'done', _fmtMs(evt.duration_ms || 0));
+                            _collapseStageLog(evt.stage);
+                        } else if (evt.type === 'stage_error') {
+                            _stopStageTimer(evt.stage);
+                            _setStageStatus(evt.stage, 'error', (evt.error || 'failed').split('\n')[0]);
+                            _addStageLine(evt.stage, '❌ ' + (evt.error || 'failed'));
+                            _expandStageLog(evt.stage);
+                        } else if (evt.type === 'pipeline_done') {
+                            clearInterval(pipelineTimerId);
+                            for (const id of Object.values(_artBuildTimerIds)) clearInterval(id);
+                            _artBuildTimerIds = {};
+
+                            const totalT = _fmtMs(evt.total_ms || 0);
+                            timerEl.textContent = `⏱ Total: ${totalT}`;
+                            if (currentStage) _collapseStageLog(currentStage);
+
+                            if (evt.stages) {
+                                for (const s of evt.stages) {
+                                    if (s.status === 'skipped') _setStageStatus(s.name, 'skipped', 'skipped');
+                                }
+                            }
+
+                            if (evt.ok) {
+                                statusEl.innerHTML = `<span style="color:var(--success)" class="build-final">✅ Published successfully — ${totalT}</span>`;
+                                actionsEl.innerHTML = `<button class="btn btn-sm btn-secondary" onclick="closeArtifactBuildModal()">Close</button>`;
+                            } else {
+                                const errFirst = (evt.error || 'unknown').split('\n')[0];
+                                statusEl.innerHTML = `<span style="color:var(--error)" class="build-final">❌ Publish failed: ${esc(errFirst)}</span>`;
+                                actionsEl.innerHTML = `
+                                    <button class="btn btn-sm" onclick="closeArtifactBuildModal(); _startPublish('${esc(targetName)}', '${esc(publishTarget)}')" style="background:#818cf8;color:white;border:none">🔄 Retry</button>
+                                    <button class="btn btn-sm btn-secondary" onclick="closeArtifactBuildModal()">Close</button>`;
+                                if (evt.stages) { for (const s of evt.stages) { if (s.status === 'error') _expandStageLog(s.name); } }
+                            }
+                            _artActiveBuild = null;
+                            cardInvalidate('artifacts');
+                            loadArtifactsCard();
+                        }
+                    }
+                    read();
+                }).catch(err => {
+                    if (err.name === 'AbortError') return;
+                    clearInterval(pipelineTimerId);
+                    statusEl.innerHTML = `<span style="color:var(--error)" class="build-final">⚠️ Stream interrupted: ${esc(err.message)}</span>`;
+                    actionsEl.innerHTML = `<button class="btn btn-sm btn-secondary" onclick="closeArtifactBuildModal()">Close</button>`;
+                    _artActiveBuild = null;
+                });
+            }
+            read();
+        })
+        .catch(err => {
+            if (err.name === 'AbortError') return;
+            clearInterval(pipelineTimerId);
+            statusEl.innerHTML = `<span style="color:var(--error)" class="build-final">❌ Connection failed: ${esc(err.message)}</span>`;
+        });
+    }
+
