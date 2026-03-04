@@ -4,6 +4,9 @@
 */
     // ── Git Card ────────────────────────────────────────────────────────
 
+    // Register for SSE cache:done events so the spinner set by cache:miss gets cleared
+    storeRegister('git', () => loadGitCard());
+
     async function loadGitCard() {
         const badge = document.getElementById('int-git-badge');
         const detail = document.getElementById('int-git-detail');
@@ -84,6 +87,7 @@
             // ── Generate ──
             html += cardGenerateToolbar([
                 { label: '.gitignore', icon: '📝', onclick: 'gitIgnoreWizard()' },
+                { label: 'Changelog', icon: '📋', onclick: 'changelogModal()' },
             ]);
 
             // ── Maintenance ──
@@ -222,13 +226,24 @@
             <div class="git-cc-bar">
                 <select id="git-cc-type" onchange="_ccUpdateMsg()">${typeOptions}</select>
                 <input type="text" id="git-cc-scope" placeholder="scope (optional)" onchange="_ccUpdateMsg()" oninput="_ccUpdateMsg()">
+                <label class="git-cc-breaking-label" title="Mark as a breaking change (appends ! to commit type)">
+                    <input type="checkbox" id="git-cc-breaking" onchange="_ccUpdateMsg()">
+                    <span>⚠️ Breaking</span>
+                </label>
             </div>
             <textarea id="git-cc-desc" class="git-commit-textarea"
                 placeholder="describe your change…"
                 oninput="_ccUpdateMsg()"></textarea>
+            <div id="git-cc-body-section" class="git-cc-body-section" style="display:none">
+                <textarea id="git-cc-body" class="git-commit-textarea git-commit-body-textarea"
+                    placeholder="Breaking change details or extended description…"
+                    oninput="_ccUpdateMsg()"></textarea>
+            </div>
+            <div class="git-cc-msg-preview" id="git-cc-msg-preview"></div>
+            <div class="git-cc-changelog-preview" id="git-cc-changelog-preview"></div>
             <div class="git-cc-hint">
                 <span>💡</span>
-                <span>Following <a href="https://www.conventionalcommits.org/en/v1.0.0/" target="_blank" rel="noopener">Conventional Commits</a> — format: <code>&lt;type&gt;(&lt;scope&gt;): &lt;description&gt;</code></span>
+                <span>Following <a href="https://www.conventionalcommits.org/en/v1.0.0/" target="_blank" rel="noopener">Conventional Commits</a> — format: <code>&lt;type&gt;[scope][!]: &lt;description&gt;</code></span>
             </div>
             <input type="hidden" id="git-cc-full-msg">
         </div>`;
@@ -313,13 +328,105 @@
         const type = document.getElementById('git-cc-type')?.value || 'feat';
         const scope = (document.getElementById('git-cc-scope')?.value || '').trim();
         const desc = (document.getElementById('git-cc-desc')?.value || '').trim();
+        const breaking = document.getElementById('git-cc-breaking')?.checked || false;
 
+        // Build CC header: type(scope)!: description
         let msg = type;
         if (scope) msg += `(${scope})`;
+        if (breaking) msg += '!';
         msg += ': ' + desc;
 
         const hidden = document.getElementById('git-cc-full-msg');
         if (hidden) hidden.value = msg;
+
+        // Show/hide body section when breaking is checked
+        const bodySection = document.getElementById('git-cc-body-section');
+        if (bodySection) bodySection.style.display = breaking ? '' : 'none';
+
+        // Update message preview
+        const preview = document.getElementById('git-cc-msg-preview');
+        if (preview) {
+            if (desc) {
+                preview.innerHTML = `<code>${esc(msg)}</code>`;
+                preview.style.display = 'block';
+            } else {
+                preview.style.display = 'none';
+            }
+        }
+
+        // Update changelog entry preview
+        const bodyText = (document.getElementById('git-cc-body')?.value || '').trim();
+        _updateChangelogPreview(type, scope, desc, breaking, bodyText);
+    }
+
+    /** Whether user is editing the changelog entry text manually */
+    let _changelogEntryEditing = false;
+    let _changelogEntryCustom = '';
+
+    function _updateChangelogPreview(type, scope, desc, breaking, bodyText) {
+        const container = document.getElementById('git-cc-changelog-preview');
+        if (!container || !desc) {
+            if (container) container.style.display = 'none';
+            return;
+        }
+
+        // Auto-generate entry text (mirrors backend format_entry_text)
+        // Preserve line breaks in description
+        const descHtml = esc(desc).replace(/\n/g, '<br>');
+        let entryText = desc;
+        if (scope) entryText = `<strong>${esc(scope)}:</strong> ${descHtml}`;
+        else entryText = descHtml;
+        if (breaking) entryText += ' ⚠️ <strong>BREAKING</strong>';
+
+        // Body / breaking change details
+        let bodyHtml = '';
+        if (bodyText) {
+            const bodyEsc = esc(bodyText).replace(/\n/g, '<br>');
+            if (breaking) {
+                bodyHtml = `<div class="git-cc-changelog-body"><strong>BREAKING CHANGE:</strong> ${bodyEsc}</div>`;
+            } else {
+                bodyHtml = `<div class="git-cc-changelog-body">${bodyEsc}</div>`;
+            }
+        }
+
+        // Section label
+        const sections = {
+            feat: '✨ Features', fix: '🐛 Bug Fixes', docs: '📝 Documentation',
+            style: '🎨 Style', refactor: '♻️ Refactoring', perf: '⚡ Performance',
+            test: '🧪 Tests', build: '📦 Build', ci: '⚙️ CI/CD', chore: '🔧 Chores',
+        };
+        const sectionLabel = sections[type] || '📋 Other Changes';
+
+        container.style.display = 'block';
+        if (_changelogEntryEditing) {
+            container.innerHTML = `
+                <div class="git-cc-changelog-header">
+                    <span>📋 Changelog Entry</span>
+                    <span class="git-cc-changelog-section">${sectionLabel}</span>
+                </div>
+                <input type="text" id="git-cc-changelog-edit"
+                    class="git-cc-changelog-input"
+                    value="${esc(_changelogEntryCustom || (scope ? scope + ': ' + desc : desc) + (breaking ? ' ⚠️ **BREAKING**' : ''))}"
+                    oninput="_changelogEntryCustom = this.value">
+                <div class="git-cc-changelog-actions">
+                    <button type="button" class="btn-xs btn-secondary" onclick="_changelogEntryEditing = false; _changelogEntryCustom = ''; _ccUpdateMsg();">Reset</button>
+                    <button type="button" class="btn-xs btn-primary" onclick="_changelogEntryEditing = false; _ccUpdateMsg();">Done</button>
+                </div>
+            `;
+        } else {
+            const displayText = _changelogEntryCustom
+                ? esc(_changelogEntryCustom).replace(/\n/g, '<br>')
+                : entryText;
+            container.innerHTML = `
+                <div class="git-cc-changelog-header">
+                    <span>📋 Changelog Entry</span>
+                    <span class="git-cc-changelog-section">${sectionLabel}</span>
+                    <button type="button" class="btn-xs btn-ghost" onclick="_changelogEntryEditing = true; _ccUpdateMsg();" title="Customize changelog entry">✏️ Edit</button>
+                </div>
+                <div class="git-cc-changelog-entry">- ${displayText}</div>
+                ${bodyHtml}
+            `;
+        }
     }
 
     /** Update commit button state based on checked files */
@@ -347,19 +454,45 @@
             return;
         }
 
+        // Build the full commit message (header + optional body with BREAKING CHANGE footer)
+        const breaking = document.getElementById('git-cc-breaking')?.checked || false;
+        const bodyText = (document.getElementById('git-cc-body')?.value || '').trim();
+
+        let commitMessage = fullMsg;
+        if (bodyText) {
+            commitMessage += '\n\n' + bodyText;
+        }
+        if (breaking && bodyText && !bodyText.toUpperCase().startsWith('BREAKING CHANGE')) {
+            // Auto-add BREAKING CHANGE footer if body doesn't already have one
+            commitMessage += '\n\nBREAKING CHANGE: ' + bodyText;
+        } else if (breaking && !bodyText) {
+            // Breaking with no body — add footer with description
+            commitMessage += '\n\nBREAKING CHANGE: ' + desc;
+        }
+
         const btn = document.getElementById('git-commit-btn');
         if (btn) { btn.disabled = true; btn.textContent = 'Committing…'; }
+
+        // Build payload
+        const payload = { message: commitMessage, files };
+        if (_changelogEntryCustom) {
+            payload.changelog_entry = _changelogEntryCustom;
+        }
 
         try {
             const data = await api('/git/commit', {
                 method: 'POST',
-                body: JSON.stringify({ message: fullMsg, files }),
+                body: JSON.stringify(payload),
             });
             modalClose();
-            toast(`Committed ${data.hash}: ${fullMsg}`, 'success');
+            const changelogNote = data.changelog_updated ? ' 📋' : '';
+            toast(`Committed ${data.hash}: ${fullMsg}${changelogNote}`, 'success');
             cardInvalidate('git');
             await loadGitCard();
             if (_commitOnDone) _commitOnDone();
+            // Reset changelog edit state
+            _changelogEntryEditing = false;
+            _changelogEntryCustom = '';
         } catch (e) {
             modalError(e.message);
             if (btn) { btn.disabled = false; btn.textContent = 'Commit'; }

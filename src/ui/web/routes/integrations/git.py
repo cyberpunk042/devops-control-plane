@@ -39,6 +39,8 @@ def git_commit():  # type: ignore[no-untyped-def]
     JSON body:
         message: commit message (required)
         files: optional list of files to stage (default: all)
+        changelog_entry: optional custom changelog entry text
+        skip_changelog: optional bool to skip changelog update
     """
     data = request.get_json(silent=True) or {}
     message = data.get("message", "").strip()
@@ -46,10 +48,45 @@ def git_commit():  # type: ignore[no-untyped-def]
         return jsonify({"error": "Commit message is required"}), 400
 
     files = data.get("files")
-    result = git_ops.git_commit(_project_root(), message, files=files)
+    skip_changelog = data.get("skip_changelog", False)
+    custom_entry = data.get("changelog_entry", "").strip()
+
+    root = _project_root()
+    changelog_updated = False
+
+    # ── Changelog integration ──────────────────────────────────
+    if not skip_changelog:
+        try:
+            from src.core.services.changelog.engine import (
+                add_entry,
+                load_changelog,
+                save_changelog,
+            )
+
+            changelog = load_changelog(root)
+            add_entry(changelog, message, custom_text=custom_entry)
+            save_changelog(root, changelog)
+            changelog_updated = True
+
+            # Include CHANGELOG.md in the staged files
+            if files is not None:
+                if "CHANGELOG.md" not in files:
+                    files = list(files) + ["CHANGELOG.md"]
+            # If files is None (stage all), CHANGELOG.md is picked up by git add -A
+
+        except Exception:
+            import logging
+            logging.getLogger(__name__).warning(
+                "Changelog update failed — committing without changelog",
+                exc_info=True,
+            )
+
+    result = git_ops.git_commit(root, message, files=files)
 
     if "error" in result:
         return jsonify(result), 400
+
+    result["changelog_updated"] = changelog_updated
     return jsonify(result)
 
 

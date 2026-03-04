@@ -6787,10 +6787,423 @@ select option {
     border-color: var(--accent);
 }
 
+/* ── Breaking change label ──────────────────────────────────────── */
+
+.git-cc-breaking-label {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    cursor: pointer;
+    padding: 0.25rem 0.5rem;
+    border-radius: var(--radius-sm);
+    border: 1px solid transparent;
+    transition: all 0.15s ease;
+    white-space: nowrap;
+    user-select: none;
+}
+
+.git-cc-breaking-label:hover {
+    background: rgba(var(--warning-rgb, 255, 170, 0), 0.08);
+    border-color: var(--border-subtle);
+}
+
+.git-cc-breaking-label input:checked+span {
+    color: var(--warning);
+}
+
+.git-cc-breaking-label input {
+    accent-color: var(--warning);
+    margin: 0;
+}
+
+/* ── Body section (for extended description / breaking change details) ── */
+
+.git-cc-body-section {
+    margin-top: var(--space-xs);
+}
+
+.git-commit-body-textarea {
+    min-height: 44px;
+    font-size: 0.74rem;
+    opacity: 0.85;
+}
+
+/* ── Message preview ────────────────────────────────────────────── */
+
+.git-cc-msg-preview {
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    margin-top: var(--space-xs);
+    padding: 0.3rem 0.5rem;
+    background: var(--bg-deeper, var(--bg-card));
+    border-radius: var(--radius-sm);
+    border-left: 2px solid var(--accent);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    display: none;
+}
+
+.git-cc-msg-preview code {
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    color: var(--text-primary);
+}
+
+/* ── Changelog entry preview ────────────────────────────────────── */
+
+.git-cc-changelog-preview {
+    margin-top: var(--space-sm);
+    padding: var(--space-sm);
+    background: var(--bg-deeper, var(--bg-card));
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-subtle);
+    display: none;
+}
+
+.git-cc-changelog-header {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    margin-bottom: var(--space-xs);
+}
+
+.git-cc-changelog-section {
+    font-weight: 400;
+    color: var(--text-muted);
+    font-size: 0.68rem;
+    flex: 1;
+}
+
+.git-cc-changelog-entry {
+    font-size: 0.78rem;
+    font-family: var(--font-mono);
+    color: var(--text-primary);
+    padding: 0.2rem 0;
+}
+
+.git-cc-changelog-input {
+    width: 100%;
+    font-family: var(--font-mono);
+    font-size: 0.76rem;
+    padding: 0.35rem 0.5rem;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--accent);
+    background: var(--bg-input);
+    color: var(--text-primary);
+}
+
+.git-cc-changelog-input:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px rgba(var(--accent-rgb, 99, 102, 241), 0.15);
+}
+
+.git-cc-changelog-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--space-xs);
+    margin-top: var(--space-xs);
+}
+
+.git-cc-changelog-body {
+    font-size: 0.74rem;
+    color: var(--text-secondary);
+    margin-top: var(--space-xs);
+    padding-top: var(--space-xs);
+    border-top: 1px dashed var(--border-subtle);
+}
+
+/* ── Tiny button variant ────────────────────────────────────────── */
+
+.btn-xs {
+    font-size: 0.68rem;
+    padding: 0.2rem 0.5rem;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    border: 1px solid var(--border-subtle);
+    background: var(--bg-card);
+    color: var(--text-secondary);
+    transition: all 0.15s ease;
+}
+
+.btn-xs:hover {
+    background: var(--bg-hover);
+}
+
+.btn-xs.btn-primary {
+    background: var(--accent);
+    color: white;
+    border-color: var(--accent);
+}
+
+.btn-xs.btn-ghost {
+    background: transparent;
+    border-color: transparent;
+    color: var(--text-muted);
+}
+
+.btn-xs.btn-ghost:hover {
+    color: var(--text-primary);
+    background: var(--bg-hover);
+}
+
 .git-commit-footer-stats {
     font-size: 0.72rem;
     color: var(--text-muted);
     display: flex;
     gap: 0.75rem;
     align-items: center;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   Changelog Modal
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ── Empty state ────────────────────────────────────────────────── */
+
+.changelog-empty-state {
+    text-align: center;
+    padding: 2rem 1rem;
+}
+
+.changelog-empty-icon {
+    font-size: 2.5rem;
+    margin-bottom: var(--space-sm);
+}
+
+.changelog-empty-state h3 {
+    font-size: 1.1rem;
+    color: var(--text-primary);
+    margin: 0 0 var(--space-xs);
+}
+
+.changelog-empty-state p {
+    font-size: 0.82rem;
+    color: var(--text-muted);
+    margin: 0 0 var(--space-md);
+}
+
+.changelog-empty-section {
+    font-size: 0.78rem;
+    color: var(--text-muted);
+    font-style: italic;
+    padding: var(--space-sm) 0;
+}
+
+/* ── Section layout ─────────────────────────────────────────────── */
+
+.changelog-section {
+    margin-bottom: var(--space-md);
+}
+
+.changelog-section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-sm);
+    padding-bottom: var(--space-xs);
+    border-bottom: 1px solid var(--border-subtle);
+    margin-bottom: var(--space-sm);
+    flex-wrap: wrap;
+}
+
+.changelog-section-title {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs);
+    font-size: 0.9rem;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+
+.changelog-section-actions {
+    display: flex;
+    gap: var(--space-xs);
+    align-items: center;
+}
+
+.changelog-entry-count {
+    font-size: 0.68rem;
+    font-weight: 400;
+    color: var(--text-muted);
+    background: var(--bg-deeper, var(--bg-card));
+    padding: 0.1rem 0.4rem;
+    border-radius: var(--radius-sm);
+}
+
+/* ── Entry groups ───────────────────────────────────────────────── */
+
+.changelog-group {
+    margin-bottom: var(--space-sm);
+}
+
+.changelog-group-label {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    margin-bottom: var(--space-xs);
+    padding-left: 0.2rem;
+}
+
+/* ── Individual items ───────────────────────────────────────────── */
+
+.changelog-item {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs);
+    padding: 0.2rem 0.4rem;
+    border-radius: var(--radius-sm);
+    transition: background 0.12s ease;
+}
+
+.changelog-item:hover {
+    background: var(--bg-hover, rgba(255, 255, 255, 0.04));
+}
+
+.changelog-item-text {
+    flex: 1;
+    font-size: 0.78rem;
+    font-family: var(--font-mono);
+    color: var(--text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.changelog-item-breaking {
+    font-size: 0.72rem;
+    flex-shrink: 0;
+}
+
+.changelog-item-actions {
+    display: flex;
+    gap: 2px;
+    opacity: 0;
+    transition: opacity 0.15s ease;
+    flex-shrink: 0;
+}
+
+.changelog-item:hover .changelog-item-actions {
+    opacity: 1;
+}
+
+/* ── Breaking badge ─────────────────────────────────────────────── */
+
+.changelog-breaking-badge {
+    font-size: 0.68rem;
+    font-weight: 600;
+    color: var(--warning);
+    background: rgba(var(--warning-rgb, 255, 170, 0), 0.1);
+    padding: 0.1rem 0.4rem;
+    border-radius: var(--radius-sm);
+    margin-left: var(--space-xs);
+}
+
+/* ── Bump hint ──────────────────────────────────────────────────── */
+
+.changelog-bump-hint {
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    padding: var(--space-xs) 0;
+    margin-top: var(--space-xs);
+    border-top: 1px solid var(--border-subtle);
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs);
+}
+
+/* ── Past releases ──────────────────────────────────────────────── */
+
+.changelog-releases-header {
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    padding-bottom: var(--space-xs);
+    border-bottom: 1px solid var(--border-subtle);
+    margin-bottom: var(--space-sm);
+}
+
+.changelog-release-details {
+    margin-bottom: var(--space-xs);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+}
+
+.changelog-release-summary {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    padding: var(--space-xs) var(--space-sm);
+    cursor: pointer;
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+    background: var(--bg-deeper, var(--bg-card));
+    transition: background 0.12s ease;
+    list-style: none;
+}
+
+.changelog-release-summary::-webkit-details-marker {
+    display: none;
+}
+
+.changelog-release-summary::before {
+    content: "▸";
+    font-size: 0.68rem;
+    color: var(--text-muted);
+    transition: transform 0.15s ease;
+}
+
+.changelog-release-details[open] .changelog-release-summary::before {
+    transform: rotate(90deg);
+}
+
+.changelog-release-summary:hover {
+    background: var(--bg-hover, rgba(255, 255, 255, 0.04));
+}
+
+.changelog-release-version {
+    font-weight: 700;
+    font-family: var(--font-mono);
+    color: var(--accent);
+}
+
+.changelog-release-date {
+    color: var(--text-muted);
+    font-size: 0.72rem;
+    flex: 1;
+}
+
+.changelog-release-body {
+    padding: var(--space-sm);
+}
+
+/* ── Bootstrap preview ──────────────────────────────────────────── */
+
+.changelog-bootstrap-preview {
+    padding: var(--space-sm);
+}
+
+.changelog-preview-code {
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    background: var(--bg-deeper, var(--bg-card));
+    padding: var(--space-sm);
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-subtle);
+    max-height: 400px;
+    overflow: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+    color: var(--text-primary);
+    line-height: 1.5;
 }

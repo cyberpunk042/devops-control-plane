@@ -1,0 +1,420 @@
+/* Integrations Tab JS — Changelog Panel
+     Changelog viewer/editor integrated into the Git card.
+     Shows [Unreleased] entries with inline edit/delete,
+     add manual entry, bootstrap, cut release.
+     Depends on: _integrations_init.html (card registry, modal, api)
+*/
+
+    // ── Changelog Panel ────────────────────────────────────────────────
+
+    /**
+     * Open the changelog management modal.
+     * Shows unreleased entries, past releases, and management actions.
+     */
+    async function changelogModal() {
+        modalOpen({
+            title: '📋 Changelog',
+            body: '<div style="text-align:center;padding:2rem"><span class="spinner"></span> Loading changelog…</div>',
+            size: 'wide',
+            footerButtons: [
+                { label: 'Close', cls: 'btn-secondary', onclick: 'modalClose()' },
+            ],
+        });
+
+        try {
+            const data = await api('/changelog');
+            _renderChangelogModal(data);
+        } catch (e) {
+            const body = document.querySelector('.modal-body');
+            if (body) body.innerHTML = `<div class="modal-inline-error">${esc(e.message)}</div>`;
+        }
+    }
+
+    function _renderChangelogModal(data) {
+        const body = document.querySelector('.modal-body');
+        if (!body) return;
+
+        let html = '';
+
+        // ── No CHANGELOG.md — offer bootstrap ──
+        if (!data.exists) {
+            html += `
+                <div class="changelog-empty-state">
+                    <div class="changelog-empty-icon">📋</div>
+                    <h3>No Changelog Found</h3>
+                    <p>Generate an initial <code>CHANGELOG.md</code> from your git commit history.</p>
+                    <button class="btn btn-primary" onclick="_changelogBootstrap()">
+                        ✨ Generate from Git History
+                    </button>
+                </div>`;
+            body.innerHTML = html;
+            return;
+        }
+
+        // ── Unreleased section ──
+        html += _renderChangelogUnreleased(data.unreleased, data.suggested_bump, data.latest_version);
+
+        // ── Past releases ──
+        if (data.releases && data.releases.length > 0) {
+            html += '<div class="changelog-releases-header">Past Releases</div>';
+            for (const release of data.releases) {
+                html += _renderChangelogRelease(release);
+            }
+        }
+
+        body.innerHTML = html;
+    }
+
+    function _renderChangelogUnreleased(unreleased, suggestedBump, latestVersion) {
+        let html = '<div class="changelog-section changelog-unreleased">';
+
+        // Header with actions
+        html += `<div class="changelog-section-header">
+            <div class="changelog-section-title">
+                <span>📝</span>
+                <span>Unreleased</span>
+                <span class="changelog-entry-count">${unreleased.entry_count} ${unreleased.entry_count === 1 ? 'entry' : 'entries'}</span>
+            </div>
+            <div class="changelog-section-actions">
+                <button class="btn-xs btn-ghost" onclick="_changelogAddEntryModal()" title="Add manual entry">
+                    ➕ Add Entry
+                </button>
+                ${unreleased.entry_count > 0 ? `
+                    <button class="btn-xs btn-primary" onclick="_changelogCutReleaseModal('${esc(suggestedBump)}', '${esc(latestVersion || '0.0.0')}')" title="Cut a release">
+                        🏷️ Release
+                    </button>
+                ` : ''}
+            </div>
+        </div>`;
+
+        if (unreleased.is_empty) {
+            html += '<div class="changelog-empty-section">No unreleased changes yet.</div>';
+        } else {
+            // Render entry groups
+            for (const [key, group] of Object.entries(unreleased.entries)) {
+                html += `<div class="changelog-group">
+                    <div class="changelog-group-label">${group.label}</div>`;
+                for (const item of group.items) {
+                    html += _renderChangelogItem(item, true);
+                }
+                html += '</div>';
+            }
+
+            // Suggested bump indicator
+            if (unreleased.entry_count > 0) {
+                const bumpColors = { major: 'var(--error)', minor: 'var(--accent)', patch: 'var(--success)' };
+                html += `<div class="changelog-bump-hint">
+                    Suggested bump: <span style="color:${bumpColors[suggestedBump] || 'var(--text-muted)'}; font-weight:600">${suggestedBump}</span>
+                    ${unreleased.has_breaking ? '<span class="changelog-breaking-badge">⚠️ BREAKING</span>' : ''}
+                </div>`;
+            }
+        }
+
+        html += '</div>';
+        return html;
+    }
+
+    function _renderChangelogRelease(release) {
+        const entryCount = release.entry_count;
+        return `
+            <details class="changelog-release-details">
+                <summary class="changelog-release-summary">
+                    <span class="changelog-release-version">${esc(release.version)}</span>
+                    <span class="changelog-release-date">${esc(release.date)}</span>
+                    <span class="changelog-entry-count">${entryCount} ${entryCount === 1 ? 'entry' : 'entries'}</span>
+                </summary>
+                <div class="changelog-release-body">
+                    ${Object.entries(release.entries).map(([key, group]) => `
+                        <div class="changelog-group">
+                            <div class="changelog-group-label">${group.label}</div>
+                            ${group.items.map(item => _renderChangelogItem(item, false)).join('')}
+                        </div>
+                    `).join('')}
+                </div>
+            </details>`;
+    }
+
+    function _renderChangelogItem(item, editable) {
+        const breakingTag = item.breaking ? '<span class="changelog-item-breaking">⚠️</span>' : '';
+        let actions = '';
+        if (editable) {
+            const safeText = esc(item.text).replace(/'/g, '&#39;');
+            actions = `
+            <div class="changelog-item-actions">
+                <button class="btn-xs btn-ghost" onclick="_changelogEditEntry('${safeText}')" title="Edit">✏️</button>
+                <button class="btn-xs btn-ghost" onclick="_changelogDeleteEntry('${safeText}')" title="Remove">🗑️</button>
+            </div>`;
+        }
+
+        return `<div class="changelog-item">
+            <span class="changelog-item-text">- ${esc(item.text)}</span>
+            ${breakingTag}
+            ${actions}
+        </div>`;
+    }
+
+    // ── Changelog Actions ──────────────────────────────────────────
+
+    async function _changelogBootstrap() {
+        const body = document.querySelector('.modal-body');
+        if (body) body.innerHTML = '<div style="text-align:center;padding:2rem"><span class="spinner"></span> Scanning git history…</div>';
+
+        try {
+            const data = await api('/changelog/bootstrap', {
+                method: 'POST',
+                body: JSON.stringify({ save: false }),
+            });
+
+            // Show preview with save button
+            const body2 = document.querySelector('.modal-body');
+            if (!body2) return;
+            body2.innerHTML = `
+                <div class="changelog-bootstrap-preview">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--space-sm)">
+                        <span style="font-weight:600">${data.entry_count} entries from git history</span>
+                        <button class="btn btn-primary" onclick="_changelogBootstrapSave()">💾 Save CHANGELOG.md</button>
+                    </div>
+                    <pre class="changelog-preview-code">${esc(data.preview)}</pre>
+                </div>
+            `;
+        } catch (e) {
+            const body2 = document.querySelector('.modal-body');
+            if (body2) body2.innerHTML = `<div class="modal-inline-error">${esc(e.message)}</div>`;
+        }
+    }
+
+    async function _changelogBootstrapSave() {
+        try {
+            await api('/changelog/bootstrap', {
+                method: 'POST',
+                body: JSON.stringify({ save: true }),
+            });
+            toast('CHANGELOG.md created', 'success');
+            // Reload the changelog modal
+            changelogModal();
+        } catch (e) {
+            toast(e.message, 'error');
+        }
+    }
+
+    function _changelogAddEntryModal() {
+        const sections = [
+            { value: 'feat', label: '✨ Features' },
+            { value: 'fix', label: '🐛 Bug Fixes' },
+            { value: 'docs', label: '📝 Documentation' },
+            { value: 'perf', label: '⚡ Performance' },
+            { value: 'refactor', label: '♻️ Refactoring' },
+            { value: 'style', label: '🎨 Style' },
+            { value: 'test', label: '🧪 Tests' },
+            { value: 'build', label: '📦 Build' },
+            { value: 'ci', label: '⚙️ CI/CD' },
+            { value: 'chore', label: '🔧 Chores' },
+        ];
+
+        const optionsHtml = sections.map(s =>
+            `<option value="${s.value}">${s.label}</option>`
+        ).join('');
+
+        modalOpen({
+            title: '➕ Add Changelog Entry',
+            body: `<div style="display:flex;flex-direction:column;gap:var(--space-sm)">
+                <label style="font-size:0.78rem;font-weight:600;color:var(--text-secondary)">Section</label>
+                <select id="changelog-add-section" style="padding:0.4rem 0.6rem;border-radius:var(--radius-sm);border:1px solid var(--border-subtle);background:var(--bg-input);color:var(--text-primary);font-size:0.8rem">
+                    ${optionsHtml}
+                </select>
+                <label style="font-size:0.78rem;font-weight:600;color:var(--text-secondary)">Entry Text</label>
+                <input type="text" id="changelog-add-text" placeholder="describe the change…"
+                    style="padding:0.4rem 0.6rem;border-radius:var(--radius-sm);border:1px solid var(--border-subtle);background:var(--bg-input);color:var(--text-primary);font-family:var(--font-mono);font-size:0.8rem">
+                <label class="git-cc-breaking-label" style="align-self:flex-start">
+                    <input type="checkbox" id="changelog-add-breaking">
+                    <span>⚠️ Breaking Change</span>
+                </label>
+            </div>`,
+            size: 'default',
+            footerButtons: [
+                { label: 'Cancel', cls: 'btn-secondary', onclick: 'modalClose()' },
+                { label: 'Add', cls: 'btn-primary', onclick: '_changelogAddEntrySubmit()' },
+            ],
+        });
+
+        setTimeout(() => document.getElementById('changelog-add-text')?.focus(), 100);
+    }
+
+    async function _changelogAddEntrySubmit() {
+        const section = document.getElementById('changelog-add-section')?.value || 'feat';
+        const text = (document.getElementById('changelog-add-text')?.value || '').trim();
+        const breaking = document.getElementById('changelog-add-breaking')?.checked || false;
+
+        if (!text) {
+            modalError('Please enter entry text');
+            return;
+        }
+
+        try {
+            await api('/changelog/entry', {
+                method: 'POST',
+                body: JSON.stringify({ section, text, breaking }),
+            });
+            toast('Entry added', 'success');
+            changelogModal();
+        } catch (e) {
+            modalError(e.message);
+        }
+    }
+
+    async function _changelogEditEntry(oldText) {
+        modalOpen({
+            title: '✏️ Edit Entry',
+            body: `<div style="display:flex;flex-direction:column;gap:var(--space-sm)">
+                <label style="font-size:0.78rem;font-weight:600;color:var(--text-secondary)">Entry Text</label>
+                <input type="text" id="changelog-edit-text" value="${esc(oldText)}"
+                    style="padding:0.4rem 0.6rem;border-radius:var(--radius-sm);border:1px solid var(--border-subtle);background:var(--bg-input);color:var(--text-primary);font-family:var(--font-mono);font-size:0.8rem">
+                <input type="hidden" id="changelog-edit-old" value="${esc(oldText)}">
+            </div>`,
+            size: 'default',
+            footerButtons: [
+                { label: 'Cancel', cls: 'btn-secondary', onclick: 'modalClose()' },
+                { label: 'Save', cls: 'btn-primary', onclick: '_changelogEditEntrySubmit()' },
+            ],
+        });
+
+        setTimeout(() => document.getElementById('changelog-edit-text')?.focus(), 100);
+    }
+
+    async function _changelogEditEntrySubmit() {
+        const oldText = document.getElementById('changelog-edit-old')?.value || '';
+        const newText = (document.getElementById('changelog-edit-text')?.value || '').trim();
+
+        if (!newText) {
+            modalError('Entry text cannot be empty');
+            return;
+        }
+
+        try {
+            await api('/changelog/entry', {
+                method: 'PUT',
+                body: JSON.stringify({ old_text: oldText, new_text: newText }),
+            });
+            toast('Entry updated', 'success');
+            changelogModal();
+        } catch (e) {
+            modalError(e.message);
+        }
+    }
+
+    async function _changelogDeleteEntry(text) {
+        if (!confirm(`Remove this entry from [Unreleased]?\n\n${text}`)) return;
+
+        try {
+            await api('/changelog/entry', {
+                method: 'DELETE',
+                body: JSON.stringify({ text }),
+            });
+            toast('Entry removed', 'success');
+            changelogModal();
+        } catch (e) {
+            toast(e.message, 'error');
+        }
+    }
+
+    function _changelogCutReleaseModal(suggestedBump, currentVersion) {
+        // Parse current version and compute next
+        const parts = currentVersion.replace(/^v/, '').split('.').map(Number);
+        let nextVersion;
+        if (suggestedBump === 'major') {
+            nextVersion = `${(parts[0] || 0) + 1}.0.0`;
+        } else if (suggestedBump === 'minor') {
+            nextVersion = `${parts[0] || 0}.${(parts[1] || 0) + 1}.0`;
+        } else {
+            nextVersion = `${parts[0] || 0}.${parts[1] || 0}.${(parts[2] || 0) + 1}`;
+        }
+
+        const today = new Date().toISOString().slice(0, 10);
+
+        modalOpen({
+            title: '🏷️ Cut Release',
+            body: `<div style="display:flex;flex-direction:column;gap:var(--space-md)">
+                <div>
+                    <label style="font-size:0.78rem;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:var(--space-xs)">Version</label>
+                    <input type="text" id="changelog-release-version" value="${nextVersion}"
+                        style="padding:0.5rem 0.75rem;border-radius:var(--radius-sm);border:1px solid var(--border-subtle);background:var(--bg-input);color:var(--text-primary);font-family:var(--font-mono);font-size:1rem;font-weight:700;width:100%">
+                    <div style="font-size:0.68rem;color:var(--text-muted);margin-top:var(--space-xs)">
+                        Suggested: <strong>${suggestedBump}</strong> bump → v${nextVersion}
+                    </div>
+                </div>
+                <div>
+                    <label style="font-size:0.78rem;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:var(--space-xs)">Release Date</label>
+                    <input type="date" id="changelog-release-date" value="${today}"
+                        style="padding:0.4rem 0.6rem;border-radius:var(--radius-sm);border:1px solid var(--border-subtle);background:var(--bg-input);color:var(--text-primary);font-size:0.8rem">
+                </div>
+                <div style="display:flex;flex-direction:column;gap:var(--space-xs)">
+                    <label class="git-cc-breaking-label" style="align-self:flex-start">
+                        <input type="checkbox" id="changelog-release-bump" checked>
+                        <span>Bump pyproject.toml version</span>
+                    </label>
+                    <label class="git-cc-breaking-label" style="align-self:flex-start">
+                        <input type="checkbox" id="changelog-release-tag" checked>
+                        <span>Create git tag</span>
+                    </label>
+                    <label class="git-cc-breaking-label" style="align-self:flex-start">
+                        <input type="checkbox" id="changelog-release-commit" checked>
+                        <span>Auto-commit changes</span>
+                    </label>
+                </div>
+            </div>`,
+            size: 'default',
+            footerButtons: [
+                { label: 'Cancel', cls: 'btn-secondary', onclick: 'modalClose()' },
+                { label: '🏷️ Release', cls: 'btn-primary', id: 'changelog-release-btn', onclick: '_changelogCutReleaseSubmit()' },
+            ],
+        });
+
+        setTimeout(() => document.getElementById('changelog-release-version')?.select(), 100);
+    }
+
+    async function _changelogCutReleaseSubmit() {
+        const version = (document.getElementById('changelog-release-version')?.value || '').trim();
+        const date = document.getElementById('changelog-release-date')?.value || '';
+        const bumpPyproject = document.getElementById('changelog-release-bump')?.checked ?? true;
+        const createTag = document.getElementById('changelog-release-tag')?.checked ?? true;
+        const commit = document.getElementById('changelog-release-commit')?.checked ?? true;
+
+        if (!version) {
+            modalError('Version is required');
+            return;
+        }
+
+        const btn = document.getElementById('changelog-release-btn');
+        if (btn) { btn.disabled = true; btn.textContent = 'Releasing…'; }
+
+        try {
+            const data = await api('/changelog/release', {
+                method: 'POST',
+                body: JSON.stringify({
+                    version,
+                    date,
+                    bump_pyproject: bumpPyproject,
+                    create_tag: createTag,
+                    commit,
+                }),
+            });
+
+            modalClose();
+
+            let msg = `Released v${version}`;
+            if (data.tag) msg += ` — tagged ${data.tag}`;
+            if (data.commit_hash) msg += ` (${data.commit_hash})`;
+            toast(msg, 'success');
+
+            // Warnings
+            if (data.pyproject_error) toast(`pyproject.toml: ${data.pyproject_error}`, 'warning');
+            if (data.commit_error) toast(`Commit: ${data.commit_error}`, 'warning');
+            if (data.tag_error) toast(`Tag: ${data.tag_error}`, 'warning');
+
+            cardInvalidate('git');
+            if (typeof loadGitCard === 'function') await loadGitCard();
+        } catch (e) {
+            modalError(e.message);
+            if (btn) { btn.disabled = false; btn.textContent = '🏷️ Release'; }
+        }
+    }
