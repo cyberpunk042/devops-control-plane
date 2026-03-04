@@ -228,6 +228,19 @@ class DataRegistry:
         logger.debug("Loaded %d .env template sections", len(data))
         return data
 
+    # ── Artifact Publish Targets ──────────────────────────────────
+
+    @cached_property
+    def publish_targets(self) -> dict[str, list[dict]]:
+        """Stack → publish target mapping (PyPI, npm, crates.io, …).
+
+        Keys are stack name prefixes. ``_default`` applies to all stacks.
+        Stacks inherit from their base prefix (python-flask → python).
+        """
+        data = _load_json("catalogs/publish_targets.json")
+        logger.debug("Loaded publish targets for %d stack prefixes", len(data))
+        return data
+
     # ── Serialization for JS injection ───────────────────────────
 
     def to_js_dict(self) -> dict:

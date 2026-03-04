@@ -255,19 +255,48 @@ def build_target_stream(
 
 
 def detect_publish_capabilities(project_root: Path) -> dict:
-    """Detect what publishing tools and auth are available."""
+    """Detect what publishing tools and auth are available.
+
+    Stack-agnostic — detects all possible publish tools across every stack.
+    """
     import os
     import shutil
     import subprocess
 
     caps: dict = {
+        # Git / GitHub
         "gh_cli": shutil.which("gh") is not None,
         "gh_authenticated": False,
         "gh_repo": "",
+        # Containers
         "docker_cli": shutil.which("docker") is not None or shutil.which("podman") is not None,
+        # Python
         "twine_available": False,
         "pypi_token": bool(os.environ.get("PYPI_TOKEN")),
         "test_pypi_token": bool(os.environ.get("TEST_PYPI_TOKEN")),
+        # Node / JavaScript / TypeScript
+        "npm_cli": shutil.which("npm") is not None,
+        "npm_token": bool(os.environ.get("NPM_TOKEN")),
+        # Rust
+        "cargo_cli": shutil.which("cargo") is not None,
+        "cargo_token": bool(os.environ.get("CARGO_REGISTRY_TOKEN") or os.environ.get("CRATES_TOKEN")),
+        # Go
+        "go_cli": shutil.which("go") is not None,
+        # Ruby
+        "gem_cli": shutil.which("gem") is not None,
+        "gem_credentials": False,
+        # Java
+        "mvn_cli": shutil.which("mvn") is not None or shutil.which("gradle") is not None,
+        # .NET
+        "dotnet_cli": shutil.which("dotnet") is not None,
+        "nuget_token": bool(os.environ.get("NUGET_API_KEY")),
+        # Elixir
+        "mix_cli": shutil.which("mix") is not None,
+        "hex_token": bool(os.environ.get("HEX_API_KEY")),
+        # Terraform
+        "terraform_cli": shutil.which("terraform") is not None,
+        # Helm
+        "helm_cli": shutil.which("helm") is not None,
     }
 
     # Check gh auth
@@ -288,57 +317,191 @@ def detect_publish_capabilities(project_root: Path) -> dict:
         except Exception:
             pass
 
-    # Check twine
+    # Check twine (venv or global)
     venv_twine = project_root / ".venv" / "bin" / "twine"
     if venv_twine.exists() or shutil.which("twine"):
         caps["twine_available"] = True
 
-    # Also check env files for tokens
+    # Check gem credentials
+    gem_creds = Path.home() / ".gem" / "credentials"
+    if gem_creds.exists():
+        caps["gem_credentials"] = True
+
+    # Check env files for tokens
     for env_file in [".env", ".env.production", ".env.active"]:
         env_path = project_root / env_file
         if env_path.exists():
             try:
                 content = env_path.read_text()
                 for line in content.splitlines():
-                    if line.startswith("PYPI_TOKEN=") and line.split("=", 1)[1].strip():
+                    key_val = line.split("=", 1)
+                    if len(key_val) != 2:
+                        continue
+                    key, val = key_val[0].strip(), key_val[1].strip()
+                    if not val:
+                        continue
+                    if key == "PYPI_TOKEN":
                         caps["pypi_token"] = True
-                    if line.startswith("TEST_PYPI_TOKEN=") and line.split("=", 1)[1].strip():
+                    elif key == "TEST_PYPI_TOKEN":
                         caps["test_pypi_token"] = True
+                    elif key == "NPM_TOKEN":
+                        caps["npm_token"] = True
+                    elif key in ("CARGO_REGISTRY_TOKEN", "CRATES_TOKEN"):
+                        caps["cargo_token"] = True
+                    elif key == "NUGET_API_KEY":
+                        caps["nuget_token"] = True
+                    elif key == "HEX_API_KEY":
+                        caps["hex_token"] = True
             except OSError:
                 pass
 
     return caps
 
 
+# ── Stack → Publish Targets Registry ──────────────────────────────────
+#
+# Loaded from data layer: src/core/data/catalogs/publish_targets.json
+# Maps stack name prefixes to their publish targets.
+# Stacks inherit from their base prefix (python-flask → python).
+# _default applies to ALL stacks (GitHub Release is universal).
+
+
+def _get_publish_registry() -> dict[str, list[dict]]:
+    """Load publish targets registry from the data layer."""
+    from src.core.data import DataRegistry
+    return DataRegistry().publish_targets
+
+
+def _resolve_publish_options_for_stacks(
+    detected_stacks: list[str], caps: dict,
+) -> list[dict]:
+    """Resolve publish options from detected stacks and capabilities.
+
+    Checks ALL detected stacks, merges their targets (deduped),
+    and evaluates availability against detected capabilities.
+    """
+    # Always start with _default
+    seen_targets: set[str] = set()
+    options: list[dict] = []
+
+    def _add_entries(entries: list[dict]) -> None:
+        for entry in entries:
+            if entry["target"] in seen_targets:
+                continue
+            seen_targets.add(entry["target"])
+
+            required = entry.get("requires", [])
+            available = all(caps.get(r) for r in required)
+
+            if available:
+                reason = entry.get("reason_ok", "Ready")
+            else:
+                fail_keys = entry.get("reason_fail_keys", {})
+                if fail_keys:
+                    missing = [fail_keys[k] for k in required if not caps.get(k) and k in fail_keys]
+                    reason = "Missing: " + ", ".join(missing) if missing else entry.get("reason_fail", "Not available")
+                else:
+                    reason = entry.get("reason_fail", "Not available")
+
+            options.append({
+                "target": entry["target"],
+                "available": available,
+                "reason": reason,
+                "configured": available,
+                "label": entry["label"],
+                "icon": entry.get("icon", "📦"),
+            })
+
+    registry = _get_publish_registry()
+
+    # Default targets (GitHub Release)
+    _add_entries(registry.get("_default", []))
+
+    # Stack-specific targets
+    for stack_name in detected_stacks:
+        # Exact match first
+        if stack_name in registry:
+            _add_entries(registry[stack_name])
+        # Prefix match (python-flask → python, node-express → node)
+        base = stack_name.split("-")[0] if "-" in stack_name else ""
+        if base and base in registry:
+            _add_entries(registry[base])
+
+    # Also check builder/kind for container targets
+    # (docker builder might not come from a stack named "docker")
+    if "docker" not in [s.split("-")[0] for s in detected_stacks]:
+        if caps.get("docker_cli"):
+            _add_entries(registry.get("docker", []))
+
+    return options
+
+
+def _detect_project_stacks(project_root: Path) -> list[str]:
+    """Get the detected stacks for this project from the module detection system."""
+    try:
+        from src.core.config.loader import load_project
+        from src.core.config.stack_loader import discover_stacks
+        from src.core.services.detection import detect_modules
+
+        project = load_project(project_root / "project.yml")
+        stacks = discover_stacks(project_root / "stacks")
+        detection = detect_modules(project, project_root, stacks)
+
+        seen: set[str] = set()
+        names: list[str] = []
+        for m in detection.modules:
+            stack = m.effective_stack
+            if stack and stack not in seen:
+                names.append(stack)
+                seen.add(stack)
+        return names
+    except Exception:
+        return []
+
+
 def get_publishable_artifacts(
-    project_root: Path, target_name: str,
+    project_root: Path,
+    target_name: str,
 ) -> dict:
-    """List publishable files for a target and available publish options."""
-    target = get_target(project_root, target_name)
+    """Get publishable artifacts and available publish targets.
+
+    Publish options are STACK-DRIVEN — derived from the project's
+    detected module stacks, not hardcoded per builder.
+    """
+    targets = get_targets(project_root) # Changed from load_targets to get_targets
+    target = next((t for t in targets if t.name == target_name), None)
     if not target:
         return {"error": f"Target '{target_name}' not found"}
 
+    # Version
     from .version import resolve_version
-
     version, version_source = resolve_version(project_root)
+
+    # Capabilities
     caps = detect_publish_capabilities(project_root)
 
-    # Find built files
-    output_dir = project_root / (target.output_dir or "dist/")
+    # Scan dist/ for artifacts
+    dist_dir = project_root / (target.output_dir or "dist/")
     artifacts = []
-    if output_dir.exists():
-        for f in sorted(output_dir.iterdir()):
+    if dist_dir.exists():
+        for f in sorted(dist_dir.iterdir()):
             if f.is_file() and not f.name.startswith("."):
                 ext = f.suffix.lower()
-                ftype = "unknown"
+                ftype = "file"
                 if ext == ".whl":
                     ftype = "wheel"
-                elif f.name.endswith(".tar.gz"):
+                elif ext in (".tar.gz", ".tgz"):
                     ftype = "sdist"
-                elif ext in (".tar", ".gz", ".zip"):
+                elif ext == ".zip":
                     ftype = "archive"
                 elif ext in (".deb", ".rpm"):
                     ftype = "system-package"
+                elif ext in (".tgz", ".tar"):
+                    ftype = "tarball"
+                elif ext in (".js", ".mjs", ".cjs"):
+                    ftype = "js-module"
+                elif ext in (".exe", ".bin", ".AppImage"):
+                    ftype = "binary"
                 artifacts.append({
                     "name": f.name,
                     "path": str(f),
@@ -346,73 +509,9 @@ def get_publishable_artifacts(
                     "type": ftype,
                 })
 
-    # Build publish options based on capabilities and target kind
-    publish_options = []
-
-    # GitHub Release — works for all types
-    publish_options.append({
-        "target": "github-release",
-        "available": caps["gh_authenticated"],
-        "reason": "gh CLI authenticated" if caps["gh_authenticated"]
-                  else "gh CLI not authenticated — run 'gh auth login'",
-        "configured": caps["gh_authenticated"],
-        "label": "📦 GitHub Release",
-        "icon": "📦",
-    })
-
-    # PyPI — only for pip/package targets
-    if target.kind == "package" or target.builder == "pip":
-        publish_options.append({
-            "target": "pypi",
-            "available": caps["twine_available"] and caps["pypi_token"],
-            "reason": (
-                "Ready" if (caps["twine_available"] and caps["pypi_token"])
-                else "Missing: " + ", ".join(
-                    [x for x in [
-                        "twine" if not caps["twine_available"] else "",
-                        "PYPI_TOKEN" if not caps["pypi_token"] else "",
-                    ] if x]
-                )
-            ),
-            "configured": caps["pypi_token"],
-            "label": "🚀 PyPI",
-            "icon": "🚀",
-        })
-        publish_options.append({
-            "target": "testpypi",
-            "available": caps["twine_available"] and caps["test_pypi_token"],
-            "reason": (
-                "Ready" if (caps["twine_available"] and caps["test_pypi_token"])
-                else "Missing: " + ", ".join(
-                    [x for x in [
-                        "twine" if not caps["twine_available"] else "",
-                        "TEST_PYPI_TOKEN" if not caps["test_pypi_token"] else "",
-                    ] if x]
-                )
-            ),
-            "configured": caps["test_pypi_token"],
-            "label": "🧪 TestPyPI",
-            "icon": "🧪",
-        })
-
-    # Container Registry — only for container targets
-    if target.kind == "container" or target.builder == "docker":
-        publish_options.append({
-            "target": "ghcr",
-            "available": caps["gh_authenticated"] and caps["docker_cli"],
-            "reason": (
-                "Ready (ghcr.io via gh auth)" if (caps["gh_authenticated"] and caps["docker_cli"])
-                else "Missing: " + ", ".join(
-                    [x for x in [
-                        "docker/podman" if not caps["docker_cli"] else "",
-                        "gh auth" if not caps["gh_authenticated"] else "",
-                    ] if x]
-                )
-            ),
-            "configured": caps["gh_authenticated"],
-            "label": "🐳 ghcr.io",
-            "icon": "🐳",
-        })
+    # Detect project stacks → resolve publish options
+    detected_stacks = _detect_project_stacks(project_root)
+    publish_options = _resolve_publish_options_for_stacks(detected_stacks, caps)
 
     # Check if this version already has a GitHub release
     existing_release = None
@@ -453,6 +552,7 @@ def get_publishable_artifacts(
         "capabilities": caps,
         "existing_release": existing_release,
         "bumps": bumps,
+        "detected_stacks": detected_stacks,
     }
 
 

@@ -1,0 +1,255 @@
+{
+    "_comment": "Stack → publish targets registry. Maps stack name prefixes to their publish targets. Stacks inherit from their base prefix (python-flask → python). _default applies to ALL stacks.",
+    "_default": [
+        {
+            "target": "github-release",
+            "label": "📦 GitHub Release",
+            "icon": "📦",
+            "requires": [
+                "gh_authenticated"
+            ],
+            "reason_ok": "gh CLI authenticated",
+            "reason_fail": "gh CLI not authenticated — run 'gh auth login'"
+        }
+    ],
+    "python": [
+        {
+            "target": "pypi",
+            "label": "🚀 PyPI",
+            "icon": "🚀",
+            "requires": [
+                "twine_available",
+                "pypi_token"
+            ],
+            "reason_ok": "Ready",
+            "reason_fail_keys": {
+                "twine_available": "twine",
+                "pypi_token": "PYPI_TOKEN"
+            }
+        },
+        {
+            "target": "testpypi",
+            "label": "🧪 TestPyPI",
+            "icon": "🧪",
+            "requires": [
+                "twine_available",
+                "test_pypi_token"
+            ],
+            "reason_ok": "Ready",
+            "reason_fail_keys": {
+                "twine_available": "twine",
+                "test_pypi_token": "TEST_PYPI_TOKEN"
+            }
+        }
+    ],
+    "node": [
+        {
+            "target": "npm",
+            "label": "📦 npm Registry",
+            "icon": "📦",
+            "requires": [
+                "npm_cli",
+                "npm_token"
+            ],
+            "reason_ok": "Ready",
+            "reason_fail_keys": {
+                "npm_cli": "npm",
+                "npm_token": "NPM_TOKEN"
+            }
+        }
+    ],
+    "typescript": [
+        {
+            "target": "npm",
+            "label": "📦 npm Registry",
+            "icon": "📦",
+            "requires": [
+                "npm_cli",
+                "npm_token"
+            ],
+            "reason_ok": "Ready",
+            "reason_fail_keys": {
+                "npm_cli": "npm",
+                "npm_token": "NPM_TOKEN"
+            }
+        }
+    ],
+    "rust": [
+        {
+            "target": "crates-io",
+            "label": "📦 crates.io",
+            "icon": "📦",
+            "requires": [
+                "cargo_cli",
+                "cargo_token"
+            ],
+            "reason_ok": "Ready",
+            "reason_fail_keys": {
+                "cargo_cli": "cargo",
+                "cargo_token": "CARGO_REGISTRY_TOKEN"
+            }
+        }
+    ],
+    "go": [],
+    "ruby": [
+        {
+            "target": "rubygems",
+            "label": "💎 RubyGems",
+            "icon": "💎",
+            "requires": [
+                "gem_cli",
+                "gem_credentials"
+            ],
+            "reason_ok": "Ready",
+            "reason_fail_keys": {
+                "gem_cli": "gem",
+                "gem_credentials": "~/.gem/credentials"
+            }
+        }
+    ],
+    "java": [
+        {
+            "target": "maven-central",
+            "label": "☕ Maven Central",
+            "icon": "☕",
+            "requires": [
+                "mvn_cli"
+            ],
+            "reason_ok": "Ready (mvn/gradle available)",
+            "reason_fail_keys": {
+                "mvn_cli": "mvn or gradle"
+            }
+        }
+    ],
+    "dotnet": [
+        {
+            "target": "nuget",
+            "label": "📦 NuGet",
+            "icon": "📦",
+            "requires": [
+                "dotnet_cli",
+                "nuget_token"
+            ],
+            "reason_ok": "Ready",
+            "reason_fail_keys": {
+                "dotnet_cli": "dotnet",
+                "nuget_token": "NUGET_API_KEY"
+            }
+        }
+    ],
+    "elixir": [
+        {
+            "target": "hex-pm",
+            "label": "💧 Hex.pm",
+            "icon": "💧",
+            "requires": [
+                "mix_cli",
+                "hex_token"
+            ],
+            "reason_ok": "Ready",
+            "reason_fail_keys": {
+                "mix_cli": "mix",
+                "hex_token": "HEX_API_KEY"
+            }
+        }
+    ],
+    "docker": [
+        {
+            "target": "ghcr",
+            "label": "🐳 ghcr.io",
+            "icon": "🐳",
+            "requires": [
+                "gh_authenticated",
+                "docker_cli"
+            ],
+            "reason_ok": "Ready (ghcr.io via gh auth)",
+            "reason_fail_keys": {
+                "docker_cli": "docker/podman",
+                "gh_authenticated": "gh auth"
+            }
+        },
+        {
+            "target": "dockerhub",
+            "label": "🐳 Docker Hub",
+            "icon": "🐳",
+            "requires": [
+                "docker_cli"
+            ],
+            "reason_ok": "Ready",
+            "reason_fail_keys": {
+                "docker_cli": "docker/podman"
+            }
+        }
+    ],
+    "docker-compose": [
+        {
+            "target": "ghcr",
+            "label": "🐳 ghcr.io",
+            "icon": "🐳",
+            "requires": [
+                "gh_authenticated",
+                "docker_cli"
+            ],
+            "reason_ok": "Ready (ghcr.io via gh auth)",
+            "reason_fail_keys": {
+                "docker_cli": "docker/podman",
+                "gh_authenticated": "gh auth"
+            }
+        }
+    ],
+    "helm": [
+        {
+            "target": "helm-registry",
+            "label": "⎈ Helm Registry",
+            "icon": "⎈",
+            "requires": [
+                "helm_cli"
+            ],
+            "reason_ok": "Ready",
+            "reason_fail_keys": {
+                "helm_cli": "helm"
+            }
+        }
+    ],
+    "terraform": [
+        {
+            "target": "terraform-registry",
+            "label": "🏗️ Terraform Registry",
+            "icon": "🏗️",
+            "requires": [
+                "terraform_cli"
+            ],
+            "reason_ok": "Ready",
+            "reason_fail_keys": {
+                "terraform_cli": "terraform"
+            }
+        }
+    ],
+    "php": [
+        {
+            "target": "packagist",
+            "label": "📦 Packagist",
+            "icon": "📦",
+            "requires": [],
+            "reason_ok": "Publishes via git (push to Packagist-linked repo)",
+            "reason_fail": "Not available"
+        }
+    ],
+    "swift": [
+        {
+            "target": "swift-registry",
+            "label": "🐦 Swift Package Registry",
+            "icon": "🐦",
+            "requires": [],
+            "reason_ok": "Publishes via git tags",
+            "reason_fail": "Not available"
+        }
+    ],
+    "c": [],
+    "cpp": [],
+    "zig": [],
+    "protobuf": [],
+    "kubernetes": [],
+    "markdown": [],
+    "static-site": []
+}

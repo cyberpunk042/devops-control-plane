@@ -1,12 +1,19 @@
 """
 Version resolution for artifact publishing.
 
-Resolution order:
-  1. pyproject.toml → version
-  2. setup.py → version
-  3. git describe --tags
-  4. git rev-parse --short HEAD
-  5. Fallback: 0.0.0-dev
+Resolution order (stack-aware):
+  1. pyproject.toml → version (Python)
+  2. setup.py → version (Python legacy)
+  3. package.json → version (Node/TypeScript)
+  4. Cargo.toml → version (Rust)
+  5. mix.exs → version (Elixir)
+  6. *.gemspec → version (Ruby)
+  7. pom.xml → version (Java Maven)
+  8. build.gradle / build.gradle.kts → version (Java Gradle)
+  9. *.csproj → Version (C# / .NET)
+  10. git describe --tags
+  11. git rev-parse --short HEAD
+  12. Fallback: 0.0.0-dev
 """
 
 from __future__ import annotations
@@ -21,8 +28,10 @@ def resolve_version(project_root: Path) -> tuple[str, str]:
 
     Returns:
         (version, source) — e.g. ("0.1.0", "pyproject.toml")
+
+    Checks ALL stack manifest files, not just Python.
     """
-    # 1. pyproject.toml
+    # 1. pyproject.toml (Python)
     pyproject = project_root / "pyproject.toml"
     if pyproject.exists():
         try:
@@ -36,18 +45,106 @@ def resolve_version(project_root: Path) -> tuple[str, str]:
         except OSError:
             pass
 
-    # 2. setup.py
+    # 2. setup.py (Python legacy)
     setup_py = project_root / "setup.py"
     if setup_py.exists():
         try:
             content = setup_py.read_text()
-            m = re.search(r'version\s*=\s*["\']([^"\']+)["\']', content)
+            m = re.search(r'version\s*=\s*["\'](.[^"\']+)["\']', content)
             if m:
                 return (m.group(1), "setup.py")
         except OSError:
             pass
 
-    # 3. Git tag
+    # 3. package.json (Node / TypeScript)
+    package_json = project_root / "package.json"
+    if package_json.exists():
+        try:
+            import json as _json
+            data = _json.loads(package_json.read_text())
+            ver = data.get("version", "")
+            if ver and ver != "0.0.0":
+                return (ver, "package.json")
+        except (OSError, ValueError):
+            pass
+
+    # 4. Cargo.toml (Rust)
+    cargo_toml = project_root / "Cargo.toml"
+    if cargo_toml.exists():
+        try:
+            content = cargo_toml.read_text()
+            in_package = False
+            for line in content.splitlines():
+                stripped = line.strip()
+                if stripped == "[package]":
+                    in_package = True
+                elif stripped.startswith("[") and in_package:
+                    break
+                elif in_package and stripped.startswith("version") and "=" in stripped:
+                    val = stripped.split("=", 1)[1].strip().strip("\"'")
+                    if val and val != "0.0.0":
+                        return (val, "Cargo.toml")
+        except OSError:
+            pass
+
+    # 5. mix.exs (Elixir)
+    mix_exs = project_root / "mix.exs"
+    if mix_exs.exists():
+        try:
+            content = mix_exs.read_text()
+            m = re.search(r'version:\s*"([^"]+)"', content)
+            if m:
+                return (m.group(1), "mix.exs")
+        except OSError:
+            pass
+
+    # 6. *.gemspec (Ruby)
+    gemspecs = list(project_root.glob("*.gemspec"))
+    if gemspecs:
+        try:
+            content = gemspecs[0].read_text()
+            m = re.search(r'\.version\s*=\s*["\']([^"\']+)["\']', content)
+            if m:
+                return (m.group(1), gemspecs[0].name)
+        except OSError:
+            pass
+
+    # 7. pom.xml (Java Maven)
+    pom = project_root / "pom.xml"
+    if pom.exists():
+        try:
+            content = pom.read_text()
+            # Match top-level <version> (not inside <parent> or <dependency>)
+            m = re.search(r'<artifactId>[^<]+</artifactId>\s*<version>([^<]+)</version>', content)
+            if m:
+                return (m.group(1), "pom.xml")
+        except OSError:
+            pass
+
+    # 8. build.gradle / build.gradle.kts (Java Gradle)
+    for gradle_file in ["build.gradle", "build.gradle.kts"]:
+        gradle = project_root / gradle_file
+        if gradle.exists():
+            try:
+                content = gradle.read_text()
+                m = re.search(r'version\s*=\s*["\']([^"\']+)["\']', content)
+                if m:
+                    return (m.group(1), gradle_file)
+            except OSError:
+                pass
+
+    # 9. *.csproj (.NET / C#)
+    csprojs = list(project_root.glob("*.csproj"))
+    if csprojs:
+        try:
+            content = csprojs[0].read_text()
+            m = re.search(r'<Version>([^<]+)</Version>', content)
+            if m:
+                return (m.group(1), csprojs[0].name)
+        except OSError:
+            pass
+
+    # 10. Git tag
     try:
         r = subprocess.run(
             ["git", "describe", "--tags", "--abbrev=0"],
@@ -56,13 +153,12 @@ def resolve_version(project_root: Path) -> tuple[str, str]:
         )
         if r.returncode == 0 and r.stdout.strip():
             tag = r.stdout.strip()
-            # Strip leading 'v' if present
             version = tag.lstrip("v")
             return (version, f"git tag ({tag})")
     except (OSError, subprocess.TimeoutExpired):
         pass
 
-    # 4. Git short hash
+    # 11. Git short hash
     try:
         r = subprocess.run(
             ["git", "rev-parse", "--short", "HEAD"],
@@ -74,7 +170,7 @@ def resolve_version(project_root: Path) -> tuple[str, str]:
     except (OSError, subprocess.TimeoutExpired):
         pass
 
-    # 5. Fallback
+    # 12. Fallback
     return ("0.0.0-dev", "fallback")
 
 

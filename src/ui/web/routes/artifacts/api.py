@@ -196,7 +196,11 @@ def list_builders():
     """List available artifact builders."""
     from src.core.services.artifacts.builders import get_builder
 
-    known = ["makefile", "pip", "script", "docker"]
+    known = [
+        "makefile", "pip", "script", "docker",
+        "npm", "cargo", "go",
+        "maven", "gradle", "dotnet", "mix", "gem",
+    ]
     result = []
     for name in known:
         b = get_builder(name)
@@ -393,5 +397,45 @@ def release_notes_preview(name: str):
         "version": version,
         "version_source": version_source,
         "notes": notes,
+    })
+
+
+# ── Release Workflow Generation ────────────────────────────────────
+
+@bp.route("/workflow/preview", methods=["GET"])
+def workflow_preview():
+    """Preview the generated release.yml content (does NOT write)."""
+    from src.core.services.artifacts.workflow_gen import generate_release_workflow
+    from src.core.services.artifacts.engine import _detect_project_stacks
+
+    root = _project_root()
+    stacks = _detect_project_stacks(root)
+    content = generate_release_workflow(root, stacks)
+
+    return jsonify({
+        "detected_stacks": stacks,
+        "content": content,
+        "path": ".github/workflows/release.yml",
+    })
+
+
+@bp.route("/workflow/generate", methods=["POST"])
+def workflow_generate():
+    """Generate and write the release.yml workflow file."""
+    from src.core.services.artifacts.workflow_gen import write_release_workflow
+    from src.core.services.artifacts.engine import _detect_project_stacks
+
+    root = _project_root()
+    stacks = _detect_project_stacks(root)
+
+    data = request.get_json(silent=True) or {}
+    publish_targets = data.get("publish_targets")
+
+    result = write_release_workflow(root, stacks, publish_targets=publish_targets)
+
+    return jsonify({
+        "ok": True,
+        **result,
+        "detected_stacks": stacks,
     })
 
