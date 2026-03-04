@@ -394,6 +394,13 @@ class ScopedAuditData:
     language_breakdown: list[dict] = field(default_factory=list)
     # [{language, file_type, files, lines}] sorted by lines desc
 
+    # ── Module-root extras (only populated when sub_path == "") ──
+    is_module_root: bool = False
+    project_wide_findings: list[dict] = field(default_factory=list)
+    # findings with no file refs (e.g. "No .env.example", vulnerabilities)
+    sub_module_scores: list[dict] = field(default_factory=list)
+    # [{name, score, files, worst_sub}] per sub-module under this module
+
 
 # Strength ordering for dedup (keep strongest)
 _STRENGTH_ORDER = {"strong": 3, "moderate": 2, "weak": 1, "": 0}
@@ -541,6 +548,7 @@ def _filter_to_scope(
                         weakest_val = v
                 worst_files.append({
                     "file": fs.get("file", "").rsplit("/", 1)[-1],
+                    "file_path": fs.get("file", ""),
                     "score": fs.get("score", 0),
                     "weakest": weakest_key,
                     "weakest_val": round(weakest_val, 1) if weakest_val < 11 else 0,
@@ -558,14 +566,20 @@ def _filter_to_scope(
     # ═══════════════════════════════════════════════════════════════
 
     findings: list[dict] = []
+    project_wide_findings: list[dict] = []
     risk_summary = {"total": 0, "critical": 0, "high": 0, "medium": 0, "info": 0}
+    is_module_root = scope.sub_path == ""
 
     if bundle.risks:
         all_findings = bundle.risks.get("findings", [])
         for f in all_findings:
             f_files = f.get("files", [])
             if not f_files:
-                # Project-wide (no file refs) → SKIP — noise on every page
+                # Project-wide (no file refs)
+                # At module root: include as project_wide_findings
+                # At sub-module: skip (noise)
+                if is_module_root:
+                    project_wide_findings.append(f)
                 continue
             has_match = any(
                 ff.get("file", "").startswith(prefix)
@@ -574,8 +588,8 @@ def _filter_to_scope(
             if has_match:
                 findings.append(f)
 
-        risk_summary["total"] = len(findings)
-        for f in findings:
+        risk_summary["total"] = len(findings) + len(project_wide_findings)
+        for f in findings + project_wide_findings:
             sev = f.get("severity", "info")
             risk_summary[sev] = risk_summary.get(sev, 0) + 1
 
@@ -843,6 +857,43 @@ def _filter_to_scope(
     file_count = live_file_count if live_file_count > 0 else cached_file_count
     total_lines = live_total_lines if live_total_lines > 0 else 0
 
+    # ═══════════════════════════════════════════════════════════════
+    # Module-root extras: sub-module health breakdown
+    # ═══════════════════════════════════════════════════════════════
+    sub_module_scores: list[dict] = []
+    if is_module_root and bundle.quality:
+        all_scores = bundle.quality.get("file_scores", [])
+        # Group scores by sub-module directory under the module path
+        sub_groups: dict[str, list[float]] = {}
+        for fs in all_scores:
+            fpath = fs.get("file", "")
+            if not fpath.startswith(prefix + "/"):
+                continue
+            remainder = fpath[len(prefix) + 1:]  # e.g. "services/audit/scoring.py"
+            parts = remainder.split("/")
+            if len(parts) < 2:
+                continue  # root-level file, not a sub-module
+            # Use first directory as the sub-module key
+            sub_key = parts[0]
+            # If it's "services", go one level deeper for better granularity
+            if sub_key == "services" and len(parts) >= 3:
+                sub_key = f"services/{parts[1]}"
+            sub_groups.setdefault(sub_key, []).append(fs.get("score", 0))
+
+        for sub_name, scores in sorted(sub_groups.items()):
+            if len(scores) < 2:
+                continue  # skip single-file "sub-modules"
+            avg = round(sum(scores) / len(scores), 1)
+            worst = round(min(scores), 1)
+            sub_module_scores.append({
+                "name": sub_name,
+                "score": avg,
+                "files": len(scores),
+                "worst": worst,
+            })
+        # Sort by score ascending (worst first)
+        sub_module_scores.sort(key=lambda x: x["score"])
+
     return ScopedAuditData(
         scope=scope,
         source_label=bundle.source_label,
@@ -875,6 +926,9 @@ def _filter_to_scope(
         last_modified_date=last_modified_date,
         last_modified_file=last_modified_file,
         language_breakdown=language_breakdown,
+        is_module_root=is_module_root,
+        project_wide_findings=project_wide_findings,
+        sub_module_scores=sub_module_scores,
     )
 
 
@@ -997,8 +1051,57 @@ def _mini_bar(value: float, max_val: float = 10.0) -> str:
     return "█" * filled + "░" * (10 - filled)
 
 
-def render_html(data: ScopedAuditData) -> str:
+def _file_link(
+    file_path: str,
+    display_name: str,
+    line: int = 0,
+    render_mode: str = "preview",
+) -> str:
+    """Generate a clickable file link appropriate for the render context.
+
+    Preview mode (web admin):  onclick calls openFileInEditor().
+    Build mode (Docusaurus):   generates a relative doc href.
+    """
+    import html as _html
+    esc_display = _html.escape(display_name)
+
+    if not file_path:
+        return f'<code>{esc_display}</code>'
+
+    esc_path = _html.escape(file_path).replace("'", "&#x27;")
+    line_suffix = f":{line}" if line else ""
+
+    if render_mode == "preview":
+        # Web admin — open in the Content Vault preview
+        return (
+            f'<a href="#content/docs/{file_path}@preview{line_suffix}" '
+            f'class="audit-file-link" '
+            f"onclick=\"openFileInEditor('{esc_path}','preview',{line or 0});"
+            f'return false" '
+            f'title="Open in Content Vault" '
+            f'style="font-family:monospace;font-size:0.78rem;'
+            f'color:#64b5f6;text-decoration:none;cursor:pointer"'
+            f'>{esc_display}</a>'
+        )
+    else:
+        # Build mode (Docusaurus) — relative link to the docs page
+        href = f"/docs/{file_path.replace('.py', '')}{line_suffix}"
+        return (
+            f'<a href="{href}" '
+            f'class="audit-file-link" '
+            f'style="font-family:monospace;font-size:0.78rem;'
+            f'text-decoration:none"'
+            f'>{esc_display}</a>'
+        )
+
+
+def render_html(data: ScopedAuditData, render_mode: str = "preview") -> str:
     """Convert scoped audit data to an HTML <details> block.
+
+    Args:
+        data: Scoped audit data to render.
+        render_mode: "preview" (web admin) or "build" (Docusaurus).
+            Controls how file links are generated.
 
     Renders 9 sections, each omitted if no scoped data exists:
         1. Summary line (collapsed header)
@@ -1133,13 +1236,12 @@ def render_html(data: ScopedAuditData) -> str:
                 w_name = wf.get("weakest", "")
                 w_val = wf.get("weakest_val", 0)
                 reason = f" ({w_name}: {w_val})" if w_name else ""
-                s += (
-                f'<li>⚠ <code class="audit-file-link" '
-                    f'data-file="{wf.get("file_path", "")}" '
-                    f'style="cursor:pointer;text-decoration:underline dotted"'
-                    f'>{wf["file"]}</code> — '
-                    f'{wf["score"]}/10{reason}</li>\n'
+                flink = _file_link(
+                    wf.get("file_path", ""),
+                    wf["file"],
+                    render_mode=render_mode,
                 )
+                s += f'<li>⚠ {flink} — {wf["score"]}/10{reason}</li>\n'
             s += "</ul>\n</div>\n"
 
         # Exposure ratio
@@ -1245,15 +1347,10 @@ def render_html(data: ScopedAuditData) -> str:
                 h_type = h.get("type", "unknown").replace("_", " ")
                 lineno = h.get("lineno", 0)
 
-                # Build clickable file link (6.5) with data-attrs (6.2)
-                data_attrs = f'data-file="{file_path}"'
-                if lineno:
-                    data_attrs += f' data-line="{lineno}"'
-                file_link = (
-                    f'<code class="audit-file-link" '
-                    f'{data_attrs} '
-                    f'style="cursor:pointer;text-decoration:underline dotted"'
-                    f'>{file_name}</code>'
+                file_link = _file_link(
+                    file_path, file_name,
+                    line=lineno,
+                    render_mode=render_mode,
                 )
 
                 if symbol and detail:
@@ -1303,6 +1400,90 @@ def render_html(data: ScopedAuditData) -> str:
         if n > 8:
             s += f"<li><em>...and {n - 8} more</em></li>\n"
         s += "</ul>\n</div>"
+        sections.append(s)
+    # ══════════════════════════════════════════════════════════════
+    # Section 4b: Project-Wide Findings (module root only)
+    # ══════════════════════════════════════════════════════════════
+    if data.project_wide_findings:
+        s = '<div style="margin-bottom:0.75rem">\n'
+        n = len(data.project_wide_findings)
+        s += f"<strong>Project-Wide Findings</strong>"
+        s += (
+            f' <span style="float:right;font-size:0.75rem;color:#888">'
+            f"{n} finding{'s' if n != 1 else ''}</span>\n"
+        )
+        s += '<ul style="margin:0.25rem 0;padding-left:1.2rem;font-size:0.8rem">\n'
+        for f in data.project_wide_findings:
+            sev = f.get("severity", "info")
+            emoji = _SEV_EMOJI.get(sev, "ℹ️")
+            title = f.get("title", "Unknown")
+            detail_text = f.get("detail", "")
+            rec = f.get("recommendation", "")
+            s += f"<li>{emoji} <strong>{sev.capitalize()}</strong>: {title}"
+            if detail_text:
+                s += f' <span style="color:#888">— {detail_text}</span>'
+            s += "</li>\n"
+            if rec:
+                s += (
+                    f'<li style="list-style:none;font-size:0.75rem;'
+                    f'color:#90caf9;padding-left:0.5rem">'
+                    f"💡 {rec}</li>\n"
+                )
+        s += "</ul>\n</div>"
+        sections.append(s)
+
+    # ══════════════════════════════════════════════════════════════
+    # Section 4c: Sub-Module Health (module root only)
+    # ══════════════════════════════════════════════════════════════
+    if data.sub_module_scores:
+        s = '<div style="margin-bottom:0.75rem">\n'
+        s += "<strong>Sub-Module Health</strong>"
+        s += (
+            f' <span style="float:right;font-size:0.75rem;color:#888">'
+            f"{len(data.sub_module_scores)} sub-modules</span>\n"
+        )
+        s += (
+            '<table style="width:100%;font-size:0.78rem;margin-top:0.3rem;'
+            'border-collapse:collapse;line-height:1.6">\n'
+            '<tr style="color:#888;font-size:0.72rem;border-bottom:1px solid #333">'
+            "<th style=\"text-align:left;padding:2px 6px\">Sub-module</th>"
+            "<th style=\"text-align:center;padding:2px 6px\">Score</th>"
+            "<th style=\"text-align:center;padding:2px 6px\">Files</th>"
+            "<th style=\"text-align:center;padding:2px 6px\">Worst</th>"
+            "<th style=\"text-align:left;padding:2px 6px\">Health</th>"
+            "</tr>\n"
+        )
+        for sm in data.sub_module_scores[:20]:
+            score = sm["score"]
+            color = _score_color(score)
+            bar_pct = int(score * 10)
+            worst = sm["worst"]
+            worst_color = _score_color(worst)
+            s += (
+                f"<tr>"
+                f'<td style="padding:2px 6px;font-family:monospace">'
+                f'{sm["name"]}</td>'
+                f'<td style="text-align:center;padding:2px 6px;'
+                f'color:{color};font-weight:600">{score}</td>'
+                f'<td style="text-align:center;padding:2px 6px;'
+                f'color:#888">{sm["files"]}</td>'
+                f'<td style="text-align:center;padding:2px 6px;'
+                f'color:{worst_color}">{worst}</td>'
+                f'<td style="padding:2px 6px">'
+                f'<div style="background:#333;border-radius:2px;'
+                f'height:6px;width:80px;overflow:hidden">'
+                f'<div style="width:{bar_pct}%;height:100%;'
+                f'background:{color}"></div>'
+                f'</div></td>'
+                f"</tr>\n"
+            )
+        if len(data.sub_module_scores) > 20:
+            s += (
+                f'<tr><td colspan="5" style="padding:2px 6px;'
+                f'font-size:0.72rem;color:#888">'
+                f"...and {len(data.sub_module_scores) - 20} more</td></tr>\n"
+            )
+        s += "</table>\n</div>"
         sections.append(s)
 
     # ══════════════════════════════════════════════════════════════
@@ -1472,7 +1653,7 @@ def render_html(data: ScopedAuditData) -> str:
             "subcategory_averages": data.subcategory_averages,
             "worst_files": data.worst_files,
             "findings": data.findings,
-            "matched_tests": data.matched_tests,
+            "matched_tests": data.test_files,
         }
         observations = generate_observations(obs_data)
         obs_html = render_observations_html(observations)
@@ -1742,7 +1923,7 @@ def precompute_audit_data(
             "last_modified_date": filtered.last_modified_date,
             "last_modified_file": filtered.last_modified_file,
             # Pre-rendered HTML (the remark plugin can use this directly)
-            "html": render_html(filtered),
+            "html": render_html(filtered, render_mode="build"),
         }
 
     return audit_map

@@ -111,14 +111,14 @@ def content_preview():  # type: ignore[no-untyped-def]
                 resolve_audit_directives,
                 auto_inject_directive,
             )
-            # Auto-inject :::audit-data directive TEXT at the top of content
-            # for files inside configured modules
-            content = auto_inject_directive(content, rel_path, _project_root())
+            # Auto-inject :::audit-data into a COPY for preview rendering.
+            # The original `content` stays clean for the edit view.
+            preview_src = auto_inject_directive(content, rel_path, _project_root())
 
             # Build resolved preview: replace :::audit-data with HTML
-            if ":::audit-data" in content:
+            if ":::audit-data" in preview_src:
                 preview_content = resolve_audit_directives(
-                    content, rel_path, _project_root(),
+                    preview_src, rel_path, _project_root(),
                 )
         except Exception as exc:
             logger.warning("Audit directive processing failed for %s: %s", rel_path, exc)
