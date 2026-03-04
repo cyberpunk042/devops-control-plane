@@ -249,6 +249,7 @@ def _pip_audit(project_root: Path) -> dict:
             "ok": True,
             "manager": "pip",
             "vulnerabilities": 0,
+            "details": [],
             "output": "pip-audit not installed. Install with: pip install pip-audit",
             "available": False,
         }
@@ -259,10 +260,24 @@ def _pip_audit(project_root: Path) -> dict:
         timeout=120,
     )
 
+    details: list[dict] = []
+    vuln_count = 0
     try:
         data = json.loads(r.stdout) if r.stdout.strip() else {}
-        vulns = data.get("dependencies", [])
-        vuln_count = sum(len(d.get("vulns", [])) for d in vulns if d.get("vulns"))
+        for dep in data.get("dependencies", []):
+            dep_vulns = dep.get("vulns", [])
+            if not dep_vulns:
+                continue
+            for v in dep_vulns:
+                details.append({
+                    "package": dep.get("name", "?"),
+                    "installed": dep.get("version", "?"),
+                    "id": v.get("id", ""),
+                    "aliases": v.get("aliases", []),
+                    "fix_versions": v.get("fix_versions", []),
+                    "description": (v.get("description", "") or "")[:200],
+                })
+                vuln_count += 1
     except json.JSONDecodeError:
         vuln_count = 0
 
@@ -270,7 +285,7 @@ def _pip_audit(project_root: Path) -> dict:
         "ok": True,
         "manager": "pip",
         "vulnerabilities": vuln_count,
-        "output": r.stdout.strip()[:2000],
+        "details": details,
         "available": True,
     }
 

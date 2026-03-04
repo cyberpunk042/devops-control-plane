@@ -83,6 +83,7 @@
             'cache:miss', 'cache:done', 'cache:error', 'cache:bust',
             'state:stale',
             'audit:pending', 'audit:saved',
+            'audit:progress', 'audit:complete',
             'run:started', 'run:completed',
             'auth:needed',
             'github:status', 'ledger:conflict',
@@ -145,6 +146,8 @@
                 case 'auth:needed':    this._onAuthNeeded(payload);   break;
                 case 'github:status':  this._onGithubStatus(payload); break;
                 case 'ledger:conflict': this._onLedgerConflict(payload); break;
+                case 'audit:progress': this._onAuditProgress(payload);  break;
+                case 'audit:complete': this._onAuditComplete(payload);  break;
                 case 'stream:start':   this._onStreamStart(payload);   break;
                 case 'stream:line':    this._onStreamLine(payload);    break;
                 case 'stream:done':    this._onStreamDone(payload);    break;
@@ -492,6 +495,65 @@
             if (typeof ledgerOpenSyncModal === 'function') {
                 ledgerOpenSyncModal();
             }
+        },
+
+        /** Audit scan progress update — track in global state, dispatch DOM event. */
+        _onAuditProgress(payload) {
+            const data = payload.data || {};
+            const taskId = data.task_id;
+            if (!taskId) return;
+
+            // Maintain global scan state
+            if (!window._auditScan) window._auditScan = {};
+            window._auditScan[taskId] = {
+                status: 'running',
+                progress: data.progress || 0,
+                phase: data.phase || '',
+                detail: data.detail || '',
+                updatedAt: Date.now(),
+            };
+
+            console.debug('[SSE] audit:progress %s — %s (%.0f%%)',
+                taskId, data.phase, (data.progress || 0) * 100);
+
+            // Dispatch DOM event for audit manager UI
+            document.dispatchEvent(new CustomEvent('audit-scan-progress', { detail: data }));
+        },
+
+        /** Audit scan completed — update global state, notify UI. */
+        _onAuditComplete(payload) {
+            const data = payload.data || {};
+            const taskId = data.task_id;
+            if (!taskId) return;
+
+            const ok = !data.error;
+            const dur = data.duration_ms ? ` (${(data.duration_ms / 1000).toFixed(1)}s)` : '';
+
+            // Update global scan state
+            if (!window._auditScan) window._auditScan = {};
+            window._auditScan[taskId] = {
+                status: ok ? 'done' : 'error',
+                progress: 1.0,
+                phase: 'complete',
+                detail: ok ? `Completed${dur}` : (data.error || 'Failed'),
+                completedAt: Date.now(),
+                duration_ms: data.duration_ms || 0,
+            };
+
+            if (ok) {
+                console.info('[SSE] audit:complete %s — success%s', taskId, dur);
+                if (typeof toast === 'function') {
+                    toast(`✅ Audit scan complete${dur}`, 'success');
+                }
+            } else {
+                console.error('[SSE] audit:complete %s — error: %s', taskId, data.error);
+                if (typeof toast === 'function') {
+                    toast(`❌ Audit scan failed: ${data.error || 'unknown'}`, 'error');
+                }
+            }
+
+            // Dispatch DOM event for audit manager UI
+            document.dispatchEvent(new CustomEvent('audit-scan-complete', { detail: data }));
         },
 
         // ── Streaming subprocess output ────────────────────────────

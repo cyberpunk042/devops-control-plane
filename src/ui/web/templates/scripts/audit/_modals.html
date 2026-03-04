@@ -120,15 +120,43 @@ function _auditShowFinding(finding) {
         </div>`;
     }
 
-    // Affected items (files or packages)
+    // Affected items (files, packages, or vulnerabilities)
     if (f.files && f.files.length) {
+        const isVulnList = f.files.some(af => af.kind === 'vulnerability');
         const isPackageList = f.files.some(af => af.kind === 'package');
-        const headerLabel = isPackageList ? '📦 Affected Packages' : '📍 Affected Files';
+        const headerLabel = isVulnList ? '🛡️ Vulnerabilities' : isPackageList ? '📦 Affected Packages' : '📍 Affected Files';
 
         body += `<div style="margin-bottom:var(--space-sm)"><strong style="font-size:0.78rem">${headerLabel} (${f.files.length})</strong></div>`;
 
         for (const af of f.files) {
-            if (af.kind === 'package') {
+            if (af.kind === 'vulnerability') {
+                // ── Vulnerability entry: advisory ID + CVE ──
+                const advisoryId = af.pattern ? af.pattern.split(' ')[0] : '';
+                const versionInfo = af.pattern ? af.pattern.slice(advisoryId.length).trim() : '';
+                const cveAliases = (af.aliases || []).filter(a => a.startsWith('CVE-') || a.startsWith('GHSA-'));
+                let advisoryUrl = '';
+                if (advisoryId.startsWith('PYSEC-')) {
+                    advisoryUrl = `https://osv.dev/vulnerability/${encodeURIComponent(advisoryId)}`;
+                } else if (advisoryId.startsWith('GHSA-')) {
+                    advisoryUrl = `https://github.com/advisories/${encodeURIComponent(advisoryId)}`;
+                }
+                const ghsa = cveAliases.find(a => a.startsWith('GHSA-'));
+                const ghsaUrl = ghsa ? `https://github.com/advisories/${encodeURIComponent(ghsa)}` : '';
+
+                body += `<div style="padding:8px 12px;margin-bottom:4px;border-radius:var(--radius-sm);background:var(--bg-secondary);font-size:0.74rem;border-left:3px solid #f97316">
+                    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                        <strong style="font-family:var(--font-mono)">${esc(af.file)}</strong>
+                        <span style="font-size:0.68rem;color:var(--text-muted)">${esc(versionInfo)}</span>
+                        ${advisoryUrl ? `<a href="${advisoryUrl}" target="_blank" rel="noopener" style="font-size:0.64rem;color:var(--accent);text-decoration:none;margin-left:auto">${esc(advisoryId)} ↗</a>` : `<span style="font-size:0.64rem;color:var(--text-muted);margin-left:auto">${esc(advisoryId)}</span>`}
+                    </div>
+                    ${cveAliases.length ? `<div style="margin-top:3px;font-size:0.66rem;color:var(--text-muted)">${cveAliases.map(a => {
+                        if (a.startsWith('GHSA-')) return `<a href="https://github.com/advisories/${encodeURIComponent(a)}" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:none">${esc(a)}</a>`;
+                        if (a.startsWith('CVE-')) return `<a href="https://nvd.nist.gov/vuln/detail/${encodeURIComponent(a)}" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:none">${esc(a)}</a>`;
+                        return esc(a);
+                    }).join(' · ')}</div>` : ''}
+                    ${af.description ? `<div style="margin-top:4px;font-size:0.68rem;color:var(--text-muted);line-height:1.4">${esc(af.description)}</div>` : ''}
+                </div>`;
+            } else if (af.kind === 'package') {
                 // ── Package entry: show registry link ──
                 const mgr = af.manager || 'pip';
                 let pkgUrl = '';

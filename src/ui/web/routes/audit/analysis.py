@@ -146,22 +146,55 @@ def audit_scores_history():
     return jsonify({"history": history, "total": len(history)})
 
 
+# ── L2 Cache-or-Scan Helper ────────────────────────────────────
+
+
+def _cache_or_needs_scan(root, cache_key, compute_fn, bust):
+    """Return cached L2 data, or {"needs_scan": true} on cold cache.
+
+    When ``bust`` is True (explicit refresh), forces synchronous
+    recompute via get_cached.  Otherwise, returns instantly:
+    either the cached data or a lightweight {"needs_scan": true}
+    response that the frontend uses to trigger POST /audit/scan.
+
+    This prevents the 30-second timeout that occurs when slow L2
+    compute functions (risks: 32s, quality: 16s) block the request.
+    """
+    if bust:
+        # Explicit refresh — compute synchronously
+        return devops_cache.get_cached(
+            root, cache_key, compute_fn, force=True,
+        )
+
+    # Try cache read without computing
+    try:
+        from src.core.services.devops.cache import _load_cache
+        cache = _load_cache(root)
+        entry = cache.get(cache_key)
+        if entry and "data" in entry:
+            return entry["data"]
+    except Exception:
+        pass
+
+    # No cache — tell the frontend to trigger async scan
+    return {"needs_scan": True, "cache_key": cache_key}
+
+
 # ── L2: Structure Analysis (on-demand) ─────────────────────────
 
 @audit_bp.route("/audit/structure-analysis")
 def audit_structure_analysis():
     """L2: Import graph, module boundaries, cross-module deps.
 
-    On-demand — typically takes 1-5s. Results are cached.
+    Returns cached data instantly, or {"needs_scan": true} on cold
+    cache.  Explicit ?bust forces synchronous recompute.
     """
     root = _project_root()
     bust = "bust" in request.args
-    result = devops_cache.get_cached(
+    return jsonify(_cache_or_needs_scan(
         root, "audit:l2:structure",
-        lambda: l2_structure(root),
-        force=bust,
-    )
-    return jsonify(result)
+        lambda: l2_structure(root), bust,
+    ))
 
 
 # ── L2: Code Health (on-demand) ────────────────────────────────
@@ -170,16 +203,15 @@ def audit_structure_analysis():
 def audit_code_health():
     """L2: Code quality metrics — health scores, hotspots, naming.
 
-    On-demand — typically takes 1-5s. Results are cached.
+    Returns cached data instantly, or {"needs_scan": true} on cold
+    cache.  Explicit ?bust forces synchronous recompute.
     """
     root = _project_root()
     bust = "bust" in request.args
-    result = devops_cache.get_cached(
+    return jsonify(_cache_or_needs_scan(
         root, "audit:l2:quality",
-        lambda: l2_quality(root),
-        force=bust,
-    )
-    return jsonify(result)
+        lambda: l2_quality(root), bust,
+    ))
 
 
 # ── L2: Repo Health (on-demand) ────────────────────────────────
@@ -188,16 +220,15 @@ def audit_code_health():
 def audit_repo_health():
     """L2: Repository health — git objects, history, large files.
 
-    On-demand — typically takes 1-3s. Results are cached.
+    Returns cached data instantly, or {"needs_scan": true} on cold
+    cache.  Explicit ?bust forces synchronous recompute.
     """
     root = _project_root()
     bust = "bust" in request.args
-    result = devops_cache.get_cached(
+    return jsonify(_cache_or_needs_scan(
         root, "audit:l2:repo",
-        lambda: l2_repo(root),
-        force=bust,
-    )
-    return jsonify(result)
+        lambda: l2_repo(root), bust,
+    ))
 
 
 # ── L2: Risks & Issues (on-demand) ─────────────────────────────
@@ -206,14 +237,12 @@ def audit_repo_health():
 def audit_risks():
     """L2: Risk aggregation — security, deps, docs, testing, infra.
 
-    On-demand — typically takes 2-8s (calls multiple ops services).
-    Results are cached.
+    Returns cached data instantly, or {"needs_scan": true} on cold
+    cache.  Explicit ?bust forces synchronous recompute.
     """
     root = _project_root()
     bust = "bust" in request.args
-    result = devops_cache.get_cached(
+    return jsonify(_cache_or_needs_scan(
         root, "audit:l2:risks",
-        lambda: l2_risks(root),
-        force=bust,
-    )
-    return jsonify(result)
+        lambda: l2_risks(root), bust,
+    ))

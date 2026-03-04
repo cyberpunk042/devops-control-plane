@@ -75,6 +75,10 @@ async function loadAuditTab(force) {
             if (badge) { badge.className = 'status-badge'; badge.textContent = '—'; }
             if (detail) detail.innerHTML = '<span class="spinner"></span>';
         }
+        // Also bust L2 client caches so _autoLoadL2Cards can re-evaluate
+        for (const lk of ['audit:l2:quality','audit:l2:repo','audit:l2:risks','audit:l2:structure']) {
+            cardInvalidate(lk);
+        }
         // Bust server-side cache — single scoped bust + bg recompute
         // MUST await: server starts bg recompute thread first
         await api('/devops/cache/bust', {
@@ -110,3 +114,136 @@ async function _autoLoadL2Cards() {
 }
 
 
+function _auditRefreshModal() {
+    let body = `
+        <div style="font-size:0.82rem;color:var(--text-muted);margin-bottom:var(--space-lg)">
+            Choose which audit layers to refresh. Each layer progressively deepens the analysis.
+        </div>
+
+        <div style="display:flex;flex-direction:column;gap:var(--space-md);margin-bottom:var(--space-lg)">
+            <label style="display:flex;align-items:flex-start;gap:10px;padding:12px 14px;border-radius:var(--radius-md);background:var(--bg-secondary);cursor:pointer;border:1px solid var(--border-subtle);transition:border-color 0.15s" onmouseenter="this.style.borderColor='var(--accent)'" onmouseleave="this.style.borderColor='var(--border-subtle)'">
+                <input type="checkbox" id="audit-refresh-base" checked style="margin-top:2px;accent-color:var(--accent)">
+                <div>
+                    <div style="font-weight:600;font-size:0.82rem">🖥️ Base Cards (L0/L1)</div>
+                    <div style="font-size:0.72rem;color:var(--text-muted);margin-top:2px">System Profile, Dependencies, Structure, Clients, Scores — ~2s</div>
+                </div>
+            </label>
+
+            <label style="display:flex;align-items:flex-start;gap:10px;padding:12px 14px;border-radius:var(--radius-md);background:var(--bg-secondary);cursor:pointer;border:1px solid var(--border-subtle);transition:border-color 0.15s" onmouseenter="this.style.borderColor='var(--accent)'" onmouseleave="this.style.borderColor='var(--border-subtle)'">
+                <input type="checkbox" id="audit-refresh-deep" style="margin-top:2px;accent-color:var(--accent)">
+                <div>
+                    <div style="font-weight:600;font-size:0.82rem">🔬 Deep Analysis (L2)</div>
+                    <div style="font-size:0.72rem;color:var(--text-muted);margin-top:2px">Code Health, Repo Health, Risks & Issues, Import Graph — ~10-25s</div>
+                </div>
+            </label>
+
+            <label style="display:flex;align-items:flex-start;gap:10px;padding:12px 14px;border-radius:var(--radius-md);background:var(--bg-secondary);cursor:pointer;border:1px solid var(--border-subtle);transition:border-color 0.15s" onmouseenter="this.style.borderColor='var(--accent)'" onmouseleave="this.style.borderColor='var(--border-subtle)'">
+                <input type="checkbox" id="audit-refresh-enrich" style="margin-top:2px;accent-color:var(--accent)">
+                <div>
+                    <div style="font-weight:600;font-size:0.82rem">✨ Enrich Scores</div>
+                    <div style="font-size:0.72rem;color:var(--text-muted);margin-top:2px">Enriches Master Scores with full L2 data — requires Deep Analysis</div>
+                </div>
+            </label>
+        </div>
+
+        <div id="audit-refresh-progress" style="display:none;margin-bottom:var(--space-md)">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+                <span class="spinner" style="width:16px;height:16px"></span>
+                <span id="audit-refresh-phase" style="font-size:0.78rem;color:var(--text-muted)">Starting…</span>
+            </div>
+            <div style="height:4px;border-radius:2px;background:var(--bg-secondary);overflow:hidden">
+                <div id="audit-refresh-bar" style="height:100%;width:0%;background:var(--accent);transition:width 0.3s ease"></div>
+            </div>
+        </div>
+
+        <div style="display:flex;justify-content:flex-end;gap:var(--space-sm)">
+            <button class="btn btn-sm btn-ghost" onclick="document.getElementById('audit-modal-overlay').remove()">Cancel</button>
+            <button class="btn btn-sm btn-primary" id="audit-refresh-go-btn" onclick="_auditRefreshExecute()">🔄 Refresh</button>
+        </div>
+    `;
+    _auditModal('🔄 Refresh Audit Cards', body, 520);
+}
+
+
+async function _auditRefreshExecute() {
+    const doBase = document.getElementById('audit-refresh-base')?.checked;
+    const doDeep = document.getElementById('audit-refresh-deep')?.checked;
+    const doEnrich = document.getElementById('audit-refresh-enrich')?.checked;
+
+    if (!doBase && !doDeep && !doEnrich) {
+        toast('Select at least one layer', 'warning');
+        return;
+    }
+
+    const goBtn = document.getElementById('audit-refresh-go-btn');
+    const progress = document.getElementById('audit-refresh-progress');
+    const phaseEl = document.getElementById('audit-refresh-phase');
+    const barEl = document.getElementById('audit-refresh-bar');
+
+    if (goBtn) goBtn.disabled = true;
+    if (progress) progress.style.display = 'block';
+
+    const steps = [];
+    if (doBase) steps.push({ label: 'Refreshing base cards…', weight: 0.3, fn: () => loadAuditTab(true) });
+    if (doDeep) steps.push({ label: 'Running deep analysis (L2)…', weight: 0.5, fn: _auditRefreshDeep });
+    if (doEnrich) steps.push({ label: 'Enriching scores…', weight: 0.2, fn: () => loadAuditScoresEnriched() });
+
+    const totalWeight = steps.reduce((s, st) => s + st.weight, 0);
+    let cum = 0;
+
+    for (const step of steps) {
+        if (phaseEl) phaseEl.textContent = step.label;
+        try {
+            await step.fn();
+        } catch (e) {
+            console.error('Refresh step failed:', step.label, e);
+        }
+        cum += step.weight;
+        if (barEl) barEl.style.width = `${Math.round((cum / totalWeight) * 100)}%`;
+    }
+
+    if (phaseEl) phaseEl.textContent = '✅ Done';
+    if (barEl) barEl.style.width = '100%';
+
+    setTimeout(() => {
+        const modal = document.getElementById('audit-modal-overlay');
+        if (modal) modal.remove();
+    }, 800);
+}
+
+
+async function _auditRefreshDeep() {
+    // Bust L2 client caches first
+    for (const lk of ['audit:l2:quality','audit:l2:repo','audit:l2:risks','audit:l2:structure']) {
+        cardInvalidate(lk);
+    }
+
+    // Trigger async scan with force
+    try {
+        await api('/audit/scan', {
+            method: 'POST',
+            body: JSON.stringify({ force: true }),
+        });
+    } catch (e) {
+        console.warn('Scan trigger failed:', e);
+    }
+
+    // Wait for scan completion via SSE
+    await new Promise((resolve) => {
+        const timeout = setTimeout(resolve, 60000);  // 60s max wait
+        const handler = () => {
+            clearTimeout(timeout);
+            document.removeEventListener('audit-scan-complete', handler);
+            resolve();
+        };
+        document.addEventListener('audit-scan-complete', handler, { once: true });
+    });
+
+    // Load all L2 cards from now-warm cache
+    await Promise.all([
+        loadAuditHealthCard(),
+        loadAuditRepoCard(),
+        loadAuditRisksCard(),
+        loadAuditL2StructureCard(),
+    ]);
+}

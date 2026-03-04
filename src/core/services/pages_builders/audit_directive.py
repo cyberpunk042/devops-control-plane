@@ -390,6 +390,10 @@ class ScopedAuditData:
     last_modified_date: str | None
     last_modified_file: str | None
 
+    # ── Section 2b: File Composition (multi-language) ──
+    language_breakdown: list[dict] = field(default_factory=list)
+    # [{language, file_type, files, lines}] sorted by lines desc
+
 
 # Strength ordering for dedup (keep strongest)
 _STRENGTH_ORDER = {"strong": 3, "moderate": 2, "weak": 1, "": 0}
@@ -423,6 +427,48 @@ def _dotted_to_module_name(
             return mod.get("name", mod_path.rsplit("/", 1)[-1])
     # Fallback: use last segment
     return dotted_path.rsplit(".", 1)[-1] if "." in dotted_path else dotted_path
+
+
+# Extension → language label for dependency ecosystem detection
+_EXT_LANG_MAP = {
+    ".py": "python", ".pyx": "python", ".pyi": "python",
+    ".js": "javascript", ".mjs": "javascript", ".cjs": "javascript",
+    ".ts": "typescript", ".tsx": "typescript", ".jsx": "javascript",
+    ".go": "go",
+    ".rs": "rust",
+    ".java": "java", ".kt": "kotlin", ".scala": "scala",
+    ".c": "c", ".h": "c", ".cpp": "c++", ".cc": "c++", ".hpp": "c++",
+    ".rb": "ruby", ".php": "php", ".cs": "c#",
+    ".ex": "elixir", ".exs": "elixir",
+    ".swift": "swift", ".zig": "zig",
+    ".html": "html", ".jinja2": "jinja2", ".j2": "jinja2",
+    ".css": "css", ".scss": "scss", ".less": "less",
+    ".yaml": "yaml", ".yml": "yaml", ".json": "json", ".toml": "toml",
+    ".tf": "terraform", ".hcl": "hcl",
+    ".sh": "shell", ".bash": "shell",
+    ".sql": "sql", ".graphql": "graphql", ".gql": "graphql",
+    ".md": "markdown", ".proto": "protobuf",
+}
+
+
+def _dominant_language(files_involved: list[str]) -> str:
+    """Determine the dominant language/ecosystem from a list of file paths.
+
+    Counts file extensions and returns the most common language label.
+    Returns empty string if no files or no recognized extensions.
+    """
+    if not files_involved:
+        return ""
+    counts: dict[str, int] = {}
+    for fp in files_involved:
+        ext = Path(fp).suffix.lower()
+        lang = _EXT_LANG_MAP.get(ext, "")
+        if lang:
+            counts[lang] = counts.get(lang, 0) + 1
+    if not counts:
+        return ""
+    return max(counts, key=counts.get)
+
 
 
 def _filter_to_scope(
@@ -593,6 +639,10 @@ def _filter_to_scope(
 
             strength = dep.get("strength", "")
             import_count = dep.get("import_count", 0)
+            files_involved = dep.get("files_involved", [])
+
+            # Determine dominant language from files_involved extensions
+            dep_lang = _dominant_language(files_involved)
 
             if from_inside:
                 # Outbound: this scope → external module
@@ -610,6 +660,7 @@ def _filter_to_scope(
                         "module_name": ext_name,
                         "strength": strength,
                         "import_count": import_count,
+                        "language": dep_lang,
                     }
             elif to_inside:
                 # Inbound: external module → this scope
@@ -626,6 +677,7 @@ def _filter_to_scope(
                         "module_name": ext_name,
                         "strength": strength,
                         "import_count": import_count,
+                        "language": dep_lang,
                     }
 
         # Sort: strongest first
@@ -721,34 +773,69 @@ def _filter_to_scope(
                 git_untracked.append(f.rsplit("/", 1)[-1])
 
     # ═══════════════════════════════════════════════════════════════
-    # Source 7: live file system — real stats
+    # Source 7: live file system — real stats (multi-language)
     # ═══════════════════════════════════════════════════════════════
 
     live_file_count = 0
     live_total_lines = 0
     last_modified_date: str | None = None
     last_modified_file: str | None = None
+    language_breakdown: list[dict] = []
 
     try:
         scope_path = Path(prefix)
         if scope_path.is_dir():
-            py_files = list(scope_path.rglob("*.py"))
-            live_file_count = len(py_files)
+            # Use the ParserRegistry to identify all file types
+            try:
+                from src.core.services.audit.parsers import registry as _parser_reg
+                analyses = _parser_reg.parse_tree(scope_path)
+            except Exception:
+                analyses = {}
+
+            # Aggregate per-language stats
+            lang_stats: dict[str, dict] = {}  # lang -> {files, lines, file_type}
             newest_mtime = 0.0
             newest_file = ""
-            for pf in py_files:
+
+            for rel_path, analysis in analyses.items():
+                lang = analysis.language or "unknown"
+                ftype = analysis.file_type or "source"
+                lines = analysis.metrics.total_lines if analysis.metrics else 0
+
+                if lang not in lang_stats:
+                    lang_stats[lang] = {"files": 0, "lines": 0, "file_type": ftype}
+                lang_stats[lang]["files"] += 1
+                lang_stats[lang]["lines"] += lines
+                live_file_count += 1
+                live_total_lines += lines
+
+                # Track newest modification
                 try:
-                    live_total_lines += len(pf.read_text(errors="replace").splitlines())
-                    mt = os.path.getmtime(pf)
+                    full_path = scope_path / rel_path if not Path(rel_path).is_absolute() else Path(rel_path)
+                    mt = os.path.getmtime(full_path)
                     if mt > newest_mtime:
                         newest_mtime = mt
-                        newest_file = pf.name
+                        newest_file = Path(rel_path).name
                 except OSError:
                     pass
+
             if newest_mtime > 0:
                 dt = datetime.fromtimestamp(newest_mtime)
                 last_modified_date = dt.strftime("%Y-%m-%d")
                 last_modified_file = newest_file
+
+            # Build sorted breakdown (by lines descending)
+            language_breakdown = [
+                {
+                    "language": lang,
+                    "file_type": stats["file_type"],
+                    "files": stats["files"],
+                    "lines": stats["lines"],
+                }
+                for lang, stats in sorted(
+                    lang_stats.items(), key=lambda x: x[1]["lines"], reverse=True
+                )
+            ]
     except Exception:
         pass
 
@@ -787,6 +874,7 @@ def _filter_to_scope(
         git_untracked=git_untracked,
         last_modified_date=last_modified_date,
         last_modified_file=last_modified_file,
+        language_breakdown=language_breakdown,
     )
 
 
@@ -812,16 +900,68 @@ _SEVERITY_COLOR = {
 
 
 def _render_no_data() -> str:
-    """Render a placeholder when no audit data is available."""
+    """Render a placeholder when no audit data is available.
+
+    Includes a "Start Scan" button that triggers POST /api/audit/scan
+    and an SSE listener that auto-refreshes the preview on completion.
+    """
     return (
-        '<details class="audit-data-block">\n'
-        "<summary>📊 <strong>Audit Data</strong> — "
-        "<em>Not available — run an audit scan first</em></summary>\n"
+        '<details class="audit-data-block audit-no-data" open>\n'
+        '<summary>📊 <strong>Audit Data</strong> — '
+        '<em>Not available</em></summary>\n'
         '<div style="padding:0.75rem;font-size:0.85rem;color:#888">\n'
-        "No audit data found. Run a scan from the Audit tab in the admin panel, "
-        "or save an audit snapshot to the ledger for the production version.\n"
-        "</div>\n"
-        "</details>\n"
+        '<p>No audit data found. You can start a background scan — '
+        'results will appear automatically when complete.</p>\n'
+        '<button onclick="auditStartScan(this)" '
+        'style="margin-top:0.4rem;padding:0.3rem 0.8rem;border:1px solid #555;'
+        'border-radius:4px;background:#2a2d35;color:#ccc;cursor:pointer;'
+        'font-size:0.8rem">'
+        '🔍 Start Audit Scan</button>\n'
+        '<span class="audit-scan-status" '
+        'style="margin-left:0.5rem;font-size:0.8rem;display:none">'
+        '</span>\n'
+        '</div>\n'
+        '</details>\n'
+        '<script>\n'
+        'function auditStartScan(btn) {\n'
+        '  btn.disabled = true;\n'
+        '  btn.textContent = "⏳ Starting scan...";\n'
+        '  const status = btn.parentElement.querySelector(".audit-scan-status");\n'
+        '  fetch("/api/audit/scan", {method:"POST", '
+        'headers:{"Content-Type":"application/json"}, '
+        'body:JSON.stringify({force:true})})\n'
+        '    .then(r => r.json())\n'
+        '    .then(d => {\n'
+        '      btn.textContent = "⏳ Scan running...";\n'
+        '      if (status) { status.style.display="inline"; '
+        'status.textContent = "Task: " + d.task_id; }\n'
+        '    })\n'
+        '    .catch(e => {\n'
+        '      btn.disabled = false;\n'
+        '      btn.textContent = "❌ Failed — retry";\n'
+        '    });\n'
+        '}\n'
+        '// Auto-refresh preview when scan completes\n'
+        'document.addEventListener("audit-scan-complete", function _auditDone(e) {\n'
+        '  document.removeEventListener("audit-scan-complete", _auditDone);\n'
+        '  const btn = document.querySelector(".audit-no-data button");\n'
+        '  if (btn) btn.textContent = "✅ Scan complete — refreshing...";\n'
+        '  // Trigger preview refresh after a short delay\n'
+        '  setTimeout(function() {\n'
+        '    if (typeof previewRefresh === "function") previewRefresh();\n'
+        '    else location.reload();\n'
+        '  }, 500);\n'
+        '});\n'
+        '// Update progress in real-time\n'
+        'document.addEventListener("audit-scan-progress", function(e) {\n'
+        '  const btn = document.querySelector(".audit-no-data button");\n'
+        '  if (btn && btn.disabled) {\n'
+        '    const pct = Math.round((e.detail.progress || 0) * 100);\n'
+        '    const phase = e.detail.phase || "";\n'
+        '    btn.textContent = "⏳ " + phase + " (" + pct + "%)";\n'
+        '  }\n'
+        '});\n'
+        '</script>\n'
     )
 
 
@@ -860,7 +1000,7 @@ def _mini_bar(value: float, max_val: float = 10.0) -> str:
 def render_html(data: ScopedAuditData) -> str:
     """Convert scoped audit data to an HTML <details> block.
 
-    Renders 8 sections, each omitted if no scoped data exists:
+    Renders 9 sections, each omitted if no scoped data exists:
         1. Summary line (collapsed header)
         2. Module Health (score + breakdown + worst files)
         3. Hotspots (grouped by severity)
@@ -869,6 +1009,7 @@ def render_html(data: ScopedAuditData) -> str:
         6. Library Usage
         7. Test Coverage
         8. Development Activity
+        9. Narrative Insights (Phase 8.3 — computed observations)
     """
     scope = data.scope
 
@@ -903,6 +1044,26 @@ def render_html(data: ScopedAuditData) -> str:
             stats_parts.append(f"{data.total_classes} classes")
         stats_text = " · ".join(stats_parts)
 
+        # Language summary pills (e.g., "22 Python · 12 Jinja2 · 3 JS")
+        lang_pills = ""
+        if data.language_breakdown:
+            pill_style = (
+                "display:inline-block;padding:0.1rem 0.4rem;margin:0.1rem;"
+                "border-radius:8px;font-size:0.7rem;background:#2a2d35;"
+                "color:#b0bec5"
+            )
+            pills = []
+            for lb in data.language_breakdown[:6]:  # Top 6 languages
+                lang = lb["language"].capitalize()
+                count = lb["files"]
+                pills.append(
+                    f'<span style="{pill_style}">{count} {lang}</span>'
+                )
+            lang_pills = " ".join(pills)
+            if len(data.language_breakdown) > 6:
+                more = len(data.language_breakdown) - 6
+                lang_pills += f' <span style="font-size:0.7rem;color:#666">+{more} more</span>'
+
         s = '<div style="margin-bottom:0.75rem">\n'
         s += "<strong>Module Health</strong>"
         if stats_text:
@@ -911,6 +1072,10 @@ def render_html(data: ScopedAuditData) -> str:
                 f'color:#888">{stats_text}</span>'
             )
         s += "\n"
+
+        # Language pills row
+        if lang_pills:
+            s += f'<div style="margin-top:0.3rem">{lang_pills}</div>\n'
 
         if data.health_score is not None:
             pct = int(data.health_score * 10)
@@ -969,7 +1134,10 @@ def render_html(data: ScopedAuditData) -> str:
                 w_val = wf.get("weakest_val", 0)
                 reason = f" ({w_name}: {w_val})" if w_name else ""
                 s += (
-                    f'<li>⚠ <code>{wf["file"]}</code> — '
+                f'<li>⚠ <code class="audit-file-link" '
+                    f'data-file="{wf.get("file_path", "")}" '
+                    f'style="cursor:pointer;text-decoration:underline dotted"'
+                    f'>{wf["file"]}</code> — '
                     f'{wf["score"]}/10{reason}</li>\n'
                 )
             s += "</ul>\n</div>\n"
@@ -994,6 +1162,49 @@ def render_html(data: ScopedAuditData) -> str:
             )
 
         s += "</div>"
+        sections.append(s)
+
+    # ══════════════════════════════════════════════════════════════
+    # Section 2b: File Composition (multi-language tree)
+    # ══════════════════════════════════════════════════════════════
+    if data.language_breakdown and len(data.language_breakdown) > 1:
+        s = '<div style="margin-bottom:0.75rem">\n'
+        s += "<strong>File Composition</strong>\n"
+        s += '<div style="font-size:0.8rem;margin-top:0.3rem;'
+        s += 'font-family:monospace;line-height:1.6">\n'
+
+        _FILE_TYPE_LABELS = {
+            "source": "sources",
+            "template": "templates",
+            "style": "styles",
+            "config": "configs",
+            "documentation": "docs",
+            "data": "data files",
+            "build": "build files",
+            "schema": "schemas",
+            "infrastructure": "infra",
+            "script": "scripts",
+        }
+
+        total = len(data.language_breakdown)
+        for i, lb in enumerate(data.language_breakdown):
+            is_last = i == total - 1
+            prefix_char = "└── " if is_last else "├── "
+            lang_label = lb["language"].capitalize()
+            ftype = _FILE_TYPE_LABELS.get(lb["file_type"], lb["file_type"])
+            files = lb["files"]
+            lines = lb["lines"]
+            s += (
+                f'<div style="color:#b0bec5">{prefix_char}'
+                f'<span style="color:#81d4fa">{lang_label}</span> '
+                f'{ftype}'
+                f'<span style="float:right;color:#888">'
+                f'{files} file{"s" if files != 1 else ""}'
+                f' &nbsp; {lines:,} lines</span>'
+                f'</div>\n'
+            )
+
+        s += "</div>\n</div>"
         sections.append(s)
 
     # ══════════════════════════════════════════════════════════════
@@ -1027,22 +1238,36 @@ def render_html(data: ScopedAuditData) -> str:
             s += '<ul style="margin:0;padding-left:1.2rem">\n'
             limit = 99 if sev == "critical" else 5
             for h in items[:limit]:
-                file_name = h.get("file", "").rsplit("/", 1)[-1]
+                file_path = h.get("file", "")
+                file_name = file_path.rsplit("/", 1)[-1]
                 symbol = h.get("symbol", "")
                 detail = h.get("detail", "")
                 h_type = h.get("type", "unknown").replace("_", " ")
+                lineno = h.get("lineno", 0)
+
+                # Build clickable file link (6.5) with data-attrs (6.2)
+                data_attrs = f'data-file="{file_path}"'
+                if lineno:
+                    data_attrs += f' data-line="{lineno}"'
+                file_link = (
+                    f'<code class="audit-file-link" '
+                    f'{data_attrs} '
+                    f'style="cursor:pointer;text-decoration:underline dotted"'
+                    f'>{file_name}</code>'
+                )
+
                 if symbol and detail:
                     s += (
-                        f"<li>⚠ <code>{file_name}</code> → "
+                        f"<li>⚠ {file_link} → "
                         f"{symbol} — {detail} ({h_type})</li>\n"
                     )
                 elif detail:
                     s += (
-                        f"<li>⚠ <code>{file_name}</code> — "
+                        f"<li>⚠ {file_link} — "
                         f"{detail} ({h_type})</li>\n"
                     )
                 else:
-                    s += f"<li>⚠ <code>{file_name}</code> — {h_type}</li>\n"
+                    s += f"<li>⚠ {file_link} — {h_type}</li>\n"
             if len(items) > limit:
                 s += f"<li><em>...and {len(items) - limit} more</em></li>\n"
             s += "</ul>\n"
@@ -1099,12 +1324,17 @@ def render_html(data: ScopedAuditData) -> str:
                 mod = dep.get("module_name", "?")
                 strength = dep.get("strength", "")
                 count = dep.get("import_count", 0)
+                lang = dep.get("language", "")
                 label = f"→ {mod}"
+                detail_parts = []
+                if lang:
+                    detail_parts.append(lang.capitalize())
                 if strength:
-                    label += f" ({strength}"
-                    if count > 0:
-                        label += f" · {count}"
-                    label += ")"
+                    detail_parts.append(strength)
+                if count > 0:
+                    detail_parts.append(str(count))
+                if detail_parts:
+                    label += f" ({' · '.join(detail_parts)})"
                 s += f'<span style="{pill_style}">{label}</span>\n'
 
         if data.deps_inbound:
@@ -1116,12 +1346,17 @@ def render_html(data: ScopedAuditData) -> str:
                 mod = dep.get("module_name", "?")
                 strength = dep.get("strength", "")
                 count = dep.get("import_count", 0)
+                lang = dep.get("language", "")
                 label = f"← {mod}"
+                detail_parts = []
+                if lang:
+                    detail_parts.append(lang.capitalize())
                 if strength:
-                    label += f" ({strength}"
-                    if count > 0:
-                        label += f" · {count}"
-                    label += ")"
+                    detail_parts.append(strength)
+                if count > 0:
+                    detail_parts.append(str(count))
+                if detail_parts:
+                    label += f" ({' · '.join(detail_parts)})"
                 s += f'<span style="{pill_style}">{label}</span>\n'
 
         s += "</div>"
@@ -1216,6 +1451,40 @@ def render_html(data: ScopedAuditData) -> str:
             "</div>\n"
             "</details>\n"
         )
+
+    # ══════════════════════════════════════════════════════════════
+    # Section 9: Narrative Observations (Phase 8.3)
+    # ══════════════════════════════════════════════════════════════
+    try:
+        from src.core.services.audit.narrative import (
+            generate_observations,
+            render_observations_html,
+            render_recommendations_html,
+        )
+        obs_data = {
+            "health_score": data.health_score,
+            "hotspots": data.hotspots,
+            "deps_outbound": data.deps_outbound,
+            "deps_inbound": data.deps_inbound,
+            "file_count": data.file_count,
+            "total_lines": data.total_lines,
+            "language_breakdown": data.language_breakdown,
+            "subcategory_averages": data.subcategory_averages,
+            "worst_files": data.worst_files,
+            "findings": data.findings,
+            "matched_tests": data.matched_tests,
+        }
+        observations = generate_observations(obs_data)
+        obs_html = render_observations_html(observations)
+        if obs_html:
+            # Insert as the first section (right after the header)
+            sections.insert(0, obs_html)
+        # Recommendations go at the end (Phase 8.5)
+        recs_html = render_recommendations_html(obs_data)
+        if recs_html:
+            sections.append(recs_html)
+    except Exception:
+        pass  # Narrative generation must never break the card
 
     inner = "\n\n".join(sections)
 

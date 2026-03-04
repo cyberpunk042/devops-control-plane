@@ -22,16 +22,27 @@ logger = logging.getLogger(__name__)
 
 
 # ── Cache-first data access ────────────────────────────────────
-# l2_risks calls many ops functions (testing_status, scan_secrets,
-# package_audit, etc.) that are already cached by the devops/audit
-# tabs.  Reading from cache is instant (0ms) vs re-calling the ops
-# (6-30s under contention).  Falls back to None on cache miss.
+# All _findings functions use cache-first via get_cached():
+# they both READ and POPULATE the devops cache.  This means:
+#   - If the devops tab already loaded a card → instant (0ms)
+#   - If l2_risks ran before → instant (0ms)
+#   - First cold call → slow but caches for next time
+#
+# Cache keys used:
+#   security           → scan_secrets data      (saves ~7s)
+#   risks:pkg-audit    → package_audit data     (saves ~5s)
+#   risks:pkg-outdated → package_outdated data  (saves ~5s)
+#   docs               → docs_status data       (saves ~1s)
+#   env                → env_status data        (saves ~0.1s)
+#   testing            → testing_status data    (saves ~0.5s)
+# Total: ~32s → ~0s when caches are warm.
 
 def _cached_or_compute(project_root: Path, key: str) -> dict | None:
     """Read cached card data if available, else return None.
 
-    Unlike get_cached(), this does NOT compute — it only reads.
-    Callers should fall back to live ops calls if this returns None.
+    Read-only: does NOT compute — it only reads.
+    Used for keys like 'docs' / 'env' where the compute function
+    is fast enough to call inline as fallback.
     """
     try:
         from src.core.services.devops.cache import _load_cache
@@ -42,6 +53,17 @@ def _cached_or_compute(project_root: Path, key: str) -> dict | None:
     except Exception:
         pass
     return None
+
+
+def _cached_get(project_root: Path, key: str, compute_fn) -> dict:
+    """Read-through cache: return cached data or compute + cache.
+
+    Uses the devops cache system (get_cached) so results persist
+    across requests AND benefit other consumers of the same data
+    (e.g. the devops Security tab reads the 'security' key too).
+    """
+    from src.core.services.devops.cache import get_cached
+    return get_cached(project_root, key, compute_fn)
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -84,7 +106,11 @@ def _make_finding(
 
 
 def _security_findings(project_root: Path) -> list[dict]:
-    """Collect security-related risk findings."""
+    """Collect security-related risk findings.
+
+    Cache-first: reads the ``security`` devops cache (populated by the
+    Security tab) for scan_secrets data before falling back to live ops.
+    """
     findings = []
 
     try:
@@ -94,9 +120,13 @@ def _security_findings(project_root: Path) -> list[dict]:
             scan_secrets,
         )
 
-        # Secret scanning
+        # Secret scanning — cached via get_cached (biggest cost: 5-7s live)
         try:
-            secrets = scan_secrets(project_root)
+            secrets = _cached_get(
+                project_root, "security",
+                lambda: scan_secrets(project_root),
+            )
+
             if secrets.get("ok"):
                 summary = secrets.get("summary", {})
                 critical = summary.get("critical", 0)
@@ -147,9 +177,12 @@ def _security_findings(project_root: Path) -> list[dict]:
         except Exception as e:
             logger.debug("Secret scan failed: %s", e)
 
-        # Sensitive files
+        # Sensitive files — cached via get_cached (~7.5s live)
         try:
-            sensitive = detect_sensitive_files(project_root)
+            sensitive = _cached_get(
+                project_root, "risks:sensitive-files",
+                lambda: detect_sensitive_files(project_root),
+            )
             count = sensitive.get("count", 0)
             if count > 0:
                 unignored = [
@@ -172,7 +205,7 @@ def _security_findings(project_root: Path) -> list[dict]:
         except Exception as e:
             logger.debug("Sensitive file detection failed: %s", e)
 
-        # Gitignore coverage
+        # Gitignore coverage (fast — ~0.2s, no cache needed)
         try:
             gi = gitignore_analysis(project_root)
             if not gi.get("exists"):
@@ -208,24 +241,50 @@ def _security_findings(project_root: Path) -> list[dict]:
 
 
 def _dependency_findings(project_root: Path) -> list[dict]:
-    """Collect dependency-related risk findings."""
+    """Collect dependency-related risk findings.
+
+    Cache-first: reads the ``packages`` devops cache for package status
+    data before falling back to live ops calls (package_audit ~5s,
+    package_outdated ~5s).
+    """
     findings = []
 
     try:
         from src.core.services.packages_svc.ops import package_audit, package_outdated
 
-        # Vulnerability audit
+        # Vulnerability audit — cached via get_cached (~5s live)
         try:
-            audit = package_audit(project_root)
+            audit = _cached_get(
+                project_root, "risks:pkg-audit",
+                lambda: package_audit(project_root),
+            )
+
             if audit.get("ok"):
                 vulns = audit.get("vulnerabilities", 0)
                 if vulns > 0:
+                    # Build file entries from vulnerability details
+                    details = audit.get("details", [])
+                    vuln_files = [
+                        {
+                            "file": d.get("package", "?"),
+                            "pattern": (
+                                f'{d.get("id", "")} '
+                                f'({d.get("installed", "?")} → '
+                                f'{", ".join(d.get("fix_versions", [])) or "no fix"})'
+                            ),
+                            "kind": "vulnerability",
+                            "aliases": d.get("aliases", []),
+                            "description": d.get("description", ""),
+                        }
+                        for d in details[:50]  # cap at 50 for readability
+                    ]
                     findings.append(_make_finding(
                         "dependencies", "high",
                         "Known vulnerabilities in dependencies",
                         f"{vulns} vulnerability/vulnerabilities found by {audit.get('manager', 'audit')}",
                         "package_ops.package_audit",
-                        recommendation="Run package audit fix or update vulnerable packages",
+                        recommendation="Update vulnerable packages to their fix versions",
+                        files=vuln_files,
                     ))
             elif "error" in audit and "not installed" not in str(audit.get("error", "")):
                 findings.append(_make_finding(
@@ -238,9 +297,13 @@ def _dependency_findings(project_root: Path) -> list[dict]:
         except Exception as e:
             logger.debug("Package audit failed: %s", e)
 
-        # Outdated packages
+        # Outdated packages — cached via get_cached (~5s live)
         try:
-            outdated = package_outdated(project_root)
+            outdated = _cached_get(
+                project_root, "risks:pkg-outdated",
+                lambda: package_outdated(project_root),
+            )
+
             if outdated.get("ok"):
                 pkgs = outdated.get("outdated", [])
                 if len(pkgs) > 0:
@@ -282,14 +345,22 @@ def _dependency_findings(project_root: Path) -> list[dict]:
 
 
 def _docs_findings(project_root: Path) -> list[dict]:
-    """Collect documentation-related risk findings."""
+    """Collect documentation-related risk findings.
+
+    Cache-first: reads the ``docs`` devops cache (populated by the
+    Docs tab) for docs_status data before falling back to live ops.
+    """
     findings = []
 
     try:
         from src.core.services.docs_svc.ops import check_links, docs_status
 
+        # docs_status — cached via get_cached
         try:
-            status = docs_status(project_root)
+            status = _cached_get(
+                project_root, "docs",
+                lambda: docs_status(project_root),
+            )
 
             # No README
             readme = status.get("readme", {})
@@ -327,9 +398,12 @@ def _docs_findings(project_root: Path) -> list[dict]:
         except Exception as e:
             logger.debug("Docs status failed: %s", e)
 
-        # Broken links
+        # Broken links — cached via get_cached (~1s live)
         try:
-            links = check_links(project_root)
+            links = _cached_get(
+                project_root, "risks:check-links",
+                lambda: check_links(project_root),
+            )
             broken = links.get("broken", [])
             if len(broken) > 0:
                 findings.append(_make_finding(
@@ -362,10 +436,11 @@ def _testing_findings(project_root: Path) -> list[dict]:
     findings = []
 
     try:
-        status = _cached_or_compute(project_root, "testing")
-        if status is None:
-            from src.core.services.testing.ops import testing_status
-            status = testing_status(project_root)
+        from src.core.services.testing.ops import testing_status
+        status = _cached_get(
+            project_root, "testing",
+            lambda: testing_status(project_root),
+        )
 
         if not status.get("has_tests"):
             findings.append(_make_finding(
@@ -416,14 +491,23 @@ def _testing_findings(project_root: Path) -> list[dict]:
 
 
 def _infra_findings(project_root: Path) -> list[dict]:
-    """Collect infrastructure-related risk findings."""
+    """Collect infrastructure-related risk findings.
+
+    Cache-first: reads the ``env`` devops cache for env_status data
+    before falling back to live ops.
+    """
     findings = []
 
     try:
         from src.core.services.env.ops import env_status, env_validate
 
+        # env_status — cached via get_cached
         try:
-            status = env_status(project_root)
+            status = _cached_get(
+                project_root, "env",
+                lambda: env_status(project_root),
+            )
+
             if status.get("has_env") and not status.get("has_example"):
                 findings.append(_make_finding(
                     "infrastructure", "medium",

@@ -4,7 +4,9 @@ L2 — Structure analysis (on-demand, 1-5s).
 Builds the import graph, computes module boundaries,
 exposure ratios, and cross-module dependency mapping.
 
-Uses python_parser.parse_tree() as the foundation.
+Parses ALL file types via the parser registry.
+Import/dependency data comes from parsers that extract it
+(currently Python; JS/Go/Rust parsers will add more).
 
 Public API:
     l2_structure(project_root)  → import graph + module analysis
@@ -18,8 +20,24 @@ import time
 from pathlib import Path
 
 from src.core.services.audit.models import wrap_result
+from src.core.services.audit.parsers._base import FileAnalysis
 
 logger = logging.getLogger(__name__)
+
+# Module entry-point files by language.
+# These define the public API of a module/package directory.
+_MODULE_ENTRY_FILES: set[str] = {
+    "__init__.py",     # Python
+    "index.js",        # JavaScript / Node.js
+    "index.ts",        # TypeScript
+    "index.tsx",       # TypeScript React
+    "index.mjs",       # ES Module
+    "index.cjs",       # CommonJS
+    "mod.rs",          # Rust
+    "lib.rs",          # Rust (library crate root)
+    "main.rs",         # Rust (binary crate root)
+    "package.json",    # Node.js package manifest
+}
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -28,16 +46,21 @@ logger = logging.getLogger(__name__)
 
 
 def _build_import_graph(
-    analyses: dict[str, object],
+    analyses: dict[str, FileAnalysis],
 ) -> dict:
     """Build the import graph from parse_tree results.
 
     Returns:
         {
-            "nodes": [{"id": "src/ui/web/server.py", "module": "src.ui.web", ...}],
-            "edges": [{"from": "src/ui/web/server.py", "to": "flask", "type": "external"}, ...],
+            "nodes": [{"id": "src/ui/web/server.py", "module": "src.ui.web",
+                       "language": "python", ...}],
+            "edges": [{"from": "src/ui/web/server.py", "to": "flask",
+                       "type": "external"}, ...],
             "internal_edges": [{"from": "...", "to": "...", "names": [...]}],
             "external_deps": {"flask": {"files": [...], "count": int}},
+            "total_nodes": int,
+            "internal_edge_count": int,
+            "external_edge_count": int,
         }
     """
     nodes = []
@@ -58,6 +81,8 @@ def _build_import_graph(
         nodes.append({
             "id": rel_path,
             "module": module,
+            "language": analysis.language,
+            "file_type": analysis.file_type,
             "imports": analysis.metrics.import_count,
             "symbols": analysis.metrics.function_count + analysis.metrics.class_count,
             "lines": analysis.metrics.total_lines,
@@ -92,6 +117,9 @@ def _build_import_graph(
         "edges": edges,
         "internal_edges": internal_edges,
         "external_deps": dict(external_deps),
+        "total_nodes": len(nodes),
+        "internal_edge_count": len(internal_edges),
+        "external_edge_count": len(edges),
     }
 
 
@@ -101,7 +129,7 @@ def _build_import_graph(
 
 
 def _analyze_modules(
-    analyses: dict[str, object],
+    analyses: dict[str, FileAnalysis],
     project_root: Path,
 ) -> list[dict]:
     """Analyze module boundaries and exposure ratios.
@@ -110,11 +138,12 @@ def _analyze_modules(
         [{
             "module": "src.core.services",
             "files": int,
+            "languages": {"python": 5, "yaml": 2},
             "total_symbols": int,
             "public_symbols": int,
             "private_symbols": int,
             "exposure_ratio": float,
-            "has_init": bool,
+            "has_init": bool,  (any module entry-point file)
             "init_exports": list[str],
             "total_lines": int,
             "total_functions": int,
@@ -141,11 +170,15 @@ def _analyze_modules(
         total_classes = 0
         has_init = False
         init_exports: list[str] = []
+        lang_counts: dict[str, int] = collections.defaultdict(int)
 
         for rel_path, analysis in files:
-            if Path(rel_path).name == "__init__.py":
+            lang_counts[analysis.language] += 1
+
+            filename = Path(rel_path).name
+            if filename in _MODULE_ENTRY_FILES:
                 has_init = True
-                # Extract __all__ or public symbols from __init__
+                # Extract public symbols from entry-point files
                 for sym in analysis.symbols:
                     if sym.is_public:
                         init_exports.append(sym.name)
@@ -168,6 +201,7 @@ def _analyze_modules(
         modules.append({
             "module": module_name,
             "files": len(files),
+            "languages": dict(lang_counts),
             "total_symbols": total_symbols,
             "public_symbols": public_symbols,
             "private_symbols": private_symbols,
@@ -188,7 +222,7 @@ def _analyze_modules(
 
 
 def _cross_module_deps(
-    analyses: dict[str, object],
+    analyses: dict[str, FileAnalysis],
 ) -> list[dict]:
     """Map internal cross-module dependencies.
 
@@ -266,7 +300,7 @@ def _cross_module_deps(
 
 
 def _library_usage_map(
-    analyses: dict[str, object],
+    analyses: dict[str, FileAnalysis],
 ) -> dict[str, dict]:
     """Map where each external library is imported.
 
@@ -303,12 +337,15 @@ def _library_usage_map(
 
 
 # ═══════════════════════════════════════════════════════════════════
-#  Aggregate stats
+#  Aggregate stats (multi-language)
 # ═══════════════════════════════════════════════════════════════════
 
 
-def _aggregate_stats(analyses: dict[str, object]) -> dict:
-    """Compute aggregate statistics across all parsed files."""
+def _aggregate_stats(analyses: dict[str, FileAnalysis]) -> dict:
+    """Compute aggregate statistics across all parsed files.
+
+    Includes per-language file/line breakdowns.
+    """
     total_files = len(analyses)
     total_lines = 0
     total_code_lines = 0
@@ -316,6 +353,9 @@ def _aggregate_stats(analyses: dict[str, object]) -> dict:
     total_classes = 0
     total_imports = 0
     files_with_errors = 0
+    per_language: dict[str, dict] = collections.defaultdict(
+        lambda: {"files": 0, "lines": 0, "code_lines": 0}
+    )
 
     for analysis in analyses.values():
         m = analysis.metrics
@@ -327,6 +367,11 @@ def _aggregate_stats(analyses: dict[str, object]) -> dict:
         if analysis.parse_error:
             files_with_errors += 1
 
+        lang = analysis.language
+        per_language[lang]["files"] += 1
+        per_language[lang]["lines"] += m.total_lines
+        per_language[lang]["code_lines"] += m.code_lines
+
     return {
         "total_files": total_files,
         "total_lines": total_lines,
@@ -335,6 +380,7 @@ def _aggregate_stats(analyses: dict[str, object]) -> dict:
         "total_classes": total_classes,
         "total_imports": total_imports,
         "files_with_errors": files_with_errors,
+        "per_language": dict(per_language),
     }
 
 
@@ -346,24 +392,26 @@ def _aggregate_stats(analyses: dict[str, object]) -> dict:
 def l2_structure(project_root: Path) -> dict:
     """L2: Full structure analysis — import graph, modules, usage map.
 
-    On-demand, takes 1-5s depending on project size.
+    Parses ALL file types via the parser registry.
+    Builds import graph from files that report imports
+    (currently Python; future parsers will add JS/Go/Rust imports).
 
     Returns:
         {
             "_meta": AuditMeta,
-            "stats": {total_files, total_lines, total_functions, ...},
+            "stats": {total_files, total_lines, total_functions, per_language, ...},
             "import_graph": {nodes, edges, internal_edges, external_deps},
-            "modules": [{module, files, exposure_ratio, ...}, ...],
+            "modules": [{module, files, languages, exposure_ratio, ...}, ...],
             "cross_module_deps": [{from_module, to_module, strength, ...}, ...],
             "library_usage": {flask: {sites: [...], file_count: int}, ...},
         }
     """
-    from src.core.services.audit.parsers.python_parser import parse_tree
+    from src.core.services.audit.parsers import registry
 
     started = time.time()
 
-    # Parse all Python files
-    analyses = parse_tree(project_root)
+    # Parse ALL files through the registry
+    analyses = registry.parse_tree(project_root)
     parse_time = int((time.time() - started) * 1000)
 
     # Build all derived data

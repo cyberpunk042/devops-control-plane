@@ -176,13 +176,24 @@ def _quality_score(
     # ── Tooling ─────────────────────────────────────────────
     tool_score = 0.0
     tools = l0.get("tools", [])
-    tool_ids = {t["id"] for t in tools if t.get("available")}
-    if "ruff" in tool_ids or "eslint" in tool_ids:
+    available_tools = {t["id"] for t in tools if t.get("available")}
+    # Build category sets from the registry (not hardcoded IDs)
+    tool_by_cat: dict[str, set[str]] = {}
+    for t in tools:
+        cat = t.get("category", "other")
+        tool_by_cat.setdefault(cat, set())
+        if t.get("available"):
+            tool_by_cat[cat].add(t["id"])
+
+    quality_tools = tool_by_cat.get("quality", set())
+    security_tools = tool_by_cat.get("security", set())
+
+    # Any linter/formatter available → +3
+    if quality_tools:
         tool_score += 3.0
-    if "black" in tool_ids or "prettier" in tool_ids:
+    # 2+ quality tools → +2 (formatter + linter is good practice)
+    if len(quality_tools) >= 2:
         tool_score += 2.0
-    if "mypy" in tool_ids:
-        tool_score += 3.0
     if categories.get("devtool", 0) > 0:
         tool_score += 2.0
     tool_score = min(tool_score, 10.0)
@@ -191,9 +202,8 @@ def _quality_score(
     sec_score = 0.0
     if categories.get("security", 0) > 0:
         sec_score += 4.0
-    sec_tools = {"bandit", "safety", "pip-audit"}
-    dep_names = {d["name"].lower() for d in l1_deps.get("dependencies", [])}
-    if dep_names & sec_tools:
+    # Any security tool available (bandit, safety, pip-audit, cargo-audit, trivy…)
+    if security_tools:
         sec_score += 3.0
     project_root = Path(l0.get("project_root", "."))
     if (project_root / ".gitignore").is_file():
@@ -202,8 +212,8 @@ def _quality_score(
 
     # ── Structure ───────────────────────────────────────────
     struct_score = 0.0
-    venv = l0.get("venv", {})
-    if venv.get("in_venv"):
+    venv = l0.get("runtime", {})
+    if venv.get("in_managed_env"):
         struct_score += 3.0
     if len(modules) > 1:
         struct_score += 2.0

@@ -67,16 +67,20 @@ class OSInfo(TypedDict, total=False):
     distro: str
 
 
-class PythonInfo(TypedDict):
+class RuntimeInfo(TypedDict, total=False):
+    """Merged Python runtime + virtual environment info."""
     version: str
+    version_tuple: list[int]
     implementation: str
     executable: str
     prefix: str
-
-
-class VenvInfo(TypedDict):
-    in_venv: bool
-    venvs: list[dict]
+    base_prefix: str
+    env_type: str                  # system | venv | conda | uv | pyenv | virtualenv
+    in_managed_env: bool
+    pep668: bool
+    env_managers: dict[str, bool]  # uv, conda, pyenv, virtualenv, pipx
+    system_python_warning: bool
+    venvs: list[dict]              # discovered venv dirs in project
     active_prefix: str | None
 
 
@@ -110,8 +114,7 @@ class ManifestInfo(TypedDict):
 class L0Result(TypedDict, total=False):
     _meta: AuditMeta
     os: OSInfo
-    python: PythonInfo
-    venv: VenvInfo
+    runtime: RuntimeInfo
     tools: list[ToolInfo]
     modules: list[ModuleInfo]
     manifests: list[ManifestInfo]

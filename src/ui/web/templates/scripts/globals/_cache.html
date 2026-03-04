@@ -193,8 +193,120 @@
             return null;
         }
 
+        // L2 endpoints return {needs_scan: true} on cold cache
+        // instead of blocking for 7-32 seconds.
+        if (data.needs_scan) {
+            if (badgeEl) {
+                badgeEl.className = 'status-badge';
+                badgeEl.textContent = '…';
+            }
+            if (detailEl) {
+                detailEl.innerHTML = '<div style="text-align:center;padding:var(--space-md)">'
+                    + '<span class="spinner"></span>'
+                    + '<div style="font-size:0.74rem;color:var(--text-muted);margin-top:6px">'
+                    + 'Starting audit scan…</div></div>';
+            }
+
+            // Trigger async scan (non-blocking)
+            _triggerAuditScanForCard(cacheKey, apiPath, badgeEl, detailEl);
+            return null;  // caller should stop rendering
+        }
+
         cardStore(cacheKey, data);
         return data;
+    }
+
+    /**
+     * Trigger async audit scan and auto-reload the card when complete.
+     * Called when an L2 endpoint returns {needs_scan: true}.
+     */
+    let _auditScanPending = false;
+    async function _triggerAuditScanForCard(cacheKey, apiPath, badgeEl, detailEl) {
+        // Don't trigger multiple scans
+        if (_auditScanPending) {
+            // Already running — just wait for it
+            _waitForScanAndReload(cacheKey, apiPath, badgeEl, detailEl);
+            return;
+        }
+        _auditScanPending = true;
+
+        try {
+            const resp = await api('/audit/scan', {
+                method: 'POST',
+                body: JSON.stringify({ force: false }),
+            }).catch(e => ({ _err: e }));
+
+            if (resp._err) {
+                _auditScanPending = false;
+                if (detailEl) {
+                    detailEl.innerHTML = `<p class="empty-state-sm" style="color:var(--error)">Scan failed: ${esc(resp._err.message)}</p>`;
+                }
+                return;
+            }
+
+            // If scan was already running (409), that's fine
+            if (resp.status === 'already_running') {
+                _waitForScanAndReload(cacheKey, apiPath, badgeEl, detailEl);
+                return;
+            }
+
+            // Show progress UI
+            if (detailEl) {
+                detailEl.innerHTML = '<div style="text-align:center;padding:var(--space-md)">'
+                    + '<span class="spinner"></span>'
+                    + '<div style="font-size:0.74rem;color:var(--text-muted);margin-top:6px">'
+                    + 'Audit scan running…</div></div>';
+            }
+
+            _waitForScanAndReload(cacheKey, apiPath, badgeEl, detailEl);
+        } catch (e) {
+            _auditScanPending = false;
+        }
+    }
+
+    function _waitForScanAndReload(cacheKey, apiPath, badgeEl, detailEl) {
+        const handler = async (e) => {
+            document.removeEventListener('audit-scan-complete', handler);
+            _auditScanPending = false;
+
+            const ok = !e.detail?.error;
+            if (!ok) {
+                if (detailEl) {
+                    detailEl.innerHTML = `<p class="empty-state-sm" style="color:var(--error)">Scan failed: ${esc(e.detail?.error || 'unknown')}</p>`;
+                }
+                return;
+            }
+
+            // Scan done — reload card data from cache
+            const newData = await api(apiPath).catch(err => ({ _err: err }));
+            if (!newData._err && !newData.needs_scan) {
+                cardStore(cacheKey, newData);
+                // Re-trigger the card loader to render
+                _reloadCardAfterScan(cacheKey);
+            } else {
+                // Scan completed but this card's data is still not cached
+                if (detailEl) {
+                    detailEl.innerHTML = '<p class="empty-state-sm" style="color:var(--text-muted)">'
+                        + 'Scan complete — <a href="#" onclick="_reloadCardAfterScan(\'' + cacheKey + '\');return false" '
+                        + 'style="color:var(--accent)">reload</a></p>';
+                }
+            }
+        };
+        document.addEventListener('audit-scan-complete', handler, { once: true });
+    }
+
+    function _reloadCardAfterScan(cacheKey) {
+        // Map cache keys to their loader functions
+        const loaders = {
+            'audit:l2:quality':   'loadAuditHealthCard',
+            'audit:l2:repo':      'loadAuditRepoCard',
+            'audit:l2:risks':     'loadAuditRisksCard',
+            'audit:l2:structure': 'loadAuditL2StructureCard',
+        };
+        const fnName = loaders[cacheKey];
+        if (fnName && typeof window[fnName] === 'function') {
+            window[fnName]();
+        }
     }
 
     /**

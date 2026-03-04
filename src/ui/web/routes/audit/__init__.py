@@ -32,3 +32,4 @@ from . import tool_install      # noqa: E402, F401 — registers routes
 from . import tool_execution    # noqa: E402, F401 — registers routes
 from . import deep_detection    # noqa: E402, F401 — registers routes
 from . import offline_cache     # noqa: E402, F401 — registers routes
+from . import async_scan        # noqa: E402, F401 — registers routes

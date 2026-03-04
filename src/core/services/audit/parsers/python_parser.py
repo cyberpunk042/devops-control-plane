@@ -6,130 +6,27 @@ Uses stdlib ``ast`` for reliable, fast parsing.  Never executes the code.
 Public API:
     parse_file(path)   → FileAnalysis for one Python file
     parse_tree(root)   → dict[relative_path, FileAnalysis] for all .py files
+
+Also exposes PythonParser(BaseParser) for use via the parser registry.
 """
 
 from __future__ import annotations
 
 import ast
 import logging
-from dataclasses import dataclass, field
 from pathlib import Path
+
+from src.core.services.audit.parsers._base import (
+    BaseParser,
+    FileAnalysis,
+    FileMetrics,
+    ImportInfo,
+    SymbolInfo,
+)
 
 logger = logging.getLogger(__name__)
 
 
-# ═══════════════════════════════════════════════════════════════════
-#  Data classes for analysis results
-# ═══════════════════════════════════════════════════════════════════
-
-
-@dataclass
-class ImportInfo:
-    """A single import statement."""
-    module: str                  # "flask" or "src.core.services"
-    names: list[str]             # ["Flask", "jsonify"] or ["*"]
-    alias: str | None = None     # import X as alias
-    is_from: bool = False        # True for "from X import ..."
-    lineno: int = 0
-    is_internal: bool = False    # True if module starts with project prefix
-    is_stdlib: bool = False      # True if module is in stdlib
-
-    @property
-    def top_level(self) -> str:
-        """Top-level package name (e.g., 'flask' from 'flask.views')."""
-        return self.module.split(".")[0]
-
-
-@dataclass
-class SymbolInfo:
-    """A function or class definition."""
-    name: str
-    kind: str                    # "function" | "class" | "async_function"
-    lineno: int
-    end_lineno: int
-    decorators: list[str] = field(default_factory=list)
-    is_public: bool = True       # True if name doesn't start with _
-    has_docstring: bool = False
-    num_args: int = 0            # For functions
-    body_lines: int = 0          # Lines in the body
-    max_nesting: int = 0         # Max nesting depth in body
-    methods: list[str] = field(default_factory=list)  # For classes
-
-
-@dataclass
-class FileMetrics:
-    """Code metrics for a single file."""
-    total_lines: int = 0
-    code_lines: int = 0          # Non-blank, non-comment
-    blank_lines: int = 0
-    comment_lines: int = 0
-    docstring_lines: int = 0
-    avg_function_length: float = 0.0
-    max_function_length: int = 0
-    max_nesting_depth: int = 0
-    import_count: int = 0
-    function_count: int = 0
-    class_count: int = 0
-    has_main_guard: bool = False  # if __name__ == "__main__"
-    has_type_hints: float = 0.0  # Fraction of functions with return annotations
-
-
-@dataclass
-class FileAnalysis:
-    """Complete analysis result for one Python file."""
-    path: str                    # Relative path
-    imports: list[ImportInfo] = field(default_factory=list)
-    symbols: list[SymbolInfo] = field(default_factory=list)
-    metrics: FileMetrics = field(default_factory=FileMetrics)
-    parse_error: str | None = None
-
-    def to_dict(self) -> dict:
-        """Serialize to a JSON-friendly dict."""
-        return {
-            "path": self.path,
-            "imports": [
-                {
-                    "module": imp.module,
-                    "names": imp.names,
-                    "is_from": imp.is_from,
-                    "lineno": imp.lineno,
-                    "is_internal": imp.is_internal,
-                    "top_level": imp.top_level,
-                }
-                for imp in self.imports
-            ],
-            "symbols": [
-                {
-                    "name": sym.name,
-                    "kind": sym.kind,
-                    "lineno": sym.lineno,
-                    "end_lineno": sym.end_lineno,
-                    "is_public": sym.is_public,
-                    "has_docstring": sym.has_docstring,
-                    "body_lines": sym.body_lines,
-                    "decorators": sym.decorators,
-                    "num_args": sym.num_args,
-                    "max_nesting": sym.max_nesting,
-                }
-                for sym in self.symbols
-            ],
-            "metrics": {
-                "total_lines": self.metrics.total_lines,
-                "code_lines": self.metrics.code_lines,
-                "blank_lines": self.metrics.blank_lines,
-                "comment_lines": self.metrics.comment_lines,
-                "docstring_lines": self.metrics.docstring_lines,
-                "avg_function_length": round(self.metrics.avg_function_length, 1),
-                "max_function_length": self.metrics.max_function_length,
-                "max_nesting_depth": self.metrics.max_nesting_depth,
-                "import_count": self.metrics.import_count,
-                "function_count": self.metrics.function_count,
-                "class_count": self.metrics.class_count,
-                "has_main_guard": self.metrics.has_main_guard,
-                "has_type_hints": round(self.metrics.has_type_hints, 2),
-            },
-            "parse_error": self.parse_error,
-        }
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -262,7 +159,7 @@ def _has_return_annotation(node: ast.FunctionDef | ast.AsyncFunctionDef) -> bool
 # ═══════════════════════════════════════════════════════════════════
 
 
-def parse_file(
+def _parse_python_file(
     path: Path,
     project_root: Path | None = None,
     project_prefix: str = "src",
@@ -277,7 +174,7 @@ def parse_file(
                         identify internal imports.
     """
     rel_path = str(path.relative_to(project_root)) if project_root else str(path)
-    result = FileAnalysis(path=rel_path)
+    result = FileAnalysis(path=rel_path, language="python", file_type="source")
 
     try:
         source = path.read_text(encoding="utf-8", errors="replace")
@@ -339,6 +236,7 @@ def parse_file(
                 lineno=node.lineno,
                 is_internal=is_internal,
                 is_stdlib=mod.lstrip(".").split(".")[0] in stdlib if mod else False,
+                is_relative=node.level > 0,
             )
             imports.append(imp)
 
@@ -454,8 +352,52 @@ def _is_main_guard(node: ast.If) -> bool:
 
 
 # ═══════════════════════════════════════════════════════════════════
-#  Bulk: parse entire project tree
+#  PythonParser — BaseParser implementation
 # ═══════════════════════════════════════════════════════════════════
+
+
+class PythonParser(BaseParser):
+    """Python AST parser — extracts imports, symbols, and code metrics.
+
+    Uses stdlib ``ast`` for reliable, fast parsing. Never executes the code.
+    Handles .py, .pyw, and .pyi files.
+    """
+
+    @property
+    def language(self) -> str:
+        return "python"
+
+    def extensions(self) -> set[str]:
+        return {"py", "pyw", "pyi"}
+
+    def parse_file(
+        self,
+        path: Path,
+        project_root: Path | None = None,
+        project_prefix: str = "src",
+    ) -> FileAnalysis:
+        """Parse a single Python file via AST."""
+        return _parse_python_file(path, project_root, project_prefix)
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  Backward-compat module-level functions
+#
+#  l2_quality.py and l2_structure.py import these directly:
+#      from src.core.services.audit.parsers.python_parser import parse_tree
+#  They will be migrated to use the registry in a later step.
+# ═══════════════════════════════════════════════════════════════════
+
+_python_parser = PythonParser()
+
+
+def parse_file(
+    path: Path,
+    project_root: Path | None = None,
+    project_prefix: str = "src",
+) -> FileAnalysis:
+    """Backward-compat wrapper — delegates to _parse_python_file."""
+    return _parse_python_file(path, project_root, project_prefix)
 
 
 def parse_tree(
@@ -479,6 +421,9 @@ def parse_tree(
 ) -> dict[str, FileAnalysis]:
     """Parse all Python files under project_root.
 
+    Backward-compat wrapper. Will be replaced by registry.parse_tree()
+    in a later step.
+
     Args:
         project_root: Root directory to scan.
         project_prefix: Top-level source package for internal import detection.
@@ -496,7 +441,21 @@ def parse_tree(
         if any(exc in parts for exc in exclude_patterns):
             continue
 
-        analysis = parse_file(py_file, project_root, project_prefix)
+        analysis = _parse_python_file(py_file, project_root, project_prefix)
         results[analysis.path] = analysis
 
     return results
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  Registry self-registration
+# ═══════════════════════════════════════════════════════════════════
+
+
+def _register():
+    """Register PythonParser with the module-level registry."""
+    from src.core.services.audit.parsers import registry
+    registry.register(_python_parser)
+
+
+_register()

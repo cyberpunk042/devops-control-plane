@@ -72,10 +72,11 @@ from src.core.services.audit.l0_os_detection import _detect_os  # noqa: E402
 
 
 
-def _detect_python() -> dict:
-    """Detect Python runtime details and environment context.
+def _detect_runtime(project_root: Path) -> dict:
+    """Detect Python runtime details, environment context, and venvs.
 
-    Returns:
+    Returns a unified runtime dict with all environment info:
+
         version: str — Python version (e.g. "3.12.1")
         version_tuple: list[int] — [3, 12, 1]
         implementation: str — "CPython", "PyPy", etc.
@@ -95,6 +96,9 @@ def _detect_python() -> dict:
             pipx: bool — pipx binary found
 
         system_python_warning: bool — True when operating on bare system Python
+
+        venvs: list[dict] — discovered venv directories in project
+        active_prefix: str | None — active venv prefix if any
     """
     version = platform.python_version()
     version_parts = []
@@ -139,7 +143,6 @@ def _detect_python() -> dict:
     # Check if the system Python has the EXTERNALLY-MANAGED marker
     pep668 = False
     if not in_managed_env:
-        # Check in the stdlib path for the marker file
         for stdlib_dir in (
             os.path.join(sys.base_prefix, "lib",
                          f"python{sys.version_info.major}.{sys.version_info.minor}"),
@@ -161,11 +164,22 @@ def _detect_python() -> dict:
     }
 
     # ── System Python warning ─────────────────────────────────
-    # True when running on bare system Python (no env, not root container)
     system_python_warning = (
         not in_managed_env
         and env_type == "system"
     )
+
+    # ── Virtual environment directories ───────────────────────
+    venv_dirs = [".venv", "venv", ".env", "env"]
+    found_venvs: list[dict] = []
+    for name in venv_dirs:
+        p = project_root / name
+        if p.is_dir() and (p / "bin" / "python").exists():
+            found_venvs.append({
+                "path": name,
+                "python": str(p / "bin" / "python"),
+                "active": str(p.resolve()) in sys.prefix,
+            })
 
     return {
         "version": version,
@@ -179,30 +193,8 @@ def _detect_python() -> dict:
         "pep668": pep668,
         "env_managers": env_managers,
         "system_python_warning": system_python_warning,
-    }
-
-
-def _detect_venv(project_root: Path) -> dict:
-    """Detect virtual environment status."""
-    # Check if we're currently in a venv
-    in_venv = sys.prefix != sys.base_prefix
-
-    # Find venv directories
-    venv_dirs = [".venv", "venv", ".env", "env"]
-    found: list[dict] = []
-    for name in venv_dirs:
-        p = project_root / name
-        if p.is_dir() and (p / "bin" / "python").exists():
-            found.append({
-                "path": name,
-                "python": str(p / "bin" / "python"),
-                "active": str(p.resolve()) in sys.prefix,
-            })
-
-    return {
-        "in_venv": in_venv,
-        "venvs": found,
-        "active_prefix": sys.prefix if in_venv else None,
+        "venvs": found_venvs,
+        "active_prefix": sys.prefix if in_managed_env else None,
     }
 
 
@@ -453,8 +445,7 @@ def l0_system_profile(project_root: Path, *, deep: bool = False) -> dict:
 
     data = {
         "os": os_data,
-        "python": _detect_python(),
-        "venv": _detect_venv(project_root),
+        "runtime": _detect_runtime(project_root),
         "tools": _detect_tools(),
         "modules": _detect_modules(project_root),
         "manifests": _detect_manifests(project_root),

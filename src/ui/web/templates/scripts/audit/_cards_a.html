@@ -14,8 +14,7 @@ async function loadAuditSystemCard() {
 
     // OS info
     const os = data.os || {};
-    const pyInfo = data.python || {};
-    const venv = data.venv || {};
+    const rt = data.runtime || {};
     const distro = os.distro || {};
     const distroName = typeof distro === 'string' ? distro : (distro.name || os.system || '?');
     const caps = os.capabilities || {};
@@ -29,10 +28,10 @@ async function loadAuditSystemCard() {
     if (distro.family) {
         html += `<div class="kv-row"><span class="kv-label">Distro Family</span><span class="kv-value">${distro.family}${distro.codename ? ' <span style="color:var(--text-muted);font-size:0.72rem">(' + distro.codename + ')</span>' : ''}</span></div>`;
     }
-    html += `<div class="kv-row"><span class="kv-label">Python</span><span class="kv-value">${pyInfo.version || '?'} (${pyInfo.implementation || ''})</span></div>`;
-    html += `<div class="kv-row"><span class="kv-label">Virtual Env</span><span class="kv-value">${venv.in_venv ? '✅ Active' : '❌ None'}</span></div>`;
-    if (venv.venvs && venv.venvs.length) {
-        for (const v of venv.venvs) {
+    html += `<div class="kv-row"><span class="kv-label">Python</span><span class="kv-value">${rt.version || '?'} (${rt.implementation || ''})</span></div>`;
+    html += `<div class="kv-row"><span class="kv-label">Environment</span><span class="kv-value">${rt.in_managed_env ? '✅ ' + (rt.env_type || 'managed') : '❌ system'}</span></div>`;
+    if (rt.venvs && rt.venvs.length) {
+        for (const v of rt.venvs) {
             html += `<div class="kv-row"><span class="kv-label" style="padding-left:1rem">↳ ${v.path}</span><span class="kv-value">${v.active ? '🟢 active' : '⚪ inactive'}</span></div>`;
         }
     }
