@@ -83,6 +83,7 @@ def create_app(
     from src.ui.web.routes.trace import trace_bp
     from src.ui.web.routes.vault import vault_bp
     from src.ui.web.routes.smart_folders import smart_folders_bp
+    from src.ui.web.routes.artifacts import bp as artifacts_bp
 
     app.register_blueprint(pages_bp)
     app.register_blueprint(api_bp, url_prefix="/api")
@@ -114,6 +115,7 @@ def create_app(
     app.register_blueprint(audit_bp)
     app.register_blueprint(dev_bp, url_prefix="/api")
     app.register_blueprint(smart_folders_bp, url_prefix="/api")
+    app.register_blueprint(artifacts_bp)
 
     # Initialize vault with project root (for auto-lock)
     from src.core.services import vault as vault_module

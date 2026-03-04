@@ -67,3 +67,16 @@ pages:
     path: /code-docs
     auto: true
     config: {}
+artifacts:
+  targets:
+  - name: local-install
+    kind: local
+    builder: makefile
+    build_target: install
+    description: Editable pip install on this machine
+    modules:
+    - core
+    - adapters
+    - cli
+    - web
+    config: {}
