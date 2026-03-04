@@ -145,6 +145,10 @@
                 case 'auth:needed':    this._onAuthNeeded(payload);   break;
                 case 'github:status':  this._onGithubStatus(payload); break;
                 case 'ledger:conflict': this._onLedgerConflict(payload); break;
+                case 'stream:start':   this._onStreamStart(payload);   break;
+                case 'stream:line':    this._onStreamLine(payload);    break;
+                case 'stream:done':    this._onStreamDone(payload);    break;
+                case 'server:restarting': this._onServerRestarting(payload); break;
                 // sys:warming, sys:warm, sys:heartbeat — silently ignored for now
             }
         },
@@ -488,6 +492,81 @@
             if (typeof ledgerOpenSyncModal === 'function') {
                 ledgerOpenSyncModal();
             }
+        },
+
+        // ── Streaming subprocess output ────────────────────────────
+
+        /** A streaming operation started — initialise buffer. */
+        _onStreamStart(payload) {
+            const data = payload.data || {};
+            const id = data.stream_id;
+            if (!id) return;
+
+            // Global streams map: { stream_id: { lines: [], done: false, ... } }
+            if (!window._streams) window._streams = {};
+            window._streams[id] = {
+                lines: [],
+                done: false,
+                label: data.label || '',
+                startedAt: Date.now(),
+            };
+            console.debug('[SSE] stream:start %s (%s)', id, data.label || '');
+
+            // Dispatch custom event so any open terminal panel can react
+            document.dispatchEvent(new CustomEvent('stream-start', { detail: data }));
+        },
+
+        /** A line of output from a streaming operation. */
+        _onStreamLine(payload) {
+            const data = payload.data || {};
+            const id = data.stream_id;
+            if (!id) return;
+
+            if (!window._streams) window._streams = {};
+            if (!window._streams[id]) {
+                // Late join — create the entry
+                window._streams[id] = { lines: [], done: false, label: '', startedAt: Date.now() };
+            }
+            window._streams[id].lines.push(data.line || '');
+
+            // Dispatch custom event with the line
+            document.dispatchEvent(new CustomEvent('stream-line', { detail: data }));
+        },
+
+        /** A streaming operation completed. */
+        _onStreamDone(payload) {
+            const data = payload.data || {};
+            const id = data.stream_id;
+            if (!id) return;
+
+            if (window._streams && window._streams[id]) {
+                window._streams[id].done = true;
+                window._streams[id].exitCode = data.exit_code;
+                window._streams[id].ok = data.ok;
+            }
+
+            const ok = data.ok;
+            const label = window._streams?.[id]?.label || id;
+            if (ok) {
+                console.debug('[SSE] stream:done %s — success (%d lines)', id, data.line_count || 0);
+            } else {
+                console.warn('[SSE] stream:done %s — failed (exit %d)', id, data.exit_code);
+            }
+
+            // Dispatch custom event
+            document.dispatchEvent(new CustomEvent('stream-done', { detail: data }));
+        },
+
+        // ── Server lifecycle ───────────────────────────────────────
+
+        /** Server is about to restart — show reconnecting state. */
+        _onServerRestarting(payload) {
+            const data = payload.data || {};
+            console.info('[SSE] server:restarting —', data.message || 'Server restarting...');
+            toast(data.message || 'Server restarting...', 'info', 5000);
+
+            // The SSE connection will drop — _onReady will fire on reconnect
+            // and clear stale state. No further action needed here.
         },
 
         /**

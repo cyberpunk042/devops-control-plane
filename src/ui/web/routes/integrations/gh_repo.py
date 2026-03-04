@@ -63,3 +63,23 @@ def gh_repo_set_default_branch():  # type: ignore[no-untyped-def]
     if "error" in result:
         return jsonify(result), 400
     return jsonify(result)
+
+
+@integrations_bp.route("/gh/repo/rename", methods=["POST"])
+@run_tracked("setup", "setup:gh_repo_rename")
+@requires_gh_auth
+def gh_repo_rename():  # type: ignore[no-untyped-def]
+    """Rename the GitHub repository.
+
+    JSON body:
+        new_name: new repository name (required)
+    """
+    data = request.get_json(silent=True) or {}
+    new_name = data.get("new_name", "").strip()
+    if not new_name:
+        return jsonify({"error": "Missing 'new_name' field"}), 400
+
+    result = git_ops.gh_repo_rename(_project_root(), new_name)
+    if "error" in result:
+        return jsonify(result), 400
+    return jsonify(result)

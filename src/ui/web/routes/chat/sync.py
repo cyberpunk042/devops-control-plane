@@ -43,7 +43,7 @@ def chat_poll():
         except Exception:
             pass
 
-        # 2. Read threads with message_count
+        # 2. Read threads with message_count and last_message_at
         threads = list_threads(root)
         thread_data = []
         for t in threads:
@@ -52,14 +52,27 @@ def chat_poll():
                 from src.core.services.chat.chat_ops import _thread_dir
                 msg_file = _thread_dir(root, t.thread_id) / "messages.jsonl"
                 if msg_file.is_file():
-                    td["message_count"] = sum(
-                        1 for _ in msg_file.open("r", encoding="utf-8")
-                    )
+                    lines = msg_file.read_text(encoding="utf-8").strip().splitlines()
+                    td["message_count"] = len(lines)
+                    if lines:
+                        import json as _json
+                        try:
+                            last_msg = _json.loads(lines[-1])
+                            td["last_message_at"] = last_msg.get("ts", td["created_at"])
+                        except Exception:
+                            td["last_message_at"] = td["created_at"]
+                    else:
+                        td["last_message_at"] = td["created_at"]
                 else:
                     td["message_count"] = 0
+                    td["last_message_at"] = td["created_at"]
             except Exception:
                 td["message_count"] = 0
+                td["last_message_at"] = td.get("created_at", "")
             thread_data.append(td)
+
+        # Sort by last activity
+        thread_data.sort(key=lambda d: d.get("last_message_at", ""), reverse=True)
 
         # 3. Read messages for the requested thread
         messages = []

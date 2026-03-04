@@ -460,11 +460,11 @@ def wizard_state_to_resources(data: dict) -> list[dict]:
 
 
 # ═══════════════════════════════════════════════════════════════════
-#  Wizard State Persistence
+#  Wizard State Persistence — stored in project.yml under kubernetes:
 # ═══════════════════════════════════════════════════════════════════
 
 
-_STATE_FILE = ".wizard-state.json"
+
 
 # Fields that are transient (derived from detection) and should not be persisted.
 _STRIP_TOP = {
@@ -493,58 +493,70 @@ def _sanitize_state(data: dict) -> dict:
     return clean
 
 
+def _load_project_yml(project_root: Path) -> dict:
+    """Load project.yml as raw dict."""
+    import yaml
+
+    yml_path = project_root / "project.yml"
+    if not yml_path.is_file():
+        return {}
+    return yaml.safe_load(yml_path.read_text(encoding="utf-8")) or {}
+
+
+def _save_project_yml(project_root: Path, data: dict) -> None:
+    """Write back to project.yml."""
+    import yaml
+
+    yml_path = project_root / "project.yml"
+    yml_path.write_text(
+        yaml.dump(data, default_flow_style=False, sort_keys=False),
+        encoding="utf-8",
+    )
+
+
 def load_wizard_state(project_root: Path) -> dict:
-    """Load saved wizard state from k8s/.wizard-state.json.
+    """Load saved wizard state from project.yml kubernetes: section.
 
     Returns:
-        {"ok": True, ...state} or {"ok": False, "reason": "not_found"|"invalid"}
+        {"ok": True, ...state} or {"ok": False, "reason": "not_found"}
     """
-    import json
+    proj = _load_project_yml(project_root)
+    k8s_state = proj.get("kubernetes")
 
-    state_path = project_root / "k8s" / _STATE_FILE
-    if not state_path.is_file():
+    if not k8s_state:
         return {"ok": False, "reason": "not_found"}
-    try:
-        raw = state_path.read_text(encoding="utf-8")
-        state = json.loads(raw)
-        state["ok"] = True
-        return state
-    except (json.JSONDecodeError, ValueError):
-        return {"ok": False, "reason": "invalid"}
+
+    k8s_state["ok"] = True
+    return k8s_state
 
 
 def save_wizard_state(project_root: Path, data: dict) -> dict:
-    """Persist wizard state to k8s/.wizard-state.json.
+    """Persist wizard state to project.yml under the kubernetes: key.
 
     Returns:
-        {"ok": True, "path": "k8s/.wizard-state.json"} or {"error": ...}
+        {"ok": True, "path": "project.yml"} or {"error": ...}
     """
-    import json
-
     if not data.get("_services") and not data.get("_infraDecisions"):
         return {"error": "Empty state — nothing to save"}
 
-    k8s_dir = project_root / "k8s"
-    k8s_dir.mkdir(exist_ok=True)
-
     clean = _sanitize_state(data)
-    state_path = k8s_dir / _STATE_FILE
-    state_path.write_text(
-        json.dumps(clean, indent=2, ensure_ascii=False) + "\n",
-        encoding="utf-8",
-    )
-    return {"ok": True, "path": f"k8s/{_STATE_FILE}"}
+
+    proj = _load_project_yml(project_root)
+    proj["kubernetes"] = clean
+    _save_project_yml(project_root, proj)
+
+    return {"ok": True, "path": "project.yml"}
 
 
 def wipe_wizard_state(project_root: Path) -> dict:
-    """Delete saved wizard state.
+    """Delete saved wizard state from project.yml.
 
     Returns:
         {"ok": True}
     """
-    state_path = project_root / "k8s" / _STATE_FILE
-    if state_path.is_file():
-        state_path.unlink()
+    proj = _load_project_yml(project_root)
+    proj.pop("kubernetes", None)
+    _save_project_yml(project_root, proj)
     return {"ok": True}
 
 

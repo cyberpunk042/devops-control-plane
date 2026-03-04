@@ -37,6 +37,18 @@ _SYSTEM_RECIPES: dict[str, dict] = {
             "brew":   ["brew", "upgrade", "git"],
         },
     },
+    "git-filter-repo": {
+        "label": "git-filter-repo (history rewriting)",
+        "category": "system",
+        "cli": "git-filter-repo",
+        "install": {
+            "_default": _PIP + ["install", "git-filter-repo"],
+        },
+        "needs_sudo": {"_default": False},
+        "install_via": {"_default": "pip"},
+        "requires": {"binaries": ["git"]},
+        "verify": ["git-filter-repo", "--version"],
+    },
     "curl": {
         "cli": "curl",
         "label": "curl (URL transfer tool)",

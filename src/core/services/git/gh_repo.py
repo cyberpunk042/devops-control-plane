@@ -142,6 +142,82 @@ def gh_repo_set_default_branch(
     }
 
 
+def gh_repo_rename(
+    project_root: Path,
+    new_name: str,
+) -> dict:
+    """Rename the GitHub repository.
+
+    Uses ``gh repo rename <new_name> --yes``.
+    After rename, GitHub auto-redirects old URLs for a period.
+    Also updates the local ``origin`` remote URL to match.
+
+    Args:
+        project_root: Local project directory.
+        new_name: New repository name (just the repo name, not owner/repo).
+
+    Returns::
+
+        {"ok": True, "old_name": ..., "new_name": ..., "new_url": ...}
+        or {"error": "..."}
+    """
+    slug = repo_slug(project_root)
+    if not slug:
+        return {"error": "No GitHub remote configured"}
+
+    new_name = new_name.strip()
+    if not new_name:
+        return {"error": "New repository name is required"}
+
+    # Extract owner from current slug (owner/repo)
+    if "/" not in slug:
+        return {"error": f"Cannot parse owner from slug: {slug}"}
+    owner = slug.split("/")[0]
+    old_name = slug.split("/")[1]
+
+    if old_name == new_name:
+        return {"error": f"Repository is already named '{new_name}'"}
+
+    # Rename on GitHub
+    r = run_gh(
+        "repo", "rename", new_name, "--yes",
+        cwd=project_root, timeout=30,
+    )
+    if r.returncode != 0:
+        err = r.stderr.strip()
+        return {"error": f"Failed to rename repository: {err}"}
+
+    # Update the local origin remote URL to match
+    new_slug = f"{owner}/{new_name}"
+
+    # Detect current URL format (SSH vs HTTPS)
+    r_url = run_git("remote", "get-url", "origin", cwd=project_root)
+    old_url = r_url.stdout.strip() if r_url.returncode == 0 else ""
+
+    if old_url.startswith("git@"):
+        new_url = f"git@github.com:{new_slug}.git"
+    else:
+        new_url = f"https://github.com/{new_slug}.git"
+
+    url_result = git_remote_set_url(project_root, "origin", new_url)
+    if "error" in url_result:
+        logger.warning(
+            "Renamed repo to %s on GitHub but failed to update local remote: %s",
+            new_name, url_result["error"],
+        )
+
+    logger.info("Repository renamed: %s → %s", slug, new_slug)
+    return {
+        "ok": True,
+        "old_name": old_name,
+        "new_name": new_name,
+        "old_slug": slug,
+        "new_slug": new_slug,
+        "new_url": new_url,
+        "message": f"Repository renamed: {slug} → {new_slug}",
+    }
+
+
 # ═══════════════════════════════════════════════════════════════════
 #  Git: Remote management
 # ═══════════════════════════════════════════════════════════════════

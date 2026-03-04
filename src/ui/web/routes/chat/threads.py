@@ -30,7 +30,7 @@ def chat_threads():
         root = _project_root()
         threads = list_threads(root)
 
-        # Enrich with message_count for UI (seen/unseen badges)
+        # Enrich with message_count and last_message_at for UI
         result = []
         for t in threads:
             td = t.model_dump(mode="json")
@@ -38,12 +38,28 @@ def chat_threads():
                 from src.core.services.chat.chat_ops import _thread_dir
                 msg_file = _thread_dir(root, t.thread_id) / "messages.jsonl"
                 if msg_file.is_file():
-                    td["message_count"] = sum(1 for _ in msg_file.open("r", encoding="utf-8"))
+                    lines = msg_file.read_text(encoding="utf-8").strip().splitlines()
+                    td["message_count"] = len(lines)
+                    # Last message timestamp
+                    if lines:
+                        import json as _json
+                        try:
+                            last_msg = _json.loads(lines[-1])
+                            td["last_message_at"] = last_msg.get("ts", td["created_at"])
+                        except Exception:
+                            td["last_message_at"] = td["created_at"]
+                    else:
+                        td["last_message_at"] = td["created_at"]
                 else:
                     td["message_count"] = 0
+                    td["last_message_at"] = td["created_at"]
             except Exception:
                 td["message_count"] = 0
+                td["last_message_at"] = td.get("created_at", "")
             result.append(td)
+
+        # Sort by last activity (most recent first)
+        result.sort(key=lambda d: d.get("last_message_at", ""), reverse=True)
 
         return jsonify({"threads": result})
     except Exception as e:

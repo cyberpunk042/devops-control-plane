@@ -50,9 +50,17 @@ from src.core.services.git.gh_repo import (  # noqa: F401
     gh_repo_create,
     gh_repo_set_visibility,
     gh_repo_set_default_branch,
+    gh_repo_rename,
     git_remote_remove,
     git_remotes,
     git_remote_add,
     git_remote_rename,
     git_remote_set_url,
+)
+
+from src.core.services.git.history import (  # noqa: F401
+    git_gc,
+    git_repack,
+    git_history_reset,
+    git_filter_repo,
 )

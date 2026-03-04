@@ -78,6 +78,7 @@ def create_app(
     from src.ui.web.routes.quality import quality_bp
     from src.ui.web.routes.secrets import secrets_bp
     from src.ui.web.routes.security_scan import security_bp2
+    from src.ui.web.routes.server import server_bp
     from src.ui.web.routes.terraform import terraform_bp
     from src.ui.web.routes.testing import testing_bp
     from src.ui.web.routes.trace import trace_bp
@@ -114,6 +115,7 @@ def create_app(
     app.register_blueprint(audit_bp)
     app.register_blueprint(dev_bp, url_prefix="/api")
     app.register_blueprint(smart_folders_bp, url_prefix="/api")
+    app.register_blueprint(server_bp, url_prefix="/api")
 
     # Initialize vault with project root (for auto-lock)
     from src.core.services import vault as vault_module
@@ -219,5 +221,13 @@ def run_server(
     debug: bool = False,
 ) -> None:
     """Run the Flask development server."""
+    # Store host/port for server_status()
+    app.config["SERVER_HOST"] = host
+    app.config["SERVER_PORT"] = port
+
+    # Install signal handlers for graceful shutdown
+    from src.core.services.server_lifecycle import install_signal_handlers
+    install_signal_handlers()
+
     logger.info("Starting web admin on %s:%d", host, port)
     app.run(host=host, port=port, debug=debug, use_reloader=False, threaded=True)

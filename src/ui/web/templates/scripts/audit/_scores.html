@@ -73,8 +73,8 @@ function _renderScoresUI(data, detail, badge) {
     const sparkline = _renderSparkline(history);
 
     let html = `
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-lg)">
-            <div>
+        <div style="display:flex;flex-wrap:wrap;gap:var(--space-lg)">
+            <div style="flex:1;min-width:220px">
                 <div style="display:flex;align-items:center;gap:var(--space-sm);margin-bottom:var(--space-sm)">
                     <span style="font-size:1.3rem">🧩</span>
                     <strong style="font-size:1.1rem">Complexity</strong>
@@ -88,7 +88,7 @@ function _renderScoresUI(data, detail, badge) {
                 </div>
                 ${_renderBreakdown(cx.breakdown)}
             </div>
-            <div>
+            <div style="flex:1;min-width:220px">
                 <div style="display:flex;align-items:center;gap:var(--space-sm);margin-bottom:var(--space-sm)">
                     <span style="font-size:1.3rem">⭐</span>
                     <strong style="font-size:1.1rem">Quality</strong>
@@ -124,8 +124,8 @@ function _renderBreakdown(breakdown) {
         const color = score >= 7 ? 'var(--success)' : score >= 4 ? 'var(--warning)' : 'var(--danger)';
         const sourceTag = item.source ? `<span style="font-size:0.58rem;color:#6366f1;margin-left:2px">${item.source}</span>` : '';
         rows += `
-            <div style="display:flex;align-items:center;gap:var(--space-sm);margin-bottom:4px;font-size:0.78rem">
-                <span style="width:110px;text-transform:capitalize;color:var(--text-muted)">${label}${sourceTag}</span>
+            <div style="display:flex;align-items:center;gap:var(--space-sm);margin-bottom:4px;font-size:0.78rem;min-width:0">
+                <span style="min-width:70px;max-width:110px;flex-shrink:0;text-transform:capitalize;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${label}${sourceTag}</span>
                 <div style="flex:1;background:var(--bg-primary);border-radius:3px;height:6px;overflow:hidden">
                     <div style="width:${pct}%;height:100%;background:${color};border-radius:3px;transition:width 0.4s"></div>
                 </div>
@@ -158,7 +158,7 @@ function _renderSparkline(history) {
     }).join(' ');
 
     return `
-        <div style="display:flex;align-items:center;gap:var(--space-md)">
+        <div style="display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-md)">
             <span style="font-size:0.72rem;color:var(--text-muted)">📈 Score History (${history.length} snapshots)</span>
             <svg width="${width}" height="${height}" style="flex-shrink:0">
                 <polyline points="${cxPoints}" fill="none" stroke="var(--warning)" stroke-width="1.5" opacity="0.7"/>

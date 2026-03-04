@@ -86,6 +86,16 @@
                 { label: '.gitignore', icon: '📝', onclick: 'gitIgnoreWizard()' },
             ]);
 
+            // ── Maintenance ──
+            html += `<div style="margin-top:var(--space-sm);border-top:1px solid var(--border-subtle);padding-top:var(--space-sm)">
+                <div style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:var(--space-xs)">Maintenance</div>
+            </div>`;
+            html += cardActionToolbar([
+                { label: 'GC', icon: '🗑️', onclick: 'gitGcModal()', cls: 'btn-ghost' },
+                { label: 'History Reset', icon: '🔥', onclick: 'gitHistoryResetModal()', cls: 'btn-ghost' },
+                { label: 'Filter Repo', icon: '🔍', onclick: 'gitFilterRepoModal()', cls: 'btn-ghost' },
+            ]);
+
             // ── Missing tools banner ──
             html += '<div id="git-missing-tools"></div>';
 
@@ -858,3 +868,306 @@
         });
     }
 
+
+    // ── Maintenance Modals ─────────────────────────────────────────────
+
+    /** Inline streaming terminal panel for modals */
+    function _streamTerminalHtml(panelId) {
+        return `<div id="${panelId}" class="git-stream-panel" style="display:none;margin-top:var(--space-md)">
+            <div style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:var(--space-xs)">Output</div>
+            <pre id="${panelId}-output" class="git-stream-output" style="
+                background:var(--bg-inset);
+                border:1px solid var(--border-subtle);
+                border-radius:var(--radius-sm);
+                padding:var(--space-sm);
+                font-family:var(--font-mono);
+                font-size:0.72rem;
+                max-height:300px;
+                overflow-y:auto;
+                white-space:pre-wrap;
+                word-break:break-all;
+                color:var(--text-secondary);
+                line-height:1.5;
+            "></pre>
+            <div id="${panelId}-status" style="font-size:0.75rem;margin-top:var(--space-xs);display:none"></div>
+        </div>`;
+    }
+
+    /** Subscribe a modal panel to stream events — returns cleanup function */
+    function _streamBind(panelId, streamId) {
+        const panel = document.getElementById(panelId);
+        const output = document.getElementById(panelId + '-output');
+        const status = document.getElementById(panelId + '-status');
+        if (!panel || !output) return () => {};
+
+        panel.style.display = '';
+        output.textContent = '';
+
+        const onLine = (e) => {
+            if (e.detail.stream_id !== streamId) return;
+            output.textContent += (e.detail.line || '') + '\n';
+            output.scrollTop = output.scrollHeight;
+        };
+        const onDone = (e) => {
+            if (e.detail.stream_id !== streamId) return;
+            if (status) {
+                status.style.display = '';
+                if (e.detail.ok) {
+                    status.innerHTML = `<span style="color:var(--success)">✅ Complete</span>`;
+                } else {
+                    status.innerHTML = `<span style="color:var(--error)">❌ Failed (exit ${e.detail.exit_code})</span>`;
+                }
+            }
+        };
+
+        document.addEventListener('stream-line', onLine);
+        document.addEventListener('stream-done', onDone);
+
+        return () => {
+            document.removeEventListener('stream-line', onLine);
+            document.removeEventListener('stream-done', onDone);
+        };
+    }
+
+    /** Git GC — optimize repository */
+    async function gitGcModal() {
+        let _cleanup = null;
+
+        modalOpen({
+            title: '🗑️ Git GC — Optimize Repository',
+            body: `<div style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:var(--space-md)">
+                    <p>Run <code>git gc</code> to garbage-collect loose objects, compress pack files, and optimize the repository.</p>
+                </div>
+                <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.82rem;color:var(--text-primary);cursor:pointer">
+                    <input type="checkbox" id="git-gc-aggressive">
+                    <span>Aggressive (slower, more thorough — recommended after history rewrite)</span>
+                </label>
+                ${_streamTerminalHtml('git-gc-stream')}`,
+            footerButtons: [
+                { label: 'Cancel', cls: 'btn-secondary', onclick: 'modalClose()' },
+                { label: 'Run GC', cls: 'btn-primary', id: 'git-gc-btn', onclick: 'doGitGc()' },
+            ],
+            onClose: () => { if (_cleanup) _cleanup(); },
+        });
+
+        window.doGitGc = async function() {
+            const btn = document.getElementById('git-gc-btn');
+            if (btn) { btn.disabled = true; btn.textContent = 'Running…'; }
+
+            const aggressive = document.getElementById('git-gc-aggressive')?.checked || false;
+
+            try {
+                const data = await api('/git/gc', {
+                    method: 'POST',
+                    body: JSON.stringify({ aggressive }),
+                });
+
+                // Bind stream panel if streaming
+                if (data.stream_id) {
+                    _cleanup = _streamBind('git-gc-stream', data.stream_id);
+                }
+
+                if (data.ok || !data.error) {
+                    toast('Git GC complete', 'success');
+                    if (btn) { btn.textContent = '✅ Done'; }
+                } else {
+                    throw new Error(data.error);
+                }
+            } catch (e) {
+                toast('GC failed: ' + e.message, 'error');
+                if (btn) { btn.disabled = false; btn.textContent = 'Run GC'; }
+            }
+        };
+    }
+
+    /** History Reset — collapse to single commit via orphan branch */
+    async function gitHistoryResetModal() {
+        let _cleanup = null;
+
+        modalOpen({
+            title: '🔥 History Reset — Fresh Start',
+            body: `<div style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:var(--space-md)">
+                    <p>This will <strong>permanently delete all commit history</strong> and create a single new commit with all current files.</p>
+                    <p style="color:var(--error);font-weight:600;margin-top:var(--space-sm)">⚠ This is destructive and irreversible. Make sure you have a backup.</p>
+                </div>
+                <div style="margin-bottom:var(--space-md)">
+                    <label style="font-size:0.78rem;font-weight:600;color:var(--text-primary);display:block;margin-bottom:var(--space-xs)">Commit message</label>
+                    <input type="text" id="git-hr-message" class="modal-form-input"
+                        value="Initial commit (history reset)"
+                        placeholder="Initial commit (history reset)"
+                        style="width:100%">
+                </div>
+                <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.82rem;color:var(--error);cursor:pointer">
+                    <input type="checkbox" id="git-hr-confirm">
+                    <span>I understand this will permanently delete all commit history</span>
+                </label>
+                ${_streamTerminalHtml('git-hr-stream')}`,
+            footerButtons: [
+                { label: 'Cancel', cls: 'btn-secondary', onclick: 'modalClose()' },
+                { label: '🔥 Reset History', cls: 'btn-primary', id: 'git-hr-btn', onclick: 'doGitHistoryReset()', disabled: true, style: 'background:var(--error)' },
+            ],
+        });
+
+        // Enable button only when confirmation is checked
+        const checkbox = document.getElementById('git-hr-confirm');
+        const btn = document.getElementById('git-hr-btn');
+        if (checkbox && btn) {
+            checkbox.addEventListener('change', () => {
+                btn.disabled = !checkbox.checked;
+            });
+        }
+
+        window.doGitHistoryReset = async function() {
+            if (!document.getElementById('git-hr-confirm')?.checked) {
+                toast('Please confirm you understand the risks', 'warning');
+                return;
+            }
+
+            if (btn) { btn.disabled = true; btn.textContent = 'Resetting…'; }
+
+            const message = document.getElementById('git-hr-message')?.value?.trim() || '';
+
+            try {
+                if (!(await ensureGitAuth())) {
+                    if (btn) { btn.disabled = false; btn.textContent = '🔥 Reset History'; }
+                    return;
+                }
+
+                const data = await api('/git/history-reset', {
+                    method: 'POST',
+                    body: JSON.stringify(message ? { message } : {}),
+                });
+
+                if (data.stream_id) {
+                    _cleanup = _streamBind('git-hr-stream', data.stream_id);
+                }
+
+                if (data.ok || !data.error) {
+                    toast('History reset complete — single commit created', 'success');
+                    if (btn) { btn.textContent = '✅ Done'; }
+                    cardInvalidate('git');
+                    setTimeout(() => loadGitCard(), 500);
+                } else {
+                    throw new Error(data.error);
+                }
+            } catch (e) {
+                toast('History reset failed: ' + e.message, 'error');
+                if (btn) { btn.disabled = false; btn.textContent = '🔥 Reset History'; }
+            }
+        };
+    }
+
+    /** Filter Repo — scrub specific paths from entire history */
+    async function gitFilterRepoModal() {
+        let _cleanup = null;
+
+        modalOpen({
+            title: '🔍 Filter Repo — Scrub Paths from History',
+            body: `<div style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:var(--space-md)">
+                    <p>Remove specific files or directories from <strong>all commits</strong> in history using <code>git-filter-repo</code>.</p>
+                    <p style="color:var(--warning);margin-top:var(--space-xs)">This rewrites history. All collaborators must re-clone.</p>
+                </div>
+                <div style="margin-bottom:var(--space-md)">
+                    <label style="font-size:0.78rem;font-weight:600;color:var(--text-primary);display:block;margin-bottom:var(--space-xs)">Paths to remove (one per line)</label>
+                    <textarea id="git-fr-paths" class="modal-form-textarea" style="
+                        font-family:var(--font-mono);font-size:0.72rem;min-height:120px;width:100%;line-height:1.5
+                    " placeholder="secrets.json&#10;.env.production&#10;data/old-dump/"></textarea>
+                    <span class="modal-form-hint">Files and directories that should be erased from every commit.</span>
+                </div>
+                <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.82rem;color:var(--error);cursor:pointer;margin-bottom:var(--space-sm)">
+                    <input type="checkbox" id="git-fr-confirm">
+                    <span>I understand this will rewrite all history</span>
+                </label>
+                <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.82rem;color:var(--text-secondary);cursor:pointer">
+                    <input type="checkbox" id="git-fr-force">
+                    <span>Force (re-run on already-filtered repo)</span>
+                </label>
+                ${_streamTerminalHtml('git-fr-stream')}`,
+            footerButtons: [
+                { label: 'Cancel', cls: 'btn-secondary', onclick: 'modalClose()' },
+                { label: '🔍 Scrub Paths', cls: 'btn-primary', id: 'git-fr-btn', onclick: 'doGitFilterRepo()', disabled: true, style: 'background:var(--warning);color:var(--bg-body)' },
+            ],
+        });
+
+        // Enable button only when confirmation is checked + paths are entered
+        const checkbox = document.getElementById('git-fr-confirm');
+        const textarea = document.getElementById('git-fr-paths');
+        const btn = document.getElementById('git-fr-btn');
+        const updateBtn = () => {
+            if (btn) btn.disabled = !(checkbox?.checked && textarea?.value?.trim());
+        };
+        if (checkbox) checkbox.addEventListener('change', updateBtn);
+        if (textarea) textarea.addEventListener('input', updateBtn);
+
+        window.doGitFilterRepo = async function() {
+            if (!document.getElementById('git-fr-confirm')?.checked) {
+                toast('Please confirm you understand the risks', 'warning');
+                return;
+            }
+
+            const pathsText = document.getElementById('git-fr-paths')?.value || '';
+            const paths = pathsText.split('\n').map(p => p.trim()).filter(Boolean);
+            if (paths.length === 0) {
+                toast('Enter at least one path', 'warning');
+                return;
+            }
+
+            if (btn) { btn.disabled = true; btn.textContent = 'Scrubbing…'; }
+
+            const force = document.getElementById('git-fr-force')?.checked || false;
+
+            try {
+                if (!(await ensureGitAuth())) {
+                    if (btn) { btn.disabled = false; btn.textContent = '🔍 Scrub Paths'; }
+                    return;
+                }
+
+                const data = await api('/git/filter-repo', {
+                    method: 'POST',
+                    body: JSON.stringify({ paths, force }),
+                });
+
+                if (data.stream_id) {
+                    _cleanup = _streamBind('git-fr-stream', data.stream_id);
+                }
+
+                if (data.ok || !data.error) {
+                    toast(`Filter-repo complete — ${paths.length} path(s) scrubbed from history`, 'success');
+                    if (btn) { btn.textContent = '✅ Done'; }
+                    cardInvalidate('git');
+                    setTimeout(() => loadGitCard(), 500);
+                } else if (data.tool_name) {
+                    // Tool not installed — offer install
+                    toast('git-filter-repo is not installed', 'warning');
+                    const panel = document.getElementById('git-fr-stream');
+                    if (panel) {
+                        panel.style.display = '';
+                        panel.innerHTML = `<div style="padding:var(--space-md);text-align:center">
+                            <p style="margin-bottom:var(--space-sm);color:var(--warning)">⚠ git-filter-repo is not installed</p>
+                            <button class="btn btn-primary" onclick="installToolFromCard('git-filter-repo', this)">📦 Install git-filter-repo</button>
+                        </div>`;
+                    }
+                    if (btn) { btn.disabled = false; btn.textContent = '🔍 Scrub Paths'; }
+                } else {
+                    throw new Error(data.error);
+                }
+            } catch (e) {
+                // Check for 424 (tool not installed)
+                if (e.status === 424 || (e.message && e.message.includes('not installed'))) {
+                    toast('git-filter-repo is not installed', 'warning');
+                    const panel = document.getElementById('git-fr-stream');
+                    if (panel) {
+                        panel.style.display = '';
+                        panel.innerHTML = `<div style="padding:var(--space-md);text-align:center">
+                            <p style="margin-bottom:var(--space-sm);color:var(--warning)">⚠ git-filter-repo is not installed</p>
+                            <button class="btn btn-primary" onclick="installToolFromCard('git-filter-repo', this)">📦 Install git-filter-repo</button>
+                        </div>`;
+                    }
+                    if (btn) { btn.disabled = false; btn.textContent = '🔍 Scrub Paths'; }
+                    return;
+                }
+                toast('Filter-repo failed: ' + e.message, 'error');
+                if (btn) { btn.disabled = false; btn.textContent = '🔍 Scrub Paths'; }
+            }
+        };
+    }

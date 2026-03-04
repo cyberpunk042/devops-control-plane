@@ -1,0 +1,248 @@
+/* Project Rename Wizard — full orchestration
+     Rename GitHub repo → update remote URL → rename local folder → server restart.
+     Depends on: wizardModalOpen, wizSection, wizStatusRow, api, apiPost,
+                 cardInvalidate, loadGitCard, loadGitHubCard, toast, esc
+*/
+    // ── Project Rename Wizard ──────────────────────────────────────────
+
+    async function projectRenameWizard() {
+        wizardModalOpen({
+            title: '✏️ Project Rename Wizard',
+            size: 'wide',
+            steps: [
+                {
+                    id: 'preflight', title: 'Pre-flight',
+                    render: async (data, el) => {
+                        el.innerHTML = '<p style="text-align:center;padding:2rem"><span class="spinner"></span> Running pre-flight checks…</p>';
+
+                        try {
+                            // Gather state
+                            const [gitStatus, ghStatus, serverStatus] = await Promise.all([
+                                api('/git/status?bust=1'),
+                                api('/integrations/gh/status'),
+                                api('/server/status'),
+                            ]);
+
+                            data._gitStatus = gitStatus;
+                            data._ghStatus = ghStatus;
+                            data._serverStatus = serverStatus;
+
+                            // Extract current names
+                            data._currentSlug = ghStatus.repo || '';
+                            data._currentName = data._currentSlug.includes('/') ? data._currentSlug.split('/')[1] : data._currentSlug;
+                            data._currentOwner = data._currentSlug.includes('/') ? data._currentSlug.split('/')[0] : '';
+                            data._currentCwd = serverStatus.cwd || '';
+                            data._currentFolder = data._currentCwd.split('/').pop() || '';
+
+                            let html = wizSection('Pre-flight Checks', 'Verify your project is ready for rename.');
+                            html += '<div class="wiz-status-grid">';
+
+                            // Git repo
+                            html += wizStatusRow('🔀', 'Git Repository',
+                                gitStatus.available ? 'Available' : 'Not found',
+                                gitStatus.available ? 'ok' : 'error');
+
+                            // Working tree
+                            if (gitStatus.available) {
+                                html += wizStatusRow('📄', 'Working Tree',
+                                    gitStatus.dirty ? `${gitStatus.total_changes} uncommitted changes` : 'Clean',
+                                    gitStatus.dirty ? 'warn' : 'ok');
+                            }
+
+                            // GitHub auth
+                            html += wizStatusRow('🐙', 'GitHub CLI',
+                                ghStatus.authenticated ? `Connected (${ghStatus.repo || '—'})` : (ghStatus.available ? 'Not authenticated' : 'Not installed'),
+                                ghStatus.authenticated ? 'ok' : 'error');
+
+                            // Current remote
+                            if (gitStatus.remote_url) {
+                                html += wizStatusRow('🌐', 'Remote URL', gitStatus.remote_url, 'muted');
+                            }
+
+                            // Current folder
+                            html += wizStatusRow('📁', 'Current Folder', data._currentCwd, 'muted');
+
+                            html += '</div>';
+
+                            // Warnings
+                            if (gitStatus.dirty) {
+                                html += `<div style="margin-top:var(--space-md);padding:var(--space-sm);background:rgba(var(--warning-rgb,234,179,8),0.08);border:1px solid var(--warning);border-radius:var(--radius-sm);font-size:0.82rem;color:var(--warning)">
+                                    ⚠ You have uncommitted changes. Consider committing or stashing before rename.
+                                </div>`;
+                            }
+
+                            if (!ghStatus.authenticated) {
+                                html += `<div style="margin-top:var(--space-md);padding:var(--space-sm);background:rgba(var(--error-rgb,239,68,68),0.08);border:1px solid var(--error);border-radius:var(--radius-sm);font-size:0.82rem;color:var(--error)">
+                                    ❌ GitHub CLI must be authenticated to rename the repository.
+                                </div>`;
+                            }
+
+                            el.innerHTML = html;
+                        } catch (e) {
+                            el.innerHTML = `<div class="wiz-step-error-panel">
+                                <span style="font-size:1.2rem">⚠️</span>
+                                <div><strong>Pre-flight failed</strong>
+                                <p style="margin:0.25rem 0 0;font-size:0.82rem;color:var(--text-muted)">${esc(e.message)}</p></div>
+                            </div>`;
+                        }
+                    },
+                    validate: (data) => {
+                        if (!data._ghStatus?.authenticated) {
+                            return 'GitHub CLI must be authenticated. Run "gh auth login" first.';
+                        }
+                        if (!data._currentSlug) {
+                            return 'No GitHub repository detected. Set up a GitHub remote first.';
+                        }
+                        return null;
+                    },
+                },
+                {
+                    id: 'name', title: 'New Name',
+                    render: (data, el) => {
+                        let html = wizSection('Choose New Name', 'Enter the new repository name.');
+
+                        html += `<div style="margin-bottom:var(--space-md)">
+                            <div style="font-size:0.78rem;font-weight:600;color:var(--text-primary);margin-bottom:var(--space-xs)">Current name</div>
+                            <div style="font-family:var(--font-mono);font-size:0.85rem;color:var(--text-secondary);padding:var(--space-xs) var(--space-sm);background:var(--bg-inset);border-radius:var(--radius-sm);display:inline-block">${esc(data._currentSlug)}</div>
+                        </div>`;
+
+                        html += `<div style="margin-bottom:var(--space-md)">
+                            <label style="font-size:0.78rem;font-weight:600;color:var(--text-primary);display:block;margin-bottom:var(--space-xs)">New repository name</label>
+                            <input type="text" id="mf-rename-new-name" class="modal-form-input"
+                                value="${esc(data.newName || '')}"
+                                placeholder="e.g. ${esc(data._currentName || 'my-project')}-v2"
+                                style="width:100%;font-family:var(--font-mono)">
+                            <span class="modal-form-hint">This renames the repo on GitHub. The owner (${esc(data._currentOwner)}) stays the same.</span>
+                        </div>`;
+
+                        // Folder rename option
+                        const parentDir = data._currentCwd.substring(0, data._currentCwd.lastIndexOf('/'));
+                        html += `<div style="margin-top:var(--space-lg);border-top:1px solid var(--border-subtle);padding-top:var(--space-md)">
+                            <div style="font-size:0.78rem;font-weight:600;color:var(--text-primary);margin-bottom:var(--space-xs)">Local folder</div>
+                            <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.82rem;color:var(--text-primary);cursor:pointer">
+                                <input type="checkbox" id="mf-rename-folder" ${data.renameFolder ? 'checked' : ''}>
+                                <span>Also rename local folder to match</span>
+                            </label>
+                            <span class="modal-form-hint">Current: <code>${esc(data._currentCwd)}</code><br>
+                            New: <code>${esc(parentDir)}/</code><code id="rename-folder-preview" style="color:var(--accent)">…</code></span>
+                        </div>`;
+
+                        el.innerHTML = html;
+
+                        // Update folder preview on name input
+                        const nameInput = document.getElementById('mf-rename-new-name');
+                        const preview = document.getElementById('rename-folder-preview');
+                        if (nameInput && preview) {
+                            const updatePreview = () => {
+                                const val = nameInput.value.trim();
+                                preview.textContent = val || '…';
+                            };
+                            nameInput.addEventListener('input', updatePreview);
+                            updatePreview();
+
+                            // Focus
+                            setTimeout(() => nameInput.focus(), 100);
+                        }
+                    },
+                    collect: (data) => {
+                        data.newName = mfVal('rename-new-name');
+                        data.renameFolder = document.getElementById('mf-rename-folder')?.checked || false;
+                    },
+                    validate: (data) => {
+                        const name = (data.newName || '').trim();
+                        if (!name) return 'Enter a new repository name.';
+                        if (name === data._currentName) return 'Name is the same as current.';
+                        if (!/^[a-zA-Z0-9._-]+$/.test(name)) return 'Name must contain only letters, numbers, hyphens, dots, and underscores.';
+                        return null;
+                    },
+                },
+                {
+                    id: 'review', title: 'Review',
+                    render: (data, el) => {
+                        const newName = data.newName.trim();
+                        const newSlug = `${data._currentOwner}/${newName}`;
+                        const oldUrl = data._gitStatus?.remote_url || '';
+                        const newUrl = oldUrl.startsWith('git@')
+                            ? `git@github.com:${newSlug}.git`
+                            : `https://github.com/${newSlug}.git`;
+
+                        data._newSlug = newSlug;
+                        data._newUrl = newUrl;
+
+                        const parentDir = data._currentCwd.substring(0, data._currentCwd.lastIndexOf('/'));
+                        data._newCwd = `${parentDir}/${newName}`;
+
+                        let html = wizSection('Review Changes', 'The following changes will be applied.');
+                        html += '<div class="wiz-status-grid">';
+                        html += wizStatusRow('🐙', 'GitHub Repo', `${data._currentSlug} → ${newSlug}`, 'ok');
+                        html += wizStatusRow('🌐', 'Remote URL', `→ ${newUrl}`, 'ok');
+
+                        if (data.renameFolder) {
+                            html += wizStatusRow('📁', 'Local Folder', `${data._currentCwd} → ${data._newCwd}`, 'warn');
+                            html += wizStatusRow('🔄', 'Server Restart', 'Required (new CWD)', 'warn');
+                        } else {
+                            html += wizStatusRow('📁', 'Local Folder', 'Not changed', 'muted');
+                        }
+                        html += '</div>';
+
+                        if (data.renameFolder) {
+                            html += `<div style="margin-top:var(--space-md);padding:var(--space-sm);background:rgba(var(--warning-rgb,234,179,8),0.08);border:1px solid var(--warning);border-radius:var(--radius-sm);font-size:0.82rem;color:var(--warning)">
+                                ⚠ Renaming the folder will restart the server. The page will reconnect automatically.
+                            </div>`;
+                        }
+
+                        html += `<div style="margin-top:var(--space-md);font-size:0.78rem;color:var(--text-muted)">
+                            <strong>What happens:</strong>
+                            <ol style="margin:var(--space-xs) 0 0;padding-left:1.5em;line-height:1.7">
+                                <li>Repository renamed on GitHub (old URLs auto-redirect)</li>
+                                <li>Local git remote URL updated</li>
+                                ${data.renameFolder ? '<li>Local folder renamed</li><li>Server restarts with new CWD</li>' : ''}
+                            </ol>
+                        </div>`;
+
+                        el.innerHTML = html;
+                    },
+                },
+            ],
+            onComplete: async (data) => {
+                const newName = data.newName.trim();
+
+                // Step 1: Rename on GitHub + update remote
+                const renameResult = await api('/gh/repo/rename', {
+                    method: 'POST',
+                    body: JSON.stringify({ new_name: newName }),
+                });
+                if (renameResult.error) throw new Error(renameResult.error);
+
+                toast(`Repository renamed: ${renameResult.old_name} → ${renameResult.new_name}`, 'success');
+
+                // Refresh cards
+                cardInvalidate('git');
+                cardInvalidate('github');
+
+                // Step 2: Folder rename + server restart (if opted in)
+                if (data.renameFolder && data._newCwd) {
+                    toast('Renaming folder and restarting server…', 'info', 5000);
+
+                    // Request server restart with new CWD
+                    // This calls os._exit(42) — the page will reconnect via SSE
+                    try {
+                        await api('/server/restart', {
+                            method: 'POST',
+                            body: JSON.stringify({ new_cwd: data._newCwd }),
+                        });
+                    } catch (_) {
+                        // Expected: the server exits, so the fetch aborts
+                    }
+                    return; // Don't try to reload cards — server is restarting
+                }
+
+                // No folder rename — just reload cards
+                if (typeof loadGitCard === 'function') setTimeout(() => loadGitCard(), 300);
+                if (typeof loadGitHubCard === 'function') setTimeout(() => loadGitHubCard(), 300);
+            },
+            successMessage: 'Project renamed successfully!',
+            finishLabel: '🚀 Rename Project',
+            finishCls: 'btn-primary',
+        });
+    }

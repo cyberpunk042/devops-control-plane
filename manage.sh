@@ -63,6 +63,112 @@ run_cli() {
     "${PYTHON}" -m "${CLI_MODULE}" "$@"
 }
 
+# ── Auto-mode (spacebar live-reload) ────────────────────────────
+
+show_compact_status() {
+    local dirty
+    dirty=$(git status --porcelain 2>/dev/null | wc -l | tr -d ' ')
+    local branch
+    branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "???")
+    local last_hash
+    last_hash=$(git log -1 --format='%h' 2>/dev/null || echo "???")
+    echo "  ${DIM}branch: ${branch}  commit: ${last_hash}  dirty: ${dirty} file(s)${RESET}"
+}
+
+web_auto() {
+    local HOST="${HOST:-127.0.0.1}"
+    local PORT="${PORT:-8000}"
+    local REBUILD_COUNT=0
+    local SERVER_PID=""
+
+    # Parse host/port from remaining args (strip --auto)
+    local ARGS=()
+    for arg in "$@"; do
+        case "$arg" in
+            --auto) ;;
+            --host)  ;; # handled by next iteration
+            --host=*) HOST="${arg#*=}" ;;
+            --port|-p) ;; # handled by next iteration
+            --port=*|-p=*) PORT="${arg#*=}" ;;
+            *) ARGS+=("$arg") ;;
+        esac
+    done
+
+    start_server() {
+        "${PYTHON}" -m "${CLI_MODULE}" web --host "$HOST" --port "$PORT" "${ARGS[@]}" &
+        SERVER_PID=$!
+        sleep 1
+    }
+
+    stop_server() {
+        if [[ -n "$SERVER_PID" ]] && kill -0 "$SERVER_PID" 2>/dev/null; then
+            kill "$SERVER_PID" 2>/dev/null
+            wait "$SERVER_PID" 2>/dev/null || true
+            SERVER_PID=""
+        fi
+    }
+
+    cleanup() {
+        stty sane 2>/dev/null || true
+        stop_server
+        echo ""
+        ok "Server stopped."
+        exit 0
+    }
+    trap cleanup INT TERM
+
+    banner
+    echo "  ${BOLD}${MAGENTA}AUTO MODE${RESET}"
+    echo ""
+    info "Dashboard: http://${HOST}:${PORT}"
+    info "[ SPACE ] Restart server    [ q ] Quit    [ Ctrl+C ] Exit"
+    echo ""
+
+    start_server
+    show_compact_status
+    echo ""
+
+    # Raw terminal mode: no echo, no canonical, 1s timeout
+    stty -echo -icanon min 0 time 10 2>/dev/null || true
+
+    while true; do
+        # Check if server is still running
+        if [[ -n "$SERVER_PID" ]] && ! kill -0 "$SERVER_PID" 2>/dev/null; then
+            stty sane 2>/dev/null || true
+            echo ""
+            warn "Server exited unexpectedly"
+            info "Press SPACE to restart or q to quit"
+            stty -echo -icanon min 0 time 10 2>/dev/null || true
+            SERVER_PID=""
+        fi
+
+        char=$(dd bs=1 count=1 2>/dev/null) || true
+
+        if [[ -z "$char" ]]; then
+            # Timeout — no keypress
+            continue
+        fi
+
+        if [[ "$char" == " " ]]; then
+            REBUILD_COUNT=$((REBUILD_COUNT + 1))
+            stty sane 2>/dev/null || true
+            echo ""
+            info "🔄 Restart #${REBUILD_COUNT} — $(date +%H:%M:%S)"
+            stop_server
+            sleep 0.3
+            start_server
+            ok "Server restarted."
+            show_compact_status
+            echo ""
+            stty -echo -icanon min 0 time 10 2>/dev/null || true
+        fi
+
+        if [[ "$char" == "q" ]] || [[ "$char" == "Q" ]]; then
+            cleanup
+        fi
+    done
+}
+
 # ── Menu ────────────────────────────────────────────────────────
 
 show_menu() {
@@ -144,6 +250,46 @@ main() {
 
     # Direct invocation: pass all args to CLI
     if [[ $# -gt 0 ]]; then
+        # Special handling for "web" command — restart loop
+        if [[ "$1" == "web" ]]; then
+            shift
+            # Check for --auto flag
+            local HAS_AUTO=false
+            for arg in "$@"; do
+                if [[ "$arg" == "--auto" ]]; then
+                    HAS_AUTO=true
+                    break
+                fi
+            done
+
+            if [[ "$HAS_AUTO" == true ]]; then
+                web_auto "$@"
+                exit $?
+            fi
+
+            while true; do
+                "${PYTHON}" -m "${CLI_MODULE}" web "$@"
+                EXIT_CODE=$?
+                if [[ $EXIT_CODE -eq 42 ]]; then
+                    # Check for .restart-signal which may contain new CWD
+                    if [[ -f ".restart-signal" ]]; then
+                        NEW_CWD=$(cat .restart-signal 2>/dev/null)
+                        rm -f .restart-signal
+                        if [[ -n "$NEW_CWD" ]] && [[ -d "$NEW_CWD" ]]; then
+                            cd "$NEW_CWD" || true
+                            info "🔄 Restarting in: $NEW_CWD"
+                        fi
+                    fi
+                    echo ""
+                    info "🔄 Server restarting..."
+                    echo ""
+                    continue
+                fi
+                break
+            done
+            exit $EXIT_CODE
+        fi
+
         run_cli "$@"
         exit $?
     fi

@@ -87,6 +87,8 @@
                 { label: 'Reconfigure', icon: '⚙️', onclick: 'openGitHubSetupWizard()', cls: 'btn-ghost' },
                 { label: 'New Environment', icon: '➕', onclick: '_ghCreateEnvModal()' },
                 { label: 'Push Secrets', icon: '⬆', onclick: '_ghPushSecrets(this)' },
+                { label: 'Rename Project', icon: '✏️', onclick: 'projectRenameWizard()', cls: 'btn-ghost' },
+                { label: 'Visibility', icon: '👁️', onclick: 'ghVisibilityToggleModal()', cls: 'btn-ghost' },
             ]);
 
             // ── Missing tools banner ──
@@ -323,3 +325,176 @@
         }
     }
 
+    /** Rename GitHub repository modal */
+    async function ghRenameRepoModal() {
+        modalOpen({
+            title: '✏️ Rename GitHub Repository',
+            body: `<div style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:var(--space-md)">
+                    <p>Rename the repository on GitHub. The local remote URL will be updated automatically.</p>
+                    <p style="color:var(--warning);margin-top:var(--space-xs)">⚠ Existing links, clones, and forks will use the old name until updated.</p>
+                </div>
+                <div style="margin-bottom:var(--space-md)">
+                    <label style="font-size:0.78rem;font-weight:600;color:var(--text-primary);display:block;margin-bottom:var(--space-xs)">New repository name</label>
+                    <input type="text" id="gh-rename-input" class="modal-form-input"
+                        placeholder="my-new-repo-name"
+                        style="width:100%"
+                        oninput="document.getElementById('gh-rename-btn').disabled = !this.value.trim()">
+                </div>`,
+            footerButtons: [
+                { label: 'Cancel', cls: 'btn-secondary', onclick: 'modalClose()' },
+                { label: 'Rename', cls: 'btn-primary', id: 'gh-rename-btn', onclick: 'doGhRenameRepo()', disabled: true },
+            ],
+        });
+
+        // Focus input
+        setTimeout(() => {
+            const input = document.getElementById('gh-rename-input');
+            if (input) input.focus();
+        }, 100);
+
+        window.doGhRenameRepo = async function() {
+            const btn = document.getElementById('gh-rename-btn');
+            const input = document.getElementById('gh-rename-input');
+            const newName = input?.value?.trim();
+            if (!newName) {
+                toast('Enter a new name', 'warning');
+                return;
+            }
+
+            if (btn) { btn.disabled = true; btn.textContent = 'Renaming…'; }
+
+            try {
+                const data = await api('/gh/repo/rename', {
+                    method: 'POST',
+                    body: JSON.stringify({ new_name: newName }),
+                });
+
+                if (data.error) throw new Error(data.error);
+
+                toast(`Repository renamed: ${data.old_name} → ${data.new_name}`, 'success');
+                modalClose();
+                cardInvalidate('git');
+                cardInvalidate('github');
+                if (typeof loadGitCard === 'function') setTimeout(() => loadGitCard(), 300);
+                if (typeof loadGitHubCard === 'function') setTimeout(() => loadGitHubCard(), 300);
+            } catch (e) {
+                toast('Rename failed: ' + e.message, 'error');
+                if (btn) { btn.disabled = false; btn.textContent = 'Rename'; }
+            }
+        };
+    }
+
+    /** Visibility toggle — confirmation modal with safety warnings */
+    async function ghVisibilityToggleModal() {
+        // Fetch current repo info
+        let repoInfo;
+        try {
+            repoInfo = await api('/gh/repo/info');
+        } catch (e) {
+            toast('Failed to fetch repo info: ' + e.message, 'error');
+            return;
+        }
+
+        if (!repoInfo.available) {
+            toast(repoInfo.error || 'Repository info not available', 'error');
+            return;
+        }
+
+        const currentVis = (repoInfo.visibility || 'PRIVATE').toUpperCase();
+        const targetVis = currentVis === 'PUBLIC' ? 'PRIVATE' : 'PUBLIC';
+        const isGoingPublic = targetVis === 'PUBLIC';
+        const slug = repoInfo.slug || '';
+
+        const warningHtml = isGoingPublic
+            ? `<div style="margin-top:var(--space-md);padding:var(--space-sm) var(--space-md);background:rgba(var(--warning-rgb,234,179,8),0.08);border:1px solid var(--warning);border-radius:var(--radius-sm);font-size:0.82rem">
+                <div style="color:var(--warning);font-weight:600;margin-bottom:var(--space-xs)">⚠ Making a repository PUBLIC means:</div>
+                <ul style="margin:0;padding-left:1.3em;line-height:1.7;color:var(--text-secondary)">
+                    <li>Anyone on the internet can view, clone, and fork the source code</li>
+                    <li>All commit history, issues, and pull requests become visible</li>
+                    <li>Search engines will index the repository</li>
+                    <li>Any secrets in history become exposed — consider scrubbing first</li>
+                </ul>
+               </div>`
+            : `<div style="margin-top:var(--space-md);padding:var(--space-sm) var(--space-md);background:rgba(var(--accent-rgb,99,102,241),0.08);border:1px solid var(--accent);border-radius:var(--radius-sm);font-size:0.82rem">
+                <div style="color:var(--accent);font-weight:600;margin-bottom:var(--space-xs)">ℹ Making a repository PRIVATE means:</div>
+                <ul style="margin:0;padding-left:1.3em;line-height:1.7;color:var(--text-secondary)">
+                    <li>Only you and collaborators can access the repo</li>
+                    <li>Existing forks may be detached</li>
+                    <li>GitHub Pages will be disabled (if not on a paid plan)</li>
+                </ul>
+               </div>`;
+
+        const btnStyle = isGoingPublic
+            ? 'background:var(--warning);color:var(--bg-body)'
+            : '';
+        const btnLabel = isGoingPublic ? '🌐 Make PUBLIC' : '🔒 Make PRIVATE';
+
+        modalOpen({
+            title: '👁️ Change Repository Visibility',
+            body: `<div style="font-size:0.85rem;color:var(--text-secondary)">
+                    <div style="display:flex;align-items:center;gap:var(--space-md);margin-bottom:var(--space-md)">
+                        <div style="flex:1">
+                            <div style="font-size:0.72rem;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted);margin-bottom:var(--space-xs)">Repository</div>
+                            <div style="font-family:var(--font-mono);font-size:0.85rem;color:var(--text-primary)">${esc(slug)}</div>
+                        </div>
+                    </div>
+                    <div style="display:flex;align-items:center;justify-content:center;gap:var(--space-lg);padding:var(--space-md) 0">
+                        <div style="text-align:center">
+                            <div style="font-size:1.5rem">${currentVis === 'PUBLIC' ? '🌐' : '🔒'}</div>
+                            <div style="font-size:0.78rem;font-weight:600;margin-top:var(--space-xs);color:var(--text-primary)">${currentVis}</div>
+                            <div style="font-size:0.72rem;color:var(--text-muted)">Current</div>
+                        </div>
+                        <div style="font-size:1.5rem;color:var(--text-muted)">→</div>
+                        <div style="text-align:center">
+                            <div style="font-size:1.5rem">${targetVis === 'PUBLIC' ? '🌐' : '🔒'}</div>
+                            <div style="font-size:0.78rem;font-weight:600;margin-top:var(--space-xs);color:${isGoingPublic ? 'var(--warning)' : 'var(--accent)'}">${targetVis}</div>
+                            <div style="font-size:0.72rem;color:var(--text-muted)">New</div>
+                        </div>
+                    </div>
+                </div>
+                ${warningHtml}
+                <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.82rem;color:var(--text-primary);cursor:pointer;margin-top:var(--space-md)">
+                    <input type="checkbox" id="gh-vis-confirm">
+                    <span>I understand and want to change visibility to <strong>${targetVis}</strong></span>
+                </label>`,
+            footerButtons: [
+                { label: 'Cancel', cls: 'btn-secondary', onclick: 'modalClose()' },
+                { label: btnLabel, cls: 'btn-primary', id: 'gh-vis-btn', onclick: 'doGhVisibilityToggle()', disabled: true, style: btnStyle },
+            ],
+        });
+
+        // Enable button only when confirmed
+        const checkbox = document.getElementById('gh-vis-confirm');
+        const btn = document.getElementById('gh-vis-btn');
+        if (checkbox && btn) {
+            checkbox.addEventListener('change', () => {
+                btn.disabled = !checkbox.checked;
+            });
+        }
+
+        window.doGhVisibilityToggle = async function() {
+            if (!document.getElementById('gh-vis-confirm')?.checked) {
+                toast('Please confirm the visibility change', 'warning');
+                return;
+            }
+
+            if (btn) { btn.disabled = true; btn.textContent = 'Changing…'; }
+
+            try {
+                const data = await api('/gh/repo/visibility', {
+                    method: 'POST',
+                    body: JSON.stringify({ visibility: targetVis.toLowerCase() }),
+                });
+
+                if (data.error) throw new Error(data.error);
+
+                toast(`Repository is now ${data.visibility || targetVis}`, 'success');
+                modalClose();
+                cardInvalidate('github');
+                if (typeof loadGitHubCard === 'function') setTimeout(() => loadGitHubCard(), 300);
+            } catch (e) {
+                toast('Visibility change failed: ' + e.message, 'error');
+                if (btn) { btn.disabled = false; btn.textContent = esc(btnLabel); }
+            }
+        };
+    }

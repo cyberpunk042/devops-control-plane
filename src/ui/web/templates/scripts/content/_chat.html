@@ -351,7 +351,7 @@ function chatRenderThreadList(threads) {
     const isActive = t.thread_id === _chatSelectedThread;
     const isGeneral = t.title === 'General';
     const icon = isGeneral ? '&#x1F4CC;' : (t.anchor_run ? '&#x1F517;' : '&#x1F4AC;');
-    const relTime = _chatRelativeTime(t.created_at);
+    const relTime = _chatRelativeTime(t.last_message_at || t.created_at);
     const msgCount = t.message_count || 0;
     let tagBadges = '';
     const tags = (t.tags || []).slice(0, 3);
