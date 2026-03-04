@@ -141,19 +141,7 @@ def resolve_file_to_segments(
         if not rel_path:
             continue
 
-        # Strip .md / .mdx extension for URL
-        doc_slug = rel_path
-        for ext in [".mdx", ".md"]:
-            if doc_slug.endswith(ext):
-                doc_slug = doc_slug[:-len(ext)]
-                break
-
-        # Handle index pages
-        if doc_slug == "index":
-            doc_slug = ""
-        elif doc_slug.endswith("/index"):
-            doc_slug = doc_slug[:-6]
-
+        doc_slug = _file_to_slug(rel_path)
         preview_url = (
             f"/pages/site/{seg.name}/{doc_slug}"
             if doc_slug
@@ -166,6 +154,109 @@ def resolve_file_to_segments(
             "preview_url": preview_url,
             "built": bool(build),
         })
+
+    # ── Smart folder fallback ────────────────────────────────────
+    # If no direct match, check if the file is inside a smart folder
+    # source. If so, compute the staged path using module mapping
+    # (mirrors the staging logic in docusaurus._stage_source).
+    if not matches:
+        matches = _resolve_via_smart_folders(project_root, file_path, segments)
+
+    return matches
+
+
+def _file_to_slug(rel_path: str) -> str:
+    """Convert a file-relative path to a Docusaurus URL slug."""
+    doc_slug = rel_path
+    for ext in [".mdx", ".md"]:
+        if doc_slug.endswith(ext):
+            doc_slug = doc_slug[:-len(ext)]
+            break
+
+    # Handle index / README pages (Docusaurus treats both as directory index)
+    if doc_slug in ("index", "README"):
+        doc_slug = ""
+    elif doc_slug.endswith("/index"):
+        doc_slug = doc_slug[:-6]
+    elif doc_slug.endswith("/README"):
+        doc_slug = doc_slug[:-7]
+
+    return doc_slug
+
+
+def _resolve_via_smart_folders(
+    project_root: Path,
+    file_path: str,
+    segments: list,
+) -> list[dict]:
+    """Resolve a source file through smart folder → module mapping.
+
+    When a file like ``src/ui/cli/audit/README.md`` is inside a smart
+    folder source, compute the path as it would be staged in the
+    Docusaurus build: ``<module_name>/<module_relative_path>``.
+    Then match that against segments whose source equals the smart
+    folder target/name.
+    """
+    try:
+        from src.core.services.config_ops import read_config
+        from src.core.services.smart_folders import _match_module
+    except ImportError:
+        return []
+
+    cfg = read_config(project_root).get("config", {})
+    smart_list = cfg.get("smart_folders", [])
+    modules = cfg.get("modules", [])
+
+    if not smart_list:
+        return []
+
+    matches = []
+    for sf in smart_list:
+        sf_name = sf.get("name", "")
+        sf_target = sf.get("target", "")
+        sources = sf.get("sources", [])
+
+        # Check if file_path is within any of this smart folder's sources
+        for src in sources:
+            src_path = src.get("path", "").rstrip("/")
+            if not src_path:
+                continue
+            if not file_path.startswith(src_path + "/"):
+                continue
+
+            # File is in this smart folder source — compute staged path
+            mod, mod_rel = _match_module(file_path, modules)
+            mod_name = mod["name"] if mod else "other"
+
+            # Staged path: <module_name>/<module_relative_path>
+            # (mirrors docusaurus._stage_source → _copy_tree_files)
+            staged_rel = f"{mod_name}/{mod_rel}" if mod_rel else mod_name
+
+            # Find segment matching this smart folder
+            for seg in segments:
+                seg_source = seg.source.rstrip("/")
+                if seg_source != sf_target and seg_source != sf_name:
+                    continue
+
+                build = get_build_status(project_root, seg.name)
+                if not build:
+                    continue
+
+                doc_slug = _file_to_slug(staged_rel)
+                preview_url = (
+                    f"/pages/site/{seg.name}/{doc_slug}"
+                    if doc_slug
+                    else f"/pages/site/{seg.name}/"
+                )
+
+                matches.append({
+                    "segment": seg.name,
+                    "builder": seg.builder,
+                    "preview_url": preview_url,
+                    "built": bool(build),
+                })
+
+            break  # matched a source, done with this smart folder
 
     return matches
 
