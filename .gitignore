@@ -50,3 +50,6 @@ Thumbs.db
 
 # SCP Ledger worktree (Phase 1A)
 .ledger/
+
+# Artifact build workspace
+.artifacts/

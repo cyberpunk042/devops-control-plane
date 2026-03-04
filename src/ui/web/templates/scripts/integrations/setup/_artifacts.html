@@ -1,0 +1,214 @@
+<!-- Integrations — Artifacts Setup Wizard
+     Full setup wizard for artifact build targets.
+     Called from the Artifacts card "Full Setup" button.
+     Depends on: _wizard/_modal.html (wizardModalOpen, wizSection, wizStatusRow)
+-->
+<script>
+
+    // ── Artifacts Setup Wizard ──────────────────────────────────────
+
+    function openArtifactsSetupWizard() {
+
+        let _candidates = null;
+
+        wizardModalOpen({
+            title: '📦 Artifacts Setup',
+            assistantContext: 'setup/artifacts',
+            size: 'wide',
+            steps: [
+
+                // ══════════════════════════════════════════════════════
+                // Step 1: Detect — scan project for buildable targets
+                // ══════════════════════════════════════════════════════
+                {
+                    label: 'Detect',
+                    render: async (body, data) => {
+                        body.innerHTML = wizSection('Scanning project…', '<span class="spinner"></span>');
+
+                        try {
+                            const res = await api('/artifacts/detect', { method: 'POST' });
+                            _candidates = res.candidates || [];
+
+                            if (_candidates.length === 0) {
+                                body.innerHTML = wizSection('Detection Results',
+                                    `<p style="color:var(--text-muted)">No buildable targets detected in this project.</p>
+                                     <p style="color:var(--text-muted);font-size:0.8rem;margin-top:var(--space-sm)">
+                                       The scanner looks for: Makefile, pyproject.toml, Dockerfile, and scripts in scripts/
+                                     </p>`
+                                );
+                                return;
+                            }
+
+                            const rows = _candidates.map((c, i) => {
+                                const confBadge = c.confidence === 'high'
+                                    ? '<span style="color:var(--success);font-size:0.7rem">●</span>'
+                                    : '<span style="color:var(--warning);font-size:0.7rem">◐</span>';
+
+                                const alreadyBadge = c.already_configured
+                                    ? ' <span style="font-size:0.62rem;padding:0.05rem 0.3rem;border:1px solid var(--accent);border-radius:3px;color:var(--accent)">configured</span>'
+                                    : '';
+
+                                const kindColors = {
+                                    local: 'var(--success)',
+                                    package: '#818cf8',
+                                    bundle: 'var(--warning)',
+                                    container: '#06b6d4',
+                                };
+                                const kindColor = kindColors[c.kind] || 'var(--text-muted)';
+
+                                return `
+                                <div style="display:flex;align-items:center;gap:0.5rem;padding:0.5rem 0;border-bottom:1px solid var(--border-subtle);font-size:0.82rem">
+                                    <input type="checkbox" id="artc-${i}" ${c.already_configured ? 'disabled' : 'checked'}
+                                        data-candidate-idx="${i}" style="margin:0">
+                                    ${confBadge}
+                                    <label for="artc-${i}" style="font-weight:600;cursor:pointer">${esc(c.name)}</label>
+                                    <span style="font-size:0.62rem;padding:0.05rem 0.35rem;border:1px solid ${kindColor};border-radius:3px;color:${kindColor}">${esc(c.kind)}</span>
+                                    <span style="background:var(--bg-inset);border:1px solid var(--border-subtle);border-radius:4px;padding:0 0.4rem;font-size:0.68rem;color:var(--accent)">${esc(c.builder)}</span>
+                                    ${alreadyBadge}
+                                    <span style="color:var(--text-muted);font-size:0.68rem;margin-left:auto">${esc(c.detected_from)}</span>
+                                </div>`;
+                            }).join('');
+
+                            body.innerHTML = wizSection('Detection Results',
+                                `<p style="color:var(--text-muted);font-size:0.82rem;margin-bottom:var(--space-sm)">
+                                    Found <strong>${_candidates.length}</strong> buildable target${_candidates.length > 1 ? 's' : ''}.
+                                    Select which to configure:
+                                </p>
+                                ${rows}`
+                            );
+
+                        } catch (e) {
+                            body.innerHTML = wizSection('Error',
+                                `<p style="color:var(--error)">${esc(e.message)}</p>`
+                            );
+                        }
+                    },
+                    validate: () => {
+                        if (!_candidates || _candidates.length === 0) {
+                            return 'No candidates found. Check your project structure.';
+                        }
+                        // At least one checked
+                        const checks = document.querySelectorAll('[data-candidate-idx]:checked');
+                        if (checks.length === 0) {
+                            return 'Select at least one target to configure.';
+                        }
+                        return true;
+                    },
+                },
+
+                // ══════════════════════════════════════════════════════
+                // Step 2: Configure — review selected targets
+                // ══════════════════════════════════════════════════════
+                {
+                    label: 'Configure',
+                    render: async (body, data) => {
+                        // Collect selected candidates
+                        const checks = document.querySelectorAll('[data-candidate-idx]:checked');
+                        const selected = [];
+                        checks.forEach(cb => {
+                            const idx = parseInt(cb.dataset.candidateIdx);
+                            if (_candidates[idx]) selected.push(_candidates[idx]);
+                        });
+                        data._selected = selected;
+
+                        const detailRows = selected.map((c, i) => {
+                            const cmd = c.build_cmd || `make ${c.build_target}`;
+                            const modules = c.modules || [];
+
+                            return `
+                            <div style="border:1px solid var(--border-subtle);border-radius:var(--radius-sm);padding:var(--space-sm);margin-bottom:var(--space-sm)">
+                                <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.3rem">
+                                    <span style="font-weight:600;font-size:0.85rem">${esc(c.name)}</span>
+                                    <span style="font-size:0.62rem;padding:0.05rem 0.3rem;border:1px solid var(--accent);border-radius:3px;color:var(--accent)">${esc(c.kind)}</span>
+                                    <span style="font-size:0.62rem;padding:0.05rem 0.3rem;border:1px solid var(--success);border-radius:3px;color:var(--success)">${esc(c.builder)}</span>
+                                </div>
+                                <div style="font-size:0.78rem;color:var(--text-muted);margin-bottom:0.3rem">${esc(c.description)}</div>
+                                <div style="font-size:0.72rem">
+                                    <span style="color:var(--text-muted)">Command:</span>
+                                    <code style="background:var(--bg-inset);padding:0.1rem 0.3rem;border-radius:3px;font-size:0.7rem">${esc(cmd)}</code>
+                                </div>
+                                ${c.output_dir ? `
+                                <div style="font-size:0.72rem;margin-top:0.15rem">
+                                    <span style="color:var(--text-muted)">Output:</span>
+                                    <code style="background:var(--bg-inset);padding:0.1rem 0.3rem;border-radius:3px;font-size:0.7rem">${esc(c.output_dir)}</code>
+                                </div>` : ''}
+                            </div>`;
+                        }).join('');
+
+                        body.innerHTML = wizSection('Configure Targets',
+                            `<p style="color:var(--text-muted);font-size:0.82rem;margin-bottom:var(--space-sm)">
+                                Review the <strong>${selected.length}</strong> target${selected.length > 1 ? 's' : ''} to be added:
+                            </p>
+                            ${detailRows}`
+                        );
+                    },
+                    validate: () => true,
+                },
+
+                // ══════════════════════════════════════════════════════
+                // Step 3: Apply — save to project.yml
+                // ══════════════════════════════════════════════════════
+                {
+                    label: 'Apply',
+                    render: async (body, data) => {
+                        const selected = data._selected || [];
+                        body.innerHTML = wizSection('Applying…', '<span class="spinner"></span>');
+
+                        let added = 0;
+                        let skipped = 0;
+                        const results = [];
+
+                        for (const c of selected) {
+                            if (c.already_configured) {
+                                skipped++;
+                                results.push(wizStatusRow(c.name, 'skipped', 'Already configured'));
+                                continue;
+                            }
+
+                            try {
+                                await api('/artifacts/targets', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({
+                                        name: c.name,
+                                        kind: c.kind,
+                                        builder: c.builder,
+                                        build_target: c.build_target || '',
+                                        build_cmd: c.build_cmd || '',
+                                        output_dir: c.output_dir || 'dist/',
+                                        description: c.description || '',
+                                        config: {},
+                                    }),
+                                });
+                                added++;
+                                results.push(wizStatusRow(c.name, 'ok', 'Added'));
+                            } catch (e) {
+                                if (e.message && e.message.includes('already exists')) {
+                                    skipped++;
+                                    results.push(wizStatusRow(c.name, 'skipped', 'Already exists'));
+                                } else {
+                                    results.push(wizStatusRow(c.name, 'error', e.message || 'Failed'));
+                                }
+                            }
+                        }
+
+                        const summary = added > 0
+                            ? `✅ Added <strong>${added}</strong> target${added > 1 ? 's' : ''}${skipped > 0 ? ` (${skipped} skipped)` : ''}.`
+                            : `No new targets added${skipped > 0 ? ` (${skipped} already configured)` : ''}.`;
+
+                        body.innerHTML = wizSection('Results',
+                            `<p style="font-size:0.82rem;margin-bottom:var(--space-sm)">${summary}</p>
+                             ${results.join('')}`
+                        );
+
+                        // Refresh the card
+                        cardInvalidate('artifacts');
+                        loadArtifactsCard();
+                    },
+                    validate: () => true,
+                },
+            ],
+        });
+    }
+
+</script>

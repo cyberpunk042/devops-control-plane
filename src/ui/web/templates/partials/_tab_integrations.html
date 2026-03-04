@@ -119,20 +119,39 @@
 
     </div>
 
-    <!-- ── GitHub Pages Card (full-width) ──────────────────────── -->
-    <div class="card" id="int-pages-card" style="margin-top:var(--space-lg)">
-        <div class="card-header">
-            <span class="card-title">📄 GitHub Pages</span>
-            <div style="display:flex;align-items:center;gap:0.4rem">
-                <span class="card-age" data-cache-key="pages" style="font-size:0.64rem;color:var(--text-muted)"></span>
-                <button class="btn-icon" onclick="cardRefresh('pages','int-pages-badge','int-pages-detail',loadPagesCard)" title="Refresh" style="font-size:0.7rem;cursor:pointer;background:none;border:none;color:var(--text-muted);padding:0">🔄</button>
-                <span class="status-badge" id="int-pages-badge">—</span>
-                <span class="audit-pending-badge" data-audit-key="pages" onclick="openAuditManager(this.dataset.auditKey)" title="Unsaved audit — click to manage" style="display:none">📋</span>
+    <!-- ── Build Cards (Pages + Artifacts, side by side) ──────── -->
+    <div class="build-cards">
+        <!-- Pages half -->
+        <div class="card" id="int-pages-card">
+            <div class="card-header">
+                <span class="card-title">📄 Pages</span>
+                <div style="display:flex;align-items:center;gap:0.4rem">
+                    <span class="card-age" data-cache-key="pages" style="font-size:0.64rem;color:var(--text-muted)"></span>
+                    <button class="btn-icon" onclick="cardRefresh('pages','int-pages-badge','int-pages-detail',loadPagesCard)" title="Refresh" style="font-size:0.7rem;cursor:pointer;background:none;border:none;color:var(--text-muted);padding:0">🔄</button>
+                    <span class="status-badge" id="int-pages-badge">—</span>
+                    <span class="audit-pending-badge" data-audit-key="pages" onclick="openAuditManager(this.dataset.auditKey)" title="Unsaved audit — click to manage" style="display:none">📋</span>
+                </div>
+            </div>
+            <div class="card-subtitle">Static site segments</div>
+            <div id="int-pages-detail" class="integration-detail" style="margin-top:var(--space-md)">
+                <span class="spinner"></span>
             </div>
         </div>
-        <div class="card-subtitle">Multi-segment static site builder</div>
-        <div id="int-pages-detail" class="integration-detail" style="margin-top:var(--space-md)">
-            <span class="spinner"></span>
+
+        <!-- Artifacts half -->
+        <div class="card" id="int-artifacts-card">
+            <div class="card-header">
+                <span class="card-title">📦 Artifacts</span>
+                <div style="display:flex;align-items:center;gap:0.4rem">
+                    <span class="card-age" data-cache-key="artifacts" style="font-size:0.64rem;color:var(--text-muted)"></span>
+                    <button class="btn-icon" onclick="cardRefresh('artifacts','int-artifacts-badge','int-artifacts-detail',loadArtifactsCard)" title="Refresh" style="font-size:0.7rem;cursor:pointer;background:none;border:none;color:var(--text-muted);padding:0">🔄</button>
+                    <span class="status-badge" id="int-artifacts-badge">—</span>
+                </div>
+            </div>
+            <div class="card-subtitle">Build targets &amp; distribution</div>
+            <div id="int-artifacts-detail" class="integration-detail" style="margin-top:var(--space-md)">
+                <span class="spinner"></span>
+            </div>
         </div>
     </div>
 

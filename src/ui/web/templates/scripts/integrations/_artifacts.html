@@ -1,0 +1,225 @@
+/* Integrations Tab JS — Artifacts Card
+     loadArtifactsCard(), target display, build actions.
+     Depends on: _integrations_init.html (card registry)
+*/
+    // ── Artifacts Card ──────────────────────────────────────────────
+
+    async function loadArtifactsCard() {
+        const badge = document.getElementById('int-artifacts-badge');
+        const detail = document.getElementById('int-artifacts-detail');
+
+        try {
+            const cached = cardCached('artifacts');
+            let data;
+            if (cached) {
+                data = cached;
+            } else {
+                data = await api('/artifacts/targets');
+                cardStore('artifacts', data);
+            }
+
+            const targets = data.targets || [];
+
+            if (targets.length === 0) {
+                badge.className = 'status-badge degraded';
+                badge.innerHTML = '<span class="status-dot"></span>No targets';
+                detail.innerHTML = `
+                <div style="text-align:center;padding:var(--space-lg)">
+                    <p style="color:var(--text-muted);margin-bottom:var(--space-md)">No artifact targets configured yet.</p>
+                    <div style="display:flex;gap:var(--space-sm);justify-content:center;flex-wrap:wrap">
+                        <button class="btn btn-sm btn-primary" onclick="openSetupWizard('artifacts')" title="Setup artifact build targets">🚀 Full Setup</button>
+                        <button class="btn btn-sm btn-secondary" onclick="addArtifactTargetModal()" title="Manually add a target">+ Add Target</button>
+                    </div>
+                </div>`;
+                return;
+            }
+
+            // Count built targets
+            const built = targets.filter(t => t.build).length;
+            const total = targets.length;
+            badge.className = built === total && built > 0 ? 'status-badge ok' : 'status-badge degraded';
+            badge.innerHTML = `<span class="status-dot"></span>${built}/${total} built`;
+
+            // ── Target rows ──
+            const listHtml = targets.map(t => {
+                const buildInfo = t.build;
+                const buildOk = !!buildInfo;
+                const buildAgo = buildInfo ? _timeAgo(buildInfo.built_at) : '';
+                const duration = buildInfo ? `${buildInfo.duration_ms}ms` : '';
+                const timeInfo = buildAgo ? `${buildAgo}${duration ? ' · ' + duration : ''}` : '';
+
+                // Kind badge
+                const kindColors = {
+                    local: 'var(--success)',
+                    package: '#818cf8',
+                    bundle: 'var(--warning)',
+                    script: 'var(--text-muted)',
+                    container: '#06b6d4',
+                };
+                const kindColor = kindColors[t.kind] || 'var(--text-muted)';
+
+                // Status dots: configured → built
+                const dotsHtml = `
+                    <span title="Configured" style="color:var(--success)">●</span>
+                    <span style="color:var(--text-muted);font-size:0.5rem">→</span>
+                    <span title="Built" style="color:${buildOk ? 'var(--success)' : 'var(--text-muted)'}">●</span>`;
+
+                return `
+                <div style="display:flex;align-items:center;gap:0.5rem;padding:0.5rem 0;border-bottom:1px solid var(--border-subtle);font-size:0.82rem" data-artifact-row="${esc(t.name)}">
+                    <span style="display:flex;gap:0.15rem;align-items:center;flex-shrink:0;font-size:0.6rem">${dotsHtml}</span>
+                    <span style="font-weight:600;min-width:60px">${esc(t.name)}</span>
+                    <span style="font-size:0.62rem;padding:0.05rem 0.35rem;border:1px solid ${kindColor};border-radius:3px;color:${kindColor}">${esc(t.kind)}</span>
+                    <span style="background:var(--bg-inset);border:1px solid var(--border-subtle);border-radius:4px;padding:0 0.4rem;font-size:0.68rem;color:var(--accent)">${esc(t.builder)}</span>
+                    <span style="color:var(--text-muted);font-size:0.68rem;margin-left:auto">${timeInfo}</span>
+                    <button class="btn btn-sm btn-ghost" onclick="buildArtifactTarget('${esc(t.name)}')" title="Build" style="padding:0.1rem 0.3rem;font-size:0.72rem">🔨</button>
+                    <button class="btn btn-sm btn-ghost" onclick="removeArtifactTarget('${esc(t.name)}')" title="Remove" style="padding:0.1rem 0.3rem;font-size:0.72rem;color:var(--error)">✕</button>
+                </div>`;
+            }).join('');
+
+            // ── Pipeline actions ──
+            const pipelineHtml = `
+            <div style="margin-top:var(--space-md)">
+                <div style="display:flex;align-items:center;gap:0.4rem;margin-bottom:var(--space-sm)">
+                    <span style="font-size:0.72rem;font-weight:600;color:var(--text-muted)">Pipeline:</span>
+                    <span style="font-size:0.72rem;color:var(--text-muted)">Targets</span>
+                    <span style="font-size:0.6rem;color:var(--text-muted)">→</span>
+                    <span style="font-size:0.72rem;color:${built > 0 ? 'var(--success)' : 'var(--text-muted)'}">Build</span>
+                    <span style="font-size:0.6rem;color:var(--text-muted)">→</span>
+                    <span style="font-size:0.72rem;color:var(--text-muted)">Distribute</span>
+                </div>
+                <div style="display:flex;gap:var(--space-sm);flex-wrap:wrap">
+                    <button class="btn btn-sm btn-secondary" onclick="addArtifactTargetModal()">+ Target</button>
+                    <button class="btn btn-sm btn-secondary" onclick="buildAllArtifacts()">🔨 Build All</button>
+                    <button class="btn btn-sm btn-ghost" onclick="openSetupWizard('artifacts')" title="Setup wizard" style="margin-left:auto">🚀 Full Setup</button>
+                </div>
+            </div>`;
+
+            // ── Builders row ──
+            const builderTypes = [...new Set(targets.map(t => t.builder))];
+            const builderChips = builderTypes.map(b =>
+                `<span style="font-size:0.68rem;padding:0.1rem 0.4rem;border:1px solid var(--success);border-radius:4px;color:var(--success)">✓ ${esc(b)}</span>`
+            ).join(' ');
+            const buildersHtml = builderChips
+                ? `<div style="margin-top:var(--space-sm);display:flex;gap:0.3rem;align-items:center;flex-wrap:wrap"><span style="font-size:0.68rem;color:var(--text-muted)">Builders:</span> ${builderChips}</div>`
+                : '';
+
+            detail.innerHTML = `
+            <div style="font-size:0.85rem;color:var(--text-secondary)">
+                ${listHtml}
+                ${pipelineHtml}
+                ${buildersHtml}
+            </div>`;
+
+        } catch (e) {
+            badge.className = 'status-badge failed';
+            badge.innerHTML = '<span class="status-dot"></span>Error';
+            detail.innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(e.message)}</p>`;
+        }
+    }
+
+    // ── Artifact actions ──
+
+    async function removeArtifactTarget(name) {
+        if (!confirm(`Remove artifact target "${name}"?`)) return;
+        try {
+            await api(`/artifacts/targets/${name}`, { method: 'DELETE' });
+            toast(`Removed target: ${name}`, 'success');
+            cardInvalidate('artifacts');
+            loadArtifactsCard();
+        } catch (e) {
+            toast(`Error: ${e.message}`, 'error');
+        }
+    }
+
+    function addArtifactTargetModal() {
+        toast('Add artifact target — coming soon', 'info');
+    }
+
+    function buildArtifactTarget(name) {
+        // Show build log panel
+        const card = document.getElementById('int-artifacts-card');
+        let logPanel = document.getElementById('artifact-build-log');
+        if (!logPanel) {
+            logPanel = document.createElement('div');
+            logPanel.id = 'artifact-build-log';
+            logPanel.style.cssText = 'margin-top:var(--space-md);background:var(--bg-inset);border:1px solid var(--border-subtle);border-radius:var(--radius-sm);padding:0.5rem;max-height:300px;overflow-y:auto;font-family:var(--font-mono);font-size:0.7rem;line-height:1.5;color:var(--text-secondary)';
+            card.appendChild(logPanel);
+        }
+        logPanel.innerHTML = `<div style="color:var(--text-muted);font-style:italic">⏳ Building ${esc(name)}…</div>`;
+        logPanel.style.display = 'block';
+
+        // Disable build buttons during build
+        const btns = card.querySelectorAll('button[onclick*="buildArtifact"]');
+        btns.forEach(b => { b.disabled = true; });
+
+        // SSE stream
+        fetch(`/api/artifacts/build/${encodeURIComponent(name)}/stream`, { method: 'POST' })
+            .then(response => {
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
+
+                function read() {
+                    reader.read().then(({ done, value }) => {
+                        if (done) {
+                            _artifactBuildDone(name, card, btns);
+                            return;
+                        }
+                        buffer += decoder.decode(value, { stream: true });
+                        const lines = buffer.split('\n');
+                        buffer = lines.pop(); // Keep incomplete line in buffer
+
+                        for (const raw of lines) {
+                            if (!raw.startsWith('data: ')) continue;
+                            const line = raw.slice(6);
+                            if (line === '__done__') {
+                                _artifactBuildDone(name, card, btns);
+                                return;
+                            }
+                            if (line.startsWith('__BUILD_RESULT__:')) {
+                                // Parse result but don't display as log
+                                continue;
+                            }
+                            const div = document.createElement('div');
+                            // Color success/error lines
+                            if (line.startsWith('✅')) div.style.color = 'var(--success)';
+                            else if (line.startsWith('❌')) div.style.color = 'var(--error)';
+                            else if (line.startsWith('━━━')) {
+                                div.style.color = 'var(--accent)';
+                                div.style.fontWeight = '600';
+                            }
+                            div.textContent = line;
+                            logPanel.appendChild(div);
+                            logPanel.scrollTop = logPanel.scrollHeight;
+                        }
+                        read();
+                    });
+                }
+                read();
+            })
+            .catch(err => {
+                logPanel.innerHTML += `<div style="color:var(--error)">❌ Stream error: ${esc(err.message)}</div>`;
+                btns.forEach(b => { b.disabled = false; });
+            });
+    }
+
+    function _artifactBuildDone(name, card, btns) {
+        btns.forEach(b => { b.disabled = false; });
+        cardInvalidate('artifacts');
+        loadArtifactsCard();
+        toast(`Build complete: ${name}`, 'success');
+    }
+
+    async function buildAllArtifacts() {
+        try {
+            const data = await api('/artifacts/targets');
+            const targets = data.targets || [];
+            for (const t of targets) {
+                buildArtifactTarget(t.name);
+                // Wait a bit between builds to avoid overlap
+                await new Promise(r => setTimeout(r, 500));
+            }
+        } catch (e) {
+            toast(`Error: ${e.message}`, 'error');
+        }
+    }

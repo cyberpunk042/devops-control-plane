@@ -437,6 +437,13 @@ body {
     margin-bottom: var(--space-xl);
 }
 
+.build-cards {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--space-lg);
+    margin-top: var(--space-lg);
+}
+
 .card {
     background: var(--bg-card);
     border: 1px solid var(--border);
@@ -2889,6 +2896,10 @@ body {
     }
 
     .card-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .build-cards {
         grid-template-columns: 1fr;
     }
 
