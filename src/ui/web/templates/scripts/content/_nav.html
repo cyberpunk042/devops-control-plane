@@ -437,9 +437,23 @@ focusLine = parseInt(viewMode.substring(colonIdx + 1), 10) || 0;
 viewMode = viewMode.substring(0, colonIdx);
 }
 window._contentFocusLine = focusLine;
-// Set the folder context from the file path (first segment)
-const folderRoot = filePath.split('/')[0];
-contentCurrentPath = folderRoot;
+// Set the folder context from the file path
+// Check if this file is inside a smart folder source
+let folderContext = filePath.split('/')[0];
+if (_smartFolders) {
+    for (const sf of _smartFolders) {
+        for (const src of (sf.sources || [])) {
+            const prefix = (src.path || '').replace(/\/$/, '');
+            if (prefix && filePath.startsWith(prefix + '/')) {
+                folderContext = (sf.target === sf.name) ? sf.name : sf.target + '/' + sf.name;
+                _smartFolderActive = { ...sf, _smartRoot: folderContext };
+                break;
+            }
+        }
+        if (_smartFolderActive) break;
+    }
+}
+contentCurrentPath = folderContext;
 // Set view mode state before opening preview
 if (viewMode === 'edit') {
 previewEditMode = true;
@@ -456,7 +470,7 @@ renderContentFolderBar();
 const sel = document.getElementById('content-folder-select');
 if (sel) {
 for (const opt of sel.options) {
-if (filePath.startsWith(opt.value)) { sel.value = opt.value; break; }
+if (filePath.startsWith(opt.value) || folderContext.startsWith(opt.value) || opt.value === folderContext) { sel.value = opt.value; break; }
 }
 }
 document.getElementById('content-folder-bar').style.display = '';
