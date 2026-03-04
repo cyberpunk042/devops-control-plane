@@ -80,6 +80,44 @@ artifacts:
     - cli
     - web
     config: {}
+  - name: quality-check
+    kind: local
+    builder: makefile
+    description: Run all checks (lint + types + test)
+    build_target: check
+    build_cmd: ''
+    output_dir: dist/
+    modules: []
+    config: {}
+  - name: clean
+    kind: local
+    builder: makefile
+    description: Remove build artifacts and caches
+    build_target: clean
+    build_cmd: ''
+    output_dir: dist/
+    modules: []
+    config: {}
+  - name: pip-package
+    kind: package
+    builder: pip
+    description: Build pip wheel/sdist from pyproject.toml
+    build_target: ''
+    build_cmd: .venv/bin/python -m build
+    output_dir: dist/
+    modules: []
+    config: {}
+  - name: container
+    kind: container
+    builder: docker
+    description: Build Docker container image
+    build_target: ''
+    build_cmd: docker build -t devops-control-plane .
+    output_dir: dist/
+    modules: []
+    config:
+      tag: ''
+      dockerfile: Dockerfile
 kubernetes:
   _services:
   - name: cli
@@ -219,41 +257,3 @@ kubernetes:
     helmignore: true
   _savedAt: '2026-02-23T23:40:29.064889+00:00'
   _version: 1
-  - name: quality-check
-    kind: local
-    builder: makefile
-    description: Run all checks (lint + types + test)
-    build_target: check
-    build_cmd: ''
-    output_dir: dist/
-    modules: []
-    config: {}
-  - name: clean
-    kind: local
-    builder: makefile
-    description: Remove build artifacts and caches
-    build_target: clean
-    build_cmd: ''
-    output_dir: dist/
-    modules: []
-    config: {}
-  - name: pip-package
-    kind: package
-    builder: pip
-    description: Build pip wheel/sdist from pyproject.toml
-    build_target: ''
-    build_cmd: .venv/bin/python -m build
-    output_dir: dist/
-    modules: []
-    config: {}
-  - name: container
-    kind: container
-    builder: docker
-    description: Build Docker container image
-    build_target: ''
-    build_cmd: docker build -t devops-control-plane .
-    output_dir: dist/
-    modules: []
-    config:
-      tag: ''
-      dockerfile: Dockerfile
