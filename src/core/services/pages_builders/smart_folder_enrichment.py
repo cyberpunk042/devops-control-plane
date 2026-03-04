@@ -93,6 +93,13 @@ def enrich(
     section_count = _append_section_tables(docs_dir)
     logs.append(f"  ✎ Appended section tables to {section_count} pages")
 
+    # ── Pass 5.5: Inject :::audit-data directives ──────────────────
+    # Appended to module landing pages so the build pipeline
+    # can resolve them with pre-computed audit data.
+    audit_count = _inject_audit_directives(docs_dir, groups)
+    if audit_count:
+        logs.append(f"  📊 Injected audit directives on {audit_count} module pages")
+
     # ── Pass 6: Extract titles & inject frontmatter ────────────────
     # Done AFTER all content generation so every file gets frontmatter
     fm_count = _inject_frontmatter(docs_dir, groups, mod_meta)
@@ -372,6 +379,51 @@ def _append_section_tables(docs_dir: Path) -> int:
 
         content += "".join(table_lines)
         md_file.write_text(content, encoding="utf-8")
+        count += 1
+
+    return count
+
+
+# ═══════════════════════════════════════════════════════════════════
+# Pass 5.5: Inject :::audit-data directives into module pages
+# ═══════════════════════════════════════════════════════════════════
+
+
+def _inject_audit_directives(
+    docs_dir: Path,
+    groups: list[dict],
+) -> int:
+    """Append :::audit-data directives to module landing pages.
+
+    Adds the directive to each module's index.md so the build pipeline
+    can resolve it with pre-computed audit data. Uses an HTML comment
+    marker to prevent double-injection on re-runs.
+    """
+    count = 0
+    marker = "<!-- audit-data-directive -->"
+
+    for g in groups:
+        mod_name = g["module"]
+        mod_dir = docs_dir / mod_name
+        index = mod_dir / "index.md"
+
+        if not index.is_file():
+            continue
+
+        content = index.read_text(encoding="utf-8")
+
+        # Don't double-inject
+        if marker in content:
+            continue
+
+        # Append the directive at the end of the file
+        directive_block = (
+            f"\n\n{marker}\n"
+            f":::audit-data\n"
+            f":::\n"
+        )
+        content = content.rstrip() + directive_block
+        index.write_text(content, encoding="utf-8")
         count += 1
 
     return count

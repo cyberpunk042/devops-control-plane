@@ -103,7 +103,27 @@ def content_preview():  # type: ignore[no-untyped-def]
         content = target.read_text(encoding="utf-8", errors="replace")
         truncated = False
 
-    return jsonify({
+    # Build preview_content for markdown files with audit directives
+    preview_content = None
+    if suffix == ".md":
+        try:
+            from src.core.services.pages_builders.audit_directive import (
+                resolve_audit_directives,
+                auto_inject_directive,
+            )
+            # Auto-inject :::audit-data directive TEXT at the top of content
+            # for files inside configured modules
+            content = auto_inject_directive(content, rel_path, _project_root())
+
+            # Build resolved preview: replace :::audit-data with HTML
+            if ":::audit-data" in content:
+                preview_content = resolve_audit_directives(
+                    content, rel_path, _project_root(),
+                )
+        except Exception as exc:
+            logger.warning("Audit directive processing failed for %s: %s", rel_path, exc)
+
+    resp = {
         "type": "markdown" if suffix == ".md" else "text",
         "mime": mime or "text/plain",
         "content": content,
@@ -111,7 +131,11 @@ def content_preview():  # type: ignore[no-untyped-def]
         "size": size,
         "line_count": content.count("\n") + 1,
         **rel_fields,
-    })
+    }
+    if preview_content is not None:
+        resp["preview_content"] = preview_content
+
+    return jsonify(resp)
 
 
 # ── Preview encrypted file (in-memory decrypt) ────────────────────

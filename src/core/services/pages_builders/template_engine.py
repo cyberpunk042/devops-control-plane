@@ -143,6 +143,14 @@ FEATURES: dict[str, dict[str, Any]] = {
         "deps": {},
         "requires_plugin": "remark-system-viewer",
     },
+    "remark_audit_data": {
+        "label": "📊 Audit Data Directive",
+        "description": "Embed scoped audit data in documentation via :::audit-data",
+        "category": "advanced",
+        "default": True,
+        "deps": {},
+        "requires_plugin": "remark-audit-data",
+    },
 }
 
 # Ordered categories for UI rendering
@@ -257,6 +265,8 @@ def process_docusaurus_config(
         remark_items.append("            [require('remark-gfm'), {}],")
     if features.get("math"):
         remark_items.append("            [require('remark-math'), {}],")
+    if features.get("remark_audit_data"):
+        remark_items.append("            require('./src/plugins/remark-audit-data'),")
 
     if remark_items:
         remark_block = "          remarkPlugins: [\n" + "\n".join(remark_items) + "\n          ],"

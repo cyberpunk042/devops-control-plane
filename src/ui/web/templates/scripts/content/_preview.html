@@ -286,7 +286,7 @@ if (data.type === 'image') {
         body.innerHTML = `<div class="content-preview-rendered notranslate" translate="no">
             <div style="display:flex;justify-content:flex-end;margin-bottom:0.5rem"><button class="btn btn-secondary btn-sm"
                     style="font-size:0.7rem;padding:0.15rem 0.5rem" onclick="contentToggleTranslate(this)">🌐 Translate</button>
-            </div>${renderMarkdown(data.content)}
+            </div>${renderMarkdown(data.preview_content || data.content)}
         </div>`;
         _attachPreviewLinkHandlers(body);
         editBar.style.display = 'none';

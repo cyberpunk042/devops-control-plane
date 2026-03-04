@@ -211,11 +211,24 @@ def _cross_module_deps(
         for imp in analysis.imports:
             if imp.is_internal:
                 # Resolve the to_module
-                to_mod = imp.module.lstrip(".")
-                # Trim to module level (remove the file part)
+                to_mod = imp.module
+                if to_mod.startswith("."):
+                    # Relative import — resolve against from_module
+                    dots = len(to_mod) - len(to_mod.lstrip("."))
+                    remainder = to_mod.lstrip(".")
+                    # Go up 'dots' levels from from_module
+                    base_parts = from_module.split(".")
+                    if dots <= len(base_parts):
+                        base = ".".join(base_parts[: len(base_parts) - dots + 1])
+                    else:
+                        base = from_module
+                    to_mod = f"{base}.{remainder}" if remainder else base
+                # Trim to module level (directory, not individual file)
                 to_parts = to_mod.split(".")
-                # Find the longest prefix that matches a known module
-                to_module = ".".join(to_parts[:3]) if len(to_parts) >= 3 else to_mod
+                # Use parent directory — drop the last segment if it looks
+                # like a file-level module (lowercase, no further children).
+                # Keep the full dotted path to preserve sub-module precision.
+                to_module = ".".join(to_parts[:-1]) if len(to_parts) > 1 else to_mod
 
                 if to_module != from_module:
                     key = (from_module, to_module)

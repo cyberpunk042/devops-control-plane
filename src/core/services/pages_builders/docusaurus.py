@@ -262,6 +262,27 @@ class DocusaurusBuilder(PageBuilder):
                 for log_line in enrich_logs:
                     yield log_line
 
+                # ── Precompute audit data for remark plugin ──────────
+                try:
+                    from src.core.services.pages_builders.audit_directive import (
+                        precompute_audit_data,
+                    )
+                    audit_map = precompute_audit_data(
+                        docs_dir=docs_dir,
+                        project_root=project_root,
+                        modules=modules,
+                        smart_folders=smart_list,
+                    )
+                    if audit_map:
+                        audit_path = workspace / "_audit_data.json"
+                        audit_path.write_text(
+                            json.dumps(audit_map, indent=2, default=str),
+                            encoding="utf-8",
+                        )
+                        yield f"  📊 Pre-computed audit data for {len(audit_map)} file(s)"
+                except Exception as exc:
+                    log.warning("Audit directive precompute skipped: %s", exc)
+
         except Exception as e:
             yield f"⚠️ Smart folder staging skipped: {e}"
 
@@ -486,6 +507,25 @@ class DocusaurusBuilder(PageBuilder):
         # ── 7. Plugins directory (for custom remark plugins) ──
         plugins_dir = workspace / "src" / "plugins"
         plugins_dir.mkdir(parents=True, exist_ok=True)
+
+        # Copy plugin files for enabled features
+        plugins_src = TEMPLATES_DIR / "src" / "plugins"
+        if plugins_src.is_dir():
+            for feat_key, enabled in features.items():
+                if not enabled:
+                    continue
+                feat_def = FEATURES.get(feat_key, {})
+                plugin_name = feat_def.get("requires_plugin")
+                if not plugin_name:
+                    continue
+                # Look for the plugin file (.js or .mjs)
+                for ext in (".js", ".mjs"):
+                    src_file = plugins_src / f"{plugin_name}{ext}"
+                    if src_file.is_file():
+                        dest = plugins_dir / f"{plugin_name}{ext}"
+                        shutil.copy2(str(src_file), str(dest))
+                        yield f"Copied src/plugins/{plugin_name}{ext}"
+                        break
 
         yield f"Scaffold complete — {len(enabled_names)} features enabled"
 

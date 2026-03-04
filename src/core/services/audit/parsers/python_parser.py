@@ -475,7 +475,7 @@ def parse_tree(
         "dist",
         ".eggs",
     ),
-    max_files: int = 500,
+    max_files: int = 0,
 ) -> dict[str, FileAnalysis]:
     """Parse all Python files under project_root.
 
@@ -483,13 +483,12 @@ def parse_tree(
         project_root: Root directory to scan.
         project_prefix: Top-level source package for internal import detection.
         exclude_patterns: Directory names to skip.
-        max_files: Safety cap on number of files to parse.
+        max_files: Ignored — kept for API compat. No cap applied.
 
     Returns:
         dict mapping relative path → FileAnalysis.
     """
     results: dict[str, FileAnalysis] = {}
-    count = 0
 
     for py_file in sorted(project_root.rglob("*.py")):
         # Skip excluded directories
@@ -497,12 +496,7 @@ def parse_tree(
         if any(exc in parts for exc in exclude_patterns):
             continue
 
-        if count >= max_files:
-            logger.warning("parse_tree: hit max_files cap (%d), stopping", max_files)
-            break
-
         analysis = parse_file(py_file, project_root, project_prefix)
         results[analysis.path] = analysis
-        count += 1
 
     return results
