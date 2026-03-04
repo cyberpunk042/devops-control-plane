@@ -72,7 +72,7 @@
                     <span style="background:var(--bg-inset);border:1px solid var(--border-subtle);border-radius:4px;padding:0 0.4rem;font-size:0.68rem;color:var(--accent)">${esc(t.builder)}</span>
                     <span style="color:var(--text-muted);font-size:0.68rem;margin-left:auto">${timeInfo}</span>
                     <button class="btn btn-sm btn-ghost" onclick="buildArtifactTarget('${esc(t.name)}')" title="Build" style="padding:0.1rem 0.3rem;font-size:0.72rem">🔨</button>
-                    ${['package','container','bundle'].includes(t.kind) ? `<button class="btn btn-sm btn-ghost" onclick="publishArtifactTarget('${esc(t.name)}')" title="Publish / Release" style="padding:0.1rem 0.3rem;font-size:0.72rem">🚀</button>` : ''}
+                    <button class="btn btn-sm btn-ghost" onclick="publishArtifactTarget('${esc(t.name)}')" title="Publish / Release" style="padding:0.1rem 0.3rem;font-size:0.72rem">🚀</button>
                     <button class="btn btn-sm btn-ghost" onclick="removeArtifactTarget('${esc(t.name)}')" title="Remove" style="padding:0.1rem 0.3rem;font-size:0.72rem;color:var(--error)">✕</button>
                 </div>`;
             }).join('');
