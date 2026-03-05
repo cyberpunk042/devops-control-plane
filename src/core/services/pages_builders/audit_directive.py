@@ -1056,52 +1056,88 @@ def _file_link(
     display_name: str,
     line: int = 0,
     render_mode: str = "preview",
+    repo_url: str = "",
 ) -> str:
-    """Generate a clickable file link appropriate for the render context.
+    """Generate a clickable file link.
 
-    Preview mode (web admin):  onclick calls openFileInEditor().
-    Build mode (Docusaurus):   generates a relative doc href.
+    Preview mode (admin panel):
+        ``<a href="/#content/docs/<path>@preview">`` — hash-based tab
+        navigation inside the admin SPA.
+
+    Build mode (Docusaurus):
+        Always uses a full absolute URL (``http://…`` or ``https://…``)
+        so Docusaurus treats it as external and does NOT prepend its
+        baseUrl.
+
+        - **CI build** (``CI`` env var set):  GitHub blob URL so links
+          work on the deployed site (GitHub Pages).
+        - **Local build** (no ``CI``):  full ``http://localhost:8000``
+          URL pointing to the admin SPA content vault tab.
     """
     import html as _html
+    import os as _os
     esc_display = _html.escape(display_name)
 
     if not file_path:
         return f'<code>{esc_display}</code>'
 
-    esc_path = _html.escape(file_path).replace("'", "&#x27;")
+    # Content vault hash: /#content/docs/<path>@preview[:line]
     line_suffix = f":{line}" if line else ""
+    vault_hash = f"#content/docs/{file_path}@preview{line_suffix}"
 
     if render_mode == "preview":
-        # Web admin — open in the Content Vault preview
+        # Admin panel SPA — hash navigation
         return (
-            f'<a href="#content/docs/{file_path}@preview{line_suffix}" '
+            f'<a href="/{vault_hash}" '
             f'class="audit-file-link" '
-            f"onclick=\"openFileInEditor('{esc_path}','preview',{line or 0});"
-            f'return false" '
             f'title="Open in Content Vault" '
             f'style="font-family:monospace;font-size:0.78rem;'
             f'color:#64b5f6;text-decoration:none;cursor:pointer"'
             f'>{esc_display}</a>'
         )
     else:
-        # Build mode (Docusaurus) — relative link to the docs page
-        href = f"/docs/{file_path.replace('.py', '')}{line_suffix}"
-        return (
-            f'<a href="{href}" '
-            f'class="audit-file-link" '
-            f'style="font-family:monospace;font-size:0.78rem;'
-            f'text-decoration:none"'
-            f'>{esc_display}</a>'
-        )
+        # Build mode — full URL to avoid Docusaurus link rewriting
+        is_ci = bool(_os.environ.get("CI") or _os.environ.get("GITHUB_ACTIONS"))
+
+        if is_ci and repo_url:
+            # Deployed site → GitHub source link
+            line_anchor = f"#L{line}" if line else ""
+            href = f"{repo_url.rstrip('/')}/blob/main/{file_path}{line_anchor}"
+            return (
+                f'<a href="{_html.escape(href)}" '
+                f'target="_blank" rel="noopener" '
+                f'class="audit-file-link" '
+                f'title="View source on GitHub" '
+                f'style="font-family:monospace;font-size:0.78rem;'
+                f'color:#64b5f6;text-decoration:none;cursor:pointer"'
+                f'>{esc_display}</a>'
+            )
+        else:
+            # Local build → full URL to admin SPA content vault
+            href = f"http://localhost:8000/{vault_hash}"
+            return (
+                f'<a href="{_html.escape(href)}" '
+                f'class="audit-file-link" '
+                f'title="Open in Content Vault" '
+                f'style="font-family:monospace;font-size:0.78rem;'
+                f'color:#64b5f6;text-decoration:none;cursor:pointer"'
+                f'>{esc_display}</a>'
+            )
 
 
-def render_html(data: ScopedAuditData, render_mode: str = "preview") -> str:
+def render_html(
+    data: ScopedAuditData,
+    render_mode: str = "preview",
+    repo_url: str = "",
+) -> str:
     """Convert scoped audit data to an HTML <details> block.
 
     Args:
         data: Scoped audit data to render.
         render_mode: "preview" (web admin) or "build" (Docusaurus).
             Controls how file links are generated.
+        repo_url: GitHub repository URL (e.g. "https://github.com/org/repo").
+            Used in build mode to link source files to GitHub.
 
     Renders 9 sections, each omitted if no scoped data exists:
         1. Summary line (collapsed header)
@@ -1240,6 +1276,7 @@ def render_html(data: ScopedAuditData, render_mode: str = "preview") -> str:
                     wf.get("file_path", ""),
                     wf["file"],
                     render_mode=render_mode,
+                    repo_url=repo_url,
                 )
                 s += f'<li>⚠ {flink} — {wf["score"]}/10{reason}</li>\n'
             s += "</ul>\n</div>\n"
@@ -1351,6 +1388,7 @@ def render_html(data: ScopedAuditData, render_mode: str = "preview") -> str:
                     file_path, file_name,
                     line=lineno,
                     render_mode=render_mode,
+                    repo_url=repo_url,
                 )
 
                 if symbol and detail:
@@ -1808,6 +1846,7 @@ def precompute_audit_data(
     project_root: Path,
     modules: list[dict],
     smart_folders: list[dict],
+    repo_url: str = "",
 ) -> dict[str, dict]:
     """Pre-compute scoped audit data for files containing :::audit-data.
 
@@ -1923,7 +1962,7 @@ def precompute_audit_data(
             "last_modified_date": filtered.last_modified_date,
             "last_modified_file": filtered.last_modified_file,
             # Pre-rendered HTML (the remark plugin can use this directly)
-            "html": render_html(filtered, render_mode="build"),
+            "html": render_html(filtered, render_mode="build", repo_url=repo_url),
         }
 
     return audit_map

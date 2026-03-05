@@ -267,11 +267,15 @@ class DocusaurusBuilder(PageBuilder):
                     from src.core.services.pages_builders.audit_directive import (
                         precompute_audit_data,
                     )
+                    # Resolve repo URL so build-mode file links point
+                    # to GitHub source instead of broken relative paths
+                    build_repo_url = self._detect_repo_url(segment)
                     audit_map = precompute_audit_data(
                         docs_dir=docs_dir,
                         project_root=project_root,
                         modules=modules,
                         smart_folders=smart_list,
+                        repo_url=build_repo_url,
                     )
                     if audit_map:
                         audit_path = workspace / "_audit_data.json"
