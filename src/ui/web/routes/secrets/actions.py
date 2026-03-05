@@ -5,6 +5,7 @@ from __future__ import annotations
 from flask import jsonify, request
 
 from src.core.services import secrets_ops
+from src.core.services.run_tracker import run_tracked
 from src.ui.web.helpers import project_root as _project_root
 
 from . import secrets_bp
@@ -16,6 +17,7 @@ def _env_name() -> str:
 
 
 @secrets_bp.route("/keys/generate", methods=["POST"])
+@run_tracked("generate", "generate:key")
 def api_keys_generate():
     """Generate a secret value (password, token, SSH key, certificate)."""
     data = request.json or {}
@@ -33,6 +35,7 @@ def api_keys_generate():
 
 
 @secrets_bp.route("/gh/environment/create", methods=["POST"])
+@run_tracked("setup", "setup:gh_environment")
 def api_gh_environment_create():
     """Create a deployment environment on GitHub."""
     data = request.json or {}
@@ -49,6 +52,7 @@ def api_gh_environment_create():
 
 
 @secrets_bp.route("/env/cleanup", methods=["POST"])
+@run_tracked("destroy", "destroy:environment")
 def api_env_cleanup():
     """Clean up an environment: delete local .env files and optionally GitHub env."""
     data = request.json or {}
@@ -69,6 +73,7 @@ def api_env_cleanup():
 
 
 @secrets_bp.route("/env/seed", methods=["POST"])
+@run_tracked("setup", "setup:env_seed")
 def api_env_seed():
     """Seed environment files when transitioning from single-env to multi-env."""
     data = request.json or {}
@@ -85,6 +90,7 @@ def api_env_seed():
 
 
 @secrets_bp.route("/secret/set", methods=["POST"])
+@run_tracked("setup", "setup:secret_set")
 def api_secret_set():
     """Set a single secret to .env and/or GitHub."""
     data = request.json or {}
@@ -106,6 +112,7 @@ def api_secret_set():
 
 
 @secrets_bp.route("/secret/remove", methods=["POST"])
+@run_tracked("destroy", "destroy:secret")
 def api_secret_remove():
     """Remove a secret/variable from .env and/or GitHub."""
     data = request.json or {}
@@ -127,6 +134,7 @@ def api_secret_remove():
 
 
 @secrets_bp.route("/secrets/push", methods=["POST"])
+@run_tracked("deploy", "deploy:secrets_push")
 def api_push_secrets():
     """Push secrets/variables to GitHub AND save to .env file."""
     data = request.json or {}

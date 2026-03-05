@@ -20,6 +20,7 @@ from pathlib import Path
 
 from flask import current_app, jsonify, request
 
+from src.core.services.run_tracker import run_tracked
 from . import devops_bp
 from src.ui.web.helpers import project_root as _project_root
 
@@ -27,6 +28,7 @@ from src.ui.web.helpers import project_root as _project_root
 
 
 @devops_bp.route("/wizard/setup", methods=["POST"])
+@run_tracked("setup", "setup:wizard")
 def wizard_setup():  # type: ignore[no-untyped-def]
     """Execute a setup action using user-provided configuration."""
     from src.core.services.wizard_ops import wizard_setup as _setup
@@ -49,6 +51,7 @@ def wizard_setup():  # type: ignore[no-untyped-def]
 
 
 @devops_bp.route("/wizard/config", methods=["DELETE"])
+@run_tracked("destroy", "destroy:wizard_config")
 def wizard_delete_config():  # type: ignore[no-untyped-def]
     """Delete wizard-generated config files.
 
@@ -67,6 +70,7 @@ def wizard_delete_config():  # type: ignore[no-untyped-def]
 
 
 @devops_bp.route("/wizard/compose-ci", methods=["POST"])
+@run_tracked("generate", "generate:wizard_ci")
 def wizard_compose_ci():  # type: ignore[no-untyped-def]
     """Compose CI/CD workflow files from wizard state.
 

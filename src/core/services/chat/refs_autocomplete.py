@@ -108,9 +108,20 @@ def _autocomplete_runs(partial_id: str, project_root: Path) -> list[dict]:
         status_icons = {"ok": "\u2705", "failed": "\u274c", "partial": "\u26a0\ufe0f"}
         status_icon = status_icons.get(status, "")
 
+        # Pick best context hint from metadata
+        meta = run.get("metadata") or {}
+        ctx_hint = ""
+        for ctx_key in ("filename", "file", "service", "domain",
+                        "name", "target", "namespace", "path"):
+            if meta.get(ctx_key):
+                ctx_hint = str(meta[ctx_key])
+                break
+
         detail_parts = []
         if status_icon:
             detail_parts.append(f"{status_icon} {status}")
+        if ctx_hint:
+            detail_parts.append(ctx_hint)
         if run.get("user"):
             detail_parts.append(run["user"])
         if run.get("started_at"):

@@ -13,6 +13,7 @@ from pathlib import Path
 from flask import Blueprint, current_app, jsonify, request
 
 from src.core.services import config_ops
+from src.core.services.run_tracker import run_tracked
 from src.ui.web.helpers import project_root as _project_root
 
 config_bp = Blueprint("config", __name__)
@@ -47,6 +48,7 @@ def api_config_read():  # type: ignore[no-untyped-def]
 
 
 @config_bp.route("/config", methods=["POST"])
+@run_tracked("setup", "setup:config_save")
 def api_config_save():  # type: ignore[no-untyped-def]
     """Save updated project.yml config from wizard data."""
     data = request.get_json(silent=True)

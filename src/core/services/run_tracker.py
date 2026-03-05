@@ -222,13 +222,18 @@ def tracked_run(
         run_model.duration_ms = duration_ms
         run_model.ended_at = run_bag["ended_at"]
 
+        # Sync harvested metadata back to the model
+        bag_metadata = run_bag.get("metadata")
+        if isinstance(bag_metadata, dict) and bag_metadata:
+            run_model.metadata.update(bag_metadata)
+
         # Record to local ephemeral storage
         try:
             _append_run_local(project_root, run_model)
         except Exception as e:
             logger.warning("Failed to record run %s locally: %s", run_model.run_id, e)
 
-        # Emit completed event
+        # Emit completed event (include metadata for trace capture)
         _publish_event("run:completed", {
             "run_id": run_model.run_id,
             "type": run_type,
@@ -236,6 +241,7 @@ def tracked_run(
             "status": run_bag.get("status", "ok"),
             "summary": run_bag.get("summary", ""),
             "duration_ms": duration_ms,
+            "metadata": run_model.metadata or {},
         })
 
 
@@ -310,6 +316,63 @@ def run_tracked(
     return decorator
 
 
+# ── Metadata harvesting ────────────────────────────────────────────
+#
+# Keys harvested from the response JSON into run["metadata"].  Only
+# operational context — "what happened?" — not raw output or large
+# blobs.  The set is intentionally curated:
+#
+#   identity:   hash, branch, service, container, image, name, target
+#   scope:      namespace, workspace, path, domain, environment
+#   quantities: count, files, replicas, changes
+#   artefacts:  archive, backup_path, target_folder, created, deleted
+#   state:      version, installed, available, generated, warnings
+#
+# Excluded: ok, error, status (already in status/summary), output,
+# diff, findings, recommendations, score (large / noisy).
+#
+_HARVEST_KEYS: frozenset[str] = frozenset({
+    # Identity — what was the subject?
+    "hash", "branch", "service", "container", "image", "name", "target",
+    "slug", "file", "filename", "old_name", "provider",
+    # Scope — where did it happen?
+    "namespace", "workspace", "path", "full_path", "domain", "environment",
+    "target_folder", "backup_path", "folder", "zone_file",
+    # Quantities — how much?
+    "count", "files", "replicas", "changes", "stashes",
+    "files_affected", "skipped", "size_bytes", "record_count",
+    "restored", "overridden", "wiped_count",
+    # Artefacts — what was produced?
+    "archive", "created", "deleted", "generated", "imported",
+    "new_name", "pushed",
+    # State — what is the result state?
+    "version", "installed", "available", "authenticated",
+    "encrypted", "warnings", "errors",
+})
+
+# Cap individual metadata values to prevent accidental bloat
+# (e.g. a list of 500 filenames).
+_METADATA_VALUE_MAX_LEN = 500
+
+
+def _safe_metadata_value(value: Any) -> Any:
+    """Sanitise a value for metadata storage.
+
+    Strings are capped at _METADATA_VALUE_MAX_LEN characters.
+    Lists are capped at 20 items.  Dicts are kept as-is but their
+    string repr is capped.  Everything else passes through.
+    """
+    if isinstance(value, str):
+        if len(value) > _METADATA_VALUE_MAX_LEN:
+            return value[:_METADATA_VALUE_MAX_LEN] + "…"
+        return value
+    if isinstance(value, list):
+        if len(value) > 20:
+            return value[:20] + [f"… +{len(value) - 20} more"]
+        return value
+    return value
+
+
 def _extract_run_metadata(
     response: Any,
     run: dict,
@@ -317,6 +380,12 @@ def _extract_run_metadata(
     ok_key: str,
 ) -> None:
     """Extract metadata from a Flask response into the run bag.
+
+    Three extraction steps:
+      1. **Status** — ok/failed from HTTP status code or response "ok" key.
+      2. **Summary** — one-liner from ``summary_key``, ``message``, or ``error``.
+      3. **Metadata** — operational context keys harvested from the response
+         JSON into ``run["metadata"]`` for rich trace/reference display.
 
     Handles both ``Response`` objects and ``(Response, status_code)`` tuples.
     """
@@ -335,7 +404,7 @@ def _extract_run_metadata(
     else:
         data = {}
 
-    # Set status
+    # ── Step 1: Status ────────────────────────────────────────────
     if status_code >= 400:
         run["status"] = "failed"
     elif ok_key in data and not data[ok_key]:
@@ -343,13 +412,31 @@ def _extract_run_metadata(
     else:
         run["status"] = "ok"
 
-    # Set summary
+    # ── Step 2: Summary ───────────────────────────────────────────
     if summary_key in data and data[summary_key]:
         run["summary"] = str(data[summary_key])
     elif summary_key != "message" and "message" in data and data["message"]:
         run["summary"] = str(data["message"])
     elif "error" in data:
         run["summary"] = str(data["error"])
+
+    # ── Step 3: Metadata harvest ──────────────────────────────────
+    #
+    # Walk the response dict and collect whitelisted keys that carry
+    # operational context.  This is what makes runs referenceable:
+    # "git:commit with hash=abc123 on branch=main" instead of just
+    # "git:commit ok".
+    #
+    if not isinstance(data, dict):
+        return
+
+    harvested: dict[str, Any] = {}
+    for key, value in data.items():
+        if key in _HARVEST_KEYS and value is not None:
+            harvested[key] = _safe_metadata_value(value)
+
+    if harvested:
+        run.setdefault("metadata", {}).update(harvested)
 
 
 def _inject_run_id(response: Any, run_id: str) -> Any:

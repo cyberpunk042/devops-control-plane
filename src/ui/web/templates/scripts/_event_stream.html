@@ -384,8 +384,21 @@
             const icon = status === 'ok' ? '✅' : '❌';
             const level = status === 'ok' ? 'success' : (status === 'failed' ? 'error' : 'info');
 
+            // Build context snippet from metadata for richer toast
+            const meta = data.metadata || {};
+            const ctxParts = [];
+            // Pick the most informative field for the toast one-liner
+            for (const k of ['filename', 'file', 'service', 'domain', 'name', 'target', 'namespace', 'path']) {
+                if (meta[k]) { ctxParts.push(String(meta[k])); break; }
+            }
+            // Add a quantity if present
+            for (const k of ['count', 'files', 'restored', 'pushed', 'deleted', 'record_count']) {
+                if (meta[k] !== undefined && meta[k] !== null) { ctxParts.push(`${k}=${meta[k]}`); break; }
+            }
+            const ctxStr = ctxParts.length > 0 ? ` · ${ctxParts.join(', ')}` : '';
+
             if (typeof toast === 'function') {
-                toast(`${icon} ${subtype}${dur}: ${summary || status}`, level);
+                toast(`${icon} ${subtype}${dur}: ${summary || status}${ctxStr}`, level);
             }
             console.debug('[SSE] run:completed %s → %s%s', payload.key, status, dur);
 
@@ -398,8 +411,18 @@
                     dot.className = 'run-status-dot ' + (status === 'ok' ? 'success' : 'failed');
                     badge.querySelector('.run-badge-label').textContent = status;
                     const runId = data.run_id || '';
-                    badge.title = `${subtype}${dur} — ${summary || status}`
-                        + (runId ? `\n@run:${runId}` : '');
+                    // Build rich tooltip with metadata
+                    let tip = `${subtype}${dur} — ${summary || status}`;
+                    const metaKeys = Object.keys(meta);
+                    if (metaKeys.length > 0) {
+                        tip += '\n──────────';
+                        for (const mk of metaKeys) {
+                            const mv = typeof meta[mk] === 'object' ? JSON.stringify(meta[mk]) : String(meta[mk]);
+                            tip += `\n${mk}: ${mv}`;
+                        }
+                    }
+                    if (runId) tip += `\n@run:${runId}`;
+                    badge.title = tip;
                 }
             }
         },

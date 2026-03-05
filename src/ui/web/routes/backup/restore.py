@@ -17,6 +17,7 @@ from __future__ import annotations
 from flask import jsonify, request
 
 from src.core.services.backup import ops as backup_ops
+from src.core.services.run_tracker import run_tracked
 from . import backup_bp
 from src.ui.web.helpers import project_root as _project_root
 
@@ -25,6 +26,7 @@ from src.ui.web.helpers import project_root as _project_root
 
 
 @backup_bp.route("/backup/restore", methods=["POST"])
+@run_tracked("restore", "restore:backup")
 def api_restore():  # type: ignore[no-untyped-def]
     """Restore (OVERRIDE) files from a backup archive."""
     data = request.get_json(silent=True) or {}
@@ -54,6 +56,7 @@ def api_restore():  # type: ignore[no-untyped-def]
 
 
 @backup_bp.route("/backup/import", methods=["POST"])
+@run_tracked("restore", "restore:backup_import")
 def api_import():  # type: ignore[no-untyped-def]
     """Import (ADDITIVE) from a backup archive. Existing files are skipped."""
     data = request.get_json(silent=True) or {}
@@ -76,6 +79,7 @@ def api_import():  # type: ignore[no-untyped-def]
 
 
 @backup_bp.route("/backup/wipe", methods=["POST"])
+@run_tracked("destroy", "destroy:wipe")
 def api_wipe():  # type: ignore[no-untyped-def]
     """Factory-reset a folder: optionally back up first, then delete selected files."""
     data = request.get_json(silent=True) or {}
@@ -102,6 +106,7 @@ def api_wipe():  # type: ignore[no-untyped-def]
 
 
 @backup_bp.route("/backup/delete", methods=["POST"])
+@run_tracked("destroy", "destroy:backup_delete")
 def api_delete():  # type: ignore[no-untyped-def]
     """Delete a backup archive."""
     data = request.get_json(silent=True) or {}

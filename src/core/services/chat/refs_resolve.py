@@ -80,6 +80,7 @@ def _resolve_run(run_id: str, project_root: Path) -> dict | None:
             "ended_at": run.get("ended_at", ""),
             "duration_ms": run.get("duration_ms", 0),
             "code_ref": (run.get("code_ref") or "")[:12],
+            "metadata": run.get("metadata") or {},
         }
     except Exception as e:
         logger.debug("Failed to resolve run %s: %s", run_id, e)

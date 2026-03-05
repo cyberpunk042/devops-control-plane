@@ -898,6 +898,18 @@ function _chatRefOpenModal(rt, ri, d) {
       + _row('Duration', durStr)
       + (d.code_ref ? _row('Commit', d.code_ref, 'code') : '')
       + '</div>';
+    // Render operational metadata (harvested from the service response)
+    if (d.metadata && typeof d.metadata === 'object' && Object.keys(d.metadata).length > 0) {
+      b += '<div style="margin-top:0.75rem;border-top:1px solid var(--border);padding-top:0.5rem">'
+        + '<div style="font-weight:600;font-size:0.82rem;color:var(--text-primary);margin-bottom:0.25rem">Operational Context</div>';
+      var mk = Object.keys(d.metadata);
+      for (var mi = 0; mi < mk.length; mi++) {
+        var mv = d.metadata[mk[mi]];
+        var dvStr = (typeof mv === 'object') ? JSON.stringify(mv) : String(mv);
+        b += _row(mk[mi], dvStr);
+      }
+      b += '</div>';
+    }
   } else if (rt === 'audit') {
     if (d.source === 'ledger' || d.source === 'pending') {
       t += (d.source === 'pending' ? 'Pending Audit: ' : 'Audit Snapshot: ') + (d.card_key || ri);

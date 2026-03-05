@@ -5,12 +5,14 @@ from __future__ import annotations
 from flask import jsonify
 
 from src.core.services import ci_ops
+from src.core.services.run_tracker import run_tracked
 from src.ui.web.helpers import project_root as _project_root
 
 from . import ci_bp
 
 
 @ci_bp.route("/ci/generate/ci", methods=["POST"])
+@run_tracked("generate", "generate:ci_workflow")
 def generate_ci():  # type: ignore[no-untyped-def]
     """Generate a CI workflow from detected stacks."""
     root = _project_root()
@@ -23,6 +25,7 @@ def generate_ci():  # type: ignore[no-untyped-def]
 
 
 @ci_bp.route("/ci/generate/lint", methods=["POST"])
+@run_tracked("generate", "generate:lint_workflow")
 def generate_lint():  # type: ignore[no-untyped-def]
     """Generate a lint workflow from detected stacks."""
     root = _project_root()

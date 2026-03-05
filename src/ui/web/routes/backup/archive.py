@@ -3,6 +3,7 @@ from __future__ import annotations
 from flask import jsonify, request, send_file
 
 from src.core.services.backup import ops as backup_ops
+from src.core.services.run_tracker import run_tracked
 from . import backup_bp
 from src.ui.web.helpers import project_root as _project_root
 
@@ -11,6 +12,7 @@ from src.ui.web.helpers import project_root as _project_root
 
 
 @backup_bp.route("/backup/export", methods=["POST"])
+@run_tracked("backup", "backup:export")
 def api_export():  # type: ignore[no-untyped-def]
     """Create a backup archive from selected files/folders."""
     data = request.get_json(silent=True) or {}
@@ -102,6 +104,7 @@ def api_download(filepath: str):  # type: ignore[no-untyped-def]
 
 
 @backup_bp.route("/backup/upload", methods=["POST"])
+@run_tracked("backup", "backup:upload")
 def api_upload():  # type: ignore[no-untyped-def]
     """Upload a backup archive into a folder's .backup/."""
     if "file" not in request.files:
