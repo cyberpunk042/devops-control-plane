@@ -355,18 +355,11 @@ function _smartFolderRenderDocTree(browserEl, sf, subPath) {
 
     let html = '';
 
-    // ".." parent navigation — go up to parent or smart folder root
+    // Compute parent path for back navigation
     const currentFolderPath = sf._smartRoot + '/' + subPath;
     const parentPath = currentFolderPath.substring(0, currentFolderPath.lastIndexOf('/'));
     const isModuleRoot = parts.length === 1;
-    html += `<div class="content-file-row" onclick="contentLoadFolder('${esc(parentPath)}')"
-        style="cursor:pointer;opacity:0.7;margin-bottom:0.5rem">
-        <div class="content-file-icon" style="font-size:1.3rem">⬆️</div>
-        <div class="content-file-info">
-            <div class="content-file-name" translate="no">${isModuleRoot ? '📦 Browse by Module' : '..'}</div>
-            <div class="content-file-meta">${isModuleRoot ? 'Back to module overview' : 'Parent folder'}</div>
-        </div>
-    </div>`;
+    const backLabel = isModuleRoot ? 'All Modules' : parts[parts.length - 2];
 
     // Module/section header
     const sectionName = parts[parts.length - 1];
@@ -380,6 +373,11 @@ function _smartFolderRenderDocTree(browserEl, sf, subPath) {
             <code style="font-size:0.72rem;color:var(--text-muted)">${esc(group.module_path)}${parts.length > 1 ? '/' + parts.slice(1).join('/') : ''}</code>
         </div>
         <div style="font-size:0.82rem;color:var(--text-muted)">
+            <span onclick="contentLoadFolder('${esc(parentPath)}')"
+                style="cursor:pointer;color:var(--accent);transition:opacity 0.15s"
+                onmouseenter="this.style.opacity='0.7'" onmouseleave="this.style.opacity='1'"
+                >← ${esc(backLabel)}</span>
+            <span style="margin:0 0.3rem">·</span>
             ${totalTopics} documentation topic${totalTopics !== 1 ? 's' : ''}
         </div>
     </div>`;
