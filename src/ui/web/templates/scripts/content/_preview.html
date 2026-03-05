@@ -305,6 +305,17 @@ previewEditMode = false;
 previewCurrentPath = path;
 previewCurrentName = name;
 previewCurrentHasRelease = !!hasRelease;
+
+// Re-detect smart folder context from real file path
+// This handles: user was in raw mode, clicks a doc file → should return to smart docs
+if (!_smartFolderActive && typeof _smartFolderForRealPath === 'function') {
+    const match = _smartFolderForRealPath(path);
+    if (match) {
+        _smartFolderActive = { ...match.sf, _smartRoot: match.smartRoot };
+        contentCurrentPath = match.smartRoot;
+    }
+}
+
 contentUpdateHash();
 
 const browser = document.getElementById('content-browser');

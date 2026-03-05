@@ -53,6 +53,26 @@ function _smartFolderSubPath(folderPath, sf) {
     return folderPath.substring(root.length + 1);
 }
 
+/**
+ * Check if a REAL filesystem path is inside any smart folder's sources.
+ * Returns { sf, smartRoot } if matched, or null.
+ *
+ * This is the reverse of _smartFolderForPath which matches virtual paths.
+ * Used when navigating real paths to detect smart folder membership.
+ */
+function _smartFolderForRealPath(realPath) {
+    if (!_smartFoldersLoaded || !_smartFolders.length) return null;
+    for (const sf of _smartFolders) {
+        for (const src of (sf.sources || [])) {
+            const prefix = (src.path || '').replace(/\/$/, '');
+            if (prefix && (realPath === prefix || realPath.startsWith(prefix + '/'))) {
+                const smartRoot = (sf.target === sf.name) ? sf.name : sf.target + '/' + sf.name;
+                return { sf, smartRoot };
+            }
+        }
+    }
+    return null;
+}
 
 // ═════════════════════════════════════════════════════════════════
 // Smart Folders — Inject virtual entries into content listing

@@ -303,8 +303,17 @@ const data = await api(listUrl);
 renderContentFiles(data, folderPath);
 // Inject smart folder virtual entries into file listing
 _smartFoldersInjectEntries(folderPath);
-// If we're in raw mode, show the Smart/Raw toggle so user can switch back
-if (_smartFolderViewRaw && _smartFolderLastRoot) {
+// Show Smart/Raw toggle if browsing a real path inside a smart folder's sources
+// This covers: (a) explicit raw toggle, (b) navigated away from smart folder, (c) entered from Content Vault
+let showSmartToggle = (_smartFolderViewRaw && _smartFolderLastRoot);
+if (!showSmartToggle) {
+    const realMatch = _smartFolderForRealPath(folderPath);
+    if (realMatch) {
+        _smartFolderLastRoot = realMatch.smartRoot;
+        showSmartToggle = true;
+    }
+}
+if (showSmartToggle && _smartFolderLastRoot) {
     const bc = document.getElementById('content-breadcrumb');
     if (bc) {
         bc.style.display = 'block';

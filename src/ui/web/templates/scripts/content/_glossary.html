@@ -84,7 +84,8 @@ function _glossaryLoadForCurrentContext(force) {
         // This works regardless of virtual/real path namespace differences
         const wouldBe = _glossaryDeriveContextPath();
         if (wouldBe === _glossaryContextPath) {
-            // Same context — just update highlights
+            // Same context — re-render from cached data + update highlights
+            _glossaryRenderGlossary(_glossaryGlossaryData);
             _glossaryUpdateActiveFile();
             if (window._contentFocusLine > 0 && typeof previewCurrentPath !== 'undefined') {
                 _glossaryUpdateActiveNow(previewCurrentPath, window._contentFocusLine);
@@ -522,8 +523,21 @@ function _glossaryRenderOutlineWithSiblings(data, filePath, parentDir, siblings)
     // Sibling directories (compact)
     for (const d of dirs) {
         const dirPath = parentDir ? parentDir + '/' + d.name : d.name;
+        let navPath = d.path || dirPath;
+        // When in smart folder context, remap real paths to virtual smart folder paths
+        // so clicking a sibling directory doesn't exit the smart folder
+        if (typeof _smartFolderActive !== 'undefined' && _smartFolderActive && typeof _smartFolderTree !== 'undefined' && _smartFolderTree) {
+            const groups = _smartFolderTree.groups || [];
+            for (const g of groups) {
+                if (g.module_path && navPath.startsWith(g.module_path)) {
+                    const remainder = navPath.substring(g.module_path.length);
+                    navPath = _smartFolderActive._smartRoot + '/' + g.module + remainder;
+                    break;
+                }
+            }
+        }
         html += `<div class="glossary-node glossary-dir"
-            onclick="contentLoadFolder('${esc(d.path || dirPath)}')"
+            onclick="contentLoadFolder('${esc(navPath)}')"
             style="cursor:pointer;padding:0.15rem 0.4rem;font-size:0.82rem">
             <span class="glossary-kind-icon">📁</span>
             <span class="glossary-node-label">${esc(d.name)}</span>
