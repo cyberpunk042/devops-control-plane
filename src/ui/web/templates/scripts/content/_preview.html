@@ -17,6 +17,114 @@ let previewCurrentPath = '';
 let previewCurrentName = '';
 let previewCurrentHasRelease = false;
 let previewIsText = false;
+let _contentPreviewObserver = null; // IntersectionObserver for preview line tracking
+
+/**
+ * Annotate rendered headings with their source markdown line numbers.
+ * Matches each h1-h6 in the rendered DOM to the corresponding # line in the source.
+ */
+function _mapHeadingsToSourceLines(container, sourceMarkdown) {
+    const srcLines = sourceMarkdown.split('\n');
+    const headings = container.querySelectorAll('h1,h2,h3,h4,h5,h6');
+    const usedLines = new Set(); // avoid duplicate matches
+    headings.forEach(h => {
+        const text = h.textContent.trim().toLowerCase();
+        const level = parseInt(h.tagName[1]);
+        const prefix = '#'.repeat(level) + ' ';
+        for (let i = 0; i < srcLines.length; i++) {
+            if (usedLines.has(i)) continue;
+            const line = srcLines[i].trimStart();
+            if (line.startsWith(prefix) && line.substring(prefix.length).trim().toLowerCase() === text) {
+                h.setAttribute('data-source-line', i + 1); // 1-indexed
+                usedLines.add(i);
+                break;
+            }
+        }
+    });
+}
+
+/**
+ * Observe heading elements in a rendered markdown container.
+ * Tracks which heading is at the top of the viewport and updates
+ * window._contentFocusLine with the SOURCE line number (same as raw/edit).
+ */
+function _contentObservePreviewLines(container, sourceMarkdown) {
+    _contentDisconnectPreviewObserver();
+    _mapHeadingsToSourceLines(container, sourceMarkdown);
+    const headings = container.querySelectorAll('[data-source-line]');
+    if (headings.length === 0) return;
+
+    _contentPreviewObserver = new IntersectionObserver((entries) => {
+        // Find the topmost visible heading
+        let topEntry = null;
+        for (const entry of entries) {
+            if (entry.isIntersecting) {
+                if (!topEntry || entry.boundingClientRect.top < topEntry.boundingClientRect.top) {
+                    topEntry = entry;
+                }
+            }
+        }
+        if (topEntry) {
+            const srcLine = parseInt(topEntry.target.getAttribute('data-source-line'), 10);
+            if (srcLine > 0) {
+                window._contentFocusLine = srcLine;
+                // Visual feedback: highlight the tracked heading
+                container.querySelectorAll('.preview-heading-tracked').forEach(
+                    el => el.classList.remove('preview-heading-tracked')
+                );
+                topEntry.target.classList.add('preview-heading-tracked');
+                clearTimeout(window._previewLineTimer);
+                window._previewLineTimer = setTimeout(() => {
+                    if (typeof contentUpdateHash === 'function') {
+                        contentUpdateHash({ push: false });
+                    }
+                }, 500);
+            }
+        }
+    }, {
+        root: null,
+        rootMargin: '-10% 0px -80% 0px', // trigger when heading is in top 10-20% of viewport
+        threshold: 0,
+    });
+
+    headings.forEach(h => _contentPreviewObserver.observe(h));
+}
+
+/** Disconnect the preview line observer. */
+function _contentDisconnectPreviewObserver() {
+    if (_contentPreviewObserver) {
+        _contentPreviewObserver.disconnect();
+        _contentPreviewObserver = null;
+    }
+}
+
+/**
+ * Scroll the rendered preview to the heading nearest a given source line number.
+ * Called when restoring from a hash like file@preview:42.
+ */
+function _contentScrollToSourceLine(container) {
+    const targetLine = window._contentFocusLine;
+    if (!targetLine || targetLine <= 0) return;
+    const headings = container.querySelectorAll('[data-source-line]');
+    if (headings.length === 0) return;
+    // Find the heading closest to (but not after) the target line
+    let best = null;
+    let bestDist = Infinity;
+    headings.forEach(h => {
+        const srcLine = parseInt(h.getAttribute('data-source-line'), 10);
+        const dist = Math.abs(srcLine - targetLine);
+        if (dist < bestDist) {
+            bestDist = dist;
+            best = h;
+        }
+    });
+    if (best) {
+        setTimeout(() => {
+            best.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 150);
+    }
+    // Don't clear _contentFocusLine — keep it for the hash
+}
 
 /**
 * Attach delegated click handlers for anchor links and doc links
@@ -92,7 +200,8 @@ const browser = document.getElementById('content-browser');
 browser.innerHTML = `
 <div class="content-preview-panel">
     <div class="content-preview-header">
-        <button class="btn btn-secondary btn-sm" onclick="contentClosePreview()" title="Back to files">← Back</button>
+        <button class="btn btn-secondary btn-sm" onclick="contentGoBack()" title="Go back">← Back</button>
+        <button class="btn btn-secondary btn-sm" onclick="contentClosePreview()" title="Parent folder">↑ Parent</button>
         <span class="content-preview-title" id="content-preview-filename" translate="no">${esc(name)}</span>
         <button class="btn btn-secondary btn-sm" onclick="contentRenameFile()" title="Rename"
             style="font-size:0.7rem;padding:0.15rem 0.4rem">✏️</button>
@@ -271,12 +380,16 @@ if (data.type === 'image') {
     toggle.innerHTML = toggleHtml;
 
     if (previewEditMode) {
+        _contentDisconnectPreviewObserver();
         body.innerHTML = `<div id="monaco-editor-container" style="border:1px solid var(--border);border-radius:var(--radius-sm);overflow:hidden"></div>`;
+        const editFocusLine = window._contentFocusLine || 0;
+        window._contentFocusLine = 0;
         monacoCreate('monaco-editor-container', {
             content: data.content,
             filePath: path,
             readOnly: false,
             minHeight: 400,
+            focusLine: editFocusLine,
         });
         editBar.style.display = 'flex';
         editBar.innerHTML = `
@@ -290,8 +403,14 @@ if (data.type === 'image') {
         </div>`;
         _attachPreviewLinkHandlers(body);
         _resolvePeekLinks(path, data.content || '', body);
+        // Line tracking: map headings to source lines + restore scroll position
+        const sourceText = data.content || '';
+        const rendered = body.querySelector('.content-preview-rendered');
+        if (rendered) _contentObservePreviewLines(rendered, sourceText);
+        if (rendered) _contentScrollToSourceLine(rendered);
         editBar.style.display = 'none';
     } else {
+        _contentDisconnectPreviewObserver();
         body.innerHTML = `<div id="monaco-editor-container" style="border:1px solid var(--border);border-radius:var(--radius-sm);overflow:hidden"></div>`;
         const focusLine = window._contentFocusLine || 0;
         window._contentFocusLine = 0;
@@ -778,11 +897,24 @@ function _dismissPeekTooltip() {
 // ── Peek Preview Overlay (independent from generic modal) ────────
 
 let _peekPreviewOverlay = null;
+let _peekPushed = false;  // true when we pushed a >>peek hash
 
+/** Direct DOM cleanup — called from popstate handler */
 function _closePeekPreview() {
     if (_peekPreviewOverlay) {
         _peekPreviewOverlay.remove();
         _peekPreviewOverlay = null;
+    }
+    _peekPushed = false;
+}
+
+/** Close via history — for user-initiated close actions */
+function _closePeekPreviewViaHistory() {
+    if (_peekPushed) {
+        // Let popstate handler do the DOM cleanup
+        history.back();
+    } else {
+        _closePeekPreview();
     }
 }
 
@@ -810,7 +942,7 @@ async function _openPeekPreview(ref) {
             <div class="peek-preview-header">
                 <span class="peek-preview-header__icon">${icon}</span>
                 <span class="peek-preview-header__path">${esc(pathDisplay)}</span>
-                ${ref.line_number ? `<span class="peek-preview-header__line">Line ${ref.line_number}</span>` : ''}
+                <span class="peek-preview-header__line">${ref.line_number ? 'Line ' + ref.line_number : ''}</span>
                 <button class="peek-preview-header__action" data-action="jump" title="Jump to file in browser">↗ Jump to</button>
                 <button class="peek-preview-header__action" data-action="edit" title="Open in editor">✏️ Edit</button>
                 <button class="peek-preview-header__close" title="Close (Esc)">✕</button>
@@ -821,29 +953,41 @@ async function _openPeekPreview(ref) {
         </div>
     `;
 
-    // Close on backdrop click
+    // Close on backdrop click (dismiss → back)
     overlay.addEventListener('click', (e) => {
-        if (e.target === overlay) _closePeekPreview();
+        if (e.target === overlay) _closePeekPreviewViaHistory();
     });
 
-    // Close button
-    overlay.querySelector('.peek-preview-header__close').onclick = () => _closePeekPreview();
+    // Close button (dismiss → back)
+    overlay.querySelector('.peek-preview-header__close').onclick = () => _closePeekPreviewViaHistory();
 
     // Quick action: Jump to file in content browser
+    // Navigate-away: close DOM directly, strip >>peek hash, then navigate forward
     overlay.querySelector('[data-action="jump"]').onclick = () => {
-        _closePeekPreview();
+        // Capture current line before closing (cursor listener may have updated it)
+        const currentLine = window._contentFocusLine || ref.line_number || 0;
+        _closePeekPreview();  // DOM cleanup only — no history.back()
+        // Replace the >>peek hash with the base hash
+        const baseHash = location.hash.slice(1).split('>>')[0];
+        history.replaceState({ tab: baseHash, depth: _navDepth }, '', `#${baseHash}`);
+        _overlayPushed = false;
         if (ref.is_directory) {
             contentLoadFolder(ref.resolved_path);
         } else {
-            window._contentFocusLine = ref.line_number || 0;
+            window._contentFocusLine = currentLine;
             contentPreviewFile(ref.resolved_path, ref.resolved_path.split('/').pop());
         }
     };
 
     // Quick action: Edit file in editor
+    // Navigate-away: close DOM directly, strip >>peek hash, then navigate forward
     overlay.querySelector('[data-action="edit"]').onclick = () => {
-        _closePeekPreview();
-        window._contentFocusLine = ref.line_number || 0;
+        const currentLine = window._contentFocusLine || ref.line_number || 0;
+        _closePeekPreview();  // DOM cleanup only — no history.back()
+        const baseHash = location.hash.slice(1).split('>>')[0];
+        history.replaceState({ tab: baseHash, depth: _navDepth }, '', `#${baseHash}`);
+        _overlayPushed = false;
+        window._contentFocusLine = currentLine;
         contentPreviewFile(ref.resolved_path, ref.resolved_path.split('/').pop());
         // Switch to edit mode after a short delay to let the preview load
         setTimeout(() => contentSetPreviewMode('edit'), 300);
@@ -852,7 +996,7 @@ async function _openPeekPreview(ref) {
     // Close on Escape
     const escHandler = (e) => {
         if (e.key === 'Escape') {
-            _closePeekPreview();
+            _closePeekPreviewViaHistory();
             document.removeEventListener('keydown', escHandler);
         }
     };
@@ -860,6 +1004,15 @@ async function _openPeekPreview(ref) {
 
     document.body.appendChild(overlay);
     _peekPreviewOverlay = overlay;
+
+    // Push overlay hash entry so Back button closes the peek
+    const baseHash = location.hash.slice(1).split('>>')[0];
+    const peekPath = ref.resolved_path + (ref.line_number ? ':' + ref.line_number : '');
+    const overlayHash = `#${baseHash}>>peek/${peekPath}`;
+    history.pushState({ tab: `${baseHash}>>peek/${peekPath}`, depth: _navDepth }, '', overlayHash);
+    _navDepth++;
+    _overlayPushed = true;
+    _peekPushed = true;
 
     // Fetch content
     const body = overlay.querySelector('.peek-preview-body');
@@ -1019,6 +1172,6 @@ monacoGuardUnsaved(() => {
     previewRawMode = (mode === 'raw');
     }
     contentPreviewFile(previewCurrentPath, previewCurrentName);
-    contentUpdateHash();
+    contentUpdateHash({ push: false });
 });
 }

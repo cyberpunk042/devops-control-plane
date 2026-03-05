@@ -436,35 +436,69 @@ _releasePollTimer = null;
 // #content/docs/docs/readme.md@edit → file in edit mode
 // #content/archive/backups → archive with folder context
 
-function contentUpdateHash() {
+function contentUpdateHash({ push = true } = {}) {
 if (typeof _modalPreviewActive !== 'undefined' && _modalPreviewActive) return;
+if (typeof _peekPreviewOverlay !== 'undefined' && _peekPreviewOverlay) return;
+// Never push during state restoration (popstate / contentApplySubNav)
+const shouldPush = push && !_isRestoring;
 if (contentCurrentMode === 'archive') {
 const parts = ['content', 'archive'];
 if (_archiveSelectedFolder) parts.push(_archiveSelectedFolder);
-history.replaceState(null, '', `#${parts.join('/')}`);
+const newHash = `#${parts.join('/')}`;
+if (shouldPush && location.hash !== newHash) {
+    history.pushState({ tab: parts.join('/'), depth: _navDepth }, '', newHash);
+    _navDepth++;
+} else {
+    history.replaceState({ tab: parts.join('/'), depth: _navDepth }, '', newHash);
+}
 return;
 }
 if (contentCurrentMode === 'chat') {
 const parts = ['content', 'chat'];
 if (_chatSelectedThread) parts.push(_chatSelectedThread);
-history.replaceState(null, '', `#${parts.join('/')}`);
+const newHash = `#${parts.join('/')}`;
+if (shouldPush && location.hash !== newHash) {
+    history.pushState({ tab: parts.join('/'), depth: _navDepth }, '', newHash);
+    _navDepth++;
+} else {
+    history.replaceState({ tab: parts.join('/'), depth: _navDepth }, '', newHash);
+}
 return;
 }
-// If previewing a file, encode file path + view mode
+// If previewing a file, encode file path + view mode + line/anchor
 if (previewCurrentPath) {
 let viewMode = 'preview';
 if (previewEditMode) viewMode = 'edit';
 else if (previewRawMode) viewMode = 'raw';
-const parts = ['content', contentCurrentMode, previewCurrentPath + '@' + viewMode];
-history.replaceState(null, '', `#${parts.join('/')}`);
+let suffix = viewMode;
+// Line tracking for ALL modes (raw, edit, preview)
+if (window._contentFocusLine > 0) {
+    suffix += ':' + window._contentFocusLine;
+}
+const parts = ['content', contentCurrentMode, previewCurrentPath + '@' + suffix];
+const newHash = `#${parts.join('/')}`;
+if (shouldPush && location.hash !== newHash) {
+    history.pushState({ tab: parts.join('/'), depth: _navDepth }, '', newHash);
+    _navDepth++;
+} else {
+    history.replaceState({ tab: parts.join('/'), depth: _navDepth }, '', newHash);
+}
 return;
 }
 if (!contentCurrentPath) return;
 const parts = ['content', contentCurrentMode, contentCurrentPath];
-history.replaceState(null, '', `#${parts.join('/')}`);
+const newHash = `#${parts.join('/')}`;
+if (shouldPush && location.hash !== newHash) {
+history.pushState({ tab: parts.join('/'), depth: _navDepth }, '', newHash);
+_navDepth++;
+} else {
+history.replaceState({ tab: parts.join('/'), depth: _navDepth }, '', newHash);
+}
 }
 
 function contentApplySubNav(subParts) {
+_isRestoring = true;
+try {
 // subParts = [mode, ...rest]
 if (subParts.length >= 1) {
 const mode = subParts[0];
@@ -506,7 +540,7 @@ const atIdx = rawPath.lastIndexOf('@');
 if (atIdx > 0) {
 const filePath = rawPath.substring(0, atIdx);
 let viewMode = rawPath.substring(atIdx + 1);
-// Parse optional :LINE suffix (e.g. preview:42)
+// Parse optional :LINE suffix (e.g. raw:42)
 let focusLine = 0;
 const colonIdx = viewMode.indexOf(':');
 if (colonIdx > 0) {
@@ -562,6 +596,9 @@ return;
 contentLoadFolder(rawPath);
 } else if (contentFolders.length > 0) {
 contentLoadFolder(contentFolders[0].path);
+}
+} finally {
+_isRestoring = false;
 }
 }
 

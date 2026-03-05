@@ -70,6 +70,13 @@ contentPreviewEncrypted(filePath, fileName);
 } else {
 contentPreviewFile(filePath, fileName);
 }
+
+// Push overlay hash entry so Back button closes the modal
+const baseHash = location.hash.slice(1).split('>>')[0]; // strip existing >>
+const overlayHash = `#${baseHash}>>modal/${filePath}`;
+history.pushState({ tab: `${baseHash}>>modal/${filePath}`, depth: _navDepth }, '', overlayHash);
+_navDepth++;
+_overlayPushed = true;
 }
 
 /**
@@ -77,8 +84,13 @@ contentPreviewFile(filePath, fileName);
 * the overlay is removed from the DOM.
 */
 function _modalPreviewClose() {
-_modalPreviewRestore();
-modalClose();
+if (_overlayPushed) {
+    // Let popstate handler do the cleanup
+    history.back();
+} else {
+    _modalPreviewRestore();
+    modalClose();
+}
 }
 
 function _modalPreviewRestore() {
@@ -113,6 +125,11 @@ function _modalPreviewGoToContent() {
 const path = previewCurrentPath;
 _modalPreviewRestore();
 modalClose();
+
+// Strip >>modal from history
+const baseHash = location.hash.slice(1).split('>>')[0];
+history.replaceState({ tab: baseHash, depth: _navDepth }, '', `#${baseHash}`);
+_overlayPushed = false;
 
 // Ensure chat panel is hidden and content-browser is visible
 const chatPanel = document.getElementById('content-chat-panel');

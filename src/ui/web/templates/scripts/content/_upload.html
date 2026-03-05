@@ -17,7 +17,8 @@
         browser.innerHTML = `
             <div class="content-preview-panel">
                 <div class="content-preview-header">
-                    <button class="btn btn-secondary btn-sm" onclick="contentClosePreview()">← Back</button>
+                    <button class="btn btn-secondary btn-sm" onclick="contentGoBack()" title="Go back">← Back</button>
+                    <button class="btn btn-secondary btn-sm" onclick="contentClosePreview()" title="Parent folder">↑ Parent</button>
                     <span class="content-preview-title">🔑 Set Up Content Encryption Key</span>
                 </div>
                 <div class="content-preview-body" style="padding:1.5rem">

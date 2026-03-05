@@ -164,6 +164,20 @@ function monacoCreate(containerId, opts = {}) {
                 }]);
             }, 100);
         }
+
+        // Debounced cursor line tracking → update URL hash silently
+        _monacoEditor.onDidChangeCursorPosition((e) => {
+            window._contentFocusLine = e.position.lineNumber;
+            // Update peek header line display if inside a peek overlay
+            const peekLine = document.querySelector('.peek-preview-header__line');
+            if (peekLine) peekLine.textContent = `Line ${e.position.lineNumber}`;
+            clearTimeout(window._lineHashTimer);
+            window._lineHashTimer = setTimeout(() => {
+                if (typeof contentUpdateHash === 'function') {
+                    contentUpdateHash({ push: false });
+                }
+            }, 500);
+        });
     });
 }
 

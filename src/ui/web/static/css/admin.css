@@ -3370,6 +3370,15 @@ pre .peek-link:hover {
     background: rgba(59, 130, 246, 0.2) !important;
 }
 
+/* Highlight the currently-tracked heading in rendered markdown preview */
+.preview-heading-tracked {
+    border-left: 3px solid rgba(59, 130, 246, 0.7);
+    padding-left: 0.5rem;
+    background: rgba(59, 130, 246, 0.08);
+    border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+    transition: background 0.3s ease, border-color 0.3s ease;
+}
+
 /* ── Utility: Tags / Badges ──────────────────────────────────────── */
 
 .tag {

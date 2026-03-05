@@ -50,7 +50,8 @@
         // Update URL hash to reflect sub-tab
         const newHash = `#debugging/${mode}`;
         if (location.hash !== newHash) {
-            history.replaceState(null, '', newHash);
+            history.pushState({ tab: `debugging/${mode}`, depth: _navDepth }, '', newHash);
+            _navDepth++;
         }
 
         if (mode === 'state') loadDebugState();

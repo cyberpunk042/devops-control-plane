@@ -5,6 +5,7 @@
     let _dashLoaded = false;
     let _navDepth = 0;       // how many pushState calls we've made
     let _popstateActive = false; // suppress hashchange during popstate
+    let _overlayPushed = false;  // true when a >>modal or >>peek hash was pushed
 
     // ── Mobile tab menu ─────────────────────────────────────────────────
 
@@ -25,6 +26,11 @@
         if (typeof monacoIsDirty === 'function' && monacoIsDirty()) {
             monacoGuardUnsaved(() => switchTab(tabId, { fromPopstate }));
             return;
+        }
+
+        // Strip >> overlay layers — overlays are handled via popstate close
+        if (tabId.includes('>>')) {
+            tabId = tabId.split('>>')[0];
         }
 
         // Parse compound tab IDs like 'wizard/modules' or 'content/media/docs'
@@ -121,12 +127,28 @@
     // Handle back/forward navigation
     window.addEventListener('popstate', (e) => {
         _popstateActive = true;
+
+        // Check if we're leaving an overlay state (>>modal or >>peek)
+        if (_overlayPushed) {
+            _overlayPushed = false;
+            // Close any active overlay DOM without pushing more history
+            if (typeof _closePeekPreview === 'function') _closePeekPreview();
+            if (typeof _modalPreviewActive !== 'undefined' && _modalPreviewActive) {
+                if (typeof _modalPreviewRestore === 'function') _modalPreviewRestore();
+                if (typeof modalClose === 'function') modalClose();
+            }
+            // DON'T re-run switchTab — the base content is already visible.
+            // Just restore the depth counter.
+            if (e.state) _navDepth = e.state.depth || 0;
+            setTimeout(() => { _popstateActive = false; }, 50);
+            return;
+        }
+
         if (e.state && e.state.tab) {
             _navDepth = e.state.depth || 0;
             switchTab(e.state.tab, { fromPopstate: true });
         } else {
             // No state — we've gone back past our first page. Let browser handle it.
-            // (This happens naturally — we don't need to do anything.)
         }
         setTimeout(() => { _popstateActive = false; }, 50);
     });

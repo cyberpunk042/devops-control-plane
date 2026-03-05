@@ -31,6 +31,10 @@ let _chatLoaded = false; // thread list loaded?
 let _chatSourceFilter = 'all'; // all | manual | trace | system
 let _chatSortNewest = true; // true = newest-first
 
+// ── Navigation history state ─────────────────────────────────────
+let _isRestoring = false;  // true during contentApplySubNav to suppress pushState
+window._contentFocusLine = 0;      // current cursor line (all modes: raw/edit/preview)
+
 // Category → mode mapping (encrypted files show in all modes)
 const CATEGORY_MODES = {
 docs: ['document', 'code', 'script', 'config', 'data', 'other', 'encrypted'],
