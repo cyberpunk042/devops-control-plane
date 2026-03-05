@@ -214,6 +214,10 @@ def create_app(
     from src.core.services.staleness_watcher import start_watcher
     start_watcher(app.config["PROJECT_ROOT"])
 
+    # Start project index (background file/symbol/peek indexing)
+    from src.core.services.project_index import start_project_index
+    start_project_index(app.config["PROJECT_ROOT"])
+
     logger.info("Web admin app created (root=%s)", project_root)
     return app
 

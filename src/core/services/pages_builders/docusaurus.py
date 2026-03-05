@@ -549,6 +549,68 @@ class DocusaurusBuilder(PageBuilder):
             if static_count:
                 yield f"Copied {static_count} static asset{'s' if static_count != 1 else ''} from {source_static.name}/"
 
+        # ── 9. Peek index (auto-link file references) ──
+        peek_dir = workspace / "src"
+        peek_dir.mkdir(parents=True, exist_ok=True)
+        peek_file = peek_dir / "peek-index.json"
+
+        if features.get("peek"):
+            project_root = workspace.parent.parent
+            docs_dir = workspace / "docs"
+            peek_index: dict[str, list[dict]] = {}
+
+            if docs_dir.is_dir():
+                from src.core.services.peek import scan_and_resolve_all, build_symbol_index
+
+                # Build symbol index once for all pages (T5 resolution)
+                sym_idx = build_symbol_index(project_root, use_cache=False)
+                yield f"Built symbol index ({len(sym_idx)} symbols)"
+
+                for mdx_file in sorted(docs_dir.rglob("*.mdx")):
+                    content = mdx_file.read_text(encoding="utf-8")
+                    rel_path = str(mdx_file.relative_to(docs_dir))
+
+                    # The doc_path for context resolution needs the original
+                    # source-relative path (e.g. "src/core/services/audit/README.md")
+                    # We reconstruct it from segment.source + the relative doc path
+                    source_base = segment.source.rstrip("/")
+                    doc_name = rel_path.replace(".mdx", ".md")
+                    doc_path = f"{source_base}/{doc_name}" if source_base != "." else doc_name
+
+                    resolved, unresolved, _pending = scan_and_resolve_all(content, doc_path, project_root, sym_idx)
+                    entries: list[dict] = []
+                    if resolved:
+                        entries.extend(
+                            {
+                                "text": r.text,
+                                "resolved_path": r.resolved_path,
+                                "line_number": r.line_number,
+                                "is_directory": r.is_directory,
+                                "resolved": True,
+                            }
+                            for r in resolved
+                        )
+                    if unresolved:
+                        entries.extend(
+                            {
+                                "text": u.text,
+                                "resolved_path": "",
+                                "line_number": None,
+                                "is_directory": False,
+                                "resolved": False,
+                            }
+                            for u in unresolved
+                        )
+                    if entries:
+                        peek_index[rel_path] = entries
+
+            peek_file.write_text(json.dumps(peek_index), encoding="utf-8")
+            total_refs = sum(len(v) for v in peek_index.values())
+            yield f"Generated peek-index.json ({len(peek_index)} pages, {total_refs} references)"
+        else:
+            # Write empty index so the hook import doesn't break
+            peek_file.write_text("{}", encoding="utf-8")
+
     def _detect_repo_url(self, segment: SegmentConfig) -> str:
         """Try to detect the GitHub repo URL from project.yml or git config."""
         # Check segment config first

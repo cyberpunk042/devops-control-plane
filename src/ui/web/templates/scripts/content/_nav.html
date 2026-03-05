@@ -99,24 +99,73 @@ function renderContentFolderBar() {
 const bar = document.getElementById('content-folder-bar');
 bar.style.display = 'block';
 
+// ── Populate hidden select (for compatibility with contentLoadFolder) ──
 const select = document.getElementById('content-folder-select');
 select.innerHTML = contentFolders.map(f =>
 `<option value="${esc(f.path)}">${esc(f.name)} (${f.file_count} files)</option>`
 ).join('');
 
-// Inject standalone smart folders (target not in content_folders)
+// Inject standalone smart folders into hidden select
 if (_smartFolders && _smartFolders.length > 0) {
 const cfPaths = new Set(contentFolders.map(f => f.path));
 for (const sf of _smartFolders) {
 if (!cfPaths.has(sf.target)) {
 const opt = document.createElement('option');
-// Standalone: target === name → smartRoot is just the name
 opt.value = (sf.target === sf.name) ? sf.name : sf.target + '/' + sf.name;
 opt.textContent = '🔬 ' + (sf.label || sf.name) + ' (' + sf.total_files + ' files)';
 select.appendChild(opt);
 }
 }
 }
+
+// ── Render folder cards ──
+const cardsEl = document.getElementById('content-folder-cards');
+if (!cardsEl) return;
+
+let cards = '';
+for (const f of contentFolders) {
+const isActive = contentCurrentPath && contentCurrentPath.startsWith(f.path);
+cards += `
+<div class="content-folder-card ${isActive ? 'active' : ''}" data-folder="${esc(f.path)}"
+    onclick="contentLoadFolder('${esc(f.path)}')" title="${esc(f.path)}">
+    <span>📁</span>
+    <span>${esc(f.name)}</span>
+    <span class="folder-count">${f.file_count}</span>
+</div>`;
+}
+
+// Smart folders as cards
+if (_smartFolders && _smartFolders.length > 0) {
+const cfPaths = new Set(contentFolders.map(f => f.path));
+for (const sf of _smartFolders) {
+if (!cfPaths.has(sf.target)) {
+const smartPath = (sf.target === sf.name) ? sf.name : sf.target + '/' + sf.name;
+const isActive = contentCurrentPath === smartPath;
+cards += `
+<div class="content-folder-card ${isActive ? 'active' : ''}" data-folder="${esc(smartPath)}"
+    onclick="contentLoadFolder('${esc(smartPath)}')" title="Smart: ${esc(sf.label || sf.name)}">
+    <span>📖</span>
+    <span>${esc(sf.label || sf.name)}</span>
+    <span class="folder-count">${sf.total_files || 0}</span>
+</div>`;
+}
+}
+}
+
+cardsEl.innerHTML = cards;
+}
+
+// ── Explore All toggle button ──
+let _exploreAllActive = false;
+
+function contentToggleExploreAllBtn() {
+_exploreAllActive = !_exploreAllActive;
+const btn = document.getElementById('content-explore-all-btn');
+if (btn) {
+btn.classList.toggle('active', _exploreAllActive);
+btn.innerHTML = _exploreAllActive ? '🗂 Configured Only' : '🗂 Show All Folders';
+}
+contentToggleExploreAll(_exploreAllActive);
 }
 
 async function contentToggleExploreAll(enabled) {
@@ -146,19 +195,19 @@ const data = await api('/content/all-folders');
 const allFolders = data.folders || [];
 const configuredPaths = new Set(contentFolders.map(f => f.path));
 
-// Build options: configured first (with file counts), then additional
-let html = '';
+// Build hidden select options (compatibility)
+let selectHtml = '';
 for (const f of contentFolders) {
-html += `<option value="${esc(f.path)}">${esc(f.name)} (${f.file_count} files)</option>`;
+selectHtml += `<option value="${esc(f.path)}">${esc(f.name)} (${f.file_count} files)</option>`;
 }
 const extras = allFolders.filter(f => !configuredPaths.has(f.path));
 if (extras.length > 0) {
-html += '<option disabled>──────────</option>';
+selectHtml += '<option disabled>──────────</option>';
 for (const f of extras) {
-html += `<option value="${esc(f.path)}">🗂 ${esc(f.name)}</option>`;
+selectHtml += `<option value="${esc(f.path)}">🗂 ${esc(f.name)}</option>`;
 }
 }
-select.innerHTML = html;
+select.innerHTML = selectHtml;
 
 // Keep current selection
 if (contentCurrentPath) {
@@ -168,6 +217,24 @@ select.value = opt.value;
 break;
 }
 }
+}
+
+// Render extra folder cards
+const cardsEl = document.getElementById('content-folder-cards');
+if (cardsEl && extras.length > 0) {
+let extraCards = '<span style="width:1px;background:var(--border-subtle);margin:0 0.2rem;flex-shrink:0"></span>';
+for (const f of extras) {
+const isActive = contentCurrentPath && contentCurrentPath.startsWith(f.path);
+extraCards += `
+<div class="content-folder-card ${isActive ? 'active' : ''}" data-folder="${esc(f.path)}"
+    onclick="contentLoadFolder('${esc(f.path)}')" title="${esc(f.path)}"
+    style="opacity:0.75">
+    <span>🗂</span>
+    <span>${esc(f.name)}</span>
+</div>`;
+}
+// Append after existing cards (don't replace — configured cards are already there)
+cardsEl.insertAdjacentHTML('beforeend', extraCards);
 }
 } catch (e) {
 toast(`Failed to load folders: ${e.message}`, 'error');
@@ -210,6 +277,12 @@ sel.appendChild(tempOpt);
 sel.value = rootFolder;
 }
 }
+
+// Sync folder card active states
+document.querySelectorAll('.content-folder-card').forEach(card => {
+card.classList.toggle('active', card.dataset.folder === folderPath ||
+    (card.dataset.folder && folderPath.startsWith(card.dataset.folder + '/')));
+});
 
 // ── Smart folder interception ──────────────────────────────────
 const smartFolder = _smartFolderForPath(folderPath);
@@ -319,9 +392,13 @@ const isInScope = configuredPaths.some(p => targetFolder && targetFolder.startsW
 
 if (targetFolder && !isInScope && targetRoot) {
 // Auto-enable "explore all" so the folder is accessible
-const exploreAllCb = document.getElementById('content-explore-all');
-if (exploreAllCb && !exploreAllCb.checked) {
-exploreAllCb.checked = true;
+if (!_exploreAllActive) {
+_exploreAllActive = true;
+const btn = document.getElementById('content-explore-all-btn');
+if (btn) {
+btn.classList.add('active');
+btn.innerHTML = '🗂 Configured Only';
+}
 }
 // Load all folders into the dropdown, then navigate
 contentToggleExploreAll(true).then(() => {

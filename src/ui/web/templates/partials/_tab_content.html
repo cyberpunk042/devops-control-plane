@@ -10,6 +10,49 @@
             color: #fff !important;
             font-weight: 600;
         }
+
+        .content-folder-card {
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+            padding: 0.35rem 0.7rem;
+            border-radius: 8px;
+            border: 1px solid var(--border-subtle);
+            background: var(--bg-inset);
+            cursor: pointer;
+            transition: all 0.15s;
+            white-space: nowrap;
+            font-size: 0.82rem;
+            user-select: none;
+            flex-shrink: 0;
+        }
+        .content-folder-card:hover {
+            border-color: var(--accent);
+            background: var(--bg-tertiary);
+        }
+        .content-folder-card.active {
+            border-color: var(--accent);
+            background: var(--accent-glow);
+            color: var(--accent);
+            font-weight: 600;
+        }
+        .content-folder-card .folder-count {
+            font-size: 0.68rem;
+            color: var(--text-muted);
+            background: var(--bg-card);
+            padding: 0.05rem 0.3rem;
+            border-radius: 4px;
+        }
+        .content-folder-card.active .folder-count {
+            background: rgba(255,255,255,0.15);
+            color: var(--accent);
+        }
+
+        #content-explore-all-btn.active {
+            border-color: var(--accent) !important;
+            background: var(--accent-glow) !important;
+            color: var(--accent) !important;
+        }
     </style>
     <header class="tab-header">
         <h1>📁 Content Vault</h1>
@@ -29,24 +72,28 @@
 
             <!-- Folder selector bar -->
             <div id="content-folder-bar" style="display:none;margin-bottom:var(--space-md)">
-                <div style="display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap">
-                    <label style="font-weight:600;font-size:0.85rem;color:var(--text-secondary)">📂 Folder</label>
-                    <select id="content-folder-select" onchange="contentLoadFolder(this.value)"
-                        style="flex:1;min-width:180px;max-width:300px"></select>
+                <!-- Action row: toggle + buttons -->
+                <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.6rem">
                     <span id="content-summary" style="font-size:0.8rem;color:var(--text-muted)"></span>
                     <div style="margin-left:auto;display:flex;gap:0.5rem;align-items:center">
-                        <label
-                            style="display:flex;align-items:center;gap:0.3rem;font-size:0.75rem;color:var(--text-muted);cursor:pointer;user-select:none"
-                            title="Show all project folders">
-                            <input type="checkbox" id="content-explore-all"
-                                onchange="contentToggleExploreAll(this.checked)" style="margin:0">
-                            🗂 All
-                        </label>
+                        <button class="btn btn-sm" id="content-explore-all-btn"
+                            onclick="contentToggleExploreAllBtn()"
+                            title="Show all project directories, not just configured content folders"
+                            style="font-size:0.72rem;padding:0.15rem 0.5rem;border-radius:6px;border:1px solid var(--border-subtle);background:transparent;color:var(--text-muted);cursor:pointer;transition:all 0.15s">
+                            🗂 Show All Folders
+                        </button>
                         <button class="btn btn-primary btn-sm" id="content-upload-btn" onclick="contentShowUpload()"
                             title="Upload files" style="display:none">📤 Upload</button>
                         <button class="btn btn-secondary btn-sm" onclick="contentRefresh()" title="Refresh">🔄</button>
                     </div>
                 </div>
+                <!-- Folder cards strip -->
+                <div id="content-folder-cards"
+                    style="display:flex;gap:0.4rem;overflow-x:auto;padding-bottom:0.3rem;scrollbar-width:thin">
+                </div>
+                <!-- Hidden select for compatibility (contentToggleExploreAll uses it) -->
+                <select id="content-folder-select" style="display:none"
+                    onchange="contentLoadFolder(this.value)"></select>
             </div>
 
             <!-- Breadcrumb nav -->

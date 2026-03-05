@@ -291,6 +291,163 @@ main.translating::after {
   }
 }
 
+/* ── Peek links (auto-linked file references) ─────────── */
+
+.peek-link {
+  color: inherit;
+  text-decoration: none;
+  border-bottom: 1px dotted rgba(129, 140, 248, 0.4);
+  cursor: pointer;
+  transition: border-color 0.2s, color 0.2s;
+}
+
+.peek-link:hover {
+  color: var(--ifm-color-primary) !important;
+  border-bottom-color: var(--ifm-color-primary);
+  border-bottom-style: solid;
+}
+
+code .peek-link,
+.peek-link code {
+  color: inherit;
+  border-bottom: 1px dotted rgba(129, 140, 248, 0.3);
+}
+
+code .peek-link:hover,
+.peek-link code:hover {
+  color: var(--ifm-color-primary) !important;
+}
+
+pre .peek-link {
+  border-bottom: none;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-decoration-color: rgba(129, 140, 248, 0.35);
+  text-underline-offset: 2px;
+}
+
+pre .peek-link:hover {
+  text-decoration-color: var(--ifm-color-primary);
+  text-decoration-style: solid;
+}
+
+/* Directory peek links */
+.peek-link--directory {
+  border-bottom-color: rgba(129, 199, 132, 0.4);
+}
+.peek-link--directory:hover {
+  color: #81c784 !important;
+  border-bottom-color: #81c784;
+}
+
+/* Unresolved peek links */
+.peek-link--unresolved {
+  border-bottom-color: rgba(255, 183, 77, 0.3);
+  opacity: 0.7;
+}
+.peek-link--unresolved:hover {
+  color: #ffb74d !important;
+  border-bottom-color: #ffb74d;
+  opacity: 1;
+}
+
+/* ── Peek tooltip ─────────────────────────────────────── */
+
+.peek-tooltip {
+  position: fixed;
+  z-index: 10000;
+  min-width: 260px;
+  max-width: 480px;
+  background: rgba(30, 30, 36, 0.96);
+  border: 1px solid rgba(129, 140, 248, 0.25);
+  border-radius: 8px;
+  padding: 10px 14px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45), 0 2px 8px rgba(0, 0, 0, 0.3);
+  backdrop-filter: blur(12px);
+  font-size: 13px;
+  color: #e0e0e0;
+  opacity: 0;
+  transform: translateY(4px);
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+.peek-tooltip__header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.peek-tooltip__icon {
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.peek-tooltip__path {
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 12px;
+  color: #90caf9;
+  word-break: break-all;
+  flex: 1;
+  min-width: 0;
+}
+
+.peek-tooltip__close {
+  background: none;
+  border: none;
+  color: #999;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 0 2px;
+  line-height: 1;
+  flex-shrink: 0;
+  transition: color 0.15s;
+}
+.peek-tooltip__close:hover {
+  color: #fff;
+}
+
+.peek-tooltip__label {
+  font-size: 11px;
+  color: #888;
+  margin-bottom: 8px;
+}
+
+.peek-tooltip__actions {
+  display: flex;
+  gap: 8px;
+}
+
+.peek-tooltip__btn {
+  display: inline-block;
+  padding: 4px 14px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.06);
+  color: #ccc;
+  font-size: 12px;
+  cursor: pointer;
+  text-decoration: none;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.peek-tooltip__btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.2);
+  text-decoration: none;
+}
+
+.peek-tooltip__btn--primary {
+  background: rgba(129, 140, 248, 0.15);
+  color: var(--ifm-color-primary);
+  border-color: rgba(129, 140, 248, 0.3);
+}
+.peek-tooltip__btn--primary:hover {
+  background: rgba(129, 140, 248, 0.25);
+  color: var(--ifm-color-primary-lightest);
+  border-color: rgba(129, 140, 248, 0.5);
+}
+
 /* __USER_CSS_MARKER__ */
 /* User custom CSS is appended below this line by the build system.
    Do NOT remove this marker. */

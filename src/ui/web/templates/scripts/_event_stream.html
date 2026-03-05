@@ -87,6 +87,7 @@
             'run:started', 'run:completed',
             'auth:needed',
             'github:status', 'ledger:conflict',
+            'index:ready',
         ],
 
         /** Open the SSE connection. Safe to call multiple times. */
@@ -152,6 +153,7 @@
                 case 'stream:line':    this._onStreamLine(payload);    break;
                 case 'stream:done':    this._onStreamDone(payload);    break;
                 case 'server:restarting': this._onServerRestarting(payload); break;
+                case 'index:ready':    this._onIndexReady(payload);    break;
                 // sys:warming, sys:warm, sys:heartbeat — silently ignored for now
             }
         },
@@ -652,6 +654,40 @@
 
             // The SSE connection will drop — _onReady will fire on reconnect
             // and clear stale state. No further action needed here.
+        },
+
+        /**
+         * Project index finished building — T5 symbols are now available.
+         * If the current preview was rendered without T5 data, re-annotate.
+         */
+        _onIndexReady(payload) {
+            const data = payload.data || {};
+            console.debug('[SSE] index:ready — %d symbols, %d peek pages',
+                data.symbols || 0, data.peek_pages || 0);
+
+            // Only act if the current preview is waiting for T5 data
+            if (typeof _peekSymbolsPending !== 'undefined' && _peekSymbolsPending
+                && typeof previewCurrentPath !== 'undefined' && previewCurrentPath) {
+
+                const body = document.getElementById('content-preview-body');
+                if (!body) return;
+
+                console.info('[Peek] Index ready — re-annotating %s with T5 symbols', previewCurrentPath);
+                _peekSymbolsPending = false;
+
+                // Unwrap all pending spans back to text nodes so the
+                // annotator can re-process them with resolved data
+                const pendingSpans = body.querySelectorAll('.peek-link--pending');
+                for (const span of pendingSpans) {
+                    const text = document.createTextNode(span.textContent);
+                    span.parentNode.replaceChild(text, span);
+                }
+                // Normalize adjacent text nodes after unwrapping
+                body.normalize();
+
+                // Re-fetch peek refs (now with T5 data) and annotate
+                _resolvePeekLinks(previewCurrentPath, '', body);
+            }
         },
 
         /**

@@ -151,6 +151,13 @@ FEATURES: dict[str, dict[str, Any]] = {
         "deps": {},
         "requires_plugin": "remark-audit-data",
     },
+    "peek": {
+        "label": "🔗 Peek Links",
+        "description": "Auto-link file references in docs to source locations",
+        "category": "features",
+        "default": False,
+        "deps": {},
+    },
 }
 
 # Ordered categories for UI rendering

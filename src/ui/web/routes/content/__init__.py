@@ -11,6 +11,7 @@ endpoints. Route handlers are split across sub-modules for maintainability:
     routes_content_files.py       — create folder, delete, download, upload, enc key status, optimize
     routes_content_preview.py     — preview, preview encrypted, save encrypted
     routes_content_manage.py      — setup enc key, save, rename, move, release status
+    routes_content_peek.py        — peek-resolve (scan + resolve file references)
 
 Routes (this file):
     /api/content/folders       — detect content folders
@@ -247,3 +248,4 @@ def content_metadata():  # type: ignore[no-untyped-def]
 from . import files    # noqa: E402, F401 — registers routes
 from . import preview  # noqa: E402, F401 — registers routes
 from . import manage   # noqa: E402, F401 — registers routes
+from . import peek     # noqa: E402, F401 — registers routes

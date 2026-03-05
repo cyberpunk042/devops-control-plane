@@ -4,6 +4,9 @@ import { useBuildHashCheck } from './hooks/useBuildHashCheck';
 import LanguageSelector from '@site/src/components/LanguageSelector';
 import { useTranslationSystem } from './hooks/useTranslationSystem';
 // __ENDIF__
+// __IF_FEATURE_peek__
+import { usePeekLinks } from './hooks/usePeekLinks';
+// __ENDIF__
 
 const BUILD_HASH = '__BUILD_HASH__';
 
@@ -11,6 +14,9 @@ export default function Root({ children }: { children: React.ReactNode }) {
   useBuildHashCheck(BUILD_HASH);
 // __IF_FEATURE_google_translate__
   useTranslationSystem();
+// __ENDIF__
+// __IF_FEATURE_peek__
+  usePeekLinks();
 // __ENDIF__
 
 // __IF_FEATURE_google_translate__

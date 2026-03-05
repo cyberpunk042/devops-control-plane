@@ -10,7 +10,7 @@
 // File Preview + Edit
 // ═════════════════════════════════════════════════════════════════
 
-let previewRawMode = true; // true = raw text, false = rendered markdown
+let previewRawMode = false; // true = raw text, false = rendered markdown
 let previewEditMode = false; // true = editing
 let previewOrigContent = ''; // snapshot for discard
 let previewCurrentPath = '';
@@ -289,6 +289,7 @@ if (data.type === 'image') {
             </div>${renderMarkdown(data.preview_content || data.content)}
         </div>`;
         _attachPreviewLinkHandlers(body);
+        _resolvePeekLinks(path, data.content || '', body);
         editBar.style.display = 'none';
     } else {
         body.innerHTML = `<div id="monaco-editor-container" style="border:1px solid var(--border);border-radius:var(--radius-sm);overflow:hidden"></div>`;
@@ -323,6 +324,559 @@ if (data.type === 'image') {
 document.getElementById('content-preview-body').innerHTML =
 `<p class="empty-state" style="color:var(--error)">❌ ${esc(e.message)}</p>`;
 }
+}
+
+// ═════════════════════════════════════════════════════════════════
+// Peek — async file reference resolution and DOM annotation
+// ═════════════════════════════════════════════════════════════════
+
+/**
+ * True when the current preview was annotated WITHOUT T5 symbol data.
+ * The SSE index:ready handler checks this and re-annotates when symbols arrive.
+ */
+let _peekSymbolsPending = false;
+
+/**
+ * Async: resolve file references in the document and annotate DOM.
+ * Non-blocking — fires after the preview is already visible.
+ */
+async function _resolvePeekLinks(docPath, rawContent, container) {
+    if (!docPath) return;
+    try {
+        // Try instant GET from passive index first
+        let res;
+        try {
+            const resp = await fetch('/api/content/peek-refs?path=' + encodeURIComponent(docPath));
+            if (resp.ok) res = await resp.json();
+        } catch (_) { /* fall through */ }
+
+        // Fallback to legacy POST if GET failed or returned nothing
+        if (!res || (!res.references?.length && !res.unresolved?.length)) {
+            if (rawContent) {
+                res = await api('/content/peek-resolve', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ doc_path: docPath, content: rawContent }),
+                });
+            }
+        }
+
+        if (!res) return;
+
+        // Track whether T5 symbols were available
+        _peekSymbolsPending = (res.symbols_ready === false);
+
+        // Annotate resolved references first (they take priority)
+        if (res.references && res.references.length > 0) {
+            _annotatePeekElements(container, res.references);
+        }
+        // Then annotate unresolved references with different styling
+        if (res.unresolved && res.unresolved.length > 0) {
+            _annotateUnresolvedPeek(container, res.unresolved);
+        }
+        // Finally annotate pending T5 symbols (pulsing "resolving" state)
+        if (res.pending && res.pending.length > 0) {
+            _annotatePendingPeek(container, res.pending);
+        }
+    } catch (e) {
+        console.warn('[Peek] Resolution failed:', e);
+    }
+}
+
+/**
+ * Walk DOM text nodes in the container and wrap matched file references
+ * with peek-link spans. Click opens a tooltip with details and actions.
+ * Skips nodes already inside <a> tags.
+ */
+function _annotatePeekElements(container, references) {
+    if (!references || references.length === 0) return;
+
+    // Build a lookup: text → reference (longest match first)
+    const refMap = new Map();
+    for (const ref of references) {
+        refMap.set(ref.text, ref);
+    }
+    // Sort by text length descending so longer matches take priority
+    const sortedTexts = [...refMap.keys()].sort((a, b) => b.length - a.length);
+
+    // Escape regex special chars
+    const escaped = sortedTexts.map(t =>
+        t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    );
+    if (escaped.length === 0) return;
+    const pattern = new RegExp('(' + escaped.join('|') + ')', 'g');
+
+    // Walk all text nodes
+    const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, null);
+    const textNodes = [];
+    let node;
+    while ((node = walker.nextNode())) {
+        textNodes.push(node);
+    }
+
+    let annotated = 0;
+    for (const textNode of textNodes) {
+        // Skip if already inside a link
+        if (textNode.parentElement && textNode.parentElement.closest('a')) continue;
+        // Skip if already annotated
+        if (textNode.parentElement && textNode.parentElement.closest('.peek-link')) continue;
+
+        const text = textNode.textContent;
+        if (!pattern.test(text)) continue;
+        pattern.lastIndex = 0; // reset regex state
+
+        // Split the text node by matches
+        const frag = document.createDocumentFragment();
+        let lastIndex = 0;
+        let match;
+
+        while ((match = pattern.exec(text)) !== null) {
+            const matchedText = match[1];
+            const ref = refMap.get(matchedText);
+            if (!ref) continue;
+
+            // Text before the match
+            if (match.index > lastIndex) {
+                frag.appendChild(document.createTextNode(text.substring(lastIndex, match.index)));
+            }
+
+            // Create the peek link as a span (not <a>) — tooltip on click
+            const span = document.createElement('span');
+            span.className = 'peek-link' + (ref.is_directory ? ' peek-link--directory' : '');
+            span.textContent = matchedText;
+            span.setAttribute('data-peek-path', ref.resolved_path);
+            span.setAttribute('data-peek-dir', ref.is_directory ? '1' : '0');
+            if (ref.line_number) span.setAttribute('data-peek-line', ref.line_number);
+            span.setAttribute('tabindex', '0');
+            span.setAttribute('role', 'button');
+            span.onclick = function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                _showPeekTooltip(e, ref, span);
+            };
+            frag.appendChild(span);
+            lastIndex = match.index + matchedText.length;
+        }
+
+        // Remaining text after last match
+        if (lastIndex < text.length) {
+            frag.appendChild(document.createTextNode(text.substring(lastIndex)));
+        }
+
+        // Only replace if we found matches
+        if (lastIndex > 0) {
+            textNode.parentNode.replaceChild(frag, textNode);
+            annotated++;
+        }
+    }
+
+    if (annotated > 0) {
+        console.log(`[Peek] Annotated ${annotated} text nodes with ${references.length} references`);
+    }
+}
+
+/**
+ * Annotate unresolved file references with dimmed underline and tooltip.
+ * Runs AFTER resolved annotation, so already-annotated text nodes are skipped.
+ */
+function _annotateUnresolvedPeek(container, unresolved) {
+    if (!unresolved || unresolved.length === 0) return;
+
+    const refMap = new Map();
+    for (const u of unresolved) {
+        refMap.set(u.text, u);
+    }
+    const sortedTexts = [...refMap.keys()].sort((a, b) => b.length - a.length);
+    const escaped = sortedTexts.map(t =>
+        t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    );
+    if (escaped.length === 0) return;
+    const pattern = new RegExp('(' + escaped.join('|') + ')', 'g');
+
+    const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, null);
+    const textNodes = [];
+    let node;
+    while ((node = walker.nextNode())) {
+        textNodes.push(node);
+    }
+
+    let annotated = 0;
+    for (const textNode of textNodes) {
+        if (textNode.parentElement && textNode.parentElement.closest('a')) continue;
+        if (textNode.parentElement && textNode.parentElement.closest('.peek-link')) continue;
+
+        const text = textNode.textContent;
+        if (!pattern.test(text)) continue;
+        pattern.lastIndex = 0;
+
+        const frag = document.createDocumentFragment();
+        let lastIndex = 0;
+        let match;
+
+        while ((match = pattern.exec(text)) !== null) {
+            const matchedText = match[1];
+            const ref = refMap.get(matchedText);
+            if (!ref) continue;
+
+            if (match.index > lastIndex) {
+                frag.appendChild(document.createTextNode(text.substring(lastIndex, match.index)));
+            }
+
+            const span = document.createElement('span');
+            span.className = 'peek-link peek-link--unresolved';
+            span.textContent = matchedText;
+            span.setAttribute('data-peek-unresolved', '1');
+            span.setAttribute('tabindex', '0');
+            span.setAttribute('role', 'button');
+            span.onclick = function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                _showUnresolvedTooltip(e, ref, span);
+            };
+            frag.appendChild(span);
+            lastIndex = match.index + matchedText.length;
+        }
+
+        if (lastIndex < text.length) {
+            frag.appendChild(document.createTextNode(text.substring(lastIndex)));
+        }
+
+        if (lastIndex > 0) {
+            textNode.parentNode.replaceChild(frag, textNode);
+            annotated++;
+        }
+    }
+
+    if (annotated > 0) {
+        console.log(`[Peek] Annotated ${annotated} text nodes with ${unresolved.length} unresolved refs`);
+    }
+}
+
+function _showUnresolvedTooltip(event, ref, anchorEl) {
+    _dismissPeekTooltip();
+
+    const tooltip = document.createElement('div');
+    tooltip.className = 'peek-tooltip';
+
+    tooltip.innerHTML = `
+        <div class="peek-tooltip__header">
+            <span class="peek-tooltip__icon">⚠️</span>
+            <span class="peek-tooltip__path">${esc(ref.text)}</span>
+            <button class="peek-tooltip__close" title="Dismiss">✕</button>
+        </div>
+        <div class="peek-tooltip__label" style="color:#ffb74d">Not found in project</div>
+    `;
+
+    tooltip.querySelector('.peek-tooltip__close').onclick = (e) => {
+        e.stopPropagation();
+        _dismissPeekTooltip();
+    };
+
+    document.body.appendChild(tooltip);
+    _peekTooltipEl = tooltip;
+
+    // Position
+    const rect = anchorEl.getBoundingClientRect();
+    const tooltipRect = tooltip.getBoundingClientRect();
+    const viewH = window.innerHeight;
+    const viewW = window.innerWidth;
+
+    let top = rect.bottom + 6;
+    let left = rect.left;
+
+    if (top + tooltipRect.height > viewH - 10) {
+        top = rect.top - tooltipRect.height - 6;
+    }
+    if (left + tooltipRect.width > viewW - 10) {
+        left = viewW - tooltipRect.width - 10;
+    }
+    if (left < 10) left = 10;
+
+    tooltip.style.top = top + 'px';
+    tooltip.style.left = left + 'px';
+    tooltip.style.opacity = '1';
+    tooltip.style.transform = 'translateY(0)';
+
+    setTimeout(() => {
+        const outsideHandler = (e) => {
+            if (_peekTooltipEl && !_peekTooltipEl.contains(e.target)) {
+                _dismissPeekTooltip();
+                document.removeEventListener('click', outsideHandler);
+            }
+        };
+        document.addEventListener('click', outsideHandler);
+    }, 50);
+
+    const escHandler = (e) => {
+        if (e.key === 'Escape') {
+            _dismissPeekTooltip();
+            document.removeEventListener('keydown', escHandler);
+        }
+    };
+    document.addEventListener('keydown', escHandler);
+}
+
+/**
+ * Annotate pending T5 symbols (symbol index not ready yet).
+ * Shows a pulsing dotted underline and "Resolving..." tooltip on click.
+ * These spans are replaced when the index:ready SSE event re-annotates.
+ */
+function _annotatePendingPeek(container, pending) {
+    if (!pending || pending.length === 0) return;
+
+    const refMap = new Map();
+    for (const p of pending) {
+        refMap.set(p.text, p);
+    }
+    const sortedTexts = [...refMap.keys()].sort((a, b) => b.length - a.length);
+    const escaped = sortedTexts.map(t =>
+        t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    );
+    if (escaped.length === 0) return;
+    const pattern = new RegExp('(' + escaped.join('|') + ')', 'g');
+
+    const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, null);
+    const textNodes = [];
+    let node;
+    while ((node = walker.nextNode())) {
+        textNodes.push(node);
+    }
+
+    let annotated = 0;
+    for (const textNode of textNodes) {
+        if (textNode.parentElement && textNode.parentElement.closest('a')) continue;
+        if (textNode.parentElement && textNode.parentElement.closest('.peek-link')) continue;
+
+        const text = textNode.textContent;
+        if (!pattern.test(text)) continue;
+        pattern.lastIndex = 0;
+
+        const frag = document.createDocumentFragment();
+        let lastIndex = 0;
+        let match;
+
+        while ((match = pattern.exec(text)) !== null) {
+            const matchedText = match[1];
+            const ref = refMap.get(matchedText);
+            if (!ref) continue;
+
+            if (match.index > lastIndex) {
+                frag.appendChild(document.createTextNode(text.substring(lastIndex, match.index)));
+            }
+
+            const span = document.createElement('span');
+            span.className = 'peek-link peek-link--pending';
+            span.textContent = matchedText;
+            span.setAttribute('data-peek-pending', '1');
+            span.setAttribute('tabindex', '0');
+            span.setAttribute('role', 'button');
+            span.onclick = function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                _showPendingTooltip(e, ref, span);
+            };
+            frag.appendChild(span);
+            lastIndex = match.index + matchedText.length;
+        }
+
+        if (lastIndex < text.length) {
+            frag.appendChild(document.createTextNode(text.substring(lastIndex)));
+        }
+
+        if (lastIndex > 0) {
+            textNode.parentNode.replaceChild(frag, textNode);
+            annotated++;
+        }
+    }
+
+    if (annotated > 0) {
+        console.log(`[Peek] Annotated ${annotated} text nodes with ${pending.length} pending T5 symbols`);
+    }
+}
+
+function _showPendingTooltip(event, ref, anchorEl) {
+    _dismissPeekTooltip();
+
+    const tooltip = document.createElement('div');
+    tooltip.className = 'peek-tooltip';
+
+    tooltip.innerHTML = `
+        <div class="peek-tooltip__header">
+            <span class="peek-tooltip__icon">⏳</span>
+            <span class="peek-tooltip__path">${esc(ref.text)}</span>
+            <button class="peek-tooltip__close" title="Dismiss">✕</button>
+        </div>
+        <div class="peek-tooltip__label" style="color:#4dd0e1">Resolving… symbol index is loading (~20s)</div>
+    `;
+
+    tooltip.querySelector('.peek-tooltip__close').onclick = (e) => {
+        e.stopPropagation();
+        _dismissPeekTooltip();
+    };
+
+    document.body.appendChild(tooltip);
+    _peekTooltipEl = tooltip;
+
+    // Position
+    const rect = anchorEl.getBoundingClientRect();
+    const tooltipRect = tooltip.getBoundingClientRect();
+    const viewH = window.innerHeight;
+    const viewW = window.innerWidth;
+
+    let top = rect.bottom + 6;
+    let left = rect.left;
+
+    if (top + tooltipRect.height > viewH - 10) {
+        top = rect.top - tooltipRect.height - 6;
+    }
+    if (left + tooltipRect.width > viewW - 10) {
+        left = viewW - tooltipRect.width - 10;
+    }
+    if (left < 10) left = 10;
+
+    tooltip.style.top = top + 'px';
+    tooltip.style.left = left + 'px';
+    tooltip.style.opacity = '1';
+    tooltip.style.transform = 'translateY(0)';
+
+    setTimeout(() => {
+        const outsideHandler = (e) => {
+            if (_peekTooltipEl && !_peekTooltipEl.contains(e.target)) {
+                _dismissPeekTooltip();
+                document.removeEventListener('click', outsideHandler);
+            }
+        };
+        document.addEventListener('click', outsideHandler);
+    }, 50);
+
+    const escHandler = (e) => {
+        if (e.key === 'Escape') {
+            _dismissPeekTooltip();
+            document.removeEventListener('keydown', escHandler);
+        }
+    };
+    document.addEventListener('keydown', escHandler);
+}
+
+// ── Peek Tooltip ─────────────────────────────────────────────────
+
+let _peekTooltipEl = null;
+
+function _dismissPeekTooltip() {
+    if (_peekTooltipEl) {
+        _peekTooltipEl.remove();
+        _peekTooltipEl = null;
+    }
+}
+
+function _showPeekTooltip(event, ref, anchorEl) {
+    // Dismiss any existing tooltip
+    _dismissPeekTooltip();
+
+    const tooltip = document.createElement('div');
+    tooltip.className = 'peek-tooltip';
+
+    const icon = ref.is_directory ? '📁' : '📄';
+    const pathDisplay = ref.resolved_path + (ref.line_number ? ':' + ref.line_number : '');
+
+    if (ref.is_directory) {
+        tooltip.innerHTML = `
+            <div class="peek-tooltip__header">
+                <span class="peek-tooltip__icon">${icon}</span>
+                <span class="peek-tooltip__path">${esc(pathDisplay)}</span>
+                <button class="peek-tooltip__close" title="Dismiss">✕</button>
+            </div>
+            <div class="peek-tooltip__label">Directory</div>
+            <div class="peek-tooltip__actions">
+                <button class="peek-tooltip__btn peek-tooltip__btn--primary" data-action="browse">Browse</button>
+            </div>
+        `;
+    } else {
+        tooltip.innerHTML = `
+            <div class="peek-tooltip__header">
+                <span class="peek-tooltip__icon">${icon}</span>
+                <span class="peek-tooltip__path">${esc(pathDisplay)}</span>
+                <button class="peek-tooltip__close" title="Dismiss">✕</button>
+            </div>
+            ${ref.line_number ? '<div class="peek-tooltip__label">Line ' + ref.line_number + '</div>' : ''}
+            <div class="peek-tooltip__actions">
+                <button class="peek-tooltip__btn peek-tooltip__btn--primary" data-action="open">Open</button>
+                <button class="peek-tooltip__btn" data-action="newtab">New Tab</button>
+            </div>
+        `;
+    }
+
+    // Wire action buttons
+    tooltip.querySelector('.peek-tooltip__close').onclick = (e) => {
+        e.stopPropagation();
+        _dismissPeekTooltip();
+    };
+
+    for (const btn of tooltip.querySelectorAll('.peek-tooltip__btn')) {
+        btn.onclick = (e) => {
+            e.stopPropagation();
+            const action = btn.getAttribute('data-action');
+            _dismissPeekTooltip();
+            if (action === 'browse') {
+                contentLoadFolder(ref.resolved_path);
+            } else if (action === 'open') {
+                window._contentFocusLine = ref.line_number || 0;
+                contentPreviewFile(ref.resolved_path, ref.resolved_path.split('/').pop());
+            } else if (action === 'newtab') {
+                const hash = '#content/docs/' + ref.resolved_path + '@preview'
+                    + (ref.line_number ? ':' + ref.line_number : '');
+                window.open(window.location.pathname + hash, '_blank');
+            }
+        };
+    }
+
+    // Add to DOM
+    document.body.appendChild(tooltip);
+    _peekTooltipEl = tooltip;
+
+    // Position near the anchor element
+    const rect = anchorEl.getBoundingClientRect();
+    const tooltipRect = tooltip.getBoundingClientRect();
+    const viewH = window.innerHeight;
+    const viewW = window.innerWidth;
+
+    let top = rect.bottom + 6;
+    let left = rect.left;
+
+    // Flip above if not enough space below
+    if (top + tooltipRect.height > viewH - 10) {
+        top = rect.top - tooltipRect.height - 6;
+    }
+    // Keep within viewport horizontally
+    if (left + tooltipRect.width > viewW - 10) {
+        left = viewW - tooltipRect.width - 10;
+    }
+    if (left < 10) left = 10;
+
+    tooltip.style.top = top + 'px';
+    tooltip.style.left = left + 'px';
+    tooltip.style.opacity = '1';
+    tooltip.style.transform = 'translateY(0)';
+
+    // Dismiss on outside click (delayed to avoid immediate dismiss)
+    setTimeout(() => {
+        const outsideHandler = (e) => {
+            if (_peekTooltipEl && !_peekTooltipEl.contains(e.target)) {
+                _dismissPeekTooltip();
+                document.removeEventListener('click', outsideHandler);
+            }
+        };
+        document.addEventListener('click', outsideHandler);
+    }, 50);
+
+    // Dismiss on Escape
+    const escHandler = (e) => {
+        if (e.key === 'Escape') {
+            _dismissPeekTooltip();
+            document.removeEventListener('keydown', escHandler);
+        }
+    };
+    document.addEventListener('keydown', escHandler);
 }
 
 function contentSetPreviewMode(mode) {
