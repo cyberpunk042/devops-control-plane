@@ -511,17 +511,30 @@ Phase 4: Routing & MEMORY (Day 4) ✅ COMPLETE
 └── 4.3 ⚠️ USER ACTION: Update MEMORY[user_global] reference
 │       "before-any-change.md" → "before-change/common.md"
 
-Phase 5: General Docs Audit (Days 5-7) ⬜ PARTIAL
+Phase 5: General Docs Audit (Days 5-7) ✅ COMPLETE
 ├── 5.1 Audit specs ✅ (PROJECT_SCOPE + TECHNOLOGY_SPEC reviewed — structured, current)
-├── 5.2 Audit docs/ guides — deferred (large, needs per-doc source verification)
-├── 5.3 Spot-check module READMEs — deferred (recently created, likely current)
-└── 5.4 Plans cleanup ✅ STARTED
-    ├── 7 completed plans archived (audit-system-overhaul, glossary-stage2,
-    │   git-operations-ui, module-readmes, peek-feature, remediation-evolution,
-    │   refactor-regression-fix)
-    ├── 32 top-level plans remain (25 active/draft)
-    ├── 80 tool_install plans (scoped, structured — keep)
-    └── Full triage of remaining plans deferred to future session
+├── 5.2 Audit docs/ guides ✅ (17 docs audited against source)
+│   ├── ARCHITECTURE.md — dir layout rewritten, tab table updated, vault path+KDF fixed
+│   ├── WEB_ADMIN.md — template structure + API table rewritten, tabs added
+│   ├── CONTENT.md — API table expanded (10→30+), 4 feature sections added
+│   ├── DEVELOPMENT.md — paths corrected, recipes updated for package structure
+│   ├── QUICKSTART.md — tab table updated 7→9
+│   ├── PAGES.md — builder path corrected
+│   ├── VAULT.md — KDF iteration count corrected (480k→100k)
+│   ├── ADAPTERS.md — verified accurate ✅
+│   ├── STACKS.md — verified accurate ✅
+│   ├── DEVOPS_UI_GAP_ANALYSIS.md — staleness warning added
+│   ├── INTEGRATION_GAP_ANALYSIS.md — staleness warning added
+│   └── 6 more docs verified OK (DESIGN, README, ANALYSIS, AUDIT_*, CONSOLIDATION_*)
+├── 5.3 Spot-check module READMEs ✅ (vault, content, k8s checked — accurate)
+└── 5.4 Plans cleanup ✅ COMPLETE
+    ├── 15 plans archived (7 top-level + 3 refactor + 5 assistant completed)
+    ├── 17 active top-level plans remain
+    ├── 8 assistant plans remain (ongoing work)
+    ├── 7 refactor plans remain (ongoing work)
+    ├── 74 tool_install analysis plans (scoped, structured — keep)
+    ├── 4 stage-debugger plans (design docs — keep)
+    └── Reference: .agent/reference/docs-accuracy-audit.md
 
 Phase 6: Post-Mortem Evolution (Day 7) ✅ COMPLETE
 └── 6.1 Create reference/failure-patterns.md ✅ (10 patterns, all 14 post-mortems)

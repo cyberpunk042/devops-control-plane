@@ -1,7 +1,8 @@
 # Integration & Card Gap Analysis
 
 > Generated: 2026-02-12  
-> Purpose: Evaluate the current state of integrations, DevOps cards, and Audit cards — identify duplications, missing infrastructure, and plan the wizard/preferences system.
+> Purpose: Evaluate the current state of integrations, DevOps cards, and Audit cards — identify duplications, missing infrastructure, and plan the wizard/preferences system.  
+> **⚠️ Note:** Status markers below may be stale — significant work done since Feb 12.
 
 ---
 

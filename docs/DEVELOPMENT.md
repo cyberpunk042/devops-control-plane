@@ -70,7 +70,7 @@ Key locations:
 | Business logic | `src/core/services/` |
 | Adapters | `src/adapters/` |
 | Web admin | `src/ui/web/` |
-| Page builders | `src/ui/web/pages_builders/` |
+| Page builders | `src/core/services/pages_builders/` |
 | Templates (HTML) | `src/ui/web/templates/partials/` |
 | Templates (JS) | `src/ui/web/templates/scripts/` |
 | CSS | `src/ui/web/static/css/admin.css` |
@@ -142,18 +142,20 @@ chore: update dependencies
 
 ### New CLI Command
 
-1. Create `src/ui/cli/mycommand.py`
-2. Register with Click group in `src/main.py`
-3. Call use-cases from `src/core/use_cases/`
-4. Add tests in `tests/test_cli.py`
+1. Create package: `src/ui/cli/mydomain/`
+2. Add `__init__.py` with Click group, command files as needed
+3. Register with Click group in `src/main.py`
+4. Call services from `src/core/services/mydomain/`
+5. Add tests in `tests/test_cli_mydomain.py`
 
 ### New Web Tab
 
 1. Create partial: `templates/partials/_tab_mytab.html`
-2. Create script: `templates/scripts/_mytab.html`
-3. Register in `_nav.html` tab bar
-4. Create Flask blueprint: `routes_mytab.py`
-5. Register blueprint in `server.py`
+2. Create script directory: `templates/scripts/mydomain/`
+3. Add `_init.html`, `_mydomain.html` (loader) and domain files
+4. Register in `_nav.html` tab bar
+5. Create Flask blueprint package: `routes/mydomain/`
+6. Register blueprint in `server.py`
 
 ### New Adapter
 

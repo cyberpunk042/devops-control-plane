@@ -88,10 +88,37 @@ External service management:
 
 - **Git** — branch status, commit, pull, push, log
 - **GitHub** — repo link, PR count, Actions status
+- **Docker** — container detection, image build, Dockerfile generation
+- **Kubernetes** — manifest detection, cluster ops, wizard-driven generation
+- **Terraform** — config detection, plan, apply, state
 - **Pages** — multi-segment site builder with SSG support
-- **CI/CD** — workflow dispatch, run history
+- **CI/CD** — workflow dispatch, run history, pipeline generation
 
 See [PAGES.md](PAGES.md) for the Pages builder system.
+
+### 🛠 DevOps
+
+Operational health cards organized by domain:
+
+- **Security** — vulnerability scanning, dependency audit
+- **Testing** — test generation, coverage tracking
+- **Quality** — linting, formatting, code health
+- **Packages** — dependency management, update suggestions
+- **Documentation** — docs generation, coverage
+- **Kubernetes** — live cluster status, validation
+- **Terraform** — state management, drift detection
+- **DNS & CDN** — DNS record generation, CDN configuration
+- **Environment & IaC** — infrastructure detection, env management
+
+### 🔍 Audit
+
+Deep security and quality analysis:
+
+- **L0 System Profile** — OS, hardware, tool detection
+- **L1 Classification** — dependency parsing, structure analysis
+- **L2 Scoring** — code health, repo health, risk assessment
+- Findings with severity, dismiss with comments
+- Drill-down modals for each audit category
 
 ### 🐛 Debugging
 
@@ -105,9 +132,9 @@ Diagnostic tools:
 
 ## Template Architecture
 
-The web admin uses a **partial-per-tab** pattern with a **loader pattern** for
-large tabs. Each loader is a thin `<script>` block with Jinja2 `{% include %}`
-directives that pull in domain-specific modules sharing the same script scope.
+The web admin uses a **partial-per-tab** pattern with JS logic organized into
+**domain subdirectories** under `scripts/`. Each directory is a set of raw JS
+files sharing the same `<script>` scope via Jinja2 `{% include %}` directives.
 
 > **File size rule**: No template file over **500 lines** (700 max for justified
 > exceptions like tightly-coupled modal clusters).
@@ -128,77 +155,72 @@ templates/
 │   ├── _tab_audit.html                 #   🔍 Audit
 │   └── _tab_debugging.html             #   🐛 Debugging
 │
-└── scripts/                            # JS logic
-    ├── _globals.html                   # Shared helpers, API client, modal system
+└── scripts/                            # ⚠️ RAW JAVASCRIPT (not HTML pages)
+    ├── globals/                        # Shared utilities
+    │   ├── _api.html                   #   api() function, base URL
+    │   ├── _cache.html                 #   Session/memory caching
+    │   ├── _modal.html                 #   Modal show/hide
+    │   ├── _card_builders.html         #   DevOps card rendering
+    │   ├── _auth_modal.html            #   SSH passphrase auth
+    │   ├── _missing_tools.html         #   Tool availability checks
+    │   └── _ops_modal.html             #   Operations modal
+    │
+    ├── content/                        # 📁 Content tab — 17 files
+    │   ├── _init.html                  #   Global variables, state
+    │   ├── _content.html               #   Tab entry point
+    │   ├── _nav.html                   #   Folder bar, mode switch, hash nav
+    │   ├── _browser.html               #   File listing, search, gallery
+    │   ├── _preview.html               #   File preview + edit
+    │   ├── _preview_enc.html           #   Encrypted file preview
+    │   ├── _glossary.html              #   Glossary/outline panel
+    │   ├── _smart_folders.html         #   Smart folder virtual tree
+    │   ├── _upload.html                #   Upload, drag-drop
+    │   ├── _actions.html               #   File CRUD, encrypt, release
+    │   ├── _chat.html                  #   Chat interface
+    │   ├── _chat_refs.html             #   Chat reference resolution
+    │   ├── _archive.html               #   Archive browser
+    │   ├── _archive_actions.html       #   Archive operations
+    │   ├── _archive_modals.html        #   Archive modal handlers
+    │   └── _modal_preview.html         #   Modal file preview
+    │
+    ├── secrets/                        # 🔐 Secrets tab
+    │   ├── _init.html, _render.html, _form.html
+    │   ├── _sync.html, _keys.html, _vault.html
+    │
+    ├── integrations/                   # 🔌 Integrations tab — 15 files
+    │   ├── _init.html                  #   State + card metadata
+    │   ├── _git.html, _github.html     #   Git, GitHub cards
+    │   ├── _cicd.html, _docker.html    #   CI/CD, Docker cards
+    │   ├── _k8s.html, _terraform.html  #   K8s, Terraform cards
+    │   ├── _pages.html, _pages_config.html, _pages_sse.html
+    │   └── ... (+ dns, changelog, artifacts)
+    │
+    ├── devops/                         # 🛠 DevOps tab — 13 files
+    │   ├── _init.html                  #   State + card metadata
+    │   ├── _security.html, _testing.html, _quality.html
+    │   ├── _packages.html, _docs.html, _env.html
+    │   ├── _k8s.html, _terraform.html, _dns.html
+    │   └── ...
+    │
+    ├── wizard/                         # 🧙 Setup wizard — 10 files
+    ├── audit/                          # 🔍 Audit tab — 7 files
+    ├── assistant/                      # Assistant panel — 7 files
+    ├── k8s_wizard/                     # K8s sub-wizard — 9 files
+    ├── docker_wizard/                  # Docker sub-wizard — 3 files
+    ├── auth/                           # Auth modules — 3 files
+    │
+    ├── _dashboard.html                 # Dashboard tab JS
+    ├── _commands.html                  # Commands tab JS
+    ├── _debugging.html                 # Debugging tab JS
+    ├── _settings.html                  # Settings JS
     ├── _tabs.html                      # Tab switching, hash-based deep linking
     ├── _theme.html                     # Dark/light toggle
-    ├── _boot.html                      # Init on DOMContentLoaded
     ├── _lang.html                      # i18n / Google Translate
     ├── _monaco.html                    # Monaco editor integration
-    ├── _dashboard.html                 # Dashboard tab
-    ├── _commands.html                  # Commands tab
-    ├── _setup_wizard.html              # Setup wizard (standalone)
-    ├── _debugging.html                 # Debugging tab
-    │
-    ├── _content.html                   # LOADER → 10 modules
-    │   ├── _content_init.html          #   State, constants, categories
-    │   ├── _content_nav.html           #   Folder bar, mode switch, hash nav
-    │   ├── _content_archive.html       #   Archive panel, tree, export
-    │   ├── _content_archive_modals.html #  Archive modal handlers
-    │   ├── _content_archive_actions.html # Archive non-modal actions
-    │   ├── _content_browser.html       #   File browser, search, gallery
-    │   ├── _content_actions.html       #   File CRUD, encrypt, release
-    │   ├── _content_preview.html       #   Plain file preview + edit
-    │   ├── _content_preview_enc.html   #   Encrypted preview + rename/move
-    │   └── _content_upload.html        #   Upload, drag-drop, enc key setup
-    │
-    ├── _secrets.html                   # LOADER → 6 modules
-    │   ├── _secrets_init.html          #   State, tier logic, tab load
-    │   ├── _secrets_render.html        #   Status bars, file list, form
-    │   ├── _secrets_form.html          #   Target selector, dirty tracking
-    │   ├── _secrets_sync.html          #   Save/push, sync, remove, refresh
-    │   ├── _secrets_keys.html          #   Key management, add/create modal
-    │   └── _secrets_vault.html         #   Vault lock/unlock modals
-    │
-    ├── _integrations.html              # LOADER → 11 modules
-    │   ├── _integrations_init.html     #   State, prefs, card metadata, tab load
-    │   ├── _integrations_git.html      #   Git card + actions
-    │   ├── _integrations_github.html   #   GitHub card + live panels + modals
-    │   ├── _integrations_cicd.html     #   CI/CD card + live panels + generate
-    │   ├── _integrations_docker.html   #   Docker card + live panels + modals
-    │   ├── _integrations_docker_compose.html # Compose wizard + ops
-    │   ├── _integrations_k8s.html      #   K8s card + live panels + all modals
-    │   ├── _integrations_terraform.html #  Terraform card + live panels + modals
-    │   ├── _integrations_pages.html    #   Pages card + segment wizard
-    │   ├── _integrations_pages_config.html # Pages config modal + build/deploy
-    │   └── _integrations_pages_sse.html #  SSE streaming + CI gen + helpers
-    │
-    ├── _devops.html                    # LOADER → 10 modules
-    │   ├── _devops_init.html           #   State, prefs, card metadata, tab load
-    │   ├── _devops_security.html       #   Security card + live panels
-    │   ├── _devops_testing.html        #   Testing card + test gen modal
-    │   ├── _devops_docs.html           #   Documentation card + live panels
-    │   ├── _devops_k8s.html            #   K8s card + modals
-    │   ├── _devops_terraform.html      #   Terraform card + modals
-    │   ├── _devops_dns.html            #   DNS & CDN card + modals
-    │   ├── _devops_quality.html        #   Quality card + modals
-    │   ├── _devops_packages.html       #   Packages card + modals
-    │   └── _devops_env.html            #   Environment & IaC card + live panels
-    │
-    ├── _wizard.html                    # LOADER → 6 modules
-    │   ├── _wizard_init.html           #   Config load, state, render entry
-    │   ├── _wizard_steps.html          #   All 6 step renderers
-    │   ├── _wizard_helpers.html        #   Module/domain/env/content helpers
-    │   ├── _wizard_integrations.html   #   Integration sub-wizard UI + forms
-    │   ├── _wizard_integration_actions.html # Docker/K8s live panels, backend
-    │   └── _wizard_nav.html            #   Navigation, save, activate
-    │
-    └── _audit.html                     # LOADER → 5 modules
-        ├── _audit_init.html            #   Shared data store, helpers
-        ├── _audit_scores.html          #   Master L0/L1/L2 score rendering
-        ├── _audit_cards_a.html         #   System Profile, Deps, Structure, Clients
-        ├── _audit_cards_b.html         #   Code Health, Repo Health, Risks, Imports
-        └── _audit_modals.html          #   Drill-down modals, batch dismiss
+    ├── _event_stream.html              # Server-sent events
+    ├── _stage_debugger.html            # Stage debugger
+    ├── _dev_mode.html                  # Dev mode toggle
+    └── _boot.html                      # Init on DOMContentLoaded
 ```
 
 **Iron rule**: No business logic in templates. All actions call API endpoints.
@@ -208,18 +230,26 @@ Templates are purely for rendering.
 
 ## API Structure
 
-All API endpoints live under `/api/`:
+All API endpoints are Flask Blueprints organized in `routes/` sub-packages:
 
-| Blueprint | Prefix | Purpose |
-|-----------|--------|---------|
-| `routes_api.py` | `/api/` | Core: status, run, detect, health, audit |
-| `routes_vault.py` | `/api/vault/` | Lock, unlock, status, export, import |
-| `routes_secrets.py` | `/api/secrets/` | List, set, delete, push, pull |
-| `routes_content*.py` | `/api/content/` | Browse, encrypt, decrypt, upload |
-| `routes_integrations.py` | `/api/git/`, `/api/gh/` | Git and GitHub operations |
-| `routes_pages_api.py` | `/api/pages/` | Segments, builders, build, deploy |
-| `routes_backup*.py` | `/api/backup/` | Backup, restore, archive |
-| `routes_config.py` | `/api/config/` | Configuration management |
+| Blueprint Package | Prefix | Purpose |
+|-------------------|--------|---------|
+| `routes/api/` | `/api/` | Core: status, run, detect, health |
+| `routes/vault/` | `/api/vault/` | Lock, unlock, status, export, import |
+| `routes/secrets/` | `/api/secrets/` | List, set, delete, push, pull |
+| `routes/content/` | `/api/content/` | Browse, preview, encrypt, upload, glossary, peek |
+| `routes/chat/` | `/api/chat/` | Chat threads, messages, sync |
+| `routes/audit/` | `/api/audit/` | Security audit scan, findings, dismiss |
+| `routes/devops/` | `/api/devops/` | DevOps card operations, prefs |
+| `routes/integrations/` | `/api/git/`, `/api/gh/` | Git and GitHub operations |
+| `routes/k8s/` | `/api/k8s/` | Kubernetes cluster, wizard, helm |
+| `routes/docker/` | `/api/docker/` | Docker operations |
+| `routes/terraform/` | `/api/terraform/` | Terraform operations |
+| `routes/pages/` | `/api/pages/` | Segments, builders, build, deploy |
+| `routes/backup/` | `/api/backup/` | Backup, restore, archive |
+| `routes/smart_folders/` | `/api/smart-folders/` | Smart folder tree, file access |
+| `routes/config/` | `/api/config/` | Configuration management |
+| + 16 more | various | CI, DNS, events, git_auth, metrics, etc. |
 
 ---
 

@@ -80,7 +80,7 @@ Shows system health including circuit breaker states and retry queue status.
 
 Open [http://127.0.0.1:8000](http://127.0.0.1:8000) to see the admin dashboard.
 
-The dashboard has 7 tabs:
+The dashboard has 9 tabs:
 
 | Tab | What it does |
 |-----|-------------|
@@ -89,7 +89,9 @@ The dashboard has 7 tabs:
 | 🔐 Secrets | Vault encryption, secrets editor |
 | ⚡ Commands | Run capabilities on modules |
 | 📁 Content | File browser, encryption, media optimization |
-| 🔌 Integrations | Git, GitHub, Pages builder, CI/CD |
+| 🔌 Integrations | Git, GitHub, Docker, K8s, Terraform, Pages, CI/CD |
+| 🛠 DevOps | Security, testing, quality, packages, docs, IaC |
+| 🔍 Audit | Deep security and quality analysis |
 | 🐛 Debugging | Audit logs, state inspector, health details |
 
 Press **SPACE** to live-reload the server. Press **Ctrl+C** or **q** to quit.

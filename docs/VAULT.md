@@ -28,7 +28,7 @@ the plaintext original.
 |----------|-------|
 | Algorithm | AES-256-GCM |
 | Key derivation | PBKDF2-SHA256 |
-| KDF iterations | 480,000 (standard), 600,000 (portable exports) |
+| KDF iterations | 100,000 (standard), 600,000 (portable exports) |
 | Salt | 16 bytes random |
 | IV | 12 bytes random |
 | Auth tag | 16 bytes (GCM) |

@@ -7,25 +7,25 @@
 
 ## Audit Summary
 
-| Doc | Lines | Accuracy | Issues |
-|-----|-------|----------|--------|
-| ARCHITECTURE.md | 285 | 🔴 STALE | Directory layout outdated, route files renamed, tab count wrong |
-| WEB_ADMIN.md | 242 | 🔴 STALE | Template names use old flat convention, API table references deleted files |
-| CONTENT.md | 137 | 🟡 PARTIAL | API endpoint table very incomplete (10 of 30+), one endpoint wrong |
+| Doc | Lines | Status | Action Taken |
+|-----|-------|--------|-------------|
+| ARCHITECTURE.md | 313 | 🟢 FIXED | Dir layout rewritten, tab table updated, vault path+KDF fixed |
+| WEB_ADMIN.md | 263 | 🟢 FIXED | Template structure + API table rewritten, tabs added |
+| CONTENT.md | 199 | 🟢 FIXED | API table expanded (10→30+), 4 feature sections added |
+| DEVELOPMENT.md | 206 | 🟢 FIXED | Paths corrected, recipes updated for package structure |
+| QUICKSTART.md | 121 | 🟢 FIXED | Tab table updated 7→9 |
+| PAGES.md | 223 | 🟢 FIXED | Builder path corrected |
+| VAULT.md | 140 | 🟢 FIXED | KDF iteration count corrected (480k→100k) |
 | DESIGN.md | 317 | 🟢 OK | Philosophy doc — not tied to specific code |
-| ADAPTERS.md | 201 | 🟡 UNKNOWN | Needs adapter registry verification |
-| STACKS.md | 206 | 🟡 UNKNOWN | Needs stack.yml cross-check |
-| VAULT.md | 139 | 🟢 LIKELY OK | Encryption specs stable, needs KDF iteration count check |
-| PAGES.md | 222 | 🟡 UNKNOWN | Needs builder list verification |
-| QUICKSTART.md | 118 | 🟡 UNKNOWN | Needs command verification |
-| DEVELOPMENT.md | 203 | 🟡 UNKNOWN | Needs dev workflow verification |
-| README.md | 639 | 🟡 UNKNOWN | Large, needs section-by-section check |
-| ANALYSIS.md | 777 | 🟢 OK | Analysis doc — historical, not code-referencing |
-| AUDIT_ARCHITECTURE.md | 505 | 🟢 OK | Design doc — describes approach not implementation |
-| AUDIT_PLAN.md | 667 | 🟢 OK | Planning doc — future-facing |
+| ADAPTERS.md | 202 | 🟢 OK | Verified — adapter paths and protocols accurate |
+| STACKS.md | 207 | 🟢 OK | Verified — stack dirs and definitions accurate |
+| README.md | 639 | 🟢 OK | No stale references found |
+| ANALYSIS.md | 777 | 🟢 OK | Historical analysis — not code-referencing |
+| AUDIT_ARCHITECTURE.md | 505 | 🟢 OK | Design doc |
+| AUDIT_PLAN.md | 667 | 🟢 OK | Planning doc |
 | CONSOLIDATION_AUDIT.md | 303 | 🟢 OK | Audit results — snapshot in time |
-| DEVOPS_UI_GAP_ANALYSIS.md | 265 | 🟡 PARTIAL | Gap analysis statuses likely stale |
-| INTEGRATION_GAP_ANALYSIS.md | 266 | 🟡 PARTIAL | Gap analysis statuses likely stale |
+| DEVOPS_UI_GAP_ANALYSIS.md | 266 | 🟡 STALE NOTE | Added staleness warning |
+| INTEGRATION_GAP_ANALYSIS.md | 267 | 🟡 STALE NOTE | Added staleness warning |
 
 ---
 

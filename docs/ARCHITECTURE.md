@@ -97,39 +97,48 @@ devops-control-plane/
 │   │   │   ├── module.py      #   Module, ModuleDescriptor
 │   │   │   ├── stack.py       #   Stack, StackCapability
 │   │   │   ├── action.py      #   Action, Receipt
-│   │   │   └── state.py       #   ProjectState (root state model)
+│   │   │   ├── state.py       #   ProjectState (root state model)
+│   │   │   └── template.py    #   Template models
 │   │   ├── config/            # YAML loaders
 │   │   │   └── loader.py      #   project.yml → Project model
-│   │   ├── services/          # Business logic (channel-independent)
-│   │   │   ├── detection.py   #   Stack matching, module scanning
-│   │   │   ├── vault.py       #   AES-256-GCM secrets vault
-│   │   │   ├── vault_io.py    #   Vault export/import, secret detection
-│   │   │   ├── content_crypto.py      # COVAULT binary format, encryption
-│   │   │   ├── content_optimize.py    # Image/text optimization pipeline
-│   │   │   ├── content_optimize_video.py  # Video/audio ffmpeg pipeline
-│   │   │   ├── content_release.py     # GitHub Release large file sync
-│   │   │   ├── git_ops.py             # Git/GitHub CLI operations
-│   │   │   ├── backup_ops.py          # Backup/restore/wipe/encrypt archives
-│   │   │   ├── secrets_ops.py         # Secrets management, key generators
-│   │   │   ├── vault_env_ops.py       # .env CRUD, sections, templates
-│   │   │   ├── pages_engine.py        # Pages segment orchestrator
-│   │   │   ├── pages_builders/        # SSG builder plugins
-│   │   │   │   ├── base.py            #   PageBuilder ABC + ConfigField
-│   │   │   │   ├── docusaurus.py      #   Docusaurus builder
-│   │   │   │   ├── mkdocs.py          #   MkDocs builder
-│   │   │   │   ├── hugo.py            #   Hugo builder
-│   │   │   │   ├── sphinx.py          #   Sphinx builder
-│   │   │   │   ├── custom.py          #   User-defined build
-│   │   │   │   ├── raw.py             #   Static file copy
-│   │   │   │   └── template_engine.py #   Docusaurus template system
-│   │   │   └── md_transforms.py       # MD → MDX transforms
+│   │   ├── services/          # Business logic — 29 domain packages
+│   │   │   ├── artifacts/     #   Release artifacts, version, workflow gen
+│   │   │   ├── audit/         #   Security audit (L0/L1/L2 detection + scoring)
+│   │   │   ├── backup/        #   Backup/restore/archive/encrypt
+│   │   │   ├── changelog/     #   Changelog generation
+│   │   │   ├── chat/          #   Chat threads + message management
+│   │   │   ├── ci/            #   CI/CD compose + operations
+│   │   │   ├── content/       #   File management, encryption, optimization
+│   │   │   ├── devops/        #   DevOps card activity + caching
+│   │   │   ├── dns/           #   DNS/CDN operations
+│   │   │   ├── docker/        #   Docker operations
+│   │   │   ├── docs_svc/      #   Documentation generation
+│   │   │   ├── env/           #   Environment + infrastructure ops
+│   │   │   ├── generators/    #   Config generators (Dockerfile, compose, etc.)
+│   │   │   ├── git/           #   Git/GitHub CLI operations
+│   │   │   ├── k8s/           #   Kubernetes (detect, generate, validate, cluster, helm)
+│   │   │   ├── ledger/        #   Audit ledger
+│   │   │   ├── metrics/       #   Metrics collection
+│   │   │   ├── packages_svc/  #   Package management
+│   │   │   ├── pages/         #   Pages segment orchestrator
+│   │   │   ├── pages_builders/#   SSG builder plugins (docusaurus, mkdocs, hugo, etc.)
+│   │   │   ├── quality/       #   Code quality operations
+│   │   │   ├── secrets/       #   Secrets management, key generators
+│   │   │   ├── security/      #   Security scanning
+│   │   │   ├── terraform/     #   Terraform operations
+│   │   │   ├── testing/       #   Testing operations
+│   │   │   ├── tool_install/  #   Tool installation + recipes
+│   │   │   ├── trace/         #   Operation tracing
+│   │   │   ├── vault/         #   AES-256-GCM vault (core, io, env ops)
+│   │   │   ├── wizard/        #   Setup wizard orchestration
+│   │   │   └── detection.py   #   Stack matching, module scanning
 │   │   ├── engine/            # Execution loop
 │   │   │   └── runner.py      #   Run capabilities through adapters
 │   │   ├── use_cases/         # High-level entry points (CLI/Web call these)
+│   │   │   ├── config_check.py
 │   │   │   ├── detect.py
-│   │   │   ├── status.py
-│   │   │   ├── automate.py
-│   │   │   └── health.py
+│   │   │   ├── run.py
+│   │   │   └── status.py
 │   │   ├── reliability/       # Circuit breaker, retry queue
 │   │   ├── observability/     # Health checks, metrics
 │   │   ├── persistence/       # State file, audit ledger
@@ -139,63 +148,79 @@ devops-control-plane/
 │   │   ├── base.py            #   Adapter ABC
 │   │   ├── registry.py        #   Adapter registry + mock swap
 │   │   ├── mock.py            #   Universal mock adapter
-│   │   └── shell/             #   Shell command + filesystem adapters
+│   │   ├── shell/             #   Shell command + filesystem adapters
+│   │   ├── vcs/               #   Git adapter
+│   │   ├── containers/        #   Docker adapter
+│   │   └── languages/         #   Python, Node adapters
 │   │
 │   └── ui/
-│       ├── cli/               # Click CLI commands (thin wrappers)
-│       │   ├── vault.py       #   vault lock/unlock/status/export/detect
-│       │   ├── content.py     #   content encrypt/decrypt/optimize/release
-│       │   ├── pages.py       #   pages build/deploy/list/builders
-│       │   ├── git.py         #   git status/log/commit/push/gh
-│       │   ├── backup.py      #   backup create/list/preview/delete/folders
-│       │   └── secrets.py     #   secrets status/set/remove/list/generate/envs
-│       └── web/               # Flask web admin (thin HTTP wrappers)
-│           ├── server.py      #   App factory
-│           ├── vault.py       #   ← re-export shim → core/services/vault.py
-│           ├── vault_io.py    #   ← re-export shim → core/services/vault_io.py
-│           ├── content_crypto.py     # ← shim → core/services/content_crypto.py
-│           ├── content_optimize.py   # ← shim → core/services/content_optimize.py
-│           ├── content_release.py    # ← shim → core/services/content_release.py
-│           ├── pages_engine.py       # ← shim → core/services/pages_engine.py
-│           ├── pages_builders/       # ← shim → core/services/pages_builders/
-│           ├── md_transforms.py      # ← shim → core/services/md_transforms.py
-│           ├── routes_api.py         # Core status/run/detect API
-│           ├── routes_vault.py       # ← thin wrapper → vault + vault_env_ops
-│           ├── routes_secrets.py     # ← thin wrapper → secrets_ops
-│           ├── routes_content*.py    # Content vault API
-│           ├── routes_integrations.py # ← thin wrapper → git_ops
-│           ├── routes_pages*.py      # Pages builder API
-│           ├── routes_backup*.py     # ← thin wrapper → backup_ops
-│           ├── routes_config.py      # Config management API
+│       ├── cli/               # Click CLI commands — 19 domain packages
+│       │   ├── audit/         #   audit scan/dismiss/status
+│       │   ├── backup/        #   backup create/list/restore/delete
+│       │   ├── ci/            #   ci detect/compose/generate
+│       │   ├── content/       #   content encrypt/decrypt/optimize/release
+│       │   ├── dns/           #   dns detect/lookup/generate
+│       │   ├── docker/        #   docker detect/build/status
+│       │   ├── docs/          #   docs build/detect/status
+│       │   ├── git/           #   git status/log/commit/push/gh
+│       │   ├── infra/         #   infra detect/status
+│       │   ├── k8s/           #   k8s detect/generate/apply/status
+│       │   ├── metrics/       #   metrics collect/report
+│       │   ├── packages/      #   packages detect/audit
+│       │   ├── pages/         #   pages build/deploy/list/builders
+│       │   ├── quality/       #   quality check/lint
+│       │   ├── secrets/       #   secrets status/set/remove/list/generate
+│       │   ├── security/      #   security scan/status
+│       │   ├── terraform/     #   terraform detect/plan/apply
+│       │   ├── testing/       #   testing run/status
+│       │   └── vault/         #   vault lock/unlock/status/export
+│       └── web/               # Flask web admin
+│           ├── server.py      #   App factory + blueprint registration
+│           ├── helpers.py     #   Shared route helpers
+│           ├── routes/        #   31 Flask blueprint packages
+│           │   ├── api/       #     Core: status, run, detect, health
+│           │   ├── vault/     #     Lock, unlock, status, export, import
+│           │   ├── secrets/   #     List, set, delete, push, pull
+│           │   ├── content/   #     Browse, preview, encrypt, upload, glossary
+│           │   ├── chat/      #     Chat threads, messages, sync
+│           │   ├── audit/     #     Security audit scan, findings
+│           │   ├── devops/    #     DevOps card operations
+│           │   ├── integrations/ #  Git, GitHub, CI/CD operations
+│           │   ├── k8s/       #     Kubernetes cluster, wizard, helm
+│           │   ├── docker/    #     Docker operations
+│           │   ├── terraform/ #     Terraform operations
+│           │   ├── pages/     #     Pages build, deploy, config
+│           │   ├── backup/    #     Backup, restore, archive
+│           │   ├── smart_folders/ #  Smart folder tree, file access
+│           │   └── ...        #     + 17 more domain packages
 │           ├── static/css/admin.css  # Dark-mode CSS
 │           └── templates/            # Jinja2 templates
-│               ├── dashboard.html    #   Master template
-│               ├── partials/         #   HTML structure (_tab_*.html)
-│               └── scripts/          #   JS logic (_*.html)
+│               ├── dashboard.html    #   Master SPA template
+│               ├── partials/         #   HTML structure (9 tab partials)
+│               └── scripts/          #   JS logic (11 subdirectories + root files)
+│                   ├── globals/      #     Shared: api, cache, modals
+│                   ├── content/      #     Content tab (17 files)
+│                   ├── secrets/      #     Secrets tab
+│                   ├── integrations/ #     Integrations tab
+│                   ├── devops/       #     DevOps tab
+│                   ├── wizard/       #     Setup wizard
+│                   ├── audit/        #     Audit tab
+│                   ├── assistant/    #     Assistant panel
+│                   ├── k8s_wizard/   #     K8s sub-wizard
+│                   ├── docker_wizard/#     Docker sub-wizard
+│                   └── auth/         #     Auth modules
 │
-├── stacks/                    # Technology definitions
+├── stacks/                    # Technology definitions (20 stacks)
 │   ├── python/stack.yml
 │   ├── node/stack.yml
-│   └── docker-compose/stack.yml
+│   ├── docker-compose/stack.yml
+│   └── ...
 │
 ├── .state/                    # Generated state (disposable)
 │   ├── current.json           #   Current project state
 │   └── audit.ndjson           #   Append-only operation log
 │
-├── tests/                     # pytest suite (324 tests)
-│   ├── test_models.py
-│   ├── test_config.py
-│   ├── test_adapters.py
-│   ├── test_cli.py
-│   ├── test_detection.py
-│   ├── test_engine.py
-│   ├── test_reliability.py
-│   ├── test_observability.py
-│   ├── test_persistence.py
-│   ├── test_vault.py
-│   ├── test_web.py
-│   ├── test_e2e.py
-│   └── test_smoke.py
+├── tests/                     # pytest suite (40+ test files)
 │
 ├── docs/                      # Documentation
 └── .pages/                    # Pages build workspace (gitignored)
@@ -227,30 +252,33 @@ Key properties:
 
 ### Web Admin (`src/ui/web/`)
 
-A Flask-based single-page app with 7 tabs:
+A Flask-based single-page app with 9 tabs:
 
-| Tab | Partial | Script |
-|-----|---------|--------|
-| 📊 Dashboard | `_tab_dashboard.html` | `_dashboard.html` |
-| 🧙 Setup | `_tab_wizard.html` | `_wizard.html` |
-| 🔐 Secrets | `_tab_secrets.html` | `_secrets*.html` |
-| ⚡ Commands | `_tab_commands.html` | `_commands.html` |
-| 📁 Content | `_tab_content.html` | `_content*.html` |
-| 🔌 Integrations | `_tab_integrations.html` | `_integrations.html` |
-| 🐛 Debugging | `_tab_debugging.html` | `_debugging.html` |
+| Tab | Partial | Script Directory |
+|-----|---------|-----------------|
+| 📊 Dashboard | `_tab_dashboard.html` | `scripts/_dashboard.html` |
+| 🧙 Setup | `_tab_wizard.html` | `scripts/wizard/` |
+| 🔐 Secrets | `_tab_secrets.html` | `scripts/secrets/` |
+| ⚡ Commands | `_tab_commands.html` | `scripts/_commands.html` |
+| 📁 Content | `_tab_content.html` | `scripts/content/` (17 files) |
+| 🔌 Integrations | `_tab_integrations.html` | `scripts/integrations/` |
+| 🛠 DevOps | `_tab_devops.html` | `scripts/devops/` |
+| 🔍 Audit | `_tab_audit.html` | `scripts/audit/` |
+| 🐛 Debugging | `_tab_debugging.html` | `scripts/_debugging.html` |
 
-Each tab follows the same pattern: **partial for HTML structure, script for JS
-logic**. No business logic in the frontend — all actions call API endpoints.
+Each tab follows the same pattern: **partial for HTML structure, script
+subdirectory for JS logic**. No business logic in the frontend — all actions
+call API endpoints.
 
 ### Reliability (`src/core/reliability/`)
 
 - **Circuit Breaker** — CLOSED → OPEN → HALF_OPEN state machine per adapter
 - **Retry Queue** — persistent, exponential backoff with max retries
 
-### Security (`src/core/services/vault.py`)
+### Security (`src/core/services/vault/`)
 
 - **AES-256-GCM** encryption with PBKDF2-SHA256 key derivation
-- **480,000 KDF iterations** (600,000 for portable exports)
+- **100,000 KDF iterations** (600,000 for portable exports)
 - **Secure delete** — 3-pass random overwrite before unlink
 - **Auto-lock** — timer-based re-encryption after inactivity
 - **Rate limiting** — on failed passphrase attempts

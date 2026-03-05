@@ -90,16 +90,87 @@ Files too large for Git can be uploaded to GitHub Releases:
 
 | Endpoint | Method | Purpose |
 |----------|--------|---------|
-| `/api/content/list` | GET | List content folders and files |
-| `/api/content/file/<path>` | GET | Get file content/metadata |
-| `/api/content/encrypt` | POST | Encrypt a file |
-| `/api/content/decrypt` | POST | Decrypt a file |
+| `/api/content/list` | GET | List files in a content folder |
+| `/api/content/folders` | GET | List available content folders |
+| `/api/content/all-folders` | GET | List all project folders (recursive) |
+| `/api/content/preview` | POST | Get file content/preview |
+| `/api/content/preview-encrypted` | POST | Preview encrypted file content |
+| `/api/content/metadata` | POST | Get file metadata |
+| `/api/content/save` | POST | Save file content |
+| `/api/content/save-encrypted` | POST | Save encrypted file content |
 | `/api/content/upload` | POST | Upload a file |
+| `/api/content/download` | GET | Download a file |
 | `/api/content/delete` | POST | Delete a file |
 | `/api/content/rename` | POST | Rename a file |
+| `/api/content/move` | POST | Move a file |
+| `/api/content/create-folder` | POST | Create a directory |
+| `/api/content/encrypt` | POST | Encrypt a file |
+| `/api/content/decrypt` | POST | Decrypt a file |
+| `/api/content/enc-key-status` | GET | Check encryption key availability |
+| `/api/content/setup-enc-key` | POST | Configure encryption key |
 | `/api/content/optimize` | POST | Optimize media |
+| `/api/content/optimize-status` | GET | Check optimization progress |
+| `/api/content/optimize-cancel` | POST | Cancel running optimization |
 | `/api/content/release` | POST | Upload to GitHub Release |
-| `/api/content/preview/<path>` | GET | Get file preview |
+| `/api/content/release-status` | GET | Check release upload progress |
+| `/api/content/release-status/<id>` | GET | Check specific file release |
+| `/api/content/release-cancel/<id>` | POST | Cancel release upload |
+| `/api/content/release-inventory` | GET | List release artifacts |
+| `/api/content/restore-large` | POST | Restore file from GitHub Release |
+| `/api/content/clean-release-sidecar` | POST | Clean release sidecar files |
+| `/api/content/glossary` | POST | Get folder glossary (term definitions) |
+| `/api/content/outline` | POST | Get file outline (headings/functions) |
+| `/api/content/peek-refs` | POST | Detect references in content |
+| `/api/content/peek-resolve` | POST | Resolve reference targets |
+
+---
+
+## Smart Folders
+
+Smart folders group related files from different directories into virtual
+views. For example, all README files across the project can be viewed as
+a single "code-docs" folder.
+
+- **Virtual paths** — smart folders use virtual namespaces (e.g.,
+  `code-docs/adapters`) that don't correspond to filesystem paths
+- **Configuration** — defined in `smart_folders.json` with glob patterns
+- **Automatic grouping** — files are grouped by domain based on their
+  real filesystem location
+- **API**: `/api/smart-folders/tree`, `/api/smart-folders/file`
+
+---
+
+## Glossary & Outline Panel
+
+A side panel showing contextual documentation for the current folder or file:
+
+- **Folder glossary** — term definitions extracted from the folder's content
+- **File outline** — section headers (markdown) or function signatures (Python)
+- **Click-to-navigate** — clicking an outline item scrolls the preview
+- Supports markdown (heading extraction) and Python (AST-based function/class extraction)
+
+---
+
+## Chat
+
+Threaded conversation system for project notes and communication:
+
+- **Threads** — create, browse, and manage chat threads per content folder
+- **Messages** — markdown-formatted with reference support
+- **References** — link to files, folders, or code items
+- **Git sync** — chat data syncs via Git for collaboration
+
+---
+
+## Peek (Reference Resolution)
+
+When previewing content files, the Peek feature detects and resolves
+references to other project files:
+
+- **Directory references** — links to `./path/` or `path/` resolved
+  against the project index
+- **File references** — links to specific files
+- **Hover preview** — see referenced content without navigating away
 
 ---
 

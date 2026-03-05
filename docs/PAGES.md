@@ -205,7 +205,7 @@ Each segment can start a local dev server for authoring:
 
 ### Adding a New Builder
 
-1. Create `src/ui/web/pages_builders/mybuilder.py`
+1. Create `src/core/services/pages_builders/mybuilder.py`
 2. Subclass `PageBuilder` from `base.py`
 3. Implement: `info()`, `detect()`, `pipeline_stages()`, `run_stage()`
 4. Optionally implement `config_schema()` for UI fields
