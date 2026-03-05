@@ -1,6 +1,6 @@
 # Documentation
 
-> **113 files. 22,680 lines. Project knowledge base — from quickstart to deep architecture.**
+> **116 files. 23,955 lines. Project knowledge base — from quickstart to deep architecture.**
 >
 > This module contains all project documentation: architecture guides, domain
 > references, planning analyses, architectural decision records, deployment
@@ -30,7 +30,9 @@ audiences and purposes:
 │  ├── CONTENT.md               "content browsing, encryption, media"  │
 │  ├── VAULT.md                 "AES-256-GCM secrets management"       │
 │  ├── PAGES.md                 "documentation site builder"           │
-│  └── WEB_ADMIN.md             "web admin dashboard features"         │
+│  ├── WEB_ADMIN.md             "web admin dashboard features"         │
+│  ├── AUDIT.md                 "audit system user guide"              │
+│  └── TOOL_INSTALL.md          "automated tool installation"          │
 │                                                                      │
 │  Tier 3: Planning & Analysis  ← Architecture decisions               │
 │  ├── ANALYSIS.md              "future development roadmap"           │
@@ -70,12 +72,11 @@ convention maps guides to the code they document:
 
 ```
 docs/ADAPTERS.md          → src/adapters/
-docs/STACKS.md            → src/core/data/catalogs/ + src/core/engine/
+docs/STACKS.md            → stacks/ + src/core/services/detection.py
 docs/CONTENT.md           → src/core/services/content/
 docs/VAULT.md             → src/core/services/vault/ + src/core/services/secrets/
 docs/PAGES.md             → src/core/services/pages/ + src/core/services/pages_builders/
 docs/WEB_ADMIN.md         → src/ui/web/
-docs/ADAPTERS.md          → src/adapters/
 ```
 
 Each source module also has its own `README.md` with code-level details.
@@ -90,24 +91,26 @@ READMEs provide the **developer-facing** perspective.
 docs/
 ├── README.md                          This file (navigation hub)
 │
-├── QUICKSTART.md                      Getting started guide (118 lines)
-├── ARCHITECTURE.md                    System structure and data flow (284 lines)
+├── QUICKSTART.md                      Getting started guide (120 lines)
+├── ARCHITECTURE.md                    System structure and data flow (312 lines)
 ├── DESIGN.md                          Design philosophy and direction (317 lines)
-├── DEVELOPMENT.md                     Dev environment and contributing (203 lines)
+├── DEVELOPMENT.md                     Dev environment and contributing (205 lines)
 │
 ├── ADAPTERS.md                        Adapter pattern guide (201 lines)
 ├── STACKS.md                          Stack definitions guide (206 lines)
-├── CONTENT.md                         Content management guide (136 lines)
+├── CONTENT.md                         Content management guide (207 lines)
 ├── VAULT.md                           Secrets management guide (139 lines)
 ├── PAGES.md                           Documentation builder guide (222 lines)
-├── WEB_ADMIN.md                       Web admin dashboard guide (241 lines)
+├── WEB_ADMIN.md                       Web admin dashboard guide (271 lines)
+├── AUDIT.md                           Audit system user guide (276 lines)
+├── TOOL_INSTALL.md                    Tool install system guide (217 lines)
 │
 ├── ANALYSIS.md                        Future development analysis (777 lines)
 ├── AUDIT_ARCHITECTURE.md              Audit tab design document (505 lines)
 ├── AUDIT_PLAN.md                      Audit implementation plan (667 lines)
 ├── CONSOLIDATION_AUDIT.md             Architecture extraction audit (303 lines)
-├── DEVOPS_UI_GAP_ANALYSIS.md          DevOps UI completeness (265 lines)
-├── INTEGRATION_GAP_ANALYSIS.md        Integration/card coverage (266 lines)
+├── DEVOPS_UI_GAP_ANALYSIS.md          DevOps UI completeness (266 lines)
+├── INTEGRATION_GAP_ANALYSIS.md        Integration/card coverage (267 lines)
 │
 ├── Screenshot_2026-02-01_122520.png   UI screenshot reference
 │
@@ -133,7 +136,7 @@ docs/
 
 ### Tier 1: Foundation
 
-#### `QUICKSTART.md` — Getting Started (118 lines)
+#### `QUICKSTART.md` — Getting Started (120 lines)
 
 The entry point for new users. Covers the minimum path from `git clone` to
 running the system.
@@ -147,7 +150,7 @@ running the system.
 
 ---
 
-#### `ARCHITECTURE.md` — System Structure (284 lines)
+#### `ARCHITECTURE.md` — System Structure (312 lines)
 
 The technical blueprint. How the system is structured, how data flows, and
 where everything lives.
@@ -155,10 +158,10 @@ where everything lives.
 | Section | What It Covers |
 |---------|---------------|
 | High-Level Overview | 4-layer architecture diagram (CLI → Core → Adapters → Tools) |
-| Directory Layout | File tree with purpose annotations |
+| Directory Layout | File tree with purpose annotations (29 service packages, 31 route packages) |
 | Core Layer | Models, engine, services, use cases |
-| Adapter Layer | Protocol pattern, registered adapters |
-| UI Layer | CLI (Typer), Web Admin (Flask) |
+| Adapter Layer | Protocol pattern, registered adapters (shell, vcs, containers, languages) |
+| UI Layer | CLI (Click, 19 packages), Web Admin (Flask, 9 tabs) |
 | Data Flow | Action lifecycle: user → CLI/Web → core → adapter → receipt |
 
 **Key diagram — 4-Layer Architecture:**
@@ -204,7 +207,7 @@ guiding principles.
 
 ---
 
-#### `DEVELOPMENT.md` — Developer Guide (203 lines)
+#### `DEVELOPMENT.md` — Developer Guide (205 lines)
 
 Setting up a development environment and contributing changes.
 
@@ -248,7 +251,7 @@ How to define, discover, and execute technology stacks.
 
 ---
 
-#### `CONTENT.md` — Content Management Guide (136 lines)
+#### `CONTENT.md` — Content Management Guide (207 lines)
 
 Browsing, encrypting, and releasing project content files.
 
@@ -258,6 +261,10 @@ Browsing, encrypting, and releasing project content files.
 | Encryption | Per-file AES-256-GCM encryption |
 | Optimization | Image compression and format conversion |
 | Release Artifacts | Publishing content to cloud storage |
+| Smart Folders | Virtual folder grouping across directories |
+| Glossary & Outline | Side panel with term definitions and file outlines |
+| Chat | Threaded conversations with reference resolution |
+| Peek | Reference detection and resolution in previews |
 
 ---
 
@@ -268,10 +275,10 @@ AES-256-GCM encryption for `.env` files and project secrets.
 | Section | What It Covers |
 |---------|---------------|
 | Overview | What the vault protects and how |
-| Encryption | AES-256-GCM with rotating keys |
-| Key Management | Master key derivation and storage |
+| Encryption | AES-256-GCM with PBKDF2-SHA256 (100,000 iterations) |
+| Key Management | Session passphrase, auto-lock, secure delete |
 | Environment Files | Managing `.env` across environments |
-| CLI Usage | Vault lock/unlock/rotate commands |
+| CLI Usage | Vault lock/unlock/export commands |
 
 ---
 
@@ -289,19 +296,46 @@ Building and deploying documentation sites from the web admin.
 
 ---
 
-#### `WEB_ADMIN.md` — Web Admin Dashboard Guide (241 lines)
+#### `WEB_ADMIN.md` — Web Admin Dashboard Guide (271 lines)
 
 The Flask-based single-page application for managing the project through
 a browser.
 
 | Section | What It Covers |
 |---------|---------------|
-| Overview | Dashboard layout and navigation |
-| DevOps Tab | Integration cards, status monitoring |
-| Audit Tab | Code quality analysis and insights |
-| Content Tab | File management and preview |
-| Pages Tab | Documentation builder UI |
-| Settings | Preferences, wizard, configuration |
+| Overview | Dashboard layout and 9-tab navigation |
+| Tab Descriptions | All 9 tabs: Dashboard, Setup, Secrets, Commands, Content, Integrations, DevOps, Audit, Debugging |
+| Template Architecture | Partial-per-tab HTML + subdirectory-based JS logic |
+| API Structure | 31 Flask blueprint route packages |
+
+---
+
+#### `AUDIT.md` — Audit System Guide (276 lines)
+
+User-facing guide for the deep analysis system.
+
+| Section | What It Covers |
+|---------|---------------|
+| Analysis Layers | L0 detection, L1 classification, L2 deep analysis |
+| Scoring | Complexity (1-10) and Quality (1-10) composite scores |
+| UI Cards | Auto-load cards (system, deps, structure) + on-demand cards |
+| API Endpoints | 30+ audit endpoints grouped by function |
+| CLI Commands | `audit install`, `audit plans`, `audit resume` |
+| Architecture | 30-file service package with parsers for 10 languages |
+
+---
+
+#### `TOOL_INSTALL.md` — Tool Install System Guide (217 lines)
+
+Overview of automated tool installation with recipes and remediation.
+
+| Section | What It Covers |
+|---------|---------------|
+| Overview | Detect → Resolve → Execute → Verify → Remediate pipeline |
+| Recipes | 44 recipe modules organized by domain (devops, languages, security) |
+| Remediation | 25 error handlers + 13 tool-specific failure handlers |
+| Architecture | 6 sub-packages: detection, resolver, domain, execution, orchestration, data |
+| Integration | How audit, CLI, web routes, and wizard consume tool-install |
 
 ---
 
@@ -365,7 +399,7 @@ files into domain packages.
 
 ---
 
-#### `DEVOPS_UI_GAP_ANALYSIS.md` — UI Completeness (265 lines)
+#### `DEVOPS_UI_GAP_ANALYSIS.md` — UI Completeness (266 lines)
 
 Systematic analysis of the DevOps tab — what's implemented vs. what's specced.
 
@@ -378,7 +412,7 @@ Systematic analysis of the DevOps tab — what's implemented vs. what's specced.
 
 ---
 
-#### `INTEGRATION_GAP_ANALYSIS.md` — Integration Coverage (266 lines)
+#### `INTEGRATION_GAP_ANALYSIS.md` — Integration Coverage (267 lines)
 
 Cross-cutting analysis of integrations, DevOps cards, and audit cards.
 
@@ -481,7 +515,8 @@ Documents in `docs/` follow one of three lifecycle patterns:
 ```
 Living Documents (continuously updated):
   ARCHITECTURE.md, DESIGN.md, QUICKSTART.md, DEVELOPMENT.md
-  Domain guides: ADAPTERS, STACKS, CONTENT, VAULT, PAGES, WEB_ADMIN
+  Domain guides: ADAPTERS, STACKS, CONTENT, VAULT, PAGES, WEB_ADMIN,
+                 AUDIT, TOOL_INSTALL
 
 Point-in-Time Analysis (written once, referenced later):
   ANALYSIS.md, AUDIT_ARCHITECTURE.md, AUDIT_PLAN.md
@@ -515,11 +550,13 @@ However, it has **content dependencies** on the source code it describes:
 docs/ARCHITECTURE.md        ← describes → entire project structure
 docs/DESIGN.md              ← describes → core philosophy + models
 docs/ADAPTERS.md            ← describes → src/adapters/
-docs/STACKS.md              ← describes → src/core/data/catalogs/
+docs/STACKS.md              ← describes → stacks/
 docs/CONTENT.md             ← describes → src/core/services/content/
 docs/VAULT.md               ← describes → src/core/services/vault/
 docs/PAGES.md               ← describes → src/core/services/pages*/
 docs/WEB_ADMIN.md           ← describes → src/ui/web/
+docs/AUDIT.md               ← describes → src/core/services/audit/
+docs/TOOL_INSTALL.md        ← describes → src/core/services/tool_install/
 docs/tool_install/tools/    ← describes → src/core/services/tool_install/
 ```
 
@@ -548,7 +585,7 @@ by showing real-time code health metrics alongside the documentation.
 Most documentation frameworks prefer nested directory structures. We use
 a flat top-level for discoverability:
 
-- **All 16 guides visible at a glance** — no hunting through subdirectories
+- **All 18 guides visible at a glance** — no hunting through subdirectories
 - **GitHub renders them in the repo browser** — instant visibility
 - **UPPER_CASE naming** — visually separates docs from code files
 - **Only structured data is nested** — ADRs, examples, tool specs have their

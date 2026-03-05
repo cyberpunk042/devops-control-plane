@@ -2,6 +2,13 @@
 
 > **Purpose:** Break down the path from current state to final product vision
 > into analyzable, plannable work.
+>
+> **⚠️ STALE:** This analysis was written when the codebase was ~24,600 lines
+> with 7 tabs and flat-file services. Many `[needed]` items have since been
+> implemented (Docker, K8s, CI/CD, testing, security, packages, Terraform,
+> DNS all have full service packages now). The "Proposed Structure" in §6.2
+> references old flat filenames (`routes_docker.py`, `docker_ops.py`) that
+> were refactored into domain packages. Status markers should not be trusted.
 
 ---
 
