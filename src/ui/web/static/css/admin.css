@@ -2277,6 +2277,128 @@ pre .peek-link:hover {
     border-color: rgba(100, 181, 246, 0.5);
 }
 
+/* ── Peek preview overlay (independent of generic modal) ───────── */
+
+.peek-preview-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.65);
+    backdrop-filter: blur(8px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1100;
+    /* above .modal-overlay (1000) */
+    animation: fadeIn 0.2s ease;
+    padding: var(--space-lg);
+}
+
+.peek-preview-box {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    width: 100%;
+    max-width: 85vw;
+    max-height: 85vh;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 16px 64px rgba(0, 0, 0, 0.5);
+    animation: fadeIn 0.25s ease;
+}
+
+.peek-preview-header {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    padding: var(--space-sm) var(--space-md);
+    border-bottom: 1px solid var(--border-subtle);
+    flex-shrink: 0;
+}
+
+.peek-preview-header__icon {
+    font-size: 1.1rem;
+}
+
+.peek-preview-header__path {
+    flex: 1;
+    font-family: var(--font-mono);
+    font-size: 0.82rem;
+    color: var(--text-secondary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.peek-preview-header__line {
+    font-size: 0.75rem;
+    color: var(--accent);
+    background: rgba(100, 181, 246, 0.1);
+    border: 1px solid rgba(100, 181, 246, 0.25);
+    border-radius: var(--radius-sm);
+    padding: 0.1rem 0.4rem;
+}
+
+.peek-preview-header__close {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-size: 1.1rem;
+    cursor: pointer;
+    padding: 0.2rem 0.4rem;
+    border-radius: var(--radius-sm);
+    transition: color 0.15s, background 0.15s;
+}
+
+.peek-preview-header__close:hover {
+    color: var(--text-primary);
+    background: var(--bg-hover);
+}
+
+.peek-preview-header__action {
+    font-size: 0.75rem;
+    padding: 0.2rem 0.55rem;
+    border-radius: var(--radius-sm);
+    border: 1px solid rgba(100, 181, 246, 0.25);
+    background: rgba(100, 181, 246, 0.08);
+    color: #90caf9;
+    cursor: pointer;
+    text-decoration: none;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+    white-space: nowrap;
+}
+
+.peek-preview-header__action:hover {
+    background: rgba(100, 181, 246, 0.18);
+    color: #bbdefb;
+    border-color: rgba(100, 181, 246, 0.4);
+    text-decoration: none;
+}
+
+.peek-preview-body {
+    flex: 1 1 auto;
+    overflow: auto;
+    min-height: 0;
+    padding: var(--space-md);
+}
+
+.peek-preview-body .content-preview-rendered {
+    max-width: 100%;
+}
+
+/* Cap Monaco inside peek preview */
+.peek-preview-body #peek-monaco-container {
+    max-height: 70vh;
+}
+
+.peek-preview-loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 3rem;
+    color: var(--text-muted);
+    gap: 0.5rem;
+}
+
 /* ── Content editor ──────────────────────────────────────────────── */
 
 .content-editor {

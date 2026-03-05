@@ -363,6 +363,12 @@ async function _resolvePeekLinks(docPath, rawContent, container) {
 
         if (!res) return;
 
+        // Server-side peek/index is disabled — skip all annotation
+        if (res.disabled) {
+            console.debug('[Peek] Feature disabled by server settings');
+            return;
+        }
+
         // Track whether T5 symbols were available
         _peekSymbolsPending = (res.symbols_ready === false);
 
@@ -769,6 +775,126 @@ function _dismissPeekTooltip() {
     }
 }
 
+// ── Peek Preview Overlay (independent from generic modal) ────────
+
+let _peekPreviewOverlay = null;
+
+function _closePeekPreview() {
+    if (_peekPreviewOverlay) {
+        _peekPreviewOverlay.remove();
+        _peekPreviewOverlay = null;
+    }
+}
+
+/**
+ * Open a peek preview overlay for a resolved reference.
+ * Fetches content from the existing preview API and renders
+ * markdown or code in a dedicated overlay above any existing modal.
+ */
+async function _openPeekPreview(ref) {
+    _dismissPeekTooltip();
+    _closePeekPreview();
+
+    const previewPath = ref.is_directory
+        ? ref.resolved_path.replace(/\/$/, '') + '/README.md'
+        : ref.resolved_path;
+
+    const icon = ref.is_directory ? '📁' : '📄';
+    const pathDisplay = ref.resolved_path + (ref.line_number ? ':' + ref.line_number : '');
+
+    // Create overlay
+    const overlay = document.createElement('div');
+    overlay.className = 'peek-preview-overlay';
+    overlay.innerHTML = `
+        <div class="peek-preview-box">
+            <div class="peek-preview-header">
+                <span class="peek-preview-header__icon">${icon}</span>
+                <span class="peek-preview-header__path">${esc(pathDisplay)}</span>
+                ${ref.line_number ? `<span class="peek-preview-header__line">Line ${ref.line_number}</span>` : ''}
+                <button class="peek-preview-header__action" data-action="jump" title="Jump to file in browser">↗ Jump to</button>
+                <button class="peek-preview-header__action" data-action="edit" title="Open in editor">✏️ Edit</button>
+                <button class="peek-preview-header__close" title="Close (Esc)">✕</button>
+            </div>
+            <div class="peek-preview-body">
+                <div class="peek-preview-loading"><span class="spinner"></span> Loading…</div>
+            </div>
+        </div>
+    `;
+
+    // Close on backdrop click
+    overlay.addEventListener('click', (e) => {
+        if (e.target === overlay) _closePeekPreview();
+    });
+
+    // Close button
+    overlay.querySelector('.peek-preview-header__close').onclick = () => _closePeekPreview();
+
+    // Quick action: Jump to file in content browser
+    overlay.querySelector('[data-action="jump"]').onclick = () => {
+        _closePeekPreview();
+        if (ref.is_directory) {
+            contentLoadFolder(ref.resolved_path);
+        } else {
+            window._contentFocusLine = ref.line_number || 0;
+            contentPreviewFile(ref.resolved_path, ref.resolved_path.split('/').pop());
+        }
+    };
+
+    // Quick action: Edit file in editor
+    overlay.querySelector('[data-action="edit"]').onclick = () => {
+        _closePeekPreview();
+        window._contentFocusLine = ref.line_number || 0;
+        contentPreviewFile(ref.resolved_path, ref.resolved_path.split('/').pop());
+        // Switch to edit mode after a short delay to let the preview load
+        setTimeout(() => contentSetPreviewMode('edit'), 300);
+    };
+
+    // Close on Escape
+    const escHandler = (e) => {
+        if (e.key === 'Escape') {
+            _closePeekPreview();
+            document.removeEventListener('keydown', escHandler);
+        }
+    };
+    document.addEventListener('keydown', escHandler);
+
+    document.body.appendChild(overlay);
+    _peekPreviewOverlay = overlay;
+
+    // Fetch content
+    const body = overlay.querySelector('.peek-preview-body');
+    try {
+        const data = await api(`/content/preview?path=${encodeURIComponent(previewPath)}`);
+
+        if (data.type === 'markdown') {
+            body.innerHTML = `<div class="content-preview-rendered notranslate" translate="no">
+                ${renderMarkdown(data.preview_content || data.content)}
+            </div>`;
+        } else if (data.type === 'text') {
+            body.innerHTML = `<div id="peek-monaco-container" style="border:1px solid var(--border);border-radius:var(--radius-sm);overflow:hidden"></div>`;
+            monacoCreate('peek-monaco-container', {
+                content: data.content,
+                filePath: previewPath,
+                readOnly: true,
+                minHeight: 300,
+                focusLine: ref.line_number || 0,
+            });
+        } else if (data.type === 'image') {
+            body.innerHTML = `<div style="text-align:center;padding:1rem">
+                <img src="${data.url}" alt="${esc(previewPath)}" style="max-width:100%;max-height:70vh;border-radius:var(--radius-sm)">
+            </div>`;
+        } else {
+            body.innerHTML = `<div class="peek-preview-loading">📦 Binary file — cannot preview</div>`;
+        }
+
+        if (data.truncated) {
+            body.innerHTML += `<p style="color:var(--warning);font-size:0.8rem;padding:0.5rem">⚠️ File truncated</p>`;
+        }
+    } catch (e) {
+        body.innerHTML = `<div class="peek-preview-loading" style="color:var(--error)">❌ ${esc(e.message)}</div>`;
+    }
+}
+
 function _showPeekTooltip(event, ref, anchorEl) {
     // Dismiss any existing tooltip
     _dismissPeekTooltip();
@@ -788,7 +914,8 @@ function _showPeekTooltip(event, ref, anchorEl) {
             </div>
             <div class="peek-tooltip__label">Directory</div>
             <div class="peek-tooltip__actions">
-                <button class="peek-tooltip__btn peek-tooltip__btn--primary" data-action="browse">Browse</button>
+                <button class="peek-tooltip__btn peek-tooltip__btn--primary" data-action="preview">👁 Preview</button>
+                <button class="peek-tooltip__btn" data-action="browse">Browse</button>
             </div>
         `;
     } else {
@@ -800,7 +927,8 @@ function _showPeekTooltip(event, ref, anchorEl) {
             </div>
             ${ref.line_number ? '<div class="peek-tooltip__label">Line ' + ref.line_number + '</div>' : ''}
             <div class="peek-tooltip__actions">
-                <button class="peek-tooltip__btn peek-tooltip__btn--primary" data-action="open">Open</button>
+                <button class="peek-tooltip__btn peek-tooltip__btn--primary" data-action="preview">👁 Preview</button>
+                <button class="peek-tooltip__btn" data-action="open">Open</button>
                 <button class="peek-tooltip__btn" data-action="newtab">New Tab</button>
             </div>
         `;
@@ -817,7 +945,9 @@ function _showPeekTooltip(event, ref, anchorEl) {
             e.stopPropagation();
             const action = btn.getAttribute('data-action');
             _dismissPeekTooltip();
-            if (action === 'browse') {
+            if (action === 'preview') {
+                _openPeekPreview(ref);
+            } else if (action === 'browse') {
                 contentLoadFolder(ref.resolved_path);
             } else if (action === 'open') {
                 window._contentFocusLine = ref.line_number || 0;

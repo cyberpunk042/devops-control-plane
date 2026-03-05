@@ -46,3 +46,44 @@ def server_restart_route():  # type: ignore[no-untyped-def]
     if result and "error" in result:
         return jsonify(result), 500
     return jsonify({"ok": True, "message": "Restarting..."})
+
+
+# ── Server settings (feature toggles) ──────────────────────────
+
+
+@server_bp.route("/server/settings", methods=["GET"])
+def server_settings_get():  # type: ignore[no-untyped-def]
+    """Return server-side feature toggle settings."""
+    from src.core.services.server_settings import load_settings
+
+    root = current_app.config["PROJECT_ROOT"]
+    return jsonify(load_settings(root))
+
+
+@server_bp.route("/server/settings", methods=["PUT"])
+def server_settings_put():  # type: ignore[no-untyped-def]
+    """Update server-side feature toggle settings.
+
+    JSON body: partial dict of settings to update.
+    Returns the full merged settings after save.
+
+    NOTE: Changing ``peek_index_enabled`` takes effect on next
+    server restart.  A restart prompt is included in the response.
+    """
+    from src.core.services.server_settings import load_settings, save_settings
+
+    root = current_app.config["PROJECT_ROOT"]
+    data = request.get_json(silent=True) or {}
+
+    old = load_settings(root)
+    merged = save_settings(root, {**old, **data})
+
+    # Detect if a restart-requiring setting changed
+    needs_restart = (
+        old.get("peek_index_enabled") != merged.get("peek_index_enabled")
+    )
+
+    return jsonify({
+        "settings": merged,
+        "needs_restart": needs_restart,
+    })

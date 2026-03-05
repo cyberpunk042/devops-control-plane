@@ -18,11 +18,19 @@ interface PeekRef {
 }
 
 let _peekTooltipEl: HTMLElement | null = null;
+let _peekPreviewEl: HTMLElement | null = null;
 
 function _dismissPeekTooltip(): void {
     if (_peekTooltipEl) {
         _peekTooltipEl.remove();
         _peekTooltipEl = null;
+    }
+}
+
+function _closePeekPreview(): void {
+    if (_peekPreviewEl) {
+        _peekPreviewEl.remove();
+        _peekPreviewEl = null;
     }
 }
 
@@ -267,10 +275,11 @@ function showPeekTooltip(ref: PeekRef, anchorEl: HTMLElement): void {
             </div>
             <div class="peek-tooltip__label">Directory</div>
             <div class="peek-tooltip__actions">
+                <button class="peek-tooltip__btn peek-tooltip__btn--primary" data-action="preview">👁 Preview</button>
                 ${IS_LOCAL
-                ? `<a class="peek-tooltip__btn peek-tooltip__btn--primary" href="${localHref}">Browse in Vault</a>`
+                ? `<a class="peek-tooltip__btn" href="${localHref}">Browse in Vault</a>`
                 : githubHref
-                    ? `<a class="peek-tooltip__btn peek-tooltip__btn--primary" href="${githubHref}" target="_blank" rel="noopener">View on GitHub</a>`
+                    ? `<a class="peek-tooltip__btn" href="${githubHref}" target="_blank" rel="noopener">View on GitHub</a>`
                     : ''
             }
             </div>
@@ -284,16 +293,28 @@ function showPeekTooltip(ref: PeekRef, anchorEl: HTMLElement): void {
             </div>
             ${ref.line_number ? '<div class="peek-tooltip__label">Line ' + ref.line_number + '</div>' : ''}
             <div class="peek-tooltip__actions">
+                <button class="peek-tooltip__btn peek-tooltip__btn--primary" data-action="preview">👁 Preview</button>
                 ${IS_LOCAL
-                ? `<a class="peek-tooltip__btn peek-tooltip__btn--primary" href="${localHref}">Open in Vault</a>`
+                ? `<a class="peek-tooltip__btn" href="${localHref}">Open in Vault</a>`
                 : ''
             }
                 ${githubHref
-                ? `<a class="peek-tooltip__btn${IS_LOCAL ? '' : ' peek-tooltip__btn--primary'}" href="${githubHref}" target="_blank" rel="noopener">View on GitHub</a>`
+                ? `<a class="peek-tooltip__btn" href="${githubHref}" target="_blank" rel="noopener">View on GitHub</a>`
                 : ''
             }
             </div>
         `;
+    }
+
+    // Wire preview button
+    const previewBtn = tooltip.querySelector('[data-action="preview"]');
+    if (previewBtn) {
+        previewBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            _dismissPeekTooltip();
+            _openPeekPreview(ref);
+        });
     }
 
     _wireTooltip(tooltip, anchorEl);
@@ -373,4 +394,114 @@ function _wireTooltip(tooltip: HTMLElement, anchorEl: HTMLElement): void {
         }
     };
     document.addEventListener('keydown', escHandler);
+}
+
+/**
+ * Open a peek preview overlay.
+ * Local: fetches from localhost:8000 API.
+ * Published: fetches raw content from GitHub.
+ */
+async function _openPeekPreview(ref: PeekRef): Promise<void> {
+    _closePeekPreview();
+
+    const previewPath = ref.is_directory
+        ? ref.resolved_path.replace(/\/$/, '') + '/README.md'
+        : ref.resolved_path;
+
+    const icon = ref.is_directory ? '📁' : '📄';
+    const pathDisplay = ref.resolved_path + (ref.line_number ? ':' + ref.line_number : '');
+
+    // Create overlay
+    const overlay = document.createElement('div');
+    overlay.className = 'peek-preview-overlay';
+
+    // Build jump URL: local → admin panel, published → GitHub blob view
+    const lineAnchor = ref.line_number ? ':' + ref.line_number : '';
+    const localJumpHref = `http://localhost:8000/#content/docs/${ref.resolved_path}@preview${lineAnchor}`;
+    const githubBlobHref = REPO_URL
+        ? `${REPO_URL}/blob/main/${ref.resolved_path}${ref.line_number ? '#L' + ref.line_number : ''}`
+        : '';
+    const jumpHref = IS_LOCAL ? localJumpHref : githubBlobHref;
+    const jumpTarget = IS_LOCAL ? '_self' : '_blank';
+
+    overlay.innerHTML = `
+        <div class="peek-preview-box">
+            <div class="peek-preview-header">
+                <span class="peek-preview-header__icon">${icon}</span>
+                <span class="peek-preview-header__path">${_esc(pathDisplay)}</span>
+                ${ref.line_number ? `<span class="peek-preview-header__line">Line ${ref.line_number}</span>` : ''}
+                ${jumpHref ? `<a class="peek-preview-header__action" href="${jumpHref}" target="${jumpTarget}" rel="noopener" title="Jump to file">↗ Jump to</a>` : ''}
+                <button class="peek-preview-header__close" title="Close (Esc)">✕</button>
+            </div>
+            <div class="peek-preview-body">
+                <div class="peek-preview-loading">Loading…</div>
+            </div>
+        </div>
+    `;
+
+    // Close handlers
+    overlay.addEventListener('click', (e) => {
+        if (e.target === overlay) _closePeekPreview();
+    });
+    overlay.querySelector('.peek-preview-header__close')!.addEventListener('click', () => _closePeekPreview());
+    const escHandler = (e: KeyboardEvent) => {
+        if (e.key === 'Escape') {
+            _closePeekPreview();
+            document.removeEventListener('keydown', escHandler);
+        }
+    };
+    document.addEventListener('keydown', escHandler);
+
+    document.body.appendChild(overlay);
+    _peekPreviewEl = overlay;
+
+    const body = overlay.querySelector('.peek-preview-body') as HTMLElement;
+
+    try {
+        let content: string;
+
+        if (IS_LOCAL) {
+            // Fetch from local admin API
+            const resp = await fetch(`http://localhost:8000/api/content/preview?path=${encodeURIComponent(previewPath)}`);
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            const data = await resp.json();
+
+            if (data.type === 'markdown') {
+                // Render as HTML — use preview_content if server already rendered it
+                body.innerHTML = `<div class="markdown">${data.preview_content || _esc(data.content)}</div>`;
+                return;
+            }
+            content = data.content || '';
+        } else {
+            // Fetch raw from GitHub
+            const repoBase = REPO_URL ? REPO_URL.replace('github.com', 'raw.githubusercontent.com') : '';
+            if (!repoBase) throw new Error('No repository URL configured');
+            const rawUrl = `${repoBase}/main/${previewPath}`;
+            const resp = await fetch(rawUrl);
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            content = await resp.text();
+        }
+
+        // Determine language from file extension for Prism highlighting
+        const ext = previewPath.split('.').pop() || '';
+        const langMap: Record<string, string> = {
+            py: 'python', ts: 'typescript', tsx: 'tsx', js: 'javascript',
+            jsx: 'jsx', yml: 'yaml', yaml: 'yaml', json: 'json',
+            sh: 'bash', bash: 'bash', css: 'css', html: 'html',
+            md: 'markdown', mdx: 'markdown', toml: 'toml', sql: 'sql',
+            go: 'go', rs: 'rust', tf: 'hcl', Dockerfile: 'docker',
+        };
+        const lang = langMap[ext] || '';
+        const langClass = lang ? ` language-${lang}` : '';
+
+        body.innerHTML = `<pre style="margin:0;overflow:auto;max-height:70vh;font-size:0.82rem;line-height:1.6"><code class="${langClass}">${_esc(content)}</code></pre>`;
+
+        // Try Prism highlighting if available
+        if (typeof (window as any).Prism !== 'undefined') {
+            const codeEl = body.querySelector('code');
+            if (codeEl) (window as any).Prism.highlightElement(codeEl);
+        }
+    } catch (e: any) {
+        body.innerHTML = `<div class="peek-preview-loading" style="color:var(--ifm-color-danger, #f44336)">❌ ${_esc(e.message || String(e))}</div>`;
+    }
 }

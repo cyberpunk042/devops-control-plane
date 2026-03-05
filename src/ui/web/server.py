@@ -215,8 +215,13 @@ def create_app(
     start_watcher(app.config["PROJECT_ROOT"])
 
     # Start project index (background file/symbol/peek indexing)
-    from src.core.services.project_index import start_project_index
-    start_project_index(app.config["PROJECT_ROOT"])
+    # — gated by server setting: when disabled, no background thread
+    from src.core.services.server_settings import is_peek_index_enabled
+    if is_peek_index_enabled(app.config["PROJECT_ROOT"]):
+        from src.core.services.project_index import start_project_index
+        start_project_index(app.config["PROJECT_ROOT"])
+    else:
+        logger.info("Project index disabled by server settings")
 
     logger.info("Web admin app created (root=%s)", project_root)
     return app

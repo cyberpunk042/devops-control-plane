@@ -38,6 +38,14 @@ def peek_refs():  # type: ignore[no-untyped-def]
     if not doc_path:
         return jsonify({"references": [], "unresolved": []})
 
+    # Gate: check if peek/index is enabled server-side
+    from src.core.services.server_settings import is_peek_index_enabled
+    if not is_peek_index_enabled(_project_root()):
+        return jsonify({
+            "references": [], "unresolved": [], "pending": [],
+            "symbols_ready": False, "disabled": True,
+        })
+
     # Try the passive project index first (instant, zero I/O)
     try:
         from src.core.services.project_index import get_index
@@ -126,6 +134,14 @@ def peek_resolve():  # type: ignore[no-untyped-def]
         JSON with resolved references list, each containing:
             text, type, resolved_path, line_number, is_directory
     """
+    # Gate: check if peek/index is enabled server-side
+    from src.core.services.server_settings import is_peek_index_enabled
+    if not is_peek_index_enabled(_project_root()):
+        return jsonify({
+            "references": [], "unresolved": [], "pending": [],
+            "disabled": True,
+        })
+
     from src.core.services.peek import scan_and_resolve_all, build_symbol_index
 
     data = request.get_json(silent=True) or {}

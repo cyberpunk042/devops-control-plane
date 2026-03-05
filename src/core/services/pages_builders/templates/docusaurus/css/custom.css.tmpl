@@ -448,6 +448,117 @@ pre .peek-link:hover {
   border-color: rgba(129, 140, 248, 0.5);
 }
 
+/* ── Peek preview overlay ─────────────────────────────── */
+
+.peek-preview-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10001;
+  animation: dropdownSlide 0.2s ease;
+  padding: 1.5rem;
+}
+
+.peek-preview-box {
+  background: var(--ifm-background-surface-color);
+  border: 1px solid var(--ifm-color-emphasis-200);
+  border-radius: 12px;
+  width: 100%;
+  max-width: 85vw;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 16px 64px rgba(0, 0, 0, 0.5);
+}
+
+.peek-preview-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.6rem 1rem;
+  border-bottom: 1px solid var(--ifm-color-emphasis-200);
+  flex-shrink: 0;
+}
+
+.peek-preview-header__icon {
+  font-size: 1.1rem;
+}
+
+.peek-preview-header__path {
+  flex: 1;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 0.82rem;
+  color: var(--ifm-color-content-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.peek-preview-header__line {
+  font-size: 0.75rem;
+  color: var(--ifm-color-primary);
+  background: rgba(129, 140, 248, 0.1);
+  border: 1px solid rgba(129, 140, 248, 0.25);
+  border-radius: 4px;
+  padding: 0.1rem 0.4rem;
+}
+
+.peek-preview-header__close {
+  background: none;
+  border: none;
+  color: var(--ifm-color-content-secondary);
+  font-size: 1.1rem;
+  cursor: pointer;
+  padding: 0.2rem 0.4rem;
+  border-radius: 4px;
+  transition: color 0.15s, background 0.15s;
+}
+
+.peek-preview-header__close:hover {
+  color: var(--ifm-color-content);
+  background: var(--ifm-color-emphasis-100);
+}
+
+.peek-preview-header__action {
+  font-size: 0.75rem;
+  padding: 0.2rem 0.55rem;
+  border-radius: 4px;
+  border: 1px solid rgba(129, 140, 248, 0.25);
+  background: rgba(129, 140, 248, 0.08);
+  color: var(--ifm-color-primary);
+  cursor: pointer;
+  text-decoration: none;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  white-space: nowrap;
+}
+
+.peek-preview-header__action:hover {
+  background: rgba(129, 140, 248, 0.18);
+  color: var(--ifm-color-primary-light);
+  border-color: rgba(129, 140, 248, 0.4);
+  text-decoration: none;
+}
+
+.peek-preview-body {
+  flex: 1 1 auto;
+  overflow: auto;
+  min-height: 0;
+  padding: 1rem;
+}
+
+.peek-preview-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3rem;
+  color: var(--ifm-color-content-secondary);
+  gap: 0.5rem;
+}
+
 /* __USER_CSS_MARKER__ */
 /* User custom CSS is appended below this line by the build system.
    Do NOT remove this marker. */

@@ -202,7 +202,20 @@
             </div>`;
         }
 
+        // ── Server Settings (separator + async section) ─────────────
+        html += `<div style="border-top:1px solid var(--border-subtle);margin:0.75rem 0 0.5rem;padding-top:0.5rem">
+            <div class="settings-label" style="font-size:0.75rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em">Server</div>
+        </div>`;
+
+        // Placeholder that gets filled once the async fetch completes
+        html += `<div id="server-settings-section" style="min-height:40px">
+            <div class="settings-hint" style="opacity:0.5">Loading…</div>
+        </div>`;
+
         body.innerHTML = html;
+
+        // Fetch server settings asynchronously
+        _loadServerSettingsSection();
     }
 
     // ── Preference setters (called by settings UI) ──────────────
@@ -243,6 +256,35 @@
         _renderSettingsPanel();
     }
 
+    /**
+     * Fetch server settings from the API and render the Server section.
+     */
+    async function _loadServerSettingsSection() {
+        const container = document.getElementById('server-settings-section');
+        if (!container) return;
+
+        try {
+            const resp = await fetch('/api/server/settings');
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            const settings = await resp.json();
+
+            const peekOn = settings.peek_index_enabled !== false;
+
+            container.innerHTML = `<div class="settings-group">
+                <div class="settings-label">🔍 Peek & Index</div>
+                <div class="settings-hint">Background symbol index and file reference resolution (~20s AST parse on startup)</div>
+                <div class="settings-btn-group">
+                    <button class="settings-btn ${peekOn ? 'active' : ''}"
+                        onclick="_prefSetServerPeekIndex(true)">On</button>
+                    <button class="settings-btn ${!peekOn ? 'active' : ''}"
+                        onclick="_prefSetServerPeekIndex(false)">Off</button>
+                </div>
+            </div>`;
+        } catch (e) {
+            container.innerHTML = `<div class="settings-hint" style="color:var(--text-muted)">Could not load server settings</div>`;
+        }
+    }
+
     function _prefSetDevMode(enabled) {
         prefsSet('devMode', enabled);
         // Re-run dev mode logic to update badge + body attribute
@@ -257,6 +299,37 @@
             }
         }
         _renderSettingsPanel();
+    }
+
+    /**
+     * Toggle the server-side Peek & Index feature.
+     * Sends a PUT to /api/server/settings and prompts for restart.
+     */
+    async function _prefSetServerPeekIndex(enabled) {
+        try {
+            const resp = await fetch('/api/server/settings', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ peek_index_enabled: enabled }),
+            });
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            const result = await resp.json();
+
+            // Re-render the server section
+            _loadServerSettingsSection();
+
+            // Prompt restart if the setting actually changed
+            if (result.needs_restart) {
+                const action = enabled ? 'enabled' : 'disabled';
+                if (typeof toast === 'function') {
+                    toast(`Peek & Index ${action} — restart required`, 'info', 5000);
+                }
+            }
+        } catch (e) {
+            if (typeof toast === 'function') {
+                toast('Failed to save server setting', 'error', 3000);
+            }
+        }
     }
 
     // ── Migration from legacy localStorage('theme') ─────────────
