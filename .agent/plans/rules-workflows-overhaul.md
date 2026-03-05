@@ -500,23 +500,31 @@ Phase 2: Workflows (Days 2-4) ✅ COMPLETE
 ├── 2.5 code-discovery.md — SKIPPED (covered by read-before-write rule + common.md)
 └── 2.6 Archive narrative docs ✅
 
-Phase 3: Reference Docs (Days 3-5)
-├── 3.1 Create reference/frontend-state.md
-├── 3.2 Create reference/web-architecture.md
-└── 3.3 Create reference/smart-folders.md
+Phase 3: Reference Docs (Days 3-5) ✅ COMPLETE
+├── 3.1 Create reference/frontend-state.md ✅ (38 variables mapped)
+├── 3.2 Create reference/web-architecture.md ✅ (full template + route map)
+└── 3.3 Create reference/smart-folders.md ✅ (namespace system documented)
 
-Phase 4: Routing & MEMORY (Day 4)
-├── 4.1 Update MEMORY[core.md] with routing
-└── 4.2 Update all MEMORY references
+Phase 4: Routing & MEMORY (Day 4) ✅ COMPLETE
+├── 4.1 Update MEMORY[core.md] with routing ✅ (done in Phase 1.3)
+├── 4.2 Update cross-references in active files ✅
+└── 4.3 ⚠️ USER ACTION: Update MEMORY[user_global] reference
+│       "before-any-change.md" → "before-change/common.md"
 
-Phase 5: General Docs Audit (Days 5-7)
-├── 5.1 Audit specs (PROJECT_SCOPE, TECHNOLOGY_SPEC)
-├── 5.2 Audit docs/ guides
-├── 5.3 Spot-check module READMEs
-└── 5.4 Plans cleanup (137 files → active/archive)
+Phase 5: General Docs Audit (Days 5-7) ⬜ PARTIAL
+├── 5.1 Audit specs ✅ (PROJECT_SCOPE + TECHNOLOGY_SPEC reviewed — structured, current)
+├── 5.2 Audit docs/ guides — deferred (large, needs per-doc source verification)
+├── 5.3 Spot-check module READMEs — deferred (recently created, likely current)
+└── 5.4 Plans cleanup ✅ STARTED
+    ├── 7 completed plans archived (audit-system-overhaul, glossary-stage2,
+    │   git-operations-ui, module-readmes, peek-feature, remediation-evolution,
+    │   refactor-regression-fix)
+    ├── 32 top-level plans remain (25 active/draft)
+    ├── 80 tool_install plans (scoped, structured — keep)
+    └── Full triage of remaining plans deferred to future session
 
-Phase 6: Post-Mortem Evolution (Day 7)
-└── 6.1 Create reference/failure-patterns.md
+Phase 6: Post-Mortem Evolution (Day 7) ✅ COMPLETE
+└── 6.1 Create reference/failure-patterns.md ✅ (10 patterns, all 14 post-mortems)
 ```
 
 ---

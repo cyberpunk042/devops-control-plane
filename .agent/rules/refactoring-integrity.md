@@ -147,7 +147,7 @@ Every single regression would have been prevented by reading the original file f
 
 - **Post-Mortem #13**: `.agent/workflows/failures/AI-POSTMORTEM-IMPORTANT-13.md`
 - **No-Abstraction Law**: `.agent/workflows/no-abstraction.md` — this rule is the CODE variant of that law
-- **Before Any Change**: `.agent/workflows/before-any-change.md`
+- **Before Any Change**: `.agent/workflows/before-change/common.md`
 
 ---
 
