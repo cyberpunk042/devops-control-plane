@@ -133,7 +133,6 @@
                 if (previewEditMode) {
                     body.innerHTML = `<div id="monaco-editor-container" style="border:1px solid var(--border);border-radius:var(--radius-sm);overflow:hidden"></div>`;
                     const encEditFocusLine = window._contentFocusLine || 0;
-                    window._contentFocusLine = 0;
                     monacoCreate('monaco-editor-container', {
                         content: data.content,
                         filePath: previewCurrentPath.replace(/\.enc$/, ''),
@@ -156,6 +155,10 @@
                     const encRendered = body.querySelector('.content-preview-rendered');
                     if (encRendered) _contentObservePreviewLines(encRendered, encSourceText);
                     if (encRendered) _contentScrollToSourceLine(encRendered);
+                    // Sync glossary immediately on render
+                    if (window._contentFocusLine > 0 && typeof _glossaryUpdateActive === 'function') {
+                        _glossaryUpdateActive(previewCurrentPath, window._contentFocusLine);
+                    }
                     editBar.style.display = 'none';
                 } else {
                     _contentDisconnectPreviewObserver();
@@ -165,7 +168,6 @@
                         </p>
                         <div id="monaco-editor-container" style="border:1px solid var(--border);border-radius:var(--radius-sm);overflow:hidden"></div>`;
                     const encRawFocusLine = window._contentFocusLine || 0;
-                    window._contentFocusLine = 0;
                     monacoCreate('monaco-editor-container', {
                         content: data.content,
                         filePath: previewCurrentPath.replace(/\.enc$/, ''),
@@ -522,6 +524,10 @@
             previewCurrentName = '';
             if (contentCurrentPath) {
                 contentLoadFolder(contentCurrentPath);
+            }
+            // Update glossary highlight
+            if (typeof _glossaryLoadForCurrentContext === 'function') {
+                _glossaryLoadForCurrentContext();
             }
         });
     }

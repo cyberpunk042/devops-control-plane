@@ -320,6 +320,10 @@ if (_smartFolderViewRaw && _smartFolderLastRoot) {
         bc.appendChild(toggle);
     }
 }
+// Glossary: first call fetches, subsequent calls just update highlights
+if (typeof _glossaryLoadForCurrentContext === 'function') {
+    _glossaryLoadForCurrentContext();
+}
 } catch (e) {
 browser.innerHTML = `<p class="empty-state" style="color:var(--error)">❌ ${esc(e.message)}</p>`;
 }

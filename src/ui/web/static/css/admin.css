@@ -1893,7 +1893,226 @@ body {
     opacity: 1;
 }
 
+/* ── Glossary / Outline panel ────────────────────────────────────── */
+
+.glossary-panel {
+    width: 260px;
+    min-width: 180px;
+    max-width: 380px;
+    flex-shrink: 0;
+    border-right: 1px solid var(--border-subtle);
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 0;
+    font-size: 0.82rem;
+    max-height: 70vh;
+    resize: horizontal;
+    scrollbar-width: thin;
+    background: var(--bg-card);
+}
+
+.glossary-panel.hidden {
+    display: none;
+}
+
+.glossary-header {
+    padding: 0.4rem 0.5rem;
+    border-bottom: 1px solid var(--border-subtle);
+    position: sticky;
+    top: 0;
+    background: var(--bg-card);
+    z-index: 1;
+}
+
+.glossary-mode-tabs {
+    display: flex;
+    gap: 0.25rem;
+    margin-bottom: 0.35rem;
+}
+
+.glossary-mode-tab {
+    flex: 1;
+    padding: 0.2rem 0.4rem;
+    font-size: 0.72rem;
+    border: 1px solid var(--border-subtle);
+    border-radius: 5px;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: all 0.15s;
+    text-align: center;
+    white-space: nowrap;
+}
+
+.glossary-mode-tab:hover {
+    border-color: var(--accent);
+    color: var(--text-secondary);
+}
+
+.glossary-mode-tab.active {
+    border-color: var(--accent);
+    background: var(--accent-glow);
+    color: var(--accent);
+    font-weight: 600;
+}
+
+.glossary-search {
+    width: 100%;
+    padding: 0.2rem 0.45rem;
+    border: 1px solid var(--border-subtle);
+    border-radius: 5px;
+    background: var(--bg-inset);
+    color: var(--text-primary);
+    font-size: 0.75rem;
+    outline: none;
+    transition: border-color 0.15s;
+}
+
+.glossary-search:focus {
+    border-color: var(--accent);
+}
+
+.glossary-tree {
+    padding: 0.25rem 0;
+}
+
+.glossary-empty {
+    padding: 1rem 0.6rem;
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 0.78rem;
+    font-style: italic;
+}
+
+/* ── Tree node styles ──────────────────────────────────────────── */
+
+.glossary-node {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.15rem 0.5rem;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: background 0.1s;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    user-select: none;
+    line-height: 1.45;
+}
+
+.glossary-node:hover {
+    background: var(--bg-tertiary);
+}
+
+.glossary-node.active {
+    background: var(--accent-glow);
+    color: var(--accent);
+    font-weight: 600;
+}
+
+.glossary-node.active-file {
+    background: rgba(59, 130, 246, 0.06);
+    font-weight: 600;
+}
+
+.glossary-node.active-heading {
+    border-left: 3px solid var(--accent);
+    padding-left: calc(0.5rem - 3px);
+    background: rgba(59, 130, 246, 0.08);
+}
+
+.glossary-node__arrow {
+    width: 14px;
+    flex-shrink: 0;
+    text-align: center;
+    font-size: 0.6rem;
+    color: var(--text-muted);
+    transition: transform 0.15s;
+}
+
+.glossary-node__arrow.expanded {
+    transform: rotate(90deg);
+}
+
+.glossary-node__icon {
+    flex-shrink: 0;
+    font-size: 0.72rem;
+}
+
+.glossary-node__text {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.glossary-node__size {
+    flex-shrink: 0;
+    font-size: 0.62rem;
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+    margin-left: auto;
+}
+
+.glossary-node__line {
+    flex-shrink: 0;
+    font-size: 0.62rem;
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+}
+
+.glossary-node__kind {
+    flex-shrink: 0;
+    font-size: 0.55rem;
+    padding: 0 0.2rem;
+    border-radius: 3px;
+    background: var(--bg-inset);
+    color: var(--text-muted);
+    border: 1px solid var(--border-subtle);
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+
+.glossary-children {
+    margin-left: 0.7rem;
+    overflow: hidden;
+}
+
+.glossary-children.collapsed {
+    display: none;
+}
+
+.glossary-separator {
+    border: none;
+    border-top: 1px solid var(--border-subtle);
+    margin: 0.3rem 0.5rem;
+}
+
+#content-glossary-toggle-btn.active {
+    border-color: var(--accent) !important;
+    background: var(--accent-glow) !important;
+    color: var(--accent) !important;
+}
+
+/* ── Glossary Mobile responsive ────────────────────────────────── */
+@media (max-width: 768px) {
+    #content-main-flex {
+        flex-direction: column !important;
+    }
+
+    .glossary-panel {
+        width: 100% !important;
+        max-width: none !important;
+        max-height: 30vh;
+        border-right: none;
+        border-bottom: 1px solid var(--border-subtle);
+        resize: none;
+    }
+}
+
 /* ── Content preview panel ───────────────────────────────────────── */
+
 
 .content-preview-panel {
     display: flex;
@@ -3380,6 +3599,21 @@ pre .peek-link:hover {
 }
 
 /* ── Utility: Tags / Badges ──────────────────────────────────────── */
+
+/* Highlight the heading that owns the section the user clicked in */
+.preview-line-focused {
+    border-left: 3px solid rgba(245, 158, 11, 0.7);
+    padding-left: 0.5rem;
+    background: rgba(245, 158, 11, 0.08);
+    border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+    transition: background 0.3s ease, border-color 0.3s ease;
+}
+
+/* Click-focused takes priority over scroll-tracked */
+.preview-line-focused.preview-heading-tracked {
+    border-left-color: rgba(245, 158, 11, 0.7);
+    background: rgba(245, 158, 11, 0.08);
+}
 
 .tag {
     display: inline-flex;

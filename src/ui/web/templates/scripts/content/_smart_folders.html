@@ -144,6 +144,13 @@ async function _smartFolderRender(folderPath, sf) {
         // Inside a module — show documentation table of contents
         _smartFolderRenderDocTree(browser, sf, subPath);
     }
+
+    // Set glossary context for this smart folder and force load
+    if (typeof _glossaryLoadForCurrentContext === 'function') {
+        _glossaryContextPath = null;     // clear so it re-derives for new context
+        _glossaryGlossaryData = null;    // clear cached data
+        _glossaryLoadForCurrentContext(true);
+    }
 }
 
 /**

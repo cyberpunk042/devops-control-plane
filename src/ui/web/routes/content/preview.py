@@ -65,8 +65,8 @@ def content_preview():  # type: ignore[no-untyped-def]
     suffix = target.suffix.lower()
     mime = _guess_mime(target.name)
 
-    # Check if text-previewable
-    is_text = suffix in _TEXT_EXTS or mime.startswith("text/")
+    # Check if text-previewable (suffix OR bare filename for extensionless files)
+    is_text = suffix in _TEXT_EXTS or target.name in _TEXT_EXTS or mime.startswith("text/")
 
     # Check release sidecar (delegated to core)
     from src.core.services.content.file_ops import check_release_sidecar

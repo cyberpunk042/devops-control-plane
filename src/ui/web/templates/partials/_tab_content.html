@@ -76,6 +76,12 @@
                 <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.6rem">
                     <span id="content-summary" style="font-size:0.8rem;color:var(--text-muted)"></span>
                     <div style="margin-left:auto;display:flex;gap:0.5rem;align-items:center">
+                        <button class="btn btn-sm" id="content-glossary-toggle-btn"
+                            onclick="contentToggleGlossary()"
+                            title="Toggle outline/glossary panel (Ctrl+Shift+O)"
+                            style="font-size:0.72rem;padding:0.15rem 0.5rem;border-radius:6px;border:1px solid var(--border-subtle);background:transparent;color:var(--text-muted);cursor:pointer;transition:all 0.15s">
+                            📋 Outline
+                        </button>
                         <button class="btn btn-sm" id="content-explore-all-btn"
                             onclick="contentToggleExploreAllBtn()"
                             title="Show all project directories, not just configured content folders"
@@ -99,12 +105,34 @@
             <!-- Breadcrumb nav -->
             <div id="content-breadcrumb" style="display:none;margin-bottom:var(--space-sm);font-size:0.85rem"></div>
 
-            <!-- File browser -->
-            <div id="content-browser">
-                <p class="empty-state">
-                    <span style="font-size:2rem;display:block;margin-bottom:0.5rem">📂</span>
-                    Loading content folders…
-                </p>
+            <!-- Glossary + Browser flex container -->
+            <div id="content-main-flex" style="display:flex;gap:0;min-height:200px">
+
+                <!-- Glossary / Outline panel (left sidebar) -->
+                <div id="content-glossary-panel" class="glossary-panel">
+                    <div class="glossary-header">
+                        <div class="glossary-mode-tabs">
+                            <button class="glossary-mode-tab active" data-glossary-mode="outline"
+                                onclick="_glossarySwitchMode('outline')">📋 Outline</button>
+                            <button class="glossary-mode-tab" data-glossary-mode="glossary"
+                                onclick="_glossarySwitchMode('glossary')">📚 Glossary</button>
+                        </div>
+                        <input type="text" class="glossary-search" id="glossary-search"
+                            placeholder="🔍 Filter..." oninput="_glossaryFilter(this.value)">
+                    </div>
+                    <div class="glossary-tree" id="glossary-tree">
+                        <p class="glossary-empty">No outline data</p>
+                    </div>
+                </div>
+
+                <!-- File browser -->
+                <div id="content-browser" style="flex:1;min-width:0">
+                    <p class="empty-state">
+                        <span style="font-size:2rem;display:block;margin-bottom:0.5rem">📂</span>
+                        Loading content folders…
+                    </p>
+                </div>
+
             </div>
 
             <!-- Chat panel (sibling, hidden by default) -->

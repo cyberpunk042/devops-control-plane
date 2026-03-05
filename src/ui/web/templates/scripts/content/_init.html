@@ -35,6 +35,15 @@ let _chatSortNewest = true; // true = newest-first
 let _isRestoring = false;  // true during contentApplySubNav to suppress pushState
 window._contentFocusLine = 0;      // current cursor line (all modes: raw/edit/preview)
 
+// ── Glossary / Outline panel state ───────────────────────────────
+let _glossaryVisible = localStorage.getItem('glossary-panel-visible') !== 'false';  // visible by default
+let _glossaryMode = localStorage.getItem('glossary-panel-mode') || 'outline';       // 'outline' or 'glossary'
+let _glossaryOutlineData = null;     // cached outline for current file
+let _glossaryGlossaryData = null;    // cached glossary for current folder
+let _glossaryContextPath = null;     // root folder the glossary is loaded for (set ONCE per context)
+let _glossaryExpandedNodes = {};     // node-id -> true/false for expand/collapse state
+let _glossaryFilterText = '';        // current search/filter text
+
 // Category → mode mapping (encrypted files show in all modes)
 const CATEGORY_MODES = {
 docs: ['document', 'code', 'script', 'config', 'data', 'other', 'encrypted'],

@@ -20,13 +20,29 @@ let previewIsText = false;
 let _contentPreviewObserver = null; // IntersectionObserver for preview line tracking
 
 /**
+ * Strip inline markdown formatting so DOM textContent can match source.
+ * Removes: `backticks`, **bold**, *italic*, ~~strike~~, <html tags>
+ */
+function _stripInlineMarkdown(text) {
+    return text
+        .replace(/`([^`]*)`/g, '$1')        // `code`  → code
+        .replace(/\*\*([^*]*)\*\*/g, '$1')   // **bold** → bold
+        .replace(/\*([^*]*)\*/g, '$1')       // *italic* → italic
+        .replace(/~~([^~]*)~~/g, '$1')       // ~~strike~~ → strike
+        .replace(/<[^>]+>/g, '')             // <tags>  → remove
+        .trim();
+}
+
+/**
  * Annotate rendered headings with their source markdown line numbers.
- * Matches each h1-h6 in the rendered DOM to the corresponding # line in the source.
+ * Matches each h1-h6 in the rendered DOM to the corresponding # line
+ * in the source. Strips inline formatting before comparison so that
+ * headings like ### `context.py` — Title match correctly.
  */
 function _mapHeadingsToSourceLines(container, sourceMarkdown) {
     const srcLines = sourceMarkdown.split('\n');
     const headings = container.querySelectorAll('h1,h2,h3,h4,h5,h6');
-    const usedLines = new Set(); // avoid duplicate matches
+    const usedLines = new Set();
     headings.forEach(h => {
         const text = h.textContent.trim().toLowerCase();
         const level = parseInt(h.tagName[1]);
@@ -34,11 +50,101 @@ function _mapHeadingsToSourceLines(container, sourceMarkdown) {
         for (let i = 0; i < srcLines.length; i++) {
             if (usedLines.has(i)) continue;
             const line = srcLines[i].trimStart();
-            if (line.startsWith(prefix) && line.substring(prefix.length).trim().toLowerCase() === text) {
+            if (!line.startsWith(prefix)) continue;
+            // Strip inline markdown from source before comparing
+            const srcText = _stripInlineMarkdown(line.substring(prefix.length)).toLowerCase();
+            if (srcText === text) {
                 h.setAttribute('data-source-line', i + 1); // 1-indexed
                 usedLines.add(i);
                 break;
             }
+        }
+    });
+}
+
+/**
+ * Walk backward from an element to find the nearest heading with
+ * data-source-line. Used by click-to-focus and peek-glossary sync.
+ * Returns the source line number (1-indexed) or 0 if none found.
+ */
+function _findNearestSourceLine(element, container) {
+    // 1. Check the element itself and its ancestors (up to container)
+    let el = element;
+    while (el && el !== container) {
+        if (el.hasAttribute && el.hasAttribute('data-source-line')) {
+            return parseInt(el.getAttribute('data-source-line'), 10);
+        }
+        el = el.parentElement;
+    }
+
+    // 2. Walk backward through preceding siblings/elements to find the
+    //    nearest heading with data-source-line
+    el = element;
+    while (el && el !== container) {
+        let prev = el.previousElementSibling;
+        while (prev) {
+            // Check the sibling itself
+            if (prev.hasAttribute && prev.hasAttribute('data-source-line')) {
+                return parseInt(prev.getAttribute('data-source-line'), 10);
+            }
+            // Check last child with data-source-line inside the sibling
+            const inner = prev.querySelectorAll
+                ? prev.querySelectorAll('[data-source-line]')
+                : [];
+            if (inner.length > 0) {
+                return parseInt(inner[inner.length - 1].getAttribute('data-source-line'), 10);
+            }
+            prev = prev.previousElementSibling;
+        }
+        el = el.parentElement;
+    }
+    return 0;
+}
+
+/**
+ * Set focus line from any interaction, sync glossary + URL hash.
+ */
+function _contentSetFocusLine(line) {
+    if (!line || line <= 0) return;
+    window._contentFocusLine = line;
+    // Sync glossary
+    if (typeof _glossaryUpdateActive === 'function' && typeof previewCurrentPath !== 'undefined') {
+        _glossaryUpdateActive(previewCurrentPath, line);
+    }
+    // Debounced URL hash update
+    clearTimeout(window._previewLineTimer);
+    window._previewLineTimer = setTimeout(() => {
+        if (typeof contentUpdateHash === 'function') {
+            contentUpdateHash({ push: false });
+        }
+    }, 500);
+}
+
+/**
+ * Attach a delegated click handler to the rendered preview container.
+ * Clicking any element sets the focus to the nearest heading above it.
+ * Uses a guard flag to prevent stacking multiple handlers on re-render.
+ */
+function _contentPreviewClickHandler(container) {
+    if (container._focusClickAttached) return;
+    container._focusClickAttached = true;
+    container.addEventListener('click', (e) => {
+        // Don't interfere with link clicks or peek tooltips
+        if (e.target.closest('a') || e.target.closest('.peek-link') || e.target.closest('.peek-tooltip')) return;
+
+        const line = _findNearestSourceLine(e.target, container);
+        if (line > 0) {
+            // Visual feedback: highlight the owning heading
+            container.querySelectorAll('.preview-line-focused').forEach(
+                el => el.classList.remove('preview-line-focused')
+            );
+            const heading = container.querySelector(`[data-source-line="${line}"]`);
+            if (heading) heading.classList.add('preview-line-focused');
+
+            _contentSetFocusLine(line);
+        } else {
+            // Clicked before first heading → line 1
+            _contentSetFocusLine(1);
         }
     });
 }
@@ -51,6 +157,8 @@ function _mapHeadingsToSourceLines(container, sourceMarkdown) {
 function _contentObservePreviewLines(container, sourceMarkdown) {
     _contentDisconnectPreviewObserver();
     _mapHeadingsToSourceLines(container, sourceMarkdown);
+    // Attach click-to-focus handler (Phase 2)
+    _contentPreviewClickHandler(container);
     const headings = container.querySelectorAll('[data-source-line]');
     if (headings.length === 0) return;
 
@@ -73,6 +181,10 @@ function _contentObservePreviewLines(container, sourceMarkdown) {
                     el => el.classList.remove('preview-heading-tracked')
                 );
                 topEntry.target.classList.add('preview-heading-tracked');
+                // ── Sync glossary panel active heading ──
+                if (typeof _glossaryUpdateActive === 'function') {
+                    _glossaryUpdateActive(previewCurrentPath, srcLine);
+                }
                 clearTimeout(window._previewLineTimer);
                 window._previewLineTimer = setTimeout(() => {
                     if (typeof contentUpdateHash === 'function') {
@@ -83,7 +195,7 @@ function _contentObservePreviewLines(container, sourceMarkdown) {
         }
     }, {
         root: null,
-        rootMargin: '-10% 0px -80% 0px', // trigger when heading is in top 10-20% of viewport
+        rootMargin: '-10% 0px -80% 0px',
         threshold: 0,
     });
 
@@ -383,7 +495,6 @@ if (data.type === 'image') {
         _contentDisconnectPreviewObserver();
         body.innerHTML = `<div id="monaco-editor-container" style="border:1px solid var(--border);border-radius:var(--radius-sm);overflow:hidden"></div>`;
         const editFocusLine = window._contentFocusLine || 0;
-        window._contentFocusLine = 0;
         monacoCreate('monaco-editor-container', {
             content: data.content,
             filePath: path,
@@ -408,12 +519,15 @@ if (data.type === 'image') {
         const rendered = body.querySelector('.content-preview-rendered');
         if (rendered) _contentObservePreviewLines(rendered, sourceText);
         if (rendered) _contentScrollToSourceLine(rendered);
+        // Sync glossary immediately on render (don't wait for observer)
+        if (window._contentFocusLine > 0 && typeof _glossaryUpdateActive === 'function') {
+            _glossaryUpdateActive(path, window._contentFocusLine);
+        }
         editBar.style.display = 'none';
     } else {
         _contentDisconnectPreviewObserver();
         body.innerHTML = `<div id="monaco-editor-container" style="border:1px solid var(--border);border-radius:var(--radius-sm);overflow:hidden"></div>`;
         const focusLine = window._contentFocusLine || 0;
-        window._contentFocusLine = 0;
         monacoCreate('monaco-editor-container', {
             content: data.content,
             filePath: path,
@@ -437,6 +551,11 @@ if (data.type === 'image') {
         <a class="btn btn-primary btn-sm" href="/api/content/download?path=${encodeURIComponent(path)}&download=1"
             style="margin-top:0.75rem">⬇️ Download</a>
     </div>`;
+}
+
+// ── Refresh glossary panel for the newly opened file ──
+if (typeof _glossaryLoadForCurrentContext === 'function') {
+    _glossaryLoadForCurrentContext();
 }
 
 } catch (e) {
@@ -577,6 +696,12 @@ function _annotatePeekElements(container, references) {
             span.onclick = function(e) {
                 e.preventDefault();
                 e.stopPropagation();
+                // Sync glossary to the section containing this peek element
+                const container = span.closest('.content-preview-rendered');
+                if (container) {
+                    const srcLine = _findNearestSourceLine(span, container);
+                    if (srcLine > 0) _contentSetFocusLine(srcLine);
+                }
                 _showPeekTooltip(e, ref, span);
             };
             frag.appendChild(span);

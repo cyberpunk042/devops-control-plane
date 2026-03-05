@@ -1,0 +1,985 @@
+// ─────────────────────────────────────────────────────────────────
+// _glossary.html
+// Content Vault — Glossary/Outline panel controller
+// Toggle, mode switch, API calls, tree rendering, filter, shortcuts
+// Included by: _content.html (Jinja2 include)
+// ─────────────────────────────────────────────────────────────────
+
+
+// ═════════════════════════════════════════════════════════════════
+// Panel Visibility / Toggle
+// ═════════════════════════════════════════════════════════════════
+
+function contentToggleGlossary(forceState) {
+    const panel = document.getElementById('content-glossary-panel');
+    const btn = document.getElementById('content-glossary-toggle-btn');
+    if (!panel) return;
+
+    if (typeof forceState === 'boolean') {
+        _glossaryVisible = forceState;
+    } else {
+        _glossaryVisible = !_glossaryVisible;
+    }
+
+    panel.classList.toggle('hidden', !_glossaryVisible);
+    if (btn) btn.classList.toggle('active', _glossaryVisible);
+
+    localStorage.setItem('glossary-panel-visible', _glossaryVisible ? 'true' : 'false');
+
+    // If just opened and empty, load data
+    if (_glossaryVisible) {
+        _glossaryLoadForCurrentContext();
+    }
+}
+
+
+// ═════════════════════════════════════════════════════════════════
+// Mode Switch (Outline vs Glossary)
+// ═════════════════════════════════════════════════════════════════
+
+function _glossarySwitchMode(mode) {
+    if (mode !== 'outline' && mode !== 'glossary') return;
+    _glossaryMode = mode;
+    localStorage.setItem('glossary-panel-mode', mode);
+
+    // Update tab UI
+    document.querySelectorAll('.glossary-mode-tab').forEach(tab => {
+        tab.classList.toggle('active', tab.dataset.glossaryMode === mode);
+    });
+
+    // Load data for the new mode
+    _glossaryLoadForCurrentContext();
+}
+
+
+// ═════════════════════════════════════════════════════════════════
+// Context-aware Loading — SEPARATE LIFECYCLES
+//
+// Outline mode: re-fetches per file (changes when user opens a file)
+// Glossary mode: stable per context (loads ONCE, only highlights change)
+// ═════════════════════════════════════════════════════════════════
+
+function _glossaryLoadForCurrentContext(force) {
+    if (!_glossaryVisible) return;
+
+    if (_glossaryMode === 'outline') {
+        // ── Outline mode: tracks current focus ──
+        if (typeof previewCurrentPath !== 'undefined' && previewCurrentPath) {
+            // File open → show file outline (functions, classes, headings)
+            _glossaryLoadOutline(previewCurrentPath);
+        } else if (contentCurrentPath) {
+            // No file open, folder context → show folder outline
+            _glossaryLoadFolderOutline(contentCurrentPath);
+        } else {
+            _glossaryShowEmpty('Open a file to see its outline');
+        }
+        return;
+    }
+
+    // ── Glossary mode: STABLE per context ──
+
+    // Data already loaded and not forced → check if context is still valid
+    if (_glossaryGlossaryData && !force) {
+        // Re-derive what the context WOULD be now and compare
+        // This works regardless of virtual/real path namespace differences
+        const wouldBe = _glossaryDeriveContextPath();
+        if (wouldBe === _glossaryContextPath) {
+            // Same context — just update highlights
+            _glossaryUpdateActiveFile();
+            if (window._contentFocusLine > 0 && typeof previewCurrentPath !== 'undefined') {
+                _glossaryUpdateActiveNow(previewCurrentPath, window._contentFocusLine);
+            }
+            return;
+        }
+        // Context changed — clear and fall through to re-derive
+        _glossaryGlossaryData = null;
+        _glossaryContextPath = null;
+    }
+
+    // First load or forced — derive context path ONCE if not already set
+    if (!_glossaryContextPath || force) {
+        _glossaryContextPath = _glossaryDeriveContextPath();
+    }
+    if (_glossaryContextPath) {
+        _glossaryLoadGlossary(_glossaryContextPath);
+    } else {
+        _glossaryShowEmpty('Select a folder to see its glossary');
+    }
+}
+
+/**
+ * Derive the glossary root path from the current application state.
+ *
+ * Called ONCE when the glossary context needs to be established.
+ * The result is stored in _glossaryContextPath and never re-derived
+ * during file navigation or subfolder browsing.
+ */
+function _glossaryDeriveContextPath() {
+    // Smart folder active → find the module for the current context
+    if (typeof _smartFolderActive !== 'undefined' && _smartFolderActive) {
+        const groups = (_smartFolderActive.groups
+            || (typeof _smartFolderTree !== 'undefined' && _smartFolderTree
+                ? _smartFolderTree.groups : null)
+            || []);
+
+        // If a file is open, find its module by file path
+        if (typeof previewCurrentPath !== 'undefined' && previewCurrentPath) {
+            for (const g of groups) {
+                if (g.module_path && previewCurrentPath.startsWith(g.module_path + '/')) {
+                    return g.module_path;
+                }
+            }
+        }
+
+        // No file open — check the smart folder subpath for the active module
+        // e.g. contentCurrentPath="code-docs/core" → subPath="core" → module="core"
+        if (typeof _smartFolderSubPath === 'function') {
+            const subPath = _smartFolderSubPath(contentCurrentPath, _smartFolderActive);
+            if (subPath) {
+                const moduleName = subPath.split('/')[0];
+                for (const g of groups) {
+                    if (g.module === moduleName) {
+                        return g.module_path;
+                    }
+                }
+            }
+        }
+
+        // At smart folder root (no module selected) — use combined smart folder glossary
+        // Return '@smart:<name>' to signal the load function to use smart_folder= API param
+        const sfName = _smartFolderActive.name || _smartFolderActive._smartRoot || '';
+        if (sfName) return '@smart:' + sfName;
+
+        // Fallback: use first group
+        if (groups.length > 0 && groups[0].module_path) {
+            return groups[0].module_path;
+        }
+        return null;
+    }
+
+    // No smart folder — use the root content folder
+    // Walk contentCurrentPath up to find the root from contentFolders
+    if (typeof contentFolders !== 'undefined' && contentFolders.length > 0
+        && contentCurrentPath) {
+        for (const f of contentFolders) {
+            if (f.path && (contentCurrentPath === f.path
+                || contentCurrentPath.startsWith(f.path + '/'))) {
+                return f.path;
+            }
+        }
+    }
+
+    // Path not in contentFolders — check if it's inside a smart folder's module
+    // (e.g. src/adapters/languages → smart folder "code-docs" has module_path "src/adapters")
+    if (typeof _smartFolders !== 'undefined' && _smartFolders.length > 0
+        && contentCurrentPath) {
+        for (const sf of _smartFolders) {
+            for (const g of (sf.groups || [])) {
+                if (g.module_path && (contentCurrentPath === g.module_path
+                    || contentCurrentPath.startsWith(g.module_path + '/'))) {
+                    return g.module_path;
+                }
+            }
+        }
+    }
+
+    // Fallback: use contentCurrentPath as-is
+    return contentCurrentPath || null;
+}
+
+function _glossaryShowEmpty(message) {
+    const tree = document.getElementById('glossary-tree');
+    if (tree) {
+        tree.innerHTML = `<p class="glossary-empty">${message || 'No data'}</p>`;
+    }
+}
+
+
+// ═════════════════════════════════════════════════════════════════
+// API: Load Outline (single file)
+// ═════════════════════════════════════════════════════════════════
+
+async function _glossaryLoadOutline(filePath) {
+    const tree = document.getElementById('glossary-tree');
+    if (!tree) return;
+
+    tree.innerHTML = '<p class="glossary-empty"><span class="spinner"></span> Loading…</p>';
+
+    try {
+        const data = await api(`/content/outline?path=${encodeURIComponent(filePath)}`);
+        _glossaryOutlineData = data;
+        _glossaryRenderOutline(data);
+
+        // Sync active state if a focus line is already set (e.g. from URL hash or mode switch)
+        if (window._contentFocusLine > 0) {
+            _glossaryUpdateActiveNow(filePath, window._contentFocusLine);
+        }
+    } catch (e) {
+        tree.innerHTML = `<p class="glossary-empty" style="color:var(--error)">❌ ${esc(e.message)}</p>`;
+    }
+}
+
+
+// ═════════════════════════════════════════════════════════════════
+// API: Load Folder Outline (current folder structure)
+// ═════════════════════════════════════════════════════════════════
+
+async function _glossaryLoadFolderOutline(folderPath) {
+    const tree = document.getElementById('glossary-tree');
+    if (!tree) return;
+
+    tree.innerHTML = '<p class="glossary-empty"><span class="spinner"></span> Loading…</p>';
+
+    // Resolve virtual smart folder path to real filesystem path
+    let realPath = folderPath;
+    if (typeof _smartFolderActive !== 'undefined' && _smartFolderActive
+        && typeof _smartFolderSubPath === 'function') {
+        const subPath = _smartFolderSubPath(folderPath, _smartFolderActive);
+        if (subPath !== null && subPath !== undefined) {
+            const moduleName = subPath.split('/')[0];
+            const groups = (_smartFolderActive.groups
+                || (typeof _smartFolderTree !== 'undefined' && _smartFolderTree
+                    ? _smartFolderTree.groups : null)
+                || []);
+            for (const g of groups) {
+                if (g.module === moduleName) {
+                    // Append any sub-path beyond the module name
+                    const rest = subPath.substring(moduleName.length);
+                    realPath = g.module_path + rest;
+                    break;
+                }
+            }
+        }
+    }
+
+    try {
+        const data = await api(`/content/list?path=${encodeURIComponent(realPath)}`);
+        const items = data.items || data.files || data || [];
+        _glossaryRenderFolderOutline(items, folderPath);
+    } catch (e) {
+        tree.innerHTML = `<p class="glossary-empty" style="color:var(--error)">❌ ${esc(e.message)}</p>`;
+    }
+}
+
+function _glossaryRenderFolderOutline(items, folderPath) {
+    const tree = document.getElementById('glossary-tree');
+    if (!tree) return;
+
+    if (!items || items.length === 0) {
+        tree.innerHTML = '<p class="glossary-empty">Empty folder</p>';
+        return;
+    }
+
+    // Separate dirs and files
+    const dirs = items.filter(i => i.is_dir);
+    const files = items.filter(i => !i.is_dir);
+
+    // Update heading
+    const heading = document.getElementById('glossary-heading');
+    if (heading) {
+        const folderName = folderPath.split('/').pop() || folderPath;
+        heading.textContent = `📁 ${folderName}`;
+    }
+
+    let html = '<ul class="glossary-outline-list">';
+
+    // Directories first
+    for (const d of dirs) {
+        const fileCount = d.file_count || 0;
+        html += `<li class="glossary-node glossary-dir"
+            data-folder="${esc(d.path)}"
+            onclick="contentLoadFolder('${esc(d.path)}')"
+            style="cursor:pointer">
+            <span class="glossary-kind-icon">📁</span>
+            <span class="glossary-node-label">${esc(d.name)}</span>
+            <span class="glossary-meta" style="margin-left:auto;opacity:0.5;font-size:0.7rem">${fileCount} files</span>
+        </li>`;
+    }
+
+    // Files
+    for (const f of files) {
+        const icon = _folderOutlineFileIcon(f.category || f.mime_type || '');
+        html += `<li class="glossary-node glossary-file"
+            data-file="${esc(f.path)}"
+            onclick="contentPreviewFile('${esc(f.path)}', '${esc(f.name)}')"
+            style="cursor:pointer">
+            <span class="glossary-kind-icon">${icon}</span>
+            <span class="glossary-node-label">${esc(f.name)}</span>
+        </li>`;
+    }
+
+    html += '</ul>';
+    tree.innerHTML = html;
+}
+
+function _folderOutlineFileIcon(category) {
+    const icons = {
+        document: '📄', code: '💻', script: '⚙️', config: '🔧',
+        data: '📊', image: '🖼', video: '🎬', audio: '🎵',
+        encrypted: '🔐', other: '📎',
+    };
+    return icons[category] || '📄';
+}
+
+
+// ═════════════════════════════════════════════════════════════════
+// API: Load Glossary (folder tree)
+// ═════════════════════════════════════════════════════════════════
+
+async function _glossaryLoadGlossary(folderPath) {
+    const tree = document.getElementById('glossary-tree');
+    if (!tree) return;
+
+    tree.innerHTML = '<p class="glossary-empty"><span class="spinner"></span> Loading…</p>';
+
+    try {
+        let url;
+        if (folderPath.startsWith('@smart:')) {
+            // Combined smart folder glossary — all modules
+            const sfName = folderPath.substring(7);
+            url = `/content/glossary?smart_folder=${encodeURIComponent(sfName)}`;
+        } else {
+            url = `/content/glossary?path=${encodeURIComponent(folderPath)}`;
+        }
+        const data = await api(url);
+        _glossaryGlossaryData = data;
+        _glossaryRenderGlossary(data);
+    } catch (e) {
+        tree.innerHTML = `<p class="glossary-empty" style="color:var(--error)">❌ ${esc(e.message)}</p>`;
+    }
+}
+
+
+// ═════════════════════════════════════════════════════════════════
+// Render: Outline Tree (single file)
+// ═════════════════════════════════════════════════════════════════
+
+const _OUTLINE_KIND_ICONS = {
+    heading:   '§',
+    class:     '◆',
+    function:  'ƒ',
+    method:    'λ',
+    constant:  '■',
+    section:   '┃',
+    media:     '◎',
+    animation: '▸',
+    anchor:    '⚓',
+};
+
+function _glossaryRenderOutline(data) {
+    const tree = document.getElementById('glossary-tree');
+    if (!tree) return;
+
+    if (!data || !data.outline || data.outline.length === 0) {
+        if (data && data.encrypted) {
+            tree.innerHTML = '<p class="glossary-empty">🔐 Encrypted file — cannot extract outline</p>';
+        } else if (data && data.skipped === 'file_too_large') {
+            tree.innerHTML = '<p class="glossary-empty">📏 File too large for outline extraction</p>';
+        } else if (data && data.type === 'binary') {
+            tree.innerHTML = '<p class="glossary-empty">📦 Binary file — no outline</p>';
+        } else if (data && data.type === 'image') {
+            tree.innerHTML = '<p class="glossary-empty">🖼 Image — no outline</p>';
+        } else if (data && data.type === 'video') {
+            tree.innerHTML = '<p class="glossary-empty">🎬 Video — no outline</p>';
+        } else if (data && data.type === 'audio') {
+            tree.innerHTML = '<p class="glossary-empty">🎵 Audio — no outline</p>';
+        } else {
+            tree.innerHTML = '<p class="glossary-empty">No structure found</p>';
+        }
+        return;
+    }
+
+    // File info header
+    let html = '';
+    if (data.type) {
+        const size = _glossaryFormatSize(data.size_bytes || 0);
+        const lines = data.line_count ? `${data.line_count} lines` : '';
+        const info = [lines, size].filter(Boolean).join(' · ');
+        html += `<div style="padding:0.2rem 0.5rem;font-size:0.68rem;color:var(--text-muted);border-bottom:1px solid var(--border-subtle)">${esc(info)}</div>`;
+    }
+
+    html += _glossaryRenderNodes(data.outline, 'outline', data.path || '');
+    tree.innerHTML = html;
+}
+
+
+// ═════════════════════════════════════════════════════════════════
+// Render: Glossary Tree (folder)
+// ═════════════════════════════════════════════════════════════════
+
+function _glossaryRenderGlossary(data) {
+    const tree = document.getElementById('glossary-tree');
+    if (!tree) return;
+
+    if (!data || !data.entries || data.entries.length === 0) {
+        tree.innerHTML = '<p class="glossary-empty">Empty folder</p>';
+        return;
+    }
+
+    // Summary header
+    let html = `<div style="padding:0.2rem 0.5rem;font-size:0.68rem;color:var(--text-muted);border-bottom:1px solid var(--border-subtle)">${data.total_files || 0} files</div>`;
+
+    html += _glossaryRenderEntries(data.entries);
+    tree.innerHTML = html;
+}
+
+
+// ═════════════════════════════════════════════════════════════════
+// Render Helpers: Build Node HTML
+// ═════════════════════════════════════════════════════════════════
+
+function _glossaryRenderNodes(nodes, context, filePath) {
+    if (!nodes || nodes.length === 0) return '';
+    let html = '';
+
+    for (const node of nodes) {
+        const hasChildren = node.children && node.children.length > 0;
+        const nodeId = `${context}:${filePath}:${node.line}:${node.text}`;
+        const isExpanded = _glossaryExpandedNodes[nodeId] !== false; // expanded by default
+        const filtered = _glossaryFilterText && !_glossaryMatchesFilter(node, _glossaryFilterText);
+
+        if (filtered) continue;
+
+        const icon = _OUTLINE_KIND_ICONS[node.kind] || '·';
+
+        html += `<div class="glossary-node" data-line="${node.line}" data-file="${esc(filePath)}"
+            onclick="_glossaryClickNode(event, '${esc(filePath)}', ${node.line})"
+            title="${esc(node.text)} (line ${node.line})">`;
+        if (hasChildren) {
+            html += `<span class="glossary-node__arrow ${isExpanded ? 'expanded' : ''}"
+                onclick="_glossaryToggleExpand(event, '${esc(nodeId)}')">▶</span>`;
+        } else {
+            html += '<span class="glossary-node__arrow"></span>';
+        }
+        html += `<span class="glossary-node__icon">${icon}</span>`;
+        html += `<span class="glossary-node__text">${esc(node.text)}</span>`;
+        if (node.kind && node.kind !== 'heading') {
+            html += `<span class="glossary-node__kind">${esc(node.kind)}</span>`;
+        }
+        html += `<span class="glossary-node__line">:${node.line}</span>`;
+        html += '</div>';
+
+        if (hasChildren) {
+            html += `<div class="glossary-children ${isExpanded ? '' : 'collapsed'}" data-node-id="${esc(nodeId)}">`;
+            html += _glossaryRenderNodes(node.children, context, filePath);
+            html += '</div>';
+        }
+    }
+    return html;
+}
+
+
+function _glossaryRenderEntries(entries) {
+    if (!entries || entries.length === 0) return '';
+    let html = '';
+
+    for (const entry of entries) {
+        const filtered = _glossaryFilterText && !_glossaryEntryMatchesFilter(entry, _glossaryFilterText);
+        if (filtered) continue;
+
+        if (entry.is_dir) {
+            // Directory node
+            const nodeId = `dir:${entry.path}`;
+            const isExpanded = _glossaryExpandedNodes[nodeId] !== false;
+            const hasChildren = entry.children && entry.children.length > 0;
+
+            html += `<div class="glossary-node" title="${esc(entry.path)}">`;
+            if (hasChildren) {
+                html += `<span class="glossary-node__arrow ${isExpanded ? 'expanded' : ''}"
+                    onclick="_glossaryToggleExpand(event, '${esc(nodeId)}')">▶</span>`;
+            } else {
+                html += '<span class="glossary-node__arrow"></span>';
+            }
+            html += `<span class="glossary-node__icon"
+                onclick="_glossaryToggleExpand(event, '${esc(nodeId)}')">📁</span>`;
+            html += `<span class="glossary-node__text"
+                onclick="_glossaryClickFolder('${esc(entry.path)}')">${esc(entry.name)}</span>`;
+            html += '</div>';
+
+            if (hasChildren) {
+                html += `<div class="glossary-children ${isExpanded ? '' : 'collapsed'}" data-node-id="${esc(nodeId)}">`;
+                html += _glossaryRenderEntries(entry.children);
+                html += '</div>';
+            }
+
+        } else {
+            // File node
+            const nodeId = `file:${entry.path}`;
+            const isExpanded = _glossaryExpandedNodes[nodeId] === true; // collapsed by default in glossary
+            const hasOutline = entry.outline && entry.outline.length > 0;
+            const isActive = typeof previewCurrentPath !== 'undefined' && previewCurrentPath === entry.path;
+            const fileIcon = _glossaryFileIcon(entry);
+            const size = _glossaryFormatSize(entry.size_bytes || 0);
+
+            html += `<div class="glossary-node ${isActive ? 'active-file' : ''}"
+                data-file="${esc(entry.path)}" title="${esc(entry.path)}">`;
+            if (hasOutline) {
+                html += `<span class="glossary-node__arrow ${isExpanded ? 'expanded' : ''}"
+                    onclick="_glossaryToggleExpand(event, '${esc(nodeId)}')">▶</span>`;
+            } else {
+                html += '<span class="glossary-node__arrow"></span>';
+            }
+            html += `<span class="glossary-node__icon">${fileIcon}</span>`;
+            html += `<span class="glossary-node__text"
+                onclick="_glossaryClickFile('${esc(entry.path)}', '${esc(entry.name)}')">${esc(entry.name)}</span>`;
+            html += `<span class="glossary-node__size">${esc(size)}</span>`;
+            html += '</div>';
+
+            if (hasOutline) {
+                html += `<div class="glossary-children ${isExpanded ? '' : 'collapsed'}" data-node-id="${esc(nodeId)}">`;
+                html += _glossaryRenderNodes(entry.outline, 'glossary', entry.path);
+                html += '</div>';
+            }
+        }
+    }
+    return html;
+}
+
+
+// ═════════════════════════════════════════════════════════════════
+// Click Handlers
+// ═════════════════════════════════════════════════════════════════
+
+function _glossaryClickNode(event, filePath, line) {
+    event.stopPropagation();
+
+    // If the file is already open → just scroll to line (no re-render)
+    if (typeof previewCurrentPath !== 'undefined'
+        && previewCurrentPath === filePath) {
+        _glossaryScrollToLine(line);
+        return;
+    }
+
+    // Different file — open it, then scroll to the target line
+    if (filePath) {
+        _glossaryClickFile(filePath, filePath.split('/').pop(), line);
+    }
+}
+
+function _glossaryClickFile(filePath, fileName, targetLine) {
+    if (!filePath || !fileName) return;
+
+    // Set a target line so preview can scroll to it after rendering
+    if (targetLine && targetLine > 0) {
+        window._contentFocusLine = targetLine;
+    }
+
+    // Use the existing content preview function
+    if (filePath.endsWith('.enc')) {
+        if (typeof contentPreviewEncrypted === 'function') {
+            contentPreviewEncrypted(filePath, fileName);
+        }
+    } else {
+        if (typeof contentPreviewFile === 'function') {
+            contentPreviewFile(filePath, fileName);
+        }
+    }
+}
+
+function _glossaryClickFolder(folderPath) {
+    if (typeof contentLoadFolder === 'function') {
+        contentLoadFolder(folderPath);
+    }
+}
+
+function _glossaryToggleExpand(event, nodeId) {
+    event.stopPropagation();
+
+    const current = _glossaryExpandedNodes[nodeId];
+    _glossaryExpandedNodes[nodeId] = current === undefined ? false : !current;
+
+    // Toggle the children container
+    const container = document.querySelector(`.glossary-children[data-node-id="${CSS.escape(nodeId)}"]`);
+    if (container) {
+        container.classList.toggle('collapsed');
+    }
+    // Toggle the arrow
+    const arrow = event.target.closest('.glossary-node__arrow') || event.target;
+    if (arrow) {
+        arrow.classList.toggle('expanded');
+    }
+}
+
+
+// ═════════════════════════════════════════════════════════════════
+// Scroll to Line (integration with preview)
+// ═════════════════════════════════════════════════════════════════
+
+function _glossaryScrollToLine(line) {
+    // Set the focus line so preview scroll tracking picks it up
+    window._contentFocusLine = line;
+
+    // Immediately highlight the glossary node that was clicked
+    if (typeof previewCurrentPath !== 'undefined' && previewCurrentPath) {
+        _glossaryUpdateActiveNow(previewCurrentPath, line);
+    }
+
+    // Update URL hash
+    clearTimeout(window._previewLineTimer);
+    window._previewLineTimer = setTimeout(() => {
+        if (typeof contentUpdateHash === 'function') {
+            contentUpdateHash({ push: false });
+        }
+    }, 500);
+
+    // Try to scroll the preview/raw/edit panel to the target line
+    // 1. Monaco editor — use revealLineInCenter if available
+    if (typeof _monacoEditor !== 'undefined' && _monacoEditor) {
+        _monacoEditor.revealLineInCenter(line);
+        _monacoEditor.setPosition({ lineNumber: line, column: 1 });
+        return;
+    }
+
+    // 2. Check for heading anchors in rendered preview
+    const headings = document.querySelectorAll('.content-preview-rendered h1, .content-preview-rendered h2, .content-preview-rendered h3, .content-preview-rendered h4, .content-preview-rendered h5, .content-preview-rendered h6');
+    for (const h of headings) {
+        const hLine = parseInt(h.dataset.sourceLine || '0', 10);
+        if (hLine === line) {
+            h.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            return;
+        }
+    }
+
+    // 3. Fallback: check for line number elements
+    const lineEl = document.querySelector(`[data-line="${line}"]`);
+    if (lineEl) {
+        lineEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        return;
+    }
+}
+
+
+// ═════════════════════════════════════════════════════════════════
+// Active File Highlight (glossary mode — no re-render)
+// ═════════════════════════════════════════════════════════════════
+
+/**
+ * Update which file node has the .active-file class in the glossary panel.
+ * Called when navigating between files within the same folder to avoid
+ * re-fetching and re-rendering the entire glossary tree.
+ */
+function _glossaryUpdateActiveFile() {
+    const panel = document.getElementById('content-glossary-panel');
+    if (!panel) return;
+
+    // Clear previous active file
+    panel.querySelectorAll('.glossary-node.active-file').forEach(
+        el => el.classList.remove('active-file')
+    );
+
+    if (typeof previewCurrentPath === 'undefined' || !previewCurrentPath) return;
+
+    // Find the file node matching the current preview path
+    const fileNode = panel.querySelector(`.glossary-node[data-file="${CSS.escape(previewCurrentPath)}"]`);
+    if (fileNode) {
+        fileNode.classList.add('active-file');
+
+        // Auto-expand the file's parent if collapsed
+        const parentChildren = fileNode.closest('.glossary-children.collapsed');
+        if (parentChildren) {
+            parentChildren.classList.remove('collapsed');
+            const nodeId = parentChildren.dataset.nodeId;
+            if (nodeId) {
+                _glossaryExpandedNodes[nodeId] = true;
+                const prevNode = parentChildren.previousElementSibling;
+                if (prevNode) {
+                    const arrow = prevNode.querySelector('.glossary-node__arrow');
+                    if (arrow) arrow.classList.add('expanded');
+                }
+            }
+        }
+
+        // Scroll the panel to show the active file
+        _glossaryScrollPanelTo(fileNode);
+    }
+}
+
+
+// ═════════════════════════════════════════════════════════════════
+// Scroll Sync — Active Heading Tracking
+// ═════════════════════════════════════════════════════════════════
+
+let _glossarySyncTimer = null;
+
+/**
+ * Update the active heading in the glossary panel based on scroll position.
+ *
+ * Finds the nearest outline node at or before `line`, highlights it with
+ * `.active-heading`, auto-expands parent nodes, and scrolls the panel
+ * to keep the active node visible.
+ *
+ * Called from:
+ *   - IntersectionObserver callback in _preview.html (rendered markdown)
+ *   - Monaco onDidChangeCursorPosition in _monaco.html (edit mode)
+ */
+function _glossaryUpdateActive(filePath, line) {
+    if (!_glossaryVisible || !line || line <= 0) return;
+
+    // Debounce to avoid excessive DOM updates during fast scrolling
+    clearTimeout(_glossarySyncTimer);
+    _glossarySyncTimer = setTimeout(() => {
+        _glossaryUpdateActiveNow(filePath, line);
+    }, 60);
+}
+
+function _glossaryUpdateActiveNow(filePath, line) {
+    const panel = document.getElementById('content-glossary-panel');
+    if (!panel || panel.classList.contains('hidden')) return;
+
+    // Get all glossary nodes for this file
+    const allNodes = panel.querySelectorAll('.glossary-node[data-line][data-file]');
+    if (allNodes.length === 0) return;
+
+    // Find the nearest node at or before the current line
+    let bestNode = null;
+    let bestLine = 0;
+
+    for (const node of allNodes) {
+        const nodeFile = node.dataset.file || '';
+        const nodeLine = parseInt(node.dataset.line || '0', 10);
+
+        // In outline mode, all nodes belong to the same file
+        // In glossary mode, match by file path
+        if (_glossaryMode === 'glossary' && nodeFile !== filePath) continue;
+
+        if (nodeLine <= line && nodeLine > bestLine) {
+            bestLine = nodeLine;
+            bestNode = node;
+        }
+    }
+
+    // Clear previous active heading
+    panel.querySelectorAll('.glossary-node.active-heading').forEach(
+        el => el.classList.remove('active-heading')
+    );
+
+    if (!bestNode) return;
+
+    // Highlight the active heading
+    bestNode.classList.add('active-heading');
+
+    // Auto-expand parent nodes if they are collapsed
+    let parent = bestNode.parentElement;
+    while (parent && parent !== panel) {
+        if (parent.classList.contains('glossary-children') && parent.classList.contains('collapsed')) {
+            parent.classList.remove('collapsed');
+            // Update the expand state
+            const nodeId = parent.dataset.nodeId;
+            if (nodeId) {
+                _glossaryExpandedNodes[nodeId] = true;
+                // Update the arrow sibling
+                const prevNode = parent.previousElementSibling;
+                if (prevNode) {
+                    const arrow = prevNode.querySelector('.glossary-node__arrow');
+                    if (arrow) arrow.classList.add('expanded');
+                }
+            }
+        }
+        parent = parent.parentElement;
+    }
+
+    // Auto-scroll the panel to keep the active node visible
+    _glossaryScrollPanelTo(bestNode);
+}
+
+/**
+ * Scroll the glossary panel so that `node` is visible with some padding.
+ * Uses smooth scroll only if the node is far from the viewport.
+ */
+function _glossaryScrollPanelTo(node) {
+    const panel = document.getElementById('content-glossary-panel');
+    if (!panel || !node) return;
+
+    const panelRect = panel.getBoundingClientRect();
+    const nodeRect = node.getBoundingClientRect();
+
+    // Check if node is already visible with 20px padding
+    const padding = 20;
+    const isVisible = (
+        nodeRect.top >= panelRect.top + padding &&
+        nodeRect.bottom <= panelRect.bottom - padding
+    );
+
+    if (!isVisible) {
+        // Scroll so the node is centered in the panel
+        const scrollTarget = node.offsetTop - (panel.clientHeight / 2) + (node.clientHeight / 2);
+        panel.scrollTo({
+            top: Math.max(0, scrollTarget),
+            behavior: 'smooth',
+        });
+    }
+}
+
+
+// ═════════════════════════════════════════════════════════════════
+// Filter / Search
+// ═════════════════════════════════════════════════════════════════
+
+function _glossaryFilter(text) {
+    _glossaryFilterText = (text || '').toLowerCase().trim();
+
+    // Re-render with filter applied
+    if (_glossaryMode === 'outline' && _glossaryOutlineData) {
+        _glossaryRenderOutline(_glossaryOutlineData);
+    } else if (_glossaryMode === 'glossary' && _glossaryGlossaryData) {
+        _glossaryRenderGlossary(_glossaryGlossaryData);
+    }
+}
+
+function _glossaryMatchesFilter(node, filterText) {
+    if (!filterText) return true;
+    const text = (node.text || '').toLowerCase();
+    if (text.includes(filterText)) return true;
+    // Check children recursively
+    if (node.children) {
+        for (const child of node.children) {
+            if (_glossaryMatchesFilter(child, filterText)) return true;
+        }
+    }
+    return false;
+}
+
+function _glossaryEntryMatchesFilter(entry, filterText) {
+    if (!filterText) return true;
+    const name = (entry.name || '').toLowerCase();
+    if (name.includes(filterText)) return true;
+    // Check outline
+    if (entry.outline) {
+        for (const node of entry.outline) {
+            if (_glossaryMatchesFilter(node, filterText)) return true;
+        }
+    }
+    // Check children (subdirs)
+    if (entry.children) {
+        for (const child of entry.children) {
+            if (_glossaryEntryMatchesFilter(child, filterText)) return true;
+        }
+    }
+    return false;
+}
+
+
+// ═════════════════════════════════════════════════════════════════
+// Utility
+// ═════════════════════════════════════════════════════════════════
+
+function _glossaryFormatSize(bytes) {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+    return (bytes / (1024 * 1024 * 1024)).toFixed(1) + ' GB';
+}
+
+function _glossaryFileIcon(entry) {
+    if (entry.encrypted) return '🔐';
+    const t = entry.type || 'other';
+    return CATEGORY_ICONS[t] || '📄';
+}
+
+
+// ═════════════════════════════════════════════════════════════════
+// Init: Apply initial visibility on page load
+// ═════════════════════════════════════════════════════════════════
+
+(function _glossaryInit() {
+    const panel = document.getElementById('content-glossary-panel');
+    const btn = document.getElementById('content-glossary-toggle-btn');
+    if (panel) {
+        panel.classList.toggle('hidden', !_glossaryVisible);
+        // Restore saved width
+        const savedWidth = localStorage.getItem('glossary-panel-width');
+        if (savedWidth) {
+            const w = parseInt(savedWidth, 10);
+            if (w >= 180 && w <= 380) {
+                panel.style.width = w + 'px';
+            }
+        }
+    }
+    if (btn) {
+        btn.classList.toggle('active', _glossaryVisible);
+    }
+    // Restore mode tab state
+    document.querySelectorAll('.glossary-mode-tab').forEach(tab => {
+        tab.classList.toggle('active', tab.dataset.glossaryMode === _glossaryMode);
+    });
+
+    // Persist panel width on resize (CSS resize handle)
+    if (panel && typeof ResizeObserver !== 'undefined') {
+        let _resizeTimer = null;
+        const ro = new ResizeObserver(() => {
+            clearTimeout(_resizeTimer);
+            _resizeTimer = setTimeout(() => {
+                const w = panel.offsetWidth;
+                if (w >= 180 && w <= 380) {
+                    localStorage.setItem('glossary-panel-width', String(w));
+                }
+            }, 300);
+        });
+        ro.observe(panel);
+    }
+})();
+
+
+// ═════════════════════════════════════════════════════════════════
+// Keyboard Shortcut: Ctrl+Shift+O
+// ═════════════════════════════════════════════════════════════════
+
+document.addEventListener('keydown', function(e) {
+    if (e.ctrlKey && e.shiftKey && e.key === 'O') {
+        // Only toggle if we're on the content tab
+        const contentTab = document.getElementById('tab-content');
+        if (contentTab && contentTab.style.display !== 'none') {
+            e.preventDefault();
+            contentToggleGlossary();
+        }
+    }
+});
+
+
+// ═════════════════════════════════════════════════════════════════
+// Keyboard Navigation: Arrow Keys within the glossary tree
+// ═════════════════════════════════════════════════════════════════
+
+document.addEventListener('keydown', function(e) {
+    const panel = document.getElementById('content-glossary-panel');
+    if (!panel || panel.classList.contains('hidden')) return;
+
+    // Only handle if glossary panel or its children are focused, or
+    // if the content tab is active and no text input is focused
+    const activeEl = document.activeElement;
+    const isInputFocused = activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA'
+        || activeEl.isContentEditable);
+    if (isInputFocused) return;
+
+    const contentTab = document.getElementById('tab-content');
+    if (!contentTab || contentTab.style.display === 'none') return;
+
+    // Get all visible glossary nodes
+    const visibleNodes = Array.from(panel.querySelectorAll('.glossary-node')).filter(n => {
+        // Check the node is not inside a collapsed container
+        let parent = n.parentElement;
+        while (parent && parent !== panel) {
+            if (parent.classList.contains('glossary-children') && parent.classList.contains('collapsed')) {
+                return false;
+            }
+            parent = parent.parentElement;
+        }
+        return true;
+    });
+
+    if (visibleNodes.length === 0) return;
+
+    const currentActive = panel.querySelector('.glossary-node.active-heading') ||
+        panel.querySelector('.glossary-node.active');
+    let currentIdx = currentActive ? visibleNodes.indexOf(currentActive) : -1;
+
+    if (e.key === 'ArrowDown' && e.altKey) {
+        e.preventDefault();
+        const nextIdx = Math.min(currentIdx + 1, visibleNodes.length - 1);
+        visibleNodes[nextIdx].click();
+    } else if (e.key === 'ArrowUp' && e.altKey) {
+        e.preventDefault();
+        const prevIdx = Math.max(currentIdx - 1, 0);
+        visibleNodes[prevIdx].click();
+    }
+});

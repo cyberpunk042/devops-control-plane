@@ -171,6 +171,10 @@ function monacoCreate(containerId, opts = {}) {
             // Update peek header line display if inside a peek overlay
             const peekLine = document.querySelector('.peek-preview-header__line');
             if (peekLine) peekLine.textContent = `Line ${e.position.lineNumber}`;
+            // ── Sync glossary panel active heading ──
+            if (typeof _glossaryUpdateActive === 'function' && typeof previewCurrentPath !== 'undefined') {
+                _glossaryUpdateActive(previewCurrentPath, e.position.lineNumber);
+            }
             clearTimeout(window._lineHashTimer);
             window._lineHashTimer = setTimeout(() => {
                 if (typeof contentUpdateHash === 'function') {

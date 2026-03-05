@@ -249,3 +249,4 @@ from . import files    # noqa: E402, F401 — registers routes
 from . import preview  # noqa: E402, F401 — registers routes
 from . import manage   # noqa: E402, F401 — registers routes
 from . import peek     # noqa: E402, F401 — registers routes
+from . import outline  # noqa: E402, F401 — registers routes
