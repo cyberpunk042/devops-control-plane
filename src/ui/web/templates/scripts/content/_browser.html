@@ -513,6 +513,19 @@ for (let i = 0; i < parts.length; i++) { accumulated +=(i> 0 ? '/' : '') + parts
     if (contentCurrentMode === 'media') {
     let html = uploadZoneHtml + mediaShowAllHtml + filterBarHtml;
 
+    // ".." parent folder — always show when not at root
+    const _parentPathMedia = (typeof _glossaryGetParentPath === 'function') ? _glossaryGetParentPath(folderPath) : null;
+    if (_parentPathMedia !== null) {
+    html += `
+    <div class="content-file-row" onclick="contentLoadFolder('${esc(_parentPathMedia)}')" style="cursor:pointer;opacity:0.7">
+        <div class="content-file-icon" style="font-size:1.3rem">⬆️</div>
+        <div class="content-file-info">
+            <div class="content-file-name" translate="no">..</div>
+            <div class="content-file-meta">Parent folder</div>
+        </div>
+    </div>`;
+    }
+
     // Directory cards — always show for navigation
     for (const d of dirs) {
     html += `
@@ -607,6 +620,19 @@ for (let i = 0; i < parts.length; i++) { accumulated +=(i> 0 ? '/' : '') + parts
         </label>
     </div>` : '';
     let html = uploadZoneHtml + filterBarHtml + searchBarHtml + '<div class="content-file-list">';
+
+        // ".." parent folder — always show when not at root
+        const _parentPathList = (typeof _glossaryGetParentPath === 'function') ? _glossaryGetParentPath(folderPath) : null;
+        if (_parentPathList !== null) {
+        html += `
+        <div class="content-file-row" onclick="contentLoadFolder('${esc(_parentPathList)}')" style="cursor:pointer;opacity:0.7">
+            <div class="content-file-icon" style="font-size:1.3rem">⬆️</div>
+            <div class="content-file-info">
+                <div class="content-file-name" translate="no">..</div>
+                <div class="content-file-meta">Parent folder</div>
+            </div>
+        </div>`;
+        }
 
         for (const d of dirs) {
         html += `

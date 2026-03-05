@@ -355,6 +355,19 @@ function _smartFolderRenderDocTree(browserEl, sf, subPath) {
 
     let html = '';
 
+    // ".." parent navigation — go up to parent or smart folder root
+    const currentFolderPath = sf._smartRoot + '/' + subPath;
+    const parentPath = currentFolderPath.substring(0, currentFolderPath.lastIndexOf('/'));
+    const isModuleRoot = parts.length === 1;
+    html += `<div class="content-file-row" onclick="contentLoadFolder('${esc(parentPath)}')"
+        style="cursor:pointer;opacity:0.7;margin-bottom:0.5rem">
+        <div class="content-file-icon" style="font-size:1.3rem">⬆️</div>
+        <div class="content-file-info">
+            <div class="content-file-name" translate="no">${isModuleRoot ? '📦 Browse by Module' : '..'}</div>
+            <div class="content-file-meta">${isModuleRoot ? 'Back to module overview' : 'Parent folder'}</div>
+        </div>
+    </div>`;
+
     // Module/section header
     const sectionName = parts[parts.length - 1];
     const hasOwnDoc = (node.files || []).length > 0;

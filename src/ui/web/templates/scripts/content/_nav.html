@@ -251,6 +251,7 @@ contentCurrentPath = folderPath;
 // Clear file preview state so hash reverts to folder format
 previewCurrentPath = '';
 previewCurrentName = '';
+window._contentFocusLine = 0;  // Clear stale line from previous file
 contentUpdateHash();
 const browser = document.getElementById('content-browser');
 browser.innerHTML = '<p style="text-align:center;padding:2rem"><span class="spinner"></span></p>';

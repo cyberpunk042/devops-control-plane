@@ -206,9 +206,25 @@ async function _glossaryLoadOutline(filePath) {
     tree.innerHTML = '<p class="glossary-empty"><span class="spinner"></span> Loading…</p>';
 
     try {
-        const data = await api(`/content/outline?path=${encodeURIComponent(filePath)}`);
+        // Fetch file outline and siblings in parallel
+        const outlinePromise = api(`/content/outline?path=${encodeURIComponent(filePath)}`);
+
+        // Derive parent folder path (previewCurrentPath is always real)
+        const lastSlash = filePath.lastIndexOf('/');
+        const parentDir = lastSlash > 0 ? filePath.substring(0, lastSlash) : '';
+        let siblingsPromise = parentDir
+            ? api(`/content/list?path=${encodeURIComponent(parentDir)}`).catch(() => null)
+            : Promise.resolve(null);
+
+        const [data, siblingsData] = await Promise.all([outlinePromise, siblingsPromise]);
         _glossaryOutlineData = data;
-        _glossaryRenderOutline(data);
+
+        // Extract sibling items (files + dirs in same folder)
+        const siblings = siblingsData
+            ? (siblingsData.items || siblingsData.files || [])
+            : [];
+
+        _glossaryRenderOutlineWithSiblings(data, filePath, parentDir, siblings);
 
         // Sync active state if a focus line is already set (e.g. from URL hash or mode switch)
         if (window._contentFocusLine > 0) {
@@ -236,6 +252,22 @@ async function _glossaryLoadFolderOutline(folderPath) {
         && typeof _smartFolderSubPath === 'function') {
         const subPath = _smartFolderSubPath(folderPath, _smartFolderActive);
         if (subPath !== null && subPath !== undefined) {
+            // Smart folder ROOT (subPath is empty) — render modules as outline
+            if (!subPath) {
+                const groups = (_smartFolderActive.groups
+                    || (typeof _smartFolderTree !== 'undefined' && _smartFolderTree
+                        ? _smartFolderTree.groups : null)
+                    || []);
+                const moduleItems = groups.map(g => ({
+                    name: g.module,
+                    path: _smartFolderActive._smartRoot + '/' + g.module,
+                    is_dir: true,
+                    file_count: g.file_count || 0,
+                }));
+                _glossaryRenderFolderOutline(moduleItems, folderPath);
+                return;
+            }
+            // Inside a module — resolve to real path
             const moduleName = subPath.split('/')[0];
             const groups = (_smartFolderActive.groups
                 || (typeof _smartFolderTree !== 'undefined' && _smartFolderTree
@@ -283,6 +315,17 @@ function _glossaryRenderFolderOutline(items, folderPath) {
 
     let html = '<ul class="glossary-outline-list">';
 
+    // ".." parent folder entry — show when not at a root-level folder
+    const parentPath = _glossaryGetParentPath(folderPath);
+    if (parentPath !== null) {
+        html += `<li class="glossary-node glossary-dir"
+            onclick="contentLoadFolder('${esc(parentPath)}')"
+            style="cursor:pointer;opacity:0.7">
+            <span class="glossary-kind-icon">⬆️</span>
+            <span class="glossary-node-label">..</span>
+        </li>`;
+    }
+
     // Directories first
     for (const d of dirs) {
         const fileCount = d.file_count || 0;
@@ -310,6 +353,42 @@ function _glossaryRenderFolderOutline(items, folderPath) {
 
     html += '</ul>';
     tree.innerHTML = html;
+}
+
+/**
+ * Compute the parent path for ".." navigation.
+ * Returns null if already at a root level (no parent to navigate to).
+ *
+ * Handles:
+ *   - "docs/subfolder" → "docs"
+ *   - "code-docs/core" → "code-docs" (smart folder module → smart root)
+ *   - "code-docs" (smart folder root) → target folder (e.g. "docs")
+ *   - "docs" (configured root) → null (no parent)
+ */
+function _glossaryGetParentPath(folderPath) {
+    if (!folderPath) return null;
+
+    // Smart folder root → navigate to target folder (if non-standalone)
+    if (typeof _smartFolderActive !== 'undefined' && _smartFolderActive) {
+        const root = _smartFolderActive._smartRoot || '';
+        if (folderPath === root) {
+            // Standalone smart folder (target === name) → no parent
+            const target = _smartFolderActive.target || '';
+            const name = _smartFolderActive.name || '';
+            if (!target || target === name) return null;
+            // Non-standalone: parent is the target folder
+            return target;
+        }
+    }
+
+    // Has a "/" → strip last segment
+    const lastSlash = folderPath.lastIndexOf('/');
+    if (lastSlash > 0) {
+        return folderPath.substring(0, lastSlash);
+    }
+
+    // Single segment (e.g. "docs") — this is a root folder, no parent
+    return null;
 }
 
 function _folderOutlineFileIcon(category) {
@@ -402,10 +481,99 @@ function _glossaryRenderOutline(data) {
     tree.innerHTML = html;
 }
 
+/**
+ * Render file outline with sibling files and ".." parent navigation.
+ * Shows: [..] [sibling dirs] [sibling files with current file's outline expanded]
+ */
+function _glossaryRenderOutlineWithSiblings(data, filePath, parentDir, siblings) {
+    const tree = document.getElementById('glossary-tree');
+    if (!tree) return;
 
-// ═════════════════════════════════════════════════════════════════
-// Render: Glossary Tree (folder)
-// ═════════════════════════════════════════════════════════════════
+    // No siblings available — fall back to plain outline
+    if (!siblings || siblings.length === 0) {
+        _glossaryRenderOutline(data);
+        return;
+    }
+
+    const fileName = filePath.split('/').pop();
+    const dirs = siblings.filter(s => s.is_dir);
+    const files = siblings.filter(s => !s.is_dir);
+
+    let html = '';
+
+    // ".." parent folder entry
+    if (parentDir) {
+        // Compute the navigation target for ".."
+        // If inside a smart folder, navigate to the virtual parent
+        let navTarget = contentCurrentPath || parentDir;
+        // If contentCurrentPath is deeper than the parent, strip last segment
+        if (navTarget.includes('/')) {
+            const parentNav = _glossaryGetParentPath(navTarget);
+            if (parentNav !== null) navTarget = parentNav;
+        }
+        html += `<div class="glossary-node glossary-dir"
+            onclick="contentLoadFolder('${esc(navTarget)}')"
+            style="cursor:pointer;opacity:0.7;padding:0.2rem 0.4rem">
+            <span class="glossary-kind-icon">⬆️</span>
+            <span class="glossary-node-label">..</span>
+        </div>`;
+    }
+
+    // Sibling directories (compact)
+    for (const d of dirs) {
+        const dirPath = parentDir ? parentDir + '/' + d.name : d.name;
+        html += `<div class="glossary-node glossary-dir"
+            onclick="contentLoadFolder('${esc(d.path || dirPath)}')"
+            style="cursor:pointer;padding:0.15rem 0.4rem;font-size:0.82rem">
+            <span class="glossary-kind-icon">📁</span>
+            <span class="glossary-node-label">${esc(d.name)}</span>
+        </div>`;
+    }
+
+    // Sibling files — current file gets its outline expanded
+    for (const f of files) {
+        const isCurrentFile = (f.path === filePath || f.name === fileName);
+        const icon = _folderOutlineFileIcon(f.category || f.mime_type || '');
+
+        if (isCurrentFile) {
+            // Current file — highlighted with outline expanded below
+            html += `<div class="glossary-node glossary-file"
+                style="padding:0.2rem 0.4rem;border-left:2px solid var(--accent);background:var(--accent-glow);font-weight:600;font-size:0.82rem"
+                data-file="${esc(filePath)}">
+                <span class="glossary-kind-icon">${icon}</span>
+                <span class="glossary-node-label">${esc(f.name)}</span>`;
+
+            // File info
+            if (data && data.type) {
+                const size = _glossaryFormatSize(data.size_bytes || 0);
+                const lines = data.line_count ? `${data.line_count}L` : '';
+                const info = [lines, size].filter(Boolean).join(' · ');
+                html += `<span class="glossary-meta" style="margin-left:auto;opacity:0.5;font-size:0.65rem;font-weight:400">${esc(info)}</span>`;
+            }
+            html += '</div>';
+
+            // Expanded outline of the current file
+            if (data && data.outline && data.outline.length > 0) {
+                html += `<div style="padding-left:0.6rem;border-left:2px solid var(--accent)">`;
+                html += _glossaryRenderNodes(data.outline, 'outline', data.path || filePath);
+                html += '</div>';
+            } else if (data && data.encrypted) {
+                html += '<div style="padding:0.2rem 0.6rem;font-size:0.72rem;color:var(--text-muted)">🔐 Encrypted</div>';
+            }
+        } else {
+            // Sibling file — compact, clickable
+            html += `<div class="glossary-node glossary-file"
+                data-file="${esc(f.path)}"
+                onclick="contentPreviewFile('${esc(f.path)}', '${esc(f.name)}')"
+                style="cursor:pointer;padding:0.15rem 0.4rem;font-size:0.82rem">
+                <span class="glossary-kind-icon">${icon}</span>
+                <span class="glossary-node-label">${esc(f.name)}</span>
+            </div>`;
+        }
+    }
+
+    tree.innerHTML = html;
+}
 
 function _glossaryRenderGlossary(data) {
     const tree = document.getElementById('glossary-tree');
