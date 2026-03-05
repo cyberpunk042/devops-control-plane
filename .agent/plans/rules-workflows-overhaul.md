@@ -482,21 +482,23 @@ Prevention: discipline protocol §7.6 (apology loop)
 
 ---
 
-## Execution Order
+## Execution Order & Progress
 
 ```
-Phase 1: Rules (Days 1-2)
-├── 1.1 Create read-before-write.md
-├── 1.2 Create one-change-one-test.md
-└── 1.3 Refactor core.md
+Phase 1: Rules (Days 1-2) ✅ COMPLETE
+├── 1.1 Create read-before-write.md ✅
+├── 1.2 Create one-change-one-test.md ✅
+└── 1.3 Refactor core.md (add new refs + routing) ✅
 
-Phase 2: Workflows (Days 2-4)
-├── 2.1 Consolidate discipline protocols → discipline.md
-├── 2.2 Trim no-abstraction workflow
-├── 2.3 Create before-change/ directory structure
-├── 2.4 Create before-change/frontend.md
-├── 2.5 Create code-discovery.md
-└── 2.6 Archive narrative docs
+Phase 2: Workflows (Days 2-4) ✅ COMPLETE
+├── 2.1 Consolidate discipline protocols → discipline.md ✅
+├── 2.2 Trim no-abstraction workflow (219→95 lines) ✅
+├── 2.3 Create before-change/ directory structure ✅
+│   ├── common.md (shared checklist) ✅
+│   └── backend.md (existing backend content) ✅
+├── 2.4 Create before-change/frontend.md ✅
+├── 2.5 code-discovery.md — SKIPPED (covered by read-before-write rule + common.md)
+└── 2.6 Archive narrative docs ✅
 
 Phase 3: Reference Docs (Days 3-5)
 ├── 3.1 Create reference/frontend-state.md

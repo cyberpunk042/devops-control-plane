@@ -34,4 +34,15 @@ YOU MUST RESPECT THE RULES OF THIS PROJECT
 .agent/rules/main.md
 .agent/rules/meanings.md
 .agent/rules/no-abstraction.md
+.agent/rules/read-before-write.md
+.agent/rules/one-change-one-test.md
+.agent/rules/refactoring-integrity.md
 .agent/rules/assistant.md
+
+## Workflow Routing — Read the RIGHT checklist for the task
+
+- Modifying backend Python? → .agent/workflows/before-change/backend.md
+- Modifying frontend JS templates? → .agent/workflows/before-change/frontend.md
+- Refactoring / splitting files? → .agent/rules/refactoring-integrity.md
+- Debugging a comparison? → .agent/workflows/debug-by-tracing.md
+- Any code change? → .agent/workflows/before-change/common.md
