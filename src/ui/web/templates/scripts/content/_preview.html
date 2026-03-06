@@ -1193,58 +1193,95 @@ async function _openPeekPreview(ref) {
     // Fetch content
     const body = overlay.querySelector('.peek-preview-body');
     if (ref.is_directory) {
-        // Directory peek: try README.md first, fallback to folder listing
+        // Directory peek: load README + listing, present as tabs
         const dirPath = ref.resolved_path.replace(/\/$/, '');
-        const readmePath = dirPath + '/README.md';
-        try {
-            const data = await api(`/content/preview?path=${encodeURIComponent(readmePath)}`);
-            body.innerHTML = `<div class="content-preview-rendered notranslate" translate="no">
-                ${renderMarkdown(data.preview_content || data.content)}
+
+        // Replace header actions for directory: Browse instead of Edit
+        const editBtn = overlay.querySelector('[data-action="edit"]');
+        if (editBtn) editBtn.remove();
+        const jumpBtn = overlay.querySelector('[data-action="jump"]');
+        if (jumpBtn) {
+            jumpBtn.textContent = '📂 Browse';
+            jumpBtn.title = 'Open folder in content browser';
+        }
+
+        // Fetch both README and listing in parallel
+        const [readmeResult, listingResult] = await Promise.allSettled([
+            api(`/content/preview?path=${encodeURIComponent(dirPath + '/README.md')}`),
+            api(`/content/list?path=${encodeURIComponent(dirPath)}`),
+        ]);
+
+        const hasReadme = readmeResult.status === 'fulfilled';
+        const readmeData = hasReadme ? readmeResult.value : null;
+        const items = listingResult.status === 'fulfilled' ? (listingResult.value.files || []) : [];
+
+        // Build tab content
+        let readmeHtml = '';
+        if (hasReadme) {
+            readmeHtml = `<div class="content-preview-rendered notranslate" translate="no">
+                ${renderMarkdown(readmeData.preview_content || readmeData.content)}
             </div>`;
-        } catch (_readmeErr) {
-            // No README — show folder listing
-            try {
-                const listing = await api(`/content/list?path=${encodeURIComponent(dirPath)}`);
-                const items = listing.files || [];
-                if (items.length === 0) {
-                    body.innerHTML = `<div class="peek-preview-loading" style="color:var(--text-muted)">📁 Empty directory</div>`;
-                } else {
-                    let html = '<div style="padding:0.5rem 0">';
-                    // Folders first, then files
-                    const dirs = items.filter(i => i.is_dir);
-                    const files = items.filter(i => !i.is_dir);
-                    for (const d of dirs) {
-                        html += `<div style="padding:0.35rem 0.75rem;display:flex;align-items:center;gap:0.5rem;cursor:pointer;border-radius:var(--radius-sm)"
-                            class="peek-dir-item"
-                            onmouseover="this.style.background='var(--hover-bg)'"
-                            onmouseout="this.style.background=''"
-                            onclick="_closePeekPreview();contentLoadFolder('${esc(dirPath + '/' + d.name)}')">
-                            <span>📁</span>
-                            <span style="color:var(--primary);font-weight:500">${esc(d.name)}</span>
-                        </div>`;
-                    }
-                    for (const f of files) {
-                        const fp = dirPath + '/' + f.name;
-                        html += `<div style="padding:0.35rem 0.75rem;display:flex;align-items:center;gap:0.5rem;cursor:pointer;border-radius:var(--radius-sm)"
-                            class="peek-file-item"
-                            onmouseover="this.style.background='var(--hover-bg)'"
-                            onmouseout="this.style.background=''"
-                            onclick="_closePeekPreview();contentPreviewFile('${esc(fp)}','${esc(f.name)}')">
-                            <span>📄</span>
-                            <span style="color:var(--text-primary)">${esc(f.name)}</span>
-                            ${f.size ? '<span style="color:var(--text-muted);font-size:0.75rem;margin-left:auto">' + (f.size > 1024 ? (f.size/1024).toFixed(1) + ' KB' : f.size + ' B') + '</span>' : ''}
-                        </div>`;
-                    }
-                    html += '</div>';
-                    body.innerHTML = html;
-                }
-            } catch (listErr) {
-                body.innerHTML = `<div class="peek-preview-loading" style="color:var(--error)">❌ ${esc(listErr.message)}</div>`;
+        }
+
+        let listingHtml = '<div style="padding:0.5rem 0">';
+        if (items.length === 0) {
+            listingHtml += '<div style="padding:1rem;color:var(--text-muted);text-align:center">📁 Empty directory</div>';
+        } else {
+            const dirs = items.filter(i => i.is_dir);
+            const files = items.filter(i => !i.is_dir);
+            for (const d of dirs) {
+                listingHtml += `<div style="padding:0.35rem 0.75rem;display:flex;align-items:center;gap:0.5rem;cursor:pointer;border-radius:var(--radius-sm)"
+                    onmouseover="this.style.background='var(--hover-bg)'"
+                    onmouseout="this.style.background=''"
+                    onclick="_closePeekPreview();contentLoadFolder('${esc(dirPath + '/' + d.name)}')">
+                    <span>📁</span>
+                    <span style="color:var(--primary);font-weight:500">${esc(d.name)}</span>
+                </div>`;
+            }
+            for (const f of files) {
+                const fp = dirPath + '/' + f.name;
+                listingHtml += `<div style="padding:0.35rem 0.75rem;display:flex;align-items:center;gap:0.5rem;cursor:pointer;border-radius:var(--radius-sm)"
+                    onmouseover="this.style.background='var(--hover-bg)'"
+                    onmouseout="this.style.background=''"
+                    onclick="_closePeekPreview();contentPreviewFile('${esc(fp)}','${esc(f.name)}')">
+                    <span>📄</span>
+                    <span style="color:var(--text-primary)">${esc(f.name)}</span>
+                    ${f.size ? '<span style="color:var(--text-muted);font-size:0.75rem;margin-left:auto">' + (f.size > 1024 ? (f.size/1024).toFixed(1) + ' KB' : f.size + ' B') + '</span>' : ''}
+                </div>`;
             }
         }
-        // Hide edit button for directories
-        const editBtn = overlay.querySelector('[data-action="edit"]');
-        if (editBtn) editBtn.style.display = 'none';
+        listingHtml += '</div>';
+
+        // Render with tab bar
+        const defaultTab = hasReadme ? 'readme' : 'listing';
+        body.innerHTML = `
+            <div class="peek-dir-tabs" style="display:flex;gap:0;border-bottom:1px solid var(--border-subtle);padding:0 0.5rem">
+                ${hasReadme ? '<button class="peek-dir-tab' + (defaultTab === 'readme' ? ' active' : '') + '" data-tab="readme" style="padding:0.4rem 0.75rem;border:none;background:none;cursor:pointer;font-size:0.78rem;color:var(--text-muted);border-bottom:2px solid transparent;transition:all 0.15s">📖 README</button>' : ''}
+                <button class="peek-dir-tab${defaultTab === 'listing' ? ' active' : ''}" data-tab="listing" style="padding:0.4rem 0.75rem;border:none;background:none;cursor:pointer;font-size:0.78rem;color:var(--text-muted);border-bottom:2px solid transparent;transition:all 0.15s">📂 Listing <span style="font-size:0.7rem;opacity:0.7">(${items.length})</span></button>
+            </div>
+            <div class="peek-dir-content" data-tab-content="readme" style="display:${defaultTab === 'readme' ? 'block' : 'none'}">${readmeHtml}</div>
+            <div class="peek-dir-content" data-tab-content="listing" style="display:${defaultTab === 'listing' ? 'block' : 'none'}">${listingHtml}</div>
+        `;
+
+        // Style active tab
+        body.querySelectorAll('.peek-dir-tab').forEach(tab => {
+            if (tab.classList.contains('active')) {
+                tab.style.color = 'var(--primary)';
+                tab.style.borderBottomColor = 'var(--primary)';
+            }
+            tab.onclick = () => {
+                const target = tab.dataset.tab;
+                body.querySelectorAll('.peek-dir-tab').forEach(t => {
+                    const isActive = t.dataset.tab === target;
+                    t.classList.toggle('active', isActive);
+                    t.style.color = isActive ? 'var(--primary)' : 'var(--text-muted)';
+                    t.style.borderBottomColor = isActive ? 'var(--primary)' : 'transparent';
+                });
+                body.querySelectorAll('.peek-dir-content').forEach(c => {
+                    c.style.display = c.dataset.tabContent === target ? 'block' : 'none';
+                });
+            };
+        });
     } else {
         // File peek
         try {
@@ -1291,30 +1328,43 @@ function _showPeekTooltip(event, ref, anchorEl) {
     const pathDisplay = ref.resolved_path + (ref.line_number ? ':' + ref.line_number : '');
 
     if (ref.is_directory) {
+        // ── Directory tooltip ──
+        const dirName = ref.resolved_path.split('/').pop();
         tooltip.innerHTML = `
             <div class="peek-tooltip__header">
                 <span class="peek-tooltip__icon">${icon}</span>
                 <span class="peek-tooltip__path">${esc(pathDisplay)}</span>
                 <button class="peek-tooltip__close" title="Dismiss">✕</button>
             </div>
-            <div class="peek-tooltip__label">Directory</div>
+            <div class="peek-tooltip__info">
+                <span class="peek-tooltip__tag peek-tooltip__tag--dir">Directory</span>
+                <span class="peek-tooltip__context">${esc(dirName)}</span>
+            </div>
             <div class="peek-tooltip__actions">
                 <button class="peek-tooltip__btn peek-tooltip__btn--primary" data-action="preview">👁 Preview</button>
-                <button class="peek-tooltip__btn" data-action="browse">Browse</button>
+                <button class="peek-tooltip__btn" data-action="browse">📂 Open</button>
+                <button class="peek-tooltip__btn" data-action="newtab">↗ New Tab</button>
             </div>
         `;
     } else {
+        // ── File tooltip ──
+        const ext = ref.resolved_path.includes('.') ? '.' + ref.resolved_path.split('.').pop() : '';
+        const parentDir = ref.resolved_path.substring(0, ref.resolved_path.lastIndexOf('/'));
         tooltip.innerHTML = `
             <div class="peek-tooltip__header">
                 <span class="peek-tooltip__icon">${icon}</span>
                 <span class="peek-tooltip__path">${esc(pathDisplay)}</span>
                 <button class="peek-tooltip__close" title="Dismiss">✕</button>
             </div>
-            ${ref.line_number ? '<div class="peek-tooltip__label">Line ' + ref.line_number + '</div>' : ''}
+            <div class="peek-tooltip__info">
+                ${ext ? '<span class="peek-tooltip__tag">' + esc(ext) + '</span>' : ''}
+                ${ref.line_number ? '<span class="peek-tooltip__context">Line ' + ref.line_number + '</span>' : ''}
+            </div>
             <div class="peek-tooltip__actions">
                 <button class="peek-tooltip__btn peek-tooltip__btn--primary" data-action="preview">👁 Preview</button>
-                <button class="peek-tooltip__btn" data-action="open">Open</button>
-                <button class="peek-tooltip__btn" data-action="newtab">New Tab</button>
+                <button class="peek-tooltip__btn" data-action="open">📄 Open</button>
+                ${parentDir ? '<button class="peek-tooltip__btn" data-action="browse" title="Browse parent folder">📂 Browse</button>' : ''}
+                <button class="peek-tooltip__btn" data-action="newtab">↗ New Tab</button>
             </div>
         `;
     }
@@ -1333,14 +1383,29 @@ function _showPeekTooltip(event, ref, anchorEl) {
             if (action === 'preview') {
                 _openPeekPreview(ref);
             } else if (action === 'browse') {
-                contentLoadFolder(ref.resolved_path);
+                if (ref.is_directory) {
+                    contentLoadFolder(ref.resolved_path);
+                } else {
+                    // Browse parent folder
+                    const parent = ref.resolved_path.substring(0, ref.resolved_path.lastIndexOf('/'));
+                    if (parent) contentLoadFolder(parent);
+                }
             } else if (action === 'open') {
-                window._contentFocusLine = ref.line_number || 0;
-                contentPreviewFile(ref.resolved_path, ref.resolved_path.split('/').pop());
+                if (ref.is_directory) {
+                    contentLoadFolder(ref.resolved_path);
+                } else {
+                    window._contentFocusLine = ref.line_number || 0;
+                    contentPreviewFile(ref.resolved_path, ref.resolved_path.split('/').pop());
+                }
             } else if (action === 'newtab') {
-                const hash = '#content/docs/' + ref.resolved_path + '@preview'
-                    + (ref.line_number ? ':' + ref.line_number : '');
-                window.open(window.location.pathname + hash, '_blank');
+                if (ref.is_directory) {
+                    const hash = '#content/docs/' + ref.resolved_path;
+                    window.open(window.location.pathname + hash, '_blank');
+                } else {
+                    const hash = '#content/docs/' + ref.resolved_path + '@preview'
+                        + (ref.line_number ? ':' + ref.line_number : '');
+                    window.open(window.location.pathname + hash, '_blank');
+                }
             }
         };
     }
