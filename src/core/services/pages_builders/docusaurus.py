@@ -508,6 +508,14 @@ class DocusaurusBuilder(PageBuilder):
                 shutil.copy2(str(hook_file), str(dest))
                 yield f"Generated src/theme/hooks/{hook_file.name}"
 
+        # Substitute placeholders in usePeekLinks.ts (not template-processed)
+        peek_hook = hooks_dir / "usePeekLinks.ts"
+        if peek_hook.is_file():
+            hook_content = peek_hook.read_text(encoding="utf-8")
+            hook_content = hook_content.replace("__REPO_URL__", repo_url)
+            hook_content = hook_content.replace("__BASE_URL__", base_url)
+            peek_hook.write_text(hook_content, encoding="utf-8")
+
         # ── 7. Plugins directory (for custom remark plugins) ──
         plugins_dir = workspace / "src" / "plugins"
         plugins_dir.mkdir(parents=True, exist_ok=True)
@@ -660,6 +668,29 @@ class DocusaurusBuilder(PageBuilder):
                             )
                             if outline:
                                 rd["outline"] = outline
+
+                            # Check if this ref has a corresponding docs page
+                            doc_route = _find_doc_route(rd["resolved_path"], docs_dir)
+                            if doc_route:
+                                rd["doc_url"] = doc_route
+
+                            # For directory refs, generate listing data
+                            if rd.get("is_directory"):
+                                dir_abs = project_root / rd["resolved_path"]
+                                if dir_abs.is_dir():
+                                    listing = []
+                                    for item in sorted(dir_abs.iterdir()):
+                                        if item.name.startswith("."):
+                                            continue
+                                        listing.append({
+                                            "name": item.name,
+                                            "is_dir": item.is_dir(),
+                                            "size": item.stat().st_size if item.is_file() else None,
+                                        })
+                                        if len(listing) >= 50:
+                                            break
+                                    if listing:
+                                        rd["dir_listing"] = listing
 
                     if entries:
                         peek_index[rel_path] = entries
@@ -1106,4 +1137,54 @@ def _extract_outline(
         return headings
 
     return []
+
+
+def _find_doc_route(
+    resolved_path: str,
+    docs_dir: Path,
+) -> str | None:
+    """Check if a resolved path has a corresponding docs page.
+
+    Tries multiple strategies:
+    - Directory: look for index.mdx in the matching docs subdirectory
+    - Markdown file: look for matching .mdx
+    - Strip 'src/' prefix and retry
+
+    Args:
+        resolved_path: Project-relative path (e.g. "src/core/services/audit/").
+        docs_dir: Absolute path to the docs directory.
+
+    Returns:
+        Docusaurus route path (e.g. "core/services/audit") or None.
+    """
+    rp = resolved_path.rstrip("/")
+
+    # Try with and without "src/" prefix
+    candidates = [rp]
+    if rp.startswith("src/"):
+        candidates.append(rp[4:])
+
+    for base in candidates:
+        # Directory → look for index.mdx
+        mdx_index = docs_dir / base / "index.mdx"
+        if mdx_index.is_file():
+            return base
+
+        # README.md → index.mdx
+        if base.endswith("/README.md"):
+            route = base[: -len("/README.md")]
+            if (docs_dir / route / "index.mdx").is_file():
+                return route
+
+        # .md file → .mdx
+        if base.endswith(".md"):
+            mdx = base[:-3] + ".mdx"
+            if (docs_dir / mdx).is_file():
+                route = base[:-3]
+                # If it's an index, strip to directory
+                if route.endswith("/index"):
+                    route = route[: -len("/index")]
+                return route
+
+    return None
 

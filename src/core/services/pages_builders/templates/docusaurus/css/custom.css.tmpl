@@ -413,6 +413,37 @@ pre .peek-link:hover {
   margin-bottom: 8px;
 }
 
+.peek-tooltip__info {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.peek-tooltip__tag {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 10px;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  background: rgba(129, 140, 248, 0.12);
+  color: var(--ifm-color-primary);
+  border: 1px solid rgba(129, 140, 248, 0.2);
+  flex-shrink: 0;
+}
+
+.peek-tooltip__tag--dir {
+  background: rgba(255, 183, 77, 0.12);
+  color: #ffb74d;
+  border-color: rgba(255, 183, 77, 0.2);
+}
+
+.peek-tooltip__context {
+  font-size: 11px;
+  color: #888;
+}
+
+
 .peek-tooltip__outline {
   margin: 6px 0 8px 0;
   padding: 4px 0 4px 10px;
@@ -427,6 +458,22 @@ pre .peek-link:hover {
   color: #aaa;
   line-height: 1.6;
   white-space: pre;
+}
+
+.peek-tooltip__outline-item--link {
+  display: block;
+  text-decoration: none;
+  color: #aaa;
+  border-radius: 3px;
+  padding: 0 4px;
+  cursor: pointer;
+  transition: color 0.12s, background 0.12s;
+}
+
+.peek-tooltip__outline-item--link:hover {
+  color: var(--ifm-color-primary-light, #a5b4fc);
+  background: rgba(129, 140, 248, 0.08);
+  text-decoration: none;
 }
 
 .peek-tooltip__actions {
@@ -573,6 +620,113 @@ pre .peek-link:hover {
   padding: 3rem;
   color: var(--ifm-color-content-secondary);
   gap: 0.5rem;
+}
+
+/* ── Loading spinner ── */
+.peek-spinner {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(255, 255, 255, 0.15);
+  border-top-color: var(--ifm-color-primary);
+  border-radius: 50%;
+  animation: peekSpin 0.8s linear infinite;
+}
+
+@keyframes peekSpin {
+  to { transform: rotate(360deg); }
+}
+
+/* ── Directory preview tabs ── */
+.peek-dir-tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--ifm-color-emphasis-200);
+  padding: 0 0.5rem;
+  margin-bottom: 0;
+}
+
+.peek-dir-tab {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  padding: 0.5rem 1rem;
+  font-size: 0.82rem;
+  color: var(--ifm-color-content-secondary);
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+  white-space: nowrap;
+}
+
+.peek-dir-tab:hover {
+  color: var(--ifm-color-content);
+}
+
+.peek-dir-tab.active {
+  color: var(--ifm-color-primary);
+  border-bottom-color: var(--ifm-color-primary);
+}
+
+.peek-dir-content {
+  padding: 0.75rem 1rem;
+  overflow: auto;
+}
+
+/* ── Directory listing items ── */
+.peek-listing-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0.5rem;
+  border-radius: 4px;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 0.82rem;
+  transition: background 0.12s;
+}
+
+.peek-listing-item:hover {
+  background: var(--ifm-color-emphasis-100);
+}
+
+/* ── Annotation count badge ── */
+.peek-status {
+  position: fixed;
+  bottom: 1.5rem;
+  right: 1.5rem;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.75rem;
+  background: var(--ifm-background-surface-color);
+  border: 1px solid var(--ifm-color-emphasis-200);
+  border-radius: 20px;
+  font-size: 0.78rem;
+  color: var(--ifm-color-content-secondary);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.25);
+  z-index: 999;
+  animation: peekStatusIn 0.3s ease;
+  transition: opacity 0.6s ease;
+}
+
+.peek-status--subtle {
+  opacity: 0.4;
+}
+
+.peek-status:hover {
+  opacity: 1;
+}
+
+.peek-status__icon {
+  font-size: 0.85rem;
+}
+
+.peek-status__count {
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+}
+
+@keyframes peekStatusIn {
+  from { transform: translateY(10px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
 }
 
 /* __USER_CSS_MARKER__ */
