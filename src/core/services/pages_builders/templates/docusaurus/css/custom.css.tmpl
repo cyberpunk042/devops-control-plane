@@ -799,34 +799,34 @@ pre .peek-link:hover {
   to { transform: translateY(0); opacity: 1; }
 }
 
-/* ── Dev/Live mode toggle badge ── */
+/* ── Dev/Live mode toggle badge (in navbar, matches admin panel .dev-badge) ── */
 .peek-mode-badge {
-  position: fixed;
-  bottom: 3.5rem;
-  right: 1.5rem;
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 0.35rem;
-  padding: 0.3rem 0.65rem;
-  background: var(--ifm-background-surface-color);
-  border: 1px solid var(--ifm-color-emphasis-200);
-  border-radius: 999px;
-  font-size: 0.72rem;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-  z-index: 1000;
-  transition: opacity 0.3s;
+  gap: 4px;
+  padding: 3px 10px;
+  border-radius: 100px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  background: hsla(260, 60%, 55%, 0.15);
+  color: hsl(260, 70%, 70%);
+  border: 1px solid hsla(260, 60%, 55%, 0.25);
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
   user-select: none;
 }
 .peek-mode-badge:hover {
-  border-color: var(--ifm-color-primary);
-  box-shadow: 0 2px 12px rgba(129, 140, 248, 0.2);
+  background: hsla(260, 60%, 55%, 0.25);
+  border-color: hsla(260, 60%, 55%, 0.4);
 }
 .peek-mode-badge__icon {
   font-size: 0.85rem;
 }
 .peek-mode-badge__label {
   font-family: 'JetBrains Mono', 'Fira Code', monospace;
-  font-weight: 500;
+  font-weight: 700;
 }
 
 /* __USER_CSS_MARKER__ */

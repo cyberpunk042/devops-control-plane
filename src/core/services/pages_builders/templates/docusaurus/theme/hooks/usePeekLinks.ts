@@ -6,7 +6,7 @@ import { useLocation } from '@docusaurus/router';
 // @ts-ignore — JSON module import
 import peekIndex from '@site/src/peek-index.json';
 
-const IS_LOCAL = typeof window !== 'undefined' && window.location.hostname === 'localhost';
+const IS_LOCAL = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
 const _RAW_REPO = '__REPO_URL__';
 const _RAW_BASE = '__BASE_URL__';
 const REPO_URL = _RAW_REPO.startsWith('__') ? '' : _RAW_REPO;
@@ -213,6 +213,30 @@ export function usePeekLinks(): void {
     useEffect(() => {
         const pageKey = locationToDocPath(location.pathname);
         const allRefs: PeekRef[] | undefined = (peekIndex as Record<string, PeekRef[]>)[pageKey];
+
+        // Dev/Live mode toggle badge — in the top navbar, like admin panel.
+        if (IS_LOCAL) {
+            const existingMode = document.querySelector('.peek-mode-badge');
+            if (existingMode) existingMode.remove();
+
+            const modeBadge = document.createElement('span');
+            modeBadge.className = 'peek-mode-badge';
+            const currentMode = _peekMode();
+            modeBadge.innerHTML = `<span class="peek-mode-badge__icon">${currentMode === 'dev' ? '🔧' : '🌐'}</span><span class="peek-mode-badge__label">${currentMode === 'dev' ? 'Dev' : 'Live'}</span>`;
+            modeBadge.title = `Peek mode: ${currentMode}. Click to toggle.`;
+            modeBadge.style.cursor = 'pointer';
+            modeBadge.addEventListener('click', () => {
+                const next = _peekMode() === 'dev' ? 'live' : 'dev';
+                (window as any).__peekMode = next;
+                modeBadge.innerHTML = `<span class="peek-mode-badge__icon">${next === 'dev' ? '🔧' : '🌐'}</span><span class="peek-mode-badge__label">${next === 'dev' ? 'Dev' : 'Live'}</span>`;
+                modeBadge.title = `Peek mode: ${next}. Click to toggle.`;
+            });
+            const navRight = document.querySelector('.navbar__items--right');
+            if (navRight) {
+                navRight.prepend(modeBadge);
+            }
+        }
+
         if (!allRefs || allRefs.length === 0) return;
 
         // Split into resolved and unresolved
@@ -244,24 +268,6 @@ export function usePeekLinks(): void {
                 // Fade to subtle after 2s
                 setTimeout(() => { badge.classList.add('peek-status--subtle'); }, 2000);
             }
-
-            // Dev/Live mode toggle badge
-            const existingMode = document.querySelector('.peek-mode-badge');
-            if (existingMode) existingMode.remove();
-
-            const modeBadge = document.createElement('div');
-            modeBadge.className = 'peek-mode-badge';
-            const currentMode = _peekMode();
-            modeBadge.innerHTML = `<span class="peek-mode-badge__icon">${currentMode === 'dev' ? '🔧' : '🌐'}</span><span class="peek-mode-badge__label">${currentMode === 'dev' ? 'Dev' : 'Live'}</span>`;
-            modeBadge.title = `Peek mode: ${currentMode}. Click to toggle.`;
-            modeBadge.style.cursor = 'pointer';
-            modeBadge.addEventListener('click', () => {
-                const next = _peekMode() === 'dev' ? 'live' : 'dev';
-                (window as any).__peekMode = next;
-                modeBadge.innerHTML = `<span class="peek-mode-badge__icon">${next === 'dev' ? '🔧' : '🌐'}</span><span class="peek-mode-badge__label">${next === 'dev' ? 'Dev' : 'Live'}</span>`;
-                modeBadge.title = `Peek mode: ${next}. Click to toggle.`;
-            });
-            document.body.appendChild(modeBadge);
         }, 100);
 
         return () => {
@@ -1211,9 +1217,25 @@ async function _renderMonaco(content: string, filePath: string, lineNumber: numb
 // ── Heading-to-Source Mapping ──────────────────────────────────────
 
 /**
+ * Strip inline markdown formatting for heading comparison.
+ * Matches Content Vault's _stripInlineMarkdown exactly.
+ */
+function _stripInlineMarkdown(text: string): string {
+    return text
+        .replace(/`([^`]*)`/g, '$1')        // `code`  → code
+        .replace(/\*\*([^*]*)\*\*/g, '$1')   // **bold** → bold
+        .replace(/\*([^*]*)\*/g, '$1')       // *italic* → italic
+        .replace(/~~([^~]*)~~/g, '$1')       // ~~strike~~ → strike
+        .replace(/<[^>]+>/g, '')             // <tags>  → remove
+        .trim();
+}
+
+/**
  * Map rendered headings (h1-h6) to their source line numbers.
  * Searches the source text for the heading text and assigns
  * `data-source-line` attributes on the rendered heading elements.
+ * Strips inline markdown before comparison so that headings like
+ * ### `context.py` — Title match correctly.
  */
 function _mapHeadingsToSourceLines(rendered: HTMLElement, sourceText: string): void {
     const headings = rendered.querySelectorAll('h1, h2, h3, h4, h5, h6');
@@ -1223,14 +1245,14 @@ function _mapHeadingsToSourceLines(rendered: HTMLElement, sourceText: string): v
     let searchFrom = 0;
 
     headings.forEach((heading) => {
-        const text = (heading.textContent || '').trim();
+        const text = (heading.textContent || '').trim().toLowerCase();
         if (!text) return;
 
         // Search for a markdown heading line matching this text
         for (let i = searchFrom; i < sourceLines.length; i++) {
             const line = sourceLines[i].trim();
             const m = line.match(/^#{1,6}\s+(.+)/);
-            if (m && m[1].trim() === text) {
+            if (m && _stripInlineMarkdown(m[1]).toLowerCase() === text) {
                 (heading as HTMLElement).setAttribute('data-source-line', String(i + 1));
                 searchFrom = i + 1;
                 break;

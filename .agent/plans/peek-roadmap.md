@@ -43,7 +43,7 @@ Nothing else works if paths don't resolve correctly. This is the #1 priority.
 
 | # | Item | Status | Ref |
 |---|------|--------|-----|
-| 1.1 | `src/` prefix tried for paths with `/` | ❌ | A1, Issue 5 |
+| 1.1 | `src/` prefix tried for paths with `/` | ✅ User confirmed src matches increased (2026-03-06) | A1, Issue 5 |
 | 1.2 | Bare regex truncation fix (T2_BARE vs T2_BACKTICK) | 🔨 | A2, GAP 1 |
 | 1.3 | doc_url mapping (resolved_path → Docusaurus route) | 🔨 | A3, GAP 2 |
 | 1.4 | Directory detection without trailing `/` | 🔍 | A4 |
@@ -272,7 +272,7 @@ Content Vault and Docusaurus site.
 
 | Track | Total Items | ✅ Verified | Score |
 |-------|-------------|-------------|-------|
-| 1. Path Resolution | 8 | 0 | 0% |
+| 1. Path Resolution | 8 | 1 | 12% |
 | 2. Outline Data | 9 | 0 | 0% |
 | 3. Frontend Annotation | 15 | 0 | 0% |
 | 4. Tooltip | 26 | 0 | 0% |
@@ -281,7 +281,7 @@ Content Vault and Docusaurus site.
 | 7. Dev/Live Mode | 16 | 0 | 0% |
 | 8. Build Pipeline | 8 | 0 | 0% |
 | 9. CSS | 18 | 0 | 0% |
-| **TOTAL** | **136** | **0** | **0%** |
+| **TOTAL** | **136** | **1** | **1%** |
 
 > **Honest assessment**: We are at 0% VERIFIED. Code exists for ~60%
 > of items but none of it has been tested. 9 items are confirmed BROKEN.

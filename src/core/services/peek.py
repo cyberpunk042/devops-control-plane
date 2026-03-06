@@ -586,6 +586,13 @@ def _resolution_candidates(
     if "/" in path_str:
         # Path with slashes — try as project-root-relative first
         candidates.append(path_str)
+        # Try src/ prefix — most source files live under src/ but
+        # documents (e.g. docs/code-docs/) reference them without
+        # the src/ prefix.  This ensures resolution when the
+        # document is outside src/ (Docusaurus pages).
+        src_prefixed = f"src/{path_str}"
+        if src_prefixed not in candidates:
+            candidates.append(src_prefixed)
         # Also try relative to doc directory
         if doc_dir:
             candidates.append(f"{doc_dir}/{path_str}")

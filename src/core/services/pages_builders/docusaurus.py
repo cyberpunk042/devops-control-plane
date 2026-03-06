@@ -1112,7 +1112,23 @@ def _extract_outline(
                 return _extract_outline(
                     str(Path(rp) / "README.md"), project_root, file_symbols,
                 )
-            return []
+            # No README — list directory contents as outline items
+            items: list[dict] = []
+            try:
+                for child in sorted(dir_abs.iterdir()):
+                    if child.name.startswith("."):
+                        continue
+                    items.append({
+                        "text": child.name,
+                        "line": 0,
+                        "kind": "directory" if child.is_dir() else "file",
+                        "level": 0,
+                    })
+                    if len(items) >= MAX_OUTLINE_ITEMS:
+                        break
+            except OSError:
+                pass
+            return items
 
     # ── Python: look up symbols ──
     if ext == ".py":
