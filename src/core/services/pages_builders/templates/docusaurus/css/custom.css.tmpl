@@ -830,6 +830,14 @@ pre .peek-link:hover {
   font-weight: 700;
 }
 
+/* ── Audit-data link mode gating ──────────────────────── */
+/* Dev links visible by default; live links hidden.
+   The Dev/Live toggle sets data-peek-mode on <body>. */
+body[data-peek-mode="live"] .audit-link-dev { display: none !important; }
+body[data-peek-mode="live"] .audit-link-live { display: inline !important; }
+body[data-peek-mode="dev"] .audit-link-dev { display: inline !important; }
+body[data-peek-mode="dev"] .audit-link-live { display: none !important; }
+
 /* __USER_CSS_MARKER__ */
 /* User custom CSS is appended below this line by the build system.
    Do NOT remove this marker. */

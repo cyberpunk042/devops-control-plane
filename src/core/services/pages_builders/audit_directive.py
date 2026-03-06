@@ -1096,33 +1096,50 @@ def _file_link(
             f'>{esc_display}</a>'
         )
     else:
-        # Build mode — full URL to avoid Docusaurus link rewriting
-        is_ci = bool(_os.environ.get("CI") or _os.environ.get("GITHUB_ACTIONS"))
+        # Build mode — generate BOTH dev (Vault) and live (GitHub) links.
+        # The Dev/Live toggle sets data-peek-mode on <body>; CSS hides
+        # the inactive variant.  __ADMIN_URL__ is replaced at build time
+        # by _stage_scaffold (same pattern as usePeekLinks.ts).
+        import os as _admin_os
+        line_anchor = f"#L{line}" if line else ""
 
-        if is_ci and repo_url:
-            # Deployed site → GitHub source link
-            line_anchor = f"#L{line}" if line else ""
-            href = f"{repo_url.rstrip('/')}/blob/main/{file_path}{line_anchor}"
-            return (
-                f'<a href="{_html.escape(href)}" '
+        # GitHub link (live mode)
+        github_href = ""
+        if repo_url:
+            github_href = f"{repo_url.rstrip('/')}/blob/main/{file_path}{line_anchor}"
+
+        # Vault link (dev mode) — uses placeholder, substituted at build time
+        vault_href = f"__ADMIN_URL__/{vault_hash}"
+
+        parts = []
+        # Dev link
+        parts.append(
+            f'<a href="{_html.escape(vault_href)}" '
+            f'class="audit-file-link audit-link-dev" '
+            f'title="Open in Vault" '
+            f'style="font-family:monospace;font-size:0.78rem;'
+            f'color:#64b5f6;text-decoration:none;cursor:pointer"'
+            f'>{esc_display}</a>'
+        )
+        # Live link
+        if github_href:
+            parts.append(
+                f'<a href="{_html.escape(github_href)}" '
                 f'target="_blank" rel="noopener" '
-                f'class="audit-file-link" '
-                f'title="View source on GitHub" '
+                f'class="audit-file-link audit-link-live" '
+                f'title="View on GitHub" '
                 f'style="font-family:monospace;font-size:0.78rem;'
-                f'color:#64b5f6;text-decoration:none;cursor:pointer"'
+                f'color:#64b5f6;text-decoration:none;cursor:pointer;display:none"'
                 f'>{esc_display}</a>'
             )
         else:
-            # Local build → full URL to admin SPA content vault
-            href = f"http://localhost:8000/{vault_hash}"
-            return (
-                f'<a href="{_html.escape(href)}" '
-                f'class="audit-file-link" '
-                f'title="Open in Content Vault" '
-                f'style="font-family:monospace;font-size:0.78rem;'
-                f'color:#64b5f6;text-decoration:none;cursor:pointer"'
-                f'>{esc_display}</a>'
+            # No repo URL — live link just shows plain code
+            parts.append(
+                f'<code class="audit-link-live" '
+                f'style="font-size:0.78rem;display:none"'
+                f'>{esc_display}</code>'
             )
+        return ''.join(parts)
 
 
 def render_html(

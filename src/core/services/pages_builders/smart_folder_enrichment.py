@@ -331,7 +331,13 @@ def _generate_root_landing(
                     content += "\n"
                 remaining = len(children) - 8
                 if remaining > 0:
-                    content += f"- *...and {remaining} more*\n"
+                    content += f"\n<details><summary>...and {remaining} more</summary>\n\n"
+                    for child_name, child_desc, child_count in children[8:]:
+                        content += f"- [{_name_to_title(child_name)}](./{mod_name}/{child_name}/)"
+                        if child_desc:
+                            content += f" — {child_desc}"
+                        content += "\n"
+                    content += "\n</details>\n"
                 content += "\n"
 
     index.write_text(content, encoding="utf-8")

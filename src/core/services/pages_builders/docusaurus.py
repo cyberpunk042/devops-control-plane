@@ -70,6 +70,29 @@ class DocusaurusBuilder(PageBuilder):
             install_cmd=["npm", "install", "-g", "npx"],
         )
 
+    @staticmethod
+    def _admin_url() -> str:
+        """Derive the admin panel URL from Flask config.
+
+        Must be called inside a Flask request/app context (which is
+        always the case during a web-triggered build).  Logs a warning
+        if the context is missing — that should never happen in normal
+        operation.
+        """
+        try:
+            from flask import current_app
+            host = current_app.config.get("SERVER_HOST", "127.0.0.1")
+            port = current_app.config.get("SERVER_PORT", 8000)
+            return f"http://{host}:{port}"
+        except RuntimeError:
+            import logging
+            logging.getLogger(__name__).warning(
+                "Flask context not available during build — "
+                "admin URL defaulting to http://localhost:8000. "
+                "This should not happen in web-triggered builds."
+            )
+            return "http://localhost:8000"
+
     # ── Pipeline stages ─────────────────────────────────────────────
 
     def pipeline_stages(self) -> list[StageInfo]:
@@ -279,10 +302,10 @@ class DocusaurusBuilder(PageBuilder):
                     )
                     if audit_map:
                         audit_path = workspace / "_audit_data.json"
-                        audit_path.write_text(
-                            json.dumps(audit_map, indent=2, default=str),
-                            encoding="utf-8",
-                        )
+                        audit_json = json.dumps(audit_map, indent=2, default=str)
+                        # Substitute __ADMIN_URL__ in audit HTML links
+                        audit_json = audit_json.replace("__ADMIN_URL__", self._admin_url())
+                        audit_path.write_text(audit_json, encoding="utf-8")
                         yield f"  📊 Pre-computed audit data for {len(audit_map)} file(s)"
                 except Exception as exc:
                     log.warning("Audit directive precompute skipped: %s", exc)
@@ -516,13 +539,7 @@ class DocusaurusBuilder(PageBuilder):
             hook_content = hook_content.replace("__BASE_URL__", base_url)
             # Admin panel URL — derive from Flask app config so peek
             # fetch calls are same-origin with the admin panel.
-            try:
-                from flask import current_app
-                host = current_app.config.get("SERVER_HOST", "127.0.0.1")
-                port = current_app.config.get("SERVER_PORT", 8000)
-                admin_url = f"http://{host}:{port}"
-            except RuntimeError:
-                admin_url = ""  # Outside Flask context — leave empty
+            admin_url = self._admin_url()
             hook_content = hook_content.replace("__ADMIN_URL__", admin_url)
             peek_hook.write_text(hook_content, encoding="utf-8")
 

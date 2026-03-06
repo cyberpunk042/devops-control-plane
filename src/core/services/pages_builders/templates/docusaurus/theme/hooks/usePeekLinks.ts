@@ -224,12 +224,14 @@ export function usePeekLinks(): void {
             const modeBadge = document.createElement('span');
             modeBadge.className = 'peek-mode-badge';
             const currentMode = _peekMode();
+            document.body.setAttribute('data-peek-mode', currentMode);
             modeBadge.innerHTML = `<span class="peek-mode-badge__icon">${currentMode === 'dev' ? '🔧' : '🌐'}</span><span class="peek-mode-badge__label">${currentMode === 'dev' ? 'Dev' : 'Live'}</span>`;
             modeBadge.title = `Peek mode: ${currentMode}. Click to toggle.`;
             modeBadge.style.cursor = 'pointer';
             modeBadge.addEventListener('click', () => {
                 const next = _peekMode() === 'dev' ? 'live' : 'dev';
                 (window as any).__peekMode = next;
+                document.body.setAttribute('data-peek-mode', next);
                 modeBadge.innerHTML = `<span class="peek-mode-badge__icon">${next === 'dev' ? '🔧' : '🌐'}</span><span class="peek-mode-badge__label">${next === 'dev' ? 'Dev' : 'Live'}</span>`;
                 modeBadge.title = `Peek mode: ${next}. Click to toggle.`;
             });
@@ -685,12 +687,13 @@ function showPeekTooltip(ref: PeekRef, anchorEl: HTMLElement): void {
             const line = parseInt(row.dataset.line || '0', 10);
 
             _dismissPeekTooltip();
-            if (ref.doc_url && headingText) {
-                // Navigate to doc page with heading anchor
+            const isMarkdown = /\.(md|mdx)$/i.test(ref.resolved_path);
+            if (ref.doc_url && headingText && isMarkdown) {
+                // Navigate to doc page with heading anchor (markdown files only)
                 const anchor = headingText.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
                 window.location.href = BASE_URL + ref.doc_url + '#' + anchor;
             } else {
-                // Open preview at that line
+                // Code files: open preview at that line
                 const previewRef: PeekRef = { ...ref, line_number: line || ref.line_number };
                 _openPeekPreview(previewRef);
             }
