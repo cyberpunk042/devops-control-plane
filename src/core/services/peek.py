@@ -154,6 +154,19 @@ _RE_T5_CLASS = re.compile(
     r"`([A-Z][a-zA-Z0-9]+)(?:\([^)]*\))?`"
 )
 
+# Common English phrases with / that T2_BARE incorrectly matches.
+# Normalised to lower-case for comparison.
+_T2_FALSE_POSITIVE_STOPLIST = frozenset({
+    "ci/cd", "dns/cdn", "try/except", "i/o", "n/a",
+    "encrypt/decrypt", "encryption/decryption", "lock/unlock",
+    "success/failure", "pass/fail", "before/after", "true/false",
+    "yes/no", "on/off", "input/output", "read/write", "start/stop",
+    "open/close", "push/pull", "add/remove", "enable/disable",
+    "show/hide", "client/server", "request/response", "up/down",
+    "and/or", "either/or", "left/right", "black/white",
+    "node.js", "next.js", "vue.js", "react.js",
+})
+
 
 def scan_peek_candidates(
     content: str,
@@ -234,6 +247,9 @@ def scan_peek_candidates(
         for m in _RE_T2_BARE.finditer(bare_line):
             path_text = m.group(1)
             if path_text.startswith(("http://", "https://", "//", "#")):
+                continue
+            # Skip common English phrases that aren't file paths
+            if path_text.lower() in _T2_FALSE_POSITIVE_STOPLIST:
                 continue
             # Skip if already captured by backtick variant
             if path_text in seen_texts:
@@ -593,6 +609,13 @@ def _resolution_candidates(
         src_prefixed = f"src/{path_str}"
         if src_prefixed not in candidates:
             candidates.append(src_prefixed)
+        # Also try deeper source prefixes — docs often reference
+        # paths like "cli/audit" (needs src/ui/) or "wizard/validate.py"
+        # (needs src/core/services/).
+        for deep_prefix in ("src/ui/", "src/core/", "src/core/services/"):
+            deep = f"{deep_prefix}{path_str}"
+            if deep not in candidates:
+                candidates.append(deep)
         # Also try relative to doc directory
         if doc_dir:
             candidates.append(f"{doc_dir}/{path_str}")

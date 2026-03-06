@@ -909,9 +909,10 @@ async function _openPeekPreview(ref: PeekRef): Promise<void> {
     if (editBtn) {
         editBtn.addEventListener('click', () => {
             const m = _peekMode();
+            const liveLine = _peekCurrentLine || ref.line_number || 0;
             _closePeekPreview();
             if (m === 'dev') {
-                window.open(`http://localhost:8000/#content/docs/${ref.resolved_path}@edit`, '_blank');
+                window.open(`http://localhost:8000/#content/docs/${ref.resolved_path}@edit` + (liveLine > 0 ? ':' + liveLine : ''), '_blank');
             } else if (REPO_URL) {
                 window.open(`${REPO_URL}/edit/main/${ref.resolved_path}`, '_blank');
             }
@@ -1308,6 +1309,30 @@ function _peekObserveLines(rendered: HTMLElement, scrollBody: HTMLElement, overl
     });
 
     headings.forEach(h => _peekLineObserver!.observe(h));
+
+    // Click-to-focus handler (matches Content Vault _contentPreviewClickHandler)
+    rendered.addEventListener('click', (e: Event) => {
+        const target = e.target as HTMLElement;
+        // Don't interfere with links or peek tooltips
+        if (target.closest('a') || target.closest('.peek-link') || target.closest('.peek-tooltip')) return;
+
+        const line = _findNearestSourceLine(target, rendered);
+        if (line > 0) {
+            // Highlight the owning heading
+            rendered.querySelectorAll('.peek-heading-tracked').forEach(
+                el => el.classList.remove('peek-heading-tracked')
+            );
+            const heading = rendered.querySelector(`[data-source-line="${line}"]`);
+            if (heading) heading.classList.add('peek-heading-tracked');
+            // Update header line indicator
+            if (lineEl) lineEl.textContent = 'Line ' + line;
+            _peekCurrentLine = line;
+        } else {
+            // Clicked before first heading
+            if (lineEl) lineEl.textContent = 'Line 1';
+            _peekCurrentLine = 1;
+        }
+    });
 }
 
 // ── Scroll to Source Line ──────────────────────────────────────────
@@ -1446,6 +1471,8 @@ async function _peekFetchOutlineAsync(
         if (!_peekTooltipEl || _peekTooltipEl !== tooltip) return;
 
         if (headings && headings.length > 0) {
+            const resolvedPath = ref.resolved_path;
+            const parentDir = resolvedPath.substring(0, resolvedPath.lastIndexOf('/'));
             outlineEl.innerHTML = headings.map(item => {
                 const isIndented = (item.level || 1) >= 2;
                 const indent = isIndented ? 'padding-left:0.6rem;' : '';
@@ -1455,6 +1482,12 @@ async function _peekFetchOutlineAsync(
                 return `<div class="peek-tooltip__outline-row" style="display:flex;align-items:center;gap:0.25rem;${indent}${weight}padding:1px 0" data-line="${item.line}" data-heading-text="${_esc(item.text)}">
                     <span style="font-size:0.7rem;color:var(--ifm-color-secondary-darkest, #999);flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer" class="peek-outline-text">
                         ${icon} ${_esc(item.text)}
+                    </span>
+                    <span class="peek-tooltip__outline-actions" style="display:flex;gap:2px;flex-shrink:0">
+                        <button class="peek-outline-act" title="Preview at line ${item.line || ''}" data-action="preview" data-line="${item.line || 0}">\ud83d\udc41</button>
+                        <button class="peek-outline-act" title="Open at line ${item.line || ''}" data-action="open" data-line="${item.line || 0}">\ud83d\udcc4</button>
+                        ${parentDir ? '<button class="peek-outline-act" title="Browse folder" data-action="browse" data-line="0">\ud83d\udcc2</button>' : ''}
+                        <button class="peek-outline-act" title="New tab" data-action="newtab" data-line="${item.line || 0}">\u2197</button>
                     </span>
                 </div>`;
             }).join('');
@@ -1475,6 +1508,43 @@ async function _peekFetchOutlineAsync(
                     } else {
                         const previewRef: PeekRef = { ...ref, line_number: line || ref.line_number };
                         _openPeekPreview(previewRef);
+                    }
+                });
+            });
+
+            // Wire async outline action buttons
+            outlineEl.querySelectorAll('.peek-outline-act').forEach((btn) => {
+                (btn as HTMLElement).addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const action = (btn as HTMLElement).dataset.action!;
+                    const line = parseInt((btn as HTMLElement).dataset.line || '0', 10);
+                    const mode = _peekMode();
+                    const pDir = ref.resolved_path.substring(0, ref.resolved_path.lastIndexOf('/'));
+
+                    _dismissPeekTooltip();
+                    if (action === 'preview') {
+                        const previewRef: PeekRef = { ...ref, line_number: line || ref.line_number };
+                        _openPeekPreview(previewRef);
+                    } else if (action === 'open') {
+                        if (mode === 'dev') {
+                            window.open(`http://localhost:8000/#content/docs/${ref.resolved_path}@preview` + (line > 0 ? ':' + line : ''), '_blank');
+                        } else if (REPO_URL) {
+                            window.open(`${REPO_URL}/blob/main/${ref.resolved_path}${line > 0 ? '#L' + line : ''}`, '_blank');
+                        }
+                    } else if (action === 'browse') {
+                        if (mode === 'dev') {
+                            window.open(`http://localhost:8000/#content/docs/${pDir || ref.resolved_path}`, '_blank');
+                        } else if (REPO_URL) {
+                            window.open(`${REPO_URL}/tree/main/${pDir || ref.resolved_path}`, '_blank');
+                        }
+                    } else if (action === 'newtab') {
+                        if (ref.doc_url) {
+                            window.open(BASE_URL + ref.doc_url, '_blank');
+                        } else if (mode === 'dev') {
+                            window.open(`http://localhost:8000/#content/docs/${ref.resolved_path}@preview` + (line > 0 ? ':' + line : ''), '_blank');
+                        } else if (REPO_URL) {
+                            window.open(`${REPO_URL}/blob/main/${ref.resolved_path}${line > 0 ? '#L' + line : ''}`, '_blank');
+                        }
                     }
                 });
             });

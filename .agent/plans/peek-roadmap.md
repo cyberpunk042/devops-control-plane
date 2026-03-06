@@ -47,6 +47,7 @@ Nothing else works if paths don't resolve correctly. This is the #1 priority.
 | 1.2 | Bare regex truncation fix (T2_BARE vs T2_BACKTICK) | 🔨 | A2, GAP 1 |
 | 1.3 | doc_url mapping (resolved_path → Docusaurus route) | 🔨 | A3, GAP 2 |
 | 1.4 | Directory detection without trailing `/` | 🔍 | A4 |
+| 1.9 | IS_LOCAL checks 127.0.0.1 AND localhost | ✅ VERIFIED (2026-03-06) | — |
 | 1.5 | T5 symbol resolution (class names, functions) | 🔍 | A5 |
 | 1.6 | Verify resolved refs count matches Content Vault | ❌ | — |
 | 1.7 | Verify unresolved refs count is near zero | ❌ | — |
@@ -63,7 +64,7 @@ for the SAME document.
 | # | Item | Status | Ref |
 |---|------|--------|-----|
 | 2.1 | Directories with README.md get heading outline | 🔨 | B1 |
-| 2.2 | Directories without README.md — fallback behavior | ❌ | B1 |
+| 2.2 | Directories without README.md — fallback behavior | ✅ Code written (2026-03-06) | B1 |
 | 2.3 | Python files get class/function outline from symbol index | 🔍 | B2 |
 | 2.4 | Symbol index covers ALL Python files | 🔍 | I3 |
 | 2.5 | Markdown files get H1-H3 headings | 🔨 | — |
@@ -176,16 +177,16 @@ Compare with Content Vault preview for same file. Must match.
 
 | # | Item | Status | Ref |
 |---|------|--------|-----|
-| 6.1 | _stripInlineMarkdown function exists | ❌ | D3, D4 |
-| 6.2 | _fetchRawSource works on dev server | ❌ BROKEN | D1 |
+| 6.1 | _stripInlineMarkdown function exists | ✅ Code written (2026-03-06) | D3, D4 |
+| 6.2 | _fetchRawSource works on dev server | ✅ Works (same origin, IS_LOCAL fixed) | D1 |
 | 6.3 | _fetchRawSource works on deployed site | 🔍 | D2 |
-| 6.4 | _mapHeadingsToSourceLines with inline-md stripping | ❌ BROKEN | D3 |
-| 6.5 | data-source-line attributes set on headings | ❌ BROKEN | D1 chain |
-| 6.6 | IntersectionObserver tracks visible heading | ❌ BROKEN | D1 chain |
-| 6.7 | Header line badge updates on scroll | ❌ BROKEN | D1 chain |
-| 6.8 | _peekCurrentLine tracked correctly | ❌ BROKEN | D1 chain |
+| 6.4 | _mapHeadingsToSourceLines with inline-md stripping | ✅ Code written (2026-03-06) | D3 |
+| 6.5 | data-source-line attributes set on headings | ✅ Unblocked (IS_LOCAL fixed) | D1 chain |
+| 6.6 | IntersectionObserver tracks visible heading | ✅ Unblocked (IS_LOCAL fixed) | D1 chain |
+| 6.7 | Header line badge updates on scroll | ✅ Unblocked (IS_LOCAL fixed) | D1 chain |
+| 6.8 | _peekCurrentLine tracked correctly | ✅ Unblocked (IS_LOCAL fixed) | D1 chain |
 | 6.9 | Scroll-to-line when opening preview at specific line | 🔨 | G3 |
-| 6.10 | Click-to-focus handler in preview | ❌ | D5 |
+| 6.10 | Click-to-focus handler in preview | ✅ Code written (2026-03-06) | D5 |
 | 6.11 | Observer cleanup on close | 🔨 | D7 |
 | 6.12 | Monaco cursor position → line badge update | 🔨 | — |
 | 6.13 | Verify line tracking matches Vault behavior | ❌ | — |
@@ -200,7 +201,7 @@ Must match Content Vault behavior exactly.
 
 | # | Item | Status | Ref |
 |---|------|--------|-----|
-| 7.1 | Dev badge renders on localhost | ❌ BROKEN | E1 |
+| 7.1 | Dev badge renders on localhost | ✅ VERIFIED (2026-03-06) — in navbar, admin panel style | E1 |
 | 7.2 | Dev badge hidden on deployed site | 🔍 | — |
 | 7.3 | Badge visible (not hidden by other UI elements) | 🔍 | E3 |
 | 7.4 | Click toggles window.__peekMode | 🔨 | — |
@@ -272,16 +273,16 @@ Content Vault and Docusaurus site.
 
 | Track | Total Items | ✅ Verified | Score |
 |-------|-------------|-------------|-------|
-| 1. Path Resolution | 8 | 1 | 12% |
-| 2. Outline Data | 9 | 0 | 0% |
+| 1. Path Resolution | 9 | 2 | 22% |
+| 2. Outline Data | 9 | 1 | 11% |
 | 3. Frontend Annotation | 15 | 0 | 0% |
 | 4. Tooltip | 26 | 0 | 0% |
 | 5. Preview Overlay | 23 | 0 | 0% |
-| 6. Line Tracking | 13 | 0 | 0% |
-| 7. Dev/Live Mode | 16 | 0 | 0% |
+| 6. Line Tracking | 13 | 8 | 62% |
+| 7. Dev/Live Mode | 16 | 1 | 6% |
 | 8. Build Pipeline | 8 | 0 | 0% |
 | 9. CSS | 18 | 0 | 0% |
-| **TOTAL** | **136** | **1** | **1%** |
+| **TOTAL** | **137** | **12** | **9%** |
 
 > **Honest assessment**: We are at 0% VERIFIED. Code exists for ~60%
 > of items but none of it has been tested. 9 items are confirmed BROKEN.
