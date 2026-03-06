@@ -15,6 +15,7 @@ interface PeekRef {
     line_number: number | null;
     is_directory: boolean;
     resolved?: boolean;
+    outline?: string[];
 }
 
 let _peekTooltipEl: HTMLElement | null = null;
@@ -38,6 +39,14 @@ function _esc(s: string): string {
     const div = document.createElement('div');
     div.textContent = s;
     return div.innerHTML;
+}
+
+function _renderOutline(outline: string[] | undefined): string {
+    if (!outline || outline.length === 0) return '';
+    const items = outline
+        .map((item) => `<div class="peek-tooltip__outline-item">${_esc(item)}</div>`)
+        .join('');
+    return `<div class="peek-tooltip__outline">${items}</div>`;
 }
 
 /**
@@ -91,23 +100,40 @@ export function usePeekLinks(): void {
 
 /**
  * Map a Docusaurus URL path to the peek index key.
+ *
+ * Handles:
+ *   - baseUrl stripping (e.g. /pages/site/code-docs/)
+ *   - routeBasePath: '/' (no /docs prefix) or '/docs'
+ *   - directory pages → index.mdx
  */
 function locationToDocPath(pathname: string): string {
     let path = pathname.replace(/\/$/, '');
 
+    // Strategy: progressively strip URL prefixes and check against
+    // the peek index keys. This handles any baseUrl / routeBasePath
+    // combination without needing build-time injection.
+    const idx = peekIndex as Record<string, PeekRef[]>;
+
+    // Split into segments and try from each starting point
+    const segments = path.split('/').filter(Boolean);
+    for (let start = 0; start < segments.length; start++) {
+        const candidate = segments.slice(start).join('/');
+        // Try as-is (e.g. "core/services/audit.mdx")
+        if (idx[candidate + '.mdx']) return candidate + '.mdx';
+        // Try as directory index (e.g. "core/services/audit/index.mdx")
+        if (idx[candidate + '/index.mdx']) return candidate + '/index.mdx';
+    }
+
+    // Root page
+    if (idx['index.mdx']) return 'index.mdx';
+
+    // Fallback to legacy logic
     const docsIdx = path.indexOf('/docs');
     if (docsIdx >= 0) {
         path = path.substring(docsIdx + '/docs'.length);
     }
-
-    if (path.startsWith('/')) {
-        path = path.substring(1);
-    }
-
-    if (!path) {
-        path = 'index';
-    }
-
+    if (path.startsWith('/')) path = path.substring(1);
+    if (!path) return 'index.mdx';
     return path + '.mdx';
 }
 
@@ -137,6 +163,8 @@ function annotatePeekRefs(container: HTMLElement, refs: PeekRef[]): void {
     for (const textNode of textNodes) {
         if (textNode.parentElement?.closest('a')) continue;
         if (textNode.parentElement?.closest('.peek-link')) continue;
+        if (textNode.parentElement?.closest('pre')) continue;
+        if (textNode.parentElement?.closest('code')) continue;
 
         const text = textNode.textContent || '';
         if (!pattern.test(text)) continue;
@@ -274,6 +302,7 @@ function showPeekTooltip(ref: PeekRef, anchorEl: HTMLElement): void {
                 <button class="peek-tooltip__close" title="Dismiss">✕</button>
             </div>
             <div class="peek-tooltip__label">Directory</div>
+            ${_renderOutline(ref.outline)}
             <div class="peek-tooltip__actions">
                 <button class="peek-tooltip__btn peek-tooltip__btn--primary" data-action="preview">👁 Preview</button>
                 ${IS_LOCAL
@@ -292,6 +321,7 @@ function showPeekTooltip(ref: PeekRef, anchorEl: HTMLElement): void {
                 <button class="peek-tooltip__close" title="Dismiss">✕</button>
             </div>
             ${ref.line_number ? '<div class="peek-tooltip__label">Line ' + ref.line_number + '</div>' : ''}
+            ${_renderOutline(ref.outline)}
             <div class="peek-tooltip__actions">
                 <button class="peek-tooltip__btn peek-tooltip__btn--primary" data-action="preview">👁 Preview</button>
                 ${IS_LOCAL

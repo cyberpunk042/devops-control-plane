@@ -155,7 +155,7 @@ FEATURES: dict[str, dict[str, Any]] = {
         "label": "🔗 Peek Links",
         "description": "Auto-link file references in docs to source locations",
         "category": "features",
-        "default": False,
+        "default": True,
         "deps": {},
     },
 }

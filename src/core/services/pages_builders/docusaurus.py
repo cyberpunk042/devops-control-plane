@@ -561,35 +561,85 @@ class DocusaurusBuilder(PageBuilder):
 
             if docs_dir.is_dir():
                 from src.core.services.peek import scan_and_resolve_all, build_symbol_index
+                from src.core.services.pages_builders.docusaurus_transforms import inject_crossref_links
 
                 # Build symbol index once for all pages (T5 resolution)
                 sym_idx = build_symbol_index(project_root, use_cache=False)
                 yield f"Built symbol index ({len(sym_idx)} symbols)"
 
-                for mdx_file in sorted(docs_dir.rglob("*.mdx")):
+                # Build reverse index: file_path → [symbol_names] for outlines
+                file_symbols: dict[str, list[str]] = {}
+                for sym_name, sym_entries in sym_idx.items():
+                    for se in sym_entries:
+                        file_symbols.setdefault(se.file, []).append(
+                            f"{sym_name}()" if se.kind in ("function", "async_function") else sym_name
+                        )
+
+                crossref_count = 0
+                scan_count = 0
+                mdx_files = sorted(docs_dir.rglob("*.mdx"))
+                total_files = len(mdx_files)
+                yield f"Scanning {total_files} pages for peek references..."
+
+                for mdx_file in mdx_files:
                     content = mdx_file.read_text(encoding="utf-8")
                     rel_path = str(mdx_file.relative_to(docs_dir))
 
                     # The doc_path for context resolution needs the original
                     # source-relative path (e.g. "src/core/services/audit/README.md")
-                    # We reconstruct it from segment.source + the relative doc path
-                    source_base = segment.source.rstrip("/")
+                    # segment.source is absolute (set by build_stream.py), so we
+                    # convert back to project-relative for peek resolution.
+                    try:
+                        source_base = str(Path(segment.source).relative_to(project_root))
+                    except ValueError:
+                        source_base = segment.source.rstrip("/")
                     doc_name = rel_path.replace(".mdx", ".md")
                     doc_path = f"{source_base}/{doc_name}" if source_base != "." else doc_name
 
                     resolved, unresolved, _pending = scan_and_resolve_all(content, doc_path, project_root, sym_idx)
+
+                    # ── Cross-doc linking: rewrite internal refs as markdown links ──
+                    # References that resolve to files within docs/ become static
+                    # Docusaurus links. External refs stay for runtime annotation.
+                    resolved_dicts = [
+                        {
+                            "text": r.text,
+                            "resolved_path": r.resolved_path,
+                            "line_number": r.line_number,
+                            "is_directory": r.is_directory,
+                            "resolved": True,
+                        }
+                        for r in resolved
+                    ]
+
+                    rewritten = inject_crossref_links(content, resolved_dicts, docs_dir, rel_path)
+                    if rewritten != content:
+                        mdx_file.write_text(rewritten, encoding="utf-8")
+                        crossref_count += 1
+
+                    # Build peek-index entries — only EXTERNAL refs (not linked as docs)
+                    # Internal refs are now static markdown links, no runtime annotation needed
                     entries: list[dict] = []
-                    if resolved:
-                        entries.extend(
-                            {
-                                "text": r.text,
-                                "resolved_path": r.resolved_path,
-                                "line_number": r.line_number,
-                                "is_directory": r.is_directory,
-                                "resolved": True,
-                            }
-                            for r in resolved
-                        )
+                    if resolved_dicts:
+                        for rd in resolved_dicts:
+                            # Skip refs that resolved to internal docs pages
+                            # (inject_crossref_links already turned them into links)
+                            _check_path = rd["resolved_path"]
+                            _is_internal = False
+                            for _pfx in ("src/", ""):
+                                if _check_path.startswith(_pfx):
+                                    _rel = _check_path[len(_pfx):]
+                                    if _rel.endswith("/README.md"):
+                                        _mdx = _rel[:-len("/README.md")] + "/index.mdx"
+                                    elif _rel.endswith(".md"):
+                                        _mdx = _rel[:-3] + ".mdx"
+                                    else:
+                                        continue
+                                    if (docs_dir / _mdx).is_file():
+                                        _is_internal = True
+                                        break
+                            if not _is_internal:
+                                entries.append(rd)
                     if unresolved:
                         entries.extend(
                             {
@@ -601,12 +651,28 @@ class DocusaurusBuilder(PageBuilder):
                             }
                             for u in unresolved
                         )
+                    # ── Outline extraction for tooltip enrichment ──
+                    # For external refs, add a short outline (headings / symbols)
+                    for rd in entries:
+                        if rd.get("resolved") and rd["resolved_path"]:
+                            outline = _extract_outline(
+                                rd["resolved_path"], project_root, file_symbols,
+                            )
+                            if outline:
+                                rd["outline"] = outline
+
                     if entries:
                         peek_index[rel_path] = entries
 
+                    scan_count += 1
+                    if scan_count % 10 == 0:
+                        yield f"Scanned {scan_count}/{total_files} pages..."
+
             peek_file.write_text(json.dumps(peek_index), encoding="utf-8")
             total_refs = sum(len(v) for v in peek_index.values())
-            yield f"Generated peek-index.json ({len(peek_index)} pages, {total_refs} references)"
+            yield f"Generated peek-index.json ({len(peek_index)} pages, {total_refs} external references)"
+            if crossref_count:
+                yield f"Injected cross-doc links in {crossref_count} pages"
         else:
             # Write empty index so the hook import doesn't break
             peek_file.write_text("{}", encoding="utf-8")
@@ -974,4 +1040,70 @@ class DocusaurusBuilder(PageBuilder):
     _enrich_frontmatter = staticmethod(enrich_frontmatter)
     _rewrite_links = staticmethod(rewrite_links)
     _escape_jsx_angles = staticmethod(escape_jsx_angles)
+
+
+# ── Module-level helpers ──────────────────────────────────────────
+
+MAX_OUTLINE_ITEMS = 8
+
+
+def _extract_outline(
+    resolved_path: str,
+    project_root: Path,
+    file_symbols: dict[str, list[str]],
+) -> list[str]:
+    """Extract a short outline for a resolved file reference.
+
+    For markdown files: H1-H3 headings.
+    For Python files: class/function names from the symbol index.
+    Other file types: no outline.
+
+    Args:
+        resolved_path: Project-relative path (e.g. "src/core/services/audit/audit_ops.py").
+        project_root: Absolute path to the project root.
+        file_symbols: Reverse index: file_path → [symbol_display_names].
+
+    Returns:
+        List of outline strings, max MAX_OUTLINE_ITEMS.
+    """
+    ext = Path(resolved_path).suffix.lower()
+
+    # ── Python: look up symbols ──
+    if ext == ".py":
+        symbols = file_symbols.get(resolved_path, [])
+        if symbols:
+            return symbols[:MAX_OUTLINE_ITEMS]
+        return []
+
+    # ── Markdown: extract headings ──
+    if ext in (".md", ".mdx"):
+        abs_path = project_root / resolved_path
+        if not abs_path.is_file():
+            return []
+        try:
+            text = abs_path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            return []
+        headings: list[str] = []
+        in_fence = False
+        for line in text.split("\n"):
+            stripped = line.lstrip()
+            if stripped.startswith("```"):
+                in_fence = not in_fence
+                continue
+            if in_fence:
+                continue
+            # Match H1-H3
+            m = re.match(r"^(#{1,3})\s+(.+)", stripped)
+            if m:
+                level = len(m.group(1))
+                title = m.group(2).strip()
+                # Indent for hierarchy
+                prefix = "  " * (level - 1)
+                headings.append(f"{prefix}{title}")
+                if len(headings) >= MAX_OUTLINE_ITEMS:
+                    break
+        return headings
+
+    return []
 
