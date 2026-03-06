@@ -575,12 +575,14 @@ class DocusaurusBuilder(PageBuilder):
                 sym_idx = build_symbol_index(project_root, use_cache=False)
                 yield f"Built symbol index ({len(sym_idx)} symbols)"
 
-                # Build reverse index: file_path → [symbol_names] for outlines
-                file_symbols: dict[str, list[str]] = {}
+                # Build reverse index: file_path → [{name, line, kind}] for outlines
+                file_symbols: dict[str, list[dict]] = {}
                 for sym_name, sym_entries in sym_idx.items():
                     for se in sym_entries:
+                        display = f"{sym_name}()" if se.kind in ("function", "async_function") else sym_name
+                        kind = "function" if se.kind in ("function", "async_function") else "class"
                         file_symbols.setdefault(se.file, []).append(
-                            f"{sym_name}()" if se.kind in ("function", "async_function") else sym_name
+                            {"text": display, "line": se.line, "kind": kind}
                         )
 
                 crossref_count = 0
@@ -1081,32 +1083,45 @@ MAX_OUTLINE_ITEMS = 8
 def _extract_outline(
     resolved_path: str,
     project_root: Path,
-    file_symbols: dict[str, list[str]],
-) -> list[str]:
+    file_symbols: dict[str, list[dict]],
+) -> list[dict]:
     """Extract a short outline for a resolved file reference.
 
-    For markdown files: H1-H3 headings.
-    For Python files: class/function names from the symbol index.
+    For directories: H1-H3 headings from README.md (if present).
+    For markdown files: H1-H3 headings with source line numbers.
+    For Python files: class/function names with line numbers from the symbol index.
     Other file types: no outline.
 
     Args:
         resolved_path: Project-relative path (e.g. "src/core/services/audit/audit_ops.py").
         project_root: Absolute path to the project root.
-        file_symbols: Reverse index: file_path → [symbol_display_names].
+        file_symbols: Reverse index: file_path → [{text, line, kind}].
 
     Returns:
-        List of outline strings, max MAX_OUTLINE_ITEMS.
+        List of outline dicts {text, line, kind, level}, max MAX_OUTLINE_ITEMS.
     """
-    ext = Path(resolved_path).suffix.lower()
+    rp = resolved_path.rstrip("/")
+    ext = Path(rp).suffix.lower()
+
+    # ── Directory: extract headings from README.md ──
+    if not ext:
+        dir_abs = project_root / rp
+        if dir_abs.is_dir():
+            readme = dir_abs / "README.md"
+            if readme.is_file():
+                return _extract_outline(
+                    str(Path(rp) / "README.md"), project_root, file_symbols,
+                )
+            return []
 
     # ── Python: look up symbols ──
     if ext == ".py":
         symbols = file_symbols.get(resolved_path, [])
         if symbols:
-            return symbols[:MAX_OUTLINE_ITEMS]
+            return sorted(symbols, key=lambda s: s["line"])[:MAX_OUTLINE_ITEMS]
         return []
 
-    # ── Markdown: extract headings ──
+    # ── Markdown: extract headings with line numbers ──
     if ext in (".md", ".mdx"):
         abs_path = project_root / resolved_path
         if not abs_path.is_file():
@@ -1115,9 +1130,9 @@ def _extract_outline(
             text = abs_path.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
             return []
-        headings: list[str] = []
+        headings: list[dict] = []
         in_fence = False
-        for line in text.split("\n"):
+        for line_no, line in enumerate(text.split("\n"), start=1):
             stripped = line.lstrip()
             if stripped.startswith("```"):
                 in_fence = not in_fence
@@ -1129,9 +1144,12 @@ def _extract_outline(
             if m:
                 level = len(m.group(1))
                 title = m.group(2).strip()
-                # Indent for hierarchy
-                prefix = "  " * (level - 1)
-                headings.append(f"{prefix}{title}")
+                headings.append({
+                    "text": title,
+                    "line": line_no,
+                    "kind": "heading",
+                    "level": level,
+                })
                 if len(headings) >= MAX_OUTLINE_ITEMS:
                     break
         return headings
@@ -1143,29 +1161,29 @@ def _find_doc_route(
     resolved_path: str,
     docs_dir: Path,
 ) -> str | None:
-    """Check if a resolved path has a corresponding docs page.
+    """Find the Docusaurus route for a resolved path.
 
-    Tries multiple strategies:
-    - Directory: look for index.mdx in the matching docs subdirectory
-    - Markdown file: look for matching .mdx
-    - Strip 'src/' prefix and retry
+    Tries multiple prefix stripping strategies and walks up the directory
+    tree to find the nearest documented ancestor.
 
     Args:
-        resolved_path: Project-relative path (e.g. "src/core/services/audit/").
+        resolved_path: Project-relative path (e.g. "src/ui/cli/git/core.py").
         docs_dir: Absolute path to the docs directory.
 
     Returns:
-        Docusaurus route path (e.g. "core/services/audit") or None.
+        Docusaurus route path (e.g. "cli/git") or None.
     """
     rp = resolved_path.rstrip("/")
 
-    # Try with and without "src/" prefix
+    # Build candidates by stripping known source prefixes
     candidates = [rp]
     if rp.startswith("src/"):
-        candidates.append(rp[4:])
+        candidates.append(rp[4:])       # src/core/... → core/...
+    if rp.startswith("src/ui/"):
+        candidates.append(rp[7:])       # src/ui/cli/... → cli/...
 
     for base in candidates:
-        # Directory → look for index.mdx
+        # Direct match — directory is a doc page
         mdx_index = docs_dir / base / "index.mdx"
         if mdx_index.is_file():
             return base
@@ -1181,10 +1199,16 @@ def _find_doc_route(
             mdx = base[:-3] + ".mdx"
             if (docs_dir / mdx).is_file():
                 route = base[:-3]
-                # If it's an index, strip to directory
                 if route.endswith("/index"):
                     route = route[: -len("/index")]
                 return route
+
+        # Walk up the directory tree to find nearest documented ancestor
+        parts = base.split("/")
+        for i in range(len(parts) - 1, 0, -1):
+            parent = "/".join(parts[:i])
+            if (docs_dir / parent / "index.mdx").is_file():
+                return parent
 
     return None
 

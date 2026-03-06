@@ -829,14 +829,18 @@ Phase 6 — Enhancements
 
 ## Status
 
-- [x] Phase 0: peek feature enabled by default
-- [x] Phase 0: locationToDocPath URL mapping fixed
-- [x] Phase 0: streaming progress for build modal
-- [x] Phase 1: Fix broken fundamentals (1.1 skip code blocks, 1.2 REPO_URL substitution)
-- [x] Phase 2: Smart tooltip actions (2.1 doc_url, 2.2 tag badge, 2.3 context, 2.4 actions)
-- [x] Phase 3: Preview overlay rewrite (3.1 internal doc, 3.2 Monaco CDN, 3.3 marked CDN, 3.4 dir tabs, 3.5 header actions, 3.6 scroll-to-line, 3.7 history)
-- [x] Phase 5: Visual polish (5.1 done in P2, 5.2 clickable outlines, 5.3 done in P3)
-- [x] Phase 6: Enhancements (6.1 line tracking, 6.2 annotation count badge)
+> ⚠️ **HONESTY NOTE (2026-03-06 08:17)**: ALL checkboxes below were lies.
+> Code was written but NOTHING was verified on the running site.
+> See `peek-roadmap.md` for the real tracker (136 items, 0% verified).
+
+- [~] Phase 0: peek feature enabled by default — 🔨 CODE EXISTS, UNVERIFIED
+- [~] Phase 0: locationToDocPath URL mapping — 🔨 CODE EXISTS, UNVERIFIED (may produce wrong keys)
+- [~] Phase 0: streaming progress for build modal — 🔨 CODE EXISTS, UNVERIFIED
+- [~] Phase 1: Fix broken fundamentals — 🔨 CODE WRITTEN, NEVER TESTED
+- [~] Phase 2: Smart tooltip actions — 🔨 CODE WRITTEN, NEVER TESTED
+- [~] Phase 3: Preview overlay — 🔨 CODE WRITTEN, LINE TRACKING CONFIRMED BROKEN
+- [~] Phase 5: Visual polish — 🔨 CODE WRITTEN, NEVER TESTED
+- [~] Phase 6: Enhancements — 🔨 CODE WRITTEN, LINE TRACKING CONFIRMED BROKEN
 
 
 

@@ -225,6 +225,11 @@ def scan_peek_candidates(
         # Strip markdown link targets so [dir/](dir/README.md) only
         # yields "dir/" (from the link text), not "dir/README.md".
         bare_line = _RE_MD_LINK_TARGET.sub("]", line)
+        # Strip backtick-delimited regions so the bare regex doesn't
+        # fire on text already captured by _RE_T2_BACKTICK.  Without
+        # this, `core/services/git/ops.py` produces a truncated match
+        # like "ore/services/git/ops.p" (lookbehind/lookahead skip `).
+        bare_line = re.sub(r"`[^`]+`", "", bare_line)
 
         for m in _RE_T2_BARE.finditer(bare_line):
             path_text = m.group(1)

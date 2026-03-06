@@ -351,6 +351,22 @@ pre .peek-link:hover {
   opacity: 1;
 }
 
+/* ── Pending annotation (pulsing "Resolving…" state) ── */
+.peek-link--pending {
+  border-bottom: 1px dotted rgba(144, 202, 249, 0.4);
+  opacity: 0.6;
+  animation: peekPendingPulse 1.5s ease-in-out infinite;
+}
+.peek-link--pending:hover {
+  color: #90caf9 !important;
+  border-bottom-color: #90caf9;
+  opacity: 1;
+}
+@keyframes peekPendingPulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 0.8; }
+}
+
 /* ── Peek tooltip ─────────────────────────────────────── */
 
 .peek-tooltip {
@@ -688,6 +704,60 @@ pre .peek-link:hover {
   background: var(--ifm-color-emphasis-100);
 }
 
+/* ── Outline row action buttons ── */
+.peek-tooltip__outline-row {
+  border-radius: 3px;
+  transition: background 0.12s;
+}
+.peek-tooltip__outline-row:hover {
+  background: rgba(129, 140, 248, 0.06);
+}
+
+.peek-tooltip__outline-actions {
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.peek-tooltip__outline-row:hover .peek-tooltip__outline-actions {
+  opacity: 1;
+}
+
+.peek-outline-act {
+  background: none;
+  border: 1px solid transparent;
+  color: #888;
+  font-size: 10px;
+  cursor: pointer;
+  padding: 0 3px;
+  border-radius: 3px;
+  line-height: 1.4;
+  transition: color 0.12s, background 0.12s, border-color 0.12s;
+}
+.peek-outline-act:hover {
+  color: #fff;
+  background: rgba(129, 140, 248, 0.15);
+  border-color: rgba(129, 140, 248, 0.3);
+}
+
+/* ── Heading tracking highlight ── */
+.peek-heading-tracked {
+  background: rgba(100, 181, 246, 0.08) !important;
+  border-left: 2px solid rgba(100, 181, 246, 0.5);
+  padding-left: 0.5rem;
+  transition: background 0.3s;
+}
+
+/* ── Preview header line badge ── */
+.peek-preview-header__line {
+  font-size: 0.72rem;
+  color: var(--ifm-color-primary);
+  background: rgba(129, 140, 248, 0.1);
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-family: monospace;
+  min-width: 2rem;
+  text-align: center;
+}
+
 /* ── Annotation count badge ── */
 .peek-status {
   position: fixed;
@@ -727,6 +797,36 @@ pre .peek-link:hover {
 @keyframes peekStatusIn {
   from { transform: translateY(10px); opacity: 0; }
   to { transform: translateY(0); opacity: 1; }
+}
+
+/* ── Dev/Live mode toggle badge ── */
+.peek-mode-badge {
+  position: fixed;
+  bottom: 3.5rem;
+  right: 1.5rem;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.3rem 0.65rem;
+  background: var(--ifm-background-surface-color);
+  border: 1px solid var(--ifm-color-emphasis-200);
+  border-radius: 999px;
+  font-size: 0.72rem;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+  z-index: 1000;
+  transition: opacity 0.3s;
+  user-select: none;
+}
+.peek-mode-badge:hover {
+  border-color: var(--ifm-color-primary);
+  box-shadow: 0 2px 12px rgba(129, 140, 248, 0.2);
+}
+.peek-mode-badge__icon {
+  font-size: 0.85rem;
+}
+.peek-mode-badge__label {
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-weight: 500;
 }
 
 /* __USER_CSS_MARKER__ */
