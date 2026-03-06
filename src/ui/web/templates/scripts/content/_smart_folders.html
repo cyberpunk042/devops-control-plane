@@ -402,9 +402,32 @@ function _smartFolderRenderDocTree(browserEl, sf, subPath) {
     const group = groups.find(g => g.module === moduleName);
 
     if (!group) {
+        // Find nearby module suggestions (fuzzy match)
+        const suggestions = groups
+            .map(g => ({ name: g.module, dist: _sfLevenshtein(moduleName.toLowerCase(), g.module.toLowerCase()) }))
+            .filter(s => s.dist <= 3)
+            .sort((a, b) => a.dist - b.dist)
+            .slice(0, 3);
+        const sugHtml = suggestions.length > 0
+            ? `<div style="margin-top:0.75rem">
+                <span style="font-size:0.82rem;color:var(--text-muted)">Did you mean:</span>
+                <div style="display:flex;flex-wrap:wrap;gap:0.3rem;margin-top:0.3rem">
+                    ${suggestions.map(s => `<button onclick="contentLoadFolder('${esc(sf._smartRoot + '/' + s.name)}')"
+                        style="padding:0.25rem 0.6rem;border-radius:4px;border:1px solid var(--border);background:var(--bg-card);color:var(--accent);cursor:pointer;font-size:0.82rem"
+                        >📦 ${esc(s.name)}</button>`).join('')}
+                </div>
+            </div>`
+            : '';
+
         browserEl.innerHTML = `<div class="empty-state" style="padding:2rem">
             <span style="font-size:2rem;display:block;margin-bottom:0.5rem">🔍</span>
             <p>Module "${esc(moduleName)}" not found.</p>
+            ${sugHtml}
+            <div style="display:flex;flex-wrap:wrap;gap:0.4rem;margin-top:1rem">
+                <button onclick="contentLoadFolder('${esc(sf._smartRoot)}')"
+                    style="padding:0.3rem 0.7rem;border-radius:4px;border:1px solid var(--border);background:transparent;color:var(--text-muted);cursor:pointer;font-size:0.82rem"
+                    >← All Modules</button>
+            </div>
         </div>`;
         return;
     }
@@ -414,10 +437,136 @@ function _smartFolderRenderDocTree(browserEl, sf, subPath) {
     for (let i = 1; i < parts.length; i++) {
         const child = (node.children || []).find(c => c.name === parts[i]);
         if (!child) {
+            const missingSegment = parts[i];
+            const traversedParts = parts.slice(0, i);
+            const parentVirtual = sf._smartRoot + '/' + traversedParts.join('/');
+            const rawBasePath = (group.module_path || '').replace(/\/$/, '');
+            const rawFullPath = rawBasePath + '/' + parts.slice(1).join('/');
+            const readmePath = rawFullPath + '/README.md';
+            const searchText = parts.slice(1).join('/');
+
+            // Find siblings at this level for fuzzy suggestions
+            const siblings = (node.children || []).map(c => c.name);
+            const suggestions = siblings
+                .map(s => ({ name: s, dist: _sfLevenshtein(missingSegment.toLowerCase(), s.toLowerCase()) }))
+                .filter(s => s.dist <= 3)
+                .sort((a, b) => a.dist - b.dist)
+                .slice(0, 4);
+            const sugHtml = suggestions.length > 0
+                ? `<div style="margin-top:0.75rem">
+                    <span style="font-size:0.82rem;color:var(--text-muted)">Did you mean:</span>
+                    <div style="display:flex;flex-wrap:wrap;gap:0.3rem;margin-top:0.3rem">
+                        ${suggestions.map(s => {
+                            const targetPath = parentVirtual + '/' + s.name;
+                            return `<button onclick="contentLoadFolder('${esc(targetPath)}')"
+                                style="padding:0.25rem 0.6rem;border-radius:4px;border:1px solid var(--border);background:var(--bg-card);color:var(--accent);cursor:pointer;font-size:0.82rem"
+                                >📖 ${esc(s.name)}</button>`;
+                        }).join('')}
+                    </div>
+                </div>`
+                : '';
+
             browserEl.innerHTML = `<div class="empty-state" style="padding:2rem">
+                <div style="display:flex;flex-wrap:wrap;gap:0.4rem;margin-bottom:1.25rem">
+                    <button onclick="contentLoadFolder('${esc(parentVirtual)}')"
+                        style="padding:0.3rem 0.7rem;border-radius:4px;border:1px solid var(--border);background:transparent;color:var(--text-muted);cursor:pointer;font-size:0.82rem"
+                        >← ${esc(traversedParts[traversedParts.length - 1] || 'Back')}</button>
+                    <button onclick="contentToggleExploreAll(true); setTimeout(function(){ contentLoadFolder('${esc(rawFullPath)}'); }, 200)"
+                        style="padding:0.3rem 0.7rem;border-radius:4px;border:1px solid var(--border);background:transparent;color:var(--text-muted);cursor:pointer;font-size:0.82rem"
+                        >📂 Browse raw path</button>
+                    <button onclick="contentLoadFolder('${esc(sf._smartRoot)}')"
+                        style="padding:0.3rem 0.7rem;border-radius:4px;border:1px solid var(--border);background:transparent;color:var(--text-muted);cursor:pointer;font-size:0.82rem"
+                        >🏠 All Modules</button>
+                </div>
+
                 <span style="font-size:2rem;display:block;margin-bottom:0.5rem">🔍</span>
-                <p>Path not found: ${esc(parts.slice(1).join('/'))}</p>
+                <p style="margin-bottom:0.3rem">Path not found: <code style="font-size:0.82rem">${esc(searchText)}</code></p>
+                <p style="font-size:0.78rem;color:var(--text-muted);margin-bottom:0.75rem">
+                    This path does not have a README.md in the documentation tree.
+                    <br>Real path: <code style="font-size:0.75rem">${esc(rawFullPath)}</code>
+                </p>
+
+                <div id="sf-create-readme" style="margin-bottom:1rem;padding:0.6rem 0.75rem;border:1px dashed var(--border);border-radius:6px;background:var(--bg-inset, var(--bg-card))">
+                    <div style="display:flex;align-items:center;gap:0.4rem;margin-bottom:0.3rem">
+                        <span style="font-size:0.85rem">📝</span>
+                        <span style="font-size:0.82rem;font-weight:500">Create documentation page</span>
+                    </div>
+                    <p style="font-size:0.75rem;color:var(--text-muted);margin-bottom:0.5rem">
+                        Creates <code>${esc(readmePath)}</code> with a placeholder.
+                    </p>
+                    <button id="sf-create-readme-btn"
+                        style="padding:0.3rem 0.7rem;border-radius:4px;border:1px solid var(--accent);background:var(--accent-glow, transparent);color:var(--accent);cursor:pointer;font-size:0.82rem;font-weight:500"
+                        >📄 Create README.md</button>
+                </div>
+
+                ${sugHtml}
             </div>`;
+
+            // Wire the create README button
+            const createBtn = browserEl.querySelector('#sf-create-readme-btn');
+            if (createBtn) {
+                createBtn.onclick = async () => {
+                    createBtn.disabled = true;
+                    createBtn.textContent = '⏳ Creating…';
+                    const title = missingSegment.replace(/[-_]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+                    const content = `# ${title}\n\n> TODO: Document this section.\n>\n> This page was auto-created from the Smart Folder navigator.\n\n## Overview\n\n<!-- Describe the purpose and scope of ${missingSegment} here. -->\n`;
+                    try {
+                        await api('/content/save', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ path: readmePath, content, create: true }),
+                        });
+                        const container = browserEl.querySelector('#sf-create-readme');
+                        container.innerHTML = `<div>
+                            <div style="display:flex;align-items:center;gap:0.4rem;margin-bottom:0.6rem">
+                                <span>✅</span>
+                                <span style="font-size:0.82rem;color:var(--success, #66bb6a)">Created <code>${esc(readmePath)}</code></span>
+                            </div>
+                            <div style="display:flex;flex-wrap:wrap;gap:0.4rem">
+                                <button id="sf-post-open"
+                                    style="padding:0.3rem 0.7rem;border-radius:4px;border:1px solid var(--accent);background:transparent;color:var(--accent);cursor:pointer;font-size:0.82rem"
+                                    >📖 Open</button>
+                                <button id="sf-post-edit"
+                                    style="padding:0.3rem 0.7rem;border-radius:4px;border:1px solid var(--accent);background:transparent;color:var(--accent);cursor:pointer;font-size:0.82rem"
+                                    >✏️ Edit</button>
+                                <button id="sf-post-refresh"
+                                    style="padding:0.3rem 0.7rem;border-radius:4px;border:1px solid var(--border);background:transparent;color:var(--text-muted);cursor:pointer;font-size:0.82rem"
+                                    >↻ Refresh & Navigate</button>
+                                <button id="sf-post-raw"
+                                    style="padding:0.3rem 0.7rem;border-radius:4px;border:1px solid var(--border);background:transparent;color:var(--text-muted);cursor:pointer;font-size:0.82rem"
+                                    >📂 Browse Raw</button>
+                            </div>
+                        </div>`;
+                        // Wire post-creation buttons
+                        document.getElementById('sf-post-open').onclick = () => {
+                            contentPreviewFile('${esc(readmePath)}', 'README.md');
+                        };
+                        document.getElementById('sf-post-edit').onclick = () => {
+                            contentPreviewFile('${esc(readmePath)}', 'README.md');
+                            setTimeout(() => contentSetPreviewMode('edit'), 400);
+                        };
+                        document.getElementById('sf-post-refresh').onclick = async () => {
+                            // Invalidate tree cache and re-fetch
+                            _smartFolderTree = null;
+                            try {
+                                _smartFolderTree = await api('/smart-folders/${encodeURIComponent(sf.name)}/tree');
+                            } catch (_) {}
+                            contentLoadFolder('${esc(sf._smartRoot + '/' + subPath)}');
+                        };
+                        document.getElementById('sf-post-raw').onclick = () => {
+                            contentToggleExploreAll(true);
+                            setTimeout(() => contentLoadFolder('${esc(rawFullPath)}'), 200);
+                        };
+                    } catch (err) {
+                        createBtn.disabled = false;
+                        createBtn.textContent = '📄 Create README.md';
+                        const container = browserEl.querySelector('#sf-create-readme');
+                        container.insertAdjacentHTML('beforeend',
+                            `<p style="color:var(--error);font-size:0.78rem;margin-top:0.3rem">❌ ${esc(err.message)}</p>`);
+                    }
+                };
+            }
+
             return;
         }
         node = child;
@@ -1025,4 +1174,23 @@ function _smartPeekExpandTree(trigger, listId) {
         const inner = _smartPeekState.panel.querySelector('.smart-peek-inner');
         if (inner) _smartPeekState.panel.style.maxHeight = inner.scrollHeight + 'px';
     }
+}
+
+/**
+ * Levenshtein distance for fuzzy matching in path-not-found suggestions.
+ */
+function _sfLevenshtein(a, b) {
+    const m = a.length, n = b.length;
+    if (m === 0) return n;
+    if (n === 0) return m;
+    const d = [];
+    for (let i = 0; i <= m; i++) d[i] = [i];
+    for (let j = 0; j <= n; j++) d[0][j] = j;
+    for (let i = 1; i <= m; i++) {
+        for (let j = 1; j <= n; j++) {
+            const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+            d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + cost);
+        }
+    }
+    return d[m][n];
 }

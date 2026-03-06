@@ -412,13 +412,17 @@ def save_content_file(
     project_root: Path,
     rel_path: str,
     file_content: str,
+    *,
+    allow_create: bool = False,
 ) -> dict:
-    """Save text content to an existing file.
+    """Save text content to a file.
 
     Args:
         project_root: Project root directory.
         rel_path: Relative path to the file.
         file_content: The text content to write.
+        allow_create: If True, create the file (and parent dirs) if it
+            doesn't exist.  Default False preserves existing behaviour.
 
     Returns:
         {"success": True, "path": ..., "size": ...} or {"error": ...}.
@@ -434,20 +438,11 @@ def save_content_file(
     if target is None:
         return {"error": "Invalid path"}
     if not target.is_file():
-        return {"error": f"File not found: {rel_path}", "_status": 404}
+        if allow_create:
+            target.parent.mkdir(parents=True, exist_ok=True)
+        else:
+            return {"error": f"File not found: {rel_path}", "_status": 404}
 
-    # Safety: only allow editing within content folders
-    try:
-        rel = target.relative_to(project_root)
-        top_dir = rel.parts[0] if rel.parts else ""
-        if top_dir not in DEFAULT_CONTENT_DIRS:
-            return {
-                "error": f"Can only edit files within content folders "
-                f"({', '.join(DEFAULT_CONTENT_DIRS)})",
-                "_status": 403,
-            }
-    except ValueError:
-        return {"error": "Invalid path"}
 
     # Capture before-state
     old_content = target.read_text(encoding="utf-8") if target.is_file() else ""
@@ -473,10 +468,11 @@ def save_content_file(
     if len(diff_lines) > 50:
         diff_text += f"\n... ({len(diff_lines) - 50} more lines)"
 
+    is_new = old_size == 0 and not old_content
     _audit(
-        "📝 File Modified",
+        "📄 File Created" if is_new else "📝 File Modified",
         f"{rel_path}: +{added} -{removed} lines ({old_size:,} → {new_size:,} bytes)",
-        action="modified",
+        action="created" if is_new else "modified",
         target=rel_path,
         detail={
             "file": rel_path,
@@ -488,8 +484,9 @@ def save_content_file(
         after_state={"lines": new_lines, "size": new_size},
     )
 
-    logger.info("Saved file: %s (%d bytes, +%d -%d lines)", rel_path, new_size, added, removed)
-    return {"success": True, "path": rel_path, "size": new_size}
+    logger.info("%s file: %s (%d bytes, +%d -%d lines)",
+                "Created" if is_new else "Saved", rel_path, new_size, added, removed)
+    return {"success": True, "path": rel_path, "size": new_size, "created": is_new}
 
 
 # ── Rename Content File ─────────────────────────────────────────

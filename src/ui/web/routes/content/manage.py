@@ -65,6 +65,7 @@ def content_save():  # type: ignore[no-untyped-def]
         _project_root(),
         rel_path=data.get("path", "").strip(),
         file_content=data.get("content", ""),
+        allow_create=bool(data.get("create", False)),
     )
 
     if "error" in result:
