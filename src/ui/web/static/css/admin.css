@@ -2492,6 +2492,45 @@ pre .peek-link:hover {
     font-size: 11px;
 }
 
+.peek-tooltip__outline {
+    max-width: 280px;
+    max-height: 72px;
+    overflow: hidden;
+    margin-bottom: 6px;
+}
+
+.peek-tooltip__outline:empty {
+    display: none;
+    margin: 0;
+}
+
+.peek-tooltip__outline-row .peek-tooltip__outline-actions {
+    opacity: 0;
+    transition: opacity 0.12s;
+}
+
+.peek-tooltip__outline-row:hover .peek-tooltip__outline-actions {
+    opacity: 1;
+}
+
+.peek-outline-act {
+    background: none;
+    border: 1px solid transparent;
+    border-radius: 3px;
+    color: var(--text-muted, #888);
+    cursor: pointer;
+    font-size: 10px;
+    padding: 0 3px;
+    line-height: 14px;
+    transition: all 0.12s;
+}
+
+.peek-outline-act:hover {
+    background: rgba(255, 255, 255, 0.08);
+    border-color: rgba(255, 255, 255, 0.15);
+    color: var(--primary, #64b5f6);
+}
+
 .peek-tooltip__actions {
     display: flex;
     gap: 8px;
@@ -2646,6 +2685,12 @@ pre .peek-link:hover {
     padding: 3rem;
     color: var(--text-muted);
     gap: 0.5rem;
+}
+
+.peek-heading-tracked {
+    border-left: 3px solid var(--accent, #64b5f6);
+    padding-left: 0.5rem;
+    transition: border-color 0.2s, padding-left 0.2s;
 }
 
 /* ── Content editor ──────────────────────────────────────────────── */

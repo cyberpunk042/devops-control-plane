@@ -1074,9 +1074,14 @@ function _dismissPeekTooltip() {
 
 let _peekPreviewOverlay = null;
 let _peekPushed = false;  // true when we pushed a >>peek hash
+let _peekLineObserver = null;  // IntersectionObserver for line tracking in peek
 
 /** Direct DOM cleanup — called from popstate handler */
 function _closePeekPreview() {
+    if (_peekLineObserver) {
+        _peekLineObserver.disconnect();
+        _peekLineObserver = null;
+    }
     if (_peekPreviewOverlay) {
         _peekPreviewOverlay.remove();
         _peekPreviewOverlay = null;
@@ -1140,8 +1145,8 @@ async function _openPeekPreview(ref) {
     // Quick action: Jump to file in content browser
     // Navigate-away: close DOM directly, strip >>peek hash, then navigate forward
     overlay.querySelector('[data-action="jump"]').onclick = () => {
-        // Capture current line before closing (cursor listener may have updated it)
-        const currentLine = window._contentFocusLine || ref.line_number || 0;
+        // Use live-tracked line if available, fallback to original ref
+        const currentLine = window._peekCurrentLine || window._contentFocusLine || ref.line_number || 0;
         _closePeekPreview();  // DOM cleanup only — no history.back()
         // Replace the >>peek hash with the base hash
         const baseHash = location.hash.slice(1).split('>>')[0];
@@ -1158,7 +1163,7 @@ async function _openPeekPreview(ref) {
     // Quick action: Edit file in editor
     // Navigate-away: close DOM directly, strip >>peek hash, then navigate forward
     overlay.querySelector('[data-action="edit"]').onclick = () => {
-        const currentLine = window._contentFocusLine || ref.line_number || 0;
+        const currentLine = window._peekCurrentLine || window._contentFocusLine || ref.line_number || 0;
         _closePeekPreview();  // DOM cleanup only — no history.back()
         const baseHash = location.hash.slice(1).split('>>')[0];
         history.replaceState({ tab: baseHash, depth: _navDepth }, '', `#${baseHash}`);
@@ -1196,13 +1201,29 @@ async function _openPeekPreview(ref) {
         // Directory peek: load README + listing, present as tabs
         const dirPath = ref.resolved_path.replace(/\/$/, '');
 
-        // Replace header actions for directory: Browse instead of Edit
+        // Replace header actions for directory: Browse instead of Edit, add Open README
         const editBtn = overlay.querySelector('[data-action="edit"]');
         if (editBtn) editBtn.remove();
         const jumpBtn = overlay.querySelector('[data-action="jump"]');
         if (jumpBtn) {
             jumpBtn.textContent = '📂 Browse';
             jumpBtn.title = 'Open folder in content browser';
+            // Insert "Open README" button before Browse
+            const openReadmeBtn = document.createElement('button');
+            openReadmeBtn.className = 'peek-preview-header__action';
+            openReadmeBtn.title = 'Open README at current line';
+            openReadmeBtn.textContent = '📄 Open README';
+            openReadmeBtn.onclick = () => {
+                const readmePath = dirPath + '/README.md';
+                const currentLine = window._peekCurrentLine || ref.line_number || 0;
+                _closePeekPreview();
+                const baseHash = location.hash.slice(1).split('>>')[0];
+                history.replaceState({ tab: baseHash, depth: _navDepth }, '', `#${baseHash}`);
+                _overlayPushed = false;
+                window._contentFocusLine = currentLine;
+                contentPreviewFile(readmePath, 'README.md');
+            };
+            jumpBtn.parentNode.insertBefore(openReadmeBtn, jumpBtn);
         }
 
         // Fetch both README and listing in parallel
@@ -1217,7 +1238,9 @@ async function _openPeekPreview(ref) {
 
         // Build tab content
         let readmeHtml = '';
+        let readmeSource = '';
         if (hasReadme) {
+            readmeSource = readmeData.content || '';
             readmeHtml = `<div class="content-preview-rendered notranslate" translate="no">
                 ${renderMarkdown(readmeData.preview_content || readmeData.content)}
             </div>`;
@@ -1282,15 +1305,37 @@ async function _openPeekPreview(ref) {
                 });
             };
         });
+
+        // Map headings to source lines in the README tab for scroll-to-line
+        if (hasReadme && readmeSource) {
+            const readmeRendered = body.querySelector('[data-tab-content="readme"] .content-preview-rendered');
+            if (readmeRendered) {
+                _mapHeadingsToSourceLines(readmeRendered, readmeSource);
+                _peekObserveLines(readmeRendered, body, overlay);
+                if (ref.line_number && ref.line_number > 0) {
+                    _peekScrollToLine(readmeRendered, ref.line_number, body);
+                }
+            }
+        }
     } else {
         // File peek
         try {
             const data = await api(`/content/preview?path=${encodeURIComponent(previewPath)}`);
 
             if (data.type === 'markdown') {
+                const sourceText = data.content || '';
                 body.innerHTML = `<div class="content-preview-rendered notranslate" translate="no">
                     ${renderMarkdown(data.preview_content || data.content)}
                 </div>`;
+                // Map headings to source lines + scroll to target + observe
+                const rendered = body.querySelector('.content-preview-rendered');
+                if (rendered) {
+                    _mapHeadingsToSourceLines(rendered, sourceText);
+                    _peekObserveLines(rendered, body, overlay);
+                    if (ref.line_number && ref.line_number > 0) {
+                        _peekScrollToLine(rendered, ref.line_number, body);
+                    }
+                }
             } else if (data.type === 'text') {
                 body.innerHTML = `<div id="peek-monaco-container" style="border:1px solid var(--border);border-radius:var(--radius-sm);overflow:hidden"></div>`;
                 monacoCreate('peek-monaco-container', {
@@ -1340,6 +1385,7 @@ function _showPeekTooltip(event, ref, anchorEl) {
                 <span class="peek-tooltip__tag peek-tooltip__tag--dir">Directory</span>
                 <span class="peek-tooltip__context">${esc(dirName)}</span>
             </div>
+            <div class="peek-tooltip__outline" data-peek-outline></div>
             <div class="peek-tooltip__actions">
                 <button class="peek-tooltip__btn peek-tooltip__btn--primary" data-action="preview">👁 Preview</button>
                 <button class="peek-tooltip__btn" data-action="browse">📂 Open</button>
@@ -1360,6 +1406,7 @@ function _showPeekTooltip(event, ref, anchorEl) {
                 ${ext ? '<span class="peek-tooltip__tag">' + esc(ext) + '</span>' : ''}
                 ${ref.line_number ? '<span class="peek-tooltip__context">Line ' + ref.line_number + '</span>' : ''}
             </div>
+            <div class="peek-tooltip__outline" data-peek-outline></div>
             <div class="peek-tooltip__actions">
                 <button class="peek-tooltip__btn peek-tooltip__btn--primary" data-action="preview">👁 Preview</button>
                 <button class="peek-tooltip__btn" data-action="open">📄 Open</button>
@@ -1414,7 +1461,49 @@ function _showPeekTooltip(event, ref, anchorEl) {
     document.body.appendChild(tooltip);
     _peekTooltipEl = tooltip;
 
+    // ── Populate outline headings (h1/h2) from glossary or async ──
+    const outlineEl = tooltip.querySelector('[data-peek-outline]');
+    if (outlineEl) {
+        const lookupPath = ref.is_directory
+            ? ref.resolved_path.replace(/\/$/, '') + '/README.md'
+            : ref.resolved_path;
+        const headings = _peekExtractHeadings(lookupPath);
+        if (headings) {
+            _peekRenderHeadings(outlineEl, headings, ref);
+        } else {
+            // Async fallback — fetch outline from API
+            _peekFetchHeadingsAsync(outlineEl, lookupPath, tooltip, anchorEl, ref);
+        }
+    }
+
     // Position near the anchor element
+    _peekPositionTooltip(tooltip, anchorEl);
+
+    // Dismiss on outside click (delayed to avoid immediate dismiss)
+    setTimeout(() => {
+        const outsideHandler = (e) => {
+            if (_peekTooltipEl && !_peekTooltipEl.contains(e.target)) {
+                _dismissPeekTooltip();
+                document.removeEventListener('click', outsideHandler);
+            }
+        };
+        document.addEventListener('click', outsideHandler);
+    }, 50);
+
+    // Dismiss on Escape
+    const escHandler = (e) => {
+        if (e.key === 'Escape') {
+            _dismissPeekTooltip();
+            document.removeEventListener('keydown', escHandler);
+        }
+    };
+    document.addEventListener('keydown', escHandler);
+}
+
+/**
+ * Position (or re-position) a peek tooltip near its anchor element.
+ */
+function _peekPositionTooltip(tooltip, anchorEl) {
     const rect = anchorEl.getBoundingClientRect();
     const tooltipRect = tooltip.getBoundingClientRect();
     const viewH = window.innerHeight;
@@ -1437,26 +1526,246 @@ function _showPeekTooltip(event, ref, anchorEl) {
     tooltip.style.left = left + 'px';
     tooltip.style.opacity = '1';
     tooltip.style.transform = 'translateY(0)';
+}
 
-    // Dismiss on outside click (delayed to avoid immediate dismiss)
-    setTimeout(() => {
-        const outsideHandler = (e) => {
-            if (_peekTooltipEl && !_peekTooltipEl.contains(e.target)) {
-                _dismissPeekTooltip();
-                document.removeEventListener('click', outsideHandler);
+/**
+ * Search the loaded glossary data for a file's outline.
+ * Returns an array of {text, level} for h1/h2 headings, or null if not found.
+ */
+function _peekExtractHeadings(filePath) {
+    // Check the current glossary data
+    if (typeof _glossaryGlossaryData !== 'undefined' && _glossaryGlossaryData && _glossaryGlossaryData.entries) {
+        const entry = _peekFindEntryByPath(_glossaryGlossaryData.entries, filePath);
+        if (entry && entry.outline && entry.outline.length > 0) {
+            return _peekCollectH1H2(entry.outline);
+        }
+    }
+    return null;
+}
+
+/**
+ * Recursively search glossary entries for a file by path.
+ */
+function _peekFindEntryByPath(entries, filePath) {
+    for (const e of entries) {
+        if (e.path === filePath) return e;
+        if (e.children && e.children.length > 0) {
+            const found = _peekFindEntryByPath(e.children, filePath);
+            if (found) return found;
+        }
+    }
+    return null;
+}
+
+/**
+ * Extract top-level outline items from an outline tree.
+ * For markdown: h1/h2 headings. For code: classes and functions.
+ * Returns [{text, kind, level, line}] with a max of 4 items, or null if none.
+ */
+function _peekCollectH1H2(nodes) {
+    const result = [];
+    for (const node of nodes) {
+        // Markdown headings (h1/h2)
+        if (node.kind === 'heading' && node.level <= 2) {
+            result.push({ text: node.text, kind: 'heading', level: node.level, line: node.line || 0 });
+            if (result.length >= 4) break;
+            // Also collect h2 children of h1
+            if (node.children && node.children.length > 0 && result.length < 4) {
+                for (const child of node.children) {
+                    if (child.kind === 'heading' && child.level <= 2) {
+                        result.push({ text: child.text, kind: 'heading', level: child.level, line: child.line || 0 });
+                        if (result.length >= 4) break;
+                    }
+                }
+            }
+        }
+        // Code: classes and top-level functions
+        else if (node.kind === 'class') {
+            result.push({ text: node.text, kind: 'class', level: 1, line: node.line || 0 });
+            if (result.length >= 4) break;
+        }
+        else if (node.kind === 'function') {
+            result.push({ text: node.text, kind: 'function', level: 1, line: node.line || 0 });
+            if (result.length >= 4) break;
+        }
+    }
+    return result.length > 0 ? result : null;
+}
+
+/**
+ * Render outline items into the outline placeholder with per-row action buttons.
+ * @param {HTMLElement} el  - The container element
+ * @param {Array} items     - [{text, kind, level, line}]
+ * @param {Object} ref      - The peek reference (resolved_path, is_directory, etc.)
+ */
+function _peekRenderHeadings(el, items, ref) {
+    const icons = {
+        heading: { 1: '▸', 2: '·' },
+        class: '🔷',
+        function: 'ƒ',
+    };
+    const filePath = ref.is_directory
+        ? ref.resolved_path.replace(/\/$/, '') + '/README.md'
+        : ref.resolved_path;
+    const fileName = filePath.split('/').pop();
+    const parentDir = filePath.substring(0, filePath.lastIndexOf('/'));
+
+    let html = '';
+    for (const item of items) {
+        const indent = (item.kind === 'heading' && item.level === 2) ? 'padding-left:0.6rem;' : '';
+        const weight = (item.level === 1) ? 'font-weight:500;' : '';
+        let icon;
+        if (item.kind === 'heading') {
+            icon = icons.heading[item.level] || '·';
+        } else {
+            icon = icons[item.kind] || '·';
+        }
+        const lineParam = item.line ? ':' + item.line : '';
+
+        html += `<div class="peek-tooltip__outline-row" style="display:flex;align-items:center;gap:0.25rem;${indent}${weight}padding:1px 0">
+            <span style="font-size:0.7rem;color:var(--text-muted);flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
+                ${icon} ${esc(item.text)}
+            </span>
+            <span class="peek-tooltip__outline-actions" style="display:flex;gap:2px;flex-shrink:0">
+                <button class="peek-outline-act" title="Preview at line ${item.line || ''}" data-action="preview" data-line="${item.line || 0}">👁</button>
+                <button class="peek-outline-act" title="Open at line ${item.line || ''}" data-action="open" data-line="${item.line || 0}">📄</button>
+                ${!ref.is_directory && parentDir ? '<button class="peek-outline-act" title="Browse folder" data-action="browse">📂</button>' : ''}
+                <button class="peek-outline-act" title="New tab" data-action="newtab" data-line="${item.line || 0}">↗</button>
+            </span>
+        </div>`;
+    }
+    el.innerHTML = html;
+
+    // Wire per-row action buttons
+    el.querySelectorAll('.peek-outline-act').forEach(btn => {
+        btn.onclick = (e) => {
+            e.stopPropagation();
+            const action = btn.dataset.action;
+            const line = parseInt(btn.dataset.line) || 0;
+            _dismissPeekTooltip();
+            if (action === 'preview') {
+                const previewRef = { ...ref, line_number: line };
+                _openPeekPreview(previewRef);
+            } else if (action === 'open') {
+                if (ref.is_directory) {
+                    contentLoadFolder(ref.resolved_path);
+                } else {
+                    window._contentFocusLine = line;
+                    contentPreviewFile(filePath, fileName);
+                }
+            } else if (action === 'browse') {
+                if (parentDir) contentLoadFolder(parentDir);
+            } else if (action === 'newtab') {
+                const hash = ref.is_directory
+                    ? '#content/docs/' + ref.resolved_path
+                    : '#content/docs/' + filePath + '@preview' + (line ? ':' + line : '');
+                window.open(window.location.pathname + hash, '_blank');
             }
         };
-        document.addEventListener('click', outsideHandler);
-    }, 50);
+    });
+}
 
-    // Dismiss on Escape
-    const escHandler = (e) => {
-        if (e.key === 'Escape') {
-            _dismissPeekTooltip();
-            document.removeEventListener('keydown', escHandler);
+/**
+ * Async fallback: fetch outline from API and populate headings.
+ * Re-positions tooltip after content arrives.
+ */
+async function _peekFetchHeadingsAsync(el, filePath, tooltip, anchorEl, ref) {
+    try {
+        const data = await api(`/content/outline?path=${encodeURIComponent(filePath)}`);
+        // Check tooltip is still visible (user may have dismissed)
+        if (!_peekTooltipEl || _peekTooltipEl !== tooltip) return;
+        if (data && data.outline && data.outline.length > 0) {
+            const headings = _peekCollectH1H2(data.outline);
+            if (headings) {
+                _peekRenderHeadings(el, headings, ref);
+                // Re-position since content changed the tooltip size
+                _peekPositionTooltip(tooltip, anchorEl);
+            }
         }
-    };
-    document.addEventListener('keydown', escHandler);
+    } catch (_) {
+        // Silently ignore — headings are optional enrichment
+    }
+}
+
+/**
+ * Set up an IntersectionObserver for heading tracking in the peek preview.
+ * Tracks which heading is at the top of the scrollable body and updates
+ * the header line indicator in real-time.
+ * @param {HTMLElement} rendered - The .content-preview-rendered container
+ * @param {HTMLElement} scrollBody - The .peek-preview-body scroll container
+ * @param {HTMLElement} overlay - The peek-preview-overlay (for header access)
+ */
+function _peekObserveLines(rendered, scrollBody, overlay) {
+    if (_peekLineObserver) {
+        _peekLineObserver.disconnect();
+        _peekLineObserver = null;
+    }
+    const headings = rendered.querySelectorAll('[data-source-line]');
+    if (headings.length === 0) return;
+
+    const lineEl = overlay.querySelector('.peek-preview-header__line');
+
+    _peekLineObserver = new IntersectionObserver((entries) => {
+        let topEntry = null;
+        for (const entry of entries) {
+            if (entry.isIntersecting) {
+                if (!topEntry || entry.boundingClientRect.top < topEntry.boundingClientRect.top) {
+                    topEntry = entry;
+                }
+            }
+        }
+        if (topEntry) {
+            const srcLine = parseInt(topEntry.target.getAttribute('data-source-line'), 10);
+            if (srcLine > 0) {
+                // Update header line indicator
+                if (lineEl) lineEl.textContent = 'Line ' + srcLine;
+                // Visual: highlight tracked heading
+                rendered.querySelectorAll('.peek-heading-tracked').forEach(
+                    el => el.classList.remove('peek-heading-tracked')
+                );
+                topEntry.target.classList.add('peek-heading-tracked');
+                // Store for Jump-to action
+                window._peekCurrentLine = srcLine;
+            }
+        }
+    }, {
+        root: scrollBody,
+        rootMargin: '-5% 0px -85% 0px',
+        threshold: 0,
+    });
+
+    headings.forEach(h => _peekLineObserver.observe(h));
+}
+
+/**
+ * Scroll the peek preview body to a heading nearest the given source line.
+ * @param {HTMLElement} rendered  - The .content-preview-rendered container
+ * @param {number}      targetLine - Source line number to scroll to
+ * @param {HTMLElement} scrollContainer - The scrollable peek-preview-body
+ */
+function _peekScrollToLine(rendered, targetLine, scrollContainer) {
+    if (!targetLine || targetLine <= 0) return;
+    const headings = rendered.querySelectorAll('[data-source-line]');
+    if (headings.length === 0) return;
+    let best = null;
+    let bestDist = Infinity;
+    headings.forEach(h => {
+        const srcLine = parseInt(h.getAttribute('data-source-line'), 10);
+        const dist = Math.abs(srcLine - targetLine);
+        if (dist < bestDist) {
+            bestDist = dist;
+            best = h;
+        }
+    });
+    if (best) {
+        setTimeout(() => {
+            best.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            // Visual highlight
+            best.style.transition = 'background 0.3s';
+            best.style.background = 'rgba(100, 181, 246, 0.15)';
+            setTimeout(() => { best.style.background = ''; }, 2000);
+        }, 200);
+    }
 }
 
 function contentSetPreviewMode(mode) {
