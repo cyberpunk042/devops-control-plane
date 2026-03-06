@@ -204,13 +204,9 @@ function _smartFolderBreadcrumb(breadcrumbEl, sf, subPath) {
         let accumulated = root;
         for (let i = 0; i < parts.length; i++) {
             accumulated += '/' + parts[i];
-            crumbs += ' <span style="color:var(--text-muted)">›</span> ';
-            if (i === parts.length - 1) {
-                crumbs += `<span style="color:var(--text-primary);font-weight:600">${esc(parts[i])}</span>`;
-            } else {
-                crumbs += `<a href="#" onclick="event.preventDefault();contentLoadFolder('${esc(accumulated)}')"
-                    style="color:var(--primary)">${esc(parts[i])}</a>`;
-            }
+            crumbs += ' <span style="color:var(--text-muted);margin:0 0.15rem">›</span> ';
+            crumbs += `<a href="#" onclick="event.preventDefault();contentLoadFolder('${esc(accumulated)}')"
+                style="color:${i === parts.length - 1 ? 'var(--text-primary);font-weight:600' : 'var(--primary)'}">${esc(parts[i])}</a>`;
         }
     }
 

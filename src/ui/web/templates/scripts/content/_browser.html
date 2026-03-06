@@ -328,14 +328,11 @@ breadcrumb.style.display = parts.length > 1 ? 'block' : 'none';
 let crumbs = '';
 let accumulated = '';
 for (let i = 0; i < parts.length; i++) { accumulated +=(i> 0 ? '/' : '') + parts[i];
-    const isLast = i === parts.length - 1;
-    if (isLast) {
-    crumbs += `<span style="color:var(--text-primary);font-weight:600">${esc(parts[i])}</span>`;
-    } else {
     const p = accumulated;
     crumbs += `<a href="#" onclick="event.preventDefault();contentLoadFolder('${esc(p)}')"
-        style="color:var(--primary)">${esc(parts[i])}</a>`;
-    crumbs += ' <span style="color:var(--text-muted)">›</span> ';
+        style="color:${i === parts.length - 1 ? 'var(--text-primary);font-weight:600' : 'var(--primary)'}">${esc(parts[i])}</a>`;
+    if (i < parts.length - 1) {
+    crumbs += ' <span style="color:var(--text-muted);margin:0 0.15rem">›</span> ';
     }
     }
     breadcrumb.innerHTML = '📂 ' + crumbs;

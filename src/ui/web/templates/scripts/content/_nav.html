@@ -599,6 +599,40 @@ if (filePath.startsWith(opt.value) || folderContext.startsWith(opt.value) || opt
 }
 }
 document.getElementById('content-folder-bar').style.display = '';
+// Build breadcrumb for direct-URL file preview (same as renderContentFiles / _smartFolderBreadcrumb)
+const bcEl = document.getElementById('content-breadcrumb');
+if (bcEl) {
+    if (_smartFolderActive) {
+        // Derive subpath from the real file path's parent, mapped through the source prefix
+        let subPath = '';
+        for (const src of (_smartFolderActive.sources || [])) {
+            const prefix = (src.path || '').replace(/\/$/, '');
+            if (prefix && filePath.startsWith(prefix + '/')) {
+                const relPath = filePath.substring(prefix.length + 1);
+                const lastSlash = relPath.lastIndexOf('/');
+                if (lastSlash > 0) subPath = relPath.substring(0, lastSlash);
+                break;
+            }
+        }
+        _smartFolderBreadcrumb(bcEl, _smartFolderActive, subPath);
+    } else {
+        // Raw path — build breadcrumb from the file's parent directory
+         const parentDir = filePath.substring(0, filePath.lastIndexOf('/')) || filePath.split('/')[0];
+         const parts = parentDir.split('/');
+         let crumbs = '';
+         let accumulated = '';
+         for (let i = 0; i < parts.length; i++) {
+             accumulated += (i > 0 ? '/' : '') + parts[i];
+             crumbs += `<a href="#" onclick="event.preventDefault();contentLoadFolder('${esc(accumulated)}')"
+                 style="color:${i === parts.length - 1 ? 'var(--text-primary);font-weight:600' : 'var(--primary)'}">${esc(parts[i])}</a>`;
+             if (i < parts.length - 1) {
+                 crumbs += ' <span style="color:var(--text-muted);margin:0 0.15rem">›</span> ';
+             }
+         }
+         bcEl.innerHTML = '📂 ' + crumbs;
+         bcEl.style.display = 'block';
+    }
+}
 // Determine if encrypted
 if (filePath.endsWith('.enc')) {
 contentPreviewEncrypted(filePath, filePath.split('/').pop());

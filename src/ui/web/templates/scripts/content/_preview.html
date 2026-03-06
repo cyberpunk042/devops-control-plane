@@ -325,9 +325,6 @@ browser.innerHTML = `
     <div class="content-preview-header">
         <button class="btn btn-secondary btn-sm" onclick="contentGoBack()" title="Go back">← Back</button>
         <button class="btn btn-secondary btn-sm" onclick="contentClosePreview()" title="Parent folder">↑ Parent</button>
-        <span class="content-preview-title" id="content-preview-filename" translate="no">${esc(name)}</span>
-        <button class="btn btn-secondary btn-sm" onclick="contentRenameFile()" title="Rename"
-            style="font-size:0.7rem;padding:0.15rem 0.4rem">✏️</button>
         <div id="content-preview-toggle" style="display:none;gap:4px"></div>
         <div style="flex:1"></div>
                     <div id="content-preview-actions" style="display:flex;gap:4px;align-items:center">
@@ -348,6 +345,49 @@ browser.innerHTML = `
         style="display:none;padding-top:var(--space-sm);border-top:1px solid var(--border-subtle);gap:0.5rem;justify-content:flex-end">
     </div>
 </div>`;
+
+// Append filename + rename to the breadcrumb (already built by navigation or contentApplySubNav)
+{
+    const _bc = document.getElementById('content-breadcrumb');
+    if (_bc) {
+        _bc.style.display = 'block';
+        // Remove any previous file segment
+        _bc.querySelectorAll('[data-preview-crumb]').forEach(el => el.remove());
+        // Append separator + filename + rename
+        // Smart folder breadcrumb wraps in a flex div; raw breadcrumb has inline elements directly in _bc
+        const flexDiv = _bc.querySelector(':scope > div');
+        const container = flexDiv || _bc;
+        const sep = document.createElement('span');
+        sep.style.cssText = 'color:var(--text-muted);margin:0 0.15rem';
+        sep.textContent = ' › ';
+        sep.dataset.previewCrumb = '1';
+        const fname = document.createElement('span');
+        fname.id = 'content-preview-filename';
+        fname.className = 'content-preview-title';
+        fname.setAttribute('translate', 'no');
+        fname.style.cssText = 'font-weight:600;color:var(--text-primary)';
+        fname.textContent = name;
+        fname.dataset.previewCrumb = '1';
+        const renameBtn = document.createElement('button');
+        renameBtn.className = 'btn btn-secondary btn-sm';
+        renameBtn.onclick = () => contentRenameFile();
+        renameBtn.title = 'Rename';
+        renameBtn.style.cssText = 'font-size:0.65rem;padding:0.1rem 0.3rem;margin-left:0.15rem';
+        renameBtn.textContent = '✏️';
+        renameBtn.dataset.previewCrumb = '1';
+        // Insert before the smart/raw toggle (margin-left:auto) if present, else append
+        const toggle = container.querySelector('span[style*="margin-left:auto"]');
+        if (toggle) {
+            container.insertBefore(sep, toggle);
+            container.insertBefore(fname, toggle);
+            container.insertBefore(renameBtn, toggle);
+        } else {
+            container.appendChild(sep);
+            container.appendChild(fname);
+            container.appendChild(renameBtn);
+        }
+    }
+}
 
 try {
 const data = await api(`/content/preview?path=${encodeURIComponent(path)}`);
