@@ -222,11 +222,13 @@ break;
 // Render extra folder cards
 const cardsEl = document.getElementById('content-folder-cards');
 if (cardsEl && extras.length > 0) {
-let extraCards = '<span style="width:1px;background:var(--border-subtle);margin:0 0.2rem;flex-shrink:0"></span>';
+// Remove previously injected extras
+cardsEl.querySelectorAll('[data-explore-extra]').forEach(el => el.remove());
+let extraCards = '<span data-explore-extra style="width:1px;background:var(--border-subtle);margin:0 0.2rem;flex-shrink:0"></span>';
 for (const f of extras) {
 const isActive = contentCurrentPath && contentCurrentPath.startsWith(f.path);
 extraCards += `
-<div class="content-folder-card ${isActive ? 'active' : ''}" data-folder="${esc(f.path)}"
+<div class="content-folder-card ${isActive ? 'active' : ''}" data-folder="${esc(f.path)}" data-explore-extra
     onclick="contentLoadFolder('${esc(f.path)}')" title="${esc(f.path)}"
     style="opacity:0.75">
     <span>🗂</span>
@@ -285,9 +287,25 @@ card.classList.toggle('active', card.dataset.folder === folderPath ||
     (card.dataset.folder && folderPath.startsWith(card.dataset.folder + '/')));
 });
 
+// Reset explore-all when navigating to an in-scope path
+if (_exploreAllActive) {
+    const inScope = contentFolders.some(f => folderPath.startsWith(f.path)) ||
+        (_smartFolders && _smartFolders.some(sf => _smartFolderForPath(folderPath)));
+    if (inScope) {
+        _exploreAllActive = false;
+        const eaBtn = document.getElementById('content-explore-all-btn');
+        if (eaBtn) { eaBtn.classList.remove('active'); eaBtn.innerHTML = '🗂 Show All Folders'; }
+        // Remove extra cards
+        document.querySelectorAll('[data-explore-extra]').forEach(el => el.remove());
+    }
+}
+
 // ── Smart folder interception ──────────────────────────────────
 const smartFolder = _smartFolderForPath(folderPath);
-if (smartFolder && !_smartFolderViewRaw) {
+if (smartFolder) {
+    // If user navigates to a smart folder path, always use smart mode
+    // Raw view only applies when browsing source directories
+    _smartFolderViewRaw = false;
     _smartFolderRender(folderPath, smartFolder);
     return;
 }
@@ -317,17 +335,15 @@ if (showSmartToggle && _smartFolderLastRoot) {
     const bc = document.getElementById('content-breadcrumb');
     if (bc) {
         bc.style.display = 'block';
-        const toggle = document.createElement('div');
-        toggle.style.cssText = 'display:flex;align-items:center;gap:0.3rem';
-        toggle.innerHTML = `
-            📁 <span style="color:var(--text-muted)">Raw view of source</span>
+        // Preserve existing breadcrumb content, wrap with flex + toggle
+        const existing = bc.innerHTML;
+        const toggleHtml = `
             <span style="margin-left:auto;display:inline-flex;gap:0.25rem;font-size:0.72rem">
                 <button onclick="_smartFolderToggleView(false)" style="padding:0.15rem 0.5rem;border-radius:4px;border:1px solid var(--border-subtle);background:transparent;color:var(--text-muted);cursor:pointer;font-size:0.72rem">📖 Smart</button>
                 <button disabled style="padding:0.15rem 0.5rem;border-radius:4px;border:1px solid var(--accent);background:var(--accent-glow);color:var(--accent);cursor:default;font-size:0.72rem">📁 Raw</button>
             </span>
         `;
-        bc.innerHTML = '';
-        bc.appendChild(toggle);
+        bc.innerHTML = '<div style="display:flex;align-items:center;gap:0.3rem">' + existing + toggleHtml + '</div>';
     }
 }
 // Glossary: first call fetches, subsequent calls just update highlights

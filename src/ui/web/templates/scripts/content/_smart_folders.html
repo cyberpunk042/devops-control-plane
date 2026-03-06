@@ -245,7 +245,15 @@ function _smartFolderToggleView(raw) {
     } else {
         // Switch back to smart mode
         console.log('[SmartFolder] switching back to smart root:', _smartFolderLastRoot);
+        // Reset explore-all state (was enabled for raw view)
+        if (_exploreAllActive) {
+            _exploreAllActive = false;
+            const eaBtn = document.getElementById('content-explore-all-btn');
+            if (eaBtn) { eaBtn.classList.remove('active'); eaBtn.innerHTML = '🗂 Show All Folders'; }
+            document.querySelectorAll('[data-explore-extra]').forEach(el => el.remove());
+        }
         if (_smartFolderLastRoot) {
+            renderContentFolderBar();
             contentLoadFolder(_smartFolderLastRoot);
         }
     }

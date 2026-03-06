@@ -452,6 +452,8 @@ def resolve_peek_candidates(
     fn_index: dict[str, list[str]] | None = None
     all_paths: set[str] | None = None
 
+    dir_paths: set[str] | None = None
+
     try:
         from src.core.services.project_index import get_index
         idx = get_index()
@@ -460,6 +462,10 @@ def resolve_peek_candidates(
             # files and directories via the subdirectory search path.
             fn_index = {**idx.file_map, **idx.dir_map}
             all_paths = idx.all_paths
+            # Build set of full directory paths for is_directory detection
+            dir_paths = set()
+            for paths in idx.dir_map.values():
+                dir_paths.update(paths)
     except ImportError:
         pass
 
@@ -473,7 +479,7 @@ def resolve_peek_candidates(
             # Build filename index on first file-reference candidate (fallback)
             if fn_index is None:
                 fn_index = _build_filename_index(project_root, doc_dir)
-            ref = _resolve_one(cand, doc_dir, project_root, fn_index, all_paths)
+            ref = _resolve_one(cand, doc_dir, project_root, fn_index, all_paths, dir_paths)
         if ref is None:
             continue
 
@@ -498,12 +504,17 @@ def _resolve_one(
     project_root: Path,
     fn_index: dict[str, list[str]],
     all_paths: set[str] | None = None,
+    dir_paths: set[str] | None = None,
 ) -> PeekReference | None:
     """Try to resolve a single candidate against the filesystem.
 
     If ``all_paths`` is provided (from the passive ProjectIndex), uses
     set lookups instead of filesystem stat calls for existence checks.
     Falls back to ``abs_path.exists()`` if ``all_paths`` is None.
+
+    ``dir_paths`` is an optional set of full directory relative paths
+    (e.g. {"src/core/services/tool_install", ...}) for accurate
+    is_directory detection in the index fast path.
     """
     path_str = cand.candidate_path.rstrip("/")
     is_dir_ref = cand.candidate_path.endswith("/")
@@ -517,8 +528,8 @@ def _resolve_one(
         # Fast path: use index set lookup if available
         if all_paths is not None:
             if try_path in all_paths:
-                # Determine if it's a directory from the index
-                is_dir = (try_path + "/") in fn_index or try_path.endswith("/")
+                # Determine if it's a directory from the dir_paths set
+                is_dir = (dir_paths is not None and try_path in dir_paths) or try_path.endswith("/")
                 return PeekReference(
                     text=cand.text,
                     type=cand.type,

@@ -8,7 +8,7 @@
 > one-by-one with progress reporting, and persists state so failed installs
 > can be resumed from where they stopped.
 >
-> Core services: `core/services/tool_install`, `core/services/audit.l0_detection`
+> Core services: `core/services/tool_install`, `core/services/audit/l0_detection.py`
 
 ---
 
