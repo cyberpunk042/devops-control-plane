@@ -298,8 +298,9 @@ return;
 }
 
 async function contentPreviewFile(path, name, hasRelease) {
-// Only reset edit mode if opening a different file
-if (path !== previewCurrentPath) {
+// Only reset edit mode if opening a different file AND not restoring from URL
+// (URL restoration sets previewEditMode before calling this function)
+if (path !== previewCurrentPath && !_isRestoring) {
 previewEditMode = false;
 }
 previewCurrentPath = path;

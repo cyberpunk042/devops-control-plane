@@ -529,7 +529,9 @@ function showPeekTooltip(ref: PeekRef, anchorEl: HTMLElement): void {
     }
     infoHtml += '</div>';
 
-    // ── Action buttons (unified dev/live mode) ──
+    // ── Action buttons (mode-aware labels) ──
+    const mode = _peekMode();
+    const target = mode === 'dev' ? 'Vault' : 'GitHub';
     let actionsHtml = '<div class="peek-tooltip__actions">';
 
     // Primary: Open Page if internal doc exists
@@ -537,15 +539,15 @@ function showPeekTooltip(ref: PeekRef, anchorEl: HTMLElement): void {
         actionsHtml += '<button class="peek-tooltip__btn peek-tooltip__btn--primary" data-action="navigate">📖 Open Page</button>';
     }
 
-    // Preview always available
+    // Preview always available (inline, no external nav)
     actionsHtml += `<button class="peek-tooltip__btn${ref.doc_url ? '' : ' peek-tooltip__btn--primary'}" data-action="preview">👁 Preview</button>`;
 
-    // Open: dev → Vault, live → GitHub
-    actionsHtml += `<button class="peek-tooltip__btn" data-action="open">${ref.is_directory ? '📂 Browse' : '📄 Open'}</button>`;
+    // Open: dev → Vault @preview, live → GitHub blob
+    actionsHtml += `<button class="peek-tooltip__btn" data-action="open">${ref.is_directory ? '📂' : '📄'} Open in ${target}</button>`;
 
     // Edit (files only)
     if (!ref.is_directory) {
-        actionsHtml += '<button class="peek-tooltip__btn" data-action="edit">✏️ Edit</button>';
+        actionsHtml += `<button class="peek-tooltip__btn" data-action="edit">✏️ Edit in ${target}</button>`;
     }
 
     // Directory-specific: Browse Docs (if has doc_url — equivalent of Smart browse)
@@ -554,7 +556,7 @@ function showPeekTooltip(ref: PeekRef, anchorEl: HTMLElement): void {
     }
 
     // New Tab
-    actionsHtml += '<button class="peek-tooltip__btn" data-action="newtab">↗ New Tab</button>';
+    actionsHtml += `<button class="peek-tooltip__btn" data-action="newtab">↗ New Tab (${target})</button>`;
 
     actionsHtml += '</div>';
 
@@ -848,6 +850,8 @@ async function _openPeekPreview(ref: PeekRef): Promise<void> {
     // ── Create overlay ──
     const overlay = document.createElement('div');
     overlay.className = 'peek-preview-overlay';
+    const _pvMode = _peekMode();
+    const _pvTarget = _pvMode === 'dev' ? 'Vault' : 'GitHub';
 
     overlay.innerHTML = `
         <div class="peek-preview-box">
@@ -855,8 +859,8 @@ async function _openPeekPreview(ref: PeekRef): Promise<void> {
                 <span class="peek-preview-header__icon">${icon}</span>
                 <span class="peek-preview-header__path">${_esc(pathDisplay)}</span>
                 ${ref.line_number ? `<span class="peek-preview-header__line">Line ${ref.line_number}</span>` : '<span class="peek-preview-header__line"></span>'}
-                <button class="peek-preview-header__action" data-action="jump" title="Jump">\u2197 Jump</button>
-                ${!ref.is_directory ? '<button class="peek-preview-header__action" data-action="edit" title="Edit">\u270f\ufe0f Edit</button>' : ''}
+                <button class="peek-preview-header__action" data-action="jump" title="Jump to ${_pvTarget}">\u2197 Jump to ${_pvTarget}</button>
+                ${!ref.is_directory ? `<button class="peek-preview-header__action" data-action="edit" title="Edit in ${_pvTarget}">\u270f\ufe0f Edit in ${_pvTarget}</button>` : ''}
                 ${ref.is_directory ? '<button class="peek-preview-header__action" data-action="open-readme" title="Open README">\ud83d\udcc4 Open README</button>' : ''}
                 <button class="peek-preview-header__close" title="Close (Esc)">\u2715</button>
             </div>
@@ -1555,6 +1559,14 @@ async function _peekFetchOutlineAsync(
             });
 
             // B8: Re-position tooltip since content changed size
+            _peekPositionTooltip(tooltip, anchorEl);
+        } else {
+            // No outline found by any strategy — show hint
+            const ext = ref.resolved_path.split('.').pop()?.toLowerCase() || '';
+            const hint = ext === 'py' ? 'No symbols — shim / re-export module'
+                : ext === '' ? 'Empty directory'
+                    : 'No outline available';
+            outlineEl.innerHTML = `<div style="font-size:0.7rem;color:var(--ifm-color-content-secondary, #888);padding:2px 0;font-style:italic">${hint}</div>`;
             _peekPositionTooltip(tooltip, anchorEl);
         }
     } catch {
