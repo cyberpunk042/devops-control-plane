@@ -7758,3 +7758,274 @@ select option {
     color: var(--text-primary);
     line-height: 1.5;
 }
+
+
+/* ═════════════════════════════════════════════════════════════════════
+   Smart Folder — Peek Panel
+   Hover-triggered expandable preview below module cards / ToC entries
+   ═════════════════════════════════════════════════════════════════════ */
+
+/* Wrapper isolates card + panel from flex gap interference */
+.smart-peek-wrapper {
+    position: relative;
+}
+
+/* Applied to the trigger element when peek panel is open */
+.smart-peek-active {
+    border-color: var(--accent) !important;
+    border-bottom-left-radius: 0 !important;
+    border-bottom-right-radius: 0 !important;
+}
+
+.smart-peek-panel {
+    overflow: hidden;
+    max-height: 0;
+    opacity: 0;
+    transition: max-height 0.35s ease-out, opacity 0.25s ease-out;
+    background: var(--bg-card);
+    border: 1px solid var(--border-subtle);
+    border-left: 3px solid var(--accent);
+    border-radius: 0 0 var(--radius-md) var(--radius-md);
+    margin-top: 0;
+}
+
+.smart-peek-panel.open {
+    opacity: 1;
+    /* max-height set dynamically via JS based on content */
+}
+
+.smart-peek-inner {
+    padding: var(--space-md);
+    font-size: 0.82rem;
+}
+
+/* ── Individual section block ─────────────────────────────────────── */
+
+.smart-peek-section {
+    margin-bottom: var(--space-md);
+}
+
+.smart-peek-section:last-child {
+    margin-bottom: 0;
+}
+
+.smart-peek-section-title {
+    font-weight: 600;
+    font-size: 0.78rem;
+    color: var(--text-muted);
+    margin-bottom: var(--space-xs);
+    padding-bottom: var(--space-xs);
+    border-bottom: 1px solid var(--border-subtle);
+}
+
+/* ── 2-column layout (outline + tree or outline + sub-topics) ────── */
+
+.smart-peek-columns {
+    display: flex;
+    gap: var(--space-lg);
+}
+
+.smart-peek-column {
+    flex: 1;
+    min-width: 0;
+}
+
+/* ── Scrollable preview container (topic peek) ────────────────────── */
+
+.smart-peek-preview-box {
+    max-height: 200px;
+    overflow-y: auto;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    padding: var(--space-sm) var(--space-md);
+    background: var(--bg-inset);
+    font-size: 0.8rem;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    word-break: break-word;
+    color: var(--text-secondary);
+}
+
+/* ── Outline heading items ────────────────────────────────────────── */
+
+.smart-peek-outline-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+}
+
+.smart-peek-outline-item {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    padding: 0.05rem 0;
+    line-height: 1.4;
+}
+
+/* ── Doc tree items (clickable) ───────────────────────────────────── */
+
+.smart-peek-tree-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+}
+
+.smart-peek-tree-item {
+    font-size: 0.78rem;
+    padding: 0.15rem var(--space-xs);
+    cursor: pointer;
+    border-radius: 4px;
+    color: var(--text-secondary);
+    transition: background 0.1s;
+}
+
+.smart-peek-tree-item:hover {
+    background: var(--accent-glow);
+}
+
+/* ── Sub-topic chips ──────────────────────────────────────────────── */
+
+.smart-peek-subtopics {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-xs);
+}
+
+.smart-peek-subtopic {
+    font-size: 0.72rem;
+    padding: 0.1rem 0.4rem;
+    background: var(--bg-inset);
+    border: 1px solid var(--border-subtle);
+    border-radius: 4px;
+    color: var(--text-muted);
+}
+
+/* ── Reference links ──────────────────────────────────────────────── */
+
+.smart-peek-ref-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+}
+
+.smart-peek-ref {
+    font-size: 0.72rem;
+    color: var(--accent);
+    padding: 0.15rem 0.2rem;
+    border-radius: 3px;
+    transition: background 0.1s;
+}
+
+.smart-peek-ref:hover {
+    background: var(--accent-glow);
+}
+
+.smart-peek-ref-badge {
+    display: inline-block;
+    font-size: 0.6rem;
+    font-weight: 600;
+    padding: 0.05rem 0.3rem;
+    background: var(--bg-inset);
+    border: 1px solid var(--border-subtle);
+    border-radius: 3px;
+    color: var(--text-muted);
+    vertical-align: middle;
+    margin-right: 0.15rem;
+}
+
+.smart-peek-ref-more {
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    font-style: italic;
+}
+
+/* ── Stats footer ─────────────────────────────────────────────────── */
+
+.smart-peek-stats {
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    padding-top: var(--space-xs);
+    border-top: 1px solid var(--border-subtle);
+    text-align: right;
+    margin-top: var(--space-sm);
+}
+
+/* ── Loading state ────────────────────────────────────────────────── */
+
+.smart-peek-loading {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    color: var(--text-muted);
+    font-size: 0.8rem;
+    padding: var(--space-sm) 0;
+}
+
+/* ── Rendered markdown inside preview box ─────────────────────────── */
+
+.smart-peek-preview-box h1,
+.smart-peek-preview-box h2,
+.smart-peek-preview-box h3,
+.smart-peek-preview-box h4 {
+    margin: 0.4rem 0 0.2rem;
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.smart-peek-preview-box h1 {
+    font-size: 0.9rem;
+}
+
+.smart-peek-preview-box p {
+    margin: 0.2rem 0;
+}
+
+.smart-peek-preview-box ul,
+.smart-peek-preview-box ol {
+    margin: 0.2rem 0;
+    padding-left: 1.2rem;
+}
+
+.smart-peek-preview-box li {
+    margin-bottom: 0.1rem;
+}
+
+.smart-peek-preview-box blockquote {
+    margin: 0.3rem 0;
+    padding: 0.2rem 0.5rem;
+    border-left: 3px solid var(--accent);
+    background: var(--accent-glow);
+    border-radius: 0 4px 4px 0;
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+}
+
+.smart-peek-preview-box code {
+    background: var(--bg-primary);
+    padding: 0.1em 0.3em;
+    border-radius: 3px;
+    font-size: 0.9em;
+    font-family: var(--font-mono);
+}
+
+.smart-peek-preview-box pre {
+    background: var(--bg-primary);
+    padding: var(--space-sm);
+    border-radius: var(--radius-sm);
+    overflow-x: auto;
+    font-size: 0.75rem;
+    margin: 0.3rem 0;
+}
+
+.smart-peek-preview-box pre code {
+    background: none;
+    padding: 0;
+}
+
+.smart-peek-preview-box strong {
+    color: var(--text-primary);
+}
+
+.smart-peek-preview-box a {
+    color: var(--accent);
+}

@@ -9,6 +9,7 @@ Routes:
     GET /api/smart-folders/discover        — auto-detect potential smart folder sources
     GET /api/smart-folders/<name>/tree     — resolve a smart folder into module-grouped tree
     GET /api/smart-folders/<name>/file     — read a file from its real source location
+    GET /api/smart-folders/<name>/peek     — aggregated peek data for module or topic
 """
 
 from __future__ import annotations
@@ -188,3 +189,44 @@ def api_smart_folders_file(name: str):  # type: ignore[no-untyped-def]
         "size_bytes": stat.st_size,
         "lines": content.count("\n") + 1,
     })
+
+
+# ── Peek data (aggregated) ──────────────────────────────────────────
+
+
+@smart_folders_bp.route("/smart-folders/<name>/peek")
+def api_smart_folders_peek(name: str):  # type: ignore[no-untyped-def]
+    """Return aggregated peek data for a module or topic.
+
+    Query params:
+        module: module name (required, e.g. "core")
+        topic:  topic path within the module (optional, e.g. "services/audit")
+
+    When ``topic`` is absent, returns module-level peek data.
+    When ``topic`` is present, returns topic-level peek data.
+    """
+    cfg = _load_config()
+    smart = cfg.get("smart_folders", [])
+    modules = cfg.get("modules", [])
+    root = _project_root()
+
+    folder = sf.find_smart_folder(smart, name)
+    if folder is None:
+        return jsonify({"error": f"Smart folder '{name}' not found"}), 404
+
+    module_name = request.args.get("module", "").strip()
+    if not module_name:
+        return jsonify({"error": "Missing 'module' parameter"}), 400
+
+    resolved = sf.resolve(root, folder, modules)
+
+    topic_path = request.args.get("topic", "").strip()
+
+    from src.core.services.smart_folder_peek import peek_module, peek_topic
+
+    if topic_path:
+        result = peek_topic(root, resolved, module_name, topic_path)
+    else:
+        result = peek_module(root, resolved, module_name)
+
+    return jsonify(result)

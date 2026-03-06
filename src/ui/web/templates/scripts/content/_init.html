@@ -22,6 +22,7 @@ let _smartFolderActive = null;    // currently active smart folder config or nul
 let _smartFolderTree = null;      // resolved tree data for active smart folder
 let _smartFolderViewRaw = false;  // true = raw mode, false = smart mode
 let _smartFolderLastRoot = '';    // saved smart root path for toggle-back
+let _smartPeekState = null;       // { element, panel, hoverTimer, dismissTimer }
 
 // ── Chat mode state ──────────────────────────────────────────────
 let _chatThreads = []; // loaded threads

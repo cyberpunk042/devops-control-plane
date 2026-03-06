@@ -279,17 +279,18 @@ function _smartFolderRenderModules(browserEl, sf) {
         </div>
     </div>`;
 
-    // Module cards
+    // Module cards — each wrapped in .smart-peek-wrapper for panel attachment
     html += '<div style="display:flex;flex-direction:column;gap:0.5rem">';
     for (const g of groups) {
         const smartPath = sf._smartRoot + '/' + g.module;
         const docCount = g.file_count;
         const topTopics = _smartFolderGetTopics(g.tree, 4);
 
-        html += `
-            <div onclick="contentLoadFolder('${esc(smartPath)}')"
+        html += `<div class="smart-peek-wrapper">
+            <div data-peek-module="${esc(g.module)}"
+                onclick="contentLoadFolder('${esc(smartPath)}')"
                 style="padding:0.75rem 1rem;background:var(--bg-inset);border:1px solid var(--border-subtle);border-radius:10px;cursor:pointer;transition:border-color 0.15s"
-                onmouseenter="this.style.borderColor='var(--accent)'" onmouseleave="this.style.borderColor='var(--border-subtle)'">
+                onmouseenter="this.style.borderColor='var(--accent)'" onmouseleave="if(!this.classList.contains('smart-peek-active'))this.style.borderColor='var(--border-subtle)'">
                 <div style="display:flex;align-items:center;gap:0.6rem;margin-bottom:0.3rem">
                     <span style="font-size:1.2rem">📦</span>
                     <span style="font-weight:600;font-size:0.92rem">${esc(g.module)}</span>
@@ -307,11 +308,18 @@ function _smartFolderRenderModules(browserEl, sf) {
                     </div>
                 ` : ''}
             </div>
-        `;
+        </div>`;
     }
     html += '</div>';
 
     browserEl.innerHTML = html;
+
+    // Attach peek hover handlers to module cards
+    const folderName = sf.name;
+    browserEl.querySelectorAll('[data-peek-module]').forEach(card => {
+        const mod = card.getAttribute('data-peek-module');
+        _smartPeekAttachHover(card, 'module', { module: mod }, folderName);
+    });
 }
 
 /**
@@ -403,11 +411,24 @@ function _smartFolderRenderDocTree(browserEl, sf, subPath) {
     </div>`;
 
     // If the current node itself has a doc, show a "read this" card
+    // At module root (parts.length===1): module-level peek
+    // At deeper levels: topic-level peek
+    const overviewTopicPath = parts.length > 1 ? parts.slice(1).join('/') : null;
     if (hasOwnDoc) {
         const file = node.files[0];
-        html += `
-            <div onclick="contentPreviewFile('${esc(file.source_path)}', '${esc(sectionName + " — Overview")}')"
-                style="padding:0.6rem 0.8rem;background:var(--accent-glow);border:1px solid var(--accent);border-radius:8px;margin-bottom:1rem;cursor:pointer;display:flex;align-items:center;gap:0.5rem;transition:opacity 0.15s"
+        // Determine the peek data attribute
+        let peekAttr = '';
+        if (overviewTopicPath) {
+            // Deeper level → topic peek
+            peekAttr = `data-peek-topic="${esc(overviewTopicPath)}" data-peek-module="${esc(moduleName)}"`;
+        } else {
+            // Module root → module-level peek
+            peekAttr = `data-peek-module="${esc(moduleName)}"`;
+        }
+        html += `<div class="smart-peek-wrapper" style="margin-bottom:0.8rem">
+            <div ${peekAttr}
+                onclick="contentPreviewFile('${esc(file.source_path)}', '${esc(sectionName + " — Overview")}')"
+                style="padding:0.6rem 0.8rem;background:var(--accent-glow);border:1px solid var(--accent);border-radius:8px;cursor:pointer;display:flex;align-items:center;gap:0.5rem;transition:opacity 0.15s"
                 onmouseenter="this.style.opacity='0.85'" onmouseleave="this.style.opacity='1'">
                 <span style="font-size:1rem">📖</span>
                 <div>
@@ -416,7 +437,7 @@ function _smartFolderRenderDocTree(browserEl, sf, subPath) {
                 </div>
                 <span style="margin-left:auto;font-size:0.72rem;color:var(--accent)">Read →</span>
             </div>
-        `;
+        </div>`;
     }
 
     // Render children as a documentation table of contents
@@ -435,6 +456,21 @@ function _smartFolderRenderDocTree(browserEl, sf, subPath) {
     }
 
     browserEl.innerHTML = html;
+
+    // Attach peek hover handlers:
+    // 1. Topic entries (data-peek-topic)
+    // 2. Module-level cards including overview at root (data-peek-module without data-peek-topic)
+    const folderName = sf.name;
+    browserEl.querySelectorAll('[data-peek-topic]').forEach(entry => {
+        const topicPath = entry.getAttribute('data-peek-topic');
+        const mod = entry.getAttribute('data-peek-module');
+        _smartPeekAttachHover(entry, 'topic', { module: mod, topicPath: topicPath }, folderName);
+    });
+    // Overview card at module root — has data-peek-module but NO data-peek-topic
+    browserEl.querySelectorAll('[data-peek-module]:not([data-peek-topic])').forEach(card => {
+        const mod = card.getAttribute('data-peek-module');
+        _smartPeekAttachHover(card, 'module', { module: mod }, folderName);
+    });
 }
 
 /**
@@ -453,30 +489,35 @@ function _smartFolderRenderTocEntries(children, sf, parentPath, depth) {
         const childDocCount = _smartFolderCountDocs(child);
         const icon = hasDoc ? '📖' : (hasChildren ? '📂' : '📄');
 
+        // Build topic path relative to module root (for peek API)
+        const topicRelPath = parentPath.includes('/') ? parentPath.split('/').slice(1).concat(child.name).join('/') : child.name;
+
         if (hasDoc && !hasChildren) {
             // Leaf topic — clicking previews the README.md directly
             const file = child.files[0];
-            html += `
-                <div onclick="contentPreviewFile('${esc(file.source_path)}', '${esc(child.name)}')"
+            html += `<div class="smart-peek-wrapper">
+                <div data-peek-topic="${esc(topicRelPath)}" data-peek-module="${esc(parentPath.split('/')[0])}"
+                    onclick="contentPreviewFile('${esc(file.source_path)}', '${esc(child.name)}')"
                     style="display:flex;align-items:center;gap:0.5rem;padding:0.45rem 0.7rem;padding-left:${0.7 + indent}rem;background:var(--bg-inset);border:1px solid var(--border-subtle);border-radius:6px;cursor:pointer;transition:border-color 0.15s;font-size:0.85rem"
-                    onmouseenter="this.style.borderColor='var(--accent)'" onmouseleave="this.style.borderColor='var(--border-subtle)'">
+                    onmouseenter="this.style.borderColor='var(--accent)'" onmouseleave="if(!this.classList.contains('smart-peek-active'))this.style.borderColor='var(--border-subtle)'">
                     <span>${icon}</span>
                     <span style="font-weight:500">${esc(child.name)}</span>
                     <span style="margin-left:auto;font-size:0.72rem;color:var(--accent)">Read →</span>
                 </div>
-            `;
+            </div>`;
         } else if (hasChildren) {
             // Section with sub-topics — clicking navigates deeper
-            html += `
-                <div onclick="contentLoadFolder('${esc(childPath)}')"
+            html += `<div class="smart-peek-wrapper">
+                <div data-peek-topic="${esc(topicRelPath)}" data-peek-module="${esc(parentPath.split('/')[0])}"
+                    onclick="contentLoadFolder('${esc(childPath)}')"
                     style="display:flex;align-items:center;gap:0.5rem;padding:0.45rem 0.7rem;padding-left:${0.7 + indent}rem;background:var(--bg-inset);border:1px solid var(--border-subtle);border-radius:6px;cursor:pointer;transition:border-color 0.15s;font-size:0.85rem"
-                    onmouseenter="this.style.borderColor='var(--accent)'" onmouseleave="this.style.borderColor='var(--border-subtle)'">
+                    onmouseenter="this.style.borderColor='var(--accent)'" onmouseleave="if(!this.classList.contains('smart-peek-active'))this.style.borderColor='var(--border-subtle)'">
                     <span>${icon}</span>
                     <span style="font-weight:500">${esc(child.name)}</span>
                     ${hasDoc ? '<span style="font-size:0.65rem;padding:0.05rem 0.3rem;background:var(--accent-glow);border:1px solid var(--accent);border-radius:4px;color:var(--accent)">has doc</span>' : ''}
                     <span style="margin-left:auto;font-size:0.72rem;color:var(--text-muted)">${childDocCount} topic${childDocCount !== 1 ? 's' : ''} →</span>
                 </div>
-            `;
+            </div>`;
         }
     }
 
@@ -497,4 +538,449 @@ function _smartFolderCountDocs(node) {
         count += _smartFolderCountDocs(child);
     }
     return count;
+}
+
+
+// ═════════════════════════════════════════════════════════════════
+// Smart Folders — Peek Panel (core engine)
+// Hover-triggered expandable preview below module cards / ToC entries
+// ═════════════════════════════════════════════════════════════════
+
+/**
+ * Close any currently open peek panel with animation.
+ */
+function _smartPeekClose() {
+    if (!_smartPeekState) return;
+    const { element, panel, hoverTimer, dismissTimer } = _smartPeekState;
+    if (hoverTimer) clearTimeout(hoverTimer);
+    if (dismissTimer) clearTimeout(dismissTimer);
+    // Remove active class from element
+    if (element) {
+        element.classList.remove('smart-peek-active');
+    }
+    if (panel) {
+        panel.classList.remove('open');
+        panel.style.maxHeight = '0';
+        setTimeout(() => { if (panel.parentNode) panel.parentNode.removeChild(panel); }, 350);
+    }
+    _smartPeekState = null;
+}
+
+/**
+ * Start the dismiss timer (300ms grace period).
+ * Called on mouseleave from the trigger element or the panel.
+ */
+function _smartPeekStartDismiss() {
+    if (!_smartPeekState) return;
+    if (_smartPeekState.dismissTimer) clearTimeout(_smartPeekState.dismissTimer);
+    _smartPeekState.dismissTimer = setTimeout(() => _smartPeekClose(), 300);
+}
+
+/**
+ * Cancel the dismiss timer (mouse re-entered the zone).
+ */
+function _smartPeekCancelDismiss() {
+    if (!_smartPeekState) return;
+    if (_smartPeekState.dismissTimer) {
+        clearTimeout(_smartPeekState.dismissTimer);
+        _smartPeekState.dismissTimer = null;
+    }
+}
+
+/**
+ * Open a peek panel below the given element.
+ *
+ * Creates the panel DOM, inserts it after the trigger element,
+ * fetches all data from the backend in one call, and renders.
+ *
+ * @param {HTMLElement} element - The hovered module card or ToC entry
+ * @param {string} mode - 'module' or 'topic'
+ * @param {object} data - { module, group } for module mode,
+ *                        { module, topicPath, node } for topic mode
+ * @param {string} folderName - Smart folder name (e.g. "code-docs")
+ */
+function _smartPeekOpen(element, mode, data, folderName) {
+    // Close any existing peek
+    _smartPeekClose();
+
+    // Create panel DOM
+    const panel = document.createElement('div');
+    panel.className = 'smart-peek-panel';
+
+    const inner = document.createElement('div');
+    inner.className = 'smart-peek-inner';
+    inner.innerHTML = '<div class="smart-peek-loading"><span class="spinner"></span> Loading preview…</div>';
+    panel.appendChild(inner);
+
+    // Insert panel after the trigger element
+    element.parentNode.insertBefore(panel, element.nextSibling);
+
+    // Mouse events on panel — keep it alive when cursor moves to panel
+    panel.addEventListener('mouseenter', () => _smartPeekCancelDismiss());
+    panel.addEventListener('mouseleave', () => _smartPeekStartDismiss());
+
+    // Store state
+    _smartPeekState = { element, panel, hoverTimer: null, dismissTimer: null };
+
+    // Animate open — add active class for border styling
+    requestAnimationFrame(() => {
+        element.classList.add('smart-peek-active');
+        panel.style.maxHeight = '500px';
+        panel.classList.add('open');
+    });
+
+    // Fetch data from backend
+    let url = '/smart-folders/' + encodeURIComponent(folderName) + '/peek?module=' + encodeURIComponent(data.module);
+    if (mode === 'topic' && data.topicPath) {
+        url += '&topic=' + encodeURIComponent(data.topicPath);
+    }
+
+    api(url).then(result => {
+        // Guard: panel may have been closed during fetch
+        if (!_smartPeekState || _smartPeekState.panel !== panel) return;
+
+        if (result.error) {
+            inner.innerHTML = '<div class="smart-peek-loading" style="color:var(--text-muted)">' + esc(result.error) + '</div>';
+            return;
+        }
+
+        if (mode === 'module') {
+            _smartPeekRenderModule(inner, result, folderName);
+        } else {
+            _smartPeekRenderTopic(inner, result, folderName);
+        }
+
+        // Attach link handlers for rendered markdown in preview boxes
+        if (typeof _attachPreviewLinkHandlers === 'function') {
+            inner.querySelectorAll('.smart-peek-preview-box').forEach(box => {
+                _attachPreviewLinkHandlers(box);
+            });
+        }
+
+        // Re-measure content and adjust max-height for smooth fit
+        requestAnimationFrame(() => {
+            if (_smartPeekState && _smartPeekState.panel === panel) {
+                panel.style.maxHeight = inner.scrollHeight + 'px';
+            }
+        });
+    }).catch(err => {
+        if (_smartPeekState && _smartPeekState.panel === panel) {
+            inner.innerHTML = '<div class="smart-peek-loading" style="color:var(--text-muted)">Failed to load preview.</div>';
+        }
+    });
+}
+
+/**
+ * Attach peek hover handlers to an element.
+ *
+ * @param {HTMLElement} el - The module card or ToC entry
+ * @param {string} mode - 'module' or 'topic'
+ * @param {object} data - peek data context (module name, topic path, etc.)
+ * @param {string} folderName - Smart folder name
+ */
+function _smartPeekAttachHover(el, mode, data, folderName) {
+    let timer = null;
+
+    el.addEventListener('mouseenter', () => {
+        // Cancel any pending dismiss of a different peek
+        _smartPeekCancelDismiss();
+        timer = setTimeout(() => {
+            _smartPeekOpen(el, mode, data, folderName);
+        }, 750);
+    });
+
+    el.addEventListener('mouseleave', () => {
+        if (timer) { clearTimeout(timer); timer = null; }
+        // If a peek is open for this element, start dismiss
+        if (_smartPeekState && _smartPeekState.element === el) {
+            _smartPeekStartDismiss();
+        }
+    });
+}
+
+
+// ═════════════════════════════════════════════════════════════════
+// Smart Folders — Peek Panel (render functions)
+// ═════════════════════════════════════════════════════════════════
+
+/**
+ * Render module-level peek content into the panel.
+ *
+ * Layout:
+ *   1. Overview (rendered markdown in scrollable box)
+ *   2. Outline + Doc Tree (2-column)
+ *   3. Stats footer
+ */
+function _smartPeekRenderModule(container, data, folderName) {
+    let html = '';
+
+    // Section 1: Overview — rendered markdown, not raw text
+    if (data.overview && data.overview.text) {
+        html += '<div class="smart-peek-section">';
+        html += '<div class="smart-peek-section-title">📖 Overview</div>';
+        html += '<div class="smart-peek-preview-box">' + renderMarkdown(data.overview.text) + '</div>';
+        html += '</div>';
+    }
+
+    // Section 2: 2-column (Outline + Doc Tree)
+    const hasOutline = data.outline && data.outline.length > 0;
+    const hasTree = data.doc_tree && data.doc_tree.length > 0;
+
+    if (hasOutline || hasTree) {
+        html += '<div class="smart-peek-section">';
+        html += '<div class="smart-peek-columns">';
+
+        // Left column: Outline
+        if (hasOutline) {
+            html += '<div class="smart-peek-column">';
+            html += '<div class="smart-peek-section-title">📋 Structure</div>';
+            html += _smartPeekBuildOutlineHtml(data.outline, data.overview ? data.overview.source_path : null);
+            html += '</div>';
+        }
+
+        // Right column: Doc Tree
+        if (hasTree) {
+            html += '<div class="smart-peek-column">';
+            html += '<div class="smart-peek-section-title">📂 Topics</div>';
+            html += _smartPeekBuildTreeHtml(data.doc_tree, folderName, data.module, 0);
+            html += '</div>';
+        }
+
+        html += '</div>'; // .smart-peek-columns
+        html += '</div>'; // .smart-peek-section
+    }
+
+    // Fallback if empty
+    if (!data.overview && !hasOutline && !hasTree) {
+        html += '<div class="smart-peek-section">';
+        html += '<div style="color:var(--text-muted);font-size:0.8rem;font-style:italic">No documentation overview available for this module.</div>';
+        html += '</div>';
+    }
+
+    // Stats footer
+    if (data.stats) {
+        const parts = [];
+        parts.push(data.stats.total_docs + ' doc' + (data.stats.total_docs !== 1 ? 's' : ''));
+        if (data.stats.total_topics > 0) parts.push(data.stats.total_topics + ' topic' + (data.stats.total_topics !== 1 ? 's' : ''));
+        if (data.overview && data.overview.line_count) parts.push(data.overview.line_count.toLocaleString() + ' lines');
+        parts.push(esc(data.module_path));
+        html += '<div class="smart-peek-stats">' + parts.join(' · ') + '</div>';
+    }
+
+    container.innerHTML = html;
+}
+
+/**
+ * Render topic-level peek content into the panel.
+ *
+ * Layout:
+ *   1. Preview (rendered markdown in scrollable box)
+ *   2. Outline + Sub-topics (2-column)
+ *   3. References (clickable, with type badges)
+ */
+function _smartPeekRenderTopic(container, data, folderName) {
+    let html = '';
+
+    // Section 1: Preview — rendered markdown
+    if (data.preview_text) {
+        html += '<div class="smart-peek-section">';
+        html += '<div class="smart-peek-section-title">📖 Preview</div>';
+        html += '<div class="smart-peek-preview-box">' + renderMarkdown(data.preview_text) + '</div>';
+        html += '</div>';
+    }
+
+    // Section 2: 2-column (Outline + Sub-topics)
+    const hasOutline = data.outline && data.outline.length > 0;
+    const hasSubs = data.sub_topics && data.sub_topics.length > 0;
+
+    if (hasOutline || hasSubs) {
+        html += '<div class="smart-peek-section">';
+        html += '<div class="smart-peek-columns">';
+
+        // Left column: Outline
+        if (hasOutline) {
+            html += '<div class="smart-peek-column">';
+            html += '<div class="smart-peek-section-title">📋 Structure</div>';
+            html += _smartPeekBuildOutlineHtml(data.outline, data.source_path || null);
+            html += '</div>';
+        }
+
+        // Right column: Sub-topics — clickable navigation
+        if (hasSubs) {
+            html += '<div class="smart-peek-column">';
+            html += '<div class="smart-peek-section-title">📂 Sub-topics (' + data.sub_topics.length + ')</div>';
+            html += '<div class="smart-peek-subtopics">';
+            for (const sub of data.sub_topics) {
+                const icon = sub.has_doc ? '📖' : '📂';
+                const subTopicPath = (data.topic_path || data.topic) + '/' + sub.name;
+                const subSmartPath = folderName + '/' + data.module + '/' + subTopicPath;
+                html += '<span class="smart-peek-subtopic" style="cursor:pointer"'
+                    + ' onclick="event.stopPropagation();_smartPeekClose();contentLoadFolder(\'' + esc(subSmartPath) + '\')"'
+                    + '>' + icon + ' ' + esc(sub.name) + '</span>';
+            }
+            html += '</div>';
+            html += '</div>';
+        }
+
+        html += '</div>'; // .smart-peek-columns
+        html += '</div>'; // .smart-peek-section
+    }
+
+    // Fallback if empty
+    if (!data.preview_text && !hasOutline && !hasSubs) {
+        html += '<div class="smart-peek-section">';
+        html += '<div style="color:var(--text-muted);font-size:0.8rem;font-style:italic">No documentation available for this topic.</div>';
+        html += '</div>';
+    }
+
+    // Section 3: References — clickable with type badges
+    if (data.references && data.references.length > 0) {
+        const maxShow = 6;
+        html += '<div class="smart-peek-section">';
+        html += '<div class="smart-peek-section-title">🔗 Cross-references (' + data.references.length + ')</div>';
+        html += '<div class="smart-peek-ref-list">';
+        for (let i = 0; i < Math.min(data.references.length, maxShow); i++) {
+            const ref = data.references[i];
+            const refType = ref.type || 'ref';
+            const typeBadge = '<span class="smart-peek-ref-badge">' + esc(refType) + '</span>';
+            const refPath = ref.resolved_path || ref.text;
+            // Check if path is a file (has extension in last segment) vs directory
+            const lastSeg = refPath.split('/').pop() || '';
+            const isFile = lastSeg.includes('.');
+            const clickAction = isFile
+                ? "contentPreviewFile('" + esc(refPath) + "', '" + esc(ref.text) + "')"
+                : "contentLoadFolder('" + esc(refPath) + "')";
+            html += '<div class="smart-peek-ref" style="cursor:pointer"'
+                + ' onclick="event.stopPropagation();_smartPeekClose();' + clickAction + '"'
+                + '>' + typeBadge + ' ' + esc(ref.text)
+                + ' <span style="color:var(--text-muted);font-size:0.65rem">→ ' + esc(refPath) + '</span>'
+                + '</div>';
+        }
+        if (data.references.length > maxShow) {
+            const refListId = 'smart-peek-refs-' + Math.random().toString(36).slice(2,6);
+            // Show remaining refs hidden, revealed by click
+            for (let j = maxShow; j < data.references.length; j++) {
+                const ref2 = data.references[j];
+                const refType2 = ref2.type || 'ref';
+                const badge2 = '<span class="smart-peek-ref-badge">' + esc(refType2) + '</span>';
+                const refPath2 = ref2.resolved_path || ref2.text;
+                const lastSeg2 = refPath2.split('/').pop() || '';
+                const isFile2 = lastSeg2.includes('.');
+                const click2 = isFile2
+                    ? "contentPreviewFile('" + esc(refPath2) + "', '" + esc(ref2.text) + "')"
+                    : "contentLoadFolder('" + esc(refPath2) + "')";
+                html += '<div class="smart-peek-ref" style="cursor:pointer;display:none" data-tree-expand="' + refListId + '"'
+                    + ' onclick="event.stopPropagation();_smartPeekClose();' + click2 + '"'
+                    + '>' + badge2 + ' ' + esc(ref2.text)
+                    + ' <span style="color:var(--text-muted);font-size:0.65rem">→ ' + esc(refPath2) + '</span>'
+                    + '</div>';
+            }
+            html += '<div class="smart-peek-ref-more" style="cursor:pointer"'
+                + ' onclick="event.stopPropagation();_smartPeekExpandTree(this,\'' + refListId + '\')"'
+                + '>+' + (data.references.length - maxShow) + ' more…</div>';
+        }
+        html += '</div>';
+        html += '</div>';
+    }
+
+    container.innerHTML = html;
+}
+
+
+// ── Peek panel HTML building helpers ────────────────────────────
+
+/**
+ * Build HTML for the flattened outline list.
+ * Uses visual markers: ● for H1, ▸ for H2+, indented by level.
+ */
+function _smartPeekBuildOutlineHtml(outline, sourcePath) {
+    let html = '<div class="smart-peek-outline-list">';
+    for (const item of outline) {
+        const indent = Math.max(0, (item.level - 1)) * 0.8;
+        const marker = item.level === 1 ? '●' : '▸';
+        const line = item.line || 0;
+        // Clickable — set focus line and open file preview
+        if (sourcePath && line > 0) {
+            html += '<div class="smart-peek-outline-item" style="padding-left:' + indent + 'rem;cursor:pointer"'
+                + ' onclick="event.stopPropagation();window._contentFocusLine=' + line
+                + ';_smartPeekClose();contentPreviewFile(\'' + esc(sourcePath) + '\', \'' + esc(item.text) + '\')"'
+                + '>'
+                + '<span style="color:var(--accent);margin-right:0.3rem;font-size:0.6rem">' + marker + '</span>'
+                + esc(item.text) + '</div>';
+        } else {
+            html += '<div class="smart-peek-outline-item" style="padding-left:' + indent + 'rem">'
+                + '<span style="color:var(--accent);margin-right:0.3rem;font-size:0.6rem">' + marker + '</span>'
+                + esc(item.text) + '</div>';
+        }
+    }
+    html += '</div>';
+    return html;
+}
+
+/**
+ * Build HTML for the doc tree (recursive).
+ * Tree items with source_path are clickable — clicking previews the file.
+ * Max recursion depth: 2 levels.
+ */
+function _smartPeekBuildTreeHtml(items, folderName, moduleName, depth) {
+    if (!items || items.length === 0) return '';
+
+    const maxShow = 10;
+    const hasMore = items.length > maxShow;
+    const listId = hasMore ? ('smart-peek-tree-' + moduleName + '-' + depth + '-' + Math.random().toString(36).slice(2,6)) : '';
+    let html = '<div class="smart-peek-tree-list">';
+
+    for (let idx = 0; idx < items.length; idx++) {
+        const item = items[idx];
+        const icon = item.has_doc ? '📖' : '📂';
+        const indent = depth * 0.8;
+        const childCount = (item.children || []).length;
+        const countBadge = childCount > 0
+            ? ' <span style="font-size:0.65rem;color:var(--text-muted)">(' + childCount + ')</span>'
+            : '';
+        // Hide items beyond maxShow (revealed by clicking "+N more")
+        const hidden = (hasMore && idx >= maxShow) ? ' style="padding-left:' + indent + 'rem;display:none" data-tree-expand="' + listId + '"' : ' style="padding-left:' + indent + 'rem"';
+
+        if (item.source_path) {
+            html += '<div class="smart-peek-tree-item"' + hidden
+                + ' onclick="event.stopPropagation();_smartPeekClose();contentPreviewFile(\''
+                + esc(item.source_path) + "', '" + esc(item.name) + "')\">"
+                + icon + ' ' + esc(item.name) + countBadge
+                + '</div>';
+        } else {
+            html += '<div class="smart-peek-tree-item"' + hidden + '>'
+                + icon + ' ' + esc(item.name) + countBadge
+                + '</div>';
+        }
+
+        // Recurse into children (max 2 levels deep)
+        if (item.children && item.children.length > 0 && depth < 2) {
+            html += _smartPeekBuildTreeHtml(item.children, folderName, moduleName, depth + 1);
+        }
+    }
+
+    if (hasMore) {
+        const remaining = items.length - maxShow;
+        html += '<div class="smart-peek-ref-more" style="padding-left:' + (depth * 0.8) + 'rem;cursor:pointer"'
+            + ' onclick="event.stopPropagation();_smartPeekExpandTree(this, \'' + listId + '\')"'
+            + '>+' + remaining + ' more…</div>';
+    }
+
+    html += '</div>';
+    return html;
+}
+
+/**
+ * Expand hidden tree items when "+N more" is clicked.
+ */
+function _smartPeekExpandTree(trigger, listId) {
+    trigger.style.display = 'none';
+    document.querySelectorAll('[data-tree-expand="' + listId + '"]').forEach(function(el) {
+        el.style.display = '';
+    });
+    // Re-measure panel height
+    if (_smartPeekState && _smartPeekState.panel) {
+        const inner = _smartPeekState.panel.querySelector('.smart-peek-inner');
+        if (inner) _smartPeekState.panel.style.maxHeight = inner.scrollHeight + 'px';
+    }
 }
