@@ -9,8 +9,10 @@ import peekIndex from '@site/src/peek-index.json';
 const IS_LOCAL = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
 const _RAW_REPO = '__REPO_URL__';
 const _RAW_BASE = '__BASE_URL__';
+const _RAW_ADMIN = '__ADMIN_URL__';
 const REPO_URL = _RAW_REPO.startsWith('__') ? '' : _RAW_REPO;
 const BASE_URL = _RAW_BASE.startsWith('__') ? '/' : _RAW_BASE;
+const ADMIN_URL = _RAW_ADMIN.startsWith('__') ? '' : _RAW_ADMIN;
 
 /**
  * Returns the current peek mode: 'dev' routes to Content Vault,
@@ -585,21 +587,21 @@ function showPeekTooltip(ref: PeekRef, anchorEl: HTMLElement): void {
         } else if (action === 'open') {
             _dismissPeekTooltip();
             if (mode === 'dev') {
-                window.open(`http://localhost:8000/#content/docs/${ref.resolved_path}@preview`, '_blank');
+                window.open(`${ADMIN_URL}/#content/docs/${ref.resolved_path}@preview`, '_blank');
             } else if (REPO_URL) {
                 window.open(`${REPO_URL}/blob/main/${ref.resolved_path}`, '_blank');
             }
         } else if (action === 'edit') {
             _dismissPeekTooltip();
             if (mode === 'dev') {
-                window.open(`http://localhost:8000/#content/docs/${ref.resolved_path}@edit`, '_blank');
+                window.open(`${ADMIN_URL}/#content/docs/${ref.resolved_path}@edit`, '_blank');
             } else if (REPO_URL) {
                 window.open(`${REPO_URL}/edit/main/${ref.resolved_path}`, '_blank');
             }
         } else if (action === 'browse') {
             _dismissPeekTooltip();
             if (mode === 'dev') {
-                window.open(`http://localhost:8000/#content/docs/${parentDir || ref.resolved_path}`, '_blank');
+                window.open(`${ADMIN_URL}/#content/docs/${parentDir || ref.resolved_path}`, '_blank');
             } else if (REPO_URL) {
                 window.open(`${REPO_URL}/tree/main/${parentDir || ref.resolved_path}`, '_blank');
             }
@@ -608,7 +610,7 @@ function showPeekTooltip(ref: PeekRef, anchorEl: HTMLElement): void {
             if (docPageHref) {
                 window.open(docPageHref, '_blank');
             } else if (mode === 'dev') {
-                window.open(`http://localhost:8000/#content/docs/${ref.resolved_path}@preview`, '_blank');
+                window.open(`${ADMIN_URL}/#content/docs/${ref.resolved_path}@preview`, '_blank');
             } else if (REPO_URL) {
                 window.open(`${REPO_URL}/blob/main/${ref.resolved_path}`, '_blank');
             }
@@ -648,13 +650,13 @@ function showPeekTooltip(ref: PeekRef, anchorEl: HTMLElement): void {
             } else if (action === 'open') {
                 const lineHash = line > 0 ? '#L' + line : '';
                 if (mode === 'dev') {
-                    window.open(`http://localhost:8000/#content/docs/${ref.resolved_path}@preview` + (line > 0 ? ':' + line : ''), '_blank');
+                    window.open(`${ADMIN_URL}/#content/docs/${ref.resolved_path}@preview` + (line > 0 ? ':' + line : ''), '_blank');
                 } else if (REPO_URL) {
                     window.open(`${REPO_URL}/blob/main/${ref.resolved_path}${lineHash}`, '_blank');
                 }
             } else if (action === 'browse') {
                 if (mode === 'dev') {
-                    window.open(`http://localhost:8000/#content/docs/${parentDir || ref.resolved_path}`, '_blank');
+                    window.open(`${ADMIN_URL}/#content/docs/${parentDir || ref.resolved_path}`, '_blank');
                 } else if (REPO_URL) {
                     window.open(`${REPO_URL}/tree/main/${parentDir || ref.resolved_path}`, '_blank');
                 }
@@ -663,7 +665,7 @@ function showPeekTooltip(ref: PeekRef, anchorEl: HTMLElement): void {
                 if (ref.doc_url) {
                     window.open(BASE_URL + ref.doc_url, '_blank');
                 } else if (mode === 'dev') {
-                    window.open(`http://localhost:8000/#content/docs/${ref.resolved_path}@preview` + (line > 0 ? ':' + line : ''), '_blank');
+                    window.open(`${ADMIN_URL}/#content/docs/${ref.resolved_path}@preview` + (line > 0 ? ':' + line : ''), '_blank');
                 } else if (REPO_URL) {
                     window.open(`${REPO_URL}/blob/main/${ref.resolved_path}${lineHash}`, '_blank');
                 }
@@ -879,7 +881,7 @@ async function _openPeekPreview(ref: PeekRef): Promise<void> {
             _closePeekPreview();
             const m = _peekMode();
             if (m === 'dev') {
-                window.open(`http://localhost:8000/#content/docs/${readmePath}@preview` + (currentLine > 0 ? ':' + currentLine : ''), '_blank');
+                window.open(`${ADMIN_URL}/#content/docs/${readmePath}@preview` + (currentLine > 0 ? ':' + currentLine : ''), '_blank');
             } else if (REPO_URL) {
                 window.open(`${REPO_URL}/blob/main/${readmePath}`, '_blank');
             }
@@ -891,15 +893,15 @@ async function _openPeekPreview(ref: PeekRef): Promise<void> {
     if (jumpBtn) {
         jumpBtn.addEventListener('click', () => {
             const m = _peekMode();
-            const docPageHref = ref.doc_url ? BASE_URL + ref.doc_url : '';
             const liveLine = _peekCurrentLine || ref.line_number || 0;
             _closePeekPreview();
-            if (docPageHref) {
-                window.location.href = docPageHref;
-            } else if (m === 'dev') {
-                window.open(`http://localhost:8000/#content/docs/${ref.resolved_path}@preview` + (liveLine > 0 ? ':' + liveLine : ''), '_blank');
+            if (m === 'dev') {
+                window.open(`${ADMIN_URL}/#content/docs/${ref.resolved_path}@preview` + (liveLine > 0 ? ':' + liveLine : ''), '_blank');
             } else if (REPO_URL) {
                 window.open(`${REPO_URL}/blob/main/${ref.resolved_path}${liveLine > 0 ? '#L' + liveLine : ''}`, '_blank');
+            } else if (ref.doc_url) {
+                // Fallback: navigate to docs page if no source viewer available
+                window.location.href = BASE_URL + ref.doc_url;
             }
         });
     }
@@ -912,7 +914,7 @@ async function _openPeekPreview(ref: PeekRef): Promise<void> {
             const liveLine = _peekCurrentLine || ref.line_number || 0;
             _closePeekPreview();
             if (m === 'dev') {
-                window.open(`http://localhost:8000/#content/docs/${ref.resolved_path}@edit` + (liveLine > 0 ? ':' + liveLine : ''), '_blank');
+                window.open(`${ADMIN_URL}/#content/docs/${ref.resolved_path}@edit` + (liveLine > 0 ? ':' + liveLine : ''), '_blank');
             } else if (REPO_URL) {
                 window.open(`${REPO_URL}/edit/main/${ref.resolved_path}`, '_blank');
             }
@@ -938,7 +940,9 @@ async function _openPeekPreview(ref: PeekRef): Promise<void> {
     try {
         if (ref.is_directory) {
             await _previewDirectory(ref, body);
-        } else if (ref.doc_url && _peekMode() === 'live') {
+        } else if (ref.doc_url && _peekMode() === 'live' && /\.(md|mdx)$/i.test(ref.resolved_path)) {
+            // Only show docs page preview for markdown refs that have their own page.
+            // Python/source files with doc_url (ancestor match) should use source preview.
             await _previewInternalDoc(ref, body);
         } else if (_peekMode() === 'dev') {
             await _previewViaLocalAPI(previewPath, ref, body);
@@ -967,7 +971,7 @@ async function _previewDirectory(ref: PeekRef, body: HTMLElement): Promise<void>
                 if (content) { readmeHtml = `<div class="markdown">${content.innerHTML}</div>`; hasReadme = true; }
             }
         } else if (IS_LOCAL) {
-            const resp = await fetch(`http://localhost:8000/api/content/preview?path=${encodeURIComponent(readmePath)}`);
+            const resp = await fetch(`${ADMIN_URL}/api/content/preview?path=${encodeURIComponent(readmePath)}`);
             if (resp.ok) {
                 const data = await resp.json();
                 readmeHtml = `<div class="markdown">${data.preview_content || _esc(data.content || '')}</div>`;
@@ -1089,7 +1093,7 @@ async function _previewInternalDoc(ref: PeekRef, body: HTMLElement): Promise<voi
 
 /** Preview via local admin API (localhost:8000). */
 async function _previewViaLocalAPI(previewPath: string, ref: PeekRef, body: HTMLElement): Promise<void> {
-    const resp = await fetch(`http://localhost:8000/api/content/preview?path=${encodeURIComponent(previewPath)}`);
+    const resp = await fetch(`${ADMIN_URL}/api/content/preview?path=${encodeURIComponent(previewPath)}`);
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     const data = await resp.json();
 
@@ -1374,7 +1378,7 @@ function _peekScrollToLine(rendered: HTMLElement, targetLine: number, scrollCont
 async function _fetchRawSource(resolvedPath: string): Promise<string | null> {
     try {
         if (IS_LOCAL) {
-            const resp = await fetch(`http://localhost:8000/api/content/preview?path=${encodeURIComponent(resolvedPath)}`);
+            const resp = await fetch(`${ADMIN_URL}/api/content/preview?path=${encodeURIComponent(resolvedPath)}`);
             if (resp.ok) {
                 const data = await resp.json();
                 return data.content || null;
@@ -1392,7 +1396,7 @@ async function _fetchRawSource(resolvedPath: string): Promise<string | null> {
 async function _fetchReadmeSource(readmePath: string): Promise<string | null> {
     try {
         if (IS_LOCAL) {
-            const resp = await fetch(`http://localhost:8000/api/content/preview?path=${encodeURIComponent(readmePath)}`);
+            const resp = await fetch(`${ADMIN_URL}/api/content/preview?path=${encodeURIComponent(readmePath)}`);
             if (resp.ok) {
                 const data = await resp.json();
                 return data.content || null;
@@ -1422,8 +1426,9 @@ async function _peekFetchOutlineAsync(
     try {
         let headings: OutlineItem[] | null = null;
 
-        // Strategy 1: If ref has doc_url, fetch the rendered page and extract headings
-        if (ref.doc_url) {
+        // Strategy 1: If ref has doc_url AND is a markdown file, fetch the rendered page headings.
+        // Skip for source files — their doc_url is just the nearest ancestor, not their own page.
+        if (ref.doc_url && /\.(md|mdx)$/i.test(ref.resolved_path)) {
             const resp = await fetch(BASE_URL + ref.doc_url);
             if (resp.ok) {
                 const doc = new DOMParser().parseFromString(await resp.text(), 'text/html');
@@ -1527,13 +1532,13 @@ async function _peekFetchOutlineAsync(
                         _openPeekPreview(previewRef);
                     } else if (action === 'open') {
                         if (mode === 'dev') {
-                            window.open(`http://localhost:8000/#content/docs/${ref.resolved_path}@preview` + (line > 0 ? ':' + line : ''), '_blank');
+                            window.open(`${ADMIN_URL}/#content/docs/${ref.resolved_path}@preview` + (line > 0 ? ':' + line : ''), '_blank');
                         } else if (REPO_URL) {
                             window.open(`${REPO_URL}/blob/main/${ref.resolved_path}${line > 0 ? '#L' + line : ''}`, '_blank');
                         }
                     } else if (action === 'browse') {
                         if (mode === 'dev') {
-                            window.open(`http://localhost:8000/#content/docs/${pDir || ref.resolved_path}`, '_blank');
+                            window.open(`${ADMIN_URL}/#content/docs/${pDir || ref.resolved_path}`, '_blank');
                         } else if (REPO_URL) {
                             window.open(`${REPO_URL}/tree/main/${pDir || ref.resolved_path}`, '_blank');
                         }
@@ -1541,7 +1546,7 @@ async function _peekFetchOutlineAsync(
                         if (ref.doc_url) {
                             window.open(BASE_URL + ref.doc_url, '_blank');
                         } else if (mode === 'dev') {
-                            window.open(`http://localhost:8000/#content/docs/${ref.resolved_path}@preview` + (line > 0 ? ':' + line : ''), '_blank');
+                            window.open(`${ADMIN_URL}/#content/docs/${ref.resolved_path}@preview` + (line > 0 ? ':' + line : ''), '_blank');
                         } else if (REPO_URL) {
                             window.open(`${REPO_URL}/blob/main/${ref.resolved_path}${line > 0 ? '#L' + line : ''}`, '_blank');
                         }

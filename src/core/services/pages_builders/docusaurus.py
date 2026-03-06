@@ -514,6 +514,16 @@ class DocusaurusBuilder(PageBuilder):
             hook_content = peek_hook.read_text(encoding="utf-8")
             hook_content = hook_content.replace("__REPO_URL__", repo_url)
             hook_content = hook_content.replace("__BASE_URL__", base_url)
+            # Admin panel URL — derive from Flask app config so peek
+            # fetch calls are same-origin with the admin panel.
+            try:
+                from flask import current_app
+                host = current_app.config.get("SERVER_HOST", "127.0.0.1")
+                port = current_app.config.get("SERVER_PORT", 8000)
+                admin_url = f"http://{host}:{port}"
+            except RuntimeError:
+                admin_url = ""  # Outside Flask context — leave empty
+            hook_content = hook_content.replace("__ADMIN_URL__", admin_url)
             peek_hook.write_text(hook_content, encoding="utf-8")
 
         # ── 7. Plugins directory (for custom remark plugins) ──
