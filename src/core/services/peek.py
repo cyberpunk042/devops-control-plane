@@ -116,7 +116,8 @@ def _is_known_filename(name: str) -> bool:
 
 # T1: backticked filename with known extension
 # Matches: `name.ext`  (must have a dot and known extension)
-_RE_T1 = re.compile(r"`([A-Za-z0-9_][A-Za-z0-9_./-]*\.[a-z]{1,5})`")
+# Supports hyphens in filenames (e.g. `arch-principles.md`)
+_RE_T1 = re.compile(r"`([A-Za-z0-9_-][A-Za-z0-9_./-]*\.[a-z]{1,5})`")
 
 # T2: path with slashes (optionally backticked)
 # Matches: `path/to/thing`  or  path/to/thing  (must contain at least one /)
@@ -129,13 +130,14 @@ _RE_T2_BARE = re.compile(
 _RE_MD_LINK_TARGET = re.compile(r"\]\([^)]+\)")
 
 # T3: filename:line_number
-# Matches: name.ext:42
-_RE_T3 = re.compile(r"`?([A-Za-z0-9_][A-Za-z0-9_./-]*\.[a-z]{1,5}):(\d+)`?")
+# Matches: name.ext:42  (supports hyphens in filenames)
+_RE_T3 = re.compile(r"`?([A-Za-z0-9_-][A-Za-z0-9_./-]*\.[a-z]{1,5}):(\d+)`?")
 
 # Bare filename (no backticks) — used inside code fences for file maps
-# Matches: l0_detection.py  (word-boundary delimited, known extension)
+# Matches: l0_detection.py or arch-principles.md  (word-boundary delimited)
+# Supports hyphens in filenames
 _RE_BARE_FILENAME = re.compile(
-    r"(?<![A-Za-z0-9_./])([A-Za-z_][A-Za-z0-9_.]*\.[a-z]{1,5})(?![A-Za-z0-9_./])"
+    r"(?<![A-Za-z0-9_./-])([A-Za-z_][A-Za-z0-9_.-]*\.[a-z]{1,5})(?![A-Za-z0-9_./])"
 )
 
 # T5: backticked function call or class name
@@ -146,9 +148,10 @@ _RE_T5_FUNC = re.compile(
     r"|"  # or just `func_name()` with parens inside backticks
     r"`([a-z_][a-z0-9_]*)\([^)]*\)`"
 )
-# Matches: `ClassName` (PascalCase identifier)
+# Matches: `ClassName` (PascalCase identifier) or `ClassName(BaseClass)`
+# For inheritance notation, extracts only ClassName (not the base)
 _RE_T5_CLASS = re.compile(
-    r"`([A-Z][a-zA-Z0-9]*)`"
+    r"`([A-Z][a-zA-Z0-9]+)(?:\([^)]*\))?`"
 )
 
 

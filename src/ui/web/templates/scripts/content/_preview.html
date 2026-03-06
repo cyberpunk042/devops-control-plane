@@ -699,7 +699,8 @@ function _annotatePeekElements(container, references) {
         t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
     );
     if (escaped.length === 0) return;
-    const pattern = new RegExp('(' + escaped.join('|') + ')', 'g');
+    // Use word boundaries to prevent partial matches (e.g. "Adapter" inside "DockerAdapter")
+    const pattern = new RegExp('\\b(' + escaped.join('|') + ')\\b', 'g');
 
     // Walk all text nodes
     const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, null);
@@ -792,7 +793,7 @@ function _annotateUnresolvedPeek(container, unresolved) {
         t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
     );
     if (escaped.length === 0) return;
-    const pattern = new RegExp('(' + escaped.join('|') + ')', 'g');
+    const pattern = new RegExp('\\b(' + escaped.join('|') + ')\\b', 'g');
 
     const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, null);
     const textNodes = [];
@@ -934,7 +935,7 @@ function _annotatePendingPeek(container, pending) {
         t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
     );
     if (escaped.length === 0) return;
-    const pattern = new RegExp('(' + escaped.join('|') + ')', 'g');
+    const pattern = new RegExp('\\b(' + escaped.join('|') + ')\\b', 'g');
 
     const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, null);
     const textNodes = [];
@@ -1201,14 +1202,45 @@ async function _openPeekPreview(ref) {
         // Directory peek: load README + listing, present as tabs
         const dirPath = ref.resolved_path.replace(/\/$/, '');
 
-        // Replace header actions for directory: Browse instead of Edit, add Open README
+        // Replace header actions for directory: Browse instead of Edit, add Open README + Smart
         const editBtn = overlay.querySelector('[data-action="edit"]');
         if (editBtn) editBtn.remove();
         const jumpBtn = overlay.querySelector('[data-action="jump"]');
         if (jumpBtn) {
-            jumpBtn.textContent = '📂 Browse';
-            jumpBtn.title = 'Open folder in content browser';
-            // Insert "Open README" button before Browse
+            jumpBtn.textContent = '📂 Raw';
+            jumpBtn.title = 'Open raw folder in content browser';
+            // Insert "📖 Smart" button before Raw
+            if (typeof _smartFolderVirtualPath === 'function') {
+                const smartBtn = document.createElement('button');
+                smartBtn.className = 'peek-preview-header__action';
+                smartBtn.title = 'Open in smart folder view';
+                smartBtn.textContent = '📖 Smart';
+                smartBtn.style.display = 'none';
+                smartBtn.onclick = () => {
+                    (async () => {
+                        const vPath = await _smartFolderVirtualPath(dirPath);
+                        const currentLine = window._peekCurrentLine || ref.line_number || 0;
+                        _closePeekPreview();
+                        const baseHash = location.hash.slice(1).split('>>')[0];
+                        history.replaceState({ tab: baseHash, depth: _navDepth }, '', `#${baseHash}`);
+                        _overlayPushed = false;
+                        if (vPath) {
+                            contentLoadFolder(vPath);
+                        } else {
+                            contentLoadFolder(dirPath);
+                        }
+                    })();
+                };
+                jumpBtn.parentNode.insertBefore(smartBtn, jumpBtn);
+                // Async: reveal if path belongs to a smart folder
+                _smartFolderVirtualPath(dirPath).then(vPath => {
+                    if (vPath) {
+                        smartBtn.style.display = '';
+                        smartBtn.title = 'Smart: ' + vPath;
+                    }
+                });
+            }
+            // Insert "Open README" button before Raw
             const openReadmeBtn = document.createElement('button');
             openReadmeBtn.className = 'peek-preview-header__action';
             openReadmeBtn.title = 'Open README at current line';
@@ -1388,7 +1420,8 @@ function _showPeekTooltip(event, ref, anchorEl) {
             <div class="peek-tooltip__outline" data-peek-outline></div>
             <div class="peek-tooltip__actions">
                 <button class="peek-tooltip__btn peek-tooltip__btn--primary" data-action="preview">👁 Preview</button>
-                <button class="peek-tooltip__btn" data-action="browse">📂 Open</button>
+                <button class="peek-tooltip__btn" data-action="browse">📂 Raw</button>
+                <button class="peek-tooltip__btn" data-action="smart-browse" style="display:none">📖 Smart</button>
                 <button class="peek-tooltip__btn" data-action="newtab">↗ New Tab</button>
             </div>
         `;
@@ -1437,6 +1470,16 @@ function _showPeekTooltip(event, ref, anchorEl) {
                     const parent = ref.resolved_path.substring(0, ref.resolved_path.lastIndexOf('/'));
                     if (parent) contentLoadFolder(parent);
                 }
+            } else if (action === 'smart-browse') {
+                // Navigate to smart folder virtual path
+                (async () => {
+                    const vPath = await _smartFolderVirtualPath(ref.resolved_path);
+                    if (vPath) {
+                        contentLoadFolder(vPath);
+                    } else {
+                        contentLoadFolder(ref.resolved_path);
+                    }
+                })();
             } else if (action === 'open') {
                 if (ref.is_directory) {
                     contentLoadFolder(ref.resolved_path);
@@ -1460,6 +1503,19 @@ function _showPeekTooltip(event, ref, anchorEl) {
     // Add to DOM
     document.body.appendChild(tooltip);
     _peekTooltipEl = tooltip;
+
+    // ── Async: reveal Smart browse button if path belongs to a smart folder ──
+    if (ref.is_directory && typeof _smartFolderVirtualPath === 'function') {
+        _smartFolderVirtualPath(ref.resolved_path).then(vPath => {
+            if (!vPath || !_peekTooltipEl || _peekTooltipEl !== tooltip) return;
+            const smartBtn = tooltip.querySelector('[data-action="smart-browse"]');
+            if (smartBtn) {
+                smartBtn.style.display = '';
+                smartBtn.title = vPath;
+                _peekPositionTooltip(tooltip, anchorEl);
+            }
+        });
+    }
 
     // ── Populate outline headings (h1/h2) from glossary or async ──
     const outlineEl = tooltip.querySelector('[data-peek-outline]');

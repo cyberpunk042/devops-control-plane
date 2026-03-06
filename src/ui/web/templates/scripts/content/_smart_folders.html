@@ -74,6 +74,40 @@ function _smartFolderForRealPath(realPath) {
     return null;
 }
 
+/**
+ * Resolve a REAL filesystem path to its smart folder virtual path.
+ * e.g. "src/core/services/audit" → "code-docs/core/services/audit"
+ *
+ * Loads tree data on demand. Returns null if path is not in any smart folder.
+ */
+async function _smartFolderVirtualPath(realPath) {
+    if (!_smartFoldersLoaded) await _smartFoldersLoad();
+    const match = _smartFolderForRealPath(realPath);
+    if (!match) return null;
+    const { sf, smartRoot } = match;
+
+    // Load tree if not cached
+    let tree = _smartFolderTree;
+    if (!tree || tree.name !== sf.name) {
+        try {
+            tree = await api(`/smart-folders/${encodeURIComponent(sf.name)}/tree`);
+        } catch (_) {
+            return null;
+        }
+    }
+
+    const groups = tree.groups || [];
+    for (const g of groups) {
+        const modPath = (g.module_path || '').replace(/\/$/, '');
+        if (modPath && (realPath === modPath || realPath.startsWith(modPath + '/'))) {
+            const remainder = realPath.substring(modPath.length);
+            return smartRoot + '/' + g.module + remainder;
+        }
+    }
+    // If path matches the source root but no specific module, return smart root
+    return smartRoot;
+}
+
 // ═════════════════════════════════════════════════════════════════
 // Smart Folders — Inject virtual entries into content listing
 // ═════════════════════════════════════════════════════════════════
@@ -243,8 +277,8 @@ function _smartFolderToggleView(raw) {
             setTimeout(() => contentLoadFolder(rawPath), 200);
         }
     } else {
-        // Switch back to smart mode
-        console.log('[SmartFolder] switching back to smart root:', _smartFolderLastRoot);
+        // Switch back to smart mode — preserve current path context
+        console.log('[SmartFolder] switching back, current raw path:', contentCurrentPath);
         // Reset explore-all state (was enabled for raw view)
         if (_exploreAllActive) {
             _exploreAllActive = false;
@@ -252,10 +286,14 @@ function _smartFolderToggleView(raw) {
             if (eaBtn) { eaBtn.classList.remove('active'); eaBtn.innerHTML = '🗂 Show All Folders'; }
             document.querySelectorAll('[data-explore-extra]').forEach(el => el.remove());
         }
-        if (_smartFolderLastRoot) {
+        // Try to resolve current raw path to smart virtual path (preserves context)
+        const currentRaw = contentCurrentPath;
+        _smartFolderVirtualPath(currentRaw).then(vPath => {
+            const target = vPath || _smartFolderLastRoot;
+            console.log('[SmartFolder] resolved virtual path:', target);
             renderContentFolderBar();
-            contentLoadFolder(_smartFolderLastRoot);
-        }
+            contentLoadFolder(target);
+        });
     }
 }
 
