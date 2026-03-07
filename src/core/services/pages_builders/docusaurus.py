@@ -70,27 +70,26 @@ class DocusaurusBuilder(PageBuilder):
             install_cmd=["npm", "install", "-g", "npx"],
         )
 
+    _admin_url_cache: str | None = None
+
     @staticmethod
     def _admin_url() -> str:
         """Derive the admin panel URL from Flask config.
 
-        Must be called inside a Flask request/app context (which is
-        always the case during a web-triggered build).  Logs a warning
-        if the context is missing — that should never happen in normal
-        operation.
+        Caches the result so SSE streaming generators (which may lose
+        Flask context mid-stream) still get the correct URL.
         """
+        if DocusaurusBuilder._admin_url_cache is not None:
+            return DocusaurusBuilder._admin_url_cache
+
         try:
             from flask import current_app
             host = current_app.config.get("SERVER_HOST", "127.0.0.1")
             port = current_app.config.get("SERVER_PORT", 8000)
-            return f"http://{host}:{port}"
+            url = f"http://{host}:{port}"
+            DocusaurusBuilder._admin_url_cache = url
+            return url
         except RuntimeError:
-            import logging
-            logging.getLogger(__name__).warning(
-                "Flask context not available during build — "
-                "admin URL defaulting to http://localhost:8000. "
-                "This should not happen in web-triggered builds."
-            )
             return "http://localhost:8000"
 
     # ── Pipeline stages ─────────────────────────────────────────────
@@ -422,23 +421,32 @@ class DocusaurusBuilder(PageBuilder):
                     sibling_links = []
                     for seg in all_segments:
                         seg_name = seg.get("name", "")
-                        if seg_name == segment.name:
-                            continue  # Skip self
                         seg_title = seg.get("config", {}).get(
                             "title",
                             seg_name.replace("-", " ").replace("_", " ").title(),
                         )
+                        seg_url = f"/pages/site/{seg_name}/"
                         # Use type: 'html' with a raw <a> tag to bypass
                         # Docusaurus SPA router — forces real page load
-                        seg_url = f"/pages/site/{seg_name}/"
-                        sibling_links.append({
-                            "type": "html",
-                            "value": f'<a href="{seg_url}" class="navbar__link">{seg_title}</a>',
-                            "position": "left",
-                        })
+                        if seg_name == segment.name:
+                            # Current segment — highlighted, not a link
+                            sibling_links.append({
+                                "type": "html",
+                                "value": (
+                                    f'<a href="{seg_url}" class="navbar__link navbar__link--active"'
+                                    f' style="font-weight:700">{seg_title}</a>'
+                                ),
+                                "position": "left",
+                            })
+                        else:
+                            sibling_links.append({
+                                "type": "html",
+                                "value": f'<a href="{seg_url}" class="navbar__link">{seg_title}</a>',
+                                "position": "left",
+                            })
                     if sibling_links:
                         navbar_items = sibling_links
-                        yield f"Navbar: added {len(sibling_links)} sibling segment link(s)"
+                        yield f"Navbar: added {len(sibling_links)} segment link(s) ({segment.name} highlighted)"
             except Exception as e:
                 log.warning("Failed to inject sibling segment links: %s", e)
 

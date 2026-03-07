@@ -756,14 +756,36 @@
                 api('/tab-mesh/suggest-cdp', { method: 'POST' }).catch(function() {});
             }
         } else {
-            // ── Target NOT in registry → open new tab ──────────────
+            // ── Target NOT in registry ─────────────────────────────
+            // Try CDP focus by URL pattern before opening a new tab.
             let fullUrl;
             if (matchTabType === 'admin') {
                 fullUrl = location.origin + '/' + hash;
             } else {
                 fullUrl = hash.startsWith('http') ? hash : location.origin + hash;
             }
-            window.open(fullUrl, '_blank');
+
+            if (_meshCDPAvailable) {
+                var urlMatch = matchTabType === 'admin'
+                    ? '/'
+                    : '/pages/site/' + (matchSiteName || '');
+                _meshFocusViaCDP(urlMatch).then(function(result) {
+                    if (!result || !result.success) {
+                        // CDP couldn't find tab — open with named target
+                        // so repeated clicks reuse the same window
+                        var winName = matchSiteName
+                            ? 'pages-' + matchSiteName
+                            : 'devops-admin';
+                        window.open(fullUrl, winName);
+                    }
+                });
+            } else {
+                // No CDP — named target fallback
+                var winName = matchSiteName
+                    ? 'pages-' + matchSiteName
+                    : 'devops-admin';
+                window.open(fullUrl, winName);
+            }
         }
     }
 

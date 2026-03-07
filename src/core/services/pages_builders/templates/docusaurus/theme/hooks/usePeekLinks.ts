@@ -223,6 +223,9 @@ function _renderOutline(outline: OutlineItem[] | undefined, ref: PeekRef): strin
  *   4. Click opens tooltip with actions (Open link / GitHub link)
  *   5. Cleans up on navigation (SPA route change)
  */
+// Track whether the effect has run before (survives SPA navigation, resets on refresh)
+let _peekLastPageKey = '';
+
 export function usePeekLinks(): void {
     const location = useLocation();
 
@@ -261,13 +264,27 @@ export function usePeekLinks(): void {
         const resolved = allRefs.filter((r) => r.resolved !== false);
         const unresolved = allRefs.filter((r) => r.resolved === false);
 
-        // ── Robust container detection ──
-        // After SPA navigation, Docusaurus may not have the new .markdown
-        // container ready immediately. We use polling + MutationObserver
-        // to detect when the content is actually rendered.
+        // ── Content-change-aware annotation ──
+        // Two cases:
+        //   Initial load / refresh: SSR content is already correct → annotate immediately
+        //   SPA navigation: old page content still in DOM → wait for content swap
+        //
+        // We use _peekLastPageKey to distinguish. On first render (or same-page
+        // reload after F5), oldFingerprint is empty → skip content-change check.
+        // On SPA nav to a DIFFERENT page, capture fingerprint of old content
+        // and wait until it changes.
+        const isSpaNavToDifferentPage = _peekLastPageKey !== '' && _peekLastPageKey !== pageKey;
+        _peekLastPageKey = pageKey;
+
         let cancelled = false;
         let observer: MutationObserver | null = null;
-        let pollTimer: ReturnType<typeof setTimeout> | null = null;
+        let rafId = 0;
+
+        // Only fingerprint when navigating between different pages (SPA)
+        const oldContainer = document.querySelector('.markdown');
+        const oldFingerprint = isSpaNavToDifferentPage && oldContainer
+            ? (oldContainer.textContent || '').trim().substring(0, 80)
+            : '';
 
         function _doAnnotate(): void {
             if (cancelled) return;
@@ -299,49 +316,51 @@ export function usePeekLinks(): void {
             }
         }
 
-        function _tryAnnotate(): boolean {
-            if (cancelled) return true;
+        function _isContentReady(): boolean {
             const container = document.querySelector('.markdown');
-            // Wait until the container exists AND has meaningful content
-            if (container && container.textContent && container.textContent.trim().length > 20) {
+            if (!container) return false;
+            const text = (container.textContent || '').trim();
+            if (text.length < 20) return false;
+            // If we had old content, ensure the new content is DIFFERENT
+            // (proves React has actually swapped the page)
+            if (oldFingerprint && text.substring(0, 80) === oldFingerprint) {
+                return false;  // Still showing old page content
+            }
+            return true;
+        }
+
+        // Wait for React to paint, then start detection
+        rafId = requestAnimationFrame(() => {
+            if (cancelled) return;
+
+            // Immediate check (works for SSR / initial load)
+            if (_isContentReady()) {
                 _doAnnotate();
-                return true;
+                return;
             }
-            return false;
-        }
 
-        // Strategy 1: Poll every 80ms for up to 2s
-        let pollCount = 0;
-        const MAX_POLLS = 25;
-        function _poll(): void {
-            if (cancelled) return;
-            if (_tryAnnotate()) return;
-            pollCount++;
-            if (pollCount < MAX_POLLS) {
-                pollTimer = setTimeout(_poll, 80);
-            }
-        }
-        _poll();
-
-        // Strategy 2: MutationObserver on document body as fallback
-        // Catches cases where content loads after our poll window
-        observer = new MutationObserver(() => {
-            if (cancelled) return;
-            const container = document.querySelector('.markdown');
-            if (container && container.textContent && container.textContent.trim().length > 20) {
-                if (!container.querySelector('.peek-link')) {
-                    _doAnnotate();
+            // MutationObserver: watch for DOM changes until new content appears
+            observer = new MutationObserver(() => {
+                if (cancelled) return;
+                if (_isContentReady()) {
+                    const container = document.querySelector('.markdown');
+                    if (container && !container.querySelector('.peek-link')) {
+                        _doAnnotate();
+                    }
+                    if (observer) { observer.disconnect(); observer = null; }
                 }
-                // Stop observing once annotated
-                if (observer) { observer.disconnect(); observer = null; }
-            }
+            });
+            // Observe the stable Docusaurus root — <article> can be
+            // replaced entirely during SPA navigation which detaches
+            // any observer watching it.
+            const root = document.getElementById('__docusaurus')
+                || document.body;
+            observer.observe(root, { childList: true, subtree: true });
         });
-        const article = document.querySelector('article') || document.querySelector('main') || document.body;
-        observer.observe(article, { childList: true, subtree: true });
 
         return () => {
             cancelled = true;
-            if (pollTimer) clearTimeout(pollTimer);
+            if (rafId) cancelAnimationFrame(rafId);
             if (observer) { observer.disconnect(); observer = null; }
             _dismissPeekTooltip();
             // Remove annotation count badge
@@ -658,9 +677,15 @@ function showPeekTooltip(ref: PeekRef, anchorEl: HTMLElement): void {
         } else if (action === 'open') {
             _dismissPeekTooltip();
             if (mode === 'dev') {
-                _openInAdmin(`#content/docs/${ref.resolved_path}@preview`);
+                // Directories → folder browser; files → preview
+                if (ref.is_directory) {
+                    _openInAdmin(`#content/docs/${ref.resolved_path}`);
+                } else {
+                    _openInAdmin(`#content/docs/${ref.resolved_path}@preview`);
+                }
             } else if (REPO_URL) {
-                window.open(`${REPO_URL}/blob/main/${ref.resolved_path}`, '_blank');
+                const ghPath = ref.is_directory ? 'tree' : 'blob';
+                window.open(`${REPO_URL}/${ghPath}/main/${ref.resolved_path}`, '_blank');
             }
         } else if (action === 'edit') {
             _dismissPeekTooltip();
@@ -681,9 +706,14 @@ function showPeekTooltip(ref: PeekRef, anchorEl: HTMLElement): void {
             if (docPageHref) {
                 window.open(docPageHref, '_blank');
             } else if (mode === 'dev') {
-                _openInAdmin(`#content/docs/${ref.resolved_path}@preview`);
+                if (ref.is_directory) {
+                    _openInAdmin(`#content/docs/${ref.resolved_path}`);
+                } else {
+                    _openInAdmin(`#content/docs/${ref.resolved_path}@preview`);
+                }
             } else if (REPO_URL) {
-                window.open(`${REPO_URL}/blob/main/${ref.resolved_path}`, '_blank');
+                const ghPath = ref.is_directory ? 'tree' : 'blob';
+                window.open(`${REPO_URL}/${ghPath}/main/${ref.resolved_path}`, '_blank');
             }
         } else if (action === 'browse-docs') {
             // Equivalent of Content Vault's Smart Browse
@@ -720,7 +750,15 @@ function showPeekTooltip(ref: PeekRef, anchorEl: HTMLElement): void {
                 _openPeekPreview(previewRef);
             } else if (action === 'open') {
                 const lineHash = line > 0 ? '#L' + line : '';
-                if (mode === 'dev') {
+                if (ref.doc_url) {
+                    // File is a page in this site — navigate in-tab (SPA)
+                    const headingText = (btn.closest('.peek-tooltip__outline-row') as HTMLElement)
+                        ?.dataset.headingText || '';
+                    const anchor = headingText
+                        ? '#' + headingText.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')
+                        : '';
+                    window.location.href = BASE_URL + ref.doc_url + anchor;
+                } else if (mode === 'dev') {
                     _openInAdmin(`#content/docs/${ref.resolved_path}@preview` + (line > 0 ? ':' + line : ''));
                 } else if (REPO_URL) {
                     window.open(`${REPO_URL}/blob/main/${ref.resolved_path}${lineHash}`, '_blank');
