@@ -1,0 +1,790 @@
+<script>
+    // ── Tab Mesh — Inter-tab communication system ──────────────────────
+    //
+    // Three mechanisms for three problems:
+    //   CDP via Flask backend   → tab focus (Chrome DevTools Protocol)
+    //   Service Worker (sw.js)  → tab listing (debug verification)
+    //   BroadcastChannel        → data messaging (presence, navigate, kill)
+    //
+    // Public API exposed as window.TabMesh:
+    //   TabMesh.id              → this tab's UUID
+    //   TabMesh.registry        → Map of known tabs
+    //   TabMesh.capabilities    → detected browser capabilities
+    //   TabMesh.swState         → 'active' | 'registering' | 'unavailable' | 'error'
+    //   TabMesh.navigateTo(targetType, hash)  → navigate + focus a tab
+    //   TabMesh.kill(targetId, reason)         → kill a remote tab
+    //   TabMesh.inspect(targetId)              → request state dump
+
+    // ── Capability detection ───────────────────────────────────────────
+
+    const _meshCaps = {
+        broadcastChannel: typeof BroadcastChannel !== 'undefined',
+        serviceWorker:    'serviceWorker' in navigator,
+        cryptoUUID:       typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function',
+        visibilityAPI:    typeof document.hidden !== 'undefined',
+    };
+
+    // ── Tab identity ───────────────────────────────────────────────────
+
+    function _meshGenerateId() {
+        if (_meshCaps.cryptoUUID) return crypto.randomUUID();
+        return 'tab-' + Math.random().toString(36).substring(2, 10) +
+               '-' + Date.now().toString(36);
+    }
+
+    function _meshDetectTabType() {
+        if (location.pathname.startsWith('/pages/site/')) return 'site';
+        return 'admin';
+    }
+
+    function _meshDetectSiteName() {
+        const m = location.pathname.match(/^\/pages\/site\/([^/]+)/);
+        return m ? m[1] : null;
+    }
+
+    function _meshCapitalize(s) {
+        if (!s) return '';
+        return s.charAt(0).toUpperCase() + s.slice(1);
+    }
+
+    function _meshComputeBreadcrumb() {
+        const tabType = _meshIdentity.tabType;
+
+        if (tabType === 'admin') {
+            const hash = location.hash.replace('#', '');
+            if (!hash) return 'Admin \u203a Dashboard';
+            const parts = hash.split('/');
+            const tab = parts[0];
+            const rest = parts.slice(1);
+            if (rest.length === 0) return 'Admin \u203a ' + _meshCapitalize(tab);
+
+            // Last segment might have @action suffix
+            let lastSeg = rest[rest.length - 1] || '';
+            let action = '';
+            if (lastSeg.includes('@')) {
+                const at = lastSeg.split('@');
+                lastSeg = at[0];
+                action = at[1] || '';
+            }
+            // Extract filename from path-like segment
+            const fileName = lastSeg.split('/').pop() || lastSeg;
+            let crumb = 'Admin \u203a ' + _meshCapitalize(tab);
+            if (fileName && fileName !== tab) crumb += ' \u203a ' + fileName;
+            if (action) crumb += ' (' + action + ')';
+            return crumb;
+        }
+
+        // Site tab
+        const siteName = _meshIdentity.siteName;
+        const m = location.pathname.match(/^\/pages\/site\/[^/]+\/(.*)/);
+        if (!m) return siteName || 'Site';
+        const path = m[1].replace(/\/$/, '');
+        const pathParts = path.split('/').filter(Boolean);
+        if (pathParts.length === 0) return siteName;
+        const tail = pathParts.slice(-2).join(' \u203a ');
+        return siteName + ' \u203a ' + tail;
+    }
+
+    // ── Identity object ────────────────────────────────────────────────
+
+    const _meshTabId = _meshGenerateId();
+    const _meshIdentity = {
+        id:       _meshTabId,
+        tabType:  _meshDetectTabType(),
+        siteName: _meshDetectSiteName(),
+        url:      location.href,
+        hash:     location.hash,
+        title:    '',       // computed after identity is set
+        ts:       Date.now(),
+        alive:    true,
+    };
+    _meshIdentity.title = _meshComputeBreadcrumb();
+
+    // ── Registry ───────────────────────────────────────────────────────
+    //
+    // In-memory Map of all known tabs.  Each entry mirrors the identity
+    // shape + a lastSeen timestamp.  Pruned every heartbeat.
+
+    const _meshRegistry = new Map();
+    const _meshTombstones = [];     // { ...entry, diedAt, reason }
+    const _MESH_HEARTBEAT_MS  = 5000;
+    const _MESH_PRUNE_TIMEOUT = 15000;
+    const _MESH_TOMBSTONE_TTL = 60000;
+
+    function _meshPruneRegistry() {
+        const now = Date.now();
+        for (const [id, entry] of _meshRegistry) {
+            if (id === _meshTabId) continue; // never prune self
+            if (now - entry.lastSeen > _MESH_PRUNE_TIMEOUT) {
+                _meshTombstones.push({
+                    ...entry,
+                    diedAt: now,
+                    reason: 'timeout',
+                });
+                _meshRegistry.delete(id);
+            }
+        }
+        // Clean old tombstones
+        while (_meshTombstones.length > 0 &&
+               now - _meshTombstones[0].diedAt > _MESH_TOMBSTONE_TTL) {
+            _meshTombstones.shift();
+        }
+    }
+
+    function _meshUpsertEntry(msg) {
+        _meshRegistry.set(msg.id, {
+            id:        msg.id,
+            tabType:   msg.tabType   || 'unknown',
+            siteName:  msg.siteName  || null,
+            url:       msg.url       || '',
+            hash:      msg.hash      || '',
+            title:     msg.title     || '',
+            lastSeen:  msg.ts        || Date.now(),
+            alive:     true,
+        });
+    }
+
+    // ── BroadcastChannel ───────────────────────────────────────────────
+
+    let _meshBC = null;
+
+    function _meshBroadcast(msg) {
+        if (!_meshBC) return;
+        try {
+            _meshBC.postMessage(msg);
+        } catch (_) {
+            // Channel might be closed after kill
+        }
+    }
+
+    function _meshSendJoin() {
+        _meshBroadcast({
+            type:     'join',
+            id:       _meshIdentity.id,
+            tabType:  _meshIdentity.tabType,
+            siteName: _meshIdentity.siteName,
+            url:      _meshIdentity.url,
+            hash:     location.hash,
+            title:    _meshIdentity.title,
+            ts:       Date.now(),
+        });
+    }
+
+    function _meshSendRoster() {
+        _meshBroadcast({
+            type:     'roster',
+            id:       _meshIdentity.id,
+            tabType:  _meshIdentity.tabType,
+            siteName: _meshIdentity.siteName,
+            url:      _meshIdentity.url,
+            hash:     location.hash,
+            title:    _meshIdentity.title,
+            ts:       Date.now(),
+        });
+    }
+
+    function _meshSendPing() {
+        _meshIdentity.hash = location.hash;
+        _meshIdentity.title = _meshComputeBreadcrumb();
+        _meshBroadcast({
+            type:  'ping',
+            id:    _meshIdentity.id,
+            hash:  location.hash,
+            title: _meshIdentity.title,
+            ts:    Date.now(),
+        });
+        _meshPruneRegistry();
+    }
+
+    function _meshSendState() {
+        _meshIdentity.hash = location.hash;
+        _meshIdentity.title = _meshComputeBreadcrumb();
+        _meshBroadcast({
+            type:  'state',
+            id:    _meshIdentity.id,
+            hash:  location.hash,
+            title: _meshIdentity.title,
+            ts:    Date.now(),
+        });
+    }
+
+    function _meshSendLeave() {
+        _meshBroadcast({
+            type: 'leave',
+            id:   _meshIdentity.id,
+            ts:   Date.now(),
+        });
+    }
+
+    // ── BC message handler ─────────────────────────────────────────────
+
+    function _meshHandleMessage(e) {
+        const msg = e.data;
+        if (!msg || !msg.type || !msg.id) return;
+        if (msg.id === _meshTabId) return; // ignore own messages
+
+        switch (msg.type) {
+            case 'join':
+                // New tab announced — add to registry and respond with our identity
+                _meshUpsertEntry(msg);
+                _meshSendRoster();
+                break;
+
+            case 'roster':
+                // Another tab responding to our join — add to registry
+                _meshUpsertEntry(msg);
+                break;
+
+            case 'ping':
+                // Heartbeat — update lastSeen + current state
+                if (_meshRegistry.has(msg.id)) {
+                    const entry = _meshRegistry.get(msg.id);
+                    entry.lastSeen = msg.ts || Date.now();
+                    entry.hash     = msg.hash || entry.hash;
+                    entry.title    = msg.title || entry.title;
+                } else {
+                    _meshUpsertEntry(msg);
+                }
+                break;
+
+            case 'state':
+                // Route change in another tab — update registry
+                if (_meshRegistry.has(msg.id)) {
+                    const entry = _meshRegistry.get(msg.id);
+                    entry.hash  = msg.hash || entry.hash;
+                    entry.title = msg.title || entry.title;
+                    entry.lastSeen = msg.ts || Date.now();
+                }
+                break;
+
+            case 'leave':
+                // Tab closing — move to tombstones immediately
+                if (_meshRegistry.has(msg.id)) {
+                    const entry = _meshRegistry.get(msg.id);
+                    _meshTombstones.push({
+                        ...entry,
+                        diedAt: Date.now(),
+                        reason: 'closed',
+                    });
+                    _meshRegistry.delete(msg.id);
+                }
+                break;
+
+            case 'navigate':
+                _meshHandleNavigate(msg);
+                break;
+
+            case 'kill':
+                _meshHandleKill(msg);
+                break;
+
+            case 'inspect':
+                _meshHandleInspect(msg);
+                break;
+
+            case 'dump':
+                // Inspect response — emit custom event for debug panel
+                window.dispatchEvent(new CustomEvent('tab-mesh:dump', { detail: msg }));
+                break;
+        }
+    }
+
+    // ── Navigate handler (receiving side) ──────────────────────────────
+
+    function _meshHandleNavigate(msg) {
+        if (msg.targetId !== _meshTabId) return;
+
+        // SPA navigation via hash change
+        if (msg.hash) {
+            location.hash = msg.hash;
+        }
+
+        // Title flash — attention indicator
+        _meshStartTitleFlash();
+
+        // Best-effort focus (may be ignored without user activation)
+        try { window.focus(); } catch (_) {}
+
+        // Broadcast updated state
+        _meshSendState();
+    }
+
+    // ── Title flash ────────────────────────────────────────────────────
+
+    let _meshTitleFlashInterval = null;
+    let _meshTitleFlashTimeout  = null;
+    let _meshTitleOriginal      = null;
+
+    function _meshStartTitleFlash() {
+        _meshStopTitleFlash(); // clear any previous flash
+
+        _meshTitleOriginal = document.title;
+        const crumb = _meshComputeBreadcrumb();
+        let showFlash = true;
+
+        _meshTitleFlashInterval = setInterval(() => {
+            document.title = showFlash ? '\u26a1 Navigate here' : crumb;
+            showFlash = !showFlash;
+        }, 800);
+
+        // Auto-stop after 10 seconds
+        _meshTitleFlashTimeout = setTimeout(() => {
+            _meshStopTitleFlash();
+        }, 10000);
+
+        // Stop when tab gains visibility
+        document.addEventListener('visibilitychange', _meshOnVisibility);
+    }
+
+    function _meshStopTitleFlash() {
+        if (_meshTitleFlashInterval) {
+            clearInterval(_meshTitleFlashInterval);
+            _meshTitleFlashInterval = null;
+        }
+        if (_meshTitleFlashTimeout) {
+            clearTimeout(_meshTitleFlashTimeout);
+            _meshTitleFlashTimeout = null;
+        }
+        if (_meshTitleOriginal !== null) {
+            document.title = _meshComputeBreadcrumb();
+            _meshTitleOriginal = null;
+        }
+        document.removeEventListener('visibilitychange', _meshOnVisibility);
+    }
+
+    function _meshOnVisibility() {
+        if (!document.hidden) {
+            _meshStopTitleFlash();
+        }
+    }
+
+    // ── Kill handler (receiving side) ──────────────────────────────────
+
+    function _meshHandleKill(msg) {
+        if (msg.targetId !== _meshTabId) return;
+
+        _meshIdentity.alive = false;
+
+        // Stop heartbeat
+        if (_meshHeartbeatInterval) {
+            clearInterval(_meshHeartbeatInterval);
+            _meshHeartbeatInterval = null;
+        }
+
+        // Send leave and close channel
+        _meshSendLeave();
+        if (_meshBC) {
+            try { _meshBC.close(); } catch (_) {}
+            _meshBC = null;
+        }
+
+        // Render blocking overlay
+        _meshRenderKillOverlay(msg.reason || 'Session terminated remotely');
+    }
+
+    function _meshRenderKillOverlay(reason) {
+        const overlay = document.createElement('div');
+        overlay.id = 'tab-mesh-kill-overlay';
+        overlay.style.cssText = [
+            'position:fixed', 'top:0', 'left:0',
+            'width:100vw', 'height:100vh',
+            'z-index:999999',
+            'display:flex', 'align-items:center', 'justify-content:center',
+            'background:rgba(0,0,0,0.85)',
+            'backdrop-filter:blur(8px)',
+            '-webkit-backdrop-filter:blur(8px)',
+            'pointer-events:all',
+        ].join(';');
+
+        overlay.innerHTML = `
+            <div style="
+                background:var(--surface, #1a1a2e);
+                border:1px solid var(--border-subtle, #333);
+                border-radius:12px;
+                padding:2.5rem;
+                max-width:420px;
+                text-align:center;
+                color:var(--text, #e0e0e0);
+                font-family:var(--font-sans, system-ui, sans-serif);
+                box-shadow:0 24px 48px rgba(0,0,0,0.4);
+            ">
+                <div style="font-size:2.5rem;margin-bottom:1rem;">\u26d4</div>
+                <h2 style="margin:0 0 0.5rem;font-size:1.1rem;font-weight:600;">
+                    Session Terminated
+                </h2>
+                <p style="
+                    color:var(--text-muted, #888);
+                    font-size:0.82rem;
+                    line-height:1.5;
+                    margin:0.5rem 0 1.5rem;
+                ">
+                    This tab was closed remotely from the admin debug panel.
+                </p>
+                <p style="
+                    color:var(--text-muted, #888);
+                    font-size:0.72rem;
+                    margin:0 0 1.5rem;
+                    padding:0.5rem;
+                    background:rgba(255,255,255,0.05);
+                    border-radius:6px;
+                ">
+                    Reason: ${reason.replace(/</g, '&lt;').replace(/>/g, '&gt;')}
+                </p>
+                <button onclick="location.reload()" style="
+                    background:var(--accent, #6366f1);
+                    color:#fff;
+                    border:none;
+                    border-radius:8px;
+                    padding:0.6rem 1.5rem;
+                    font-size:0.85rem;
+                    font-weight:500;
+                    cursor:pointer;
+                    transition:opacity 0.2s;
+                " onmouseover="this.style.opacity='0.85'"
+                   onmouseout="this.style.opacity='1'"
+                >\ud83d\udd04 Refresh to Reload</button>
+            </div>
+        `;
+
+        document.body.appendChild(overlay);
+    }
+
+    // ── Inspect handler ────────────────────────────────────────────────
+
+    function _meshHandleInspect(msg) {
+        if (msg.targetId !== _meshTabId) return;
+
+        _meshBroadcast({
+            type:         'dump',
+            id:           _meshTabId,
+            respondingTo: msg.id,
+            state: {
+                tabType:    _meshIdentity.tabType,
+                siteName:   _meshIdentity.siteName,
+                url:        location.href,
+                hash:       location.hash,
+                title:      _meshComputeBreadcrumb(),
+                alive:      _meshIdentity.alive,
+                uptime:     Math.round((Date.now() - _meshBootTime) / 1000),
+                swState:    _meshSWState,
+                bcReady:    !!_meshBC,
+                caps:       _meshCaps,
+                registrySize: _meshRegistry.size,
+            },
+            ts: Date.now(),
+        });
+    }
+
+    // ── Service Worker registration ────────────────────────────────────
+
+    let _meshSWState = 'unavailable';
+    let _meshSWRegistration = null;
+
+    async function _meshRegisterSW() {
+        if (!_meshCaps.serviceWorker) {
+            _meshSWState = 'unavailable';
+            return;
+        }
+        _meshSWState = 'registering';
+        try {
+            _meshSWRegistration = await navigator.serviceWorker.register('/sw.js', {
+                scope: '/',
+            });
+            // Wait for the worker to become active
+            const sw = _meshSWRegistration.active ||
+                       _meshSWRegistration.waiting ||
+                       _meshSWRegistration.installing;
+            if (sw && sw.state === 'activated') {
+                _meshSWState = 'active';
+            } else if (sw) {
+                _meshSWState = sw.state; // 'installing' | 'installed' | 'activating'
+                sw.addEventListener('statechange', () => {
+                    if (sw.state === 'activated') {
+                        _meshSWState = 'active';
+                    }
+                });
+            }
+            // When ready, update state
+            navigator.serviceWorker.ready.then(() => {
+                _meshSWState = 'active';
+            });
+        } catch (err) {
+            _meshSWState = 'error';
+            console.warn('[TabMesh] SW registration failed:', err.message);
+        }
+    }
+
+    /**
+     * Send a message to the SW via controller.postMessage().
+     * Used for LIST_TABS diagnostic queries.
+     */
+    function _meshSWMessage(msg) {
+        return new Promise((resolve) => {
+            if (_meshSWState !== 'active' || !navigator.serviceWorker.controller) {
+                resolve(null);
+                return;
+            }
+            const channel = new MessageChannel();
+            const timer = setTimeout(() => resolve(null), 2000);
+            channel.port1.onmessage = (e) => {
+                clearTimeout(timer);
+                resolve(e.data);
+            };
+            navigator.serviceWorker.controller.postMessage(msg, {
+                transfer: [channel.port2],
+            });
+        });
+    }
+
+    // ── CDP focus via Flask backend ─────────────────────────────────────
+
+    var _meshCDPAvailable = false;
+
+    /**
+     * Check CDP availability on page load.
+     * Stores result in _meshCDPAvailable for navigateTo decisions.
+     */
+    async function _meshCheckCDP() {
+        try {
+            var resp = await fetch('/api/tab-mesh/cdp-status');
+            var data = await resp.json();
+            _meshCDPAvailable = data.available === true;
+            console.log('[TabMesh] CDP:', _meshCDPAvailable ? 'available' : 'not available');
+        } catch (err) {
+            _meshCDPAvailable = false;
+        }
+    }
+
+    /**
+     * Focus a tab via CDP (Chrome DevTools Protocol).
+     *
+     * Calls the Flask backend which talks to Chrome's debugging API.
+     * Returns the response data or null on failure.
+     */
+    async function _meshFocusViaCDP(urlPattern) {
+        // Show a fullscreen transition overlay to cover the CDP delay
+        var overlay = document.createElement('div');
+        overlay.id = 'cdp-focus-overlay';
+        overlay.style.cssText =
+            'position:fixed;inset:0;z-index:99999;' +
+            'background:radial-gradient(circle at center, rgba(124,58,237,0.15), rgba(0,0,0,0.6));' +
+            'display:flex;align-items:center;justify-content:center;' +
+            'transition:opacity 0.3s ease;opacity:0;' +
+            'backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px)';
+        overlay.innerHTML =
+            '<div style="text-align:center;color:#fff;font-family:inherit">' +
+            '<div style="font-size:2.5rem;margin-bottom:8px;animation:pulse 1s infinite">🎯</div>' +
+            '<div style="font-size:0.85rem;font-weight:600;opacity:0.9">Switching tab…</div></div>';
+        document.body.appendChild(overlay);
+        // Force reflow then fade in
+        overlay.offsetHeight;
+        overlay.style.opacity = '1';
+
+        try {
+            var resp = await fetch('/api/tab-mesh/focus', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    urlPattern: urlPattern,
+                    excludeUrl: location.href,
+                }),
+            });
+            var data = await resp.json();
+            if (data.success) {
+                console.log('[TabMesh] CDP focus succeeded:', data.url);
+            } else {
+                console.log('[TabMesh] CDP focus failed:', data.reason);
+            }
+            // Fade out and remove overlay
+            overlay.style.opacity = '0';
+            setTimeout(() => overlay.remove(), 300);
+            return data;
+        } catch (err) {
+            console.warn('[TabMesh] CDP focus error:', err.message);
+            overlay.style.opacity = '0';
+            setTimeout(() => overlay.remove(), 300);
+            return null;
+        }
+    }
+
+    // ── Public API: navigateTo ─────────────────────────────────────────
+
+    /**
+     * Navigate another tab to a specific route and bring it to front.
+     *
+     * Uses three layers:
+     *   1. BroadcastChannel navigate → SPA routing on target (always works)
+     *   2. CDP focus via Flask backend → bring tab to foreground
+     *   3. Title flash → visual hint if CDP unavailable
+     *
+     * @param {string} targetType  - 'admin' or 'site:segment' (e.g. 'site:code-docs')
+     * @param {string} hash        - Hash route (e.g. '#content/docs/vault.py@preview')
+     *                               For admin tabs: sets location.hash (SPA routing)
+     *                               For site tabs: used as full URL path
+     */
+    function _meshNavigateTo(targetType, hash) {
+        // Parse target type
+        let matchTabType = 'admin';
+        let matchSiteName = null;
+        if (targetType.startsWith('site:')) {
+            matchTabType = 'site';
+            matchSiteName = targetType.substring(5);
+        } else if (targetType === 'site') {
+            matchTabType = 'site';
+        }
+
+        // Registry lookup — find best target
+        let target = null;
+        let targetId = null;
+        let bestLastSeen = 0;
+
+        for (const [id, entry] of _meshRegistry) {
+            if (id === _meshTabId) continue;
+            if (entry.tabType !== matchTabType) continue;
+            if (matchSiteName && entry.siteName !== matchSiteName) continue;
+            if (entry.lastSeen > bestLastSeen) {
+                target = entry;
+                targetId = id;
+                bestLastSeen = entry.lastSeen;
+            }
+        }
+
+        if (target) {
+            // ── Target found in registry ───────────────────────────
+            // 1. BC navigate (SPA routing on target — always works)
+            _meshBroadcast({
+                type:     'navigate',
+                id:       _meshTabId,
+                targetId: targetId,
+                hash:     hash,
+                ts:       Date.now(),
+            });
+
+            // 2. CDP focus (bring tab to front via Flask backend)
+            if (_meshCDPAvailable) {
+                var urlMatch = matchTabType === 'admin'
+                    ? '/'
+                    : '/pages/site/' + (matchSiteName || '');
+                _meshFocusViaCDP(urlMatch);
+            }
+            // If CDP not available, BC navigate already handles
+            // title flash on the target tab as visual feedback.
+        } else {
+            // ── Target NOT in registry → open new tab ──────────────
+            let fullUrl;
+            if (matchTabType === 'admin') {
+                fullUrl = location.origin + '/' + hash;
+            } else {
+                fullUrl = hash.startsWith('http') ? hash : location.origin + hash;
+            }
+            window.open(fullUrl, '_blank');
+        }
+    }
+
+    // ── Public API: kill ────────────────────────────────────────────────
+
+    function _meshKill(targetId, reason) {
+        _meshBroadcast({
+            type:     'kill',
+            id:       _meshTabId,
+            targetId: targetId,
+            reason:   reason || 'Manual kill from debug panel',
+            ts:       Date.now(),
+        });
+        // Mark as dead locally
+        if (_meshRegistry.has(targetId)) {
+            const entry = _meshRegistry.get(targetId);
+            _meshTombstones.push({
+                ...entry,
+                diedAt: Date.now(),
+                reason: 'killed',
+            });
+            _meshRegistry.delete(targetId);
+        }
+    }
+
+    // ── Public API: inspect ────────────────────────────────────────────
+
+    function _meshInspect(targetId) {
+        _meshBroadcast({
+            type:     'inspect',
+            id:       _meshTabId,
+            targetId: targetId,
+            ts:       Date.now(),
+        });
+    }
+
+    // ── Initialization ─────────────────────────────────────────────────
+
+    const _meshBootTime = Date.now();
+    let _meshHeartbeatInterval = null;
+
+    function _meshInit() {
+        // Register Service Worker
+        _meshRegisterSW();
+
+        // Set up BroadcastChannel
+        if (_meshCaps.broadcastChannel) {
+            try {
+                _meshBC = new BroadcastChannel('devops-tab-mesh');
+                _meshBC.onmessage = _meshHandleMessage;
+            } catch (err) {
+                console.warn('[TabMesh] BC failed:', err.message);
+                _meshBC = null;
+            }
+        }
+
+        // Add self to registry
+        _meshUpsertEntry({
+            id:       _meshIdentity.id,
+            tabType:  _meshIdentity.tabType,
+            siteName: _meshIdentity.siteName,
+            url:      _meshIdentity.url,
+            hash:     location.hash,
+            title:    _meshIdentity.title,
+            ts:       Date.now(),
+        });
+
+        // Announce our presence
+        _meshSendJoin();
+
+        // Start heartbeat
+        _meshHeartbeatInterval = setInterval(_meshSendPing, _MESH_HEARTBEAT_MS);
+
+        // Listen for route changes
+        window.addEventListener('hashchange', _meshSendState);
+        window.addEventListener('popstate', _meshSendState);
+
+        // Set window name for cross-tab window.open() targeting
+        if (_meshIdentity.tabType === 'admin') {
+            window.name = 'devops-admin';
+        } else if (_meshIdentity.siteName) {
+            window.name = 'devops-site-' + _meshIdentity.siteName;
+        }
+
+        // Leave on unload (best-effort)
+        window.addEventListener('beforeunload', _meshSendLeave);
+
+        // Check CDP availability
+        _meshCheckCDP();
+
+        // Expose public API
+        window.TabMesh = {
+            id:           _meshTabId,
+            identity:     _meshIdentity,
+            registry:     _meshRegistry,
+            tombstones:   _meshTombstones,
+            capabilities: _meshCaps,
+            get swState() { return _meshSWState; },
+            get cdpAvailable() { return _meshCDPAvailable; },
+            navigateTo:   _meshNavigateTo,
+            kill:         _meshKill,
+            inspect:      _meshInspect,
+            checkCDP:     _meshCheckCDP,
+            focusViaCDP:  _meshFocusViaCDP,
+        };
+    }
+
+    // Boot mesh immediately
+    _meshInit();
+</script>

@@ -26,6 +26,20 @@ function _peekMode(): 'dev' | 'live' {
     return IS_LOCAL ? 'dev' : 'live';
 }
 
+/**
+ * Open a hash route in the admin panel via Tab Mesh (SPA routing + focus)
+ * or fall back to window.open if the mesh is not available.
+ *
+ * @param hash  Hash route including '#', e.g. '#content/docs/vault.py@preview'
+ */
+function _openInAdmin(hash: string): void {
+    if (window.TabMesh) {
+        window.TabMesh.navigateTo('admin', hash);
+    } else {
+        window.open(`${ADMIN_URL || location.origin}/${hash}`, '_blank');
+    }
+}
+
 interface OutlineItem {
     text: string;
     line: number;
@@ -591,21 +605,21 @@ function showPeekTooltip(ref: PeekRef, anchorEl: HTMLElement): void {
         } else if (action === 'open') {
             _dismissPeekTooltip();
             if (mode === 'dev') {
-                window.open(`${ADMIN_URL}/#content/docs/${ref.resolved_path}@preview`, '_blank');
+                _openInAdmin(`#content/docs/${ref.resolved_path}@preview`);
             } else if (REPO_URL) {
                 window.open(`${REPO_URL}/blob/main/${ref.resolved_path}`, '_blank');
             }
         } else if (action === 'edit') {
             _dismissPeekTooltip();
             if (mode === 'dev') {
-                window.open(`${ADMIN_URL}/#content/docs/${ref.resolved_path}@edit`, '_blank');
+                _openInAdmin(`#content/docs/${ref.resolved_path}@edit`);
             } else if (REPO_URL) {
                 window.open(`${REPO_URL}/edit/main/${ref.resolved_path}`, '_blank');
             }
         } else if (action === 'browse') {
             _dismissPeekTooltip();
             if (mode === 'dev') {
-                window.open(`${ADMIN_URL}/#content/docs/${parentDir || ref.resolved_path}`, '_blank');
+                _openInAdmin(`#content/docs/${parentDir || ref.resolved_path}`);
             } else if (REPO_URL) {
                 window.open(`${REPO_URL}/tree/main/${parentDir || ref.resolved_path}`, '_blank');
             }
@@ -614,7 +628,7 @@ function showPeekTooltip(ref: PeekRef, anchorEl: HTMLElement): void {
             if (docPageHref) {
                 window.open(docPageHref, '_blank');
             } else if (mode === 'dev') {
-                window.open(`${ADMIN_URL}/#content/docs/${ref.resolved_path}@preview`, '_blank');
+                _openInAdmin(`#content/docs/${ref.resolved_path}@preview`);
             } else if (REPO_URL) {
                 window.open(`${REPO_URL}/blob/main/${ref.resolved_path}`, '_blank');
             }
@@ -654,13 +668,13 @@ function showPeekTooltip(ref: PeekRef, anchorEl: HTMLElement): void {
             } else if (action === 'open') {
                 const lineHash = line > 0 ? '#L' + line : '';
                 if (mode === 'dev') {
-                    window.open(`${ADMIN_URL}/#content/docs/${ref.resolved_path}@preview` + (line > 0 ? ':' + line : ''), '_blank');
+                    _openInAdmin(`#content/docs/${ref.resolved_path}@preview` + (line > 0 ? ':' + line : ''));
                 } else if (REPO_URL) {
                     window.open(`${REPO_URL}/blob/main/${ref.resolved_path}${lineHash}`, '_blank');
                 }
             } else if (action === 'browse') {
                 if (mode === 'dev') {
-                    window.open(`${ADMIN_URL}/#content/docs/${parentDir || ref.resolved_path}`, '_blank');
+                    _openInAdmin(`#content/docs/${parentDir || ref.resolved_path}`);
                 } else if (REPO_URL) {
                     window.open(`${REPO_URL}/tree/main/${parentDir || ref.resolved_path}`, '_blank');
                 }
@@ -669,7 +683,7 @@ function showPeekTooltip(ref: PeekRef, anchorEl: HTMLElement): void {
                 if (ref.doc_url) {
                     window.open(BASE_URL + ref.doc_url, '_blank');
                 } else if (mode === 'dev') {
-                    window.open(`${ADMIN_URL}/#content/docs/${ref.resolved_path}@preview` + (line > 0 ? ':' + line : ''), '_blank');
+                    _openInAdmin(`#content/docs/${ref.resolved_path}@preview` + (line > 0 ? ':' + line : ''));
                 } else if (REPO_URL) {
                     window.open(`${REPO_URL}/blob/main/${ref.resolved_path}${lineHash}`, '_blank');
                 }
@@ -888,7 +902,7 @@ async function _openPeekPreview(ref: PeekRef): Promise<void> {
             _closePeekPreview();
             const m = _peekMode();
             if (m === 'dev') {
-                window.open(`${ADMIN_URL}/#content/docs/${readmePath}@preview` + (currentLine > 0 ? ':' + currentLine : ''), '_blank');
+                _openInAdmin(`#content/docs/${readmePath}@preview` + (currentLine > 0 ? ':' + currentLine : ''));
             } else if (REPO_URL) {
                 window.open(`${REPO_URL}/blob/main/${readmePath}`, '_blank');
             }
@@ -903,7 +917,7 @@ async function _openPeekPreview(ref: PeekRef): Promise<void> {
             const liveLine = _peekCurrentLine || ref.line_number || 0;
             _closePeekPreview();
             if (m === 'dev') {
-                window.open(`${ADMIN_URL}/#content/docs/${ref.resolved_path}@preview` + (liveLine > 0 ? ':' + liveLine : ''), '_blank');
+                _openInAdmin(`#content/docs/${ref.resolved_path}@preview` + (liveLine > 0 ? ':' + liveLine : ''));
             } else if (REPO_URL) {
                 window.open(`${REPO_URL}/blob/main/${ref.resolved_path}${liveLine > 0 ? '#L' + liveLine : ''}`, '_blank');
             } else if (ref.doc_url) {
@@ -921,7 +935,7 @@ async function _openPeekPreview(ref: PeekRef): Promise<void> {
             const liveLine = _peekCurrentLine || ref.line_number || 0;
             _closePeekPreview();
             if (m === 'dev') {
-                window.open(`${ADMIN_URL}/#content/docs/${ref.resolved_path}@edit` + (liveLine > 0 ? ':' + liveLine : ''), '_blank');
+                _openInAdmin(`#content/docs/${ref.resolved_path}@edit` + (liveLine > 0 ? ':' + liveLine : ''));
             } else if (REPO_URL) {
                 window.open(`${REPO_URL}/edit/main/${ref.resolved_path}`, '_blank');
             }
@@ -1539,13 +1553,13 @@ async function _peekFetchOutlineAsync(
                         _openPeekPreview(previewRef);
                     } else if (action === 'open') {
                         if (mode === 'dev') {
-                            window.open(`${ADMIN_URL}/#content/docs/${ref.resolved_path}@preview` + (line > 0 ? ':' + line : ''), '_blank');
+                            _openInAdmin(`#content/docs/${ref.resolved_path}@preview` + (line > 0 ? ':' + line : ''));
                         } else if (REPO_URL) {
                             window.open(`${REPO_URL}/blob/main/${ref.resolved_path}${line > 0 ? '#L' + line : ''}`, '_blank');
                         }
                     } else if (action === 'browse') {
                         if (mode === 'dev') {
-                            window.open(`${ADMIN_URL}/#content/docs/${pDir || ref.resolved_path}`, '_blank');
+                            _openInAdmin(`#content/docs/${pDir || ref.resolved_path}`);
                         } else if (REPO_URL) {
                             window.open(`${REPO_URL}/tree/main/${pDir || ref.resolved_path}`, '_blank');
                         }
@@ -1553,7 +1567,7 @@ async function _peekFetchOutlineAsync(
                         if (ref.doc_url) {
                             window.open(BASE_URL + ref.doc_url, '_blank');
                         } else if (mode === 'dev') {
-                            window.open(`${ADMIN_URL}/#content/docs/${ref.resolved_path}@preview` + (line > 0 ? ':' + line : ''), '_blank');
+                            _openInAdmin(`#content/docs/${ref.resolved_path}@preview` + (line > 0 ? ':' + line : ''));
                         } else if (REPO_URL) {
                             window.open(`${REPO_URL}/blob/main/${ref.resolved_path}${line > 0 ? '#L' + line : ''}`, '_blank');
                         }

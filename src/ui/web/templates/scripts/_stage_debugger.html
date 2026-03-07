@@ -158,7 +158,16 @@
                 '<div class="debug-drawer-title">' +
                     '<span style="font-size:1rem">🔧</span> Stage Debugger' +
                 '</div>' +
-                '<button class="debug-drawer-close" onclick="_toggleDebugDrawer()" title="Close">&times;</button>' +
+                '<div style="display:flex;align-items:center;gap:6px">' +
+                    '<button onclick="_toggleMeshPanel()" title="Tab Mesh Panel" ' +
+                        'style="background:none;border:1px solid var(--border-subtle);color:var(--text-muted);' +
+                        'font-size:0.68rem;padding:2px 8px;border-radius:var(--radius-sm);cursor:pointer;' +
+                        'display:flex;align-items:center;gap:4px;transition:all 0.15s" ' +
+                        'onmouseover="this.style.color=\'var(--accent)\';this.style.borderColor=\'var(--accent)\'" ' +
+                        'onmouseout="this.style.color=\'var(--text-muted)\';this.style.borderColor=\'var(--border-subtle)\'">' +
+                        '📡 Mesh</button>' +
+                    '<button class="debug-drawer-close" onclick="_toggleDebugDrawer()" title="Close">&times;</button>' +
+                '</div>' +
             '</div>' +
             // Tab bar
             '<div class="debug-tab-bar">' +

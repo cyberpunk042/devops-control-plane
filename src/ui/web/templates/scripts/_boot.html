@@ -8,6 +8,46 @@
         // Restore tab from URL hash FIRST — so the correct tab is visible instantly
         restoreFromHash();
 
+        // ── Chrome sign-in flow ──
+        // When Chrome restarts with #chrome-signin&email=EMAIL, auto-trigger
+        // the CDP-based sign-in flow (open sync settings, fill email).
+        if (location.hash.startsWith('#chrome-signin')) {
+            const params = new URLSearchParams(location.hash.replace('#chrome-signin', '').replace('&', '?').slice(1) || '');
+            // Parse email from hash: #chrome-signin&email=user@example.com
+            let signinEmail = '';
+            const hashParts = location.hash.split('&');
+            for (const part of hashParts) {
+                if (part.startsWith('email=')) {
+                    signinEmail = decodeURIComponent(part.slice(6));
+                }
+            }
+
+            // Show a visible status card while we work
+            const main = document.querySelector('.main-content') || document.body;
+            const card = document.createElement('div');
+            card.id = 'chrome-signin-card';
+            card.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);' +
+                'z-index:9999;background:var(--surface-2,#1e1e2e);border:1px solid var(--accent,#7c3aed);' +
+                'border-radius:12px;padding:2rem 2.5rem;text-align:center;box-shadow:0 8px 32px rgba(0,0,0,.5);' +
+                'min-width:340px;font-family:inherit';
+            card.innerHTML =
+                '<div style="font-size:2rem;margin-bottom:12px">🔑</div>' +
+                '<div style="font-size:1rem;font-weight:700;margin-bottom:8px;color:var(--text,#fff)">Signing in to Chrome</div>' +
+                '<div style="font-size:0.8rem;color:var(--text-muted,#aaa);margin-bottom:16px">' +
+                (signinEmail ? 'Pre-filling <strong>' + signinEmail + '</strong>…' : 'Opening Chrome sign-in…') +
+                '</div>' +
+                '<div id="chrome-signin-status" style="font-size:0.75rem;color:var(--text-muted,#999)">⏳ Waiting for Chrome sync…</div>';
+            document.body.appendChild(card);
+
+            // Clear the hash so it doesn't persist
+            history.replaceState(null, '', location.pathname + '#dashboard');
+
+            // Auto-trigger the sign-in flow
+            if (signinEmail) {
+                _autoTriggerChromeSignin(signinEmail);
+            }
+        }
+
         // ── First-launch detection ──
         // If no explicit hash was set (user landed on root), check if project
         // is configured. If not → redirect to the wizard.
@@ -117,5 +157,58 @@
                     : { label: 'Go to Dashboard', cls: 'btn-primary', onclick: 'modalClose();switchTab("dashboard")' },
             ],
         });
+    }
+
+    /**
+     * Auto-trigger Chrome sign-in and fill email via CDP.
+     * Called when the page loads with #chrome-signin hash.
+     */
+    async function _autoTriggerChromeSignin(email, attempt) {
+        attempt = attempt || 1;
+        const statusEl = document.getElementById('chrome-signin-status');
+        const card = document.getElementById('chrome-signin-card');
+
+        if (attempt > 3) {
+            if (statusEl) statusEl.innerHTML = '❌ Sign-in page did not appear after 3 attempts.<br>' +
+                '<button class="btn btn-sm btn-primary" style="margin-top:10px" ' +
+                'onclick="this.parentElement.parentElement.remove()">Dismiss</button>';
+            return;
+        }
+
+        if (statusEl) statusEl.textContent = '⏳ Attempt ' + attempt + '/3 — triggering Chrome sign-in…';
+
+        try {
+            const resp = await fetch('/api/tab-mesh/trigger-chrome-signin', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email: email }),
+            });
+            const data = await resp.json();
+
+            if (data.success && data.step === 'email_filled') {
+                if (statusEl) statusEl.innerHTML =
+                    '✅ <strong>Email filled!</strong> Enter your password in the sign-in tab.' +
+                    '<br><button class="btn btn-sm btn-ghost" style="margin-top:12px" ' +
+                    'onclick="this.parentElement.parentElement.remove()">Dismiss</button>';
+                if (card) {
+                    card.style.borderColor = 'var(--success, #22c55e)';
+                    // Auto-dismiss after 3 seconds
+                    setTimeout(() => card.remove(), 3000);
+                }
+            } else if (data.step === 'waiting_for_signin_page') {
+                if (statusEl) statusEl.textContent = '🔄 Sign-in page not yet open — click "Turn on sync" in Chrome settings, retrying in 5s…';
+                setTimeout(() => _autoTriggerChromeSignin(email, attempt + 1), 5000);
+            } else {
+                if (statusEl) statusEl.innerHTML = '❌ ' + (data.message || 'Failed') +
+                    '<br><button class="btn btn-sm btn-primary" style="margin-top:10px" ' +
+                    'onclick="_autoTriggerChromeSignin(\'' + email.replace(/'/g, "\\'") + '\')">' +
+                    'Retry</button>';
+            }
+        } catch (err) {
+            if (statusEl) statusEl.innerHTML = '❌ ' + err.message +
+                '<br><button class="btn btn-sm btn-primary" style="margin-top:10px" ' +
+                'onclick="_autoTriggerChromeSignin(\'' + email.replace(/'/g, "\\'") + '\')">' +
+                'Retry</button>';
+        }
     }
 </script>

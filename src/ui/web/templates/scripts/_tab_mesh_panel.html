@@ -1,0 +1,831 @@
+<script>
+    // ─────────────────────────────────────────────────────────────────
+    //  _tab_mesh_panel.html
+    //
+    //  Floating Tab Mesh management panel.
+    //  Toggled by the 📡 Mesh button in the Stage Debugger drawer header.
+    //  position:fixed overlay — accessible from anywhere.
+    // ─────────────────────────────────────────────────────────────────
+
+    var _meshPanelOpen = false;
+    var _meshAutoRefreshInterval = null;
+    var _meshWizardActive = false;  // true when setup wizard is showing
+
+    function _toggleMeshPanel() {
+        _meshPanelOpen = !_meshPanelOpen;
+
+        // Close the Stage Debugger drawer when opening mesh panel
+        if (_meshPanelOpen && _debugDrawerOpen) {
+            _toggleDebugDrawer();
+        }
+
+        var backdrop = document.getElementById('mesh-panel-backdrop');
+        var panel = document.getElementById('mesh-panel');
+        if (!panel) {
+            _injectMeshPanel();
+            backdrop = document.getElementById('mesh-panel-backdrop');
+            panel = document.getElementById('mesh-panel');
+        }
+        if (_meshPanelOpen) {
+            backdrop.style.display = 'block';
+            panel.style.display = 'flex';
+            _renderMeshPanel();
+            // Start auto-refresh (pauses when diagnostic has content)
+            if (!_meshAutoRefreshInterval) {
+                _meshAutoRefreshInterval = setInterval(function() {
+                    if (!_meshPanelOpen) {
+                        clearInterval(_meshAutoRefreshInterval);
+                        _meshAutoRefreshInterval = null;
+                        return;
+                    }
+                    // Don't clobber wizard or inspect dump output
+                    if (_meshWizardActive) return;
+                    var dumpEl = document.getElementById('mesh-panel-dump');
+                    if (dumpEl && dumpEl.style.display !== 'none') {
+                        return;
+                    }
+                    _renderMeshPanel();
+                }, 3000);
+            }
+        } else {
+            _closeMeshPanel();
+        }
+    }
+
+    function _closeMeshPanel() {
+        _meshPanelOpen = false;
+        var backdrop = document.getElementById('mesh-panel-backdrop');
+        var panel = document.getElementById('mesh-panel');
+        if (backdrop) backdrop.style.display = 'none';
+        if (panel) panel.style.display = 'none';
+        if (_meshAutoRefreshInterval) {
+            clearInterval(_meshAutoRefreshInterval);
+            _meshAutoRefreshInterval = null;
+        }
+    }
+
+    /**
+     * Focus a tab via CDP from the mesh panel.
+     * If CDP is not available, shows the setup wizard.
+     */
+    async function _meshPanelFocus(urlMatch) {
+        if (!window.TabMesh || !window.TabMesh.cdpAvailable) {
+            _meshShowSetup();
+            return;
+        }
+        var result = await window.TabMesh.focusViaCDP(urlMatch);
+        if (result && result.success) {
+            console.log('[MeshPanel] Focus succeeded:', result.url);
+        } else {
+            console.log('[MeshPanel] Focus failed:', result);
+        }
+    }
+
+    /**
+     * Show the CDP setup wizard.
+     * Fetches diagnostic data and guides the user through setup.
+     */
+    async function _meshShowSetup() {
+        _meshWizardActive = true;
+        var body = document.getElementById('mesh-panel-body');
+        if (!body) return;
+
+        body.innerHTML =
+            '<div style="text-align:center;padding:2rem;color:var(--text-muted);font-size:0.76rem">' +
+                '<div style="font-size:1.5rem;margin-bottom:8px">🔍</div>' +
+                'Checking your system…' +
+            '</div>';
+
+        try {
+            var resp = await fetch('/api/tab-mesh/cdp-diagnose');
+            var diag = await resp.json();
+            _meshRenderSetupWizard(body, diag);
+        } catch (err) {
+            body.innerHTML =
+                '<div style="text-align:center;padding:2rem;color:var(--danger);font-size:0.76rem">' +
+                    '<div style="font-size:1.5rem;margin-bottom:8px">❌</div>' +
+                    'Failed to diagnose: ' + err.message +
+                '</div>';
+        }
+    }
+
+    /**
+     * Render the CDP setup wizard based on diagnostic data.
+     * This is the guided wizard flow.
+     */
+    function _meshRenderSetupWizard(container, diag) {
+        var html = '';
+
+        // Step 1: Detection results
+        html += '<div style="font-size:0.78rem;font-weight:700;margin-bottom:10px;color:var(--text-primary)">' +
+            '📡 Tab Focus Setup</div>';
+        html += '<div style="font-size:0.7rem;color:var(--text-muted);margin-bottom:12px">' +
+            'Tab focus lets you click a link in one tab and have the other tab jump to the front — no manual switching. ' +
+            'It works through Chrome\'s debugging interface, which needs a small one-time setup.</div>';
+
+        // Detection items
+        var checks = [
+            [diag.wsl, 'WSL interop is working', 'Not running under WSL'],
+            [!!diag.windows_user, 'Windows user: ' + (diag.windows_user || '?'), 'Could not detect Windows user'],
+            [diag.chrome_exe_found, 'Chrome found', 'Chrome not found at default location'],
+            [diag.cdp_active, 'Remote debugging is active!', 'Remote debugging is not active'],
+        ];
+        for (var i = 0; i < checks.length; i++) {
+            var icon = checks[i][0] ? '✅' : '❌';
+            var text = checks[i][0] ? checks[i][1] : checks[i][2];
+            html += '<div style="font-size:0.68rem;padding:2px 0;color:var(--text-primary)">' +
+                icon + ' ' + text + '</div>';
+        }
+
+        if (diag.cdp_active) {
+            // Already working!
+            html += '<div style="margin-top:12px;padding:10px;border-radius:var(--radius-sm);' +
+                'background:rgba(52,211,153,0.08);border:1px solid rgba(52,211,153,0.2);' +
+                'font-size:0.7rem;color:var(--success)">' +
+                '🎉 Tab focus is already working! When you click a cross-tab link, ' +
+                'the target tab will come to the front automatically.' +
+                '</div>';
+            html += '<div style="margin-top:10px;text-align:right">' +
+                '<button class="btn btn-sm btn-primary" onclick="_renderMeshPanel()">Done</button></div>';
+            container.innerHTML = html;
+            return;
+        }
+
+        if (!diag.wsl || !diag.windows_user || !diag.chrome_exe_found) {
+            // Can't proceed with auto-remediation
+            html += '<div style="margin-top:12px;padding:10px;border-radius:var(--radius-sm);' +
+                'background:rgba(248,113,113,0.08);border:1px solid rgba(248,113,113,0.2);' +
+                'font-size:0.7rem;color:var(--text-muted)">' +
+                'Auto-setup requires WSL interop and Chrome. Please check the items above.' +
+                '</div>';
+            html += '<div style="margin-top:10px;text-align:right">' +
+                '<button class="btn btn-sm btn-ghost" onclick="_renderMeshPanel()">← Back</button></div>';
+            container.innerHTML = html;
+            return;
+        }
+
+        // Profile selection (if multiple profiles)
+        var profiles = diag.profiles || [];
+        if (profiles.length > 1) {
+            html += '<div style="font-size:0.74rem;font-weight:600;margin:14px 0 6px;color:var(--text-primary)">' +
+                'Which Chrome profile do you use?</div>';
+            html += '<div style="font-size:0.66rem;color:var(--text-muted);margin-bottom:8px">' +
+                'Chrome stores your bookmarks, extensions, and history in a "profile." ' +
+                'Pick the one you use for this admin panel.</div>';
+            for (var pi = 0; pi < profiles.length; pi++) {
+                var p = profiles[pi];
+                var isDefault = p.dir === 'Default';
+                html += '<label style="display:flex;align-items:center;gap:6px;padding:4px 8px;' +
+                    'border-radius:var(--radius-sm);cursor:pointer;font-size:0.68rem;color:var(--text-primary)">' +
+                    '<input type="radio" name="mesh-profile" value="' + esc(p.dir) + '"' +
+                    (isDefault ? ' checked' : '') + '>' +
+                    '<span><strong>' + esc(p.name) + '</strong>' +
+                    (p.email ? ' <span style="color:var(--text-muted)">(' + esc(p.email) + ')</span>' : '') +
+                    ' <span style="font-size:0.58rem;color:var(--text-muted)">← ' + esc(p.dir) + '</span></span>' +
+                    '</label>';
+            }
+        }
+
+        // Shortcuts to update
+        var shortcuts = diag.shortcuts || {};
+        var foundKeys = [];
+        var shortcutLabels = {
+            taskbar: 'Taskbar pin',
+            desktop: 'Desktop shortcut',
+            start_menu_global: 'Start Menu',
+            start_menu_user: 'Start Menu (user)',
+        };
+        html += '<div style="font-size:0.74rem;font-weight:600;margin:14px 0 6px;color:var(--text-primary)">' +
+            'Shortcuts to update</div>';
+        html += '<div style="font-size:0.66rem;color:var(--text-muted);margin-bottom:8px">' +
+            'I\'ll add the debugging flag to all found shortcuts so it works however you open Chrome.</div>';
+
+        for (var key in shortcuts) {
+            if (!shortcuts[key].found) continue;
+            foundKeys.push(key);
+            var label = shortcutLabels[key] || key;
+            var alreadyOk = shortcuts[key].has_debug_port;
+            html += '<label style="display:flex;align-items:center;gap:6px;padding:3px 8px;' +
+                'font-size:0.68rem;color:var(--text-primary)">' +
+                '<input type="checkbox" class="mesh-shortcut-cb" value="' + esc(key) + '"' +
+                (alreadyOk ? ' disabled checked' : ' checked') + '>' +
+                esc(label) +
+                (alreadyOk ? ' <span style="color:var(--success);font-size:0.58rem">✅ already configured</span>' : '') +
+                '</label>';
+        }
+
+        if (foundKeys.length === 0) {
+            html += '<div style="font-size:0.66rem;color:var(--warning);padding:4px 0">' +
+                '⚠️ No Chrome shortcuts found. You may need to set up manually.</div>';
+        }
+
+        // What we'll add
+        html += '<div style="font-size:0.66rem;color:var(--text-muted);margin-top:8px;padding:6px 8px;' +
+            'background:var(--bg-secondary);border-radius:var(--radius-sm);font-family:var(--font-mono)">' +
+            'What I\'ll set on each:<br>' +
+            '&nbsp;&nbsp;--remote-debugging-port=9222<br>';
+        if (diag.requires_user_data_dir) {
+            html += '&nbsp;&nbsp;--user-data-dir="' + esc(diag.chrome_data_dir || '') + '"<br>';
+        }
+        html += '<div style="margin-top:4px;font-family:inherit;font-size:0.62rem;color:var(--text-muted)">' +
+            'Chrome 136+ requires a <strong>separate</strong> profile directory for remote debugging ' +
+            '(pointing to the default User Data path is silently ignored). ' +
+            'A lightweight ChromeDebug profile will be created — ' +
+            'your real bookmarks and extensions stay untouched.</div></div>';
+
+        // Buttons
+        html += '<div style="margin-top:14px;display:flex;gap:8px;justify-content:flex-end">' +
+            '<button class="btn btn-sm btn-ghost" onclick="_renderMeshPanel()">← Back</button>' +
+            '<button class="btn btn-sm btn-primary" id="mesh-apply-btn" onclick="_meshApplyRemediation()">' +
+            'Apply All →</button></div>';
+
+        // Store diag data for apply
+        window._meshSetupDiag = diag;
+        container.innerHTML = html;
+    }
+
+    /**
+     * Apply the shortcut remediation.
+     */
+    async function _meshApplyRemediation() {
+        var body = document.getElementById('mesh-panel-body');
+        var btn = document.getElementById('mesh-apply-btn');
+        if (btn) { btn.disabled = true; btn.textContent = 'Applying…'; }
+
+        // Collect selected shortcuts
+        var checkboxes = document.querySelectorAll('.mesh-shortcut-cb:checked:not(:disabled)');
+        var selectedKeys = [];
+        for (var i = 0; i < checkboxes.length; i++) {
+            selectedKeys.push(checkboxes[i].value);
+        }
+
+        // Get selected profile
+        var profileRadio = document.querySelector('input[name="mesh-profile"]:checked');
+        var profileDir = profileRadio ? profileRadio.value : 'Default';
+
+        try {
+            var resp = await fetch('/api/tab-mesh/cdp-remediate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    shortcuts: selectedKeys,
+                    profile_dir: profileDir,
+                    port: 9222,
+                }),
+            });
+            var result = await resp.json();
+            result._profileDir = profileDir;  // Pass through for restart
+            _meshRenderPostApply(body, result);
+        } catch (err) {
+            if (body) {
+                body.innerHTML =
+                    '<div style="padding:1rem;color:var(--danger);font-size:0.74rem">' +
+                    '❌ Remediation failed: ' + err.message + '</div>' +
+                    '<div style="text-align:right;margin-top:10px">' +
+                    '<button class="btn btn-sm btn-ghost" onclick="_meshShowSetup()">← Retry</button></div>';
+            }
+        }
+    }
+
+    /**
+     * Render the post-apply step – one-click Chrome restart.
+     */
+    function _meshRenderPostApply(container, result) {
+        var profileDir = result._profileDir || 'Default';
+
+        var html = '<div style="font-size:0.78rem;font-weight:700;margin-bottom:10px;color:var(--text-primary)">' +
+            '📡 Shortcuts updated!</div>';
+
+        // Show results for each shortcut
+        var results = result.results || {};
+        for (var key in results) {
+            var ok = results[key].success;
+            html += '<div style="font-size:0.68rem;padding:2px 0;color:var(--text-primary)">' +
+                (ok ? '✅' : '❌') + ' ' + key + ' shortcut ' + (ok ? 'updated' : 'failed') + '</div>';
+        }
+
+        // Explanation
+        html += '<div style="margin-top:12px;padding:10px;border-radius:var(--radius-sm);' +
+            'background:rgba(99,102,241,0.06);border:1px solid rgba(99,102,241,0.15);' +
+            'font-size:0.7rem;color:var(--text-primary)">' +
+            '<div style="font-weight:600;margin-bottom:6px">One more step:</div>' +
+            '<div style="font-size:0.66rem;color:var(--text-muted);line-height:1.6">' +
+                'Chrome needs a full restart for the debug port to activate. ' +
+                'Click below and I\'ll handle everything — kill Chrome, ' +
+                'copy your profile (bookmarks, logins, extensions), ' +
+                'and relaunch with debugging enabled. You\'ll land right back here.' +
+            '</div></div>';
+
+        // Status area (hidden until restart starts)
+        html += '<div id="mesh-restart-status" style="display:none;margin-top:10px;' +
+            'padding:8px;border-radius:var(--radius-sm);background:var(--bg-secondary);' +
+            'font-size:0.66rem;color:var(--text-muted);line-height:1.8"></div>';
+
+        // Buttons
+        html += '<div style="margin-top:14px;display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap">' +
+            '<button class="btn btn-sm btn-ghost" onclick="_renderMeshPanel()">← Back</button>' +
+            '<button class="btn btn-sm btn-primary" id="mesh-restart-btn" ' +
+                'onclick="_meshRestartChrome(\'' + profileDir + '\')">' +
+                '🔄 Restart Chrome</button></div>';
+
+        container.innerHTML = html;
+    }
+
+    /**
+     * Orchestrated Chrome restart: schedule kill + copy profile + relaunch.
+     * Backend returns immediately. A background PS1 script will:
+     * wait 2s → kill Chrome → copy profile → relaunch with debug flags.
+     */
+    async function _meshRestartChrome(profileDir) {
+        var btn = document.getElementById('mesh-restart-btn');
+        var status = document.getElementById('mesh-restart-status');
+        if (btn) { btn.disabled = true; btn.textContent = '⏳ Scheduling…'; }
+        if (status) {
+            status.style.display = 'block';
+            status.innerHTML = '⏳ Setting up restart…';
+        }
+
+        try {
+            var resp = await fetch('/api/tab-mesh/restart-chrome', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    profile_dir: profileDir,
+                    return_url: window.location.origin,
+                }),
+            });
+            var data = await resp.json();
+
+            if (!data.success) {
+                if (status) {
+                    status.innerHTML = '❌ ' + (data.error || 'Failed to schedule restart');
+                }
+                if (btn) {
+                    btn.textContent = '↻ Retry';
+                    btn.disabled = false;
+                }
+                return;
+            }
+
+            // Success — countdown to Chrome close
+            var userEmail = data.email || '';
+            if (status) {
+                var emailPart = userEmail
+                    ? 'Chrome will reopen on the admin panel with debugging enabled. ' +
+                      'To restore bookmarks &amp; extensions, sign into Chrome with ' +
+                      '<strong>' + userEmail + '</strong> (menu \u2192 Sign in to Chrome).'
+                    : 'Chrome will reopen with debugging enabled.';
+                status.innerHTML =
+                    '\u2705 Restart scheduled!<br>' +
+                    '\ud83d\udd04 Chrome will close in <strong id="mesh-countdown">3</strong> seconds\u2026<br>' +
+                    '<div style="margin-top:6px;font-size:0.62rem;color:var(--text-muted)">' +
+                    emailPart + '</div>';
+            }
+            if (btn) {
+                btn.textContent = '✅ Scheduled';
+                btn.style.background = 'var(--success)';
+                btn.style.color = 'white';
+            }
+
+            // Countdown animation
+            var countEl = document.getElementById('mesh-countdown');
+            var seconds = 3;
+            var countdown = setInterval(function() {
+                seconds--;
+                if (countEl) countEl.textContent = seconds;
+                if (seconds <= 0) {
+                    clearInterval(countdown);
+                    if (status) {
+                        var signinHtml = '';
+                        if (userEmail) {
+                            signinHtml =
+                                '<div style="margin-top:10px">' +
+                                '<button class="btn btn-sm btn-primary" ' +
+                                'onclick="_meshTriggerSignin(\'' + userEmail.replace(/'/g, "\\'") + '\')" ' +
+                                'id="mesh-signin-btn">' +
+                                '🔑 Sign in to Chrome (' + userEmail + ')' +
+                                '</button>' +
+                                '</div>';
+                        }
+                        status.innerHTML +=
+                            '<br>🚀 <strong>Chrome is restarting now…</strong>' +
+                            signinHtml;
+                    }
+                }
+            }, 1000);
+
+        } catch (err) {
+            if (status) { status.innerHTML = '❌ Error: ' + err.message; }
+            if (btn) {
+                btn.textContent = '↻ Retry';
+                btn.disabled = false;
+            }
+        }
+    }
+
+    /**
+     * Trigger Chrome sign-in and pre-fill email via CDP.
+     */
+    async function _meshTriggerSignin(email) {
+        var btn = document.getElementById('mesh-signin-btn');
+        if (btn) {
+            btn.disabled = true;
+            btn.textContent = '⏳ Opening sign-in…';
+        }
+
+        try {
+            var resp = await fetch('/api/tab-mesh/trigger-chrome-signin', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email: email }),
+            });
+            var data = await resp.json();
+
+            if (btn) {
+                if (data.success && data.step === 'email_filled') {
+                    btn.textContent = '✅ Email filled — enter your password';
+                    btn.style.background = 'var(--success)';
+                    btn.style.color = 'white';
+                } else if (data.step === 'waiting_for_signin_page') {
+                    btn.textContent = '🔄 Click "Sign in" in Chrome, then retry';
+                    btn.disabled = false;
+                } else {
+                    btn.textContent = '❌ ' + (data.message || 'Failed');
+                    btn.disabled = false;
+                }
+            }
+        } catch (err) {
+            if (btn) {
+                btn.textContent = '❌ ' + err.message;
+                btn.disabled = false;
+            }
+        }
+    }
+
+    /**
+     * Verify that CDP is now working after Chrome restart.
+     */
+    async function _meshVerifyCDP() {
+        var body = document.getElementById('mesh-panel-body');
+        if (!body) return;
+
+        body.innerHTML =
+            '<div style="text-align:center;padding:2rem;color:var(--text-muted);font-size:0.76rem">' +
+                '<div style="font-size:1.5rem;margin-bottom:8px">🔍</div>' +
+                'Checking Chrome debugging port…' +
+            '</div>';
+
+        try {
+            // Re-check CDP and update TabMesh state
+            await window.TabMesh.checkCDP();
+            var resp = await fetch('/api/tab-mesh/cdp-status');
+            var status = await resp.json();
+
+            if (status.available) {
+                body.innerHTML =
+                    '<div style="padding:1.5rem;text-align:center">' +
+                    '<div style="font-size:2rem;margin-bottom:8px">🎉</div>' +
+                    '<div style="font-size:0.78rem;font-weight:700;color:var(--success);margin-bottom:8px">' +
+                        'Chrome debugging is active!</div>' +
+                    '<div style="font-size:0.68rem;color:var(--text-muted);margin-bottom:12px">' +
+                        'Tab focus is now working. When you click a cross-tab link, ' +
+                        'the target tab will come to the front automatically.</div>' +
+                    '<button class="btn btn-sm btn-primary" onclick="_renderMeshPanel()">Done ✓</button>' +
+                    '</div>';
+            } else {
+                body.innerHTML =
+                    '<div style="padding:1rem">' +
+                    '<div style="font-size:0.78rem;font-weight:700;color:var(--warning);margin-bottom:8px">' +
+                        '❌ Chrome debugging is still not responding.</div>' +
+                    '<div style="font-size:0.68rem;color:var(--text-muted);margin-bottom:10px">' +
+                        'Chrome may still be starting up. Give it a few seconds and try again.' +
+                    '</div>' +
+                    '<div style="margin-top:12px;display:flex;gap:8px;justify-content:flex-end">' +
+                        '<button class="btn btn-sm btn-ghost" onclick="_renderMeshPanel()">← Back</button>' +
+                        '<button class="btn btn-sm btn-primary" onclick="_meshVerifyCDP()">Retry ↻</button>' +
+                    '</div></div>';
+            }
+        } catch (err) {
+            body.innerHTML =
+                '<div style="padding:1rem;color:var(--danger);font-size:0.74rem">' +
+                '❌ Check failed: ' + err.message + '</div>' +
+                '<div style="text-align:right;margin-top:10px">' +
+                '<button class="btn btn-sm btn-ghost" onclick="_meshVerifyCDP()">Retry</button></div>';
+        }
+    }
+
+
+    function _injectMeshPanel() {
+        if (document.getElementById('mesh-panel')) return;
+
+        // Backdrop — click to close
+        var backdrop = document.createElement('div');
+        backdrop.id = 'mesh-panel-backdrop';
+        backdrop.onclick = _closeMeshPanel;
+        backdrop.style.cssText =
+            'display:none;position:fixed;top:0;left:0;width:100vw;height:100vh;z-index:955;' +
+            'background:rgba(0,0,0,0.45);backdrop-filter:blur(2px);-webkit-backdrop-filter:blur(2px);';
+        document.body.appendChild(backdrop);
+
+        // Panel — centered
+        var panel = document.createElement('div');
+        panel.id = 'mesh-panel';
+        panel.style.cssText =
+            'display:none;position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);' +
+            'width:540px;max-width:90vw;max-height:75vh;z-index:960;' +
+            'background:var(--bg-inset,#0f1117);border:1px solid rgba(99,102,241,0.25);' +
+            'border-radius:var(--radius-lg,12px);' +
+            'box-shadow:0 12px 48px rgba(0,0,0,0.4),0 0 0 1px rgba(99,102,241,0.08);' +
+            'flex-direction:column;overflow:hidden;';
+
+        panel.innerHTML =
+            // Header
+            '<div style="display:flex;align-items:center;justify-content:space-between;' +
+                'padding:12px 16px;border-bottom:1px solid rgba(99,102,241,0.15);' +
+                'background:linear-gradient(135deg,rgba(99,102,241,0.08),rgba(52,211,153,0.04));flex-shrink:0">' +
+                '<div style="font-size:0.84rem;font-weight:700;color:var(--text-primary);' +
+                    'display:flex;align-items:center;gap:8px">' +
+                    '<span style="font-size:1.1rem">📡</span> Tab Mesh' +
+                    '<span id="mesh-panel-count" style="font-size:0.58rem;padding:1px 7px;' +
+                        'border-radius:10px;background:var(--accent);color:#fff;font-weight:600;' +
+                        'min-width:16px;text-align:center"></span>' +
+                '</div>' +
+                '<div style="display:flex;align-items:center;gap:6px">' +
+                    '<button onclick="_renderMeshPanel()" title="Refresh" ' +
+                        'style="background:none;border:1px solid var(--border-subtle);color:var(--text-muted);' +
+                        'font-size:0.65rem;padding:2px 6px;border-radius:var(--radius-sm);cursor:pointer">' +
+                        '🔄</button>' +
+                    '<button onclick="_closeMeshPanel()" title="Close" ' +
+                        'style="background:none;border:none;color:var(--text-muted);font-size:1.3rem;' +
+                        'cursor:pointer;padding:0 4px;line-height:1">&times;</button>' +
+                '</div>' +
+            '</div>' +
+            // Body (scrollable)
+            '<div id="mesh-panel-body" style="flex:1;overflow-y:auto;padding:14px 16px">' +
+                '<div style="color:var(--text-muted);font-size:0.74rem">Initializing…</div>' +
+            '</div>';
+
+        document.body.appendChild(panel);
+    }
+
+    function _renderMeshPanel() {
+        _meshWizardActive = false;
+        var body = document.getElementById('mesh-panel-body');
+        var countEl = document.getElementById('mesh-panel-count');
+        if (!body) return;
+
+        if (!window.TabMesh) {
+            body.innerHTML =
+                '<div style="text-align:center;padding:2rem;color:var(--text-muted);font-size:0.76rem">' +
+                    '📡 Tab Mesh not initialized' +
+                '</div>';
+            if (countEl) countEl.textContent = '—';
+            return;
+        }
+
+        var mesh = window.TabMesh;
+        var html = '';
+
+        // ── Identity ──
+        var uptime = Math.round((Date.now() - mesh.identity.ts) / 1000);
+        var uptimeStr = uptime < 60 ? uptime + 's' : Math.floor(uptime / 60) + 'm ' + (uptime % 60) + 's';
+
+        html +=
+            '<div style="padding:10px 14px;border-radius:var(--radius-sm);' +
+                'background:rgba(99,102,241,0.04);border:1px solid rgba(99,102,241,0.1);margin-bottom:12px">' +
+                '<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">' +
+                    '<span style="font-size:0.78rem;font-weight:700;color:var(--text-primary)">This Tab</span>' +
+                    '<span style="font-size:0.58rem;padding:1px 5px;border-radius:3px;' +
+                        'background:rgba(52,211,153,0.15);color:#34d399;font-weight:600">' +
+                        esc(mesh.identity.tabType.toUpperCase()) + '</span>' +
+                    '<span style="font-size:0.58rem;padding:1px 5px;border-radius:3px;' +
+                        'background:rgba(99,102,241,0.1);color:var(--accent);font-weight:500">' +
+                        'SW: ' + esc(mesh.swState) + '</span>' +
+                '</div>' +
+                '<div style="display:flex;gap:12px;flex-wrap:wrap;font-size:0.68rem;color:var(--text-muted)">' +
+                    '<span>🆔 <code style="font-size:0.62rem">' + esc(mesh.id.substring(0, 12)) + '…</code></span>' +
+                    '<span>📍 ' + esc(mesh.identity.title) + '</span>' +
+                    (mesh.identity.siteName ? '<span>📄 ' + esc(mesh.identity.siteName) + '</span>' : '') +
+                    '<span>⏱ ' + uptimeStr + '</span>' +
+                '</div>' +
+            '</div>';
+
+        // ── Capabilities (compact) ──
+        var caps = mesh.capabilities;
+        var capItems = [
+            ['BC', caps.broadcastChannel],
+            ['SW', caps.serviceWorker],
+            ['UUID', caps.cryptoUUID],
+            ['Vis', caps.visibilityAPI],
+            ['CDP', mesh.cdpAvailable],
+        ];
+        html +=
+            '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;font-size:0.64rem;color:var(--text-muted)">';
+        for (var ci = 0; ci < capItems.length; ci++) {
+            var cap = capItems[ci];
+            html += '<span>' + (cap[1] ? '✅' : '❌') + ' ' + cap[0] + '</span>';
+        }
+        html += '</div>';
+
+        // ── Registry ──
+        var regSize = mesh.registry ? mesh.registry.size : 0;
+        if (countEl) countEl.textContent = regSize;
+
+        html +=
+            '<div style="font-size:0.74rem;font-weight:600;margin-bottom:6px;color:var(--text-primary)">' +
+                '🗺 Registry (' + regSize + ')' +
+            '</div>';
+
+        if (regSize === 0) {
+            html += '<div style="color:var(--text-muted);font-size:0.7rem;padding:6px 0">No tabs discovered yet</div>';
+        } else {
+            mesh.registry.forEach(function(entry, id) {
+                var isSelf = id === mesh.id;
+                var age = Math.round((Date.now() - entry.lastSeen) / 1000);
+                var ageStr = age < 5 ? 'now' : age + 's ago';
+                var ageColor = age < 10 ? 'var(--success)' : age < 30 ? 'var(--warning)' : 'var(--danger)';
+
+                var typeBadge = entry.tabType === 'admin'
+                    ? '<span style="font-size:0.54rem;padding:1px 4px;border-radius:3px;background:rgba(99,102,241,0.12);color:var(--accent)">Admin</span>'
+                    : '<span style="font-size:0.54rem;padding:1px 4px;border-radius:3px;background:rgba(52,211,153,0.12);color:#34d399">Site</span>';
+                var siteBadge = entry.siteName
+                    ? ' <span style="font-size:0.54rem;padding:1px 4px;border-radius:3px;background:rgba(245,158,11,0.1);color:#fbbf24">' + esc(entry.siteName) + '</span>'
+                    : '';
+
+                var actions;
+                if (isSelf) {
+                    actions = '<span style="font-size:0.58rem;color:var(--text-muted);font-style:italic">this tab</span>';
+                } else {
+                    var navTarget = entry.tabType === 'admin' ? 'admin' : 'site:' + (entry.siteName || '');
+                    var navHash = entry.hash || '';
+                    var urlMatch = navTarget === 'admin' ? '/' : '/pages/site/' + (entry.siteName || '');
+                    actions =
+                        '<div style="display:flex;gap:2px;flex-wrap:wrap">' +
+                            '<button class="btn btn-sm btn-ghost" style="font-size:0.5rem;padding:1px 4px" ' +
+                                'onclick="_meshPanelFocus(\'' + esc(urlMatch) + '\')" ' +
+                                'title="Focus tab (CDP)">' + (mesh.cdpAvailable ? '🎯' : '🔗') + '</button>' +
+                            '<button class="btn btn-sm btn-ghost" style="font-size:0.5rem;padding:1px 4px" ' +
+                                'onclick="TabMesh.inspect(\'' + esc(id) + '\');_meshShowDump()" ' +
+                                'title="Inspect state">🔍</button>' +
+                            '<button class="btn btn-sm btn-ghost" style="font-size:0.5rem;padding:1px 4px;color:var(--danger)" ' +
+                                'onclick="if(confirm(\'Kill this tab session?\'))TabMesh.kill(\'' + esc(id) + '\');setTimeout(_renderMeshPanel,500)" ' +
+                                'title="Kill session">💀</button>' +
+                        '</div>';
+                }
+
+                html +=
+                    '<div style="padding:6px 10px;margin-bottom:3px;border-radius:var(--radius-sm);' +
+                        'background:var(--bg-secondary);border-left:3px solid ' + (isSelf ? 'var(--accent)' : ageColor) + ';' +
+                        'display:flex;align-items:center;gap:8px;flex-wrap:wrap">' +
+                        '<div style="flex:1;min-width:160px">' +
+                            '<div style="display:flex;align-items:center;gap:4px;margin-bottom:1px">' +
+                                typeBadge + siteBadge +
+                                ' <span style="font-size:0.68rem;font-weight:600">' + esc(entry.title || '(untitled)') + '</span>' +
+                            '</div>' +
+                            '<div style="font-size:0.58rem;color:var(--text-muted);font-family:var(--font-mono)">' +
+                                esc(id.substring(0, 8)) + '… · ' +
+                                '<span style="color:' + ageColor + '">' + ageStr + '</span>' +
+                            '</div>' +
+                        '</div>' +
+                        actions +
+                    '</div>';
+            });
+        }
+
+        // ── Tombstones ──
+        var tombstones = mesh.tombstones || [];
+        if (tombstones.length > 0) {
+            html +=
+                '<div style="font-size:0.66rem;font-weight:600;margin:10px 0 4px;color:var(--text-muted)">' +
+                    '🪦 Tombstones (' + tombstones.length + ')' +
+                '</div>';
+            for (var ti = 0; ti < tombstones.length; ti++) {
+                var t = tombstones[ti];
+                var ago = Math.round((Date.now() - t.diedAt) / 1000);
+                html +=
+                    '<div style="padding:3px 8px;margin-bottom:2px;border-radius:var(--radius-sm);' +
+                        'background:var(--bg-secondary);font-size:0.62rem;color:var(--text-muted);' +
+                        'display:flex;gap:6px;align-items:center;opacity:0.7">' +
+                        '<span>💀</span>' +
+                        '<span>' + esc(t.title || t.id) + '</span>' +
+                        '<span style="font-size:0.56rem;padding:1px 3px;border-radius:3px;' +
+                            'background:rgba(248,113,113,0.1);color:#f87171">' + esc(t.reason) + '</span>' +
+                        '<span style="margin-left:auto">' + ago + 's ago</span>' +
+                    '</div>';
+            }
+        }
+
+        // ── Inspect dump area ──
+        html += '<div id="mesh-panel-dump" style="display:none;margin-top:10px;padding:8px 10px;' +
+            'border-radius:var(--radius-sm);background:#0d1117;border:1px solid var(--border-subtle);' +
+            'font-family:var(--font-mono);font-size:0.62rem;white-space:pre-wrap;max-height:200px;' +
+            'overflow-y:auto;color:#c9d1d9"></div>';
+
+        // ── SW Clients cross-reference ──
+        html += '<div style="font-size:0.66rem;font-weight:600;margin:12px 0 4px;color:var(--text-muted)">' +
+            '⚙️ SW Clients</div>';
+        html += '<div id="mesh-panel-sw-clients" style="font-size:0.62rem;color:var(--text-muted)">Loading…</div>';
+
+        // ── SW Controller diagnostic ──
+        var ctrlStatus = navigator.serviceWorker && navigator.serviceWorker.controller
+            ? '✅ SET (' + navigator.serviceWorker.controller.state + ')'
+            : '❌ NULL';
+        html += '<div style="font-size:0.6rem;margin:8px 0 2px;color:var(--text-muted)">' +
+            '🔧 SW Controller: <strong>' + ctrlStatus + '</strong></div>';
+
+        // ── CDP status ──
+        var cdpBadge = mesh.cdpAvailable
+            ? '<span style="color:var(--success)">✅ CDP active — tab focus works</span>'
+            : '<span style="color:var(--warning)">⚠️ CDP not active — <a href="#" onclick="_meshShowSetup();return false" style="color:var(--accent);text-decoration:underline">Set up tab focus</a></span>';
+        html += '<div style="font-size:0.62rem;margin:8px 0 2px;color:var(--text-muted)">' +
+            '📡 ' + cdpBadge + '</div>';
+
+        body.innerHTML = html;
+
+        // Async: fetch SW client list after render
+        _meshFetchSWClients();
+    }
+
+    async function _meshFetchSWClients() {
+        var container = document.getElementById('mesh-panel-sw-clients');
+        if (!container) return;
+
+        if (typeof _meshSWMessage !== 'function' || !window.TabMesh || window.TabMesh.swState !== 'active') {
+            container.innerHTML = '<span style="color:var(--text-muted)">SW not active — cannot list clients</span>';
+            return;
+        }
+
+        try {
+            var resp = await _meshSWMessage({ type: 'LIST_TABS' });
+            if (!resp || !resp.tabs) {
+                container.innerHTML = '<span>No response from SW</span>';
+                return;
+            }
+
+            if (resp.tabs.length === 0) {
+                container.innerHTML = '<span>No SW-controlled clients</span>';
+                return;
+            }
+
+            var mesh = window.TabMesh;
+            var rowsHtml = '';
+            for (var i = 0; i < resp.tabs.length; i++) {
+                var tab = resp.tabs[i];
+                // Cross-reference: check if this SW client has a mesh registry entry
+                var inMesh = false;
+                if (mesh.registry) {
+                    mesh.registry.forEach(function(entry) {
+                        if (entry.url && tab.url && entry.url.split('#')[0] === tab.url.split('#')[0]) {
+                            inMesh = true;
+                        }
+                    });
+                }
+                var meshBadge = inMesh
+                    ? '<span style="color:var(--success)">✅ mesh</span>'
+                    : '<span style="color:var(--warning)">⚠️ no mesh</span>';
+                var focusIcon = tab.focused ? '🟢' : '⚫';
+                var visIcon = tab.visibilityState === 'visible' ? '👁' : '🙈';
+
+                // Shorten url for display
+                var displayUrl = tab.url;
+                try {
+                    var urlObj = new URL(tab.url);
+                    displayUrl = urlObj.pathname + urlObj.hash;
+                } catch(_) {}
+
+                rowsHtml +=
+                    '<div style="padding:3px 6px;margin-bottom:2px;border-radius:var(--radius-sm);' +
+                        'background:var(--bg-secondary);display:flex;align-items:center;gap:6px">' +
+                        '<span>' + focusIcon + '</span>' +
+                        '<span>' + visIcon + '</span>' +
+                        '<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;' +
+                            'font-family:var(--font-mono)" title="' + esc(tab.url) + '">' +
+                            esc(displayUrl) + '</span>' +
+                        meshBadge +
+                    '</div>';
+            }
+            container.innerHTML = rowsHtml;
+        } catch (err) {
+        container.innerHTML = '<span style="color:var(--danger)">Error: ' + esc(err.message) + '</span>';
+        }
+    }
+
+    function _meshShowDump() {
+        setTimeout(function() {
+            var dumpEl = document.getElementById('mesh-panel-dump');
+            if (dumpEl) {
+                dumpEl.style.display = '';
+                if (!dumpEl.textContent) dumpEl.textContent = 'Waiting for dump response…';
+            }
+        }, 100);
+    }
+
+    // Listen for inspect dump responses
+    window.addEventListener('tab-mesh:dump', function(e) {
+        var dumpEl = document.getElementById('mesh-panel-dump');
+        if (dumpEl) {
+            dumpEl.style.display = '';
+            dumpEl.textContent = JSON.stringify(e.detail, null, 2);
+        }
+    });
+</script>

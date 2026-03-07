@@ -1,5 +1,6 @@
 import React from 'react';
 import { useBuildHashCheck } from './hooks/useBuildHashCheck';
+import { useTabMesh } from './hooks/useTabMesh';
 // __IF_FEATURE_google_translate__
 import LanguageSelector from '@site/src/components/LanguageSelector';
 import { useTranslationSystem } from './hooks/useTranslationSystem';
@@ -12,6 +13,7 @@ const BUILD_HASH = '__BUILD_HASH__';
 
 export default function Root({ children }: { children: React.ReactNode }) {
   useBuildHashCheck(BUILD_HASH);
+  useTabMesh();
 // __IF_FEATURE_google_translate__
   useTranslationSystem();
 // __ENDIF__

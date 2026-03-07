@@ -12,7 +12,7 @@ from __future__ import annotations
 import mimetypes
 from pathlib import Path
 
-from flask import Blueprint, abort, current_app, render_template, send_file
+from flask import Blueprint, abort, current_app, make_response, render_template, send_file
 
 pages_bp = Blueprint("pages", __name__)
 
@@ -21,6 +21,28 @@ pages_bp = Blueprint("pages", __name__)
 def dashboard():  # type: ignore[no-untyped-def]
     """Render the main dashboard."""
     return render_template("dashboard.html")
+
+
+# ── Service Worker (Tab Mesh focus engine) ──────────────────────────
+
+
+@pages_bp.route("/sw.js")
+def service_worker():  # type: ignore[no-untyped-def]
+    """Serve the Tab Mesh service worker at the root scope.
+
+    The SW must be at ``/sw.js`` (not ``/static/sw.js``) so that
+    ``navigator.serviceWorker.register('/sw.js', { scope: '/' })``
+    places it at the root scope, giving it control over all pages
+    on this origin (admin panel + Docusaurus sites).
+    """
+    static_dir = Path(current_app.static_folder)
+    sw_path = static_dir / "sw.js"
+    if not sw_path.is_file():
+        abort(404, description="Service worker not found")
+    resp = make_response(send_file(sw_path, mimetype="application/javascript"))
+    resp.headers["Service-Worker-Allowed"] = "/"
+    resp.headers["Cache-Control"] = "no-cache"
+    return resp
 
 
 # ── Built Pages static serving ──────────────────────────────────────
