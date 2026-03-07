@@ -88,6 +88,8 @@
             'auth:needed',
             'github:status', 'ledger:conflict',
             'index:ready',
+            'notification:new', 'notification:dismissed', 'notification:deleted',
+            'error:new',
         ],
 
         /** Open the SSE connection. Safe to call multiple times. */
@@ -154,6 +156,16 @@
                 case 'stream:done':    this._onStreamDone(payload);    break;
                 case 'server:restarting': this._onServerRestarting(payload); break;
                 case 'index:ready':    this._onIndexReady(payload);    break;
+
+                // Notification & error events → DOM CustomEvents
+                // Listened to by _notifications.html (fully decoupled)
+                case 'notification:new':
+                case 'notification:dismissed':
+                case 'notification:deleted':
+                case 'error:new':
+                    document.dispatchEvent(new CustomEvent('sse:' + type, { detail: payload }));
+                    break;
+
                 // sys:warming, sys:warm, sys:heartbeat — silently ignored for now
             }
         },

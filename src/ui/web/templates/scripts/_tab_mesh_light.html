@@ -1,0 +1,398 @@
+<script>
+// ═══════════════════════════════════════════════════════════════════
+//  _tab_mesh_light.html — Lightweight Tab Mesh client for Pages sites
+//
+//  Injected into Docusaurus index.html by Flask serving.
+//  Provides:
+//    - BroadcastChannel presence (join, ping, leave)
+//    - Handles navigate/inspect/kill from admin
+//    - window.TabMesh with navigateTo() for usePeekLinks.ts
+//    - CDP focus to bring admin tab to foreground
+//    - Click interception for audit-data links
+//    - Minimal registry to track admin tab for targeting
+// ═══════════════════════════════════════════════════════════════════
+
+(function() {
+    'use strict';
+
+    // ── Feature check ───────────────────────────────────────────
+    if (typeof BroadcastChannel === 'undefined') return;
+
+    // ── Identity ────────────────────────────────────────────────
+
+    var id = (typeof crypto !== 'undefined' && crypto.randomUUID)
+        ? crypto.randomUUID()
+        : 'tab-' + Math.random().toString(36).substring(2, 10) + '-' + Date.now().toString(36);
+
+    var siteName = (function() {
+        var m = location.pathname.match(/^\/pages\/site\/([^/]+)/);
+        return m ? m[1] : null;
+    })();
+
+    function capitalize(s) {
+        return s ? s.charAt(0).toUpperCase() + s.slice(1) : '';
+    }
+
+    function computeTitle() {
+        var m = location.pathname.match(/^\/pages\/site\/[^/]+\/(.*)/);
+        if (!m) return siteName || 'Site';
+        var path = m[1].replace(/\/$/, '');
+        var parts = path.split('/').filter(Boolean);
+        if (parts.length === 0) return capitalize(siteName);
+        var tail = parts.slice(-2).map(capitalize).join(' \u203a ');
+        return capitalize(siteName) + ' \u203a ' + tail;
+    }
+
+    var identity = {
+        id:       id,
+        tabType:  'site',
+        siteName: siteName,
+        url:      location.href,
+        hash:     location.hash,
+        title:    computeTitle(),
+        ts:       Date.now(),
+    };
+
+    // ── Minimal registry ────────────────────────────────────────
+
+    var registry = {};
+
+    function upsertEntry(msg) {
+        registry[msg.id] = {
+            id:       msg.id,
+            tabType:  msg.tabType  || 'unknown',
+            siteName: msg.siteName || null,
+            lastSeen: msg.ts       || Date.now(),
+        };
+    }
+
+    function pruneRegistry() {
+        var now = Date.now();
+        var ids = Object.keys(registry);
+        for (var i = 0; i < ids.length; i++) {
+            if (now - registry[ids[i]].lastSeen > 15000) {
+                delete registry[ids[i]];
+            }
+        }
+    }
+
+    // ── CDP (Chrome DevTools Protocol) ──────────────────────────
+
+    var cdpAvailable = false;
+
+    function checkCDP() {
+        try {
+            var xhr = new XMLHttpRequest();
+            xhr.open('GET', '/api/tab-mesh/cdp-status', true);
+            xhr.onload = function() {
+                try {
+                    var data = JSON.parse(xhr.responseText);
+                    cdpAvailable = data.available === true;
+                } catch (_) {
+                    cdpAvailable = false;
+                }
+            };
+            xhr.onerror = function() { cdpAvailable = false; };
+            xhr.send();
+        } catch (_) {
+            cdpAvailable = false;
+        }
+    }
+
+    function focusViaCDP(urlMatch, callback) {
+        // Show transition overlay
+        var overlay = document.createElement('div');
+        overlay.style.cssText =
+            'position:fixed;inset:0;z-index:99999;' +
+            'background:radial-gradient(circle at center, rgba(255,255,255,0.03), rgba(0,0,0,0.7));' +
+            'display:flex;align-items:center;justify-content:center;' +
+            'transition:opacity 0.3s ease;opacity:0;' +
+            'backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px)';
+        overlay.innerHTML =
+            '<div style="text-align:center;color:#fff;font-family:inherit">' +
+            '<div style="font-size:2.5rem;margin-bottom:8px;animation:pulse 1s infinite">\ud83c\udfaf</div>' +
+            '<div style="font-size:0.85rem;font-weight:600;opacity:0.9">Switching tab\u2026</div></div>';
+        document.body.appendChild(overlay);
+        overlay.offsetHeight; // force reflow
+        overlay.style.opacity = '1';
+
+        try {
+            var xhr = new XMLHttpRequest();
+            xhr.open('POST', '/api/tab-mesh/focus', true);
+            xhr.setRequestHeader('Content-Type', 'application/json');
+            xhr.onload = function() {
+                overlay.style.opacity = '0';
+                setTimeout(function() { overlay.remove(); }, 300);
+                if (callback) {
+                    try {
+                        var data = JSON.parse(xhr.responseText);
+                        callback(data.success);
+                    } catch (_) {
+                        callback(false);
+                    }
+                }
+            };
+            xhr.onerror = function() {
+                overlay.style.opacity = '0';
+                setTimeout(function() { overlay.remove(); }, 300);
+                if (callback) callback(false);
+            };
+            xhr.send(JSON.stringify({
+                urlPattern: urlMatch,
+                excludeUrl: location.href,
+            }));
+        } catch (_) {
+            overlay.style.opacity = '0';
+            setTimeout(function() { overlay.remove(); }, 300);
+            if (callback) callback(false);
+        }
+    }
+
+    // ── BroadcastChannel ────────────────────────────────────────
+
+    var bc;
+    try {
+        bc = new BroadcastChannel('devops-tab-mesh');
+    } catch (_) {
+        return;
+    }
+
+    function broadcast(msg) {
+        try { bc.postMessage(msg); } catch (_) {}
+    }
+
+    function sendJoin() {
+        broadcast({
+            type:     'join',
+            id:       identity.id,
+            tabType:  identity.tabType,
+            siteName: identity.siteName,
+            url:      identity.url,
+            hash:     location.hash,
+            title:    computeTitle(),
+            ts:       Date.now(),
+        });
+    }
+
+    function sendPing() {
+        broadcast({
+            type:  'ping',
+            id:    identity.id,
+            hash:  location.hash,
+            title: computeTitle(),
+            ts:    Date.now(),
+        });
+    }
+
+    function sendLeave() {
+        broadcast({
+            type: 'leave',
+            id:   identity.id,
+            ts:   Date.now(),
+        });
+    }
+
+    // ── Message handling ────────────────────────────────────────
+
+    bc.onmessage = function(e) {
+        var msg = e.data;
+        if (!msg || !msg.type || !msg.id) return;
+        if (msg.id === identity.id) return;
+
+        // Track all tabs for registry lookups
+        if (msg.tabType) {
+            upsertEntry(msg);
+        } else if (registry[msg.id]) {
+            registry[msg.id].lastSeen = msg.ts || Date.now();
+        }
+
+        switch (msg.type) {
+            case 'join':
+                broadcast({
+                    type:     'roster',
+                    id:       identity.id,
+                    tabType:  identity.tabType,
+                    siteName: identity.siteName,
+                    url:      identity.url,
+                    hash:     location.hash,
+                    title:    computeTitle(),
+                    ts:       Date.now(),
+                });
+                break;
+
+            case 'navigate':
+                if (msg.targetId === identity.id && msg.hash) {
+                    var origTitle = document.title;
+                    document.title = '\u25b6 ' + origTitle;
+                    setTimeout(function() { document.title = origTitle; }, 2000);
+                    if (msg.hash.startsWith('#')) {
+                        location.hash = msg.hash;
+                    } else if (msg.hash.startsWith('/')) {
+                        location.pathname = msg.hash;
+                    }
+                }
+                break;
+
+            case 'inspect':
+                if (msg.targetId === identity.id) {
+                    broadcast({
+                        type: 'dump',
+                        id:   identity.id,
+                        targetId: msg.id,
+                        state: {
+                            identity: identity,
+                            url:      location.href,
+                            hash:     location.hash,
+                            title:    document.title,
+                            visible:  !document.hidden,
+                            uptime:   Date.now() - identity.ts,
+                        },
+                        ts: Date.now(),
+                    });
+                }
+                break;
+
+            case 'kill':
+                if (msg.targetId === identity.id) {
+                    sendLeave();
+                    window.close();
+                }
+                break;
+        }
+    };
+
+    // ── navigateTo — route to another tab via BC + CDP ──────────
+
+    function navigateTo(targetType, hash) {
+        var matchTabType = 'admin';
+        var matchSiteName = null;
+        if (targetType && targetType.indexOf('site:') === 0) {
+            matchTabType = 'site';
+            matchSiteName = targetType.substring(5);
+        } else if (targetType === 'site') {
+            matchTabType = 'site';
+        }
+
+        // Registry lookup
+        pruneRegistry();
+        var target = null;
+        var targetId = null;
+        var bestSeen = 0;
+        var ids = Object.keys(registry);
+        for (var i = 0; i < ids.length; i++) {
+            var entry = registry[ids[i]];
+            if (entry.tabType !== matchTabType) continue;
+            if (matchSiteName && entry.siteName !== matchSiteName) continue;
+            if (entry.lastSeen > bestSeen) {
+                target = entry;
+                targetId = entry.id;
+                bestSeen = entry.lastSeen;
+            }
+        }
+
+        if (target) {
+            // 1. BC navigate — SPA routing on target
+            broadcast({
+                type:     'navigate',
+                id:       identity.id,
+                targetId: targetId,
+                hash:     hash,
+                ts:       Date.now(),
+            });
+
+            // 2. CDP focus — bring target tab to foreground
+            if (cdpAvailable) {
+                var urlMatch = matchTabType === 'admin'
+                    ? '/'
+                    : '/pages/site/' + (matchSiteName || '');
+                focusViaCDP(urlMatch);
+            }
+        } else {
+            // Target not in registry — open new tab
+            var fullUrl;
+            if (matchTabType === 'admin') {
+                fullUrl = location.origin + '/' + hash;
+            } else {
+                fullUrl = hash.indexOf('http') === 0 ? hash : location.origin + hash;
+            }
+            window.open(fullUrl, '_blank');
+        }
+    }
+
+    // ── Audit-data link click interception ───────────────────────
+    //
+    // Audit-data file links are plain <a class="audit-link-dev"
+    // href="http://localhost:8000/#content/docs/..."> — without
+    // interception they navigate the Docusaurus page away.
+
+    document.addEventListener('click', function(e) {
+        var link = e.target;
+        while (link && link.tagName !== 'A') {
+            link = link.parentElement;
+        }
+        if (!link) return;
+        if (!link.classList.contains('audit-link-dev') &&
+            !link.classList.contains('audit-file-link')) return;
+
+        var href = link.getAttribute('href') || '';
+        var hashIdx = href.indexOf('#');
+        if (hashIdx === -1) return;
+
+        var hash = href.substring(hashIdx);
+        if (!hash.startsWith('#content/')) return;
+
+        e.preventDefault();
+        e.stopPropagation();
+        navigateTo('admin', hash);
+    }, true);
+
+    // ── Lifecycle ───────────────────────────────────────────────
+
+    sendJoin();
+    setInterval(sendPing, 5000);
+
+    window.addEventListener('hashchange', function() {
+        identity.hash = location.hash;
+        broadcast({
+            type:  'state',
+            id:    identity.id,
+            hash:  location.hash,
+            title: computeTitle(),
+            ts:    Date.now(),
+        });
+    });
+
+    window.addEventListener('popstate', function() {
+        identity.url = location.href;
+        identity.hash = location.hash;
+        broadcast({
+            type:  'state',
+            id:    identity.id,
+            hash:  location.hash,
+            title: computeTitle(),
+            ts:    Date.now(),
+        });
+    });
+
+    if (siteName) {
+        window.name = 'devops-site-' + siteName;
+    }
+
+    window.addEventListener('beforeunload', sendLeave);
+
+    // Check CDP on boot
+    checkCDP();
+
+    // ── Expose public API ───────────────────────────────────────
+
+    window.TabMesh = {
+        id:           id,
+        identity:     identity,
+        navigateTo:   navigateTo,
+        get cdpAvailable() { return cdpAvailable; },
+        checkCDP:     checkCDP,
+        focusViaCDP:  focusViaCDP,
+    };
+
+})();
+</script>

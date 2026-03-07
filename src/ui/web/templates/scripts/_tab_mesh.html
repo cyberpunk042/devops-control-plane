@@ -539,6 +539,7 @@
     // ── CDP focus via Flask backend ─────────────────────────────────────
 
     var _meshCDPAvailable = false;
+    var _meshCDPNotifSent = false; // one-time CDP suggestion notification
 
     /**
      * Check CDP availability on page load.
@@ -669,6 +670,11 @@
             }
             // If CDP not available, BC navigate already handles
             // title flash on the target tab as visual feedback.
+            // Fire a one-time notification suggesting CDP setup.
+            if (!_meshCDPAvailable && !_meshCDPNotifSent) {
+                _meshCDPNotifSent = true;
+                api('/tab-mesh/suggest-cdp', { method: 'POST' }).catch(function() {});
+            }
         } else {
             // ── Target NOT in registry → open new tab ──────────────
             let fullUrl;

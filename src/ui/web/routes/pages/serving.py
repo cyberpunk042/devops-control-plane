@@ -45,6 +45,40 @@ def service_worker():  # type: ignore[no-untyped-def]
     return resp
 
 
+# ── Tab Mesh light client (injected into Pages HTML) ────────────────
+
+_TAB_MESH_LIGHT_SCRIPT = None
+
+
+def _get_light_script() -> str:
+    """Load the tab mesh light script once and cache it."""
+    global _TAB_MESH_LIGHT_SCRIPT
+    if _TAB_MESH_LIGHT_SCRIPT is None:
+        tmpl_dir = Path(current_app.template_folder)
+        script_path = tmpl_dir / "scripts" / "_tab_mesh_light.html"
+        if script_path.is_file():
+            _TAB_MESH_LIGHT_SCRIPT = script_path.read_text(encoding="utf-8")
+        else:
+            _TAB_MESH_LIGHT_SCRIPT = ""
+    return _TAB_MESH_LIGHT_SCRIPT
+
+
+def _inject_light_mesh(html_bytes: bytes) -> bytes:
+    """Inject the light tab mesh script before </body> in HTML."""
+    script = _get_light_script()
+    if not script:
+        return html_bytes
+
+    html = html_bytes.decode("utf-8", errors="replace")
+    # Inject before </body>
+    close_body = html.rfind("</body>")
+    if close_body == -1:
+        return html_bytes
+
+    injected = html[:close_body] + script + "\n" + html[close_body:]
+    return injected.encode("utf-8")
+
+
 # ── Built Pages static serving ──────────────────────────────────────
 
 
@@ -52,6 +86,17 @@ def _pages_build_dir(segment: str) -> Path:
     """Return the build output directory for a segment."""
     root = Path(current_app.config["PROJECT_ROOT"])
     return root / ".pages" / segment / "build"
+
+
+def _serve_html(file_path: Path) -> object:
+    """Serve an HTML file.
+
+    Previously injected the tab mesh light client, but Docusaurus
+    now has useTabMesh.ts built in with full CDP support.
+    """
+    resp = make_response(send_file(file_path, mimetype="text/html"))
+    resp.headers["Content-Type"] = "text/html; charset=utf-8"
+    return resp
 
 
 @pages_bp.route("/pages/site/<segment>/")
@@ -78,18 +123,20 @@ def serve_pages_site(segment: str, filepath: str = "index.html"):  # type: ignor
     # Direct file match
     if requested.is_file():
         mime = mimetypes.guess_type(str(requested))[0] or "application/octet-stream"
+        if mime == "text/html":
+            return _serve_html(requested)
         return send_file(requested, mimetype=mime)
 
     # Directory → try index.html
     if requested.is_dir():
         index = requested / "index.html"
         if index.is_file():
-            return send_file(index, mimetype="text/html")
+            return _serve_html(index)
 
     # SPA fallback: for paths like /pages/site/docs/some/route
     # try the segment's root index.html (Docusaurus SPA routing)
     root_index = build_dir / "index.html"
     if root_index.is_file():
-        return send_file(root_index, mimetype="text/html")
+        return _serve_html(root_index)
 
     abort(404, description=f"File not found: {filepath}")

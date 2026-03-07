@@ -1,0 +1,532 @@
+<script>
+// ═══════════════════════════════════════════════════════════════════
+//  _notifications.html — Notification & Error Log panel
+//
+//  Panel DOM injection, toggle, rendering, badges,
+//  SSE real-time updates, error interception, cross-tab sync.
+// ═══════════════════════════════════════════════════════════════════
+
+var _notifPanelOpen = false;
+var _notifActiveTab = 'notifications'; // 'notifications' | 'errors'
+
+// ── Panel DOM injection ─────────────────────────────────────────
+
+function _injectNotifPanel() {
+    if (document.getElementById('notif-panel')) return;
+
+    var panel = document.createElement('div');
+    panel.id = 'notif-panel';
+    panel.className = 'notif-panel';
+    panel.innerHTML =
+        '<div class="notif-panel-header">' +
+            '<span class="notif-panel-title">🔔 Notifications</span>' +
+            '<button class="notif-panel-close" onclick="_toggleNotifPanel()">✕</button>' +
+        '</div>' +
+        '<div class="notif-tab-bar">' +
+            '<button class="notif-tab active" data-tab="notifications" ' +
+                'onclick="_switchNotifTab(\'notifications\')">🔔 Notifications</button>' +
+            '<button class="notif-tab" data-tab="errors" ' +
+                'onclick="_switchNotifTab(\'errors\')">⚠️ Errors' +
+                '<span class="notif-tab-count" id="notif-error-tab-count" style="display:none">0</span>' +
+            '</button>' +
+        '</div>' +
+        '<div class="notif-tab-content active" id="notif-content-notifications">' +
+            '<div class="notif-list" id="notif-list"></div>' +
+        '</div>' +
+        '<div class="notif-tab-content" id="notif-content-errors">' +
+            '<div class="notif-list" id="error-list"></div>' +
+        '</div>';
+
+    document.body.appendChild(panel);
+}
+
+// ── Toggle panel ────────────────────────────────────────────────
+
+function _toggleNotifPanel() {
+    _notifPanelOpen = !_notifPanelOpen;
+
+    var panel = document.getElementById('notif-panel');
+    if (!panel) {
+        _injectNotifPanel();
+        panel = document.getElementById('notif-panel');
+    }
+
+    if (_notifPanelOpen) {
+        panel.classList.add('open');
+        _loadNotifPanelData();
+    } else {
+        panel.classList.remove('open');
+    }
+}
+
+// ── Tab switching ───────────────────────────────────────────────
+
+function _switchNotifTab(tab) {
+    _notifActiveTab = tab;
+
+    // Update tab bar buttons
+    var bar = document.querySelector('.notif-tab-bar');
+    if (bar) {
+        var tabs = bar.querySelectorAll('.notif-tab');
+        for (var i = 0; i < tabs.length; i++) {
+            tabs[i].classList.toggle('active', tabs[i].getAttribute('data-tab') === tab);
+        }
+    }
+
+    // Update content panes
+    var panes = document.querySelectorAll('.notif-tab-content');
+    for (var j = 0; j < panes.length; j++) {
+        panes[j].classList.toggle('active',
+            panes[j].id === 'notif-content-' + tab);
+    }
+
+    // If switching to errors tab, acknowledge errors
+    if (tab === 'errors') {
+        _ackErrors();
+    }
+}
+
+// ── Data loading ────────────────────────────────────────────────
+
+function _loadNotifPanelData() {
+    _loadNotifications();
+    _loadErrors();
+}
+
+function _loadNotifications() {
+    var list = document.getElementById('notif-list');
+    if (!list) return;
+
+    api('/notifications')
+        .then(function(data) {
+            if (!data || !data.notifications) return;
+            _renderNotifications(data.notifications);
+            _updateNotifBadge(data.unread_count || 0);
+        })
+        .catch(function() {
+            // Silent — badge stays stale
+        });
+}
+
+function _loadErrors(page) {
+    var list = document.getElementById('error-list');
+    if (!list) return;
+
+    var p = page || 1;
+    api('/errors?page=' + p + '&per_page=20')
+        .then(function(data) {
+            if (!data) return;
+            _renderErrors(data.errors || [], data.total || 0, data.page || 1, data.pages || 1);
+            _updateErrorBadge(data.unacked_count || 0);
+        })
+        .catch(function() {
+            // Silent
+        });
+}
+
+function _ackErrors() {
+    api('/errors/ack', { method: 'POST' })
+        .then(function() {
+            _updateErrorBadge(0);
+        })
+        .catch(function() {});
+}
+
+// ── Rendering ───────────────────────────────────────────────────
+
+function _notifIcon(type) {
+    var icons = {
+        'cdp_suggestion': '🔌',
+        'session_expiring': '⏰',
+        'vault_locked': '🔒',
+        'chat_message': '💬',
+    };
+    return icons[type] || '📋';
+}
+
+function _timeAgo(ts) {
+    var diff = (Date.now() / 1000) - ts;
+    if (diff < 60) return 'just now';
+    if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
+    if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
+    return Math.floor(diff / 86400) + 'd ago';
+}
+
+function _renderNotifications(notifications) {
+    var list = document.getElementById('notif-list');
+    if (!list) return;
+
+    if (!notifications.length) {
+        list.innerHTML =
+            '<div class="notif-empty">' +
+                '<div class="notif-empty-icon">🔔</div>' +
+                'No notifications' +
+            '</div>';
+        return;
+    }
+
+    var html = '';
+    for (var i = 0; i < notifications.length; i++) {
+        var n = notifications[i];
+        html +=
+            '<div class="notif-item" data-id="' + n.id + '">' +
+                '<div class="notif-item-icon">' + _notifIcon(n.type) + '</div>' +
+                '<div class="notif-item-body">' +
+                    '<div class="notif-item-title">' + _esc(n.title) + '</div>' +
+                    '<div class="notif-item-message">' + _esc(n.message) + '</div>' +
+                    '<div class="notif-item-time">' + _timeAgo(n.created_at) + '</div>' +
+                '</div>' +
+                '<div class="notif-item-actions">' +
+                    '<button class="notif-item-btn" onclick="_dismissNotif(\'' + n.id + '\')">✓</button>' +
+                    '<button class="notif-item-btn danger" onclick="_deleteNotif(\'' + n.id + '\')">✕</button>' +
+                '</div>' +
+            '</div>';
+    }
+
+    list.innerHTML = html;
+}
+
+function _renderErrors(errors, total, page, pages) {
+    var list = document.getElementById('error-list');
+    if (!list) return;
+
+    if (!errors.length) {
+        list.innerHTML =
+            '<div class="notif-empty">' +
+                '<div class="notif-empty-icon">✅</div>' +
+                'No errors logged' +
+            '</div>';
+        return;
+    }
+
+    var html = '';
+    for (var i = 0; i < errors.length; i++) {
+        var e = errors[i];
+        var levelIcon = e.level === 'warning' ? '⚠️' : '🔴';
+        html +=
+            '<div class="error-item" onclick="_toggleErrorDetail(this)">' +
+                '<div class="error-item-header">' +
+                    '<span class="error-item-level">' + levelIcon + '</span>' +
+                    '<span class="error-item-message">' + _esc(e.message) + '</span>' +
+                '</div>' +
+                '<div class="error-item-meta">' +
+                    '<span>' + e.source + '</span>' +
+                    (e.endpoint ? '<span>' + _esc(e.endpoint) + '</span>' : '') +
+                    '<span>' + _timeAgo(e.ts) + '</span>' +
+                '</div>' +
+                (e.detail ?
+                    '<div class="error-item-expand">▸ details</div>' +
+                    '<div class="error-item-detail">' + _esc(e.detail) + '</div>'
+                    : '') +
+            '</div>';
+    }
+
+    // Load more button
+    if (page < pages) {
+        html +=
+            '<button class="notif-load-more" onclick="_loadErrors(' + (page + 1) + ')">' +
+                'Load more (' + (total - page * 20) + ' remaining)' +
+            '</button>';
+    }
+
+    // If appending (page > 1), append; otherwise replace
+    if (page > 1) {
+        // Remove old load-more button first
+        var oldBtn = list.querySelector('.notif-load-more');
+        if (oldBtn) oldBtn.remove();
+        list.insertAdjacentHTML('beforeend', html);
+    } else {
+        list.innerHTML = html;
+    }
+}
+
+function _toggleErrorDetail(el) {
+    el.classList.toggle('expanded');
+    var expand = el.querySelector('.error-item-expand');
+    if (expand) {
+        expand.textContent = el.classList.contains('expanded') ? '▾ details' : '▸ details';
+    }
+}
+
+// ── Badge updates ───────────────────────────────────────────────
+
+function _updateNotifBadge(count) {
+    var badge = document.getElementById('notif-count-badge');
+    if (!badge) return;
+    if (count > 0) {
+        badge.textContent = count > 99 ? '99+' : count;
+        badge.style.display = '';
+    } else {
+        badge.style.display = 'none';
+    }
+}
+
+function _updateErrorBadge(count) {
+    var dot = document.getElementById('notif-error-dot');
+    if (dot) {
+        dot.style.display = count > 0 ? '' : 'none';
+    }
+
+    var tabCount = document.getElementById('notif-error-tab-count');
+    if (tabCount) {
+        if (count > 0) {
+            tabCount.textContent = count;
+            tabCount.style.display = '';
+        } else {
+            tabCount.style.display = 'none';
+        }
+    }
+}
+
+// ── Notification actions ────────────────────────────────────────
+
+function _dismissNotif(id) {
+    api('/notifications/dismiss', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: id }),
+    }).then(function() {
+        var el = document.querySelector('.notif-item[data-id="' + id + '"]');
+        if (el) el.remove();
+        _loadNotifications();
+    }).catch(function() {});
+}
+
+function _deleteNotif(id) {
+    api('/notifications/' + id, { method: 'DELETE' })
+        .then(function() {
+            var el = document.querySelector('.notif-item[data-id="' + id + '"]');
+            if (el) el.remove();
+            _loadNotifications();
+        }).catch(function() {});
+}
+
+// ── HTML escaping ───────────────────────────────────────────────
+
+function _esc(str) {
+    if (!str) return '';
+    var div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  Phase 5: SSE listeners, error interception, cross-tab sync
+// ═══════════════════════════════════════════════════════════════════
+
+// ── SSE event listeners ─────────────────────────────────────────
+//
+// The SSE dispatch in _event_stream.html emits DOM CustomEvents
+// for notification/error events.  We listen here — fully decoupled
+// from the SSE connection logic.
+
+document.addEventListener('sse:notification:new', function(e) {
+    var notif = e.detail && e.detail.data;
+    if (!notif) return;
+
+    // Update badge: increment count
+    var badge = document.getElementById('notif-count-badge');
+    var current = badge ? parseInt(badge.textContent, 10) || 0 : 0;
+    _updateNotifBadge(current + 1);
+
+    // If panel is open on notifications tab, prepend the new item
+    if (_notifPanelOpen && _notifActiveTab === 'notifications') {
+        _loadNotifications();
+    }
+
+    // Cross-tab sync: broadcast to other tabs
+    _notifBroadcast({ type: 'notif:new', notif: notif });
+});
+
+document.addEventListener('sse:notification:dismissed', function(e) {
+    var key = e.detail && e.detail.key;
+    if (!key) return;
+
+    // Remove from DOM if present
+    var el = document.querySelector('.notif-item[data-id="' + key + '"]');
+    if (el) el.remove();
+
+    // Decrement badge
+    var badge = document.getElementById('notif-count-badge');
+    var current = badge ? parseInt(badge.textContent, 10) || 0 : 0;
+    _updateNotifBadge(Math.max(0, current - 1));
+
+    _notifBroadcast({ type: 'notif:dismissed', id: key });
+});
+
+document.addEventListener('sse:notification:deleted', function(e) {
+    var key = e.detail && e.detail.key;
+    if (!key) return;
+
+    var el = document.querySelector('.notif-item[data-id="' + key + '"]');
+    if (el) el.remove();
+
+    var badge = document.getElementById('notif-count-badge');
+    var current = badge ? parseInt(badge.textContent, 10) || 0 : 0;
+    _updateNotifBadge(Math.max(0, current - 1));
+
+    _notifBroadcast({ type: 'notif:deleted', id: key });
+});
+
+document.addEventListener('sse:error:new', function(e) {
+    var errData = e.detail && e.detail.data;
+    if (!errData) return;
+
+    // Pulse the error dot
+    _updateErrorBadge(1); // show dot — exact count isn't critical
+
+    // If panel is open on errors tab, reload + auto-ack
+    if (_notifPanelOpen && _notifActiveTab === 'errors') {
+        _loadErrors();
+        _ackErrors();
+    }
+
+    _notifBroadcast({ type: 'notif:error', error: errData });
+});
+
+// ── Frontend error interception ─────────────────────────────────
+//
+// Capture unhandled JS errors and promise rejections.
+// Report them to the server for centralized logging.
+// Uses a simple dedup to avoid flooding: same message within 5s
+// is suppressed.
+
+var _lastReportedError = '';
+var _lastReportedErrorTs = 0;
+
+function _reportFrontendError(message, detail, endpoint) {
+    // Dedup: skip if same message within 5 seconds
+    var now = Date.now();
+    if (message === _lastReportedError && now - _lastReportedErrorTs < 5000) {
+        return;
+    }
+    _lastReportedError = message;
+    _lastReportedErrorTs = now;
+
+    // Don't use api() here — it could trigger its own error interception.
+    // Use raw fetch to avoid recursion.
+    try {
+        fetch('/api/errors', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                message: message,
+                detail: detail || '',
+                endpoint: endpoint || location.hash || location.pathname,
+            }),
+        }).catch(function() {
+            // Can't report error about error reporting. Just swallow.
+        });
+    } catch (_) {
+        // Truly last resort — swallow completely
+    }
+}
+
+// Global error handler
+window.addEventListener('error', function(event) {
+    var msg = event.message || 'Unknown error';
+    var detail = '';
+    if (event.filename) {
+        detail = event.filename + ':' + event.lineno + ':' + event.colno;
+    }
+    _reportFrontendError(msg, detail);
+});
+
+// Unhandled promise rejection handler
+window.addEventListener('unhandledrejection', function(event) {
+    var msg = 'Unhandled rejection';
+    var detail = '';
+    if (event.reason) {
+        msg = event.reason.message || String(event.reason);
+        detail = event.reason.stack || '';
+    }
+    _reportFrontendError(msg, detail);
+});
+
+
+// ── Cross-tab sync via BroadcastChannel ─────────────────────────
+//
+// Reuses the existing 'devops-tab-mesh' channel.
+// Messages are prefixed with 'notif:' to avoid collision with
+// tab mesh messages (join, roster, ping, state, navigate, etc.).
+//
+// We don't create a new BroadcastChannel — we hook into the
+// existing _meshBC from _tab_mesh.html.  If it's not available
+// (e.g. Pages site), we fall back to a dedicated channel.
+
+var _notifBC = null;
+
+function _notifInitBC() {
+    if (_notifBC) return;
+    try {
+        if (typeof BroadcastChannel !== 'undefined') {
+            _notifBC = new BroadcastChannel('devops-notif-sync');
+            _notifBC.onmessage = _notifHandleBCMessage;
+        }
+    } catch (_) {
+        // BroadcastChannel not available — no cross-tab sync
+    }
+}
+
+function _notifBroadcast(msg) {
+    if (!_notifBC) return;
+    try {
+        _notifBC.postMessage(msg);
+    } catch (_) {
+        // Channel might be closed
+    }
+}
+
+function _notifHandleBCMessage(e) {
+    var msg = e.data;
+    if (!msg || !msg.type) return;
+
+    switch (msg.type) {
+        case 'notif:new':
+            // Another tab received a new notification via SSE
+            var badge = document.getElementById('notif-count-badge');
+            var current = badge ? parseInt(badge.textContent, 10) || 0 : 0;
+            _updateNotifBadge(current + 1);
+            if (_notifPanelOpen && _notifActiveTab === 'notifications') {
+                _loadNotifications();
+            }
+            break;
+
+        case 'notif:dismissed':
+        case 'notif:deleted':
+            var el = document.querySelector('.notif-item[data-id="' + msg.id + '"]');
+            if (el) el.remove();
+            var badge2 = document.getElementById('notif-count-badge');
+            var curr2 = badge2 ? parseInt(badge2.textContent, 10) || 0 : 0;
+            _updateNotifBadge(Math.max(0, curr2 - 1));
+            break;
+
+        case 'notif:error':
+            _updateErrorBadge(1);
+            if (_notifPanelOpen && _notifActiveTab === 'errors') {
+                _loadErrors();
+            }
+            break;
+
+        case 'notif:acked':
+            _updateErrorBadge(0);
+            break;
+    }
+}
+
+// ── Boot ────────────────────────────────────────────────────────
+
+(function _notifBoot() {
+    // Fetch initial badge counts
+    api('/notifications/badge')
+        .then(function(data) {
+            if (!data) return;
+            _updateNotifBadge(data.notification_count || 0);
+            _updateErrorBadge(data.error_count || 0);
+        })
+        .catch(function() {});
+
+    // Initialize cross-tab sync
+    _notifInitBC();
+})();
+</script>

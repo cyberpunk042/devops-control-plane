@@ -848,3 +848,36 @@ def trigger_chrome_signin():
         "step": "input_not_found",
     }), 500
 
+
+@tab_mesh_bp.route("/tab-mesh/suggest-cdp", methods=["POST"])
+def suggest_cdp():
+    """Create a one-time notification suggesting CDP setup.
+
+    Called by the frontend when cross-tab navigation falls back
+    because CDP is unavailable.  Uses notification dedup so
+    only one active suggestion exists at a time.
+
+    Returns::
+
+        { "created": true/false }
+    """
+    from flask import current_app
+    from src.core.services.notifications import create_notification
+
+    project_root = Path(current_app.config["PROJECT_ROOT"])
+
+    result = create_notification(
+        project_root,
+        notif_type="cdp_suggestion",
+        title="Enable Tab Focus",
+        message=(
+            "Cross-tab navigation is working, but tabs can't be "
+            "brought to the front without Chrome DevTools Protocol. "
+            "Open the Tab Mesh panel → Setup to enable CDP."
+        ),
+        meta={"action_tab": "debugging", "action_hash": "#debugging"},
+        dedup=True,
+    )
+
+    return jsonify({"created": result is not None})
+

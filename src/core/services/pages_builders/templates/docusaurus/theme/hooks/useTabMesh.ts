@@ -68,9 +68,12 @@ declare global {
             tombstones: Array<RegistryEntry & { diedAt: number; reason: string }>;
             capabilities: MeshCapabilities;
             swState: string;
+            cdpAvailable: boolean;
             navigateTo: (targetType: string, hash: string) => void;
             kill: (targetId: string, reason?: string) => void;
             inspect: (targetId: string) => void;
+            checkCDP: () => Promise<void>;
+            focusViaCDP: (urlPattern: string) => Promise<{ success: boolean } | null>;
         };
     }
 }
@@ -459,6 +462,59 @@ export function useTabMesh(): void {
             }
         }
 
+        // ── CDP focus via Flask backend ────────────────────────
+
+        let cdpAvailable = false;
+        let cdpNotifSent = false;
+
+        async function checkCDP(): Promise<void> {
+            try {
+                const resp = await fetch('/api/tab-mesh/cdp-status');
+                const data = await resp.json();
+                cdpAvailable = data.available === true;
+                console.log('[TabMesh] CDP:', cdpAvailable ? 'available' : 'not available');
+            } catch (_) {
+                cdpAvailable = false;
+            }
+        }
+
+        async function focusViaCDP(urlPattern: string): Promise<{ success: boolean } | null> {
+            // Transition overlay
+            const overlay = document.createElement('div');
+            overlay.style.cssText =
+                'position:fixed;inset:0;z-index:99999;' +
+                'background:radial-gradient(circle at center, rgba(255,255,255,0.03), rgba(0,0,0,0.7));' +
+                'display:flex;align-items:center;justify-content:center;' +
+                'transition:opacity 0.3s ease;opacity:0;' +
+                'backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px)';
+            overlay.innerHTML =
+                '<div style="text-align:center;color:#fff;font-family:inherit">' +
+                '<div style="font-size:2.5rem;margin-bottom:8px;animation:pulse 1s infinite">\uD83C\uDFAF</div>' +
+                '<div style="font-size:0.85rem;font-weight:600;opacity:0.9">Switching tab\u2026</div></div>';
+            document.body.appendChild(overlay);
+            overlay.offsetHeight; // force reflow
+            overlay.style.opacity = '1';
+
+            try {
+                const resp = await fetch('/api/tab-mesh/focus', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        urlPattern,
+                        excludeUrl: location.href,
+                    }),
+                });
+                const data = await resp.json();
+                overlay.style.opacity = '0';
+                setTimeout(() => overlay.remove(), 300);
+                return data;
+            } catch (_) {
+                overlay.style.opacity = '0';
+                setTimeout(() => overlay.remove(), 300);
+                return null;
+            }
+        }
+
         // ── navigateTo ─────────────────────────────────────────
         function navigateTo(targetType: string, hash: string): void {
             let matchTabType = 'admin';
@@ -486,29 +542,34 @@ export function useTabMesh(): void {
             }
 
             if (target && targetId) {
+                // 1. BC navigate (SPA routing on target — always works)
                 broadcast({
                     type: 'navigate', id: tabId, targetId,
                     hash, ts: Date.now(),
                 });
-                const urlMatch = matchTabType === 'admin'
-                    ? '/'
-                    : '/pages/site/' + (matchSiteName || '');
-                swMessage({
-                    type: 'FOCUS_TAB', urlMatch,
-                    urlExclude: location.href,
-                });
+
+                // 2. CDP focus (bring tab to front via Flask backend)
+                if (cdpAvailable) {
+                    const urlMatch = matchTabType === 'admin'
+                        ? '/'
+                        : '/pages/site/' + (matchSiteName || '');
+                    focusViaCDP(urlMatch);
+                }
+
+                // If CDP not available, fire a one-time notification
+                if (!cdpAvailable && !cdpNotifSent) {
+                    cdpNotifSent = true;
+                    fetch('/api/tab-mesh/suggest-cdp', { method: 'POST' }).catch(() => { /* ignore */ });
+                }
             } else {
+                // Target NOT in registry → open new tab
                 let fullUrl: string;
                 if (matchTabType === 'admin') {
                     fullUrl = location.origin + '/' + hash;
                 } else {
                     fullUrl = hash.startsWith('http') ? hash : location.origin + hash;
                 }
-                if (swState === 'active' && navigator.serviceWorker.controller) {
-                    swMessage({ type: 'OPEN_TAB', url: fullUrl });
-                } else {
-                    window.open(fullUrl, '_blank');
-                }
+                window.open(fullUrl, '_blank');
             }
         }
 
@@ -536,6 +597,9 @@ export function useTabMesh(): void {
 
         // Register SW
         registerSW();
+
+        // Check CDP availability
+        checkCDP();
 
         // Set up BC
         if (caps.broadcastChannel) {
@@ -566,6 +630,35 @@ export function useTabMesh(): void {
             window.name = 'devops-site-' + identity.siteName;
         }
 
+        // ── Audit-link click interception ───────────────────────
+        //
+        // Audit-data file links are <a class="audit-link-dev"
+        // href="http://localhost:8000/#content/docs/..."> — without
+        // interception they navigate the Docusaurus page away.
+
+        function auditLinkHandler(e: MouseEvent): void {
+            let link = e.target as HTMLElement | null;
+            while (link && link.tagName !== 'A') {
+                link = link.parentElement;
+            }
+            if (!link) return;
+            if (!link.classList.contains('audit-link-dev') &&
+                !link.classList.contains('audit-file-link')) return;
+
+            const href = link.getAttribute('href') || '';
+            const hashIdx = href.indexOf('#');
+            if (hashIdx === -1) return;
+
+            const hash = href.substring(hashIdx);
+            if (!hash.startsWith('#content/')) return;
+
+            e.preventDefault();
+            e.stopPropagation();
+            navigateTo('admin', hash);
+        }
+
+        document.addEventListener('click', auditLinkHandler, true);
+
         // Expose public API
         window.TabMesh = {
             id: tabId,
@@ -574,9 +667,12 @@ export function useTabMesh(): void {
             tombstones,
             capabilities: caps,
             get swState() { return swState; },
+            get cdpAvailable() { return cdpAvailable; },
             navigateTo,
             kill,
             inspect,
+            checkCDP,
+            focusViaCDP,
         };
 
         // ── Cleanup on unmount ─────────────────────────────────
@@ -585,6 +681,7 @@ export function useTabMesh(): void {
             if (heartbeatInterval) clearInterval(heartbeatInterval);
             if (bc) { try { bc.close(); } catch (_) { } }
             stopTitleFlash();
+            document.removeEventListener('click', auditLinkHandler, true);
             window.removeEventListener('hashchange', sendState);
             window.removeEventListener('popstate', sendState);
             window.removeEventListener('beforeunload', sendLeave);
