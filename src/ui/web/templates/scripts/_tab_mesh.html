@@ -89,16 +89,20 @@
 
     const _meshTabId = _meshGenerateId();
     const _meshIdentity = {
-        id:       _meshTabId,
-        tabType:  _meshDetectTabType(),
-        siteName: _meshDetectSiteName(),
-        url:      location.href,
-        hash:     location.hash,
-        title:    '',       // computed after identity is set
-        ts:       Date.now(),
-        alive:    true,
+        id:             _meshTabId,
+        tabType:        _meshDetectTabType(),
+        siteName:       _meshDetectSiteName(),
+        url:            location.href,
+        hash:           location.hash,
+        title:          '',       // computed after identity is set
+        ts:             Date.now(),
+        alive:          true,
+        chromeTargetId: null,     // discovered via CDP at boot
     };
     _meshIdentity.title = _meshComputeBreadcrumb();
+
+    // Expose mesh ID on window for CDP discovery endpoint
+    window.__meshTabId = _meshTabId;
 
     // ── Registry ───────────────────────────────────────────────────────
     //
@@ -133,14 +137,15 @@
 
     function _meshUpsertEntry(msg) {
         _meshRegistry.set(msg.id, {
-            id:        msg.id,
-            tabType:   msg.tabType   || 'unknown',
-            siteName:  msg.siteName  || null,
-            url:       msg.url       || '',
-            hash:      msg.hash      || '',
-            title:     msg.title     || '',
-            lastSeen:  msg.ts        || Date.now(),
-            alive:     true,
+            id:             msg.id,
+            tabType:        msg.tabType        || 'unknown',
+            siteName:       msg.siteName       || null,
+            url:            msg.url            || '',
+            hash:           msg.hash           || '',
+            title:          msg.title          || '',
+            lastSeen:       msg.ts             || Date.now(),
+            alive:          true,
+            chromeTargetId: msg.chromeTargetId || null,
         });
     }
 
@@ -159,27 +164,29 @@
 
     function _meshSendJoin() {
         _meshBroadcast({
-            type:     'join',
-            id:       _meshIdentity.id,
-            tabType:  _meshIdentity.tabType,
-            siteName: _meshIdentity.siteName,
-            url:      _meshIdentity.url,
-            hash:     location.hash,
-            title:    _meshIdentity.title,
-            ts:       Date.now(),
+            type:           'join',
+            id:             _meshIdentity.id,
+            tabType:        _meshIdentity.tabType,
+            siteName:       _meshIdentity.siteName,
+            url:            _meshIdentity.url,
+            hash:           location.hash,
+            title:          _meshIdentity.title,
+            chromeTargetId: _meshIdentity.chromeTargetId,
+            ts:             Date.now(),
         });
     }
 
     function _meshSendRoster() {
         _meshBroadcast({
-            type:     'roster',
-            id:       _meshIdentity.id,
-            tabType:  _meshIdentity.tabType,
-            siteName: _meshIdentity.siteName,
-            url:      _meshIdentity.url,
-            hash:     location.hash,
-            title:    _meshIdentity.title,
-            ts:       Date.now(),
+            type:           'roster',
+            id:             _meshIdentity.id,
+            tabType:        _meshIdentity.tabType,
+            siteName:       _meshIdentity.siteName,
+            url:            _meshIdentity.url,
+            hash:           location.hash,
+            title:          _meshIdentity.title,
+            chromeTargetId: _meshIdentity.chromeTargetId,
+            ts:             Date.now(),
         });
     }
 
@@ -187,11 +194,14 @@
         _meshIdentity.hash = location.hash;
         _meshIdentity.title = _meshComputeBreadcrumb();
         _meshBroadcast({
-            type:  'ping',
-            id:    _meshIdentity.id,
-            hash:  location.hash,
-            title: _meshIdentity.title,
-            ts:    Date.now(),
+            type:           'ping',
+            id:             _meshIdentity.id,
+            tabType:        _meshIdentity.tabType,
+            siteName:       _meshIdentity.siteName,
+            hash:           location.hash,
+            title:          _meshIdentity.title,
+            chromeTargetId: _meshIdentity.chromeTargetId,
+            ts:             Date.now(),
         });
         _meshPruneRegistry();
     }
@@ -200,11 +210,14 @@
         _meshIdentity.hash = location.hash;
         _meshIdentity.title = _meshComputeBreadcrumb();
         _meshBroadcast({
-            type:  'state',
-            id:    _meshIdentity.id,
-            hash:  location.hash,
-            title: _meshIdentity.title,
-            ts:    Date.now(),
+            type:           'state',
+            id:             _meshIdentity.id,
+            tabType:        _meshIdentity.tabType,
+            siteName:       _meshIdentity.siteName,
+            hash:           location.hash,
+            title:          _meshIdentity.title,
+            chromeTargetId: _meshIdentity.chromeTargetId,
+            ts:             Date.now(),
         });
     }
 
@@ -239,9 +252,10 @@
                 // Heartbeat — update lastSeen + current state
                 if (_meshRegistry.has(msg.id)) {
                     const entry = _meshRegistry.get(msg.id);
-                    entry.lastSeen = msg.ts || Date.now();
-                    entry.hash     = msg.hash || entry.hash;
-                    entry.title    = msg.title || entry.title;
+                    entry.lastSeen      = msg.ts || Date.now();
+                    entry.hash          = msg.hash || entry.hash;
+                    entry.title         = msg.title || entry.title;
+                    if (msg.chromeTargetId) entry.chromeTargetId = msg.chromeTargetId;
                 } else {
                     _meshUpsertEntry(msg);
                 }
@@ -251,9 +265,10 @@
                 // Route change in another tab — update registry
                 if (_meshRegistry.has(msg.id)) {
                     const entry = _meshRegistry.get(msg.id);
-                    entry.hash  = msg.hash || entry.hash;
-                    entry.title = msg.title || entry.title;
+                    entry.hash     = msg.hash || entry.hash;
+                    entry.title    = msg.title || entry.title;
                     entry.lastSeen = msg.ts || Date.now();
+                    if (msg.chromeTargetId) entry.chromeTargetId = msg.chromeTargetId;
                 }
                 break;
 
@@ -294,9 +309,23 @@
     function _meshHandleNavigate(msg) {
         if (msg.targetId !== _meshTabId) return;
 
-        // SPA navigation via hash change
+        // SPA navigation — call switchTab directly for immediate routing.
+        // Setting location.hash alone relies on the hashchange event which
+        // can be lost if the tab is in the background or the event fires
+        // before _tabs.html's listener is ready.
         if (msg.hash) {
-            location.hash = msg.hash;
+            var rawHash = msg.hash;
+            if (rawHash.charAt(0) === '#') rawHash = rawHash.slice(1);
+
+            // Set URL bar (does NOT trigger switchTab — we'll call it directly)
+            if (location.hash !== msg.hash) {
+                location.hash = msg.hash;
+            }
+
+            // Direct call to the admin SPA router if available
+            if (typeof switchTab === 'function') {
+                switchTab(rawHash);
+            }
         }
 
         // Title flash — attention indicator
@@ -542,8 +571,9 @@
     var _meshCDPNotifSent = false; // one-time CDP suggestion notification
 
     /**
-     * Check CDP availability on page load.
-     * Stores result in _meshCDPAvailable for navigateTo decisions.
+     * Check CDP availability and discover our Chrome target ID.
+     * Stores CDP status in _meshCDPAvailable.
+     * Stores Chrome target ID in _meshIdentity.chromeTargetId.
      */
     async function _meshCheckCDP() {
         try {
@@ -554,15 +584,53 @@
         } catch (err) {
             _meshCDPAvailable = false;
         }
+
+        // Discover our Chrome target ID (async, non-blocking)
+        if (_meshCDPAvailable) {
+            _meshDiscoverTarget();
+        }
+    }
+
+    /**
+     * Discover this tab's Chrome target ID by evaluating
+     * window.__meshTabId via CDP on candidate targets.
+     */
+    async function _meshDiscoverTarget() {
+        try {
+            var resp = await fetch('/api/tab-mesh/discover-target', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    meshTabId: _meshTabId,
+                    url: location.href,
+                }),
+            });
+            var data = await resp.json();
+            if (data.chromeTargetId) {
+                _meshIdentity.chromeTargetId = data.chromeTargetId;
+                console.log('[TabMesh] Chrome target ID discovered:', data.chromeTargetId);
+                // Re-broadcast so other tabs learn our target ID
+                _meshSendPing();
+            } else {
+                console.log('[TabMesh] Chrome target discovery failed:', data.reason);
+            }
+        } catch (err) {
+            console.warn('[TabMesh] Chrome target discovery error:', err.message);
+        }
     }
 
     /**
      * Focus a tab via CDP (Chrome DevTools Protocol).
      *
-     * Calls the Flask backend which talks to Chrome's debugging API.
-     * Returns the response data or null on failure.
+     * If chromeTargetId is provided, activates that exact target.
+     * Otherwise falls back to URL pattern matching.
+     *
+     * @param {string}  urlPatternOrTargetId  - Chrome target ID (exact) or URL pattern (fallback)
+     * @param {object}  [opts]                - { directTargetId: true } to use direct activation
      */
-    async function _meshFocusViaCDP(urlPattern) {
+    async function _meshFocusViaCDP(urlPatternOrTargetId, opts) {
+        opts = opts || {};
+
         // Show a fullscreen transition overlay to cover the CDP delay
         var overlay = document.createElement('div');
         overlay.id = 'cdp-focus-overlay';
@@ -582,17 +650,23 @@
         overlay.style.opacity = '1';
 
         try {
+            var body;
+            if (opts.directTargetId) {
+                // Exact target activation — no URL guessing
+                body = { targetId: urlPatternOrTargetId };
+            } else {
+                // URL pattern fallback
+                body = { urlPattern: urlPatternOrTargetId, excludeUrl: location.href };
+            }
+
             var resp = await fetch('/api/tab-mesh/focus', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    urlPattern: urlPattern,
-                    excludeUrl: location.href,
-                }),
+                body: JSON.stringify(body),
             });
             var data = await resp.json();
             if (data.success) {
-                console.log('[TabMesh] CDP focus succeeded:', data.url);
+                console.log('[TabMesh] CDP focus succeeded:', data.targetId);
             } else {
                 console.log('[TabMesh] CDP focus failed:', data.reason);
             }
@@ -663,10 +737,16 @@
 
             // 2. CDP focus (bring tab to front via Flask backend)
             if (_meshCDPAvailable) {
-                var urlMatch = matchTabType === 'admin'
-                    ? '/'
-                    : '/pages/site/' + (matchSiteName || '');
-                _meshFocusViaCDP(urlMatch);
+                if (target.chromeTargetId) {
+                    // Exact activation — no URL guessing
+                    _meshFocusViaCDP(target.chromeTargetId, { directTargetId: true });
+                } else {
+                    // Fallback: URL pattern (degraded)
+                    var urlMatch = matchTabType === 'admin'
+                        ? '/'
+                        : '/pages/site/' + (matchSiteName || '');
+                    _meshFocusViaCDP(urlMatch);
+                }
             }
             // If CDP not available, BC navigate already handles
             // title flash on the target tab as visual feedback.

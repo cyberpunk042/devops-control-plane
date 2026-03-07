@@ -69,13 +69,18 @@ function _injectViewSiteButton(breadcrumbEl, folderPath) {
         if (!match) return;
 
         if (match.build && match.build.serve_url) {
-            // Already built → show View Site link
-            const btn = document.createElement('a');
-            btn.href = match.build.serve_url;
-            btn.target = '_blank';
-            btn.style.cssText = 'margin-left:0.5rem;font-size:0.72rem;color:#818cf8;text-decoration:none;font-weight:600;vertical-align:middle';
+            // Already built → show View Site link (via mesh if tab is open)
+            const btn = document.createElement('button');
+            btn.style.cssText = 'margin-left:0.5rem;font-size:0.72rem;color:#818cf8;background:none;border:none;font-weight:600;cursor:pointer;vertical-align:middle;padding:0';
             btn.title = `View built site (${match.builder})`;
             btn.textContent = '🌐 View Site';
+            btn.onclick = () => {
+                if (typeof _meshNavigateTo === 'function') {
+                    _meshNavigateTo('site:' + match.name, match.build.serve_url);
+                } else {
+                    window.open(match.build.serve_url, '_blank');
+                }
+            };
             breadcrumbEl.appendChild(btn);
 
             // Also show builder + build time

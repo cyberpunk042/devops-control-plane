@@ -565,9 +565,11 @@ def cdp_status():
 def focus_tab():
     """Focus a browser tab via CDP.
 
-    Request body::
+    Accepts EITHER a direct Chrome target ID (preferred, exact) or
+    a URL pattern fallback::
 
-        { "urlPattern": "/", "excludeUrl": "..." }
+        { "targetId": "CHROME-TARGET-ID" }          # exact
+        { "urlPattern": "/pages/site/docs/", ... }   # fallback
 
     Returns::
 
@@ -576,10 +578,20 @@ def focus_tab():
     from src.ui.web import cdp_client
 
     data = request.get_json(silent=True) or {}
+    direct_target_id = data.get("targetId")
+
+    # ── Direct target ID path (preferred) ───────────────────────
+    if direct_target_id:
+        result = cdp_client.activate_target(direct_target_id)
+        return jsonify({
+            "success": result,
+            "targetId": direct_target_id,
+        })
+
+    # ── URL pattern fallback ────────────────────────────────────
     url_pattern = data.get("urlPattern", "/")
     exclude_url = data.get("excludeUrl")
 
-    # get_targets returns [] if CDP unreachable — no need for is_available()
     targets = cdp_client.get_targets()
     if not targets:
         return jsonify({
@@ -603,6 +615,77 @@ def focus_tab():
         "url": match.get("url"),
         "targetId": match.get("id"),
     })
+
+
+@tab_mesh_bp.route("/tab-mesh/discover-target", methods=["POST"])
+def discover_target():
+    """Discover a tab's Chrome target ID by matching its mesh tab ID.
+
+    The requesting tab must set ``window.__meshTabId`` before calling.
+    The backend evaluates that expression on candidate CDP targets
+    to find the exact match.
+
+    Request body::
+
+        { "meshTabId": "abc-123", "url": "http://localhost:8000/" }
+
+    Returns::
+
+        { "chromeTargetId": "CHROME-TARGET-ID" }
+        { "chromeTargetId": null, "reason": "..." }
+    """
+    from src.ui.web import cdp_client
+
+    data = request.get_json(silent=True) or {}
+    mesh_tab_id = data.get("meshTabId")
+    tab_url = data.get("url", "")
+
+    if not mesh_tab_id:
+        return jsonify({"chromeTargetId": None, "reason": "missing meshTabId"}), 400
+
+    targets = cdp_client.get_targets()
+    if not targets:
+        return jsonify({"chromeTargetId": None, "reason": "cdp_unavailable"})
+
+    # Narrow candidates by URL prefix (same origin) to minimise JS evals
+    # Extract origin from the tab's URL for filtering
+    from urllib.parse import urlparse
+    parsed = urlparse(tab_url)
+    origin = f"{parsed.scheme}://{parsed.netloc}" if parsed.scheme else ""
+
+    candidates = []
+    for t in targets:
+        if t.get("type") != "page":
+            continue
+        t_url = t.get("url", "")
+        if t_url.startswith("devtools://") or t_url.startswith("chrome-devtools://"):
+            continue
+        # Only check tabs from the same origin
+        if origin and not t_url.startswith(origin):
+            continue
+        # Must have a WebSocket URL for JS evaluation
+        if not t.get("webSocketDebuggerUrl"):
+            continue
+        candidates.append(t)
+
+    if not candidates:
+        return jsonify({"chromeTargetId": None, "reason": "no_candidates"})
+
+    # Evaluate window.__meshTabId on each candidate
+    for candidate in candidates:
+        ws_url = candidate["webSocketDebuggerUrl"]
+        result = cdp_client.evaluate_js(ws_url, "window.__meshTabId || null")
+        if result is None:
+            continue
+        # CDP returns: {"id":1, "result": {"result": {"type":"string","value":"abc-123"}}}
+        try:
+            value = result["result"]["result"]["value"]
+        except (KeyError, TypeError):
+            continue
+        if value == mesh_tab_id:
+            return jsonify({"chromeTargetId": candidate["id"]})
+
+    return jsonify({"chromeTargetId": None, "reason": "not_found"})
 
 
 @tab_mesh_bp.route("/tab-mesh/cdp-diagnose")

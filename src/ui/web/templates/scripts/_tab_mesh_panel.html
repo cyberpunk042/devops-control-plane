@@ -68,14 +68,14 @@
      * Focus a tab via CDP from the mesh panel.
      * If CDP is not available, shows the setup wizard.
      */
-    async function _meshPanelFocus(urlMatch) {
+    async function _meshPanelFocus(targetArg, opts) {
         if (!window.TabMesh || !window.TabMesh.cdpAvailable) {
             _meshShowSetup();
             return;
         }
-        var result = await window.TabMesh.focusViaCDP(urlMatch);
+        var result = await window.TabMesh.focusViaCDP(targetArg, opts || {});
         if (result && result.success) {
-            console.log('[MeshPanel] Focus succeeded:', result.url);
+            console.log('[MeshPanel] Focus succeeded:', result.targetId);
         } else {
             console.log('[MeshPanel] Focus failed:', result);
         }
@@ -658,11 +658,19 @@
                 } else {
                     var navTarget = entry.tabType === 'admin' ? 'admin' : 'site:' + (entry.siteName || '');
                     var navHash = entry.hash || '';
-                    var urlMatch = navTarget === 'admin' ? '/' : '/pages/site/' + (entry.siteName || '');
+                    // Use chromeTargetId for exact focus, fallback to URL pattern
+                    var focusArg, focusOpts;
+                    if (entry.chromeTargetId) {
+                        focusArg = entry.chromeTargetId;
+                        focusOpts = '{ directTargetId: true }';
+                    } else {
+                        focusArg = navTarget === 'admin' ? '/' : '/pages/site/' + (entry.siteName || '');
+                        focusOpts = '{}';
+                    }
                     actions =
                         '<div style="display:flex;gap:2px;flex-wrap:wrap">' +
                             '<button class="btn btn-sm btn-ghost" style="font-size:0.5rem;padding:1px 4px" ' +
-                                'onclick="_meshPanelFocus(\'' + esc(urlMatch) + '\')" ' +
+                                'onclick="_meshPanelFocus(\'' + esc(focusArg) + '\', ' + focusOpts + ')" ' +
                                 'title="Focus tab (CDP)">' + (mesh.cdpAvailable ? '🎯' : '🔗') + '</button>' +
                             '<button class="btn btn-sm btn-ghost" style="font-size:0.5rem;padding:1px 4px" ' +
                                 'onclick="TabMesh.inspect(\'' + esc(id) + '\');_meshShowDump()" ' +

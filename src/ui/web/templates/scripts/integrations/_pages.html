@@ -67,7 +67,7 @@
 
                 // Primary action: View Site (only when built)
                 const viewSiteBtn = serveUrl
-                    ? `<a href="${serveUrl}" target="_blank" class="btn btn-sm btn-primary" style="padding:0.15rem 0.5rem;font-size:0.68rem;text-decoration:none;display:inline-flex;align-items:center;gap:0.2rem" title="View built site">🌐 View</a>`
+                    ? `<button class="btn btn-sm btn-primary" onclick="_meshNavigateTo('site:${esc(seg.name)}', '${esc(serveUrl)}')" style="padding:0.15rem 0.5rem;font-size:0.68rem;display:inline-flex;align-items:center;gap:0.2rem" title="View built site">🌐 View</button>`
                     : `<span style="font-size:0.68rem;color:var(--text-muted);font-style:italic">not built</span>`;
 
                 // Browse build workspace in Content Vault (.pages/<segment>)

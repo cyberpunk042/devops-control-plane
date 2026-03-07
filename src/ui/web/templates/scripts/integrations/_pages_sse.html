@@ -369,7 +369,7 @@
                                 statusEl.innerHTML = `<span style="color:var(--success)" class="build-final">✅ Pipeline complete — ${totalT}</span>`;
                                 if (evt.serve_url) {
                                     actionsEl.innerHTML = `
-                                        <a href="${esc(evt.serve_url)}" target="_blank" class="btn btn-sm btn-primary" style="text-decoration:none;display:inline-flex;align-items:center;gap:0.25rem">🌐 View Site</a>
+                                        <button class="btn btn-sm btn-primary" onclick="_meshNavigateTo('site:${esc(name)}', '${esc(evt.serve_url)}')" style="display:inline-flex;align-items:center;gap:0.25rem">🌐 View Site</button>
                                         <button class="btn btn-sm btn-secondary" onclick="closeBuildModal()">Close</button>`;
                                 }
                             } else {

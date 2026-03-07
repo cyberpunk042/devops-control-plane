@@ -31,6 +31,7 @@ interface TabIdentity {
     title: string;
     ts: number;
     alive: boolean;
+    chromeTargetId: string | null;
 }
 
 interface RegistryEntry {
@@ -42,6 +43,7 @@ interface RegistryEntry {
     title: string;
     lastSeen: number;
     alive: boolean;
+    chromeTargetId: string | null;
 }
 
 interface MeshMessage {
@@ -57,6 +59,7 @@ interface MeshMessage {
     reason?: string;
     respondingTo?: string;
     state?: Record<string, unknown>;
+    chromeTargetId?: string | null;
 }
 
 declare global {
@@ -73,8 +76,9 @@ declare global {
             kill: (targetId: string, reason?: string) => void;
             inspect: (targetId: string) => void;
             checkCDP: () => Promise<void>;
-            focusViaCDP: (urlPattern: string) => Promise<{ success: boolean } | null>;
+            focusViaCDP: (urlPatternOrTargetId: string, opts?: { directTargetId?: boolean }) => Promise<{ success: boolean } | null>;
         };
+        __meshTabId?: string;
     }
 }
 
@@ -168,8 +172,12 @@ export function useTabMesh(): void {
             title: '',
             ts: Date.now(),
             alive: true,
+            chromeTargetId: null,
         };
         identity.title = computeBreadcrumb(identity);
+
+        // Expose mesh ID on window for CDP discovery endpoint
+        window.__meshTabId = tabId;
 
         // ── Registry ───────────────────────────────────────────
         const registry = new Map<string, RegistryEntry>();
@@ -199,6 +207,7 @@ export function useTabMesh(): void {
                 title: msg.title || '',
                 lastSeen: msg.ts || Date.now(),
                 alive: true,
+                chromeTargetId: msg.chromeTargetId || null,
             });
         }
 
@@ -227,7 +236,8 @@ export function useTabMesh(): void {
                 type: 'join', id: tabId,
                 tabType: identity.tabType, siteName: identity.siteName,
                 url: identity.url, hash: location.hash,
-                title: identity.title, ts: Date.now(),
+                title: identity.title, chromeTargetId: identity.chromeTargetId,
+                ts: Date.now(),
             });
         }
 
@@ -236,7 +246,8 @@ export function useTabMesh(): void {
                 type: 'roster', id: tabId,
                 tabType: identity.tabType, siteName: identity.siteName,
                 url: identity.url, hash: location.hash,
-                title: identity.title, ts: Date.now(),
+                title: identity.title, chromeTargetId: identity.chromeTargetId,
+                ts: Date.now(),
             });
         }
 
@@ -245,7 +256,9 @@ export function useTabMesh(): void {
             identity.title = computeBreadcrumb(identity);
             broadcast({
                 type: 'ping', id: tabId,
+                tabType: identity.tabType, siteName: identity.siteName,
                 hash: location.hash, title: identity.title,
+                chromeTargetId: identity.chromeTargetId,
                 ts: Date.now(),
             });
             pruneRegistry();
@@ -256,7 +269,9 @@ export function useTabMesh(): void {
             identity.title = computeBreadcrumb(identity);
             broadcast({
                 type: 'state', id: tabId,
+                tabType: identity.tabType, siteName: identity.siteName,
                 hash: location.hash, title: identity.title,
+                chromeTargetId: identity.chromeTargetId,
                 ts: Date.now(),
             });
         }
@@ -355,6 +370,7 @@ export function useTabMesh(): void {
                         entry.lastSeen = msg.ts || Date.now();
                         entry.hash = msg.hash || entry.hash;
                         entry.title = msg.title || entry.title;
+                        if (msg.chromeTargetId) entry.chromeTargetId = msg.chromeTargetId;
                     } else {
                         upsertEntry(msg);
                     }
@@ -365,6 +381,7 @@ export function useTabMesh(): void {
                         entry.hash = msg.hash || entry.hash;
                         entry.title = msg.title || entry.title;
                         entry.lastSeen = msg.ts || Date.now();
+                        if (msg.chromeTargetId) entry.chromeTargetId = msg.chromeTargetId;
                     }
                     break;
                 case 'leave':
@@ -476,9 +493,43 @@ export function useTabMesh(): void {
             } catch (_) {
                 cdpAvailable = false;
             }
+
+            // Discover our Chrome target ID (async, non-blocking)
+            if (cdpAvailable) {
+                discoverTarget();
+            }
         }
 
-        async function focusViaCDP(urlPattern: string): Promise<{ success: boolean } | null> {
+        async function discoverTarget(): Promise<void> {
+            try {
+                const resp = await fetch('/api/tab-mesh/discover-target', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        meshTabId: tabId,
+                        url: location.href,
+                    }),
+                });
+                const data = await resp.json();
+                if (data.chromeTargetId) {
+                    identity.chromeTargetId = data.chromeTargetId;
+                    console.log('[TabMesh] Chrome target ID discovered:', data.chromeTargetId);
+                    // Re-broadcast so other tabs learn our target ID
+                    sendPing();
+                } else {
+                    console.log('[TabMesh] Chrome target discovery failed:', data.reason);
+                }
+            } catch (err) {
+                console.warn('[TabMesh] Chrome target discovery error:', (err as Error).message);
+            }
+        }
+
+        async function focusViaCDP(
+            urlPatternOrTargetId: string,
+            opts?: { directTargetId?: boolean },
+        ): Promise<{ success: boolean } | null> {
+            const useDirectId = opts?.directTargetId ?? false;
+
             // Transition overlay
             const overlay = document.createElement('div');
             overlay.style.cssText =
@@ -496,13 +547,14 @@ export function useTabMesh(): void {
             overlay.style.opacity = '1';
 
             try {
+                const body = useDirectId
+                    ? { targetId: urlPatternOrTargetId }
+                    : { urlPattern: urlPatternOrTargetId, excludeUrl: location.href };
+
                 const resp = await fetch('/api/tab-mesh/focus', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        urlPattern,
-                        excludeUrl: location.href,
-                    }),
+                    body: JSON.stringify(body),
                 });
                 const data = await resp.json();
                 overlay.style.opacity = '0';
@@ -550,10 +602,16 @@ export function useTabMesh(): void {
 
                 // 2. CDP focus (bring tab to front via Flask backend)
                 if (cdpAvailable) {
-                    const urlMatch = matchTabType === 'admin'
-                        ? '/'
-                        : '/pages/site/' + (matchSiteName || '');
-                    focusViaCDP(urlMatch);
+                    if (target.chromeTargetId) {
+                        // Exact activation — no URL guessing
+                        focusViaCDP(target.chromeTargetId, { directTargetId: true });
+                    } else {
+                        // Fallback: URL pattern (degraded)
+                        const urlMatch = matchTabType === 'admin'
+                            ? '/'
+                            : '/pages/site/' + (matchSiteName || '');
+                        focusViaCDP(urlMatch);
+                    }
                 }
 
                 // If CDP not available, fire a one-time notification
