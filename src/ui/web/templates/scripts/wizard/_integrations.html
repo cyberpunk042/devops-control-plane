@@ -1955,7 +1955,7 @@ const _wizSubForms = {
                     </div>
                     <div style="display:flex;align-items:center;gap:0.5rem">
                         <span style="font-size:0.65rem;color:var(--text-muted)">${esc(seg.source)} → ${esc(seg.path)}</span>
-                        <a href="${previewUrl}" target="_blank" style="font-size:0.65rem;color:var(--accent);text-decoration:none" title="Open local preview">🔗</a>
+                        <button onclick="_meshNavigateTo('site:${esc(seg.name)}', '${previewUrl}')" style="font-size:0.65rem;color:var(--accent);background:none;border:none;cursor:pointer;padding:0;text-decoration:none" title="Open local preview">🔗</button>
                     </div>
                 </div>`;
             }

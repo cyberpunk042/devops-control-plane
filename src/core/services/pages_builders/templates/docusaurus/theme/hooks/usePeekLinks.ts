@@ -261,10 +261,21 @@ export function usePeekLinks(): void {
         const resolved = allRefs.filter((r) => r.resolved !== false);
         const unresolved = allRefs.filter((r) => r.resolved === false);
 
-        // Small delay to let MDX content render
-        const timer = setTimeout(() => {
+        // ── Robust container detection ──
+        // After SPA navigation, Docusaurus may not have the new .markdown
+        // container ready immediately. We use polling + MutationObserver
+        // to detect when the content is actually rendered.
+        let cancelled = false;
+        let observer: MutationObserver | null = null;
+        let pollTimer: ReturnType<typeof setTimeout> | null = null;
+
+        function _doAnnotate(): void {
+            if (cancelled) return;
             const container = document.querySelector('.markdown');
             if (!container) return;
+            // Guard: don't annotate if already done (idempotency)
+            if (container.querySelector('.peek-link')) return;
+
             if (resolved.length > 0) {
                 annotatePeekRefs(container as HTMLElement, resolved);
             }
@@ -286,10 +297,52 @@ export function usePeekLinks(): void {
                 // Fade to subtle after 2s
                 setTimeout(() => { badge.classList.add('peek-status--subtle'); }, 2000);
             }
-        }, 100);
+        }
+
+        function _tryAnnotate(): boolean {
+            if (cancelled) return true;
+            const container = document.querySelector('.markdown');
+            // Wait until the container exists AND has meaningful content
+            if (container && container.textContent && container.textContent.trim().length > 20) {
+                _doAnnotate();
+                return true;
+            }
+            return false;
+        }
+
+        // Strategy 1: Poll every 80ms for up to 2s
+        let pollCount = 0;
+        const MAX_POLLS = 25;
+        function _poll(): void {
+            if (cancelled) return;
+            if (_tryAnnotate()) return;
+            pollCount++;
+            if (pollCount < MAX_POLLS) {
+                pollTimer = setTimeout(_poll, 80);
+            }
+        }
+        _poll();
+
+        // Strategy 2: MutationObserver on document body as fallback
+        // Catches cases where content loads after our poll window
+        observer = new MutationObserver(() => {
+            if (cancelled) return;
+            const container = document.querySelector('.markdown');
+            if (container && container.textContent && container.textContent.trim().length > 20) {
+                if (!container.querySelector('.peek-link')) {
+                    _doAnnotate();
+                }
+                // Stop observing once annotated
+                if (observer) { observer.disconnect(); observer = null; }
+            }
+        });
+        const article = document.querySelector('article') || document.querySelector('main') || document.body;
+        observer.observe(article, { childList: true, subtree: true });
 
         return () => {
-            clearTimeout(timer);
+            cancelled = true;
+            if (pollTimer) clearTimeout(pollTimer);
+            if (observer) { observer.disconnect(); observer = null; }
             _dismissPeekTooltip();
             // Remove annotation count badge
             const badge = document.querySelector('.peek-status');

@@ -400,7 +400,7 @@ if (path.endsWith('.md') || path.endsWith('.mdx')) {
         if (linkEl && res.matches && res.matches.length > 0) {
             const m = res.matches[0];
             linkEl.style.display = 'inline-flex';
-            linkEl.innerHTML = `<a href="${m.preview_url}" target="_blank" style="font-size:0.72rem;color:#34d399;background:rgba(52,211,153,0.1);border:1px solid rgba(52,211,153,0.3);border-radius:6px;padding:0.1rem 0.45rem;text-decoration:none;display:inline-flex;align-items:center;gap:0.2rem" title="Preview in Pages (${m.segment})">📖 Pages</a>`;
+            linkEl.innerHTML = `<button onclick="_meshNavigateTo('site:${esc(m.segment)}', '${esc(m.preview_url)}')" style="font-size:0.72rem;color:#34d399;background:rgba(52,211,153,0.1);border:1px solid rgba(52,211,153,0.3);border-radius:6px;padding:0.1rem 0.45rem;cursor:pointer;display:inline-flex;align-items:center;gap:0.2rem" title="Preview in Pages (${esc(m.segment)})">📖 Pages</button>`;
         }
     }).catch(() => {});
 }
