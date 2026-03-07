@@ -334,8 +334,11 @@ export function usePeekLinks(): void {
             if (cancelled) return;
 
             // Immediate check (works for SSR / initial load)
+            // Delay slightly so React hydration completes — CodeBlock
+            // components re-render during hydration, wiping annotations
+            // applied before they settle.
             if (_isContentReady()) {
-                _doAnnotate();
+                setTimeout(() => { if (!cancelled) _doAnnotate(); }, 150);
                 return;
             }
 

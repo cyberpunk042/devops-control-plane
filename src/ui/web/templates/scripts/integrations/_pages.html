@@ -49,7 +49,7 @@
 
             // ── Segment rows with pipeline stages ──
             const listHtml = segments.map(seg => {
-                const buildInfo = seg.build;
+                const buildInfo = seg.build_status;
                 const serveUrl = buildInfo && buildInfo.serve_url ? buildInfo.serve_url : '';
                 const buildOk = !!buildInfo;
 
