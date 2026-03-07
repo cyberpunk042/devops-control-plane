@@ -61,8 +61,8 @@
                     <span style="color:var(--text-muted);font-size:0.5rem">→</span>
                     <span title="Served" style="color:${serveUrl ? '#6366f1' : 'var(--text-muted)'}">●</span>`;
 
-                const buildAgo = buildInfo ? _timeAgo(buildInfo.built_at) : '';
-                const duration = buildInfo ? `${buildInfo.duration_ms}ms` : '';
+                const buildAgo = buildInfo ? _pagesTimeAgo(buildInfo.built_at) : '';
+                const duration = buildInfo && buildInfo.duration_ms ? `${(buildInfo.duration_ms / 1000).toFixed(1)}s` : '';
                 const timeInfo = buildAgo ? `${buildAgo}${duration ? ' · ' + duration : ''}` : '';
 
                 // Primary action: View Site (only when built)

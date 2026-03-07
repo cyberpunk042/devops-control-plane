@@ -445,9 +445,11 @@
 
     // ── Helpers ──────────────────────────────────────────────────────────
 
-    function _timeAgo(dateStr) {
+    function _pagesTimeAgo(dateStr) {
         if (!dateStr) return '';
-        const d = new Date(dateStr);
+        // Python isoformat gives -0500, JS Date needs -05:00
+        const normalized = dateStr.replace(/([+-]\d{2})(\d{2})$/, '$1:$2');
+        const d = new Date(normalized);
         const now = new Date();
         const sec = Math.floor((now - d) / 1000);
         if (sec < 60) return 'just now';
