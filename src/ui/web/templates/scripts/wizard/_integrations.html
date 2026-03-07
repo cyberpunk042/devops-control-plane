@@ -1947,13 +1947,25 @@ const _wizSubForms = {
                 <summary style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;cursor:pointer;user-select:none;margin-bottom:0.3rem">📑 Segments (${segs.length})</summary>
                 <div style="border:1px solid var(--border-subtle);border-radius:6px;overflow:hidden">`;
             for (const seg of segs) {
-                const previewUrl = '/pages/site/' + encodeURIComponent(seg.name) + '/';
+                const previewUrl = seg.serve_url || ('/pages/site/' + encodeURIComponent(seg.name) + '/');
+                let buildBadge = '';
+                if (seg.built_at) {
+                    const builtDate = new Date(seg.built_at);
+                    const diffMs = Date.now() - builtDate.getTime();
+                    const diffMin = Math.floor(diffMs / 60000);
+                    const ago = diffMin < 1 ? 'just now' : diffMin < 60 ? diffMin + 'm ago' : Math.floor(diffMin / 60) + 'h ago';
+                    const dur = seg.build_duration_ms ? (seg.build_duration_ms / 1000).toFixed(1) + 's' : '';
+                    buildBadge = `<span style="font-size:0.6rem;color:var(--success)" title="Built ${esc(seg.built_at)}${dur ? ' (' + dur + ')' : ''}">✅ ${esc(ago)}</span>`;
+                } else {
+                    buildBadge = `<span style="font-size:0.6rem;color:var(--text-muted)" title="Not built yet">○ not built</span>`;
+                }
                 html += `<div style="display:flex;align-items:center;justify-content:space-between;padding:0.35rem 0.5rem;border-bottom:1px solid var(--border-subtle);font-size:0.72rem">
                     <div>
                         <span style="font-weight:600;color:var(--text-primary)">${esc(seg.name)}</span>
                         <span style="color:var(--text-muted);margin-left:0.4rem">${esc(seg.builder)}</span>
                     </div>
                     <div style="display:flex;align-items:center;gap:0.5rem">
+                        ${buildBadge}
                         <span style="font-size:0.65rem;color:var(--text-muted)">${esc(seg.source)} → ${esc(seg.path)}</span>
                         <button onclick="_meshNavigateTo('site:${esc(seg.name)}', '${previewUrl}')" style="font-size:0.65rem;color:var(--accent);background:none;border:none;cursor:pointer;padding:0;text-decoration:none" title="Open local preview">🔗</button>
                     </div>

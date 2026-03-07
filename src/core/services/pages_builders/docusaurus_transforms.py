@@ -157,6 +157,7 @@ def inject_crossref_links(
     refs: list[dict],
     docs_dir: Path,
     doc_rel: str,
+    source_prefix: str = "",
 ) -> str:
     """Replace resolved file references with Docusaurus markdown links.
 
@@ -193,7 +194,7 @@ def inject_crossref_links(
         # Smart folder staging copies files into docs_dir with structure:
         #   src/core/services/audit/README.md → docs/core/services/audit/index.mdx
         # We need to find if ANY file in docs_dir corresponds to this source path
-        _find_internal_target(ref, docs_dir, internal_map)
+        _find_internal_target(ref, docs_dir, internal_map, source_prefix)
 
     if not internal_map:
         return content
@@ -271,6 +272,7 @@ def _find_internal_target(
     ref: dict,
     docs_dir: Path,
     internal_map: dict[str, str],
+    source_prefix: str = "",
 ) -> None:
     """Check if a resolved ref has a corresponding page in docs_dir.
 
@@ -287,7 +289,12 @@ def _find_internal_target(
     #    e.g. resolved="src/core/services/audit/README.md"
     #    docs might have: core/services/audit/index.mdx
     #    (the "src/" prefix is stripped, README→index, .md→.mdx)
-    for prefix in ("src/", ""):
+    # Build prefix list: src/, the segment source dir (e.g. docs/), and empty.
+    prefixes = ["src/"]
+    if source_prefix:
+        prefixes.append(source_prefix if source_prefix.endswith("/") else source_prefix + "/")
+    prefixes.append("")
+    for prefix in prefixes:
         if resolved.startswith(prefix):
             rel = resolved[len(prefix):]
         else:
@@ -309,7 +316,7 @@ def _find_internal_target(
 
     # 2. Directory reference: check for index.mdx inside
     if ref.get("is_directory"):
-        for prefix in ("src/", ""):
+        for prefix in prefixes:
             if resolved.startswith(prefix):
                 rel = resolved[len(prefix):]
             else:

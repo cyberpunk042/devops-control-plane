@@ -190,18 +190,32 @@ def _wizard_pages_status(root: Path) -> dict:
             list_builders_detail,
         )
 
-        # Existing segments
+        # Existing segments (with build status from build.json)
+        import json as _json
         segments = get_segments(root)
-        result["segments"] = [
-            {
+        pages_dir = root / ".pages"
+        result["segments"] = []
+        for s in segments:
+            seg_data: dict = {
                 "name": s.name,
                 "builder": s.builder,
                 "source": s.source,
                 "path": s.path,
                 "auto": s.auto,
+                "built_at": None,
+                "build_duration_ms": None,
+                "serve_url": None,
             }
-            for s in segments
-        ]
+            build_json = pages_dir / s.name / "build.json"
+            if build_json.is_file():
+                try:
+                    bd = _json.loads(build_json.read_text(encoding="utf-8"))
+                    seg_data["built_at"] = bd.get("built_at")
+                    seg_data["build_duration_ms"] = bd.get("duration_ms")
+                    seg_data["serve_url"] = bd.get("serve_url")
+                except Exception:
+                    pass
+            result["segments"].append(seg_data)
 
         # Pages metadata
         result["meta"] = get_pages_meta(root)

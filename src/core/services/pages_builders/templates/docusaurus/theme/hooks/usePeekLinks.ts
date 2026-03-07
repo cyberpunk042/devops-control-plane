@@ -405,10 +405,13 @@ function locationToDocPath(pathname: string): string {
         if (idx[candidate + '.mdx']) return candidate + '.mdx';
         // Try as directory index (e.g. "core/services/audit/index.mdx")
         if (idx[candidate + '/index.mdx']) return candidate + '/index.mdx';
+        // Try README (docs segments keep README.mdx as key)
+        if (idx[candidate + '/README.mdx']) return candidate + '/README.mdx';
     }
 
-    // Root page
+    // Root page — try both index.mdx and README.mdx
     if (idx['index.mdx']) return 'index.mdx';
+    if (idx['README.mdx']) return 'README.mdx';
 
     // Fallback to legacy logic
     const docsIdx = path.indexOf('/docs');

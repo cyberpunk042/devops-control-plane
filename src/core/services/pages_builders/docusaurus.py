@@ -421,6 +421,8 @@ class DocusaurusBuilder(PageBuilder):
                     sibling_links = []
                     for seg in all_segments:
                         seg_name = seg.get("name", "")
+                        if seg_name == segment.name:
+                            continue  # Docusaurus already provides link for current segment
                         seg_title = seg.get("config", {}).get(
                             "title",
                             seg_name.replace("-", " ").replace("_", " ").title(),
@@ -428,25 +430,14 @@ class DocusaurusBuilder(PageBuilder):
                         seg_url = f"/pages/site/{seg_name}/"
                         # Use type: 'html' with a raw <a> tag to bypass
                         # Docusaurus SPA router — forces real page load
-                        if seg_name == segment.name:
-                            # Current segment — highlighted, not a link
-                            sibling_links.append({
-                                "type": "html",
-                                "value": (
-                                    f'<a href="{seg_url}" class="navbar__link navbar__link--active"'
-                                    f' style="font-weight:700">{seg_title}</a>'
-                                ),
-                                "position": "left",
-                            })
-                        else:
-                            sibling_links.append({
-                                "type": "html",
-                                "value": f'<a href="{seg_url}" class="navbar__link">{seg_title}</a>',
-                                "position": "left",
-                            })
+                        sibling_links.append({
+                            "type": "html",
+                            "value": f'<a href="{seg_url}" class="navbar__link">{seg_title}</a>',
+                            "position": "left",
+                        })
                     if sibling_links:
                         navbar_items = sibling_links
-                        yield f"Navbar: added {len(sibling_links)} segment link(s) ({segment.name} highlighted)"
+                        yield f"Navbar: added {len(sibling_links)} sibling segment link(s)"
             except Exception as e:
                 log.warning("Failed to inject sibling segment links: %s", e)
 
@@ -657,34 +648,21 @@ class DocusaurusBuilder(PageBuilder):
                         for r in resolved
                     ]
 
-                    rewritten = inject_crossref_links(content, resolved_dicts, docs_dir, rel_path)
+                    rewritten = inject_crossref_links(content, resolved_dicts, docs_dir, rel_path, source_base)
                     if rewritten != content:
                         mdx_file.write_text(rewritten, encoding="utf-8")
                         crossref_count += 1
 
-                    # Build peek-index entries — only EXTERNAL refs (not linked as docs)
-                    # Internal refs are now static markdown links, no runtime annotation needed
+                    # Build peek-index entries — ALL resolved refs are kept.
+                    # Crossref linker already handles non-fenced refs (turns
+                    # them into markdown links).  The runtime annotator skips
+                    # text already inside <a> tags, so there's no double-
+                    # annotation.  Refs inside code fences CAN'T be crossref-
+                    # linked, so the peek annotator is the only mechanism
+                    # that reaches them.
                     entries: list[dict] = []
                     if resolved_dicts:
-                        for rd in resolved_dicts:
-                            # Skip refs that resolved to internal docs pages
-                            # (inject_crossref_links already turned them into links)
-                            _check_path = rd["resolved_path"]
-                            _is_internal = False
-                            for _pfx in ("src/", ""):
-                                if _check_path.startswith(_pfx):
-                                    _rel = _check_path[len(_pfx):]
-                                    if _rel.endswith("/README.md"):
-                                        _mdx = _rel[:-len("/README.md")] + "/index.mdx"
-                                    elif _rel.endswith(".md"):
-                                        _mdx = _rel[:-3] + ".mdx"
-                                    else:
-                                        continue
-                                    if (docs_dir / _mdx).is_file():
-                                        _is_internal = True
-                                        break
-                            if not _is_internal:
-                                entries.append(rd)
+                        entries.extend(resolved_dicts)
                     if unresolved:
                         entries.extend(
                             {
@@ -696,8 +674,7 @@ class DocusaurusBuilder(PageBuilder):
                             }
                             for u in unresolved
                         )
-                    # ── Outline extraction for tooltip enrichment ──
-                    # For external refs, add a short outline (headings / symbols)
+                    # ── Enrich resolved refs ──
                     for rd in entries:
                         if rd.get("resolved") and rd["resolved_path"]:
                             outline = _extract_outline(
@@ -707,7 +684,7 @@ class DocusaurusBuilder(PageBuilder):
                                 rd["outline"] = outline
 
                             # Check if this ref has a corresponding docs page
-                            doc_route = _find_doc_route(rd["resolved_path"], docs_dir)
+                            doc_route = _find_doc_route(rd["resolved_path"], docs_dir, source_base)
                             if doc_route:
                                 rd["doc_url"] = doc_route
 
@@ -1211,6 +1188,7 @@ def _extract_outline(
 def _find_doc_route(
     resolved_path: str,
     docs_dir: Path,
+    source_prefix: str = "",
 ) -> str | None:
     """Find the Docusaurus route for a resolved path.
 
@@ -1220,6 +1198,7 @@ def _find_doc_route(
     Args:
         resolved_path: Project-relative path (e.g. "src/ui/cli/git/core.py").
         docs_dir: Absolute path to the docs directory.
+        source_prefix: Segment source prefix to strip (e.g. "docs").
 
     Returns:
         Docusaurus route path (e.g. "cli/git") or None.
@@ -1232,6 +1211,11 @@ def _find_doc_route(
         candidates.append(rp[4:])       # src/core/... → core/...
     if rp.startswith("src/ui/"):
         candidates.append(rp[7:])       # src/ui/cli/... → cli/...
+    # Segment source prefix (e.g. docs/) — docs/DESIGN.md → DESIGN.md
+    if source_prefix and source_prefix != ".":
+        sp = source_prefix.rstrip("/") + "/"
+        if rp.startswith(sp):
+            candidates.append(rp[len(sp):])
 
     for base in candidates:
         # Direct match — directory is a doc page
