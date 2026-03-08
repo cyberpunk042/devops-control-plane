@@ -170,17 +170,42 @@
             }
 
             const body = cardDataTable(
-                ['Script', 'Status', 'Duration', 'When'],
+                ['Script', 'Status', 'Duration', 'When', 'Output'],
                 runs.map(r => {
                     const status = r.status || 'unknown';
                     const statusCls = status === 'ok' ? 'ok' : (status === 'error' ? '' : 'muted');
                     const duration = r.duration_ms != null ? `${(r.duration_ms / 1000).toFixed(1)}s` : '—';
-                    const when = r.started_at ? new Date(r.started_at * 1000).toLocaleString() : '—';
+                    const when = r.started_at ? new Date(r.started_at).toLocaleString() : '—';
+
+                    // Output folder link (from run metadata)
+                    const meta = r.metadata || {};
+                    const outPath = meta.output_path || '';
+                    let outputCell;
+                    if (outPath) {
+                        // Strip project root to get relative path (e.g. "docs/audits")
+                        // output_path is absolute like "/home/user/project/docs/audits"
+                        // We need the part after the project root
+                        const segments = outPath.split('/');
+                        // Find 'docs' segment and take from there
+                        const docsIdx = segments.indexOf('docs');
+                        const relPath = docsIdx >= 0
+                            ? segments.slice(docsIdx).join('/')
+                            : segments.slice(-2).join('/');
+                        outputCell = {
+                            text: '📁 Browse',
+                            cls: 'muted',
+                            click: `modalClose();switchTab('content/docs/${esc(relPath)}')`,
+                        };
+                    } else {
+                        outputCell = { text: '—', cls: 'muted' };
+                    }
+
                     return [
                         { text: r.summary || r.target || '—', cls: 'name' },
                         { text: status === 'ok' ? '✅' : '❌', cls: statusCls },
                         { text: duration, cls: 'muted' },
                         { text: when, cls: 'muted' },
+                        outputCell,
                     ];
                 })
             );
