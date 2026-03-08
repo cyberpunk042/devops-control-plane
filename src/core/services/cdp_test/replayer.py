@@ -763,6 +763,9 @@ def replay_suite(
     run_id: str = "",
     ws_url: str = "",
     dcp_tab_id: str | None = None,
+    clear_site_data: bool | None = None,
+    visual_delay_ms: int | None = None,
+    min_step_delay_ms: int | None = None,
 ) -> TestRunResult:
     """Execute a full test suite against the target tab.
 
@@ -898,6 +901,38 @@ def replay_suite(
         "mode": session._mode if session else "one-shot",
     })
 
+    # ── Clear site data if requested ───────────────────────
+    # Override per-run takes precedence over suite default.
+    should_clear = clear_site_data if clear_site_data is not None else suite.clear_site_data
+    if should_clear and session and session.connected:
+        logger.info("Replay: clearing site data before execution")
+        _CLEAR_JS = """
+        (async function() {
+            try {
+                localStorage.clear();
+                sessionStorage.clear();
+                // Clear cookies for this origin
+                document.cookie.split(';').forEach(function(c) {
+                    var name = c.split('=')[0].trim();
+                    document.cookie = name + '=;expires=Thu,01 Jan 1970 00:00:00 GMT;path=/';
+                });
+                // Clear caches if available
+                if (window.caches) {
+                    var names = await caches.keys();
+                    for (var n of names) { await caches.delete(n); }
+                }
+                return JSON.stringify({ ok: true });
+            } catch(e) {
+                return JSON.stringify({ ok: false, error: e.message });
+            }
+        })()
+        """
+        session.evaluate(_CLEAR_JS, await_promise=True, timeout=5.0)
+        # Reload the page for a fresh session
+        session.evaluate("(function(){ location.reload(); return JSON.stringify({ok:true}); })()", timeout=3.0)
+        # Wait for page to reload and settle
+        time.sleep(suite.navigate_wait_ms / 1000.0)
+
     # ── Execute steps ────────────────────────────────────
     step_list = sorted(suite.steps, key=lambda s: s.sequence)
     had_failure = False
@@ -1015,14 +1050,15 @@ def replay_suite(
                 time.sleep(nav_wait)
 
         # ── Post-step pacing ─────────────────────────────────
-        # min_step_delay_ms: internal floor — lets the page DOM
-        # settle after each action.  Always applied.
-        # visual_delay_ms:   user-visible debounce so the human
-        # can follow along.  Customizable per suite.
-        min_delay = max(suite.min_step_delay_ms, 0) / 1000.0
-        visual_delay = max(suite.visual_delay_ms, 0) / 1000.0
-        step_pause = max(min_delay, visual_delay)
-        if step_pause > 0 and step_result["status"] == "passed":
+        # Per-run overrides take precedence over suite defaults.
+        # ALWAYS applied after each step so the user sees the result
+        # of the action before the next step starts.
+        _eff_min = min_step_delay_ms if min_step_delay_ms is not None else suite.min_step_delay_ms
+        _eff_vis = visual_delay_ms if visual_delay_ms is not None else suite.visual_delay_ms
+        eff_min_delay = max(_eff_min, 0) / 1000.0
+        eff_visual_delay = max(_eff_vis, 0) / 1000.0
+        step_pause = max(eff_min_delay, eff_visual_delay)
+        if step_pause > 0:
             time.sleep(step_pause)
 
     finally:
@@ -1092,6 +1128,9 @@ def start_replay(
     *,
     ws_url: str = "",
     dcp_tab_id: str | None = None,
+    clear_site_data: bool | None = None,
+    visual_delay_ms: int | None = None,
+    min_step_delay_ms: int | None = None,
 ) -> TestRunResult | str:
     """Start replaying a suite in a background thread.
 
@@ -1152,6 +1191,9 @@ def start_replay(
                 run_id=run_id,
                 ws_url=ws_url,
                 dcp_tab_id=dcp_tab_id,
+                clear_site_data=clear_site_data,
+                visual_delay_ms=visual_delay_ms,
+                min_step_delay_ms=min_step_delay_ms,
             )
             result_holder.append(result)
 

@@ -160,6 +160,11 @@ def cdp_test_replay_start():
             data=event_data,
         )
 
+    # ── Per-run overrides from replay modal ─────────────────────
+    clear_site_data = data.get("clear_site_data")  # None = use suite default
+    visual_delay_ms = data.get("visual_delay_ms")  # None = use suite default
+    min_step_delay_ms = data.get("min_step_delay_ms")  # None = use suite default
+
     # ── Start the replay ──────────────────────────────────────
     result = start_replay(
         suite=suite,
@@ -168,6 +173,9 @@ def cdp_test_replay_start():
         callback=_bus_callback,
         ws_url=ws_url,
         dcp_tab_id=dcp_tab_id,
+        clear_site_data=clear_site_data,
+        visual_delay_ms=visual_delay_ms,
+        min_step_delay_ms=min_step_delay_ms,
     )
 
     if isinstance(result, TestRunResult):

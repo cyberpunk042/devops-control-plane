@@ -8,6 +8,7 @@
     let _cdpTestSSESource = null;        // EventSource for live step updates
     let _cdpTestCurrentView = 'home';    // 'home' | 'recording' | 'validation' | 'replay'
     let _cdpBridgeReady = false;          // true once the PS bridge is warm
+    let _cdpTestSuites = null;            // Cached suite list for config modal
 
     // ── Main Modal Entry Point ───────────────────────────────────────
 
@@ -73,6 +74,7 @@
             // Fetch suites
             const suitesData = await api('/cdp-test/suites');
             const suites = suitesData.suites || [];
+            _cdpTestSuites = suites;  // Cache for config modal
 
             if (suites.length === 0) {
                 body += `<div style="text-align:center;padding:2rem 0">
@@ -732,13 +734,152 @@
     //  SUITE ACTIONS — replay, duplicate, delete
     // ══════════════════════════════════════════════════════════════════
 
-    async function _cdpTestReplaySuite(suiteId) {
-        // ── Start the replay via API ────────────────────────────
+    async function _cdpTestReplaySuite(suiteId, overrides) {
+        // If overrides provided, execute directly (from config modal)
+        if (overrides) {
+            return _cdpTestExecuteReplay(suiteId, overrides);
+        }
+        // Otherwise show the config modal
+        _cdpTestShowReplayConfig(suiteId);
+    }
+
+    function _cdpTestShowReplayConfig(suiteId, defaults) {
+        // Remove any existing config overlay first
+        const existing = document.getElementById('cdp-replay-config-overlay');
+        if (existing) existing.remove();
+
+        const suite = _cdpTestSuites?.find(s => s.id === suiteId);
+        const visualDelay = defaults?.visual_delay_ms ?? suite?.visual_delay_ms ?? 300;
+        const minDelay = defaults?.min_step_delay_ms ?? suite?.min_step_delay_ms ?? 100;
+        const clearData = defaults?.clear_site_data ?? suite?.clear_site_data ?? false;
+
+        const overlay = document.createElement('div');
+        overlay.id = 'cdp-replay-config-overlay';
+        overlay.style.cssText = `
+            position:fixed;inset:0;z-index:10001;
+            display:flex;align-items:center;justify-content:center;
+            background:rgba(0,0,0,0.5);backdrop-filter:blur(4px);
+        `;
+
+        overlay.innerHTML = `
+        <div style="background:var(--bg-primary);border:1px solid var(--border-subtle);border-radius:12px;
+                    padding:1.5rem;width:420px;max-width:90vw;box-shadow:0 20px 60px rgba(0,0,0,0.4)">
+            <div style="font-weight:700;font-size:1rem;margin-bottom:1rem;display:flex;align-items:center;gap:0.5rem">
+                ⚙ Replay Configuration
+            </div>
+
+            <!-- Suite info -->
+            <div style="margin-bottom:var(--space-md);padding-bottom:var(--space-sm);border-bottom:1px solid var(--border-subtle)">
+                <div style="font-weight:600;font-size:0.9rem">${esc(suite?.name || suiteId)}</div>
+                <div style="font-size:0.72rem;color:var(--text-muted)">${suite?.steps?.length || '?'} steps · ${esc(suite?.target_url || 'unknown target')}</div>
+            </div>
+
+            <!-- Timing -->
+            <div style="font-size:0.78rem;font-weight:600;margin-bottom:var(--space-xs);color:var(--text-secondary)">⏱ Timing</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-sm);margin-bottom:var(--space-md)">
+                <label style="font-size:0.75rem;display:flex;flex-direction:column;gap:4px">
+                    <span>Visual delay (ms)</span>
+                    <input id="cdp-cfg-visual-delay" type="number" min="0" step="50" value="${visualDelay}"
+                        style="width:100%;padding:6px 8px;border-radius:6px;border:1px solid var(--border-subtle);background:var(--bg-secondary);color:var(--text-primary);font-size:0.8rem">
+                    <span style="font-size:0.65rem;color:var(--text-muted)">Pause between steps for visibility</span>
+                </label>
+                <label style="font-size:0.75rem;display:flex;flex-direction:column;gap:4px">
+                    <span>Min step delay (ms)</span>
+                    <input id="cdp-cfg-min-delay" type="number" min="0" step="25" value="${minDelay}"
+                        style="width:100%;padding:6px 8px;border-radius:6px;border:1px solid var(--border-subtle);background:var(--bg-secondary);color:var(--text-primary);font-size:0.8rem">
+                    <span style="font-size:0.65rem;color:var(--text-muted)">Internal floor — not recommended below 100</span>
+                </label>
+            </div>
+
+            <!-- Session -->
+            <div style="font-size:0.78rem;font-weight:600;margin-bottom:var(--space-xs);color:var(--text-secondary)">🧹 Session</div>
+            <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.78rem;margin-bottom:var(--space-md);cursor:pointer">
+                <input id="cdp-cfg-clear-data" type="checkbox" ${clearData ? 'checked' : ''}
+                    style="width:16px;height:16px;accent-color:#8b5cf6">
+                <span>Clear site data &amp; refresh before running</span>
+            </label>
+
+            <!-- Tab status -->
+            <div id="cdp-cfg-tab-status" style="font-size:0.72rem;color:var(--text-muted);margin-bottom:var(--space-md);padding:8px 12px;background:var(--bg-tertiary);border-radius:6px">
+                🔍 Checking target tab…
+            </div>
+
+            <input type="hidden" id="cdp-cfg-suite-id" value="${suiteId}">
+
+            <!-- Buttons -->
+            <div style="display:flex;justify-content:flex-end;gap:0.5rem">
+                <button class="btn btn-sm btn-secondary" onclick="document.getElementById('cdp-replay-config-overlay')?.remove()">Cancel</button>
+                <button class="btn btn-sm btn-primary" onclick="_cdpTestExecuteFromConfig()">▶ Execute</button>
+            </div>
+        </div>`;
+
+        document.body.appendChild(overlay);
+
+        // Close on backdrop click
+        overlay.addEventListener('click', (e) => {
+            if (e.target === overlay) overlay.remove();
+        });
+
+        // Background: warm bridge while user reads config
+        _cdpTestProbeTarget(suiteId);
+    }
+
+    /** Background probe: warm bridge + check CDP while user reads config */
+    async function _cdpTestProbeTarget(suiteId) {
+        const statusEl = document.getElementById('cdp-cfg-tab-status');
+        const suite = _cdpTestSuites?.find(s => s.id === suiteId);
+        const targetUrl = suite?.target_url || '';
+
+        try {
+            // Warm the bridge (the expensive step, ~3s on first boot)
+            const warmRes = await fetch('/api/cdp-test/warm', { method: 'POST' });
+            const warmData = await warmRes.json();
+
+            if (statusEl) {
+                if (warmData.bridge?.ready) {
+                    statusEl.innerHTML = `✅ Bridge warm · Target: <code style="font-size:0.68rem">${esc(targetUrl || 'auto-detect')}</code>`;
+                    statusEl.style.borderLeft = '3px solid #22c55e';
+                } else {
+                    statusEl.innerHTML = `⚡ CDP ready (no bridge) · Target: <code style="font-size:0.68rem">${esc(targetUrl || 'auto-detect')}</code>`;
+                    statusEl.style.borderLeft = '3px solid #3b82f6';
+                }
+            }
+        } catch (e) {
+            if (statusEl) {
+                statusEl.innerHTML = `❌ CDP check failed: ${esc(e.message)}`;
+                statusEl.style.borderLeft = '3px solid #ef4444';
+            }
+        }
+    }
+
+    /** Called from the config modal Execute button */
+    async function _cdpTestExecuteFromConfig() {
+        const suiteId = document.getElementById('cdp-cfg-suite-id')?.value;
+        if (!suiteId) return;
+
+        const overrides = {
+            visual_delay_ms: parseInt(document.getElementById('cdp-cfg-visual-delay')?.value) || 300,
+            min_step_delay_ms: parseInt(document.getElementById('cdp-cfg-min-delay')?.value) || 100,
+            clear_site_data: document.getElementById('cdp-cfg-clear-data')?.checked ?? false,
+        };
+
+        // Remove the config overlay — the CDP Test Recorder modal stays open
+        document.getElementById('cdp-replay-config-overlay')?.remove();
+        await _cdpTestExecuteReplay(suiteId, overrides);
+    }
+
+    /** Actually fire the replay API call and show live results */
+    async function _cdpTestExecuteReplay(suiteId, overrides) {
         try {
             const result = await api('/cdp-test/replay/start', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ suite_id: suiteId }),
+                body: JSON.stringify({
+                    suite_id: suiteId,
+                    clear_site_data: overrides?.clear_site_data ?? null,
+                    visual_delay_ms: overrides?.visual_delay_ms ?? null,
+                    min_step_delay_ms: overrides?.min_step_delay_ms ?? null,
+                }),
             });
 
             if (!result.ok) {
@@ -747,7 +888,7 @@
             }
 
             // Show the replay view
-            _cdpTestShowReplayView(result);
+            _cdpTestShowReplayView(result, suiteId);
 
         } catch (e) {
             toast('Replay error: ' + e.message, 'error');
@@ -757,11 +898,12 @@
 
     // ── Replay live view ────────────────────────────────────────────
 
-    function _cdpTestShowReplayView(replayInfo) {
+    function _cdpTestShowReplayView(replayInfo, suiteId) {
         _cdpTestCurrentView = 'replay';
         const runId = replayInfo.run_id;
         const suiteName = replayInfo.suite_name || 'Test Suite';
         const totalSteps = replayInfo.total_steps || 0;
+        const _replaySuiteId = suiteId || replayInfo.suite_id || '';
 
         let body = '';
 
@@ -803,6 +945,7 @@
         </div>`;
 
         // Hidden data
+        body += `<input type="hidden" id="cdp-replay-suite-id" value="${_replaySuiteId}">`;
         body += `<input type="hidden" id="cdp-replay-run-id" value="${runId}">`;
         body += `<input type="hidden" id="cdp-replay-total" value="${totalSteps}">`;
         body += `<input type="hidden" id="cdp-replay-done-count" value="0">`;
@@ -989,8 +1132,10 @@
             title.textContent = `${icon} ${status.charAt(0).toUpperCase() + status.slice(1)}`;
         }
         if (controls) {
+            const replaySuiteId = document.getElementById('cdp-replay-suite-id')?.value || '';
             controls.innerHTML = `
                 <span style="font-size:0.75rem;color:var(--text-muted)">${duration}</span>
+                ${replaySuiteId ? `<button class="btn btn-sm btn-primary" onclick="_cdpTestShowReplayConfig('${replaySuiteId}')">🔄 Replay Again</button>` : ''}
                 <button class="btn btn-sm btn-secondary" onclick="_cdpTestRenderHome()">← Back</button>
             `;
         }

@@ -173,6 +173,7 @@ class TestSuite:
     take_screenshots: bool = False      # Capture screenshots at each step
     visual_delay_ms: int = 300          # Pause between steps for user to see
     min_step_delay_ms: int = 100        # Internal floor — let page keep up
+    clear_site_data: bool = False       # Flush cookies/storage + refresh before run
 
     # ── Metadata ──────────────────────────────────────────────
     created_at: str = field(default_factory=_now_iso)
@@ -203,6 +204,7 @@ class TestSuite:
             "take_screenshots": self.take_screenshots,
             "visual_delay_ms": self.visual_delay_ms,
             "min_step_delay_ms": self.min_step_delay_ms,
+            "clear_site_data": self.clear_site_data,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
             "created_by": self.created_by,
@@ -234,6 +236,7 @@ class TestSuite:
             take_screenshots=data.get("take_screenshots", False),
             visual_delay_ms=data.get("visual_delay_ms", 300),
             min_step_delay_ms=data.get("min_step_delay_ms", 100),
+            clear_site_data=data.get("clear_site_data", False),
             created_at=data.get("created_at", _now_iso()),
             updated_at=data.get("updated_at", _now_iso()),
             created_by=data.get("created_by", "recording"),
