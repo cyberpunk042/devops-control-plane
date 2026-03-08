@@ -584,11 +584,37 @@ class _PyWebSocket:
 # First boot costs ~3s (PS startup).  Subsequent connects: ~100ms.
 
 import threading as _threading
+import queue as _queue
 
 _bridge_lock = _threading.Lock()
 _bridge_process = None
 _bridge_script_path: str | None = None
 _bridge_ready = False
+_bridge_queue: "_queue.Queue[str | None]" = _queue.Queue()
+_bridge_reader_thread: _threading.Thread | None = None
+
+
+def _bridge_reader_loop() -> None:
+    """Persistent reader: pumps stdout lines into _bridge_queue."""
+    global _bridge_process
+    while _bridge_process and _bridge_process.poll() is None:
+        try:
+            line = _bridge_process.stdout.readline()
+            if not line:
+                break
+            _bridge_queue.put(line.strip())
+        except Exception:
+            break
+    _bridge_queue.put(None)  # Sentinel: process died
+
+
+def _bridge_read(timeout: float = 10.0) -> str | None:
+    """Read the next line from the bridge (via queue). Thread-safe."""
+    try:
+        val = _bridge_queue.get(timeout=timeout)
+        return val
+    except _queue.Empty:
+        return None
 
 _BRIDGE_PS_SCRIPT = r"""
 $ErrorActionPreference = 'Stop'
@@ -662,6 +688,7 @@ def _ensure_bridge() -> bool:
     Returns True if the bridge is ready.  Thread-safe.
     """
     global _bridge_process, _bridge_script_path, _bridge_ready
+    global _bridge_reader_thread, _bridge_queue
     import subprocess
     import tempfile
     import os
@@ -687,6 +714,9 @@ def _ensure_bridge() -> bool:
                 os.unlink(_bridge_script_path)
             except OSError:
                 pass
+
+        # Drain old queue
+        _bridge_queue = _queue.Queue()
 
         # Resolve Windows temp dir (once)
         global _win_temp_dir, _win_temp_dir_resolved
@@ -738,28 +768,25 @@ def _ensure_bridge() -> bool:
                 text=True,
             )
 
-            # Wait for READY signal
-            ready = [False]
+            # Start persistent reader thread
+            _bridge_reader_thread = _threading.Thread(
+                target=_bridge_reader_loop,
+                name="cdp-bridge-reader",
+                daemon=True,
+            )
+            _bridge_reader_thread.start()
 
-            def _wait():
-                try:
-                    line = _bridge_process.stdout.readline().strip()
-                    ready[0] = (line == "READY")
-                except Exception:
-                    pass
+            # Wait for READY signal via queue
+            line = _bridge_read(timeout=10.0)
+            _bridge_ready = (line == "READY")
 
-            t = _threading.Thread(target=_wait, daemon=True)
-            t.start()
-            t.join(timeout=10.0)
-
-            _bridge_ready = ready[0]
             if _bridge_ready:
                 logger.info(
                     "CDP bridge process ready (PID %d)",
                     _bridge_process.pid,
                 )
             else:
-                logger.warning("CDP bridge failed to start")
+                logger.warning("CDP bridge failed to start (got: %s)", line)
                 try:
                     _bridge_process.kill()
                 except Exception:
@@ -821,27 +848,16 @@ def _bridge_connect(ws_url: str, timeout: float = 10.0) -> bool:
         _bridge_process.stdin.write(f"CONNECT {ws_url}\n")
         _bridge_process.stdin.flush()
 
-        result = [None]
+        line = _bridge_read(timeout=timeout)
 
-        def _read():
-            try:
-                line = _bridge_process.stdout.readline().strip()
-                result[0] = line
-            except Exception:
-                pass
-
-        t = _threading.Thread(target=_read, daemon=True)
-        t.start()
-        t.join(timeout=timeout)
-
-        if result[0] == "CONNECTED":
+        if line == "CONNECTED":
             return True
 
-        if result[0] and result[0].startswith("ERROR:"):
-            logger.warning("CDP bridge connect error: %s", result[0])
+        if line and line.startswith("ERROR:"):
+            logger.warning("CDP bridge connect error: %s", line)
         else:
             logger.warning(
-                "CDP bridge: unexpected response: %s", result[0],
+                "CDP bridge: unexpected response: %s", line,
             )
         return False
 
@@ -857,18 +873,13 @@ def _bridge_disconnect() -> None:
             _bridge_process.stdin.write("DISCONNECT\n")
             _bridge_process.stdin.flush()
 
-            result = [None]
-
-            def _read():
-                try:
-                    line = _bridge_process.stdout.readline().strip()
-                    result[0] = line
-                except Exception:
-                    pass
-
-            t = _threading.Thread(target=_read, daemon=True)
-            t.start()
-            t.join(timeout=3.0)
+            line = _bridge_read(timeout=5.0)
+            if line == "DISCONNECTED":
+                logger.debug("CDP bridge disconnected cleanly")
+            else:
+                logger.warning(
+                    "CDP bridge disconnect: unexpected response: %s", line,
+                )
         except Exception:
             pass
 
@@ -882,21 +893,10 @@ def _bridge_send(cmd: str, timeout: float = 10.0) -> dict | None:
         _bridge_process.stdin.write(cmd + "\n")
         _bridge_process.stdin.flush()
 
-        result_holder: list[dict | None] = [None]
-
-        def _read():
-            try:
-                line = _bridge_process.stdout.readline().strip()
-                if line:
-                    result_holder[0] = json.loads(line)
-            except Exception:
-                pass
-
-        reader = _threading.Thread(target=_read, daemon=True)
-        reader.start()
-        reader.join(timeout=timeout)
-
-        return result_holder[0]
+        line = _bridge_read(timeout=timeout)
+        if line:
+            return json.loads(line)
+        return None
 
     except Exception as exc:
         logger.warning("CDP bridge send failed: %s", exc)
@@ -942,30 +942,52 @@ class CdpSession:
         self._mode = ""
         self._script_path = None
 
+        import time as _t
+        _t0 = _t.monotonic()
+
         # ── Strategy 1: Python-native WebSocket (instant) ─────
+        _t1 = _t.monotonic()
         try:
             self._ws = _PyWebSocket(ws_url, timeout=connect_timeout)
             self._mode = "python"
             self._connected = True
             logger.info(
-                "CdpSession connected via Python socket to %s", ws_url,
+                "CdpSession connected via Python socket to %s (%.0fms)",
+                ws_url, (_t.monotonic() - _t1) * 1000,
             )
             return
         except Exception as exc:
-            logger.debug("Python WS failed (%s), trying bridge", exc)
+            logger.debug(
+                "Python WS failed in %.0fms (%s), trying bridge",
+                (_t.monotonic() - _t1) * 1000, exc,
+            )
 
         # ── Strategy 2: Pre-warmed bridge (fast) ──────────────
+        _t2 = _t.monotonic()
         if _bridge_connect(ws_url, timeout=connect_timeout):
             self._mode = "bridge"
             self._connected = True
             logger.info(
-                "CdpSession connected via bridge to %s", ws_url,
+                "CdpSession connected via bridge to %s (%.0fms, total %.0fms)",
+                ws_url, (_t.monotonic() - _t2) * 1000,
+                (_t.monotonic() - _t0) * 1000,
             )
             return
 
+        logger.debug(
+            "Bridge connect failed in %.0fms",
+            (_t.monotonic() - _t2) * 1000,
+        )
+
         # ── Strategy 3: Fresh PowerShell (slow, last resort) ──
+        _t3 = _t.monotonic()
         logger.debug("Bridge unavailable, trying fresh PowerShell")
         self._init_fresh_ps(ws_url, connect_timeout)
+        logger.info(
+            "CdpSession fresh PS connect took %.0fms (total %.0fms)",
+            (_t.monotonic() - _t3) * 1000,
+            (_t.monotonic() - _t0) * 1000,
+        )
 
     def _init_fresh_ps(
         self, ws_url: str, connect_timeout: float,

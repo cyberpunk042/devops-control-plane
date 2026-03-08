@@ -236,6 +236,29 @@ _JS_WAIT_FOR_STABLE = """
 #   - Waits for DOM stability after mutations
 #   - Returns JSON: { ok: true, ... } or { ok: false, error: "..." }
 
+# Remove the loading backdrop (if present) — called at the start of
+# every step so it disappears on the first action.
+_JS_REMOVE_BACKDROP = """
+    var __bd = document.getElementById('__cdp_replay_backdrop');
+    if (__bd) { __bd.style.opacity='0'; setTimeout(function(){__bd.remove()},300); }
+"""
+
+# Briefly highlight element with a blue outline so the user can see
+# which element the replay is interacting with.
+_JS_HIGHLIGHT = """
+    if (el && el.style) {
+        var __origOutline = el.style.outline;
+        var __origTransition = el.style.transition;
+        el.style.transition = 'outline 0.15s ease';
+        el.style.outline = '2px solid #3b82f6';
+        el.scrollIntoView({ block: 'center', behavior: 'instant' });
+        setTimeout(function() {
+            el.style.outline = __origOutline;
+            el.style.transition = __origTransition;
+        }, 400);
+    }
+"""
+
 
 def _js_navigate(url: str) -> str:
     """JS: navigate to URL — sync IIFE, returns before page unloads.
@@ -262,7 +285,9 @@ def _js_click(find_js: str) -> str:
     return f"""
     (async function() {{
         try {{
+            {_JS_REMOVE_BACKDROP}
             var el = await {find_js};
+            {_JS_HIGHLIGHT}
             if (el.scrollIntoView) el.scrollIntoView({{ block: 'center', behavior: 'instant' }});
             await new Promise(function(r) {{ setTimeout(r, 30); }});
             el.click();
@@ -286,7 +311,9 @@ def _js_type(find_js: str, value: str) -> str:
     return f"""
     (async function() {{
         try {{
+            {_JS_REMOVE_BACKDROP}
             var el = await {find_js};
+            {_JS_HIGHLIGHT}
             el.focus();
             var tag = el.tagName.toLowerCase();
             var isInput = (tag === 'input' || tag === 'textarea');
@@ -801,15 +828,31 @@ def replay_suite(
         return run_result
 
     # Activate the target tab
+    _t_activate = time.monotonic()
     cdp_client.activate_target(target_id)
+    logger.info(
+        "Replay: activate_target took %.0fms",
+        (time.monotonic() - _t_activate) * 1000,
+    )
     logger.info(
         "Replay started: suite=%s (%s), target=%s, steps=%d",
         suite.id, suite.name, target_id, len(suite.steps),
     )
 
+    # Tell the UI we're connecting (this phase takes ~3s on WSL2)
+    callback("cdp_test:replay_connecting", {
+        "run_id": run_result.id,
+        "phase": "connecting",
+    })
+
     # ── Open persistent CDP session ─────────────────────────
-    # Python-native WS connects in ~50ms; PS fallback ~3s
+    # Python-native WS connects in ~50ms; PS bridge ~3s
+    _t_session = time.monotonic()
     session = cdp_client.CdpSession(ws_url)
+    logger.info(
+        "Replay: CdpSession() took %.0fms",
+        (time.monotonic() - _t_session) * 1000,
+    )
     if session.connected:
         logger.info("Replay using streaming CDP session (%s)", session._mode)
     else:
@@ -821,7 +864,35 @@ def replay_suite(
         "suite_id": suite.id,
         "suite_name": suite.name,
         "total_steps": len(suite.steps),
+        "mode": session._mode if session else "one-shot",
     })
+
+    # ── Inject loading backdrop on target page ────────────
+    # Shows "▶ Replay starting…" overlay so the user knows
+    # the engine is alive during the connection delay.
+    _BACKDROP_JS = """
+    (function() {
+        var d = document.createElement('div');
+        d.id = '__cdp_replay_backdrop';
+        d.style.cssText = 'position:fixed;inset:0;z-index:999999;'
+            + 'display:flex;align-items:center;justify-content:center;'
+            + 'background:rgba(0,0,0,0.45);backdrop-filter:blur(2px);'
+            + 'transition:opacity 0.3s;opacity:1';
+        d.innerHTML = '<div style="background:#1e1e2e;color:#cdd6f4;'
+            + 'padding:1.2rem 2rem;border-radius:12px;font-family:system-ui;'
+            + 'font-size:1rem;box-shadow:0 8px 32px rgba(0,0,0,0.4);'
+            + 'display:flex;align-items:center;gap:0.8rem">'
+            + '<span style="font-size:1.3rem;animation:spin 1s linear infinite">⏳</span>'
+            + '<span>Replay starting\u2026</span></div>';
+        var s = document.createElement('style');
+        s.textContent = '@keyframes spin{to{transform:rotate(360deg)}}';
+        d.appendChild(s);
+        document.body.appendChild(d);
+        return JSON.stringify({ ok: true });
+    })()
+    """
+    if session and session.connected:
+        session.evaluate(_BACKDROP_JS, timeout=3.0)
 
     # ── Execute steps ────────────────────────────────────
     step_list = sorted(suite.steps, key=lambda s: s.sequence)
@@ -861,28 +932,9 @@ def replay_suite(
             if pacing > 0.05:
                 time.sleep(pacing)
 
-        # ── Pre-step: verify target tab ──────────────────────
-        ws_url = _verify_target_tab(target_id)
-        if not ws_url:
-            run_result.status = "error"
-            run_result.error = f"Target tab closed during replay (step {i + 1})"
-            # Mark this and remaining steps as skipped
-            for remaining in step_list[i:]:
-                run_result.step_results.append({
-                    "step_id": remaining.id,
-                    "sequence": remaining.sequence,
-                    "action": remaining.action,
-                    "selector": remaining.selector,
-                    "status": "skipped",
-                    "duration_ms": 0,
-                    "error": "Target tab closed",
-                })
-                run_result.skipped_steps += 1
-            callback("cdp_test:replay_error", {
-                "run_id": run_result.id,
-                "error": run_result.error,
-            })
-            break
+        # Note: we skip per-step _verify_target_tab() — it costs
+        # ~300ms (curl.exe) per step.  The CdpSession will surface
+        # connection errors if the tab closes mid-replay.
 
         # ── Report step start ────────────────────────────────
         callback("cdp_test:step_start", {
@@ -957,6 +1009,15 @@ def replay_suite(
             nav_wait = suite.navigate_wait_ms / 1000.0
             if nav_wait > 0:
                 time.sleep(nav_wait)
+
+        # ── Post-step: visual pacing for fill/type actions ────
+        # Give the user a moment to see the value appear on screen
+        # before the next step fires.
+        if (
+            step.action in ("fill", "type", "select", "check")
+            and step_result["status"] == "passed"
+        ):
+            time.sleep(0.2)
 
     finally:
         # Always close the streaming session
