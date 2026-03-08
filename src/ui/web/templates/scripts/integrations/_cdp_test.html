@@ -723,8 +723,300 @@
     // ══════════════════════════════════════════════════════════════════
 
     async function _cdpTestReplaySuite(suiteId) {
-        // Phase 5 — replay engine
-        toast('Replay engine coming in Phase 5', 'info');
+        // ── Start the replay via API ────────────────────────────
+        try {
+            const result = await api('/cdp-test/replay/start', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ suite_id: suiteId }),
+            });
+
+            if (!result.ok) {
+                toast(result.error || 'Failed to start replay', 'error');
+                return;
+            }
+
+            // Show the replay view
+            _cdpTestShowReplayView(result);
+
+        } catch (e) {
+            toast('Replay error: ' + e.message, 'error');
+        }
+    }
+
+
+    // ── Replay live view ────────────────────────────────────────────
+
+    function _cdpTestShowReplayView(replayInfo) {
+        _cdpTestCurrentView = 'replay';
+        const runId = replayInfo.run_id;
+        const suiteName = replayInfo.suite_name || 'Test Suite';
+        const totalSteps = replayInfo.total_steps || 0;
+
+        let body = '';
+
+        // Replay header
+        body += `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-sm);padding-bottom:var(--space-sm);border-bottom:1px solid var(--border-subtle)">
+            <div style="display:flex;align-items:center;gap:0.5rem">
+                <span id="cdp-replay-dot" style="width:12px;height:12px;background:#3b82f6;border-radius:50%;display:inline-block;animation:__cdp_pulse 1.5s ease-in-out infinite"></span>
+                <div>
+                    <div style="font-weight:600;font-size:0.9rem" id="cdp-replay-title">▶ Replaying</div>
+                    <div style="font-size:0.72rem;color:var(--text-muted)">${esc(suiteName)}</div>
+                </div>
+            </div>
+            <div style="display:flex;gap:0.5rem" id="cdp-replay-controls">
+                <button class="btn btn-sm btn-secondary" onclick="_cdpTestCancelReplay()" style="color:var(--error)">⏹ Cancel</button>
+            </div>
+        </div>`;
+
+        // Progress bar
+        body += `<div style="margin-bottom:var(--space-sm)">
+            <div style="display:flex;justify-content:space-between;font-size:0.72rem;margin-bottom:4px">
+                <span id="cdp-replay-progress-label">0 / ${totalSteps} steps</span>
+                <span id="cdp-replay-progress-pct">0%</span>
+            </div>
+            <div style="height:6px;background:var(--bg-tertiary);border-radius:3px;overflow:hidden">
+                <div id="cdp-replay-progress-bar" style="height:100%;width:0%;background:linear-gradient(90deg,#3b82f6,#8b5cf6);border-radius:3px;transition:width 0.3s ease"></div>
+            </div>
+        </div>`;
+
+        // Step counter
+        body += `<div style="font-size:0.78rem;font-weight:600;margin-bottom:var(--space-xs);color:var(--text-secondary)">
+            Step Results
+        </div>`;
+
+        // Steps container (scrollable)
+        body += `<div id="cdp-replay-steps" style="max-height:340px;overflow-y:auto;border:1px solid var(--border-subtle);border-radius:6px;padding:0.5rem">
+            <div style="text-align:center;padding:1.5rem;color:var(--text-muted);font-size:0.78rem" id="cdp-replay-waiting">
+                Executing steps — results will appear here live…
+            </div>
+        </div>`;
+
+        // Hidden data
+        body += `<input type="hidden" id="cdp-replay-run-id" value="${runId}">`;
+        body += `<input type="hidden" id="cdp-replay-total" value="${totalSteps}">`;
+        body += `<input type="hidden" id="cdp-replay-done-count" value="0">`;
+
+        modalOpen({
+            title: '▶ CDP Test Replay',
+            body: body,
+            size: 'wide',
+            footerButtons: [
+                { label: '⏹ Cancel', cls: 'btn-secondary', onclick: '_cdpTestCancelReplay()', style: 'color:var(--error)' },
+            ],
+            onClose: () => {
+                if (_cdpTestSSESource) {
+                    _cdpTestSSESource.close();
+                    _cdpTestSSESource = null;
+                }
+            },
+        });
+
+        // Start SSE listener for replay events
+        _cdpTestStartReplaySSE(runId);
+    }
+
+
+    function _cdpTestReplayStepRow(stepData, status) {
+        const icons = {
+            click: '🖱️', type: '⌨️', navigate: '🧭', select: '📋',
+            keypress: '⌨️', scroll: '📜', hover: '👆', assert: '✅',
+            wait: '⏳', screenshot: '📸',
+        };
+        const statusIcons = {
+            running: '<span style="color:#3b82f6" class="cdp-spin">⏳</span>',
+            passed: '<span style="color:#22c55e">✅</span>',
+            failed: '<span style="color:#ef4444">❌</span>',
+            skipped: '<span style="color:#6b7280">⏭</span>',
+        };
+        const icon = icons[stepData.action] || '▪️';
+        const statusIcon = statusIcons[status] || '—';
+        const dur = stepData.duration_ms != null ? `${stepData.duration_ms}ms` : '';
+        const selector = stepData.selector || stepData.value || '';
+        const errMsg = stepData.error
+            ? `<div style="font-size:0.65rem;color:var(--error);margin-top:2px;word-break:break-all">${esc(String(stepData.error).slice(0, 150))}</div>`
+            : '';
+
+        return `<div id="cdp-replay-step-${stepData.step_id || stepData.sequence}"
+            class="card-detect-row" style="display:flex;align-items:flex-start;gap:0.5rem;font-size:0.78rem;padding:4px 6px">
+            <span style="flex-shrink:0;width:24px;text-align:center">${statusIcon}</span>
+            <span style="flex-shrink:0;width:20px">${icon}</span>
+            <div style="flex:1;min-width:0">
+                <div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+                    <strong>${esc(stepData.action || '?')}</strong>
+                    <span style="color:var(--text-muted);margin-left:4px">${esc(selector.slice(0, 60))}</span>
+                </div>
+                ${errMsg}
+            </div>
+            <span style="flex-shrink:0;font-size:0.68rem;color:var(--text-muted)">${dur}</span>
+        </div>`;
+    }
+
+
+    function _cdpTestStartReplaySSE(runId) {
+        if (_cdpTestSSESource) _cdpTestSSESource.close();
+
+        _cdpTestSSESource = new EventSource('/api/events');
+
+        // ── Step start: show running indicator ─────────────────
+        _cdpTestSSESource.addEventListener('cdp_test:step_start', (e) => {
+            try {
+                const ev = JSON.parse(e.data);
+                if (ev.data?.run_id !== runId) return;
+                const d = ev.data;
+
+                // Remove waiting message
+                const waiting = document.getElementById('cdp-replay-waiting');
+                if (waiting) waiting.remove();
+
+                // Add running row
+                const container = document.getElementById('cdp-replay-steps');
+                if (container) {
+                    container.insertAdjacentHTML('beforeend', _cdpTestReplayStepRow(d, 'running'));
+                    container.scrollTop = container.scrollHeight;
+                }
+            } catch (_) {}
+        });
+
+        // ── Step passed ────────────────────────────────────────
+        _cdpTestSSESource.addEventListener('cdp_test:step_passed', (e) => {
+            try {
+                const ev = JSON.parse(e.data);
+                if (ev.data?.run_id !== runId) return;
+                _cdpTestUpdateReplayStep(ev.data, 'passed');
+            } catch (_) {}
+        });
+
+        // ── Step failed ────────────────────────────────────────
+        _cdpTestSSESource.addEventListener('cdp_test:step_failed', (e) => {
+            try {
+                const ev = JSON.parse(e.data);
+                if (ev.data?.run_id !== runId) return;
+                _cdpTestUpdateReplayStep(ev.data, 'failed');
+            } catch (_) {}
+        });
+
+        // ── Replay done ────────────────────────────────────────
+        _cdpTestSSESource.addEventListener('cdp_test:replay_done', (e) => {
+            try {
+                const ev = JSON.parse(e.data);
+                if (ev.data?.run_id !== runId) return;
+                _cdpTestReplayFinished(ev.data);
+            } catch (_) {}
+        });
+
+        // ── Replay error ───────────────────────────────────────
+        _cdpTestSSESource.addEventListener('cdp_test:replay_error', (e) => {
+            try {
+                const ev = JSON.parse(e.data);
+                if (ev.data?.run_id !== runId) return;
+                _cdpTestReplayFinished({ ...ev.data, status: 'error' });
+            } catch (_) {}
+        });
+    }
+
+
+    function _cdpTestUpdateReplayStep(stepData, status) {
+        // Replace the running row with the final row
+        const rowId = `cdp-replay-step-${stepData.step_id || stepData.sequence}`;
+        const existing = document.getElementById(rowId);
+        if (existing) {
+            existing.outerHTML = _cdpTestReplayStepRow(stepData, status);
+        }
+
+        // Update progress
+        const doneEl = document.getElementById('cdp-replay-done-count');
+        const totalEl = document.getElementById('cdp-replay-total');
+        if (doneEl && totalEl) {
+            const done = parseInt(doneEl.value) + 1;
+            doneEl.value = String(done);
+            const total = parseInt(totalEl.value);
+            const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+
+            const label = document.getElementById('cdp-replay-progress-label');
+            const pctEl = document.getElementById('cdp-replay-progress-pct');
+            const bar = document.getElementById('cdp-replay-progress-bar');
+            if (label) label.textContent = `${done} / ${total} steps`;
+            if (pctEl) pctEl.textContent = `${pct}%`;
+            if (bar) {
+                bar.style.width = `${pct}%`;
+                if (status === 'failed') {
+                    bar.style.background = 'linear-gradient(90deg,#3b82f6,#ef4444)';
+                }
+            }
+        }
+    }
+
+
+    function _cdpTestReplayFinished(data) {
+        // Close SSE
+        if (_cdpTestSSESource) {
+            _cdpTestSSESource.close();
+            _cdpTestSSESource = null;
+        }
+
+        const status = data.status || 'unknown';
+        const passed = data.passed || 0;
+        const failed = data.failed || 0;
+        const total = data.total || 0;
+        const duration = data.duration_ms ? `${(data.duration_ms / 1000).toFixed(1)}s` : '—';
+
+        // Update header
+        const dot = document.getElementById('cdp-replay-dot');
+        const title = document.getElementById('cdp-replay-title');
+        const controls = document.getElementById('cdp-replay-controls');
+
+        if (dot) {
+            dot.style.animation = 'none';
+            dot.style.background = status === 'passed' ? '#22c55e'
+                : status === 'cancelled' ? '#6b7280'
+                : '#ef4444';
+        }
+        if (title) {
+            const icon = status === 'passed' ? '✅'
+                : status === 'cancelled' ? '⏹'
+                : status === 'error' ? '💥' : '❌';
+            title.textContent = `${icon} ${status.charAt(0).toUpperCase() + status.slice(1)}`;
+        }
+        if (controls) {
+            controls.innerHTML = `
+                <span style="font-size:0.75rem;color:var(--text-muted)">${duration}</span>
+                <button class="btn btn-sm btn-secondary" onclick="_cdpTestRenderHome()">← Back</button>
+            `;
+        }
+
+        // Update progress bar to final state
+        const bar = document.getElementById('cdp-replay-progress-bar');
+        const label = document.getElementById('cdp-replay-progress-label');
+        const pctEl = document.getElementById('cdp-replay-progress-pct');
+        if (bar) {
+            bar.style.width = '100%';
+            bar.style.background = status === 'passed'
+                ? 'linear-gradient(90deg,#22c55e,#16a34a)'
+                : status === 'cancelled' ? '#6b7280'
+                : 'linear-gradient(90deg,#ef4444,#dc2626)';
+        }
+        if (label) label.textContent = `${passed} passed, ${failed} failed / ${total} total`;
+        if (pctEl) pctEl.textContent = status === 'passed' ? '100%' : `${Math.round((passed / Math.max(total, 1)) * 100)}%`;
+
+        // Toast summary
+        if (status === 'passed') {
+            toast(`All ${total} steps passed (${duration})`, 'success');
+        } else if (status === 'cancelled') {
+            toast('Replay cancelled', 'info');
+        } else {
+            toast(`Replay ${status}: ${passed}/${total} passed, ${failed} failed`, 'error');
+        }
+    }
+
+
+    async function _cdpTestCancelReplay() {
+        try {
+            await api('/cdp-test/replay/cancel', { method: 'POST' });
+            toast('Cancelling replay…', 'info');
+        } catch (e) {
+            toast('Cancel error: ' + e.message, 'error');
+        }
     }
 
     async function _cdpTestDuplicateSuite(suiteId) {

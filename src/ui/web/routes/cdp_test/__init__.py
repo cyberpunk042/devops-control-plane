@@ -39,4 +39,4 @@ def _cors_for_record_event(response):
 # Import sub-modules so their routes register on the blueprint.
 from src.ui.web.routes.cdp_test import suites as _suites  # noqa: F401, E402
 from src.ui.web.routes.cdp_test import recording as _recording  # noqa: F401, E402
-
+from src.ui.web.routes.cdp_test import replay as _replay  # noqa: F401, E402

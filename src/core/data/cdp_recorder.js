@@ -143,16 +143,16 @@
     function buildNthChildPath(el) {
         var path = [];
         var current = el;
-        while (current && current !== document.body && current !== document.documentElement) {
+        while (current && current !== document.documentElement) {
             var parent = current.parentElement;
             if (!parent) break;
             var siblings = Array.from(parent.children);
             var index = siblings.indexOf(current) + 1;
             path.unshift(current.tagName.toLowerCase() + ':nth-child(' + index + ')');
             current = parent;
-            if (path.length > 5) break; // don't go too deep
+            if (path.length > 8) break; // don't go too deep
         }
-        return path.length > 0 ? path.join(' > ') : 'body';
+        return path.length > 0 ? path.join(' > ') : el.tagName.toLowerCase();
     }
 
     /**
