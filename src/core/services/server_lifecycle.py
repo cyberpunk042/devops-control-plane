@@ -378,11 +378,33 @@ def request_restart(project_root: Path, *, new_cwd: str | None = None) -> dict:
             signal_path.unlink(missing_ok=True)
             return {"error": f"Failed to rename folder: {exc}"}
 
-    logger.info("Exiting with code %d for restart", _RESTART_EXIT_CODE)
-    os._exit(_RESTART_EXIT_CODE)  # noqa: SLF001 — bypass Flask's exception handling
+    logger.info("Scheduling restart (exit code %d)", _RESTART_EXIT_CODE)
+
+    # Set the restart flag so the signal handler knows to exit with 42
+    global _restart_requested
+    _restart_requested = True
+
+    # Schedule a SIGTERM to ourselves — this triggers the graceful
+    # shutdown handler which will exit with code 42 (not 0).
+    # The delay gives Flask time to send the HTTP response.
+    import threading
+
+    def _delayed_signal() -> None:
+        time.sleep(0.5)
+        os.kill(os.getpid(), signal.SIGTERM)
+
+    t = threading.Thread(target=_delayed_signal, daemon=True)
+    t.start()
+
+    # Return a dict so the route can send a proper HTTP response
+    return {"ok": True, "message": "Restarting..."}
 
 
 # ── Signal handlers ─────────────────────────────────────────────
+
+# Module-level flag: True when a restart has been requested via API
+_restart_requested = False
+
 
 def install_signal_handlers() -> None:
     """Register SIGTERM and SIGINT handlers for graceful shutdown.
@@ -390,6 +412,9 @@ def install_signal_handlers() -> None:
     Should be called once during ``run_server()`` setup.
     Ensures vault auto-lock, SSE cleanup, and event bus flush
     happen before the process exits.
+
+    If ``_restart_requested`` is set, exits with code 42 instead of 0
+    so that ``manage.sh`` catches it and re-launches the server.
     """
     def _graceful_shutdown(signum: int, frame: object) -> None:
         sig_name = signal.Signals(signum).name
@@ -421,8 +446,14 @@ def install_signal_handlers() -> None:
         except Exception:
             pass
 
-        logger.info("Graceful shutdown complete — exiting")
-        sys.exit(0)
+        # Exit with 42 if restart was requested, 0 otherwise
+        exit_code = _RESTART_EXIT_CODE if _restart_requested else 0
+        logger.info(
+            "Graceful shutdown complete — exiting with code %d%s",
+            exit_code,
+            " (restart)" if _restart_requested else "",
+        )
+        os._exit(exit_code)  # noqa: SLF001 — must bypass Flask's SystemExit catch
 
     signal.signal(signal.SIGTERM, _graceful_shutdown)
     signal.signal(signal.SIGINT, _graceful_shutdown)

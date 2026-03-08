@@ -328,29 +328,200 @@
         return `${h}h ${m}m`;
     }
 
-    /** Restart the server process via API. */
+    /** Manual restart button → show confirmation modal first. */
     async function _prefRestartServer() {
-        const btn = document.getElementById('server-restart-btn');
-        if (btn) {
-            btn.disabled = true;
-            btn.textContent = '⏳ Restarting…';
-        }
+        // Show confirmation modal
+        _showRestartConfirmModal();
+    }
+
+    /** Show a confirmation modal before restarting the server. */
+    function _showRestartConfirmModal() {
+        // Remove any existing modal
+        var existing = document.getElementById('restart-confirm-modal');
+        if (existing) existing.remove();
+
+        var overlay = document.createElement('div');
+        overlay.id = 'restart-confirm-modal';
+        overlay.style.cssText = [
+            'position:fixed', 'inset:0', 'z-index:99999',
+            'display:flex', 'align-items:center', 'justify-content:center',
+            'background:rgba(0,0,0,0.6)',
+            'backdrop-filter:blur(4px)', '-webkit-backdrop-filter:blur(4px)',
+            'animation:fadeIn 0.2s ease',
+        ].join(';');
+
+        overlay.innerHTML = `
+            <div style="
+                background:var(--bg-card, #1e1e2e);
+                border:1px solid var(--border, #333);
+                border-radius:12px;
+                padding:2rem;
+                max-width:380px;
+                width:calc(100% - 2rem);
+                text-align:center;
+                color:var(--text-primary, #e0e0e0);
+                font-family:var(--font-sans, system-ui, sans-serif);
+                box-shadow:0 24px 48px rgba(0,0,0,0.5);
+            ">
+                <div style="font-size:2rem;margin-bottom:0.75rem">🔄</div>
+                <h3 style="margin:0 0 0.5rem;font-size:1rem;font-weight:600">
+                    Restart Admin Panel?
+                </h3>
+                <p style="
+                    color:var(--text-muted, #888);
+                    font-size:0.82rem;
+                    line-height:1.5;
+                    margin:0 0 1.25rem;
+                ">
+                    The server will restart with the latest <code style="
+                        font-size:0.78rem;background:rgba(255,255,255,0.08);
+                        padding:0.1em 0.35em;border-radius:3px
+                    ">project.yml</code> settings.
+                    The page will auto-refresh when ready.
+                </p>
+                <div style="display:flex;gap:0.5rem;justify-content:center">
+                    <button id="restart-confirm-cancel" style="
+                        background:var(--bg-input,#2a2a3e);color:var(--text-secondary,#aaa);
+                        border:1px solid var(--border-subtle,#333);border-radius:8px;
+                        padding:0.5rem 1.2rem;font-size:0.82rem;font-weight:500;
+                        cursor:pointer;transition:opacity 0.2s;font-family:inherit
+                    ">Cancel</button>
+                    <button id="restart-confirm-go" style="
+                        background:var(--clr-warning,#f59e0b);color:#000;
+                        border:none;border-radius:8px;
+                        padding:0.5rem 1.2rem;font-size:0.82rem;font-weight:600;
+                        cursor:pointer;transition:opacity 0.2s;font-family:inherit
+                    ">⚡ Restart Now</button>
+                </div>
+            </div>
+        `;
+
+        document.body.appendChild(overlay);
+
+        // Click outside to cancel
+        overlay.addEventListener('click', function(e) {
+            if (e.target === overlay) overlay.remove();
+        });
+
+        document.getElementById('restart-confirm-cancel').addEventListener('click', function() {
+            overlay.remove();
+        });
+
+        document.getElementById('restart-confirm-go').addEventListener('click', function() {
+            overlay.remove();
+            _doServerRestart();
+        });
+    }
+
+    /**
+     * Execute the actual server restart — no confirmation.
+     * Used by the confirmation modal and the imminent notification.
+     */
+    async function _doServerRestart() {
+        // Close settings panel if open
+        var settingsPanel = document.querySelector('.settings-panel.open');
+        if (settingsPanel) settingsPanel.classList.remove('open');
+
         try {
-            const resp = await fetch('/api/server/restart', {
+            await fetch('/api/server/restart', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({}),
             });
-            // Server exits immediately — we won't get a response usually
-            if (typeof toast === 'function') {
-                toast('Server restarting — page will reconnect automatically', 'info', 5000);
-            }
-        } catch (e) {
-            // Expected: connection drops because server exited
-            if (typeof toast === 'function') {
-                toast('Server restarting…', 'info', 5000);
-            }
+        } catch (_) {
+            // Expected — server dies immediately
         }
+
+        // Show reconnection overlay and start polling
+        _showReconnectionOverlay();
+    }
+
+    /** Full-screen overlay while waiting for the server to come back. */
+    function _showReconnectionOverlay() {
+        var existing = document.getElementById('reconnect-overlay');
+        if (existing) existing.remove();
+
+        var overlay = document.createElement('div');
+        overlay.id = 'reconnect-overlay';
+        overlay.style.cssText = [
+            'position:fixed', 'inset:0', 'z-index:999999',
+            'display:flex', 'flex-direction:column',
+            'align-items:center', 'justify-content:center',
+            'background:rgba(0,0,0,0.85)',
+            'backdrop-filter:blur(8px)', '-webkit-backdrop-filter:blur(8px)',
+            'color:#fff', 'font-family:var(--font-sans, system-ui, sans-serif)',
+        ].join(';');
+
+        overlay.innerHTML = `
+            <div style="text-align:center">
+                <div style="font-size:2.5rem;margin-bottom:0.75rem;animation:pulse 1.2s infinite">🔄</div>
+                <div style="font-size:1rem;font-weight:600;margin-bottom:0.5rem">
+                    Server Restarting…
+                </div>
+                <div id="reconnect-status" style="
+                    font-size:0.82rem;color:rgba(255,255,255,0.6);
+                    margin-bottom:1.5rem;
+                ">Waiting for server to come back</div>
+                <div class="spinner" style="margin:0 auto"></div>
+            </div>
+        `;
+
+        document.body.appendChild(overlay);
+
+        // Start polling for reconnection
+        _pollForReconnection();
+    }
+
+    /** Poll the server until it's back, then refresh. */
+    function _pollForReconnection() {
+        var currentOrigin = location.origin;
+        var attempts = 0;
+        var maxAttempts = 40; // ~60 seconds
+
+        var interval = setInterval(async function() {
+            attempts++;
+            var statusEl = document.getElementById('reconnect-status');
+            if (statusEl) {
+                statusEl.textContent = 'Attempt ' + attempts + '/' + maxAttempts + '…';
+            }
+
+            try {
+                var resp = await fetch(currentOrigin + '/api/server/status', {
+                    signal: AbortSignal.timeout(2000),
+                });
+                if (resp.ok) {
+                    clearInterval(interval);
+                    var data = await resp.json();
+
+                    // Check if port changed
+                    var newPort = data.port;
+                    var currentPort = parseInt(location.port, 10) || 80;
+                    if (newPort && newPort !== currentPort) {
+                        // Port changed — redirect to the new URL
+                        var newUrl = location.protocol + '//' + location.hostname + ':' + newPort + location.pathname + location.hash;
+                        if (statusEl) statusEl.textContent = 'Port changed → redirecting to :' + newPort + '…';
+                        setTimeout(function() { location.href = newUrl; }, 500);
+                    } else {
+                        if (statusEl) statusEl.textContent = 'Server is back — refreshing…';
+                        setTimeout(function() { location.reload(); }, 500);
+                    }
+                }
+            } catch (_) {
+                // Server still down — keep polling
+            }
+
+            if (attempts >= maxAttempts) {
+                clearInterval(interval);
+                var statusEl2 = document.getElementById('reconnect-status');
+                if (statusEl2) {
+                    statusEl2.innerHTML = 'Server did not come back after ' + maxAttempts + ' attempts.<br>' +
+                        '<button onclick="location.reload()" style="' +
+                            'margin-top:1rem;background:var(--accent,#6366f1);color:#fff;border:none;' +
+                            'border-radius:8px;padding:0.5rem 1.2rem;font-size:0.82rem;cursor:pointer' +
+                        '">🔄 Retry Manually</button>';
+                }
+            }
+        }, 1500);
     }
 
     function _prefSetDevMode(enabled) {

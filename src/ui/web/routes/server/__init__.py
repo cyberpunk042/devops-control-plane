@@ -48,14 +48,14 @@ def server_restart_route():  # type: ignore[no-untyped-def]
 
     root = current_app.config["PROJECT_ROOT"]
 
-    # request_restart() calls os._exit(42) — this never returns
-    # It only returns a dict on error (e.g. can't write signal file)
+    # request_restart() schedules os._exit(42) after a short delay
+    # and returns immediately so we can send a proper HTTP response.
+    # It only returns an error dict if the signal file can't be written.
     result = request_restart(root, new_cwd=new_cwd)
 
-    # If we get here, there was an error
     if result and "error" in result:
         return jsonify(result), 500
-    return jsonify({"ok": True, "message": "Restarting..."})
+    return jsonify(result)
 
 
 # ── Server settings (feature toggles) ──────────────────────────

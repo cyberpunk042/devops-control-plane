@@ -280,8 +280,10 @@ main() {
             fi
 
             while true; do
+                set +e  # Allow non-zero exit (restart = 42)
                 "${PYTHON}" -m "${CLI_MODULE}" web "$@"
                 EXIT_CODE=$?
+                set -e
                 if [[ $EXIT_CODE -eq 42 ]]; then
                     # Check for .restart-signal which may contain new CWD
                     if [[ -f ".restart-signal" ]]; then
