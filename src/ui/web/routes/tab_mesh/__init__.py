@@ -121,6 +121,24 @@ def _shortcut_locations(windows_user: str) -> dict[str, str]:
     }
 
 
+# Expected icon indices for Chrome shortcuts.
+CHROME_ICON_DEBUG = "%ProgramFiles%\\Google\\Chrome\\Application\\chrome.exe,8"
+CHROME_ICON_NORMAL = "%ProgramFiles%\\Google\\Chrome\\Application\\chrome.exe,4"
+
+
+def _backup_shortcut_locations(windows_user: str) -> dict[str, str]:
+    """Return backup ("Chrome - OLD") paths alongside each main shortcut.
+
+    Same keys as ``_shortcut_locations``; replaces ``Google Chrome.lnk``
+    with ``Chrome - OLD.lnk`` in each path.
+    """
+    main = _shortcut_locations(windows_user)
+    return {
+        key: path.replace("Google Chrome.lnk", "Chrome - OLD.lnk")
+        for key, path in main.items()
+    }
+
+
 def _wsl_to_win_path(wsl_path: str) -> str:
     """Convert a WSL /mnt/c/... path to Windows C:\\... path."""
     if wsl_path.startswith("/mnt/c/"):
@@ -129,9 +147,11 @@ def _wsl_to_win_path(wsl_path: str) -> str:
 
 
 def _read_shortcut(wsl_path: str) -> dict | None:
-    """Read a .lnk shortcut's target and arguments via PowerShell.
+    """Read a .lnk shortcut's target, arguments, icon, and description.
 
-    Returns dict with keys: target, args — or None if unreadable.
+    Returns dict with keys: target, args, icon, description — or None
+    if unreadable.  ``icon`` is the raw ``IconLocation`` string from
+    the shortcut (e.g. ``%ProgramFiles%\\...\\chrome.exe,8``).
     """
     if not os.path.exists(wsl_path):
         return None
@@ -143,7 +163,9 @@ def _read_shortcut(wsl_path: str) -> dict | None:
         "$shell = New-Object -ComObject WScript.Shell; "
         f"$lnk = $shell.CreateShortcut('{win_path}'); "
         "Write-Host '::TARGET::' $lnk.TargetPath; "
-        "Write-Host '::ARGS::' $lnk.Arguments"
+        "Write-Host '::ARGS::' $lnk.Arguments; "
+        "Write-Host '::ICON::' $lnk.IconLocation; "
+        "Write-Host '::DESC::' $lnk.Description"
     )
     try:
         r = subprocess.run(
@@ -152,12 +174,23 @@ def _read_shortcut(wsl_path: str) -> dict | None:
         )
         target = ""
         args = ""
+        icon = ""
+        description = ""
         for line in r.stdout.splitlines():
             if "::TARGET::" in line:
                 target = line.split("::TARGET::", 1)[1].strip()
             elif "::ARGS::" in line:
                 args = line.split("::ARGS::", 1)[1].strip()
-        return {"target": target, "args": args}
+            elif "::ICON::" in line:
+                icon = line.split("::ICON::", 1)[1].strip()
+            elif "::DESC::" in line:
+                description = line.split("::DESC::", 1)[1].strip()
+        return {
+            "target": target,
+            "args": args,
+            "icon": icon,
+            "description": description,
+        }
     except Exception as exc:
         logger.warning("Failed to read shortcut %s: %s", win_path, exc)
         return None
@@ -186,10 +219,12 @@ def _modify_shortcut(
     wsl_path: str,
     add_port: int,
     user_data_dir: str | None,
+    icon_location: str = "",
 ) -> bool:
     """Modify a .lnk shortcut to add Chrome debugging flags.
 
     Reads current arguments, appends missing flags, writes back.
+    Optionally sets ``IconLocation`` (e.g. ``chrome.exe,8``).
     If the write fails (e.g. system directory), retries with UAC
     elevation which pops a Windows confirmation dialog.
     """
@@ -227,17 +262,28 @@ def _modify_shortcut(
                     new_args,
                 )
 
-    if new_args == existing_args:
+    # Check if icon also needs updating
+    icon_needs_update = (
+        icon_location
+        and current.get("icon", "").strip() != icon_location.strip()
+    )
+
+    if new_args == existing_args and not icon_needs_update:
         logger.info("Shortcut already has required flags: %s", wsl_path)
         return True  # Already configured
 
     win_path = _wsl_to_win_path(wsl_path)
     # Escape single quotes in the arguments for PowerShell
     safe_args = new_args.replace("'", "''")
+    icon_line = ""
+    if icon_location:
+        safe_icon = icon_location.replace("'", "''")
+        icon_line = f"$lnk.IconLocation = '{safe_icon}'; "
     ps_cmd = (
         "$shell = New-Object -ComObject WScript.Shell; "
         f"$lnk = $shell.CreateShortcut('{win_path}'); "
         f"$lnk.Arguments = '{safe_args}'; "
+        f"{icon_line}"
         "$lnk.Save()"
     )
     try:
@@ -255,7 +301,9 @@ def _modify_shortcut(
                 "Permission denied for %s, retrying with elevation...",
                 win_path,
             )
-            return _modify_shortcut_elevated(win_path, safe_args)
+            return _modify_shortcut_elevated(
+                win_path, safe_args, icon_location=icon_location,
+            )
 
         logger.warning(
             "PowerShell shortcut update failed (rc=%d): %s",
@@ -267,7 +315,12 @@ def _modify_shortcut(
         return False
 
 
-def _modify_shortcut_elevated(win_path: str, safe_args: str) -> bool:
+def _modify_shortcut_elevated(
+    win_path: str,
+    safe_args: str,
+    *,
+    icon_location: str = "",
+) -> bool:
     """Modify a shortcut using UAC-elevated PowerShell.
 
     Writes the modification script to a temp .ps1 file, then
@@ -276,12 +329,18 @@ def _modify_shortcut_elevated(win_path: str, safe_args: str) -> bool:
     """
     import tempfile
 
+    icon_line = ""
+    if icon_location:
+        safe_icon = icon_location.replace("'", "''")
+        icon_line = f"$lnk.IconLocation = '{safe_icon}'\n"
+
     # Write the PS1 script to a temp file on the Windows filesystem
     # (elevated PowerShell needs to read it, so it must be on C:\)
     inner_script = (
         "$shell = New-Object -ComObject WScript.Shell\n"
         f"$lnk = $shell.CreateShortcut('{win_path}')\n"
         f"$lnk.Arguments = '{safe_args}'\n"
+        f"{icon_line}"
         "$lnk.Save()\n"
     )
     try:
@@ -320,6 +379,71 @@ def _modify_shortcut_elevated(win_path: str, safe_args: str) -> bool:
         return False
     except Exception as exc:
         logger.warning("Elevated shortcut update failed: %s", exc)
+        return False
+
+
+def _clone_shortcut(
+    source_wsl_path: str,
+    dest_wsl_path: str,
+    *,
+    clear_args: bool = True,
+    icon_location: str = "",
+) -> bool:
+    """Clone a .lnk shortcut to a new path.
+
+    Reads the source shortcut, creates a new shortcut at ``dest_wsl_path``
+    with the same target.  If ``clear_args`` is True (default), the clone
+    has no arguments — giving the user a clean Chrome launch.
+
+    The ``icon_location`` is set if provided (e.g. ``chrome.exe,4``).
+
+    Returns True on success, False on failure.
+    """
+    if not shutil.which("powershell.exe"):
+        return False
+
+    source = _read_shortcut(source_wsl_path)
+    if source is None:
+        return False
+
+    dest_win = _wsl_to_win_path(dest_wsl_path)
+    target = source["target"]
+    args = "" if clear_args else source["args"]
+    icon = icon_location or source.get("icon", "")
+    desc = source.get("description", "")
+
+    # Escape single quotes for PowerShell
+    safe_args = args.replace("'", "''")
+    safe_icon = icon.replace("'", "''")
+    safe_desc = desc.replace("'", "''")
+
+    ps_cmd = (
+        "$shell = New-Object -ComObject WScript.Shell; "
+        f"$lnk = $shell.CreateShortcut('{dest_win}'); "
+        f"$lnk.TargetPath = '{target}'; "
+        f"$lnk.Arguments = '{safe_args}'; "
+        f"$lnk.IconLocation = '{safe_icon}'; "
+        f"$lnk.Description = '{safe_desc}'; "
+        "$lnk.Save()"
+    )
+    try:
+        r = subprocess.run(
+            ["powershell.exe", "-NoProfile", "-Command", ps_cmd],
+            capture_output=True, text=True, timeout=10,
+        )
+        if r.returncode == 0:
+            logger.info(
+                "Cloned shortcut: %s → %s (args cleared: %s)",
+                source_wsl_path, dest_win, clear_args,
+            )
+            return True
+        logger.warning(
+            "Clone shortcut failed (rc=%d): %s",
+            r.returncode, r.stderr.strip(),
+        )
+        return False
+    except Exception as exc:
+        logger.warning("Failed to clone shortcut to %s: %s", dest_win, exc)
         return False
 
 
@@ -746,6 +870,8 @@ def cdp_diagnose():
     # the default User Data path (Chrome 136+ silently ignores that).
     default_data_dir_win = _chrome_data_dir_win(windows_user)
     shortcut_paths = _shortcut_locations(windows_user)
+    backup_paths = _backup_shortcut_locations(windows_user)
+
     for key, wsl_path in shortcut_paths.items():
         found = os.path.exists(wsl_path)
         shortcut_info: dict = {"found": found}
@@ -754,6 +880,7 @@ def cdp_diagnose():
             if details:
                 shortcut_info["target"] = details["target"]
                 shortcut_info["args"] = details["args"]
+                shortcut_info["icon"] = details.get("icon", "")
                 has_port = "--remote-debugging-port=" in details["args"]
                 has_data_dir = "--user-data-dir=" in details["args"]
                 # Check if it's using the DEFAULT dir (won't work)
@@ -766,6 +893,39 @@ def cdp_diagnose():
                 )
                 shortcut_info["has_user_data_dir"] = has_data_dir
                 shortcut_info["uses_default_dir"] = uses_default
+                # Check if the icon matches the expected debug icon
+                shortcut_info["has_debug_icon"] = (
+                    CHROME_ICON_DEBUG.lower()
+                    in details.get("icon", "").lower()
+                )
+
+        # Scan the backup shortcut ("Chrome - OLD") at this location
+        backup_wsl = backup_paths.get(key, "")
+        backup_found = os.path.exists(backup_wsl) if backup_wsl else False
+        backup_info: dict = {"found": backup_found}
+        if backup_found:
+            backup_details = _read_shortcut(backup_wsl)
+            if backup_details:
+                backup_info["target"] = backup_details["target"]
+                backup_info["args"] = backup_details["args"]
+                backup_info["icon"] = backup_details.get("icon", "")
+                backup_info["has_debug_args"] = (
+                    "--remote-debugging-port=" in backup_details["args"]
+                )
+        shortcut_info["backup"] = backup_info
+
+        # Compute per-location status
+        debug_ok = shortcut_info.get("has_debug_port", False)
+        icon_ok = shortcut_info.get("has_debug_icon", False)
+        if debug_ok and icon_ok and backup_found:
+            shortcut_info["status"] = "ok"
+        elif debug_ok and icon_ok and not backup_found:
+            shortcut_info["status"] = "needs_backup"
+        elif debug_ok and not icon_ok:
+            shortcut_info["status"] = "needs_icon_fix"
+        else:
+            shortcut_info["status"] = "needs_setup"
+
         result["shortcuts"][key] = shortcut_info
 
     # CDP active?
@@ -779,20 +939,31 @@ def cdp_diagnose():
 def cdp_remediate():
     """Apply Chrome debugging flags to selected shortcuts.
 
+    For each shortcut:
+    1. If ``keep_backup`` is true (default), clones the original to
+       ``Chrome - OLD.lnk`` with clean args and normal icon (chrome.exe,4)
+       — unless a backup already exists.
+    2. Modifies the main shortcut: adds debug args + sets dev icon
+       (chrome.exe,8).
+
     Request body::
 
         {
             "shortcuts": ["taskbar", "desktop", "start_menu_global"],
             "profile_dir": "Default",
-            "port": 9222
+            "port": 9222,
+            "keep_backup": true
         }
 
     Returns::
 
         {
             "results": {
-                "taskbar": { "success": true },
-                "desktop": { "success": true },
+                "taskbar": {
+                    "shortcut_ok": true,
+                    "backup_ok": true,
+                    "backup_skipped": false
+                },
                 ...
             },
             "requires_restart": true
@@ -804,6 +975,7 @@ def cdp_remediate():
     shortcut_keys = data.get("shortcuts", [])
     profile_dir = data.get("profile_dir", "Default")
     port = data.get("port", 9222)
+    keep_backup = data.get("keep_backup", True)
 
     if not _is_wsl():
         return jsonify({"error": "Not running under WSL"}), 400
@@ -827,19 +999,52 @@ def cdp_remediate():
         user_data_dir = _chrome_debug_data_dir_win(windows_user)
 
     all_shortcuts = _shortcut_locations(windows_user)
+    all_backups = _backup_shortcut_locations(windows_user)
     results: dict = {}
 
     for key in shortcut_keys:
         wsl_path = all_shortcuts.get(key)
         if not wsl_path:
-            results[key] = {"success": False, "reason": "unknown_shortcut"}
+            results[key] = {
+                "shortcut_ok": False,
+                "reason": "unknown_shortcut",
+            }
             continue
         if not os.path.exists(wsl_path):
-            results[key] = {"success": False, "reason": "not_found"}
+            results[key] = {
+                "shortcut_ok": False,
+                "reason": "not_found",
+            }
             continue
 
-        ok = _modify_shortcut(wsl_path, port, user_data_dir)
-        results[key] = {"success": ok}
+        entry: dict = {}
+
+        # Step 1: Create backup if requested and not already existing
+        backup_wsl = all_backups.get(key, "")
+        if keep_backup and backup_wsl:
+            if os.path.exists(backup_wsl):
+                entry["backup_ok"] = True
+                entry["backup_skipped"] = True  # Already existed
+            else:
+                backup_ok = _clone_shortcut(
+                    wsl_path, backup_wsl,
+                    clear_args=True,
+                    icon_location=CHROME_ICON_NORMAL,
+                )
+                entry["backup_ok"] = backup_ok
+                entry["backup_skipped"] = False
+        else:
+            entry["backup_ok"] = None  # Not requested
+            entry["backup_skipped"] = True
+
+        # Step 2: Modify the main shortcut — add debug args + dev icon
+        ok = _modify_shortcut(
+            wsl_path, port, user_data_dir,
+            icon_location=CHROME_ICON_DEBUG,
+        )
+        entry["shortcut_ok"] = ok
+
+        results[key] = entry
 
     return jsonify({
         "results": results,

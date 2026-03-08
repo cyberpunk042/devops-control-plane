@@ -111,7 +111,7 @@
 
     /**
      * Render the CDP setup wizard based on diagnostic data.
-     * This is the guided wizard flow.
+     * This is the guided wizard flow with per-location diagnostics.
      */
     function _meshRenderSetupWizard(container, diag) {
         var html = '';
@@ -138,17 +138,12 @@
         }
 
         if (diag.cdp_active) {
-            // Already working!
+            // Already working — but still show shortcut/icon/backup diagnostics
             html += '<div style="margin-top:12px;padding:10px;border-radius:var(--radius-sm);' +
                 'background:rgba(52,211,153,0.08);border:1px solid rgba(52,211,153,0.2);' +
                 'font-size:0.7rem;color:var(--success)">' +
-                '🎉 Tab focus is already working! When you click a cross-tab link, ' +
-                'the target tab will come to the front automatically.' +
+                '🎉 Tab focus is already working! Checking shortcut configuration below.' +
                 '</div>';
-            html += '<div style="margin-top:10px;text-align:right">' +
-                '<button class="btn btn-sm btn-primary" onclick="_renderMeshPanel()">Done</button></div>';
-            container.innerHTML = html;
-            return;
         }
 
         if (!diag.wsl || !diag.windows_user || !diag.chrome_exe_found) {
@@ -186,32 +181,92 @@
             }
         }
 
-        // Shortcuts to update
+        // ── Per-location shortcut diagnostics ──
         var shortcuts = diag.shortcuts || {};
-        var foundKeys = [];
         var shortcutLabels = {
-            taskbar: 'Taskbar pin',
-            desktop: 'Desktop shortcut',
-            start_menu_global: 'Start Menu',
-            start_menu_user: 'Start Menu (user)',
+            taskbar: '📌 Taskbar pin',
+            desktop: '🖥 Desktop shortcut',
+            start_menu_global: '📋 Start Menu',
+            start_menu_user: '📋 Start Menu (user)',
         };
+        var statusLabels = {
+            ok: '✅ Fully configured',
+            needs_backup: '⚠️ No backup shortcut',
+            needs_icon_fix: '⚠️ Icon mismatch',
+            needs_setup: '❌ Needs setup',
+        };
+        var statusColors = {
+            ok: 'var(--success)',
+            needs_backup: 'var(--warning)',
+            needs_icon_fix: 'var(--warning)',
+            needs_setup: 'var(--danger)',
+        };
+
         html += '<div style="font-size:0.74rem;font-weight:600;margin:14px 0 6px;color:var(--text-primary)">' +
-            'Shortcuts to update</div>';
+            'Shortcut diagnostics</div>';
         html += '<div style="font-size:0.66rem;color:var(--text-muted);margin-bottom:8px">' +
-            'I\'ll add the debugging flag to all found shortcuts so it works however you open Chrome.</div>';
+            'For each Chrome shortcut, I\'ll create a "Chrome Debug" version with debugging flags and a dev icon, ' +
+            'plus keep a clean "Chrome - OLD" backup for normal browsing.</div>';
+
+        var foundKeys = [];
+        var actionableKeys = [];
 
         for (var key in shortcuts) {
-            if (!shortcuts[key].found) continue;
+            var sc = shortcuts[key];
+            if (!sc.found) continue;
             foundKeys.push(key);
+
             var label = shortcutLabels[key] || key;
-            var alreadyOk = shortcuts[key].has_debug_port;
-            html += '<label style="display:flex;align-items:center;gap:6px;padding:3px 8px;' +
-                'font-size:0.68rem;color:var(--text-primary)">' +
-                '<input type="checkbox" class="mesh-shortcut-cb" value="' + esc(key) + '"' +
-                (alreadyOk ? ' disabled checked' : ' checked') + '>' +
-                esc(label) +
-                (alreadyOk ? ' <span style="color:var(--success);font-size:0.58rem">✅ already configured</span>' : '') +
-                '</label>';
+            var status = sc.status || 'needs_setup';
+            var statusLabel = statusLabels[status] || status;
+            var statusColor = statusColors[status] || 'var(--text-muted)';
+            var isOk = status === 'ok';
+            if (!isOk) actionableKeys.push(key);
+
+            html += '<div style="margin-bottom:8px;padding:8px 10px;border-radius:var(--radius-sm);' +
+                'background:var(--bg-secondary);border-left:3px solid ' + statusColor + '">';
+
+            // Header: location + status + checkbox
+            html += '<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">';
+            if (!isOk) {
+                html += '<input type="checkbox" class="mesh-shortcut-cb" value="' + esc(key) + '" checked>';
+            }
+            html += '<span style="font-size:0.7rem;font-weight:600;color:var(--text-primary)">' + label + '</span>' +
+                '<span style="font-size:0.58rem;padding:1px 6px;border-radius:3px;' +
+                'background:rgba(0,0,0,0.15);color:' + statusColor + ';font-weight:600">' +
+                statusLabel + '</span>' +
+                '</div>';
+
+            // Main shortcut details
+            html += '<div style="font-size:0.62rem;color:var(--text-muted);line-height:1.7;padding-left:4px">';
+            html += '<strong>Google Chrome.lnk</strong><br>';
+            html += '&nbsp;&nbsp;Args: <code style="font-size:0.58rem">' +
+                (sc.args ? esc(sc.args) : '<em>none</em>') + '</code><br>';
+            html += '&nbsp;&nbsp;Icon: <code style="font-size:0.58rem">' +
+                (sc.icon ? esc(sc.icon) : '<em>default</em>') + '</code>';
+            if (sc.has_debug_icon) {
+                html += ' <span style="color:var(--success)">✅ dev</span>';
+            }
+            html += '<br>';
+
+            // Backup shortcut details
+            var backup = sc.backup || {};
+            if (backup.found) {
+                html += '<strong>Chrome - OLD.lnk</strong><br>';
+                html += '&nbsp;&nbsp;Args: <code style="font-size:0.58rem">' +
+                    (backup.args ? esc(backup.args) : '<em>none</em>') + '</code>';
+                if (backup.has_debug_args) {
+                    html += ' <span style="color:var(--warning)">⚠️ has debug args</span>';
+                } else {
+                    html += ' <span style="color:var(--success)">✅ clean</span>';
+                }
+                html += '<br>';
+                html += '&nbsp;&nbsp;Icon: <code style="font-size:0.58rem">' +
+                    (backup.icon ? esc(backup.icon) : '<em>default</em>') + '</code><br>';
+            } else {
+                html += '<em style="font-size:0.6rem;color:var(--text-muted)">No backup (Chrome - OLD) found</em><br>';
+            }
+            html += '</div></div>';
         }
 
         if (foundKeys.length === 0) {
@@ -219,15 +274,39 @@
                 '⚠️ No Chrome shortcuts found. You may need to set up manually.</div>';
         }
 
-        // What we'll add
+        // If all are ok
+        if (foundKeys.length > 0 && actionableKeys.length === 0) {
+            html += '<div style="margin-top:12px;padding:10px;border-radius:var(--radius-sm);' +
+                'background:rgba(52,211,153,0.08);border:1px solid rgba(52,211,153,0.2);' +
+                'font-size:0.7rem;color:var(--success)">' +
+                '🎉 All shortcuts are fully configured — debug mode is ready with proper icons and backups.' +
+                '</div>';
+            html += '<div style="margin-top:10px;text-align:right">' +
+                '<button class="btn btn-sm btn-primary" onclick="_renderMeshPanel()">Done</button></div>';
+            window._meshSetupDiag = diag;
+            container.innerHTML = html;
+            return;
+        }
+
+        // Keep backup toggle
+        html += '<label style="display:flex;align-items:center;gap:6px;margin:10px 0;' +
+            'font-size:0.68rem;color:var(--text-primary);cursor:pointer">' +
+            '<input type="checkbox" id="mesh-keep-backup" checked>' +
+            'Keep a clean "Chrome - OLD" backup for normal browsing' +
+            '</label>';
+
+        // What we'll set
         html += '<div style="font-size:0.66rem;color:var(--text-muted);margin-top:8px;padding:6px 8px;' +
             'background:var(--bg-secondary);border-radius:var(--radius-sm);font-family:var(--font-mono)">' +
-            'What I\'ll set on each:<br>' +
-            '&nbsp;&nbsp;--remote-debugging-port=9222<br>';
+            'What I\'ll do for each selected:<br>' +
+            '&nbsp;&nbsp;1. Create "Chrome - OLD.lnk" backup (clean, icon: chrome.exe,4)<br>' +
+            '&nbsp;&nbsp;2. Set Google Chrome.lnk args:<br>' +
+            '&nbsp;&nbsp;&nbsp;&nbsp;--remote-debugging-port=9222<br>';
         if (diag.requires_user_data_dir) {
-            html += '&nbsp;&nbsp;--user-data-dir="' + esc(diag.chrome_data_dir || '') + '"<br>';
+            html += '&nbsp;&nbsp;&nbsp;&nbsp;--user-data-dir="' + esc(diag.chrome_data_dir || '') + '"<br>';
         }
-        html += '<div style="margin-top:4px;font-family:inherit;font-size:0.62rem;color:var(--text-muted)">' +
+        html += '&nbsp;&nbsp;3. Set Google Chrome.lnk icon: chrome.exe,8 (dev)' +
+            '<div style="margin-top:4px;font-family:inherit;font-size:0.62rem;color:var(--text-muted)">' +
             'Chrome 136+ requires a <strong>separate</strong> profile directory for remote debugging ' +
             '(pointing to the default User Data path is silently ignored). ' +
             'A lightweight ChromeDebug profile will be created — ' +
@@ -237,7 +316,7 @@
         html += '<div style="margin-top:14px;display:flex;gap:8px;justify-content:flex-end">' +
             '<button class="btn btn-sm btn-ghost" onclick="_renderMeshPanel()">← Back</button>' +
             '<button class="btn btn-sm btn-primary" id="mesh-apply-btn" onclick="_meshApplyRemediation()">' +
-            'Apply All →</button></div>';
+            'Apply Selected →</button></div>';
 
         // Store diag data for apply
         window._meshSetupDiag = diag;
@@ -263,6 +342,10 @@
         var profileRadio = document.querySelector('input[name="mesh-profile"]:checked');
         var profileDir = profileRadio ? profileRadio.value : 'Default';
 
+        // Get backup preference
+        var backupCb = document.getElementById('mesh-keep-backup');
+        var keepBackup = backupCb ? backupCb.checked : true;
+
         try {
             var resp = await fetch('/api/tab-mesh/cdp-remediate', {
                 method: 'POST',
@@ -271,6 +354,7 @@
                     shortcuts: selectedKeys,
                     profile_dir: profileDir,
                     port: 9222,
+                    keep_backup: keepBackup,
                 }),
             });
             var result = await resp.json();
@@ -299,9 +383,16 @@
         // Show results for each shortcut
         var results = result.results || {};
         for (var key in results) {
-            var ok = results[key].success;
+            var r = results[key];
+            var shortcutOk = r.shortcut_ok;
             html += '<div style="font-size:0.68rem;padding:2px 0;color:var(--text-primary)">' +
-                (ok ? '✅' : '❌') + ' ' + key + ' shortcut ' + (ok ? 'updated' : 'failed') + '</div>';
+                (shortcutOk ? '✅' : '❌') + ' ' + key + ' shortcut ' +
+                (shortcutOk ? 'updated (debug args + dev icon)' : 'failed') + '</div>';
+            if (r.backup_ok !== null && r.backup_ok !== undefined) {
+                var backupLabel = r.backup_skipped ? 'backup already exists' : 'backup created';
+                html += '<div style="font-size:0.62rem;padding:1px 0 1px 18px;color:var(--text-muted)">' +
+                    (r.backup_ok ? '✅' : '❌') + ' ' + backupLabel + '</div>';
+            }
         }
 
         // Explanation
