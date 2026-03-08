@@ -78,9 +78,13 @@ def server_settings_put():  # type: ignore[no-untyped-def]
     Returns the full merged settings after save.
 
     NOTE: Changing ``peek_index_enabled`` takes effect on next
-    server restart.  A restart prompt is included in the response.
+    server restart.  ``file_logging_enabled`` takes effect immediately.
     """
-    from src.core.services.server_settings import load_settings, save_settings
+    from src.core.services.server_settings import (
+        load_settings,
+        save_settings,
+        toggle_file_logging,
+    )
 
     root = current_app.config["PROJECT_ROOT"]
     data = request.get_json(silent=True) or {}
@@ -93,7 +97,56 @@ def server_settings_put():  # type: ignore[no-untyped-def]
         old.get("peek_index_enabled") != merged.get("peek_index_enabled")
     )
 
+    # Apply file logging toggle immediately (no restart needed)
+    if old.get("file_logging_enabled") != merged.get("file_logging_enabled"):
+        toggle_file_logging(root, merged["file_logging_enabled"])
+
     return jsonify({
         "settings": merged,
         "needs_restart": needs_restart,
     })
+
+
+# ── Accept fallback port (update project.yml) ──────────────────
+
+
+@server_bp.route("/server/accept-port", methods=["POST"])
+def server_accept_port():  # type: ignore[no-untyped-def]
+    """Update web.port in project.yml to the given port.
+
+    JSON body:
+        port: int — the new port to write into project.yml
+
+    Returns ``{"ok": True}`` on success, ``{"error": "..."}`` on failure.
+    The caller should offer a restart afterward.
+    """
+    import yaml
+
+    data = request.get_json(silent=True) or {}
+    new_port = data.get("port")
+    if not isinstance(new_port, int) or new_port < 1:
+        return jsonify({"error": "Invalid port"}), 400
+
+    root = current_app.config["PROJECT_ROOT"]
+    yml_path = root / "project.yml"
+
+    try:
+        raw = yml_path.read_text(encoding="utf-8")
+        cfg = yaml.safe_load(raw) or {}
+
+        # Ensure web section exists
+        if "web" not in cfg:
+            cfg["web"] = {}
+        cfg["web"]["port"] = new_port
+
+        yaml_content = yaml.dump(
+            cfg,
+            default_flow_style=False,
+            sort_keys=False,
+            allow_unicode=True,
+        )
+        yml_path.write_text(yaml_content, encoding="utf-8")
+    except Exception as e:
+        return jsonify({"error": f"Failed to update project.yml: {e}"}), 500
+
+    return jsonify({"ok": True, "port": new_port})

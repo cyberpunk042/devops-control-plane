@@ -45,7 +45,7 @@ class ModuleRef(BaseModel):
 class WebSettings(BaseModel):
     """Web admin panel server settings.
 
-    Controls port binding, fallback ports, and host address.
+    Controls port binding, fallback ports, host address, and log file path.
     If the preferred port is occupied by another process,
     the server will try each fallback port in order.
     """
@@ -55,6 +55,7 @@ class WebSettings(BaseModel):
         default_factory=lambda: [8001, 8002, 8080, 8888, 9000],
     )
     host: str = "127.0.0.1"
+    log_file: str = ".state/web.log"
 
 
 class Project(BaseModel):

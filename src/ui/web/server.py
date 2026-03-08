@@ -229,6 +229,12 @@ def create_app(
     else:
         logger.info("Project index disabled by server settings")
 
+    # Restore file logging if previously enabled
+    from src.core.services.server_settings import load_settings, toggle_file_logging
+    _startup_settings = load_settings(app.config["PROJECT_ROOT"])
+    if _startup_settings.get("file_logging_enabled"):
+        toggle_file_logging(app.config["PROJECT_ROOT"], True)
+
     logger.info("Web admin app created (root=%s)", project_root)
     return app
 

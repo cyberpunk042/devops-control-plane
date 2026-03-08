@@ -1802,28 +1802,41 @@ body {
 }
 
 .settings-panel-body {
-    padding: 0.5rem 0.85rem 0.75rem;
+    padding: 0.4rem 0.85rem 0.6rem;
+    max-height: calc(100vh - 120px);
+    overflow-y: auto;
 }
 
 .settings-group {
-    margin-bottom: 0.65rem;
+    margin-bottom: 0.45rem;
 }
 
 .settings-group:last-child {
     margin-bottom: 0;
 }
 
+.settings-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.45rem;
+}
+
+.settings-row .settings-group {
+    margin-bottom: 0;
+}
+
 .settings-label {
-    font-size: 0.75rem;
+    font-size: 0.72rem;
     font-weight: 500;
     color: var(--text-secondary);
-    margin-bottom: 0.35rem;
+    margin-bottom: 0.2rem;
 }
 
 .settings-hint {
-    font-size: 0.65rem;
+    font-size: 0.62rem;
     color: var(--text-muted);
-    margin-bottom: 0.3rem;
+    margin-bottom: 0.2rem;
+    line-height: 1.3;
 }
 
 .settings-btn-group {

@@ -109,18 +109,29 @@
 
         let html = '';
 
-        // ── Theme ────────────────────────────────────────────────
-        html += `<div class="settings-group">
-            <div class="settings-label">Theme</div>
-            <div class="settings-btn-group">
-                <button class="settings-btn ${prefs.theme === 'dark' ? 'active' : ''}"
-                    onclick="_prefSetTheme('dark')">🌙 Dark</button>
-                <button class="settings-btn ${prefs.theme === 'light' ? 'active' : ''}"
-                    onclick="_prefSetTheme('light')">☀️ Light</button>
+        // ── Row 1: Theme + File Preview ─────────────────────────
+        html += `<div class="settings-row">
+            <div class="settings-group">
+                <div class="settings-label">Theme</div>
+                <div class="settings-btn-group">
+                    <button class="settings-btn ${prefs.theme === 'dark' ? 'active' : ''}"
+                        onclick="_prefSetTheme('dark')">🌙 Dark</button>
+                    <button class="settings-btn ${prefs.theme === 'light' ? 'active' : ''}"
+                        onclick="_prefSetTheme('light')">☀️ Light</button>
+                </div>
+            </div>
+            <div class="settings-group">
+                <div class="settings-label">File Preview</div>
+                <div class="settings-btn-group">
+                    <button class="settings-btn ${prefs.previewMode === 'modal' ? 'active' : ''}"
+                        onclick="_prefSetPreviewMode('modal')">🔍 Modal</button>
+                    <button class="settings-btn ${prefs.previewMode === 'forward' ? 'active' : ''}"
+                        onclick="_prefSetPreviewMode('forward')">➡️ Nav</button>
+                </div>
             </div>
         </div>`;
 
-        // ── UI Scale ─────────────────────────────────────────────
+        // ── UI Scale (full width — 4 options) ───────────────────
         html += `<div class="settings-group">
             <div class="settings-label">UI Scale</div>
             <div class="settings-btn-group">`;
@@ -130,7 +141,7 @@
         }
         html += `</div></div>`;
 
-        // ── Density ──────────────────────────────────────────────
+        // ── Density (full width — 3 options) ────────────────────
         html += `<div class="settings-group">
             <div class="settings-label">Density</div>
             <div class="settings-btn-group">`;
@@ -141,33 +152,21 @@
         }
         html += `</div></div>`;
 
-        // ── Preview Mode ──────────────────────────────────────────
-        html += `<div class="settings-group">
-            <div class="settings-label">File Preview</div>
-            <div class="settings-hint">When clicking files from other tabs</div>
-            <div class="settings-btn-group">
-                <button class="settings-btn ${prefs.previewMode === 'modal' ? 'active' : ''}"
-                    onclick="_prefSetPreviewMode('modal')">🔍 Modal</button>
-                <button class="settings-btn ${prefs.previewMode === 'forward' ? 'active' : ''}"
-                    onclick="_prefSetPreviewMode('forward')">➡️ Navigate</button>
-            </div>
-        </div>`;
+        // ── Row 2: Assistant Guide + conditional options ─────────
+        html += `<div class="settings-row">`;
 
-        // ── Assistant Guide ──────────────────────────────────────
+        // Assistant Guide
         html += `<div class="settings-group">
-            <div class="settings-label">Assistant Guide</div>
-            <div class="settings-hint">Context-aware help panel alongside the wizard</div>
+            <div class="settings-label">✨ Assistant Guide</div>
             <div class="settings-btn-group">
                 <button class="settings-btn ${prefs.assistantGuide ? 'active' : ''}"
-                    onclick="_prefSetAssistantGuide(true)">✨ On</button>
+                    onclick="_prefSetAssistantGuide(true)">On</button>
                 <button class="settings-btn ${!prefs.assistantGuide ? 'active' : ''}"
                     onclick="_prefSetAssistantGuide(false)">Off</button>
             </div>
         </div>`;
 
-        // ── SSH Passphrase Prompt (only for SSH secure mode) ─────
-        // Show this toggle only when the user is in SSH mode with
-        // a passphrase-protected key.  Otherwise it's irrelevant.
+        // SSH Passphrase or Dev Mode (second column)
         const sshSecure = typeof _gitAuthStatus !== 'undefined'
             && _gitAuthStatus
             && _gitAuthStatus.remote_type === 'ssh'
@@ -176,20 +175,33 @@
         if (sshSecure) {
             const p = prefs.sshPassphrasePrompt || 'always';
             html += `<div class="settings-group">
-                <div class="settings-label">🔒 SSH Passphrase Prompt</div>
-                <div class="settings-hint">When to ask for your SSH key passphrase</div>
+                <div class="settings-label">🔒 SSH Prompt</div>
                 <div class="settings-btn-group">
                     <button class="settings-btn ${p === 'always' ? 'active' : ''}"
-                        onclick="_prefSetSshPrompt('always')">🚀 On Startup</button>
+                        onclick="_prefSetSshPrompt('always')">Startup</button>
                     <button class="settings-btn ${p === 'on-demand' ? 'active' : ''}"
-                        onclick="_prefSetSshPrompt('on-demand')">📋 On Demand</button>
+                        onclick="_prefSetSshPrompt('on-demand')">On Demand</button>
                 </div>
             </div>`;
+        } else if (window._devModeStatus && window._devModeStatus.is_owner) {
+            const dm = prefs.devMode !== false;
+            html += `<div class="settings-group">
+                <div class="settings-label">🔧 Dev Mode</div>
+                <div class="settings-btn-group">
+                    <button class="settings-btn ${dm ? 'active' : ''}"
+                        onclick="_prefSetDevMode(true)">On</button>
+                    <button class="settings-btn ${!dm ? 'active' : ''}"
+                        onclick="_prefSetDevMode(false)">Off</button>
+                </div>
+            </div>`;
+        } else {
+            html += `<div class="settings-group"></div>`; // empty cell
         }
+        html += `</div>`;
 
-        // ── Dev Mode (owner-only) ────────────────────────────────────
-        if (window._devModeStatus && window._devModeStatus.is_owner) {
-            const dm = prefs.devMode !== false;  // default: true for owners
+        // ── Dev Mode as separate row if SSH was shown above ──────
+        if (sshSecure && window._devModeStatus && window._devModeStatus.is_owner) {
+            const dm = prefs.devMode !== false;
             html += `<div class="settings-group">
                 <div class="settings-label">🔧 Dev Mode</div>
                 <div class="settings-hint">Stage debugger and developer tools</div>
@@ -202,13 +214,13 @@
             </div>`;
         }
 
-        // ── Server Settings (separator + async section) ─────────────
-        html += `<div style="border-top:1px solid var(--border-subtle);margin:0.75rem 0 0.5rem;padding-top:0.5rem">
-            <div class="settings-label" style="font-size:0.75rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em">Server</div>
+        // ── Server Section ──────────────────────────────────────
+        html += `<div style="border-top:1px solid var(--border-subtle);margin:0.5rem 0 0.35rem;padding-top:0.4rem">
+            <div class="settings-label" style="font-size:0.68rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em">Server</div>
         </div>`;
 
-        // Placeholder that gets filled once the async fetch completes
-        html += `<div id="server-settings-section" style="min-height:40px">
+        // Placeholder for async server settings
+        html += `<div id="server-settings-section" style="min-height:30px">
             <div class="settings-hint" style="opacity:0.5">Loading…</div>
         </div>`;
 
@@ -272,44 +284,60 @@
             const settings = await settingsResp.json();
             const status = statusResp.ok ? await statusResp.json() : {};
 
+            // Cache for use by _prefViewLog
+            window._lastServerSettings = settings;
+
             const peekOn = settings.peek_index_enabled !== false;
             const host = status.host || '127.0.0.1';
             const port = status.port || '?';
             const pid = status.pid || '?';
             const uptime = status.uptime_s ? _formatUptime(status.uptime_s) : '—';
 
+            const logOn = settings.file_logging_enabled === true;
+            const logPath = settings.file_logging_path || '.state/web.log';
+
             let html = '';
 
-            // ── Server status info ──
-            html += `<div class="settings-group">
-                <div class="settings-label">🖥️ Server Status</div>
-                <div class="settings-hint" style="font-family:var(--font-mono,monospace);font-size:0.8rem;line-height:1.6">
-                    Listening on <strong>${host}:${port}</strong><br>
-                    PID ${pid} · uptime ${uptime}
-                </div>
+            // ── Status line (compact) ──
+            html += `<div class="settings-hint" style="font-family:var(--font-mono,monospace);font-size:0.72rem;line-height:1.4;margin-bottom:0.4rem">
+                🖥️ <strong>${host}:${port}</strong> · PID ${pid} · up ${uptime}
             </div>`;
 
-            // ── Restart button ──
+            // ── Config + Restart row ──
             html += `<div class="settings-group">
-                <div class="settings-label">🔄 Restart Panel</div>
-                <div class="settings-hint">Restart with latest project.yml settings (port, features)</div>
                 <div class="settings-btn-group">
+                    <button class="settings-btn"
+                        onclick="_prefOpenConfig()">
+                        📝 project.yml
+                    </button>
                     <button class="settings-btn" id="server-restart-btn"
                         onclick="_prefRestartServer()" style="color:var(--clr-warning,#f59e0b)">
-                        ⚡ Restart Now
+                        ⚡ Restart
                     </button>
                 </div>
             </div>`;
 
-            // ── Peek & Index ──
-            html += `<div class="settings-group">
-                <div class="settings-label">🔍 Peek & Index</div>
-                <div class="settings-hint">Background symbol index and file reference resolution (~20s AST parse on startup)</div>
-                <div class="settings-btn-group">
-                    <button class="settings-btn ${peekOn ? 'active' : ''}"
-                        onclick="_prefSetServerPeekIndex(true)">On</button>
-                    <button class="settings-btn ${!peekOn ? 'active' : ''}"
-                        onclick="_prefSetServerPeekIndex(false)">Off</button>
+            // ── Peek & Index + File Logging row ──
+            html += `<div class="settings-row">
+                <div class="settings-group">
+                    <div class="settings-label">🔍 Peek & Index</div>
+                    <div class="settings-btn-group">
+                        <button class="settings-btn ${peekOn ? 'active' : ''}"
+                            onclick="_prefSetServerPeekIndex(true)">On</button>
+                        <button class="settings-btn ${!peekOn ? 'active' : ''}"
+                            onclick="_prefSetServerPeekIndex(false)">Off</button>
+                    </div>
+                </div>
+                <div class="settings-group">
+                    <div class="settings-label">📋 File Logging</div>
+                    <div class="settings-btn-group">
+                        <button class="settings-btn ${logOn ? 'active' : ''}"
+                            onclick="_prefSetFileLogging(true)">On</button>
+                        <button class="settings-btn ${!logOn ? 'active' : ''}"
+                            onclick="_prefSetFileLogging(false)">Off</button>
+                        ${logOn ? '<button class="settings-btn" onclick="_prefViewLog()" title="View log file">👁️</button>' : ''}
+                    </div>
+                    ${logOn ? '<div class="settings-hint" style="margin-top:0.15rem;cursor:pointer;text-decoration:underline dotted" onclick="_prefViewLog()">' + esc(logPath) + '</div>' : ''}
                 </div>
             </div>`;
 
@@ -326,6 +354,43 @@
         const h = Math.floor(seconds / 3600);
         const m = Math.floor((seconds % 3600) / 60);
         return `${h}h ${m}m`;
+    }
+
+    /** Toggle file logging (takes effect immediately, no restart). */
+    async function _prefSetFileLogging(enabled) {
+        try {
+            await fetch('/api/server/settings', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ file_logging_enabled: enabled }),
+            });
+        } catch (_) {}
+        _loadServerSettingsSection();
+    }
+
+    /** Open the log file in a modal preview. */
+    function _prefViewLog() {
+        // Close settings panel
+        var settingsPanel = document.querySelector('.settings-panel.open');
+        if (settingsPanel) settingsPanel.classList.remove('open');
+
+        // Read the log path from the last loaded settings, fallback to default
+        const logPath = window._lastServerSettings?.file_logging_path || '.state/web.log';
+        if (typeof openFileInModal === 'function') {
+            openFileInModal(logPath);
+        }
+    }
+
+    /** Open project.yml in a preview modal. */
+    function _prefOpenConfig() {
+        // Close settings panel
+        var settingsPanel = document.querySelector('.settings-panel.open');
+        if (settingsPanel) settingsPanel.classList.remove('open');
+
+        // Open in modal preview (project.yml is at project root, not inside a content folder)
+        if (typeof openFileInModal === 'function') {
+            openFileInModal('project.yml');
+        }
     }
 
     /** Manual restart button → show confirmation modal first. */
@@ -435,6 +500,9 @@
         // Show reconnection overlay and start polling
         _showReconnectionOverlay();
     }
+
+    // Expose for cross-script access (e.g. config_changed banner in _notifications.html)
+    window._doServerRestart = _doServerRestart;
 
     /** Full-screen overlay while waiting for the server to come back. */
     function _showReconnectionOverlay() {

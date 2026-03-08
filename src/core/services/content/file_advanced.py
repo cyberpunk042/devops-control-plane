@@ -66,8 +66,13 @@ def list_all_project_folders(project_root: Path) -> list[dict[str, str]]:
 
     Hidden/build/cache directories are excluded.
     Used by the "Explore All" feature.
+
+    The first entry is always "Project Root" (path=".") so root-level
+    files like project.yml are accessible in the browser.
     """
-    folders: list[dict[str, str]] = []
+    folders: list[dict[str, str]] = [
+        {"name": "Project Root", "path": "."},
+    ]
     try:
         for entry in sorted(project_root.iterdir()):
             if not entry.is_dir():

@@ -141,6 +141,7 @@ function _notifIcon(type) {
         'vault_locked': '🔒',
         'chat_message': '💬',
         'port_fallback': '🔀',
+        'config_changed': '⚙️',
     };
     return icons[type] || '📋';
 }
@@ -327,9 +328,9 @@ function _notifItemAction(itemEl) {
     switch (actionType) {
         case 'open-config':
             var configPath = itemEl.getAttribute('data-config-path') || 'project.yml';
-            // Navigate to the file in the content vault
-            if (typeof switchTab === 'function') {
-                switchTab('content/' + configPath + '@preview');
+            // Open in modal preview (root-level file)
+            if (typeof openFileInModal === 'function') {
+                openFileInModal(configPath);
             }
             // Close the notification panel
             if (_notifPanelOpen) _toggleNotifPanel();
@@ -375,6 +376,9 @@ document.addEventListener('sse:notification:new', function(e) {
     // ── Imminent notification types: auto-display ──
     if (notif.type === 'port_fallback' && notif.meta) {
         _showPortFallbackBanner(notif.meta, notif.id);
+    }
+    if (notif.type === 'config_changed') {
+        _showConfigChangedBanner(notif);
     }
 
     // Cross-tab sync: broadcast to other tabs
@@ -610,20 +614,20 @@ function _showPortFallbackBanner(meta, notifId) {
                     meta.config_path + '</code> or free port ' + meta.preferred_port + '.' +
                 '</div>' +
                 '<div style="display:flex;gap:0.5rem;flex-wrap:wrap">' +
+                    '<button id="fallback-accept-btn" style="' +
+                        'background:var(--clr-success,#22c55e);color:#fff;border:none;border-radius:6px;' +
+                        'padding:0.4rem 0.85rem;font-size:0.78rem;font-weight:500;cursor:pointer;' +
+                        'transition:opacity 0.2s' +
+                    '" onmouseover="this.style.opacity=\'0.85\'" onmouseout="this.style.opacity=\'1\'">' +
+                        '✅ Accept :' + meta.actual_port +
+                    '</button>' +
                     '<button id="fallback-configure-btn" style="' +
                         'background:var(--accent,#6366f1);color:#fff;border:none;border-radius:6px;' +
                         'padding:0.4rem 0.85rem;font-size:0.78rem;font-weight:500;cursor:pointer;' +
                         'transition:opacity 0.2s' +
                     '" onmouseover="this.style.opacity=\'0.85\'" onmouseout="this.style.opacity=\'1\'">' +
-                        '🔧 Configure Port' +
+                        '� Configure Port' +
                     '</button>' +
-                    '<a href="' + panelUrl + '" style="' +
-                        'background:rgba(255,255,255,0.08);color:var(--text,#e0e0e0);border:none;border-radius:6px;' +
-                        'padding:0.4rem 0.85rem;font-size:0.78rem;font-weight:500;cursor:pointer;' +
-                        'text-decoration:none;display:inline-block;transition:opacity 0.2s' +
-                    '" onmouseover="this.style.opacity=\'0.85\'" onmouseout="this.style.opacity=\'1\'">' +
-                        '🔗 Panel on :' + meta.actual_port +
-                    '</a>' +
                     '<button id="fallback-dismiss-btn" style="' +
                         'background:transparent;color:var(--text-muted,#888);border:1px solid var(--border-subtle,#333);border-radius:6px;' +
                         'padding:0.4rem 0.85rem;font-size:0.78rem;font-weight:500;cursor:pointer;' +
@@ -638,12 +642,38 @@ function _showPortFallbackBanner(meta, notifId) {
     document.body.appendChild(banner);
 
     // ── Button handlers ──
+    var acceptBtn = document.getElementById('fallback-accept-btn');
+    if (acceptBtn) {
+        acceptBtn.addEventListener('click', async function() {
+            acceptBtn.textContent = '⏳ Saving…';
+            acceptBtn.disabled = true;
+            try {
+                var resp = await fetch('/api/server/accept-port', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ port: meta.actual_port }),
+                });
+                if (resp.ok) {
+                    _dismissPortFallbackBanner(dismissKey, notifId);
+                    // Offer restart so the new port config takes effect
+                    if (typeof _showRestartConfirmModal === 'function') {
+                        _showRestartConfirmModal();
+                    }
+                } else {
+                    acceptBtn.textContent = '❌ Failed';
+                }
+            } catch (_) {
+                acceptBtn.textContent = '❌ Error';
+            }
+        });
+    }
+
     var configBtn = document.getElementById('fallback-configure-btn');
     if (configBtn) {
-        configBtn.addEventListener('click', function() {
-            // Navigate to content tab and open project.yml
-            if (typeof switchTab === 'function') {
-                switchTab('content/' + meta.config_path + '@preview');
+         configBtn.addEventListener('click', function() {
+            // Open project.yml in modal preview (root-level file)
+            if (typeof openFileInModal === 'function') {
+                openFileInModal(meta.config_path || 'project.yml');
             }
             _dismissPortFallbackBanner(dismissKey, notifId);
         });
@@ -709,6 +739,103 @@ function _checkPortFallbackOnBoot() {
                 });
         })
         .catch(function() {});
+}
+
+/**
+ * Show a config-changed banner — imminent, prominent restart offer.
+ * No confirmation modal — user just saved project.yml, they're "at the gate".
+ *
+ * @param {object} notif - the notification object
+ */
+function _showConfigChangedBanner(notif) {
+    // Already showing?
+    if (document.getElementById('config-changed-banner')) return;
+
+    // Check session-level dismissal (reset on page reload)
+    if (sessionStorage.getItem('dcp_config_changed_dismissed')) return;
+
+    var fileName = (notif.meta && notif.meta.file) || 'project.yml';
+
+    var banner = document.createElement('div');
+    banner.id = 'config-changed-banner';
+    banner.style.cssText = [
+        'position:fixed',
+        'bottom:1.5rem',
+        'right:1.5rem',
+        'z-index:9998',
+        'max-width:420px',
+        'width:calc(100% - 3rem)',
+        'background:var(--surface-elevated, #1e1e2e)',
+        'border:1px solid var(--accent, #6366f1)',
+        'border-radius:12px',
+        'padding:1.25rem 1.5rem',
+        'box-shadow:0 12px 40px rgba(0,0,0,0.5)',
+        'font-family:var(--font-sans, system-ui, sans-serif)',
+        'color:var(--text, #e0e0e0)',
+        'animation:slideIn 0.35s ease-out',
+    ].join(';');
+
+    banner.innerHTML =
+        '<div style="display:flex;align-items:flex-start;gap:0.75rem">' +
+            '<div style="font-size:1.6rem;line-height:1;flex-shrink:0">\u2699\ufe0f</div>' +
+            '<div style="flex:1;min-width:0">' +
+                '<div style="font-weight:600;font-size:0.9rem;margin-bottom:0.35rem;color:var(--accent,#6366f1)">' +
+                    'Configuration Updated' +
+                '</div>' +
+                '<div style="font-size:0.82rem;line-height:1.5;color:var(--text-muted,#aaa);margin-bottom:0.85rem">' +
+                    '<code style="font-size:0.78rem;background:rgba(255,255,255,0.08);padding:0.1em 0.35em;border-radius:3px">' +
+                    fileName + '</code> was saved. ' +
+                    'Restart now to apply your changes.' +
+                '</div>' +
+                '<div style="display:flex;gap:0.5rem;flex-wrap:wrap">' +
+                    '<button id="config-restart-btn" style="' +
+                        'background:var(--clr-warning,#f59e0b);color:#000;border:none;border-radius:6px;' +
+                        'padding:0.45rem 1rem;font-size:0.82rem;font-weight:600;cursor:pointer;' +
+                        'transition:opacity 0.2s;font-family:inherit' +
+                    '" onmouseover="this.style.opacity=\'0.85\'" onmouseout="this.style.opacity=\'1\'">' +
+                        '\u26a1 Restart Now' +
+                    '</button>' +
+                    '<button id="config-dismiss-btn" style="' +
+                        'background:transparent;color:var(--text-muted,#888);border:1px solid var(--border-subtle,#333);border-radius:6px;' +
+                        'padding:0.45rem 1rem;font-size:0.82rem;font-weight:500;cursor:pointer;' +
+                        'transition:opacity 0.2s;font-family:inherit' +
+                    '" onmouseover="this.style.opacity=\'0.85\'" onmouseout="this.style.opacity=\'1\'">' +
+                        '\u2715 Dismiss' +
+                    '</button>' +
+                '</div>' +
+            '</div>' +
+        '</div>';
+
+    document.body.appendChild(banner);
+
+    // ── Button handlers ──
+    document.getElementById('config-restart-btn').addEventListener('click', function() {
+        _removeConfigChangedBanner(notif.id);
+        // Direct restart — no confirmation modal, user is "at the gate"
+        if (window._doServerRestart) {
+            window._doServerRestart();
+        }
+    });
+
+    document.getElementById('config-dismiss-btn').addEventListener('click', function() {
+        _removeConfigChangedBanner(notif.id);
+    });
+}
+
+/** Remove config-changed banner + track dismissal. */
+function _removeConfigChangedBanner(notifId) {
+    sessionStorage.setItem('dcp_config_changed_dismissed', '1');
+
+    // Dismiss server-side notification
+    if (notifId) _dismissNotif(notifId);
+
+    var banner = document.getElementById('config-changed-banner');
+    if (banner) {
+        banner.style.transition = 'opacity 0.3s ease, transform 0.3s ease';
+        banner.style.opacity = '0';
+        banner.style.transform = 'translateX(20px)';
+        setTimeout(function() { banner.remove(); }, 300);
+    }
 }
 
 // ── Boot ────────────────────────────────────────────────────────

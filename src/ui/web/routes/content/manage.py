@@ -61,9 +61,11 @@ def content_save():  # type: ignore[no-untyped-def]
     """Save text content to a file."""
     data = request.get_json(silent=True) or {}
 
+    rel_path = data.get("path", "").strip()
+
     result = content_file_ops.save_content_file(
         _project_root(),
-        rel_path=data.get("path", "").strip(),
+        rel_path=rel_path,
         file_content=data.get("content", ""),
         allow_create=bool(data.get("create", False)),
     )
@@ -71,6 +73,23 @@ def content_save():  # type: ignore[no-untyped-def]
     if "error" in result:
         code = result.pop("_status", 400)
         return jsonify(result), code
+
+    # ── Config change detection ──────────────────────────────────
+    # When project.yml is saved, the server may need a restart to
+    # pick up port, host, or other structural changes.
+    _CONFIG_FILES = {"project.yml", "project.yaml"}
+    if rel_path in _CONFIG_FILES:
+        from src.core.services.notifications import create_notification
+
+        create_notification(
+            _project_root(),
+            notif_type="config_changed",
+            title="Configuration Updated",
+            message=f"{rel_path} was modified — restart to apply changes.",
+            meta={"file": rel_path},
+            dedup=True,
+        )
+        logger.info("Config change detected: %s — restart notification sent", rel_path)
 
     return jsonify(result)
 
