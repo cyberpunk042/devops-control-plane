@@ -171,6 +171,8 @@ class TestSuite:
     replay_speed: float = 1.0           # Multiplier on recorded delays
     stop_on_failure: bool = True        # Stop suite on first failure
     take_screenshots: bool = False      # Capture screenshots at each step
+    visual_delay_ms: int = 300          # Pause between steps for user to see
+    min_step_delay_ms: int = 100        # Internal floor — let page keep up
 
     # ── Metadata ──────────────────────────────────────────────
     created_at: str = field(default_factory=_now_iso)
@@ -199,6 +201,8 @@ class TestSuite:
             "replay_speed": self.replay_speed,
             "stop_on_failure": self.stop_on_failure,
             "take_screenshots": self.take_screenshots,
+            "visual_delay_ms": self.visual_delay_ms,
+            "min_step_delay_ms": self.min_step_delay_ms,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
             "created_by": self.created_by,
@@ -228,6 +232,8 @@ class TestSuite:
             replay_speed=data.get("replay_speed", 1.0),
             stop_on_failure=data.get("stop_on_failure", True),
             take_screenshots=data.get("take_screenshots", False),
+            visual_delay_ms=data.get("visual_delay_ms", 300),
+            min_step_delay_ms=data.get("min_step_delay_ms", 100),
             created_at=data.get("created_at", _now_iso()),
             updated_at=data.get("updated_at", _now_iso()),
             created_by=data.get("created_by", "recording"),

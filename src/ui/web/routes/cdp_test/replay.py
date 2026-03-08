@@ -123,6 +123,8 @@ def cdp_test_replay_start():
             # Give the new tab time to load the page
             import time
             time.sleep(3.0)
+            # Force re-fetch so the verify block below can find the new tab
+            targets = None
         else:
             target_id = match["id"]
 

@@ -827,26 +827,20 @@ def replay_suite(
         })
         return run_result
 
-    # Activate the target tab
-    _t_activate = time.monotonic()
-    cdp_client.activate_target(target_id)
-    logger.info(
-        "Replay: activate_target took %.0fms",
-        (time.monotonic() - _t_activate) * 1000,
-    )
     logger.info(
         "Replay started: suite=%s (%s), target=%s, steps=%d",
         suite.id, suite.name, target_id, len(suite.steps),
     )
 
-    # Tell the UI we're connecting (this phase takes ~3s on WSL2)
+    # Tell the UI we're connecting (this phase takes ~2s on WSL2)
     callback("cdp_test:replay_connecting", {
         "run_id": run_result.id,
         "phase": "connecting",
     })
 
-    # ── Open persistent CDP session ─────────────────────────
-    # Python-native WS connects in ~50ms; PS bridge ~3s
+    # ── Open persistent CDP session (tab still in background) ──
+    # The 2.2s bridge connect happens while the user still sees
+    # the DCP admin panel — no blank page staring.
     _t_session = time.monotonic()
     session = cdp_client.CdpSession(ws_url)
     logger.info(
@@ -859,17 +853,10 @@ def replay_suite(
         logger.warning("Streaming session failed, falling back to one-shot mode")
         session = None  # _execute_step will use evaluate_js
 
-    callback("cdp_test:replay_start", {
-        "run_id": run_result.id,
-        "suite_id": suite.id,
-        "suite_name": suite.name,
-        "total_steps": len(suite.steps),
-        "mode": session._mode if session else "one-shot",
-    })
-
-    # ── Inject loading backdrop on target page ────────────
-    # Shows "▶ Replay starting…" overlay so the user knows
-    # the engine is alive during the connection delay.
+    # ── Inject loading backdrop BEFORE switching tabs ─────────
+    # Backdrop is injected into the background tab so when Chrome
+    # brings it to the foreground, the user immediately sees
+    # "Replay starting…" instead of a bare page.
     _BACKDROP_JS = """
     (function() {
         var d = document.createElement('div');
@@ -893,6 +880,23 @@ def replay_suite(
     """
     if session and session.connected:
         session.evaluate(_BACKDROP_JS, timeout=3.0)
+
+    # ── NOW activate (focus) the target tab ──────────────────
+    # User sees the tab switch with backdrop already visible.
+    _t_activate = time.monotonic()
+    cdp_client.activate_target(target_id)
+    logger.info(
+        "Replay: activate_target took %.0fms",
+        (time.monotonic() - _t_activate) * 1000,
+    )
+
+    callback("cdp_test:replay_start", {
+        "run_id": run_result.id,
+        "suite_id": suite.id,
+        "suite_name": suite.name,
+        "total_steps": len(suite.steps),
+        "mode": session._mode if session else "one-shot",
+    })
 
     # ── Execute steps ────────────────────────────────────
     step_list = sorted(suite.steps, key=lambda s: s.sequence)
@@ -1010,14 +1014,16 @@ def replay_suite(
             if nav_wait > 0:
                 time.sleep(nav_wait)
 
-        # ── Post-step: visual pacing for fill/type actions ────
-        # Give the user a moment to see the value appear on screen
-        # before the next step fires.
-        if (
-            step.action in ("fill", "type", "select", "check")
-            and step_result["status"] == "passed"
-        ):
-            time.sleep(0.2)
+        # ── Post-step pacing ─────────────────────────────────
+        # min_step_delay_ms: internal floor — lets the page DOM
+        # settle after each action.  Always applied.
+        # visual_delay_ms:   user-visible debounce so the human
+        # can follow along.  Customizable per suite.
+        min_delay = max(suite.min_step_delay_ms, 0) / 1000.0
+        visual_delay = max(suite.visual_delay_ms, 0) / 1000.0
+        step_pause = max(min_delay, visual_delay)
+        if step_pause > 0 and step_result["status"] == "passed":
+            time.sleep(step_pause)
 
     finally:
         # Always close the streaming session
