@@ -7,6 +7,7 @@
     // ── CDP Test State ───────────────────────────────────────────────
     let _cdpTestSSESource = null;        // EventSource for live step updates
     let _cdpTestCurrentView = 'home';    // 'home' | 'recording' | 'validation' | 'replay'
+    let _cdpBridgeReady = false;          // true once the PS bridge is warm
 
     // ── Main Modal Entry Point ───────────────────────────────────────
 
@@ -20,6 +21,7 @@
             ],
         });
         await _cdpTestRenderHome();
+        _cdpTestWarmBridge();  // Pre-warm engine in background
     }
 
     function _cdpTestCloseModal() {
@@ -50,6 +52,14 @@
                 <button class="btn btn-sm btn-primary" onclick="_cdpTestStartRecording()" id="cdp-test-record-btn">
                     🔴 New Recording
                 </button>
+            </div>
+        </div>`;
+
+        // Bridge warmup status badge (visible only while warming)
+        body += `<div id="cdp-bridge-status" style="display:none;margin-bottom:var(--space-sm)">
+            <div style="display:flex;align-items:center;gap:0.4rem;padding:0.35rem 0.65rem;background:var(--bg-tertiary);border-radius:6px;font-size:0.72rem;color:var(--text-muted)">
+                <span class="spinner" style="width:12px;height:12px"></span>
+                <span id="cdp-bridge-label">Warming up replay engine…</span>
             </div>
         </div>`;
 
@@ -1039,5 +1049,67 @@
             _cdpTestRenderHome();
         } catch (e) {
             toast('Delete failed: ' + e.message, 'error');
+        }
+    }
+
+    // ── Bridge warmup ────────────────────────────────────────────────
+
+    async function _cdpTestWarmBridge() {
+        if (_cdpBridgeReady) return;  // Already warm
+
+        try {
+            const result = await api('/cdp-test/warm', { method: 'POST' });
+            if (!result.ok) return;
+
+            const bridge = result.bridge || {};
+            if (!bridge.needed) {
+                // Non-WSL2 — no bridge needed, already fast
+                _cdpBridgeReady = true;
+                return;
+            }
+
+            if (bridge.ready) {
+                _cdpBridgeReady = true;
+                return;
+            }
+
+            // Show the warming badge
+            const badgeEl = document.getElementById('cdp-bridge-status');
+            if (badgeEl) badgeEl.style.display = '';
+
+            // Poll until ready
+            const pollInterval = setInterval(async () => {
+                try {
+                    const r = await api('/cdp-test/warm', { method: 'POST' });
+                    if (r.ok && r.bridge && r.bridge.ready) {
+                        clearInterval(pollInterval);
+                        _cdpBridgeReady = true;
+
+                        // Show ready state briefly, then fade out
+                        const label = document.getElementById('cdp-bridge-label');
+                        const badge = document.getElementById('cdp-bridge-status');
+                        if (label) {
+                            label.closest('div').innerHTML =
+                                '<span style="color:var(--success)">✓</span> ' +
+                                '<span>Replay engine ready</span>';
+                        }
+                        setTimeout(() => {
+                            if (badge) {
+                                badge.style.transition = 'opacity 0.5s';
+                                badge.style.opacity = '0';
+                                setTimeout(() => { badge.style.display = 'none'; }, 600);
+                            }
+                        }, 1500);
+                    }
+                } catch (e) {
+                    // Ignore poll errors
+                }
+            }, 500);
+
+            // Safety: stop polling after 15s regardless
+            setTimeout(() => clearInterval(pollInterval), 15000);
+
+        } catch (e) {
+            // Warmup is best-effort — don't show errors
         }
     }

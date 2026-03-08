@@ -244,3 +244,32 @@ def cdp_test_replay_status():
         "run_id": run.run_id,
         "suite_id": run.suite_id,
     })
+
+
+# ── Bridge warm-up ─────────────────────────────────────────────
+
+
+@cdp_test_bp.route("/cdp-test/warm", methods=["POST"])
+def cdp_test_warm():
+    """Trigger the CDP bridge warm-up and return status.
+
+    The frontend calls this when the user opens the CDP test panel.
+    On WSL2, this pre-starts a background PowerShell process so the
+    first replay doesn't pay the ~3s startup cost.
+
+    Returns::
+
+        {
+            "ok": true,
+            "bridge": {
+                "needed": true,    // WSL2 requires bridge
+                "ready": false,    // not yet warmed
+                "warming": true    // currently starting
+            }
+        }
+    """
+    from src.ui.web import cdp_client
+
+    cdp_client.warm_bridge()
+    status = cdp_client.bridge_status()
+    return jsonify({"ok": True, "bridge": status})

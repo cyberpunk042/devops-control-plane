@@ -463,7 +463,6 @@ class _PyWebSocket:
         )
         self._sock.sendall(handshake.encode())
 
-        # Read response (must be 101 Switching Protocols)
         resp = b""
         while b"\r\n\r\n" not in resp:
             chunk = self._sock.recv(4096)
@@ -483,13 +482,12 @@ class _PyWebSocket:
 
         data = text.encode("utf-8")
         mask = os.urandom(4)
-
         header = bytearray()
         header.append(0x81)  # FIN + TEXT opcode
 
         length = len(data)
         if length < 126:
-            header.append(0x80 | length)  # MASK bit set
+            header.append(0x80 | length)
         elif length < 65536:
             header.append(0x80 | 126)
             header.extend(length.to_bytes(2, "big"))
@@ -498,12 +496,9 @@ class _PyWebSocket:
             header.extend(length.to_bytes(8, "big"))
 
         header.extend(mask)
-
-        # Mask the payload
         masked = bytearray(length)
         for i in range(length):
             masked[i] = data[i] ^ mask[i % 4]
-
         self._sock.sendall(bytes(header) + bytes(masked))
 
     def recv(self) -> str:
@@ -530,12 +525,12 @@ class _PyWebSocket:
                     payload[i] ^= mask_key[i % 4]
                 payload = bytes(payload)
 
-            if opcode == 0x08:  # Close
+            if opcode == 0x08:
                 raise ConnectionError("WS peer sent close frame")
-            if opcode == 0x09:  # Ping → send pong
+            if opcode == 0x09:
                 self._send_pong(payload)
                 continue
-            if opcode == 0x0A:  # Pong — ignore
+            if opcode == 0x0A:
                 continue
 
             fragments.append(payload)
@@ -545,7 +540,6 @@ class _PyWebSocket:
         return b"".join(fragments).decode("utf-8")
 
     def _recv_exact(self, n: int) -> bytes:
-        """Read exactly *n* bytes from the socket."""
         buf = bytearray()
         while len(buf) < n:
             chunk = self._sock.recv(n - len(buf))
@@ -555,11 +549,9 @@ class _PyWebSocket:
         return bytes(buf)
 
     def _send_pong(self, payload: bytes) -> None:
-        """Send a pong frame."""
         import os
-
         mask = os.urandom(4)
-        header = bytearray([0x8A])  # FIN + PONG
+        header = bytearray([0x8A])
         length = len(payload)
         if length < 126:
             header.append(0x80 | length)
@@ -573,9 +565,7 @@ class _PyWebSocket:
         self._sock.sendall(bytes(header) + bytes(masked))
 
     def close(self) -> None:
-        """Send a close frame and shut down the socket."""
         try:
-            # Send close frame (opcode 0x08, masked, zero-length)
             self._sock.sendall(b"\x88\x80" + b"\x00\x00\x00\x00")
         except Exception:
             pass
@@ -585,60 +575,120 @@ class _PyWebSocket:
             pass
 
 
-class CdpSession:
-    """Persistent CDP WebSocket session — one connection, many commands.
+# ── Pre-warmed PowerShell bridge ──────────────────────────────
+#
+# One PowerShell process stays alive across replays.
+# Protocol: READY → CONNECT ws_url → CONNECTED → commands →
+#           DISCONNECT → DISCONNECTED → CONNECT again ...
+#
+# First boot costs ~3s (PS startup).  Subsequent connects: ~100ms.
 
-    Primary strategy: Python-native socket WebSocket (~50ms connect).
-    Fallback: PowerShell .NET WebSocket (for old WSL2 without localhost
-    forwarding — ~3s connect).
+import threading as _threading
 
-    Usage::
+_bridge_lock = _threading.Lock()
+_bridge_process = None
+_bridge_script_path: str | None = None
+_bridge_ready = False
 
-        with CdpSession(ws_url) as session:
-            if session.connected:
-                result = session.evaluate("document.title")
+_BRIDGE_PS_SCRIPT = r"""
+$ErrorActionPreference = 'Stop'
+[Console]::Out.WriteLine('READY')
+[Console]::Out.Flush()
+
+while ($true) {
+    $cmd = [Console]::In.ReadLine()
+    if ($cmd -eq $null -or $cmd -eq 'EXIT') { break }
+
+    if ($cmd.StartsWith('CONNECT ')) {
+        $wsUrl = $cmd.Substring(8)
+        $ws = $null
+        try {
+            $ws = New-Object System.Net.WebSockets.ClientWebSocket
+            $cts = New-Object System.Threading.CancellationTokenSource
+            $ws.ConnectAsync([Uri]$wsUrl, $cts.Token).Wait()
+            [Console]::Out.WriteLine('CONNECTED')
+            [Console]::Out.Flush()
+
+            while ($true) {
+                $line = [Console]::In.ReadLine()
+                if ($line -eq $null -or $line -eq 'EXIT') {
+                    try { $ws.CloseAsync(
+                        [System.Net.WebSockets.WebSocketCloseStatus]::NormalClosure,
+                        '', $cts.Token).Wait() } catch {}
+                    $ws.Dispose()
+                    exit
+                }
+                if ($line -eq 'DISCONNECT') {
+                    try { $ws.CloseAsync(
+                        [System.Net.WebSockets.WebSocketCloseStatus]::NormalClosure,
+                        '', $cts.Token).Wait() } catch {}
+                    $ws.Dispose()
+                    [Console]::Out.WriteLine('DISCONNECTED')
+                    [Console]::Out.Flush()
+                    break
+                }
+
+                $bytes = [Text.Encoding]::UTF8.GetBytes($line)
+                $seg = New-Object System.ArraySegment[byte](,$bytes)
+                $ws.SendAsync($seg,
+                    [System.Net.WebSockets.WebSocketMessageType]::Text,
+                    $true, $cts.Token).Wait()
+
+                $all = New-Object System.Collections.Generic.List[byte]
+                do {
+                    $buf = New-Object byte[] 1048576
+                    $rseg = New-Object System.ArraySegment[byte](,$buf)
+                    $r = $ws.ReceiveAsync($rseg, $cts.Token).Result
+                    for ($i = 0; $i -lt $r.Count; $i++) { $all.Add($buf[$i]) }
+                } while (-not $r.EndOfMessage)
+
+                $resp = [Text.Encoding]::UTF8.GetString($all.ToArray())
+                [Console]::Out.WriteLine($resp)
+                [Console]::Out.Flush()
+            }
+        } catch {
+            if ($ws) { try { $ws.Dispose() } catch {} }
+            [Console]::Out.WriteLine('ERROR:' + $_.Exception.Message)
+            [Console]::Out.Flush()
+        }
+    }
+}
+"""
+
+
+def _ensure_bridge() -> bool:
+    """Ensure the pre-warmed PowerShell bridge process is running.
+
+    Returns True if the bridge is ready.  Thread-safe.
     """
+    global _bridge_process, _bridge_script_path, _bridge_ready
+    import subprocess
+    import tempfile
+    import os
 
-    __slots__ = (
-        "_ws", "_process", "_connected", "_cmd_id",
-        "_ws_url", "_script_path", "_mode",
-    )
+    with _bridge_lock:
+        # Already alive?
+        if (
+            _bridge_ready
+            and _bridge_process is not None
+            and _bridge_process.poll() is None
+        ):
+            return True
 
-    def __init__(self, ws_url: str, connect_timeout: float = 10.0):
-        self._ws = None
-        self._process = None
-        self._connected = False
-        self._cmd_id = 0
-        self._ws_url = ws_url
-        self._script_path = None
-        self._mode = ""
+        # Clean up previous
+        _bridge_ready = False
+        if _bridge_process and _bridge_process.poll() is None:
+            try:
+                _bridge_process.kill()
+            except Exception:
+                pass
+        if _bridge_script_path:
+            try:
+                os.unlink(_bridge_script_path)
+            except OSError:
+                pass
 
-        # ── Strategy 1: Python-native WebSocket (instant) ─────
-        try:
-            self._ws = _PyWebSocket(ws_url, timeout=connect_timeout)
-            self._mode = "python"
-            self._connected = True
-            logger.info(
-                "CdpSession connected via Python socket to %s", ws_url,
-            )
-            return
-        except Exception as exc:
-            logger.debug(
-                "Python WS failed (%s), trying PowerShell", exc,
-            )
-
-        # ── Strategy 2: PowerShell (WSL2 fallback) ────────────
-        self._init_powershell(ws_url, connect_timeout)
-
-    def _init_powershell(
-        self, ws_url: str, connect_timeout: float,
-    ) -> None:
-        """Fall back to PowerShell .NET WebSocket for old WSL2."""
-        import subprocess
-        import tempfile
-        import os
-        import threading
-
+        # Resolve Windows temp dir (once)
         global _win_temp_dir, _win_temp_dir_resolved
         if _detect_wsl2() and not _win_temp_dir_resolved:
             try:
@@ -653,32 +703,311 @@ class CdpSession:
                 pass
             _win_temp_dir_resolved = True
 
+        # Write script
+        win_temp = _win_temp_dir if _detect_wsl2() else None
+        tmp_fd, tmp_path = tempfile.mkstemp(
+            suffix=".ps1", prefix="cdp_bridge_", dir=win_temp,
+        )
+        _bridge_script_path = tmp_path
+        with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
+            f.write(_BRIDGE_PS_SCRIPT)
+
+        # Convert path for WSL2
+        if _detect_wsl2():
+            try:
+                win_path = subprocess.run(
+                    ["wslpath", "-w", tmp_path],
+                    capture_output=True, text=True, timeout=3,
+                ).stdout.strip()
+            except (subprocess.TimeoutExpired, OSError):
+                win_path = tmp_path
+        else:
+            win_path = tmp_path
+
+        # Start PowerShell
+        try:
+            _bridge_process = subprocess.Popen(
+                [
+                    "powershell.exe", "-NoProfile",
+                    "-ExecutionPolicy", "Bypass",
+                    "-File", win_path,
+                ],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+
+            # Wait for READY signal
+            ready = [False]
+
+            def _wait():
+                try:
+                    line = _bridge_process.stdout.readline().strip()
+                    ready[0] = (line == "READY")
+                except Exception:
+                    pass
+
+            t = _threading.Thread(target=_wait, daemon=True)
+            t.start()
+            t.join(timeout=10.0)
+
+            _bridge_ready = ready[0]
+            if _bridge_ready:
+                logger.info(
+                    "CDP bridge process ready (PID %d)",
+                    _bridge_process.pid,
+                )
+            else:
+                logger.warning("CDP bridge failed to start")
+                try:
+                    _bridge_process.kill()
+                except Exception:
+                    pass
+                _bridge_process = None
+
+        except Exception as exc:
+            logger.warning("CDP bridge startup failed: %s", exc)
+            _bridge_process = None
+            _bridge_ready = False
+
+    return _bridge_ready
+
+
+def warm_bridge() -> None:
+    """Pre-start the PowerShell bridge in a background thread.
+
+    Call this at app startup so the ~3s PowerShell boot happens
+    before the user clicks "Replay".
+    """
+    if not _detect_wsl2():
+        return
+    _threading.Thread(
+        target=_ensure_bridge,
+        name="cdp-bridge-warmup",
+        daemon=True,
+    ).start()
+
+
+def bridge_status() -> dict:
+    """Return the current bridge status for the UI.
+
+    Returns:
+        dict with keys:
+            needed (bool): True if WSL2 requires the bridge
+            ready (bool): True if the bridge is warmed and ready
+            warming (bool): True if currently starting up
+    """
+    needed = _detect_wsl2()
+    if not needed:
+        return {"needed": False, "ready": True, "warming": False}
+
+    ready = (
+        _bridge_ready
+        and _bridge_process is not None
+        and _bridge_process.poll() is None
+    )
+    # "warming" = we know it's needed but it's not ready yet
+    warming = needed and not ready
+    return {"needed": True, "ready": ready, "warming": warming}
+
+
+def _bridge_connect(ws_url: str, timeout: float = 10.0) -> bool:
+    """Send CONNECT to the pre-warmed bridge.  Returns True on success."""
+    if not _ensure_bridge():
+        return False
+
+    try:
+        _bridge_process.stdin.write(f"CONNECT {ws_url}\n")
+        _bridge_process.stdin.flush()
+
+        result = [None]
+
+        def _read():
+            try:
+                line = _bridge_process.stdout.readline().strip()
+                result[0] = line
+            except Exception:
+                pass
+
+        t = _threading.Thread(target=_read, daemon=True)
+        t.start()
+        t.join(timeout=timeout)
+
+        if result[0] == "CONNECTED":
+            return True
+
+        if result[0] and result[0].startswith("ERROR:"):
+            logger.warning("CDP bridge connect error: %s", result[0])
+        else:
+            logger.warning(
+                "CDP bridge: unexpected response: %s", result[0],
+            )
+        return False
+
+    except Exception as exc:
+        logger.warning("CDP bridge connect failed: %s", exc)
+        return False
+
+
+def _bridge_disconnect() -> None:
+    """Send DISCONNECT to the bridge (returns it to idle state)."""
+    if _bridge_process and _bridge_process.poll() is None:
+        try:
+            _bridge_process.stdin.write("DISCONNECT\n")
+            _bridge_process.stdin.flush()
+
+            result = [None]
+
+            def _read():
+                try:
+                    line = _bridge_process.stdout.readline().strip()
+                    result[0] = line
+                except Exception:
+                    pass
+
+            t = _threading.Thread(target=_read, daemon=True)
+            t.start()
+            t.join(timeout=3.0)
+        except Exception:
+            pass
+
+
+def _bridge_send(cmd: str, timeout: float = 10.0) -> dict | None:
+    """Send a CDP command via the bridge and return parsed response."""
+    if not _bridge_process or _bridge_process.poll() is not None:
+        return None
+
+    try:
+        _bridge_process.stdin.write(cmd + "\n")
+        _bridge_process.stdin.flush()
+
+        result_holder: list[dict | None] = [None]
+
+        def _read():
+            try:
+                line = _bridge_process.stdout.readline().strip()
+                if line:
+                    result_holder[0] = json.loads(line)
+            except Exception:
+                pass
+
+        reader = _threading.Thread(target=_read, daemon=True)
+        reader.start()
+        reader.join(timeout=timeout)
+
+        return result_holder[0]
+
+    except Exception as exc:
+        logger.warning("CDP bridge send failed: %s", exc)
+        return None
+
+
+# ── CdpSession ─────────────────────────────────────────────────
+
+
+class CdpSession:
+    """Persistent CDP WebSocket session — one connection, many commands.
+
+    Connection strategies (in order of preference):
+
+    1. **Python socket** — instant (~50ms).  Works when Python can
+       reach Chrome's debug port directly.
+
+    2. **Pre-warmed PS bridge** — fast (~100ms).  A shared PowerShell
+       process kept alive across sessions.  The ~3s PS startup cost
+       is paid once at app boot, not per-replay.
+
+    3. **Fresh PowerShell** — slow (~3s).  Last resort fallback when
+       the bridge isn't available.
+
+    Usage::
+
+        with CdpSession(ws_url) as session:
+            if session.connected:
+                result = session.evaluate("document.title")
+    """
+
+    __slots__ = (
+        "_ws", "_fresh_process", "_connected", "_cmd_id",
+        "_ws_url", "_mode", "_script_path",
+    )
+
+    def __init__(self, ws_url: str, connect_timeout: float = 10.0):
+        self._ws = None
+        self._fresh_process = None
+        self._connected = False
+        self._cmd_id = 0
+        self._ws_url = ws_url
+        self._mode = ""
+        self._script_path = None
+
+        # ── Strategy 1: Python-native WebSocket (instant) ─────
+        try:
+            self._ws = _PyWebSocket(ws_url, timeout=connect_timeout)
+            self._mode = "python"
+            self._connected = True
+            logger.info(
+                "CdpSession connected via Python socket to %s", ws_url,
+            )
+            return
+        except Exception as exc:
+            logger.debug("Python WS failed (%s), trying bridge", exc)
+
+        # ── Strategy 2: Pre-warmed bridge (fast) ──────────────
+        if _bridge_connect(ws_url, timeout=connect_timeout):
+            self._mode = "bridge"
+            self._connected = True
+            logger.info(
+                "CdpSession connected via bridge to %s", ws_url,
+            )
+            return
+
+        # ── Strategy 3: Fresh PowerShell (slow, last resort) ──
+        logger.debug("Bridge unavailable, trying fresh PowerShell")
+        self._init_fresh_ps(ws_url, connect_timeout)
+
+    def _init_fresh_ps(
+        self, ws_url: str, connect_timeout: float,
+    ) -> None:
+        """Last resort: start a fresh PowerShell process (~3s)."""
+        import subprocess
+        import tempfile
+        import os
+
         ws_url_safe = ws_url.replace("'", "''")
         ps_script = (
             "$ErrorActionPreference = 'Stop'\n"
             "$ws = New-Object System.Net.WebSockets.ClientWebSocket\n"
             "$cts = New-Object System.Threading.CancellationTokenSource\n"
             "try {\n"
-            f"    $ws.ConnectAsync([Uri]'{ws_url_safe}', $cts.Token).Wait()\n"
+            f"    $ws.ConnectAsync([Uri]'{ws_url_safe}', $cts.Token)"
+            ".Wait()\n"
             "    [Console]::Out.WriteLine('CONNECTED')\n"
             "    [Console]::Out.Flush()\n"
             "    while ($true) {\n"
             "        $line = [Console]::In.ReadLine()\n"
-            "        if ($line -eq $null -or $line -eq 'EXIT') { break }\n"
+            "        if ($line -eq $null -or $line -eq 'EXIT')"
+            " { break }\n"
             "        $bytes = [Text.Encoding]::UTF8.GetBytes($line)\n"
-            "        $seg = New-Object System.ArraySegment[byte](,$bytes)\n"
+            "        $seg = New-Object "
+            "System.ArraySegment[byte](,$bytes)\n"
             "        $ws.SendAsync($seg, "
             "[System.Net.WebSockets.WebSocketMessageType]::Text, "
             "$true, $cts.Token).Wait()\n"
-            "        $all = New-Object System.Collections.Generic.List[byte]\n"
+            "        $all = New-Object "
+            "System.Collections.Generic.List[byte]\n"
             "        do {\n"
             "            $buf = New-Object byte[] 1048576\n"
-            "            $rseg = New-Object System.ArraySegment[byte](,$buf)\n"
-            "            $r = $ws.ReceiveAsync($rseg, $cts.Token).Result\n"
+            "            $rseg = New-Object "
+            "System.ArraySegment[byte](,$buf)\n"
+            "            $r = $ws.ReceiveAsync($rseg, $cts.Token)"
+            ".Result\n"
             "            for ($i = 0; $i -lt $r.Count; $i++) "
             "{ $all.Add($buf[$i]) }\n"
             "        } while (-not $r.EndOfMessage)\n"
-            "        $resp = [Text.Encoding]::UTF8.GetString($all.ToArray())\n"
+            "        $resp = [Text.Encoding]::UTF8.GetString("
+            "$all.ToArray())\n"
             "        [Console]::Out.WriteLine($resp)\n"
             "        [Console]::Out.Flush()\n"
             "    }\n"
@@ -715,7 +1044,7 @@ class CdpSession:
             win_path = tmp_path
 
         try:
-            self._process = subprocess.Popen(
+            self._fresh_process = subprocess.Popen(
                 [
                     "powershell.exe", "-NoProfile",
                     "-ExecutionPolicy", "Bypass",
@@ -731,31 +1060,28 @@ class CdpSession:
 
             def _wait():
                 try:
-                    line = self._process.stdout.readline().strip()
+                    line = self._fresh_process.stdout.readline().strip()
                     connected[0] = (line == "CONNECTED")
                 except Exception:
                     pass
 
-            t = threading.Thread(target=_wait, daemon=True)
+            t = _threading.Thread(target=_wait, daemon=True)
             t.start()
             t.join(timeout=connect_timeout)
 
-            self._connected = connected[0]
-            self._mode = "powershell"
-            if self._connected:
+            if connected[0]:
+                self._mode = "fresh_ps"
+                self._connected = True
                 logger.info(
-                    "CdpSession connected via PowerShell to %s", ws_url,
+                    "CdpSession connected via fresh PS to %s", ws_url,
                 )
             else:
-                logger.warning(
-                    "CdpSession PS: failed to connect within %ss",
-                    connect_timeout,
-                )
-                self.close()
+                logger.warning("Fresh PS session failed to connect")
+                self._fresh_process = None
 
         except Exception as exc:
-            logger.warning("CdpSession PS startup failed: %s", exc)
-            self.close()
+            logger.warning("Fresh PS startup failed: %s", exc)
+            self._fresh_process = None
 
     @property
     def connected(self) -> bool:
@@ -764,10 +1090,15 @@ class CdpSession:
             return False
         if self._mode == "python":
             return self._ws is not None
-        if self._mode == "powershell":
+        if self._mode == "bridge":
             return (
-                self._process is not None
-                and self._process.poll() is None
+                _bridge_process is not None
+                and _bridge_process.poll() is None
+            )
+        if self._mode == "fresh_ps":
+            return (
+                self._fresh_process is not None
+                and self._fresh_process.poll() is None
             )
         return False
 
@@ -795,7 +1126,9 @@ class CdpSession:
 
         if self._mode == "python":
             return self._evaluate_python(cmd, timeout)
-        return self._evaluate_ps(cmd, timeout)
+        if self._mode == "bridge":
+            return _bridge_send(cmd, timeout)
+        return self._evaluate_fresh_ps(cmd, timeout)
 
     def _evaluate_python(self, cmd: str, timeout: float) -> dict | None:
         """Send/receive via Python socket WebSocket."""
@@ -806,7 +1139,7 @@ class CdpSession:
             resp = self._ws.recv()
             return json.loads(resp)
         except Exception as exc:
-            logger.warning("CdpSession Python evaluate failed: %s", exc)
+            logger.warning("CdpSession Python eval failed: %s", exc)
             self._connected = False
             return None
         finally:
@@ -815,44 +1148,41 @@ class CdpSession:
             except Exception:
                 pass
 
-    def _evaluate_ps(self, cmd: str, timeout: float) -> dict | None:
-        """Send/receive via PowerShell stdin/stdout."""
-        import threading
+    def _evaluate_fresh_ps(
+        self, cmd: str, timeout: float,
+    ) -> dict | None:
+        """Send/receive via a fresh PowerShell process."""
+        proc = self._fresh_process
+        if not proc or proc.poll() is not None:
+            return None
 
         try:
-            self._process.stdin.write(cmd + "\n")
-            self._process.stdin.flush()
+            proc.stdin.write(cmd + "\n")
+            proc.stdin.flush()
 
             result_holder: list[dict | None] = [None]
 
             def _read():
                 try:
-                    line = self._process.stdout.readline().strip()
+                    line = proc.stdout.readline().strip()
                     if line:
                         result_holder[0] = json.loads(line)
                 except Exception:
                     pass
 
-            reader = threading.Thread(target=_read, daemon=True)
+            reader = _threading.Thread(target=_read, daemon=True)
             reader.start()
             reader.join(timeout=timeout)
-
-            if result_holder[0] is None:
-                logger.warning(
-                    "CdpSession PS: no response within %ss (cmd %d)",
-                    timeout, self._cmd_id,
-                )
-                return None
 
             return result_holder[0]
 
         except Exception as exc:
-            logger.warning("CdpSession PS evaluate failed: %s", exc)
+            logger.warning("CdpSession fresh PS eval failed: %s", exc)
             self._connected = False
             return None
 
     def close(self):
-        """Shut down the session and clean up."""
+        """Shut down the session."""
         import os
 
         if self._mode == "python" and self._ws:
@@ -862,18 +1192,21 @@ class CdpSession:
                 pass
             self._ws = None
 
-        if self._mode == "powershell" and self._process:
-            if self._process.poll() is None:
+        if self._mode == "bridge":
+            _bridge_disconnect()
+
+        if self._mode == "fresh_ps" and self._fresh_process:
+            if self._fresh_process.poll() is None:
                 try:
-                    self._process.stdin.write("EXIT\n")
-                    self._process.stdin.flush()
-                    self._process.wait(timeout=3.0)
+                    self._fresh_process.stdin.write("EXIT\n")
+                    self._fresh_process.stdin.flush()
+                    self._fresh_process.wait(timeout=3.0)
                 except Exception:
                     try:
-                        self._process.kill()
+                        self._fresh_process.kill()
                     except Exception:
                         pass
-            self._process = None
+            self._fresh_process = None
 
         self._connected = False
 
@@ -892,6 +1225,7 @@ class CdpSession:
 
     def __del__(self):
         self.close()
+
 
 
 # ── Auto-discovery for WSL ────────────────────────────────────
