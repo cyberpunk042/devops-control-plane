@@ -608,7 +608,12 @@ function _showPortFallbackBanner(meta, notifId) {
                     'Admin Panel on Fallback Port' +
                 '</div>' +
                 '<div style="font-size:0.82rem;line-height:1.5;color:var(--text-muted,#aaa);margin-bottom:0.85rem">' +
-                    'Port ' + meta.preferred_port + ' was occupied — running on ' +
+                    'Port ' + meta.preferred_port +
+                    (meta.occupant_name
+                        ? ' held by <strong style="color:var(--text,#e0e0e0)">' + meta.occupant_name + '</strong>' +
+                          (meta.occupant_pid ? ' (PID ' + meta.occupant_pid + ')' : '')
+                        : ' was occupied') +
+                    ' — DCP running on ' +
                     '<strong style="color:var(--text,#e0e0e0)">' + meta.actual_port + '</strong>. ' +
                     'Update <code style="font-size:0.78rem;background:rgba(255,255,255,0.08);padding:0.1em 0.35em;border-radius:3px">' +
                     meta.config_path + '</code> or free port ' + meta.preferred_port + '.' +

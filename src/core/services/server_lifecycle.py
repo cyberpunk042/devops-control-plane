@@ -15,6 +15,7 @@ import signal
 import sys
 import time
 from pathlib import Path
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -148,6 +149,81 @@ def _probe_our_server(host: str, port: int, project_root: Path) -> bool:
             return str(project_root) == remote_cwd
     except Exception:
         return False
+
+
+# ── Port occupant identification ───────────────────────────────
+
+
+def identify_port_occupant(host: str, port: int) -> dict[str, Any]:
+    """Identify what process is holding a TCP port.
+
+    Uses ``ss -tlnp`` (no root needed for own-user processes)
+    with fallback to ``lsof -i``.  Reads ``/proc/{pid}/cmdline``
+    for the full command line when PID is available.
+
+    Returns::
+
+        {
+            "pid": 4521,                    # or None
+            "name": "node",                 # or None
+            "cmdline": "node ./server.js",  # or None
+        }
+
+    All fields may be None if detection fails — the port is still
+    occupied, we just can't identify who.
+    """
+    import re
+    import subprocess
+
+    result: dict[str, Any] = {"pid": None, "name": None, "cmdline": None}
+
+    # ── Try ss first (available on most Linux) ──
+    try:
+        out = subprocess.run(
+            ["ss", "-tlnp", f"sport = :{port}"],
+            capture_output=True, text=True, timeout=3,
+        )
+        # Parse: users:(("node",pid=4521,fd=19))
+        match = re.search(
+            r'users:\(\("([^"]+)",pid=(\d+)',
+            out.stdout,
+        )
+        if match:
+            result["name"] = match.group(1)
+            result["pid"] = int(match.group(2))
+    except Exception:
+        pass
+
+    # ── Fallback to lsof ──
+    if result["pid"] is None:
+        try:
+            out = subprocess.run(
+                ["lsof", "-i", f":{port}", "-sTCP:LISTEN", "-t"],
+                capture_output=True, text=True, timeout=3,
+            )
+            pid_str = out.stdout.strip().split("\n")[0]
+            if pid_str.isdigit():
+                result["pid"] = int(pid_str)
+        except Exception:
+            pass
+
+    # ── Read cmdline from /proc if we have PID ──
+    if result["pid"]:
+        try:
+            raw = Path(f"/proc/{result['pid']}/cmdline").read_bytes()
+            result["cmdline"] = (
+                raw.replace(b"\x00", b" ")
+                .decode("utf-8", errors="replace")
+                .strip()
+            )
+            if not result["name"]:
+                result["name"] = (
+                    result["cmdline"].split()[0].rsplit("/", 1)[-1]
+                )
+        except Exception:
+            pass
+
+    return result
 
 
 # ── Port resolution ────────────────────────────────────────────

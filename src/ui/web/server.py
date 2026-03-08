@@ -298,6 +298,16 @@ def run_server(
             web_cfg.port, resolved_port,
         )
 
+        # Layer 1: Identify what process holds the preferred port
+        from src.core.services.server_lifecycle import identify_port_occupant
+
+        occupant = identify_port_occupant(host, web_cfg.port)
+        if occupant["name"]:
+            logger.info(
+                "Port %d held by %s (PID %s)",
+                web_cfg.port, occupant["name"], occupant["pid"],
+            )
+
         # Store fallback info for the frontend banner
         app.config["PORT_FALLBACK"] = {
             "active": True,
@@ -305,7 +315,24 @@ def run_server(
             "actual_port": resolved_port,
             "host": host,
             "config_path": "project.yml",
+            "occupant_pid": occupant["pid"],
+            "occupant_name": occupant["name"],
+            "occupant_cmd": occupant["cmdline"],
         }
+
+        # Build notification message with occupant info
+        if occupant["name"]:
+            notif_msg = (
+                f"Port {web_cfg.port} held by {occupant['name']} "
+                f"(PID {occupant['pid']}) — running on "
+                f"port {resolved_port}."
+            )
+        else:
+            notif_msg = (
+                f"Port {web_cfg.port} was occupied — running on "
+                f"port {resolved_port}. Update web.port in "
+                f"project.yml or free port {web_cfg.port}."
+            )
 
         # Create a persistent notification (deduped — one at a time)
         try:
@@ -315,21 +342,32 @@ def run_server(
                 project_root,
                 notif_type="port_fallback",
                 title="Admin panel on fallback port",
-                message=(
-                    f"Port {web_cfg.port} was occupied — running on "
-                    f"port {resolved_port}. Update web.port in "
-                    f"project.yml or free port {web_cfg.port}."
-                ),
+                message=notif_msg,
                 meta={
                     "preferred_port": web_cfg.port,
                     "actual_port": resolved_port,
                     "host": host,
                     "config_path": "project.yml",
+                    "occupant_pid": occupant["pid"],
+                    "occupant_name": occupant["name"],
+                    "occupant_cmd": occupant["cmdline"],
                 },
                 dedup=True,
             )
         except Exception as exc:
             logger.debug("Could not create fallback notification: %s", exc)
+
+        # Layer 2: CDP injection into foreign browser tabs
+        try:
+            from src.core.services.cdp_port_injector import start_injector
+
+            start_injector(
+                host=host,
+                preferred_port=web_cfg.port,
+                actual_port=resolved_port,
+            )
+        except Exception as exc:
+            logger.debug("CDP port injector: %s", exc)
     else:
         app.config["PORT_FALLBACK"] = {"active": False}
 
