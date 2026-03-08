@@ -42,6 +42,21 @@ class ModuleRef(BaseModel):
     description: str = ""
 
 
+class WebSettings(BaseModel):
+    """Web admin panel server settings.
+
+    Controls port binding, fallback ports, and host address.
+    If the preferred port is occupied by another process,
+    the server will try each fallback port in order.
+    """
+
+    port: int = 8000
+    fallback_ports: list[int] = Field(
+        default_factory=lambda: [8001, 8002, 8080, 8888, 9000],
+    )
+    host: str = "127.0.0.1"
+
+
 class Project(BaseModel):
     """Root project identity — loaded from project.yml.
 
@@ -59,6 +74,7 @@ class Project(BaseModel):
     environments: list[Environment] = Field(default_factory=list)
     modules: list[ModuleRef] = Field(default_factory=list)
     external: ExternalLinks = Field(default_factory=ExternalLinks)
+    web: WebSettings = Field(default_factory=WebSettings)
 
     def get_environment(self, name: str) -> Environment | None:
         """Look up an environment by name."""

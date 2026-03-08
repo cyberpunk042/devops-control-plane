@@ -18,7 +18,17 @@ def server_status_route():  # type: ignore[no-untyped-def]
     from src.core.services.server_lifecycle import server_status
 
     root = current_app.config["PROJECT_ROOT"]
-    return jsonify(server_status(root))
+    host = current_app.config.get("SERVER_HOST", "")
+    port = current_app.config.get("SERVER_PORT", 0)
+    result = server_status(root, host=host, port=port)
+    # Include port fallback info for frontend banner
+    fallback = current_app.config.get("PORT_FALLBACK", {})
+    result["fallback_mode"] = fallback.get("active", False)
+    if fallback.get("active"):
+        result["preferred_port"] = fallback["preferred_port"]
+        result["actual_port"] = fallback["actual_port"]
+        result["config_path"] = fallback.get("config_path", "project.yml")
+    return jsonify(result)
 
 
 @server_bp.route("/server/restart", methods=["POST"])

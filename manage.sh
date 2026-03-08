@@ -76,8 +76,8 @@ show_compact_status() {
 }
 
 web_auto() {
-    local HOST="${HOST:-127.0.0.1}"
-    local PORT="${PORT:-8000}"
+    local HOST=""
+    local PORT=""
     local REBUILD_COUNT=0
     local SERVER_PID=""
 
@@ -94,10 +94,23 @@ web_auto() {
         esac
     done
 
+    # Build CLI args — only pass host/port if user specified them
+    local SERVER_ARGS=("${ARGS[@]}")
+    [[ -n "$HOST" ]] && SERVER_ARGS+=(--host "$HOST")
+    [[ -n "$PORT" ]] && SERVER_ARGS+=(--port "$PORT")
+
     start_server() {
-        "${PYTHON}" -m "${CLI_MODULE}" web --host "$HOST" --port "$PORT" "${ARGS[@]}" &
+        "${PYTHON}" -m "${CLI_MODULE}" web "${SERVER_ARGS[@]}" &
         SERVER_PID=$!
         sleep 1
+        # Read actual port from PID file (set by port resolution)
+        local ACTUAL_PORT=""
+        if [[ -f ".state/server.pid" ]]; then
+            ACTUAL_PORT=$(cut -d: -f2 < .state/server.pid 2>/dev/null)
+        fi
+        ACTUAL_PORT="${ACTUAL_PORT:-${PORT:-8000}}"
+        local DISPLAY_HOST="${HOST:-127.0.0.1}"
+        info "Dashboard: http://${DISPLAY_HOST}:${ACTUAL_PORT}"
     }
 
     stop_server() {
@@ -120,7 +133,6 @@ web_auto() {
     banner
     echo "  ${BOLD}${MAGENTA}AUTO MODE${RESET}"
     echo ""
-    info "Dashboard: http://${HOST}:${PORT}"
     info "[ SPACE ] Restart server    [ q ] Quit    [ Ctrl+C ] Exit"
     echo ""
 

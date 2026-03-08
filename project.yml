@@ -129,6 +129,10 @@ scripts:
     default_timeout: 300
     parallel: false
     venv_python: auto
+web:
+  port: 8000
+  fallback_ports: [8001, 8002, 8080, 8888, 9000]
+  host: 127.0.0.1
 kubernetes:
   _services:
   - name: cli

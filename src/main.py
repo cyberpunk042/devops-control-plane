@@ -405,11 +405,11 @@ def health(ctx: click.Context, as_json: bool) -> None:
 
 
 @cli.command()
-@click.option("--host", default="127.0.0.1", help="Bind address.")
-@click.option("--port", "-p", default=8000, type=int, help="Port number.")
+@click.option("--host", default=None, help="Bind address (default: from project.yml or 127.0.0.1).")
+@click.option("--port", "-p", default=None, type=int, help="Port number (default: from project.yml or 8000).")
 @click.option("--mock", is_flag=True, help="Use mock adapter (no real execution).")
 @click.pass_context
-def web(ctx: click.Context, host: str, port: int, mock: bool) -> None:
+def web(ctx: click.Context, host: str | None, port: int | None, mock: bool) -> None:
     "Start the web admin dashboard."
     from src.ui.web.server import create_app, run_server
 
@@ -431,8 +431,9 @@ def web(ctx: click.Context, host: str, port: int, mock: bool) -> None:
 
     click.echo()
     click.secho("⚡ DevOps Control Plane — Web Admin", bold=True)
-    click.echo(f"   Dashboard: http://{host}:{port}")
     click.echo(f"   Project:   {project_root}")
+    if port is not None:
+        click.echo(f"   Port:      {port} (CLI override)")
     if mock:
         click.secho("   Mode: mock (no real execution)", fg="yellow")
     if debug:

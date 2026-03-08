@@ -140,6 +140,7 @@ function _notifIcon(type) {
         'session_expiring': '⏰',
         'vault_locked': '🔒',
         'chat_message': '💬',
+        'port_fallback': '🔀',
     };
     return icons[type] || '📋';
 }
@@ -168,12 +169,25 @@ function _renderNotifications(notifications) {
     var html = '';
     for (var i = 0; i < notifications.length; i++) {
         var n = notifications[i];
+
+        // Determine if this notification type is actionable (clickable body)
+        var actionAttr = '';
+        var actionHint = '';
+        var cursorStyle = '';
+        if (n.type === 'port_fallback' && n.meta && n.meta.config_path) {
+            actionAttr = ' data-action-type="open-config" data-config-path="' + _esc(n.meta.config_path) + '"';
+            actionHint = '<div class="notif-item-action-hint">Click to configure →</div>';
+            cursorStyle = ' style="cursor:pointer"';
+        }
+
         html +=
-            '<div class="notif-item" data-id="' + n.id + '">' +
+            '<div class="notif-item" data-id="' + n.id + '" data-type="' + _esc(n.type) + '"' + actionAttr + '>' +
                 '<div class="notif-item-icon">' + _notifIcon(n.type) + '</div>' +
-                '<div class="notif-item-body">' +
+                '<div class="notif-item-body"' + cursorStyle +
+                    ' onclick="_notifItemAction(this.parentElement)">' +
                     '<div class="notif-item-title">' + _esc(n.title) + '</div>' +
                     '<div class="notif-item-message">' + _esc(n.message) + '</div>' +
+                    actionHint +
                     '<div class="notif-item-time">' + _timeAgo(n.created_at) + '</div>' +
                 '</div>' +
                 '<div class="notif-item-actions">' +
@@ -301,6 +315,30 @@ function _deleteNotif(id) {
         }).catch(function() {});
 }
 
+// ── Notification click actions (actionable types) ───────────────
+
+function _notifItemAction(itemEl) {
+    if (!itemEl) return;
+    var actionType = itemEl.getAttribute('data-action-type');
+    if (!actionType) return; // not actionable
+
+    var notifId = itemEl.getAttribute('data-id');
+
+    switch (actionType) {
+        case 'open-config':
+            var configPath = itemEl.getAttribute('data-config-path') || 'project.yml';
+            // Navigate to the file in the content vault
+            if (typeof switchTab === 'function') {
+                switchTab('content/' + configPath + '@preview');
+            }
+            // Close the notification panel
+            if (_notifPanelOpen) _toggleNotifPanel();
+            // Dismiss the notification
+            if (notifId) _dismissNotif(notifId);
+            break;
+    }
+}
+
 // ── HTML escaping ───────────────────────────────────────────────
 
 function _esc(str) {
@@ -332,6 +370,11 @@ document.addEventListener('sse:notification:new', function(e) {
     // If panel is open on notifications tab, prepend the new item
     if (_notifPanelOpen && _notifActiveTab === 'notifications') {
         _loadNotifications();
+    }
+
+    // ── Imminent notification types: auto-display ──
+    if (notif.type === 'port_fallback' && notif.meta) {
+        _showPortFallbackBanner(notif.meta, notif.id);
     }
 
     // Cross-tab sync: broadcast to other tabs
@@ -514,6 +557,160 @@ function _notifHandleBCMessage(e) {
     }
 }
 
+// ═══════════════════════════════════════════════════════════════════
+//  Imminent Notifications — auto-display for critical notification types
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * Show the port fallback banner — imminent, non-intrusive, actionable.
+ *
+ * @param {object} meta  - { preferred_port, actual_port, host, config_path }
+ * @param {string} notifId - notification ID for server-side dismiss
+ */
+function _showPortFallbackBanner(meta, notifId) {
+    // Already showing? Don't double-render.
+    if (document.getElementById('port-fallback-banner')) return;
+
+    // Check dismissal tracking
+    var dismissKey = 'dcp_fallback_dismissed:' + meta.preferred_port + '→' + meta.actual_port;
+    if (localStorage.getItem(dismissKey)) return;
+
+    var banner = document.createElement('div');
+    banner.id = 'port-fallback-banner';
+    banner.style.cssText = [
+        'position:fixed',
+        'bottom:1.5rem',
+        'right:1.5rem',
+        'z-index:9998',
+        'max-width:420px',
+        'width:calc(100% - 3rem)',
+        'background:var(--surface-elevated, #1e1e2e)',
+        'border:1px solid var(--clr-warning, #f59e0b)',
+        'border-radius:12px',
+        'padding:1.25rem 1.5rem',
+        'box-shadow:0 12px 40px rgba(0,0,0,0.5)',
+        'font-family:var(--font-sans, system-ui, sans-serif)',
+        'color:var(--text, #e0e0e0)',
+        'animation:slideIn 0.35s ease-out',
+    ].join(';');
+
+    var panelUrl = 'http://' + (meta.host || '127.0.0.1') + ':' + meta.actual_port;
+
+    banner.innerHTML =
+        '<div style="display:flex;align-items:flex-start;gap:0.75rem">' +
+            '<div style="font-size:1.6rem;line-height:1;flex-shrink:0">🔀</div>' +
+            '<div style="flex:1;min-width:0">' +
+                '<div style="font-weight:600;font-size:0.9rem;margin-bottom:0.35rem;color:var(--clr-warning,#f59e0b)">' +
+                    'Admin Panel on Fallback Port' +
+                '</div>' +
+                '<div style="font-size:0.82rem;line-height:1.5;color:var(--text-muted,#aaa);margin-bottom:0.85rem">' +
+                    'Port ' + meta.preferred_port + ' was occupied — running on ' +
+                    '<strong style="color:var(--text,#e0e0e0)">' + meta.actual_port + '</strong>. ' +
+                    'Update <code style="font-size:0.78rem;background:rgba(255,255,255,0.08);padding:0.1em 0.35em;border-radius:3px">' +
+                    meta.config_path + '</code> or free port ' + meta.preferred_port + '.' +
+                '</div>' +
+                '<div style="display:flex;gap:0.5rem;flex-wrap:wrap">' +
+                    '<button id="fallback-configure-btn" style="' +
+                        'background:var(--accent,#6366f1);color:#fff;border:none;border-radius:6px;' +
+                        'padding:0.4rem 0.85rem;font-size:0.78rem;font-weight:500;cursor:pointer;' +
+                        'transition:opacity 0.2s' +
+                    '" onmouseover="this.style.opacity=\'0.85\'" onmouseout="this.style.opacity=\'1\'">' +
+                        '🔧 Configure Port' +
+                    '</button>' +
+                    '<a href="' + panelUrl + '" style="' +
+                        'background:rgba(255,255,255,0.08);color:var(--text,#e0e0e0);border:none;border-radius:6px;' +
+                        'padding:0.4rem 0.85rem;font-size:0.78rem;font-weight:500;cursor:pointer;' +
+                        'text-decoration:none;display:inline-block;transition:opacity 0.2s' +
+                    '" onmouseover="this.style.opacity=\'0.85\'" onmouseout="this.style.opacity=\'1\'">' +
+                        '🔗 Panel on :' + meta.actual_port +
+                    '</a>' +
+                    '<button id="fallback-dismiss-btn" style="' +
+                        'background:transparent;color:var(--text-muted,#888);border:1px solid var(--border-subtle,#333);border-radius:6px;' +
+                        'padding:0.4rem 0.85rem;font-size:0.78rem;font-weight:500;cursor:pointer;' +
+                        'transition:opacity 0.2s' +
+                    '" onmouseover="this.style.opacity=\'0.85\'" onmouseout="this.style.opacity=\'1\'">' +
+                        '✕ Dismiss' +
+                    '</button>' +
+                '</div>' +
+            '</div>' +
+        '</div>';
+
+    document.body.appendChild(banner);
+
+    // ── Button handlers ──
+    var configBtn = document.getElementById('fallback-configure-btn');
+    if (configBtn) {
+        configBtn.addEventListener('click', function() {
+            // Navigate to content tab and open project.yml
+            if (typeof switchTab === 'function') {
+                switchTab('content/' + meta.config_path + '@preview');
+            }
+            _dismissPortFallbackBanner(dismissKey, notifId);
+        });
+    }
+
+    var dismissBtn = document.getElementById('fallback-dismiss-btn');
+    if (dismissBtn) {
+        dismissBtn.addEventListener('click', function() {
+            _dismissPortFallbackBanner(dismissKey, notifId);
+        });
+    }
+}
+
+/** Remove the banner + track dismissal. */
+function _dismissPortFallbackBanner(dismissKey, notifId) {
+    // Track in localStorage so it doesn't come back for this port combo
+    localStorage.setItem(dismissKey, Date.now().toString());
+
+    // Dismiss the server-side notification too
+    if (notifId) {
+        _dismissNotif(notifId);
+    }
+
+    // Animate out
+    var banner = document.getElementById('port-fallback-banner');
+    if (banner) {
+        banner.style.transition = 'opacity 0.3s ease, transform 0.3s ease';
+        banner.style.opacity = '0';
+        banner.style.transform = 'translateX(20px)';
+        setTimeout(function() { banner.remove(); }, 300);
+    }
+}
+
+/** Boot-time check: if the server is in fallback mode, show the banner. */
+function _checkPortFallbackOnBoot() {
+    api('/server/status')
+        .then(function(data) {
+            if (!data || !data.fallback_mode) return;
+
+            var meta = {
+                preferred_port: data.preferred_port,
+                actual_port: data.actual_port,
+                host: data.host || '127.0.0.1',
+                config_path: data.config_path || 'project.yml',
+            };
+
+            // Find the notification ID from active notifications
+            api('/notifications')
+                .then(function(ndata) {
+                    var notifId = '';
+                    if (ndata && ndata.notifications) {
+                        for (var i = 0; i < ndata.notifications.length; i++) {
+                            if (ndata.notifications[i].type === 'port_fallback') {
+                                notifId = ndata.notifications[i].id;
+                                break;
+                            }
+                        }
+                    }
+                    _showPortFallbackBanner(meta, notifId);
+                })
+                .catch(function() {
+                    _showPortFallbackBanner(meta, '');
+                });
+        })
+        .catch(function() {});
+}
+
 // ── Boot ────────────────────────────────────────────────────────
 
 (function _notifBoot() {
@@ -528,5 +725,8 @@ function _notifHandleBCMessage(e) {
 
     // Initialize cross-tab sync
     _notifInitBC();
+
+    // Check for port fallback on page load (catch-up)
+    _checkPortFallbackOnBoot();
 })();
 </script>

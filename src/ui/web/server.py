@@ -235,18 +235,107 @@ def create_app(
 
 def run_server(
     app: Flask,
-    host: str = "127.0.0.1",
-    port: int = 8000,
+    host: str | None = None,
+    port: int | None = None,
     debug: bool = False,
 ) -> None:
-    """Run the Flask development server."""
-    # Store host/port for server_status()
+    """Run the Flask development server with smart port resolution.
+
+    If ``port`` is None (no CLI override), reads the preferred port
+    and fallback list from project.yml ``web:`` settings.  If the
+    preferred port is busy, tries fallbacks automatically.
+
+    If ``port`` is explicitly set (CLI ``--port``), uses that port
+    only — no fallback.
+    """
+    from src.core.services.server_lifecycle import (
+        install_signal_handlers,
+        resolve_port,
+        PortResolutionError,
+    )
+
+    project_root = app.config["PROJECT_ROOT"]
+
+    # ── Load web settings from project config ──
+    try:
+        from src.core.config.loader import load_project
+        project = load_project(project_root / "project.yml")
+        web_cfg = project.web
+    except Exception:
+        from src.core.models.project import WebSettings
+        web_cfg = WebSettings()
+
+    # Use config host if CLI didn't specify
+    if host is None:
+        host = web_cfg.host
+
+    # ── Resolve port ──
+    cli_override = port  # None if user didn't pass --port
+    try:
+        resolved_port = resolve_port(
+            project_root,
+            preferred_port=web_cfg.port,
+            fallback_ports=web_cfg.fallback_ports,
+            host=host,
+            cli_port_override=cli_override,
+        )
+    except PortResolutionError as exc:
+        logger.error("Port resolution failed: %s", exc)
+        raise SystemExit(1) from exc
+
+    # ── Detect fallback mode ──
+    is_fallback = resolved_port != web_cfg.port and cli_override is None
+
+    if is_fallback:
+        logger.warning(
+            "Preferred port %d was busy — using fallback port %d",
+            web_cfg.port, resolved_port,
+        )
+
+        # Store fallback info for the frontend banner
+        app.config["PORT_FALLBACK"] = {
+            "active": True,
+            "preferred_port": web_cfg.port,
+            "actual_port": resolved_port,
+            "host": host,
+            "config_path": "project.yml",
+        }
+
+        # Create a persistent notification (deduped — one at a time)
+        try:
+            from src.core.services.notifications import create_notification
+
+            create_notification(
+                project_root,
+                notif_type="port_fallback",
+                title="Admin panel on fallback port",
+                message=(
+                    f"Port {web_cfg.port} was occupied — running on "
+                    f"port {resolved_port}. Update web.port in "
+                    f"project.yml or free port {web_cfg.port}."
+                ),
+                meta={
+                    "preferred_port": web_cfg.port,
+                    "actual_port": resolved_port,
+                    "host": host,
+                    "config_path": "project.yml",
+                },
+                dedup=True,
+            )
+        except Exception as exc:
+            logger.debug("Could not create fallback notification: %s", exc)
+    else:
+        app.config["PORT_FALLBACK"] = {"active": False}
+
+    # Store resolved values for server_status()
     app.config["SERVER_HOST"] = host
-    app.config["SERVER_PORT"] = port
+    app.config["SERVER_PORT"] = resolved_port
 
     # Install signal handlers for graceful shutdown
-    from src.core.services.server_lifecycle import install_signal_handlers
     install_signal_handlers()
 
-    logger.info("Starting web admin on %s:%d", host, port)
-    app.run(host=host, port=port, debug=debug, use_reloader=False, threaded=True)
+    logger.info("Starting web admin on %s:%d", host, resolved_port)
+    app.run(
+        host=host, port=resolved_port,
+        debug=debug, use_reloader=False, threaded=True,
+    )
