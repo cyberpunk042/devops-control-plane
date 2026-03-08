@@ -294,12 +294,16 @@ def _render_doc_section(result) -> str:
 def _render_smart_markdown(init_result, doc_result) -> str:
     """Render the code hygiene audit as a layered, multi-view markdown report.
 
-    Smart structure (vs raw which is flat tables):
-    1. Executive summary — key numbers at a glance
-    2. Severity tiers — critical / major / minor grouping
-    3. Domain analysis — files grouped by architectural layer
-    4. Doc freshness dashboard — visual freshness bars
-    5. Cross-reference — init leaks correlated with stale docs
+    Smart structure:
+    1. Executive summary — health verdict + key numbers
+    2. Severity tiers — files by size, with function classification
+    3. Domain analysis — architectural layer grouping + boilerplate detection
+    4. Leaked function inventory — every function in non-clean inits
+    5. Refactoring impact — ROI of cleanup
+    6. Doc freshness dashboard — trust tiers, no self-referential noise
+    7. Stale reference groups — grouped by root cause
+    8. Cross-reference — init leaks correlated with stale docs
+    9. Fix checklist — ordered action items
     """
     timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     parts: list[str] = []
@@ -310,35 +314,116 @@ def _render_smart_markdown(init_result, doc_result) -> str:
 
     # ── Table of Contents ──
     parts.append("## Table of Contents\n")
-    parts.append("1. [Executive Summary](#executive-summary)")
+    toc_items = ["1. [Executive Summary](#executive-summary)"]
     if init_result is not None:
-        parts.append("2. [Severity Tiers](#severity-tiers)")
-        parts.append("3. [Domain Analysis](#domain-analysis)")
+        toc_items.append("2. [Severity Tiers](#severity-tiers)")
+        toc_items.append("3. [Domain Analysis](#domain-analysis)")
+        toc_items.append("4. [Leaked Function Inventory](#leaked-function-inventory)")
+        toc_items.append("5. [Refactoring Impact](#refactoring-impact)")
     if doc_result is not None:
-        parts.append("4. [Documentation Freshness Dashboard](#documentation-freshness-dashboard)")
+        toc_items.append("6. [Documentation Freshness Dashboard](#documentation-freshness-dashboard)")
+        toc_items.append("7. [Stale Reference Groups](#stale-reference-groups)")
     if init_result is not None and doc_result is not None:
-        parts.append("5. [Cross-Reference](#cross-reference)")
+        toc_items.append("8. [Cross-Reference](#cross-reference)")
+    toc_items.append("9. [Fix Checklist](#fix-checklist)")
+    parts.extend(toc_items)
     parts.append("")
+
+    # Precompute shared values
+    with_logic = []
+    total_debt_lines = 0
+    total_route = 0
+    total_cli = 0
+    total_reg = 0
+    total_other = 0
+
+    if init_result is not None:
+        with_logic = [f for f in init_result.files if not f.is_clean]
+        total_debt_lines = sum(
+            f.total_function_lines + f.total_class_lines for f in with_logic
+        )
+        total_route = sum(f.route_handler_count for f in with_logic)
+        total_cli = sum(f.cli_command_count for f in with_logic)
+        total_reg = sum(f.registration_count for f in with_logic)
+        total_other = sum(f.other_function_count for f in with_logic)
 
     # ═════════════════════════════════════════════════════════════
     # 1. Executive Summary
     # ═════════════════════════════════════════════════════════════
     parts.append("## Executive Summary\n")
+
+    # Health verdict paragraph
+    verdict_parts = []
+    if init_result is not None:
+        clean_pct = (
+            (init_result.clean_files * 100 / init_result.total_files)
+            if init_result.total_files else 100
+        )
+        worst = max(with_logic, key=lambda x: x.total_lines) if with_logic else None
+        worst_pct = (
+            (worst.total_lines * 100 / total_debt_lines)
+            if worst and total_debt_lines else 0
+        )
+
+        if clean_pct >= 90:
+            hygiene = "**good**"
+        elif clean_pct >= 70:
+            hygiene = "**fair**"
+        else:
+            hygiene = "**poor**"
+
+        verdict_parts.append(
+            f"Your init hygiene is {hygiene} — "
+            f"{init_result.files_with_logic}/{init_result.total_files} "
+            f"init files contain logic ({total_debt_lines:,} lines)."
+        )
+        if worst:
+            verdict_parts.append(
+                f"The worst offender is `{worst.file_path}` with "
+                f"{worst.total_lines} lines ({worst_pct:.0f}% of all init debt)."
+            )
+
+    if doc_result is not None:
+        freshness_pct = doc_result.overall_freshness * 100
+        if freshness_pct >= 90:
+            doc_health = "**excellent**"
+        elif freshness_pct >= 70:
+            doc_health = "**fair**"
+        else:
+            doc_health = "**poor**"
+        verdict_parts.append(
+            f"Documentation freshness is {doc_health} at {freshness_pct:.0f}% "
+            f"— {doc_result.total_stale} stale references across "
+            f"{doc_result.docs_with_references} docs with code references."
+        )
+
+    if verdict_parts:
+        parts.append("> " + " ".join(verdict_parts) + "\n")
+
+    # Metrics table
     parts.append("| Metric | Value |")
     parts.append("|--------|-------|")
 
     if init_result is not None:
-        with_logic = [f for f in init_result.files if not f.is_clean]
-        clean_pct = (init_result.clean_files * 100 / init_result.total_files) if init_result.total_files else 0
+        clean_pct = (
+            (init_result.clean_files * 100 / init_result.total_files)
+            if init_result.total_files else 0
+        )
         parts.append(f"| Init files scanned | **{init_result.total_files}** |")
-        parts.append(f"| Clean init files | **{init_result.clean_files}** ({clean_pct:.0f}%) |")
-        parts.append(f"| Init files with logic | **{init_result.files_with_logic}** |")
-        parts.append(f"| Leaked functions | **{init_result.total_leaked_functions}** |")
-        parts.append(f"| Leaked classes | **{init_result.total_leaked_classes}** |")
-
-        # Total leaked lines
-        total_leaked_lines = sum(f.total_function_lines + f.total_class_lines for f in with_logic)
-        parts.append(f"| Total leaked code lines | **{total_leaked_lines}** |")
+        parts.append(
+            f"| Clean init files | **{init_result.clean_files}** ({clean_pct:.0f}%) |"
+        )
+        parts.append(
+            f"| Init files with logic | **{init_result.files_with_logic}** |"
+        )
+        parts.append(f"| Total leaked code lines | **{total_debt_lines:,}** |")
+        parts.append(f"| 🔧 Route handlers in init | **{total_route}** |")
+        parts.append(f"| ⌨️ CLI commands in init | **{total_cli}** |")
+        parts.append(f"| 📋 Registration helpers | **{total_reg}** |")
+        parts.append(f"| 🔩 Other functions | **{total_other}** |")
+        parts.append(
+            f"| Leaked classes | **{init_result.total_leaked_classes}** |"
+        )
 
     if doc_result is not None:
         freshness_pct = doc_result.overall_freshness * 100
@@ -350,15 +435,13 @@ def _render_smart_markdown(init_result, doc_result) -> str:
     parts.append("")
 
     if init_result is not None:
-        with_logic = [f for f in init_result.files if not f.is_clean]
-
         # ═════════════════════════════════════════════════════════════
         # 2. Severity Tiers
         # ═════════════════════════════════════════════════════════════
         parts.append("## Severity Tiers\n")
         parts.append(
-            "> Init files grouped by how much logic they contain. "
-            "This is a **size observation**, not a judgment.\n"
+            "> Init files grouped by how much logic they contain, "
+            "with function type breakdown.\n"
         )
 
         # Tier thresholds
@@ -371,20 +454,29 @@ def _render_smart_markdown(init_result, doc_result) -> str:
             ("Major", "🟡", major, "50–199 lines of init code"),
             ("Minor", "🟢", minor, "< 50 lines of init code"),
         ]:
-            parts.append(f"### {tier_icon} {tier_name} ({len(tier_files)} files)\n")
+            parts.append(
+                f"### {tier_icon} {tier_name} ({len(tier_files)} files)\n"
+            )
             parts.append(f"> {tier_desc}\n")
 
             if not tier_files:
                 parts.append("None.\n")
                 continue
 
-            parts.append("| File | Total Lines | Functions | Classes |")
-            parts.append("|------|-----------|-----------|---------|")
+            parts.append(
+                "| File | Lines | Routes | CLI | Reg | Other | Migration |"
+            )
+            parts.append(
+                "|------|-------|--------|-----|-----|-------|-----------|"
+            )
 
             for f in sorted(tier_files, key=lambda x: -x.total_lines):
+                migration = _infer_migration(f)
                 parts.append(
                     f"| `{f.file_path}` | {f.total_lines} | "
-                    f"{f.function_count} | {f.class_count} |"
+                    f"{f.route_handler_count} | {f.cli_command_count} | "
+                    f"{f.registration_count} | {f.other_function_count} | "
+                    f"{migration} |"
                 )
             parts.append("")
 
@@ -416,15 +508,27 @@ def _render_smart_markdown(init_result, doc_result) -> str:
         for domain, files in sorted(domains.items(), key=lambda x: -len(x[1])):
             total_funcs = sum(f.function_count for f in files)
             total_lines = sum(f.total_lines for f in files)
+
             parts.append(
                 f"### {domain} ({len(files)} files, "
                 f"{total_funcs} functions, {total_lines} lines)\n"
             )
 
-            parts.append("| File | Lines | Funcs | Top Functions |")
-            parts.append("|------|-------|-------|---------------|")
+            # Detect boilerplate pattern
+            boilerplate = _detect_boilerplate(files)
+            if boilerplate["count"] >= 3:
+                parts.append(
+                    f"> ℹ️ **Pattern**: {boilerplate['count']}/{len(files)} "
+                    f"files follow the `{boilerplate['pattern']}` boilerplate "
+                    f"({boilerplate['avg_lines']} lines avg). "
+                    f"This is structural, not accidental.\n"
+                )
+
+            parts.append("| File | Lines | Type | Top Functions |")
+            parts.append("|------|-------|------|---------------|")
 
             for f in sorted(files, key=lambda x: -x.function_count):
+                ftype = _dominant_type(f)
                 top_funcs = ", ".join(
                     fn.name for fn in sorted(
                         f.functions, key=lambda x: -x.body_lines
@@ -434,17 +538,111 @@ def _render_smart_markdown(init_result, doc_result) -> str:
                     top_funcs += f" (+{len(f.functions) - 3})"
                 parts.append(
                     f"| `{f.file_path}` | {f.total_lines} | "
-                    f"{f.function_count} | {top_funcs} |"
+                    f"{ftype} | {top_funcs} |"
                 )
             parts.append("")
 
+        # ═════════════════════════════════════════════════════════════
+        # 4. Leaked Function Inventory
+        # ═════════════════════════════════════════════════════════════
+        parts.append("## Leaked Function Inventory\n")
+        parts.append(
+            "> Every function and class defined in non-clean init files. "
+            "Grouped by file, sorted by body size. "
+            "Only files with ≥ 50 lines shown (smaller files are in severity tiers).\n"
+        )
+
+        inventory_files = [
+            f for f in sorted(with_logic, key=lambda x: -x.total_lines)
+            if f.total_lines >= 50
+        ]
+
+        for f in inventory_files:
+            cls_note = (
+                f", {f.class_count} class{'es' if f.class_count > 1 else ''}"
+                if f.class_count else ""
+            )
+            parts.append(
+                f"### `{f.file_path}` "
+                f"({f.total_lines} lines, {f.function_count} "
+                f"function{'s' if f.function_count != 1 else ''}{cls_note})\n"
+            )
+
+            if f.functions:
+                parts.append("| Function | Lines | Type | Decorators |")
+                parts.append("|----------|-------|------|------------|")
+                for fn in sorted(f.functions, key=lambda x: -x.body_lines):
+                    fn_type = _classify_function(fn)
+                    decos = ", ".join(fn.decorators) if fn.decorators else "—"
+                    parts.append(
+                        f"| `{fn.name}` | {fn.body_lines} | {fn_type} | {decos} |"
+                    )
+
+            if f.classes:
+                parts.append("")
+                for cls in f.classes:
+                    parts.append(
+                        f"| class `{cls.name}` | {cls.body_lines} | "
+                        f"class ({cls.method_count} methods) | — |"
+                    )
+
+            parts.append("")
+
+        # ═════════════════════════════════════════════════════════════
+        # 5. Refactoring Impact
+        # ═════════════════════════════════════════════════════════════
+        parts.append("## Refactoring Impact\n")
+        parts.append(
+            "> If you fix these files, here's the impact on your init debt.\n"
+        )
+
+        if total_debt_lines > 0:
+            parts.append(
+                "| Priority | File | Lines | % of Debt | Cumulative |"
+            )
+            parts.append(
+                "|----------|------|-------|-----------|------------|"
+            )
+
+            cumulative = 0.0
+            sorted_debt = sorted(
+                with_logic, key=lambda x: -x.total_lines
+            )
+
+            for i, f in enumerate(sorted_debt[:10], 1):
+                pct = f.total_lines * 100 / total_debt_lines
+                cumulative += pct
+                parts.append(
+                    f"| {i} | `{f.file_path}` | {f.total_lines} | "
+                    f"{pct:.1f}% | {cumulative:.1f}% |"
+                )
+
+            parts.append("")
+
+            # Key insight
+            top3_pct = sum(
+                f.total_lines for f in sorted_debt[:3]
+            ) * 100 / total_debt_lines
+            top5_pct = sum(
+                f.total_lines for f in sorted_debt[:5]
+            ) * 100 / total_debt_lines
+            parts.append(
+                f"> 📊 **Fixing the top 3 files eliminates "
+                f"{top3_pct:.0f}% of all init debt.** "
+                f"Top 5 eliminates {top5_pct:.0f}%.\n"
+            )
+        else:
+            parts.append("No init debt detected. ✅\n")
+
     if doc_result is not None:
         # ═════════════════════════════════════════════════════════════
-        # 4. Documentation Freshness Dashboard
+        # 6. Documentation Freshness Dashboard
         # ═════════════════════════════════════════════════════════════
         parts.append("## Documentation Freshness Dashboard\n")
         parts.append(
-            "> Visual freshness of each document containing code references.\n"
+            "> Freshness of documents containing code references.  \n"
+            "> **Note**: Audit output files (`docs/audits/`) are excluded "
+            "to avoid self-referential noise.\n"
         )
 
         freshness_pct = doc_result.overall_freshness * 100
@@ -455,37 +653,88 @@ def _render_smart_markdown(init_result, doc_result) -> str:
             f"({doc_result.total_valid}/{doc_result.total_references} valid)\n"
         )
 
-        # Per-doc freshness bars (only docs with refs)
+        # Trust tiers
         docs_with_refs = [f for f in doc_result.files if f.total_references > 0]
-        if docs_with_refs:
+        trustworthy = [f for f in docs_with_refs if f.freshness >= 1.0]
+        mostly_ok = [f for f in docs_with_refs if 0.8 <= f.freshness < 1.0]
+        unreliable = [f for f in docs_with_refs if f.freshness < 0.8]
+
+        parts.append("### Trust Tiers\n")
+        parts.append("| Tier | Docs | Status |")
+        parts.append("|------|------|--------|")
+        parts.append(
+            f"| ✅ Trustworthy (100%) | {len(trustworthy)} | "
+            f"All references valid |"
+        )
+        parts.append(
+            f"| ⚠️ Mostly OK (≥80%) | {len(mostly_ok)} | "
+            f"Minor staleness |"
+        )
+        parts.append(
+            f"| 🔴 Unreliable (<80%) | {len(unreliable)} | "
+            f"Significant staleness |"
+        )
+        parts.append("")
+
+        # Per-doc freshness bars (only docs with stale refs)
+        docs_with_stale = [f for f in doc_result.files if f.stale_references]
+        if docs_with_stale:
             parts.append("### Per-Document Freshness\n")
-            for fa in sorted(docs_with_refs, key=lambda f: f.freshness):
+            for fa in sorted(docs_with_stale, key=lambda f: f.freshness):
                 pct = fa.freshness * 100
                 filled = round(pct / 5)
                 bar = "█" * filled + "░" * (20 - filled)
                 stale_count = len(fa.stale_references)
-                icon = "✅" if stale_count == 0 else f"⚠️ {stale_count} stale"
                 parts.append(
-                    f"`{fa.doc_file}`: `{bar}` {pct:.0f}% — {icon}"
+                    f"`{fa.doc_file}`: `{bar}` {pct:.0f}% "
+                    f"— ⚠️ {stale_count} stale"
                 )
             parts.append("")
 
-        # Stale reference details
+        # ═════════════════════════════════════════════════════════════
+        # 7. Stale Reference Groups
+        # ═════════════════════════════════════════════════════════════
         if doc_result.total_stale > 0:
-            parts.append("### Stale References\n")
-            parts.append("| Document | Line | Reference | Issue |")
-            parts.append("|----------|------|-----------|-------|")
+            parts.append("## Stale Reference Groups\n")
+            parts.append(
+                "> Stale references grouped by root cause. "
+                "Multiple references to the same missing target are collapsed.\n"
+            )
 
-            for fa in sorted(doc_result.files, key=lambda f: f.doc_file):
+            # Group by target_file
+            by_target: dict[str, list] = {}
+            for fa in doc_result.files:
                 for ref in fa.stale_references:
-                    parts.append(
-                        f"| `{ref.doc_file}` | L{ref.doc_line} | "
-                        f"{ref.reference_text} | {ref.issue} |"
+                    by_target.setdefault(ref.target_file, []).append(ref)
+
+            for target, refs in sorted(
+                by_target.items(), key=lambda x: -len(x[1])
+            ):
+                # Determine if this is a file ref or function ref
+                file_refs = [r for r in refs if r.reference_type == "file"]
+                func_refs = [r for r in refs if r.reference_type != "file"]
+
+                issue = refs[0].issue or "Unknown issue"
+                # Collect unique doc files that reference this target
+                doc_files = sorted({r.doc_file for r in refs})
+
+                parts.append(
+                    f"### `{target}` ({len(refs)} ref{'s' if len(refs) > 1 else ''}"
+                    f" across {len(doc_files)} doc{'s' if len(doc_files) > 1 else ''})\n"
+                )
+                parts.append(f"> {issue}\n")
+
+                for doc_file in doc_files:
+                    doc_refs = [r for r in refs if r.doc_file == doc_file]
+                    lines_str = ", ".join(
+                        f"L{r.doc_line}" for r in doc_refs
                     )
-            parts.append("")
+                    parts.append(f"- `{doc_file}` — {lines_str}")
+
+                parts.append("")
 
     # ═════════════════════════════════════════════════════════════
-    # 5. Cross-Reference
+    # 8. Cross-Reference
     # ═════════════════════════════════════════════════════════════
     if init_result is not None and doc_result is not None:
         parts.append("## Cross-Reference\n")
@@ -494,39 +743,175 @@ def _render_smart_markdown(init_result, doc_result) -> str:
             "potential hotspots for cleanup.\n"
         )
 
-        # Build sets for comparison
-        init_paths = {f.file_path for f in init_result.files if not f.is_clean}
-        stale_targets = {ref.target_file for f in doc_result.files for ref in f.stale_references}
-
-        # Find overlap: stale refs pointing at directories that have init issues
-        overlaps = []
-        for init_path in init_paths:
-            # Check if any stale ref targets the same directory
-            init_dir = "/".join(init_path.split("/")[:-1])
-            related_stale = [
-                ref for f in doc_result.files
-                for ref in f.stale_references
-                if ref.target_file.startswith(init_dir)
-            ]
-            if related_stale:
-                overlaps.append((init_path, related_stale))
+        # Build lookup
+        overlaps: list[tuple] = []
+        for f in with_logic:
+            init_dir = "/".join(f.file_path.split("/")[:-1])
+            related_targets = set()
+            related_refs: list = []
+            for fa in doc_result.files:
+                for ref in fa.stale_references:
+                    if ref.target_file.startswith(init_dir):
+                        if ref.target_file not in related_targets:
+                            related_targets.add(ref.target_file)
+                            related_refs.append(ref)
+            if related_refs:
+                overlaps.append((f, related_refs))
 
         if overlaps:
-            parts.append("| Init File | Related Stale Docs | Issue |")
-            parts.append("|-----------|-------------------|-------|")
-            for init_path, refs in overlaps:
+            for f, refs in overlaps:
+                parts.append(f"### `{f.file_path}`\n")
+                parts.append(
+                    f"- **Init issue**: {f.total_lines} lines, "
+                    f"{f.function_count} functions "
+                    f"({_dominant_type(f)})"
+                )
+                doc_groups: dict[str, list] = {}
                 for ref in refs:
+                    doc_groups.setdefault(ref.doc_file, []).append(ref)
+                for doc_file, doc_refs in doc_groups.items():
                     parts.append(
-                        f"| `{init_path}` | `{ref.doc_file}` L{ref.doc_line} | "
-                        f"{ref.issue} |"
+                        f"- **Stale doc**: `{doc_file}` — "
+                        f"{len(doc_refs)} stale ref{'s' if len(doc_refs) > 1 else ''}"
                     )
+                parts.append("")
         else:
             parts.append(
                 "No overlap detected between init-file leaks and stale docs. ✅\n"
             )
-        parts.append("")
 
+    # ═════════════════════════════════════════════════════════════
+    # 9. Fix Checklist
+    # ═════════════════════════════════════════════════════════════
+    parts.append("## Fix Checklist\n")
+    parts.append(
+        "> Ordered by impact. Each item is independent — "
+        "fix any one without the others.\n"
+    )
+
+    fix_items: list[str] = []
+
+    if init_result is not None and total_debt_lines > 0:
+        sorted_debt = sorted(with_logic, key=lambda x: -x.total_lines)
+        for i, f in enumerate(sorted_debt[:5], 1):
+            pct = f.total_lines * 100 / total_debt_lines
+            migration = _infer_migration(f)
+            icon = "🔴" if f.total_lines >= 200 else "🟡"
+            fix_items.append(
+                f"{i}. {icon} **Split `{f.file_path}`** "
+                f"({f.total_lines}L, {_dominant_type(f)})  \n"
+                f"   {migration}  \n"
+                f"   Impact: eliminates {pct:.0f}% of init debt"
+            )
+
+    if doc_result is not None:
+        # Group stale by doc and add fix items
+        docs_with_stale = sorted(
+            [fa for fa in doc_result.files if fa.stale_references],
+            key=lambda x: -len(x.stale_references),
+        )
+        for fa in docs_with_stale:
+            fix_items.append(
+                f"{len(fix_items) + 1}. 🟡 **Update `{fa.doc_file}`** "
+                f"({len(fa.stale_references)} stale ref"
+                f"{'s' if len(fa.stale_references) > 1 else ''})  \n"
+                f"   Update or remove broken code references"
+            )
+
+    if fix_items:
+        parts.extend(fix_items)
+    else:
+        parts.append("No fixes needed — code hygiene is clean! ✅")
+
+    parts.append("")
     return "\n".join(parts)
+
+
+# ═════════════════════════════════════════════════════════════════
+#  Smart Report Helpers
+# ═════════════════════════════════════════════════════════════════
+
+
+def _dominant_type(f) -> str:
+    """Return a human-readable label for the dominant function type in an init file."""
+    if f.route_handler_count >= f.function_count * 0.5 and f.route_handler_count > 0:
+        return f"{f.route_handler_count} route handlers"
+    if f.cli_command_count >= f.function_count * 0.5 and f.cli_command_count > 0:
+        return f"{f.cli_command_count} CLI commands"
+    if f.registration_count >= f.function_count * 0.5 and f.registration_count > 0:
+        return f"{f.registration_count} registration helpers"
+    if f.function_count == 0 and f.class_count > 0:
+        return f"{f.class_count} class{'es' if f.class_count > 1 else ''}"
+    # Mixed or other
+    parts = []
+    if f.route_handler_count:
+        parts.append(f"{f.route_handler_count} routes")
+    if f.cli_command_count:
+        parts.append(f"{f.cli_command_count} CLI")
+    if f.registration_count:
+        parts.append(f"{f.registration_count} reg")
+    if f.other_function_count:
+        parts.append(f"{f.other_function_count} other")
+    return ", ".join(parts) if parts else "logic"
+
+
+def _classify_function(fn) -> str:
+    """Return a type label for a single function."""
+    if fn.is_route_handler:
+        return "route handler"
+    if fn.is_cli_command:
+        return "CLI command"
+    if fn.is_registration:
+        return "registration"
+    if fn.is_trivial:
+        return "trivial"
+    return "utility"
+
+
+def _infer_migration(f) -> str:
+    """Infer migration advice from dominant function type."""
+    if f.route_handler_count > f.function_count * 0.4:
+        return "→ split to route sub-modules"
+    if f.cli_command_count > f.function_count * 0.4:
+        return "→ split to command sub-modules"
+    if f.registration_count > 0 and f.function_count <= 3:
+        return "→ move to registry.py"
+    if f.class_count > 0 and f.function_count <= 2:
+        return "→ move class to own module"
+    return "→ refactor to sub-modules"
+
+
+def _detect_boilerplate(files: list) -> dict:
+    """Detect repeated boilerplate patterns across init files.
+
+    Looks for files where the dominant function is a known boilerplate
+    name (e.g., _resolve_project_root) and the file is small.
+    """
+    boilerplate_names = {"_resolve_project_root", "_resolve_root"}
+    matching = []
+
+    for f in files:
+        func_names = {fn.name for fn in f.functions}
+        if func_names & boilerplate_names and f.total_lines < 60:
+            matching.append(f)
+
+    if not matching:
+        return {"count": 0, "pattern": "", "avg_lines": 0}
+
+    avg_lines = sum(f.total_lines for f in matching) // len(matching)
+    # Find the most common boilerplate function name
+    pattern = next(
+        iter(boilerplate_names & {
+            fn.name for f in matching for fn in f.functions
+        }),
+        "boilerplate",
+    )
+
+    return {
+        "count": len(matching),
+        "pattern": f"{pattern} + group",
+        "avg_lines": avg_lines,
+    }
 
 
 # ═══════════════════════════════════════════════════════════════════

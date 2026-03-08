@@ -38,6 +38,12 @@ class InitFunctionInfo:
     has_docstring: bool = False
     is_trivial: bool = False    # Single return/pass/raise = trivial
 
+    # ── Classification (populated by analyzer) ──
+    decorators: list[str] = field(default_factory=list)
+    is_route_handler: bool = False      # Has @bp.route / @app.route
+    is_cli_command: bool = False        # Has @click.command / @click.group
+    is_registration: bool = False       # Registry pattern (get_X, register_X)
+
 
 @dataclass
 class InitClassInfo:
@@ -73,6 +79,11 @@ class InitFileAnalysis:
     has_all_export: bool = False       # Has __all__ / module.exports definition
     has_complex_logic: bool = False    # Loops, non-trivial conditionals
 
+    # ── Structural insight ──
+    has_blueprint_def: bool = False    # Contains Blueprint() or click.group()
+    re_export_count: int = 0           # "from .module import X" style re-exports
+    has_type_checking: bool = False    # Has TYPE_CHECKING guard block
+
     @property
     def function_count(self) -> int:
         return len(self.functions)
@@ -98,6 +109,31 @@ class InitFileAnalysis:
     def is_clean(self) -> bool:
         """True if this init has no functions or classes (only imports/exports)."""
         return self.function_count == 0 and self.class_count == 0
+
+    @property
+    def route_handler_count(self) -> int:
+        """Number of route handler functions."""
+        return sum(1 for f in self.functions if f.is_route_handler)
+
+    @property
+    def cli_command_count(self) -> int:
+        """Number of CLI command functions."""
+        return sum(1 for f in self.functions if f.is_cli_command)
+
+    @property
+    def registration_count(self) -> int:
+        """Number of registration helper functions."""
+        return sum(1 for f in self.functions if f.is_registration)
+
+    @property
+    def other_function_count(self) -> int:
+        """Functions that aren't route handlers, CLI commands, or registrations."""
+        return sum(
+            1 for f in self.functions
+            if not f.is_route_handler
+            and not f.is_cli_command
+            and not f.is_registration
+        )
 
 
 @dataclass
@@ -260,16 +296,28 @@ class PythonInitAnalyzer:
                 analysis.classes.append(self._analyze_class(node))
             elif isinstance(node, (ast.Import, ast.ImportFrom)):
                 analysis.import_count += 1
+                # Count re-exports: "from .module import X"
+                if (
+                    isinstance(node, ast.ImportFrom)
+                    and node.level > 0  # relative import
+                ):
+                    analysis.re_export_count += 1
             elif isinstance(node, ast.Assign):
                 # Check for __all__
                 for target in node.targets:
                     if isinstance(target, ast.Name) and target.id == "__all__":
                         analysis.has_all_export = True
+                # Check for Blueprint() / click.group() assignments
+                if isinstance(node.value, ast.Call):
+                    call_name = _get_call_name(node.value)
+                    if call_name in {"Blueprint", "click.group", "Group"}:
+                        analysis.has_blueprint_def = True
             elif isinstance(node, (ast.For, ast.While)):
                 analysis.has_complex_logic = True
             elif isinstance(node, ast.If):
                 # TYPE_CHECKING is fine
                 if isinstance(node.test, ast.Name) and node.test.id == "TYPE_CHECKING":
+                    analysis.has_type_checking = True
                     continue
                 # Simple import guards (try: import x except ImportError) are fine
                 analysis.has_complex_logic = True
@@ -300,6 +348,35 @@ class PythonInitAnalyzer:
             and isinstance(real_body[0], (ast.Return, ast.Pass, ast.Raise, ast.Expr))
         )
 
+        # ── Extract decorator names for classification ──
+        decorators: list[str] = []
+        is_route = False
+        is_cli = False
+        for deco in node.decorator_list:
+            deco_name = _get_decorator_name(deco)
+            if deco_name:
+                decorators.append(deco_name)
+                # Route handler detection
+                if deco_name in {
+                    "route", "get", "post", "put", "delete", "patch",
+                }:
+                    is_route = True
+                # CLI command detection
+                if deco_name in {"command", "group", "pass_context"}:
+                    is_cli = True
+
+        # Registration pattern: function named get_X, register_X, list_Xs
+        is_reg = (
+            not is_route
+            and not is_cli
+            and (
+                node.name.startswith("get_")
+                or node.name.startswith("register_")
+                or node.name.startswith("list_")
+                or node.name.startswith("_register_")
+            )
+        )
+
         return InitFunctionInfo(
             name=node.name,
             lineno=node.lineno,
@@ -307,6 +384,10 @@ class PythonInitAnalyzer:
             body_lines=body_lines,
             has_docstring=has_docstring,
             is_trivial=is_trivial,
+            decorators=decorators,
+            is_route_handler=is_route,
+            is_cli_command=is_cli,
+            is_registration=is_reg,
         )
 
     @staticmethod
@@ -326,3 +407,39 @@ class PythonInitAnalyzer:
             body_lines=body_lines,
             method_count=method_count,
         )
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  AST Helpers
+# ═══════════════════════════════════════════════════════════════════
+
+
+def _get_decorator_name(node: ast.expr) -> str | None:
+    """Extract the leaf name from a decorator node.
+
+    Handles: @route, @bp.route, @app.route("/path"), @click.command()
+    Returns the rightmost name: 'route', 'command', etc.
+    """
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        return node.attr
+    if isinstance(node, ast.Call):
+        return _get_decorator_name(node.func)
+    return None
+
+
+def _get_call_name(node: ast.Call) -> str | None:
+    """Extract the function name from a Call node.
+
+    Handles: Blueprint(...), click.group(...), etc.
+    Returns the leaf name or 'module.name' for attribute calls.
+    """
+    func = node.func
+    if isinstance(func, ast.Name):
+        return func.id
+    if isinstance(func, ast.Attribute):
+        if isinstance(func.value, ast.Name):
+            return f"{func.value.id}.{func.attr}"
+        return func.attr
+    return None

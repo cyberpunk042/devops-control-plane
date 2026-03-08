@@ -144,6 +144,7 @@ class DocValidator:
         *,
         doc_dirs: list[str] | None = None,
         scope: str | None = None,
+        exclude_dirs: list[str] | None = None,
     ) -> DocAuditResult:
         """Analyze documentation for stale references.
 
@@ -152,12 +153,29 @@ class DocValidator:
             doc_dirs: Directories to scan for docs (relative to root).
                       Defaults to ["docs", ".agent/plans", "README.md"].
             scope: Optional scope to limit doc scanning.
+            exclude_dirs: Directories to exclude (relative to root).
+                          Defaults to ["docs/audits"] to avoid scanning
+                          the report's own output.
 
         Returns:
             DocAuditResult with all analyzed files.
         """
         if doc_dirs is None:
             doc_dirs = ["docs"]
+        if exclude_dirs is None:
+            exclude_dirs = ["docs/audits"]
+
+        # Resolve exclusion paths for matching
+        excluded_abs = [
+            (project_root / e).resolve() for e in exclude_dirs
+        ]
+
+        def _is_excluded(path: Path) -> bool:
+            resolved = path.resolve()
+            return any(
+                resolved == ex or str(resolved).startswith(str(ex) + "/")
+                for ex in excluded_abs
+            )
 
         result = DocAuditResult()
 
@@ -166,12 +184,16 @@ class DocValidator:
 
             if doc_path.is_file() and doc_path.suffix == ".md":
                 # Single file (e.g., README.md)
+                if _is_excluded(doc_path):
+                    continue
                 analysis = self._analyze_doc(doc_path, project_root)
                 if analysis is not None:
                     result.files.append(analysis)
             elif doc_path.is_dir():
                 for md_file in sorted(doc_path.rglob("*.md")):
                     if "__pycache__" in str(md_file):
+                        continue
+                    if _is_excluded(md_file):
                         continue
                     analysis = self._analyze_doc(md_file, project_root)
                     if analysis is not None:
