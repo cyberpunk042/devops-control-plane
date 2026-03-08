@@ -12,6 +12,9 @@
     // Cached packages for scope picker (loaded once)
     let _scriptPackagesCache = null;
 
+    // Cached project directories for dir pickers (loaded once)
+    let _scriptDirsCache = null;
+
     // ── Run modal entry point ────────────────────────────────────────
 
     async function _scriptsOpenRunModal(scriptId) {
@@ -37,6 +40,20 @@
                     _scriptPackagesCache = pkgData;
                 } catch (_) {
                     _scriptPackagesCache = { packages: [], tree: {} };
+                }
+            }
+
+            // Pre-load project directories for dir picker params (single recursive call)
+            const hasDirParam = params.some(p => _scriptsIsDirParam(p));
+            if (hasDirParam && !_scriptDirsCache) {
+                try {
+                    const dirData = await api('/content/list?path=.&recursive=true');
+                    const allDirs = (dirData.files || [])
+                        .filter(f => f.is_dir)
+                        .map(f => f.name);
+                    _scriptDirsCache = allDirs.sort();
+                } catch (_) {
+                    _scriptDirsCache = [];
                 }
             }
 
@@ -81,19 +98,32 @@
             body += `</div>`;
         }
 
-        // Parameter form
-        if (params.length > 0) {
-            body += `<div style="margin-top:var(--space-sm)">
-                <div style="font-size:0.78rem;font-weight:600;margin-bottom:0.4rem;color:var(--text-muted)">Parameters</div>`;
-
-            for (const p of params) {
-                body += _scriptsRenderParam(p, scriptMeta);
-            }
-            body += `</div>`;
-        }
-
-        // Store metadata for execute
+        // Store metadata for execute (set BEFORE rendering so params are available)
         window._scriptRunMeta = { scriptId, scriptMeta, params };
+
+        // Parameter form — split into choices (smart) and paths (dir pickers)
+        if (params.length > 0) {
+            const choiceParams = params.filter(p => !_scriptsIsDirParam(p));
+            const pathParams = params.filter(p => _scriptsIsDirParam(p));
+
+            if (choiceParams.length > 0) {
+                body += `<div style="margin-top:var(--space-sm)">
+                    <div style="font-size:0.78rem;font-weight:600;margin-bottom:0.4rem;color:var(--text-muted)">⚙️ Configuration</div>`;
+                for (const p of choiceParams) {
+                    body += _scriptsRenderParam(p, scriptMeta);
+                }
+                body += `</div>`;
+            }
+
+            if (pathParams.length > 0) {
+                body += `<div style="margin-top:var(--space-sm);padding-top:var(--space-sm);border-top:1px solid var(--border-subtle)">
+                    <div style="font-size:0.78rem;font-weight:600;margin-bottom:0.4rem;color:var(--text-muted)">📁 Paths</div>`;
+                for (const p of pathParams) {
+                    body += _scriptsRenderParam(p, scriptMeta);
+                }
+                body += `</div>`;
+            }
+        }
 
         modalOpen({
             title: `▶ ${esc(scriptMeta.name)}`,
@@ -131,27 +161,42 @@
 
     // ── Parameter rendering ──────────────────────────────────────────
 
+    /** Check if a param should render as a directory picker */
+    function _scriptsIsDirParam(p) {
+        const dirNames = ['output', 'source-dir', 'doc-dirs', 'routes-path'];
+        return p.type === 'path' || dirNames.includes(p.name);
+    }
+
+    /** Humanize a param name: kebab-case → Title Case */
+    function _scriptsHumanLabel(name) {
+        return name.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+    }
+
+
+
     function _scriptsRenderParam(p, scriptMeta) {
         const id = `script-param-${p.name}`;
         const required = p.required ? ' <span style="color:var(--error)">*</span>' : '';
-        const placeholder = p.default ? `Default: ${p.default}` : (p.required ? 'Required' : 'Optional');
+        const effectiveDefault = (p.default && p.default.toLowerCase() === 'none') ? '' : (p.default || '');
+        const placeholder = effectiveDefault ? `Default: ${effectiveDefault}` : (p.required ? 'Required' : 'Optional');
+        const label = _scriptsHumanLabel(p.name);
 
         let html = `<div style="margin-bottom:0.6rem">
-            <label style="font-size:0.76rem;font-weight:500;display:block;margin-bottom:3px">${esc(p.name)}${required}</label>`;
+            <label style="font-size:0.76rem;font-weight:500;display:block;margin-bottom:3px">${esc(label)}${required}</label>`;
 
         // Smart rendering based on param name + type
         if (p.name === 'scope' && _scriptPackagesCache) {
             html += _scriptsRenderScopePicker(id, p);
+        } else if (_scriptsIsDirParam(p) && _scriptDirsCache) {
+            html += _scriptsRenderDirPicker(id, p);
         } else if (p.choices && p.choices.length > 0) {
             html += _scriptsRenderSelect(id, p);
         } else if (p.type === 'boolean') {
             html += _scriptsRenderToggle(id, p);
         } else if (p.type === 'integer') {
             html += _scriptsRenderNumber(id, p);
-        } else if (p.type === 'path') {
-            html += _scriptsRenderPathInput(id, p);
         } else {
-            html += _scriptsRenderTextInput(id, p, placeholder);
+            html += _scriptsRenderTextInput(id, { ...p, default: effectiveDefault }, placeholder);
         }
 
         if (p.description) {
@@ -236,6 +281,45 @@
             style="width:100%;font-size:0.8rem;padding:4px 8px;border:1px solid var(--border-subtle);border-radius:4px;background:var(--bg-inset);color:var(--text-primary)" />`;
     }
 
+    function _scriptsRenderDirPicker(id, p) {
+        const dirs = _scriptDirsCache || [];
+        const effectiveDefault = (p.default && p.default.toLowerCase() === 'none') ? '' : (p.default || '');
+
+        let html = `<select id="${id}" style="width:100%;font-size:0.8rem;padding:5px 8px;border:1px solid var(--border-subtle);border-radius:4px;background:var(--bg-inset);color:var(--text-primary)">`;
+        // Show the default first if it's not in the list
+        if (effectiveDefault && !dirs.includes(effectiveDefault)) {
+            html += `<option value="${esc(effectiveDefault)}" selected>📁 ${esc(effectiveDefault)}</option>`;
+        }
+        if (!p.required) html += `<option value="">— None —</option>`;
+        for (const d of dirs) {
+            const sel = d === effectiveDefault ? ' selected' : '';
+            html += `<option value="${esc(d)}"${sel}>📁 ${esc(d)}/</option>`;
+        }
+        html += `</select>`;
+
+        // Manual override toggle (same pattern as scope picker)
+        html += `<div style="margin-top:3px">
+            <button type="button" onclick="_scriptsToggleManualDir(this)" style="font-size:0.62rem;color:var(--accent);background:none;border:none;cursor:pointer;padding:0;text-decoration:underline">Manual entry…</button>
+            <input id="${id}-manual" type="text" value="" placeholder="e.g. ${esc(effectiveDefault || 'path/to/dir')}" style="display:none;width:100%;font-size:0.8rem;padding:4px 8px;border:1px solid var(--border-subtle);border-radius:4px;background:var(--bg-inset);color:var(--text-primary);margin-top:3px;font-family:var(--font-mono,monospace)" />
+        </div>`;
+
+        return html;
+    }
+
+    function _scriptsToggleManualDir(btn) {
+        const manual = btn.parentElement.querySelector('input');
+        const select = btn.parentElement.parentElement.querySelector('select');
+        if (manual.style.display === 'none') {
+            manual.style.display = 'block';
+            select.style.display = 'none';
+            btn.textContent = 'Use directory list…';
+        } else {
+            manual.style.display = 'none';
+            select.style.display = 'block';
+            btn.textContent = 'Manual entry…';
+        }
+    }
+
     function _scriptsRenderPathInput(id, p) {
         return `<input id="${id}" type="text" value="${esc(p.default || '')}"
             style="width:100%;font-size:0.8rem;padding:4px 8px;border:1px solid var(--border-subtle);border-radius:4px;background:var(--bg-inset);color:var(--text-primary);font-family:var(--font-mono,monospace)" />`;
@@ -263,8 +347,8 @@
             if (p.type === 'boolean') {
                 // Only send when checked (true) — skip false entirely
                 if (el && el.checked) params[p.name] = 'true';
-            } else if (p.name === 'scope' && manualEl && manualEl.style.display !== 'none') {
-                // Manual scope entry — only send if non-empty
+            } else if ((p.name === 'scope' || _scriptsIsDirParam(p)) && manualEl && manualEl.style.display !== 'none') {
+                // Manual entry — only send if non-empty
                 if (manualEl.value.trim()) params[p.name] = manualEl.value.trim();
             } else if (el && el.value) {
                 params[p.name] = el.value;

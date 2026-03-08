@@ -38,6 +38,8 @@ YOU MUST RESPECT THE RULES OF THIS PROJECT
 .agent/rules/one-change-one-test.md
 .agent/rules/refactoring-integrity.md
 .agent/rules/assistant.md
+.agent/rules/process-or-die.md
+.agent/rules/dont-reinvent.md
 
 ## Workflow Routing — Read the RIGHT checklist for the task
 

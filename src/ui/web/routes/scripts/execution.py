@@ -113,6 +113,7 @@ def scripts_run_stream():
                     label=meta.name)
 
         pipeline_start = time.monotonic()
+        pipeline_start_wall = time.time()    # wall-clock for mtime comparison
 
         # ── validate stage ──
         yield _sse("stage_start", stage="validate",
@@ -207,12 +208,12 @@ def scripts_run_stream():
             try:
                 abs_out = Path(output_path).resolve()
                 output_relative = str(abs_out.relative_to(root.resolve()))
-                # List files in output dir (non-recursive, top-level only)
+                # Only report files created/modified by THIS run
                 if abs_out.is_dir():
                     output_files = sorted(
                         str(f.relative_to(root.resolve()))
                         for f in abs_out.iterdir()
-                        if f.is_file()
+                        if f.is_file() and f.stat().st_mtime >= pipeline_start_wall
                     )
             except (ValueError, OSError):
                 pass
