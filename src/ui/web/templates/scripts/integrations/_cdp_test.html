@@ -313,8 +313,12 @@
                 body += _cdpTestStepRow(step);
             }
         } else {
-            body += `<div style="text-align:center;padding:1.5rem;color:var(--text-muted);font-size:0.78rem" id="cdp-rec-empty">
-                Interact with the page — steps will appear here live
+            body += `<div style="text-align:center;padding:2rem 1rem;color:var(--text-muted);font-size:0.78rem" id="cdp-rec-empty">
+                <div style="margin-bottom:1rem">Interact with the page — steps will appear here live</div>
+                <button class="btn btn-sm btn-secondary" onclick="_cdpTestFocusTarget('${session.target_id}')"
+                        style="font-size:0.82rem;padding:0.4rem 1.2rem">
+                    🔍 Focus Target Tab
+                </button>
             </div>`;
         }
         body += `</div>`;
@@ -405,6 +409,26 @@
                 }
             } catch (_) {}
         });
+    }
+
+
+    // ── Focus target tab ────────────────────────────────────────────
+
+    async function _cdpTestFocusTarget(targetId) {
+        try {
+            const result = await api('/tab-mesh/focus', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ targetId }),
+            });
+            if (result.success) {
+                toast('Target tab focused', 'success');
+            } else {
+                toast('Could not focus tab — it may have been closed', 'warn');
+            }
+        } catch (e) {
+            toast('Failed to focus tab: ' + e.message, 'error');
+        }
     }
 
 
