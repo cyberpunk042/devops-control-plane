@@ -255,7 +255,7 @@ def test_render_single_class():
     g = _simple_graph(nodes=[_node("Foo", fields=["+ x: int"], methods=["+ run()"])])
     output = render_class_diagram(g, config=MermaidConfig(include_orphans=True))
     assert "classDiagram" in output
-    assert "mod_Foo" in output
+    assert "class Foo" in output
     assert "x: int" in output
     assert "run()" in output
 
@@ -271,8 +271,8 @@ def test_render_with_inheritance():
 
     output = render_class_diagram(g)
     assert "--|>" in output
-    assert "mod_Child" in output
-    assert "mod_Parent" in output
+    assert "Child" in output
+    assert "Parent" in output
 
 
 def test_render_abstract_annotation():
@@ -326,7 +326,7 @@ def test_render_without_package_grouping():
         config=MermaidConfig(group_by_package=False, include_orphans=True),
     )
     assert "namespace" not in output
-    assert "mod_A" in output
+    assert "class A" in output
 
 
 def test_render_with_package_grouping():
@@ -360,8 +360,8 @@ def test_render_orphans_excluded_by_default():
     g = _simple_graph(nodes=[a, b, c], edges=[edge])
 
     output = render_class_diagram(g, config=MermaidConfig(include_orphans=False))
-    assert "mod_Connected1" in output
-    assert "mod_Orphan" not in output
+    assert "Connected1" in output
+    assert "Orphan" not in output
 
 
 def test_render_orphans_included():
@@ -370,7 +370,7 @@ def test_render_orphans_included():
     g = _simple_graph(nodes=[c])
 
     output = render_class_diagram(g, config=MermaidConfig(include_orphans=True))
-    assert "mod_Orphan" in output
+    assert "Orphan" in output
 
 
 def test_render_all_orphans_fallback():
@@ -381,8 +381,8 @@ def test_render_all_orphans_fallback():
 
     output = render_class_diagram(g, config=MermaidConfig(include_orphans=False))
     # Should fallback to showing all nodes
-    assert "mod_A" in output
-    assert "mod_B" in output
+    assert "class A" in output
+    assert "class B" in output
 
 
 def test_render_truncated_fields():

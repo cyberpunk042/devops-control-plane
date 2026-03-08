@@ -1901,16 +1901,27 @@ function _renderMermaidBlocks(container) {
 
     _mermaidInit();
 
+    // ── Phase 1: Replace all <pre><code> blocks with wrapper DOM ──
+    // Each wrapper stores the raw text in a data attribute, NOT in a
+    // .mermaid div yet.  Rendering happens lazily via IntersectionObserver.
     let idx = 0;
+    const wrappers = [];
+
     for (const code of codeBlocks) {
         const pre = code.parentElement;
         if (!pre || pre.tagName !== 'PRE') continue;
 
-        const viewportId = `mermaid-viewport-${idx++}`;
+        const rawText = code.textContent;
+        const viewportId = `mermaid-viewport-${idx}`;
+        const mermaidId  = `mermaid-lazy-${idx}`;
+        idx++;
 
         // Build the interactive wrapper
         const wrapper = document.createElement('div');
         wrapper.className = 'mermaid-wrapper';
+        wrapper.dataset.mermaidPending = '1';
+        wrapper.dataset.mermaidRaw = rawText;
+        wrapper.dataset.mermaidIdx = String(idx - 1);
         wrapper.style.cssText = 'position:relative;margin:0.75rem 0;border:1px solid var(--border-subtle);border-radius:var(--radius-sm);overflow:hidden;background:var(--bg-inset);';
 
         // Toolbar
@@ -1935,26 +1946,113 @@ function _renderMermaidBlocks(container) {
         const canvas = document.createElement('div');
         canvas.style.cssText = 'transform-origin:0 0;transition:transform 0.15s ease;padding:1rem;display:inline-block;min-width:100%;';
 
-        // Mermaid content div
-        const mermaidDiv = document.createElement('div');
-        mermaidDiv.className = 'mermaid';
-        mermaidDiv.textContent = code.textContent;
-        canvas.appendChild(mermaidDiv);
+        // Placeholder (shown until lazy render)
+        const placeholder = document.createElement('div');
+        placeholder.className = 'mermaid-placeholder';
+        placeholder.style.cssText = 'display:flex;align-items:center;justify-content:center;padding:2rem;color:var(--text-muted);font-size:0.8rem;gap:0.5rem;min-height:120px;';
+        placeholder.innerHTML = '<span class="spinner"></span> Diagram loading on scroll…';
+        canvas.appendChild(placeholder);
 
         viewport.appendChild(canvas);
         wrapper.appendChild(viewport);
 
         pre.replaceWith(wrapper);
 
-        // Attach interactivity after render
+        // Attach interactivity (zoom/pan) — works even before mermaid renders
         _mermaidAttachControls(wrapper, viewport, canvas, toolbar);
+
+        wrappers.push({ wrapper, viewport, canvas, rawText, mermaidId });
     }
 
-    // Run Mermaid renderer on the new divs
+    if (wrappers.length === 0) return;
+
+    // ── Phase 2: Lazy render via IntersectionObserver ──
+    // Render queue: process one at a time to avoid Mermaid parser contention
+    let renderBusy = false;
+    const renderQueue = [];
+
+    async function processQueue() {
+        if (renderBusy || renderQueue.length === 0) return;
+        renderBusy = true;
+
+        const item = renderQueue.shift();
+        try {
+            await _mermaidRenderOne(item);
+        } catch (e) {
+            console.warn(`[Mermaid] Lazy render failed for ${item.mermaidId}:`, e);
+        }
+
+        renderBusy = false;
+        // Continue with next queued item
+        if (renderQueue.length > 0) {
+            requestAnimationFrame(() => processQueue());
+        }
+    }
+
+    function enqueueRender(item) {
+        if (item.wrapper.dataset.mermaidPending !== '1') return; // already rendered
+        item.wrapper.dataset.mermaidPending = '0';
+        renderQueue.push(item);
+        processQueue();
+    }
+
+    // Observer: trigger render when wrapper enters 150% viewport margin
+    // (renders slightly before user scrolls to it)
+    const observer = new IntersectionObserver((entries) => {
+        for (const entry of entries) {
+            if (!entry.isIntersecting) continue;
+            const idx = entry.target.dataset.mermaidIdx;
+            const item = wrappers[parseInt(idx, 10)];
+            if (item) {
+                observer.unobserve(entry.target);
+                enqueueRender(item);
+            }
+        }
+    }, {
+        rootMargin: '150% 0px 150% 0px',   // 1.5 viewports above + below
+        threshold: 0,
+    });
+
+    for (const item of wrappers) {
+        observer.observe(item.wrapper);
+    }
+}
+
+/**
+ * Render a single Mermaid diagram into its wrapper.
+ * Uses mermaid.render() for isolated, per-diagram rendering.
+ * Errors are shown inline without affecting other diagrams.
+ */
+async function _mermaidRenderOne(item) {
+    const { canvas, rawText, mermaidId, wrapper, viewport } = item;
+    const placeholder = canvas.querySelector('.mermaid-placeholder');
+
     try {
-        mermaid.run({ querySelector: '.mermaid' });
+        // Use a unique ID that does NOT exist in the DOM yet.
+        // mermaid.render() creates a temp element with this ID internally.
+        const renderId = mermaidId + '-' + Date.now();
+        const { svg } = await mermaid.render(renderId, rawText);
+        // Replace placeholder with rendered SVG
+        const mermaidDiv = document.createElement('div');
+        mermaidDiv.className = 'mermaid-rendered';
+        mermaidDiv.innerHTML = svg;
+        if (placeholder) placeholder.replaceWith(mermaidDiv);
+        else canvas.appendChild(mermaidDiv);
     } catch (e) {
-        console.warn('[Mermaid] Render failed:', e);
+        // Show error inline — don't break other diagrams
+        const errDiv = document.createElement('div');
+        errDiv.style.cssText = 'padding:1rem;color:#f87171;font-size:0.78rem;border:1px solid rgba(248,113,113,0.3);border-radius:6px;background:rgba(248,113,113,0.06);';
+        const firstLine = rawText.split('\n')[0] || 'unknown';
+        errDiv.innerHTML = `<strong>⚠️ Mermaid syntax error</strong><br>
+            <span style="color:var(--text-muted)">${firstLine}…</span><br>
+            <details style="margin-top:0.5rem"><summary style="cursor:pointer;color:var(--text-secondary)">Show source</summary>
+            <pre style="white-space:pre-wrap;font-size:0.72rem;margin-top:0.25rem;max-height:200px;overflow:auto">${rawText.replace(/</g,'&lt;')}</pre></details>`;
+        if (placeholder) placeholder.replaceWith(errDiv);
+        else canvas.appendChild(errDiv);
+        // Remove the broken rendered element mermaid may have inserted
+        const broken = document.getElementById('d' + mermaidId);
+        if (broken) broken.remove();
+        console.warn(`[Mermaid] Error in block ${mermaidId}:`, e.message || e);
     }
 }
 

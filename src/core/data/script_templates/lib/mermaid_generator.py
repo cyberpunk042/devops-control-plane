@@ -94,6 +94,19 @@ def render_class_diagram(
         if graph.nodes:
             nodes_to_render = dict(graph.nodes)
 
+    # Build short-ID map: node.id → short Mermaid identifier
+    # Use node.label when unique; fall back to full sanitized id on collision
+    label_counts: dict[str, int] = {}
+    for node in nodes_to_render.values():
+        label_counts[node.label] = label_counts.get(node.label, 0) + 1
+
+    short_id_map: dict[str, str] = {}
+    for nid, node in nodes_to_render.items():
+        if label_counts[node.label] == 1:
+            short_id_map[nid] = _sanitize_id(node.label)
+        else:
+            short_id_map[nid] = _sanitize_id(nid)
+
     # Group by package
     if cfg.group_by_package:
         packages: dict[str, list[GraphNode]] = {}
@@ -105,12 +118,14 @@ def render_class_diagram(
             safe_pkg = _sanitize_id(pkg_name)
             lines.append(f"    namespace {safe_pkg} {{")
             for node in sorted(packages[pkg_name], key=lambda n: n.label):
-                _render_class_block(node, lines, cfg, indent=8)
+                _render_class_block(node, lines, cfg, indent=8,
+                                    mermaid_id=short_id_map.get(node.id))
             lines.append("    }")
             lines.append("")
     else:
         for node in sorted(nodes_to_render.values(), key=lambda n: n.label):
-            _render_class_block(node, lines, cfg, indent=4)
+            _render_class_block(node, lines, cfg, indent=4,
+                                mermaid_id=short_id_map.get(node.id))
         lines.append("")
 
     # Render relationships
@@ -119,9 +134,14 @@ def render_class_diagram(
         if edge.source not in nodes_to_render and edge.target not in nodes_to_render:
             continue
         arrow = _relation_arrow(edge.relation)
-        src = _sanitize_id(edge.source)
-        tgt = _sanitize_id(edge.target)
-        label_part = f" : {edge.label}" if edge.label else ""
+        src = short_id_map.get(edge.source, _sanitize_id(edge.source))
+        tgt = short_id_map.get(edge.target, _sanitize_id(edge.target))
+        # Skip edge label when it's just the target class name (redundant)
+        label = edge.label or ""
+        tgt_node = nodes_to_render.get(edge.target)
+        if tgt_node and label == tgt_node.label:
+            label = ""
+        label_part = f" : {label}" if label else ""
         lines.append(f"    {src} {arrow} {tgt}{label_part}")
 
     return "\n".join(lines)
@@ -223,10 +243,11 @@ def _render_class_block(
     lines: list[str],
     cfg: MermaidConfig,
     indent: int = 4,
+    mermaid_id: str | None = None,
 ) -> None:
     """Render a single class block in Mermaid class diagram syntax."""
     pad = " " * indent
-    safe_label = _sanitize_id(node.id)
+    safe_label = mermaid_id or _sanitize_id(node.id)
 
     lines.append(f"{pad}class {safe_label} {{")
 

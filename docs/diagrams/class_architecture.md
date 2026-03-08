@@ -1,6 +1,6 @@
 # Class Architecture — Full Project
 
-> Generated: 2026-03-08 03:01 UTC  |  180 classes  |  155 relationships  |  17 modules
+> Generated: 2026-03-08 03:17 UTC  |  179 classes  |  155 relationships  |  17 modules
 
 ## Table of Contents
 
@@ -17,7 +17,7 @@
   - [core.models (17 classes)](#core.models-17-classes)
   - [core.observability (7 classes)](#core.observability-7-classes)
   - [core.reliability (5 classes)](#core.reliability-5-classes)
-  - [core.services (121 classes)](#core.services-121-classes)
+  - [core.services (120 classes)](#core.services-120-classes)
   - [core.use_cases (4 classes)](#core.use_cases-4-classes)
   - [Small Modules (16 classes)](#small-modules-16-classes)
 - [Hub Analysis](#hub-analysis)
@@ -44,7 +44,7 @@ graph TD
     core_observability[core.observability<br/>7 classes]
     core_persistence[core.persistence<br/>2 classes]
     core_reliability[core.reliability<br/>5 classes]
-    core_services[core.services<br/>121 classes]
+    core_services[core.services<br/>120 classes]
     core_use_cases[core.use_cases<br/>4 classes]
     ui_web[ui.web<br/>1 classes]
 
@@ -78,51 +78,51 @@ graph TD
 classDiagram
     direction TD
 
-    class src_core_services_content_outline_CssOutlineStrategy {
+    class CssOutlineStrategy {
     }
-    class src_core_services_content_outline_EncryptedOutlineStrategy {
+    class EncryptedOutlineStrategy {
     }
-    class src_core_services_content_outline_FallbackOutlineStrategy {
+    class FallbackOutlineStrategy {
     }
-    class src_core_services_content_outline_GoOutlineStrategy {
+    class GoOutlineStrategy {
     }
-    class src_core_services_content_outline_HtmlOutlineStrategy {
+    class HtmlOutlineStrategy {
     }
-    class src_core_services_content_outline_JavaScriptOutlineStrategy {
+    class JavaScriptOutlineStrategy {
     }
-    class src_core_services_content_outline_JsonOutlineStrategy {
+    class JsonOutlineStrategy {
     }
-    class src_core_services_content_outline_MarkdownOutlineStrategy {
+    class MarkdownOutlineStrategy {
     }
-    class src_core_services_content_outline_OutlineStrategy {
+    class OutlineStrategy {
     }
-    class src_core_services_content_outline_PythonOutlineStrategy {
+    class PythonOutlineStrategy {
     }
-    class src_core_services_content_outline_RustOutlineStrategy {
+    class RustOutlineStrategy {
     }
-    class src_core_services_content_outline_ShellOutlineStrategy {
+    class ShellOutlineStrategy {
     }
-    class src_core_services_content_outline_SqlOutlineStrategy {
+    class SqlOutlineStrategy {
     }
-    class src_core_services_content_outline_TomlOutlineStrategy {
+    class TomlOutlineStrategy {
     }
-    class src_core_services_content_outline_YamlOutlineStrategy {
+    class YamlOutlineStrategy {
     }
 
-    src_core_services_content_outline_MarkdownOutlineStrategy --|> src_core_services_content_outline_OutlineStrategy : OutlineStrategy
-    src_core_services_content_outline_PythonOutlineStrategy --|> src_core_services_content_outline_OutlineStrategy : OutlineStrategy
-    src_core_services_content_outline_EncryptedOutlineStrategy --|> src_core_services_content_outline_OutlineStrategy : OutlineStrategy
-    src_core_services_content_outline_JavaScriptOutlineStrategy --|> src_core_services_content_outline_OutlineStrategy : OutlineStrategy
-    src_core_services_content_outline_GoOutlineStrategy --|> src_core_services_content_outline_OutlineStrategy : OutlineStrategy
-    src_core_services_content_outline_RustOutlineStrategy --|> src_core_services_content_outline_OutlineStrategy : OutlineStrategy
-    src_core_services_content_outline_HtmlOutlineStrategy --|> src_core_services_content_outline_OutlineStrategy : OutlineStrategy
-    src_core_services_content_outline_CssOutlineStrategy --|> src_core_services_content_outline_OutlineStrategy : OutlineStrategy
-    src_core_services_content_outline_YamlOutlineStrategy --|> src_core_services_content_outline_OutlineStrategy : OutlineStrategy
-    src_core_services_content_outline_JsonOutlineStrategy --|> src_core_services_content_outline_OutlineStrategy : OutlineStrategy
-    src_core_services_content_outline_TomlOutlineStrategy --|> src_core_services_content_outline_OutlineStrategy : OutlineStrategy
-    src_core_services_content_outline_ShellOutlineStrategy --|> src_core_services_content_outline_OutlineStrategy : OutlineStrategy
-    src_core_services_content_outline_SqlOutlineStrategy --|> src_core_services_content_outline_OutlineStrategy : OutlineStrategy
-    src_core_services_content_outline_FallbackOutlineStrategy --|> src_core_services_content_outline_OutlineStrategy : OutlineStrategy
+    MarkdownOutlineStrategy --|> OutlineStrategy
+    PythonOutlineStrategy --|> OutlineStrategy
+    EncryptedOutlineStrategy --|> OutlineStrategy
+    JavaScriptOutlineStrategy --|> OutlineStrategy
+    GoOutlineStrategy --|> OutlineStrategy
+    RustOutlineStrategy --|> OutlineStrategy
+    HtmlOutlineStrategy --|> OutlineStrategy
+    CssOutlineStrategy --|> OutlineStrategy
+    YamlOutlineStrategy --|> OutlineStrategy
+    JsonOutlineStrategy --|> OutlineStrategy
+    TomlOutlineStrategy --|> OutlineStrategy
+    ShellOutlineStrategy --|> OutlineStrategy
+    SqlOutlineStrategy --|> OutlineStrategy
+    FallbackOutlineStrategy --|> OutlineStrategy
 ```
 
 ### ArtifactBuilder (12 implementations)
@@ -131,46 +131,46 @@ classDiagram
 classDiagram
     direction TD
 
-    class src_core_services_artifacts_builders_base_ArtifactBuilder {
+    class ArtifactBuilder {
         <<abstract>>
     }
-    class src_core_services_artifacts_builders_cargo_CargoBuilder {
+    class CargoBuilder {
     }
-    class src_core_services_artifacts_builders_docker_DockerBuilder {
+    class DockerBuilder {
     }
-    class src_core_services_artifacts_builders_dotnet_DotnetBuilder {
+    class DotnetBuilder {
     }
-    class src_core_services_artifacts_builders_gem_GemBuilder {
+    class GemBuilder {
     }
-    class src_core_services_artifacts_builders_go_GoBuilder {
+    class GoBuilder {
     }
-    class src_core_services_artifacts_builders_gradle_GradleBuilder {
+    class GradleBuilder {
     }
-    class src_core_services_artifacts_builders_makefile_MakefileBuilder {
+    class MakefileBuilder {
     }
-    class src_core_services_artifacts_builders_maven_MavenBuilder {
+    class MavenBuilder {
     }
-    class src_core_services_artifacts_builders_mix_MixBuilder {
+    class MixBuilder {
     }
-    class src_core_services_artifacts_builders_npm_NpmBuilder {
+    class NpmBuilder {
     }
-    class src_core_services_artifacts_builders_pip_builder_PipBuilder {
+    class PipBuilder {
     }
-    class src_core_services_artifacts_builders_script_ScriptBuilder {
+    class ScriptBuilder {
     }
 
-    src_core_services_artifacts_builders_cargo_CargoBuilder --|> src_core_services_artifacts_builders_base_ArtifactBuilder : ArtifactBuilder
-    src_core_services_artifacts_builders_docker_DockerBuilder --|> src_core_services_artifacts_builders_base_ArtifactBuilder : ArtifactBuilder
-    src_core_services_artifacts_builders_dotnet_DotnetBuilder --|> src_core_services_artifacts_builders_base_ArtifactBuilder : ArtifactBuilder
-    src_core_services_artifacts_builders_gem_GemBuilder --|> src_core_services_artifacts_builders_base_ArtifactBuilder : ArtifactBuilder
-    src_core_services_artifacts_builders_go_GoBuilder --|> src_core_services_artifacts_builders_base_ArtifactBuilder : ArtifactBuilder
-    src_core_services_artifacts_builders_gradle_GradleBuilder --|> src_core_services_artifacts_builders_base_ArtifactBuilder : ArtifactBuilder
-    src_core_services_artifacts_builders_makefile_MakefileBuilder --|> src_core_services_artifacts_builders_base_ArtifactBuilder : ArtifactBuilder
-    src_core_services_artifacts_builders_maven_MavenBuilder --|> src_core_services_artifacts_builders_base_ArtifactBuilder : ArtifactBuilder
-    src_core_services_artifacts_builders_mix_MixBuilder --|> src_core_services_artifacts_builders_base_ArtifactBuilder : ArtifactBuilder
-    src_core_services_artifacts_builders_npm_NpmBuilder --|> src_core_services_artifacts_builders_base_ArtifactBuilder : ArtifactBuilder
-    src_core_services_artifacts_builders_pip_builder_PipBuilder --|> src_core_services_artifacts_builders_base_ArtifactBuilder : ArtifactBuilder
-    src_core_services_artifacts_builders_script_ScriptBuilder --|> src_core_services_artifacts_builders_base_ArtifactBuilder : ArtifactBuilder
+    CargoBuilder --|> ArtifactBuilder
+    DockerBuilder --|> ArtifactBuilder
+    DotnetBuilder --|> ArtifactBuilder
+    GemBuilder --|> ArtifactBuilder
+    GoBuilder --|> ArtifactBuilder
+    GradleBuilder --|> ArtifactBuilder
+    MakefileBuilder --|> ArtifactBuilder
+    MavenBuilder --|> ArtifactBuilder
+    MixBuilder --|> ArtifactBuilder
+    NpmBuilder --|> ArtifactBuilder
+    PipBuilder --|> ArtifactBuilder
+    ScriptBuilder --|> ArtifactBuilder
 ```
 
 ### BaseParser (11 implementations)
@@ -179,43 +179,43 @@ classDiagram
 classDiagram
     direction TD
 
-    class src_core_services_audit_parsers__base_BaseParser {
+    class BaseParser {
         <<abstract>>
     }
-    class src_core_services_audit_parsers_c_parser_CFamilyParser {
+    class CFamilyParser {
     }
-    class src_core_services_audit_parsers_css_parser_CSSParser {
+    class CSSParser {
     }
-    class src_core_services_audit_parsers_config_parser_ConfigParser {
+    class ConfigParser {
     }
-    class src_core_services_audit_parsers__fallback_FallbackParser {
+    class FallbackParser {
     }
-    class src_core_services_audit_parsers_go_parser_GoParser {
+    class GoParser {
     }
-    class src_core_services_audit_parsers_jvm_parser_JVMParser {
+    class JVMParser {
     }
-    class src_core_services_audit_parsers_js_parser_JavaScriptParser {
+    class JavaScriptParser {
     }
-    class src_core_services_audit_parsers_multilang_parser_MultiLangParser {
+    class MultiLangParser {
     }
-    class src_core_services_audit_parsers_python_parser_PythonParser {
+    class PythonParser {
     }
-    class src_core_services_audit_parsers_rust_parser_RustParser {
+    class RustParser {
     }
-    class src_core_services_audit_parsers_template_parser_TemplateParser {
+    class TemplateParser {
     }
 
-    src_core_services_audit_parsers__fallback_FallbackParser --|> src_core_services_audit_parsers__base_BaseParser : BaseParser
-    src_core_services_audit_parsers_c_parser_CFamilyParser --|> src_core_services_audit_parsers__base_BaseParser : BaseParser
-    src_core_services_audit_parsers_config_parser_ConfigParser --|> src_core_services_audit_parsers__base_BaseParser : BaseParser
-    src_core_services_audit_parsers_css_parser_CSSParser --|> src_core_services_audit_parsers__base_BaseParser : BaseParser
-    src_core_services_audit_parsers_go_parser_GoParser --|> src_core_services_audit_parsers__base_BaseParser : BaseParser
-    src_core_services_audit_parsers_js_parser_JavaScriptParser --|> src_core_services_audit_parsers__base_BaseParser : BaseParser
-    src_core_services_audit_parsers_jvm_parser_JVMParser --|> src_core_services_audit_parsers__base_BaseParser : BaseParser
-    src_core_services_audit_parsers_multilang_parser_MultiLangParser --|> src_core_services_audit_parsers__base_BaseParser : BaseParser
-    src_core_services_audit_parsers_python_parser_PythonParser --|> src_core_services_audit_parsers__base_BaseParser : BaseParser
-    src_core_services_audit_parsers_rust_parser_RustParser --|> src_core_services_audit_parsers__base_BaseParser : BaseParser
-    src_core_services_audit_parsers_template_parser_TemplateParser --|> src_core_services_audit_parsers__base_BaseParser : BaseParser
+    FallbackParser --|> BaseParser
+    CFamilyParser --|> BaseParser
+    ConfigParser --|> BaseParser
+    CSSParser --|> BaseParser
+    GoParser --|> BaseParser
+    JavaScriptParser --|> BaseParser
+    JVMParser --|> BaseParser
+    MultiLangParser --|> BaseParser
+    PythonParser --|> BaseParser
+    RustParser --|> BaseParser
+    TemplateParser --|> BaseParser
 ```
 
 ### Adapter (7 implementations)
@@ -224,31 +224,31 @@ classDiagram
 classDiagram
     direction TD
 
-    class src_adapters_base_Adapter {
+    class Adapter {
         <<abstract>>
     }
-    class src_adapters_containers_docker_DockerAdapter {
+    class DockerAdapter {
     }
-    class src_adapters_shell_filesystem_FilesystemAdapter {
+    class FilesystemAdapter {
     }
-    class src_adapters_vcs_git_GitAdapter {
+    class GitAdapter {
     }
-    class src_adapters_mock_MockAdapter {
+    class MockAdapter {
     }
-    class src_adapters_languages_node_NodeAdapter {
+    class NodeAdapter {
     }
-    class src_adapters_languages_python_PythonAdapter {
+    class PythonAdapter {
     }
-    class src_adapters_shell_command_ShellCommandAdapter {
+    class ShellCommandAdapter {
     }
 
-    src_adapters_containers_docker_DockerAdapter --|> src_adapters_base_Adapter : Adapter
-    src_adapters_languages_node_NodeAdapter --|> src_adapters_base_Adapter : Adapter
-    src_adapters_languages_python_PythonAdapter --|> src_adapters_base_Adapter : Adapter
-    src_adapters_mock_MockAdapter --|> src_adapters_base_Adapter : Adapter
-    src_adapters_shell_command_ShellCommandAdapter --|> src_adapters_base_Adapter : Adapter
-    src_adapters_shell_filesystem_FilesystemAdapter --|> src_adapters_base_Adapter : Adapter
-    src_adapters_vcs_git_GitAdapter --|> src_adapters_base_Adapter : Adapter
+    DockerAdapter --|> Adapter
+    NodeAdapter --|> Adapter
+    PythonAdapter --|> Adapter
+    MockAdapter --|> Adapter
+    ShellCommandAdapter --|> Adapter
+    FilesystemAdapter --|> Adapter
+    GitAdapter --|> Adapter
 ```
 
 ### PageBuilder (6 implementations)
@@ -257,28 +257,28 @@ classDiagram
 classDiagram
     direction TD
 
-    class src_core_services_pages_builders_custom_CustomBuilder {
+    class CustomBuilder {
     }
-    class src_core_services_pages_builders_docusaurus_DocusaurusBuilder {
+    class DocusaurusBuilder {
     }
-    class src_core_services_pages_builders_hugo_HugoBuilder {
+    class HugoBuilder {
     }
-    class src_core_services_pages_builders_mkdocs_MkDocsBuilder {
+    class MkDocsBuilder {
     }
-    class src_core_services_pages_builders_base_PageBuilder {
+    class PageBuilder {
         <<abstract>>
     }
-    class src_core_services_pages_builders_raw_RawBuilder {
+    class RawBuilder {
     }
-    class src_core_services_pages_builders_sphinx_SphinxBuilder {
+    class SphinxBuilder {
     }
 
-    src_core_services_pages_builders_custom_CustomBuilder --|> src_core_services_pages_builders_base_PageBuilder : PageBuilder
-    src_core_services_pages_builders_docusaurus_DocusaurusBuilder --|> src_core_services_pages_builders_base_PageBuilder : PageBuilder
-    src_core_services_pages_builders_hugo_HugoBuilder --|> src_core_services_pages_builders_base_PageBuilder : PageBuilder
-    src_core_services_pages_builders_mkdocs_MkDocsBuilder --|> src_core_services_pages_builders_base_PageBuilder : PageBuilder
-    src_core_services_pages_builders_raw_RawBuilder --|> src_core_services_pages_builders_base_PageBuilder : PageBuilder
-    src_core_services_pages_builders_sphinx_SphinxBuilder --|> src_core_services_pages_builders_base_PageBuilder : PageBuilder
+    CustomBuilder --|> PageBuilder
+    DocusaurusBuilder --|> PageBuilder
+    HugoBuilder --|> PageBuilder
+    MkDocsBuilder --|> PageBuilder
+    RawBuilder --|> PageBuilder
+    SphinxBuilder --|> PageBuilder
 ```
 
 ### ArtifactPublisher (3 implementations)
@@ -287,19 +287,19 @@ classDiagram
 classDiagram
     direction TD
 
-    class src_core_services_artifacts_publishers_base_ArtifactPublisher {
+    class ArtifactPublisher {
         <<abstract>>
     }
-    class src_core_services_artifacts_publishers_github_release_GitHubReleasePublisher {
+    class GitHubReleasePublisher {
     }
-    class src_core_services_artifacts_publishers_npm_publisher_NpmPublisher {
+    class NpmPublisher {
     }
-    class src_core_services_artifacts_publishers_pypi_PyPIPublisher {
+    class PyPIPublisher {
     }
 
-    src_core_services_artifacts_publishers_github_release_GitHubReleasePublisher --|> src_core_services_artifacts_publishers_base_ArtifactPublisher : ArtifactPublisher
-    src_core_services_artifacts_publishers_npm_publisher_NpmPublisher --|> src_core_services_artifacts_publishers_base_ArtifactPublisher : ArtifactPublisher
-    src_core_services_artifacts_publishers_pypi_PyPIPublisher --|> src_core_services_artifacts_publishers_base_ArtifactPublisher : ArtifactPublisher
+    GitHubReleasePublisher --|> ArtifactPublisher
+    NpmPublisher --|> ArtifactPublisher
+    PyPIPublisher --|> ArtifactPublisher
 ```
 
 ## Module Details
@@ -311,7 +311,7 @@ classDiagram
     direction TD
 
     namespace src_core_data {
-        class src_core_data_DataRegistry {
+        class DataRegistry {
             + infra_services() list[dict]
             + infra_categories() dict[str, str]
             + docker_defaults() dict[str, dict]
@@ -332,7 +332,7 @@ classDiagram
     }
 
     namespace src_core_data_script_templates_lib_code_analyzer {
-        class src_core_data_script_templates_lib_code_analyzer_ClassInfo {
+        class ClassInfo {
             <<dataclass>>
             + name: str
             + qualified_name: str
@@ -346,14 +346,14 @@ classDiagram
             + is_pydantic: bool
             ... 5 more fields
         }
-        class src_core_data_script_templates_lib_code_analyzer_FieldInfo {
+        class FieldInfo {
             <<dataclass>>
             + name: str
             + type_annotation: str
             + is_class_var: bool
             + visibility: str
         }
-        class src_core_data_script_templates_lib_code_analyzer_MethodInfo {
+        class MethodInfo {
             <<dataclass>>
             + name: str
             + is_async: bool
@@ -366,7 +366,7 @@ classDiagram
             + return_type: str
             + decorators: list[str]
         }
-        class src_core_data_script_templates_lib_code_analyzer_ProjectAnalysis {
+        class ProjectAnalysis {
             <<dataclass>>
             + classes: list[ClassInfo]
             + files_analyzed: int
@@ -377,7 +377,7 @@ classDiagram
     }
 
     namespace src_core_data_script_templates_lib_graph_builder {
-        class src_core_data_script_templates_lib_graph_builder_ClassGraph {
+        class ClassGraph {
             <<dataclass>>
             + nodes: dict[str, GraphNode]
             + edges: list[GraphEdge]
@@ -389,7 +389,7 @@ classDiagram
             + get_connected_components() list[list[str]]
             + get_orphan_nodes() list[str]
         }
-        class src_core_data_script_templates_lib_graph_builder_GraphEdge {
+        class GraphEdge {
             <<dataclass>>
             + source: str
             + target: str
@@ -397,7 +397,7 @@ classDiagram
             + label: str
             + cardinality: str
         }
-        class src_core_data_script_templates_lib_graph_builder_GraphNode {
+        class GraphNode {
             <<dataclass>>
             + id: str
             + label: str
@@ -407,12 +407,12 @@ classDiagram
             + methods: list[str]
             + metadata: dict
         }
-        class src_core_data_script_templates_lib_graph_builder_RelationType {
+        class RelationType {
         }
     }
 
     namespace src_core_data_script_templates_lib_mermaid_generator {
-        class src_core_data_script_templates_lib_mermaid_generator_MermaidConfig {
+        class MermaidConfig {
             <<dataclass>>
             + direction: str
             + show_fields: bool
@@ -426,12 +426,12 @@ classDiagram
         }
     }
 
-    src_core_data_script_templates_lib_code_analyzer_ClassInfo o-- src_core_data_script_templates_lib_code_analyzer_FieldInfo : fields
-    src_core_data_script_templates_lib_code_analyzer_ClassInfo o-- src_core_data_script_templates_lib_code_analyzer_MethodInfo : methods
-    src_core_data_script_templates_lib_code_analyzer_ProjectAnalysis o-- src_core_data_script_templates_lib_code_analyzer_ClassInfo : classes
-    src_core_data_script_templates_lib_graph_builder_GraphEdge *-- src_core_data_script_templates_lib_graph_builder_RelationType : relation
-    src_core_data_script_templates_lib_graph_builder_ClassGraph o-- src_core_data_script_templates_lib_graph_builder_GraphNode : nodes
-    src_core_data_script_templates_lib_graph_builder_ClassGraph o-- src_core_data_script_templates_lib_graph_builder_GraphEdge : edges
+    ClassInfo o-- FieldInfo : fields
+    ClassInfo o-- MethodInfo : methods
+    ProjectAnalysis o-- ClassInfo : classes
+    GraphEdge *-- RelationType : relation
+    ClassGraph o-- GraphNode : nodes
+    ClassGraph o-- GraphEdge : edges
 ```
 
 ### core.models (17 classes)
@@ -443,67 +443,67 @@ classDiagram
     direction TD
 
     namespace src_core_models_action {
-        class src_core_models_action_Action {
+        class Action {
         }
-        class src_core_models_action_Receipt {
+        class Receipt {
         }
     }
 
     namespace src_core_models_module {
-        class src_core_models_module_Module {
+        class Module {
         }
-        class src_core_models_module_ModuleHealth {
+        class ModuleHealth {
         }
     }
 
     namespace src_core_models_project {
-        class src_core_models_project_Environment {
+        class Environment {
         }
-        class src_core_models_project_ExternalLinks {
+        class ExternalLinks {
         }
-        class src_core_models_project_ModuleRef {
+        class ModuleRef {
         }
-        class src_core_models_project_Project {
+        class Project {
         }
     }
 
     namespace src_core_models_stack {
-        class src_core_models_stack_AdapterRequirement {
+        class AdapterRequirement {
         }
-        class src_core_models_stack_DetectionRule {
+        class DetectionRule {
         }
-        class src_core_models_stack_Stack {
+        class Stack {
         }
-        class src_core_models_stack_StackCapability {
+        class StackCapability {
         }
     }
 
     namespace src_core_models_state {
-        class src_core_models_state_AdapterState {
+        class AdapterState {
         }
-        class src_core_models_state_ModuleState {
+        class ModuleState {
         }
-        class src_core_models_state_OperationRecord {
+        class OperationRecord {
         }
-        class src_core_models_state_ProjectState {
+        class ProjectState {
         }
     }
 
     namespace src_core_models_template {
-        class src_core_models_template_GeneratedFile {
+        class GeneratedFile {
         }
     }
 
-    src_core_models_module_Module *-- src_core_models_module_ModuleHealth : health
-    src_core_models_project_Project o-- src_core_models_project_Environment : environments
-    src_core_models_project_Project o-- src_core_models_project_ModuleRef : modules
-    src_core_models_project_Project *-- src_core_models_project_ExternalLinks : external
-    src_core_models_stack_Stack o-- src_core_models_stack_AdapterRequirement : requires
-    src_core_models_stack_Stack *-- src_core_models_stack_DetectionRule : detection
-    src_core_models_stack_Stack o-- src_core_models_stack_StackCapability : capabilities
-    src_core_models_state_ProjectState o-- src_core_models_state_ModuleState : modules
-    src_core_models_state_ProjectState o-- src_core_models_state_AdapterState : adapters
-    src_core_models_state_ProjectState *-- src_core_models_state_OperationRecord : last_operation
+    Module *-- ModuleHealth : health
+    Project o-- Environment : environments
+    Project o-- ModuleRef : modules
+    Project *-- ExternalLinks : external
+    Stack o-- AdapterRequirement : requires
+    Stack *-- DetectionRule : detection
+    Stack o-- StackCapability : capabilities
+    ProjectState o-- ModuleState : modules
+    ProjectState o-- AdapterState : adapters
+    ProjectState *-- OperationRecord : last_operation
 ```
 
 #### core.models.action (2 classes)
@@ -513,7 +513,7 @@ classDiagram
     direction TD
 
     namespace src_core_models_action {
-        class src_core_models_action_Action {
+        class Action {
             + id: str
             + name: str
             + adapter: str
@@ -521,7 +521,7 @@ classDiagram
             + params: dict[str, Any]
             + for_module: str | None
         }
-        class src_core_models_action_Receipt {
+        class Receipt {
             + adapter: str
             + action_id: str
             + status: Literal['ok', 'skipped', 'failed']
@@ -549,7 +549,7 @@ classDiagram
     direction TD
 
     namespace src_core_models_module {
-        class src_core_models_module_Module {
+        class Module {
             + name: str
             + path: str
             + domain: str
@@ -564,14 +564,14 @@ classDiagram
             + effective_stack() str
             + is_detected() bool
         }
-        class src_core_models_module_ModuleHealth {
+        class ModuleHealth {
             + status: str
             + message: str
             + last_checked_at: str | None
         }
     }
 
-    src_core_models_module_Module *-- src_core_models_module_ModuleHealth : health
+    Module *-- ModuleHealth : health
 ```
 
 #### core.models.project (4 classes)
@@ -581,25 +581,25 @@ classDiagram
     direction TD
 
     namespace src_core_models_project {
-        class src_core_models_project_Environment {
+        class Environment {
             + name: str
             + description: str
             + default: bool
         }
-        class src_core_models_project_ExternalLinks {
+        class ExternalLinks {
             + ci: str | None
             + registry: str | None
             + monitoring: str | None
             + extra: dict[str, str]
         }
-        class src_core_models_project_ModuleRef {
+        class ModuleRef {
             + name: str
             + path: str
             + domain: str
             + stack: str
             + description: str
         }
-        class src_core_models_project_Project {
+        class Project {
             + version: int
             + name: str
             + description: str
@@ -615,9 +615,9 @@ classDiagram
         }
     }
 
-    src_core_models_project_Project o-- src_core_models_project_Environment : environments
-    src_core_models_project_Project o-- src_core_models_project_ModuleRef : modules
-    src_core_models_project_Project *-- src_core_models_project_ExternalLinks : external
+    Project o-- Environment : environments
+    Project o-- ModuleRef : modules
+    Project *-- ExternalLinks : external
 ```
 
 #### core.models.stack (4 classes)
@@ -627,16 +627,16 @@ classDiagram
     direction TD
 
     namespace src_core_models_stack {
-        class src_core_models_stack_AdapterRequirement {
+        class AdapterRequirement {
             + adapter: str
             + min_version: str
         }
-        class src_core_models_stack_DetectionRule {
+        class DetectionRule {
             + files_any_of: list[str]
             + files_all_of: list[str]
             + content_contains: dict[str, str]
         }
-        class src_core_models_stack_Stack {
+        class Stack {
             + name: str
             + description: str
             + detail: str
@@ -650,7 +650,7 @@ classDiagram
             + get_capability(name) StackCapability | None
             + capability_names() list[str]
         }
-        class src_core_models_stack_StackCapability {
+        class StackCapability {
             + name: str
             + adapter: str
             + command: str
@@ -658,9 +658,9 @@ classDiagram
         }
     }
 
-    src_core_models_stack_Stack o-- src_core_models_stack_AdapterRequirement : requires
-    src_core_models_stack_Stack *-- src_core_models_stack_DetectionRule : detection
-    src_core_models_stack_Stack o-- src_core_models_stack_StackCapability : capabilities
+    Stack o-- AdapterRequirement : requires
+    Stack *-- DetectionRule : detection
+    Stack o-- StackCapability : capabilities
 ```
 
 #### core.models.state (4 classes)
@@ -670,7 +670,7 @@ classDiagram
     direction TD
 
     namespace src_core_models_state {
-        class src_core_models_state_AdapterState {
+        class AdapterState {
             + name: str
             + available: bool
             + version: str | None
@@ -678,7 +678,7 @@ classDiagram
             + failure_count: int
             + circuit_state: str
         }
-        class src_core_models_state_ModuleState {
+        class ModuleState {
             + name: str
             + detected: bool
             + stack: str
@@ -686,7 +686,7 @@ classDiagram
             + last_action_at: str | None
             + last_action_status: str | None
         }
-        class src_core_models_state_OperationRecord {
+        class OperationRecord {
             + operation_id: str
             + automation: str
             + started_at: str
@@ -696,7 +696,7 @@ classDiagram
             + actions_succeeded: int
             + actions_failed: int
         }
-        class src_core_models_state_ProjectState {
+        class ProjectState {
             + schema_version: int
             + project_name: str
             + current_environment: str
@@ -713,9 +713,9 @@ classDiagram
         }
     }
 
-    src_core_models_state_ProjectState o-- src_core_models_state_ModuleState : modules
-    src_core_models_state_ProjectState o-- src_core_models_state_AdapterState : adapters
-    src_core_models_state_ProjectState *-- src_core_models_state_OperationRecord : last_operation
+    ProjectState o-- ModuleState : modules
+    ProjectState o-- AdapterState : adapters
+    ProjectState *-- OperationRecord : last_operation
 ```
 
 #### core.models.template (1 classes)
@@ -725,7 +725,7 @@ classDiagram
     direction TD
 
     namespace src_core_models_template {
-        class src_core_models_template_GeneratedFile {
+        class GeneratedFile {
             + path: str
             + content: str
             + overwrite: bool
@@ -742,7 +742,7 @@ classDiagram
     direction TD
 
     namespace src_core_observability_health {
-        class src_core_observability_health_ComponentHealth {
+        class ComponentHealth {
             <<dataclass>>
             + name: str
             + status: str
@@ -750,7 +750,7 @@ classDiagram
             + details: dict[str, Any]
             + to_dict() dict[str, Any]
         }
-        class src_core_observability_health_SystemHealth {
+        class SystemHealth {
             <<dataclass>>
             + status: str
             + timestamp: str
@@ -763,7 +763,7 @@ classDiagram
     }
 
     namespace src_core_observability_metrics {
-        class src_core_observability_metrics_Counter {
+        class Counter {
             <<dataclass>>
             + name: str
             + value: int
@@ -771,7 +771,7 @@ classDiagram
             + inc(n) None
             + to_dict() dict[str, Any]
         }
-        class src_core_observability_metrics_Gauge {
+        class Gauge {
             <<dataclass>>
             + name: str
             + value: float
@@ -781,7 +781,7 @@ classDiagram
             + dec(n) None
             + to_dict() dict[str, Any]
         }
-        class src_core_observability_metrics_Histogram {
+        class Histogram {
             <<dataclass>>
             + name: str
             # _values: list[float]
@@ -795,7 +795,7 @@ classDiagram
             + p95() float
             + to_dict() dict[str, Any]
         }
-        class src_core_observability_metrics_MetricsRegistry {
+        class MetricsRegistry {
             # _counters: dict[str, Counter]
             # _gauges: dict[str, Gauge]
             # _histograms: dict[str, Histogram]
@@ -807,7 +807,7 @@ classDiagram
             + to_dict() dict[str, list[dict]]
             + reset() None
         }
-        class src_core_observability_metrics_TimerContext {
+        class TimerContext {
             # _histogram: Any
             # _start: float
             # __init__(histogram)
@@ -816,11 +816,11 @@ classDiagram
         }
     }
 
-    src_core_observability_health_SystemHealth o-- src_core_observability_health_ComponentHealth : components
-    src_core_observability_metrics_MetricsRegistry o-- src_core_observability_metrics_Counter : _counters
-    src_core_observability_metrics_MetricsRegistry o-- src_core_observability_metrics_Gauge : _gauges
-    src_core_observability_metrics_MetricsRegistry o-- src_core_observability_metrics_Histogram : _histograms
-    src_core_observability_metrics_MetricsRegistry ..> src_core_observability_metrics_TimerContext
+    SystemHealth o-- ComponentHealth : components
+    MetricsRegistry o-- Counter : _counters
+    MetricsRegistry o-- Gauge : _gauges
+    MetricsRegistry o-- Histogram : _histograms
+    MetricsRegistry ..> TimerContext
 ```
 
 ### core.reliability (5 classes)
@@ -830,7 +830,7 @@ classDiagram
     direction TD
 
     namespace src_core_reliability_circuit_breaker {
-        class src_core_reliability_circuit_breaker_CircuitBreaker {
+        class CircuitBreaker {
             <<dataclass>>
             + name: str
             + failure_threshold: int
@@ -849,7 +849,7 @@ classDiagram
             + to_dict() dict[str, Any]
             # _transition(new_state) None
         }
-        class src_core_reliability_circuit_breaker_CircuitBreakerRegistry {
+        class CircuitBreakerRegistry {
             <<dataclass>>
             + breakers: dict[str, CircuitBreaker]
             + default_threshold: int
@@ -858,12 +858,12 @@ classDiagram
             + get_status() dict[str, dict[str, Any]]
             + reset_all() None
         }
-        class src_core_reliability_circuit_breaker_CircuitState {
+        class CircuitState {
         }
     }
 
     namespace src_core_reliability_retry_queue {
-        class src_core_reliability_retry_queue_RetryItem {
+        class RetryItem {
             <<dataclass>>
             + id: str
             + action_id: str
@@ -880,7 +880,7 @@ classDiagram
             + to_dict() dict[str, Any]
             + from_dict(data) RetryItem
         }
-        class src_core_reliability_retry_queue_RetryQueue {
+        class RetryQueue {
             # _path: Any
             # _items: dict[str, RetryItem]
             # _max_attempts: Any
@@ -901,12 +901,12 @@ classDiagram
         }
     }
 
-    src_core_reliability_circuit_breaker_CircuitBreaker *-- src_core_reliability_circuit_breaker_CircuitState : state
-    src_core_reliability_circuit_breaker_CircuitBreakerRegistry o-- src_core_reliability_circuit_breaker_CircuitBreaker : breakers
-    src_core_reliability_retry_queue_RetryQueue o-- src_core_reliability_retry_queue_RetryItem : _items
+    CircuitBreaker *-- CircuitState : state
+    CircuitBreakerRegistry o-- CircuitBreaker : breakers
+    RetryQueue o-- RetryItem : _items
 ```
 
-### core.services (121 classes)
+### core.services (120 classes)
 
 #### Overview
 
@@ -915,559 +915,554 @@ classDiagram
     direction TD
 
     namespace src_core_services_artifacts_builders_base {
-        class src_core_services_artifacts_builders_base_ArtifactBuilder {
+        class ArtifactBuilder {
             <<abstract>>
         }
-        class src_core_services_artifacts_builders_base_ArtifactStageInfo {
+        class ArtifactStageInfo {
             <<dataclass>>
         }
     }
 
     namespace src_core_services_artifacts_builders_cargo {
-        class src_core_services_artifacts_builders_cargo_CargoBuilder {
+        class CargoBuilder {
         }
     }
 
     namespace src_core_services_artifacts_builders_docker {
-        class src_core_services_artifacts_builders_docker_DockerBuilder {
+        class DockerBuilder {
         }
     }
 
     namespace src_core_services_artifacts_builders_dotnet {
-        class src_core_services_artifacts_builders_dotnet_DotnetBuilder {
+        class DotnetBuilder {
         }
     }
 
     namespace src_core_services_artifacts_builders_gem {
-        class src_core_services_artifacts_builders_gem_GemBuilder {
+        class GemBuilder {
         }
     }
 
     namespace src_core_services_artifacts_builders_go {
-        class src_core_services_artifacts_builders_go_GoBuilder {
+        class GoBuilder {
         }
     }
 
     namespace src_core_services_artifacts_builders_gradle {
-        class src_core_services_artifacts_builders_gradle_GradleBuilder {
+        class GradleBuilder {
         }
     }
 
     namespace src_core_services_artifacts_builders_makefile {
-        class src_core_services_artifacts_builders_makefile_MakefileBuilder {
+        class MakefileBuilder {
         }
     }
 
     namespace src_core_services_artifacts_builders_maven {
-        class src_core_services_artifacts_builders_maven_MavenBuilder {
+        class MavenBuilder {
         }
     }
 
     namespace src_core_services_artifacts_builders_mix {
-        class src_core_services_artifacts_builders_mix_MixBuilder {
+        class MixBuilder {
         }
     }
 
     namespace src_core_services_artifacts_builders_npm {
-        class src_core_services_artifacts_builders_npm_NpmBuilder {
+        class NpmBuilder {
         }
     }
 
     namespace src_core_services_artifacts_builders_pip_builder {
-        class src_core_services_artifacts_builders_pip_builder_PipBuilder {
+        class PipBuilder {
         }
     }
 
     namespace src_core_services_artifacts_builders_script {
-        class src_core_services_artifacts_builders_script_ScriptBuilder {
+        class ScriptBuilder {
         }
     }
 
     namespace src_core_services_artifacts_engine {
-        class src_core_services_artifacts_engine_ArtifactBuildResult {
+        class ArtifactBuildResult {
             <<dataclass>>
         }
-        class src_core_services_artifacts_engine_ArtifactTarget {
+        class ArtifactTarget {
             <<dataclass>>
         }
     }
 
     namespace src_core_services_artifacts_publishers_base {
-        class src_core_services_artifacts_publishers_base_ArtifactPublishResult {
+        class ArtifactPublishResult {
             <<dataclass>>
         }
-        class src_core_services_artifacts_publishers_base_ArtifactPublisher {
+        class ArtifactPublisher {
             <<abstract>>
         }
     }
 
     namespace src_core_services_artifacts_publishers_github_release {
-        class src_core_services_artifacts_publishers_github_release_GitHubReleasePublisher {
+        class GitHubReleasePublisher {
         }
     }
 
     namespace src_core_services_artifacts_publishers_npm_publisher {
-        class src_core_services_artifacts_publishers_npm_publisher_NpmPublisher {
+        class NpmPublisher {
         }
     }
 
     namespace src_core_services_artifacts_publishers_pypi {
-        class src_core_services_artifacts_publishers_pypi_PyPIPublisher {
+        class PyPIPublisher {
         }
     }
 
     namespace src_core_services_audit_catalog {
-        class src_core_services_audit_catalog_LibraryInfo {
+        class LibraryInfo {
         }
     }
 
     namespace src_core_services_audit_models {
-        class src_core_services_audit_models_AuditMeta {
+        class AuditMeta {
         }
-        class src_core_services_audit_models_AuditScores {
+        class AuditScores {
         }
-        class src_core_services_audit_models_ClientInfo {
+        class ClientInfo {
         }
-        class src_core_services_audit_models_ComponentInfo {
+        class ComponentInfo {
         }
-        class src_core_services_audit_models_CrossoverInfo {
+        class CrossoverInfo {
         }
-        class src_core_services_audit_models_DependencyInfo {
+        class DependencyInfo {
         }
-        class src_core_services_audit_models_EntrypointInfo {
+        class EntrypointInfo {
         }
-        class src_core_services_audit_models_L0Result {
+        class L0Result {
         }
-        class src_core_services_audit_models_L1ClientsResult {
+        class L1ClientsResult {
         }
-        class src_core_services_audit_models_L1DepsResult {
+        class L1DepsResult {
         }
-        class src_core_services_audit_models_L1StructResult {
+        class L1StructResult {
         }
-        class src_core_services_audit_models_ManifestInfo {
+        class ManifestInfo {
         }
-        class src_core_services_audit_models_ModuleInfo {
+        class ModuleInfo {
         }
-        class src_core_services_audit_models_OSInfo {
+        class OSInfo {
         }
-        class src_core_services_audit_models_RuntimeInfo {
+        class RuntimeInfo {
         }
-        class src_core_services_audit_models_ScoreBreakdownItem {
+        class ScoreBreakdownItem {
         }
-        class src_core_services_audit_models_ScoreResult {
+        class ScoreResult {
         }
-        class src_core_services_audit_models_ToolInfo {
+        class ToolInfo {
         }
     }
 
     namespace src_core_services_audit_narrative {
-        class src_core_services_audit_narrative_Observation {
+        class Observation {
             <<dataclass>>
         }
-        class src_core_services_audit_narrative_Recommendation {
+        class Recommendation {
             <<dataclass>>
         }
     }
 
     namespace src_core_services_audit_parsers {
-        class src_core_services_audit_parsers_ParserRegistry {
+        class ParserRegistry {
         }
     }
 
     namespace src_core_services_audit_parsers__base {
-        class src_core_services_audit_parsers__base_BaseParser {
+        class BaseParser {
             <<abstract>>
         }
-        class src_core_services_audit_parsers__base_FileAnalysis {
+        class FileAnalysis {
             <<dataclass>>
         }
-        class src_core_services_audit_parsers__base_FileMetrics {
+        class FileMetrics {
             <<dataclass>>
         }
-        class src_core_services_audit_parsers__base_ImportInfo {
+        class ImportInfo {
             <<dataclass>>
         }
-        class src_core_services_audit_parsers__base_SymbolInfo {
+        class SymbolInfo {
             <<dataclass>>
         }
-        class src_core_services_audit_parsers__base_SymbolLocation {
+        class SymbolLocation {
             <<dataclass>>
         }
     }
 
     namespace src_core_services_audit_parsers__fallback {
-        class src_core_services_audit_parsers__fallback_FallbackParser {
+        class FallbackParser {
         }
     }
 
     namespace src_core_services_audit_parsers__rubrics {
-        class src_core_services_audit_parsers__rubrics_QualityDimension {
+        class QualityDimension {
             <<dataclass>>
         }
     }
 
     namespace src_core_services_audit_parsers_c_parser {
-        class src_core_services_audit_parsers_c_parser_CFamilyParser {
+        class CFamilyParser {
         }
     }
 
     namespace src_core_services_audit_parsers_config_parser {
-        class src_core_services_audit_parsers_config_parser_ConfigParser {
+        class ConfigParser {
         }
     }
 
     namespace src_core_services_audit_parsers_css_parser {
-        class src_core_services_audit_parsers_css_parser_CSSParser {
+        class CSSParser {
         }
     }
 
     namespace src_core_services_audit_parsers_go_parser {
-        class src_core_services_audit_parsers_go_parser_GoParser {
+        class GoParser {
         }
     }
 
     namespace src_core_services_audit_parsers_js_parser {
-        class src_core_services_audit_parsers_js_parser_JavaScriptParser {
+        class JavaScriptParser {
         }
     }
 
     namespace src_core_services_audit_parsers_jvm_parser {
-        class src_core_services_audit_parsers_jvm_parser_JVMParser {
+        class JVMParser {
         }
     }
 
     namespace src_core_services_audit_parsers_multilang_parser {
-        class src_core_services_audit_parsers_multilang_parser_MultiLangParser {
+        class MultiLangParser {
         }
     }
 
     namespace src_core_services_audit_parsers_python_parser {
-        class src_core_services_audit_parsers_python_parser_PythonParser {
+        class PythonParser {
         }
     }
 
     namespace src_core_services_audit_parsers_rust_parser {
-        class src_core_services_audit_parsers_rust_parser_RustParser {
+        class RustParser {
         }
     }
 
     namespace src_core_services_audit_parsers_template_parser {
-        class src_core_services_audit_parsers_template_parser_TemplateParser {
+        class TemplateParser {
         }
     }
 
     namespace src_core_services_changelog_models {
-        class src_core_services_changelog_models_CCMessage {
+        class CCMessage {
             <<dataclass>>
         }
-        class src_core_services_changelog_models_Changelog {
+        class Changelog {
             <<dataclass>>
         }
-        class src_core_services_changelog_models_ChangelogEntry {
+        class ChangelogEntry {
             <<dataclass>>
         }
-        class src_core_services_changelog_models_ChangelogSection {
+        class ChangelogSection {
             <<dataclass>>
         }
     }
 
     namespace src_core_services_chat_models {
-        class src_core_services_chat_models_ChatMessage {
+        class ChatMessage {
         }
-        class src_core_services_chat_models_MessageFlags {
+        class MessageFlags {
         }
-        class src_core_services_chat_models_Thread {
+        class Thread {
         }
     }
 
     namespace src_core_services_content_outline {
-        class src_core_services_content_outline_CssOutlineStrategy {
+        class CssOutlineStrategy {
         }
-        class src_core_services_content_outline_EncryptedOutlineStrategy {
+        class EncryptedOutlineStrategy {
         }
-        class src_core_services_content_outline_FallbackOutlineStrategy {
+        class FallbackOutlineStrategy {
         }
-        class src_core_services_content_outline_GoOutlineStrategy {
+        class GoOutlineStrategy {
         }
-        class src_core_services_content_outline_HtmlOutlineStrategy {
+        class HtmlOutlineStrategy {
         }
-        class src_core_services_content_outline_JavaScriptOutlineStrategy {
+        class JavaScriptOutlineStrategy {
         }
-        class src_core_services_content_outline_JsonOutlineStrategy {
+        class JsonOutlineStrategy {
         }
-        class src_core_services_content_outline_MarkdownOutlineStrategy {
+        class MarkdownOutlineStrategy {
         }
-        class src_core_services_content_outline_OutlineStrategy {
+        class OutlineStrategy {
         }
-        class src_core_services_content_outline_PythonOutlineStrategy {
+        class PythonOutlineStrategy {
         }
-        class src_core_services_content_outline_RustOutlineStrategy {
+        class RustOutlineStrategy {
         }
-        class src_core_services_content_outline_ShellOutlineStrategy {
+        class ShellOutlineStrategy {
         }
-        class src_core_services_content_outline_SqlOutlineStrategy {
+        class SqlOutlineStrategy {
         }
-        class src_core_services_content_outline_TomlOutlineStrategy {
+        class TomlOutlineStrategy {
         }
-        class src_core_services_content_outline_YamlOutlineStrategy {
+        class YamlOutlineStrategy {
         }
     }
 
     namespace src_core_services_detection {
-        class src_core_services_detection_DetectionResult {
+        class DetectionResult {
             <<dataclass>>
         }
     }
 
     namespace src_core_services_event_bus {
-        class src_core_services_event_bus_EventBus {
+        class EventBus {
         }
     }
 
     namespace src_core_services_ledger_models {
-        class src_core_services_ledger_models_Run {
+        class Run {
         }
-        class src_core_services_ledger_models_RunEvent {
+        class RunEvent {
         }
     }
 
     namespace src_core_services_ledger_worktree {
-        class src_core_services_ledger_worktree_GitIdentityError {
+        class GitIdentityError {
         }
     }
 
     namespace src_core_services_pages_pipeline_scanner {
-        class src_core_services_pages_pipeline_scanner_DetectedCI {
+        class DetectedCI {
             <<dataclass>>
         }
-        class src_core_services_pages_pipeline_scanner_DetectedFramework {
+        class DetectedFramework {
             <<dataclass>>
         }
-        class src_core_services_pages_pipeline_scanner_DetectedScript {
+        class DetectedScript {
             <<dataclass>>
         }
-        class src_core_services_pages_pipeline_scanner_PipelineScanResult {
+        class PipelineScanResult {
             <<dataclass>>
         }
     }
 
     namespace src_core_services_pages_builders_audit_directive {
-        class src_core_services_pages_builders_audit_directive_AuditDataBundle {
+        class AuditDataBundle {
             <<dataclass>>
         }
-        class src_core_services_pages_builders_audit_directive_AuditScope {
+        class AuditScope {
             <<dataclass>>
         }
-        class src_core_services_pages_builders_audit_directive_DirectiveMatch {
+        class DirectiveMatch {
             <<dataclass>>
         }
-        class src_core_services_pages_builders_audit_directive_ScopedAuditData {
+        class ScopedAuditData {
             <<dataclass>>
         }
     }
 
     namespace src_core_services_pages_builders_base {
-        class src_core_services_pages_builders_base_BuildResult {
+        class BuildResult {
             <<dataclass>>
         }
-        class src_core_services_pages_builders_base_BuilderInfo {
+        class BuilderInfo {
             <<dataclass>>
         }
-        class src_core_services_pages_builders_base_ConfigField {
+        class ConfigField {
             <<dataclass>>
         }
-        class src_core_services_pages_builders_base_PageBuilder {
+        class PageBuilder {
             <<abstract>>
         }
-        class src_core_services_pages_builders_base_PipelineResult {
+        class PipelineResult {
             <<dataclass>>
         }
-        class src_core_services_pages_builders_base_SegmentConfig {
+        class SegmentConfig {
             <<dataclass>>
         }
-        class src_core_services_pages_builders_base_StageInfo {
+        class StageInfo {
             <<dataclass>>
         }
-        class src_core_services_pages_builders_base_StageResult {
+        class StageResult {
             <<dataclass>>
         }
     }
 
     namespace src_core_services_pages_builders_custom {
-        class src_core_services_pages_builders_custom_CustomBuilder {
+        class CustomBuilder {
         }
     }
 
     namespace src_core_services_pages_builders_docusaurus {
-        class src_core_services_pages_builders_docusaurus_DocusaurusBuilder {
+        class DocusaurusBuilder {
         }
     }
 
     namespace src_core_services_pages_builders_hugo {
-        class src_core_services_pages_builders_hugo_HugoBuilder {
+        class HugoBuilder {
         }
     }
 
     namespace src_core_services_pages_builders_mkdocs {
-        class src_core_services_pages_builders_mkdocs_MkDocsBuilder {
+        class MkDocsBuilder {
         }
     }
 
     namespace src_core_services_pages_builders_raw {
-        class src_core_services_pages_builders_raw_RawBuilder {
+        class RawBuilder {
         }
     }
 
     namespace src_core_services_pages_builders_sphinx {
-        class src_core_services_pages_builders_sphinx_SphinxBuilder {
+        class SphinxBuilder {
         }
     }
 
     namespace src_core_services_peek {
-        class src_core_services_peek_PeekCandidate {
+        class PeekCandidate {
             <<dataclass>>
         }
-        class src_core_services_peek_PeekReference {
+        class PeekReference {
             <<dataclass>>
         }
-        class src_core_services_peek_SymbolEntry {
+        class SymbolEntry {
             <<dataclass>>
         }
     }
 
     namespace src_core_services_project_index {
-        class src_core_services_project_index_IndexSymbolEntry {
+        class IndexSymbolEntry {
             <<dataclass>>
         }
-        class src_core_services_project_index_ProjectIndex {
+        class ProjectIndex {
             <<dataclass>>
         }
     }
 
     namespace src_core_services_scripts_models {
-        class src_core_services_scripts_models_ScriptConfig {
+        class ScriptConfig {
             <<dataclass>>
         }
-        class src_core_services_scripts_models_ScriptMeta {
+        class ScriptMeta {
             <<dataclass>>
         }
-        class src_core_services_scripts_models_ScriptParameter {
+        class ScriptParameter {
             <<dataclass>>
         }
     }
 
     namespace src_core_services_trace_models {
-        class src_core_services_trace_models_SessionTrace {
+        class SessionTrace {
         }
-        class src_core_services_trace_models_TraceEvent {
-        }
-    }
-
-    namespace src_core_services_trace_trace_recorder {
-        class src_core_services_trace_trace_recorder__Recording {
+        class TraceEvent {
         }
     }
 
-    src_core_services_artifacts_builders_cargo_CargoBuilder --|> src_core_services_artifacts_builders_base_ArtifactBuilder : ArtifactBuilder
-    src_core_services_artifacts_builders_docker_DockerBuilder --|> src_core_services_artifacts_builders_base_ArtifactBuilder : ArtifactBuilder
-    src_core_services_artifacts_builders_dotnet_DotnetBuilder --|> src_core_services_artifacts_builders_base_ArtifactBuilder : ArtifactBuilder
-    src_core_services_artifacts_builders_gem_GemBuilder --|> src_core_services_artifacts_builders_base_ArtifactBuilder : ArtifactBuilder
-    src_core_services_artifacts_builders_go_GoBuilder --|> src_core_services_artifacts_builders_base_ArtifactBuilder : ArtifactBuilder
-    src_core_services_artifacts_builders_gradle_GradleBuilder --|> src_core_services_artifacts_builders_base_ArtifactBuilder : ArtifactBuilder
-    src_core_services_artifacts_builders_makefile_MakefileBuilder --|> src_core_services_artifacts_builders_base_ArtifactBuilder : ArtifactBuilder
-    src_core_services_artifacts_builders_maven_MavenBuilder --|> src_core_services_artifacts_builders_base_ArtifactBuilder : ArtifactBuilder
-    src_core_services_artifacts_builders_mix_MixBuilder --|> src_core_services_artifacts_builders_base_ArtifactBuilder : ArtifactBuilder
-    src_core_services_artifacts_builders_npm_NpmBuilder --|> src_core_services_artifacts_builders_base_ArtifactBuilder : ArtifactBuilder
-    src_core_services_artifacts_builders_pip_builder_PipBuilder --|> src_core_services_artifacts_builders_base_ArtifactBuilder : ArtifactBuilder
-    src_core_services_artifacts_builders_script_ScriptBuilder --|> src_core_services_artifacts_builders_base_ArtifactBuilder : ArtifactBuilder
-    src_core_services_artifacts_publishers_github_release_GitHubReleasePublisher --|> src_core_services_artifacts_publishers_base_ArtifactPublisher : ArtifactPublisher
-    src_core_services_artifacts_publishers_npm_publisher_NpmPublisher --|> src_core_services_artifacts_publishers_base_ArtifactPublisher : ArtifactPublisher
-    src_core_services_artifacts_publishers_pypi_PyPIPublisher --|> src_core_services_artifacts_publishers_base_ArtifactPublisher : ArtifactPublisher
-    src_core_services_audit_parsers__fallback_FallbackParser --|> src_core_services_audit_parsers__base_BaseParser : BaseParser
-    src_core_services_audit_parsers_c_parser_CFamilyParser --|> src_core_services_audit_parsers__base_BaseParser : BaseParser
-    src_core_services_audit_parsers_config_parser_ConfigParser --|> src_core_services_audit_parsers__base_BaseParser : BaseParser
-    src_core_services_audit_parsers_css_parser_CSSParser --|> src_core_services_audit_parsers__base_BaseParser : BaseParser
-    src_core_services_audit_parsers_go_parser_GoParser --|> src_core_services_audit_parsers__base_BaseParser : BaseParser
-    src_core_services_audit_parsers_js_parser_JavaScriptParser --|> src_core_services_audit_parsers__base_BaseParser : BaseParser
-    src_core_services_audit_parsers_jvm_parser_JVMParser --|> src_core_services_audit_parsers__base_BaseParser : BaseParser
-    src_core_services_audit_parsers_multilang_parser_MultiLangParser --|> src_core_services_audit_parsers__base_BaseParser : BaseParser
-    src_core_services_audit_parsers_python_parser_PythonParser --|> src_core_services_audit_parsers__base_BaseParser : BaseParser
-    src_core_services_audit_parsers_rust_parser_RustParser --|> src_core_services_audit_parsers__base_BaseParser : BaseParser
-    src_core_services_audit_parsers_template_parser_TemplateParser --|> src_core_services_audit_parsers__base_BaseParser : BaseParser
-    src_core_services_content_outline_MarkdownOutlineStrategy --|> src_core_services_content_outline_OutlineStrategy : OutlineStrategy
-    src_core_services_content_outline_PythonOutlineStrategy --|> src_core_services_content_outline_OutlineStrategy : OutlineStrategy
-    src_core_services_content_outline_EncryptedOutlineStrategy --|> src_core_services_content_outline_OutlineStrategy : OutlineStrategy
-    src_core_services_content_outline_JavaScriptOutlineStrategy --|> src_core_services_content_outline_OutlineStrategy : OutlineStrategy
-    src_core_services_content_outline_GoOutlineStrategy --|> src_core_services_content_outline_OutlineStrategy : OutlineStrategy
-    src_core_services_content_outline_RustOutlineStrategy --|> src_core_services_content_outline_OutlineStrategy : OutlineStrategy
-    src_core_services_content_outline_HtmlOutlineStrategy --|> src_core_services_content_outline_OutlineStrategy : OutlineStrategy
-    src_core_services_content_outline_CssOutlineStrategy --|> src_core_services_content_outline_OutlineStrategy : OutlineStrategy
-    src_core_services_content_outline_YamlOutlineStrategy --|> src_core_services_content_outline_OutlineStrategy : OutlineStrategy
-    src_core_services_content_outline_JsonOutlineStrategy --|> src_core_services_content_outline_OutlineStrategy : OutlineStrategy
-    src_core_services_content_outline_TomlOutlineStrategy --|> src_core_services_content_outline_OutlineStrategy : OutlineStrategy
-    src_core_services_content_outline_ShellOutlineStrategy --|> src_core_services_content_outline_OutlineStrategy : OutlineStrategy
-    src_core_services_content_outline_SqlOutlineStrategy --|> src_core_services_content_outline_OutlineStrategy : OutlineStrategy
-    src_core_services_content_outline_FallbackOutlineStrategy --|> src_core_services_content_outline_OutlineStrategy : OutlineStrategy
-    src_core_services_pages_builders_custom_CustomBuilder --|> src_core_services_pages_builders_base_PageBuilder : PageBuilder
-    src_core_services_pages_builders_docusaurus_DocusaurusBuilder --|> src_core_services_pages_builders_base_PageBuilder : PageBuilder
-    src_core_services_pages_builders_hugo_HugoBuilder --|> src_core_services_pages_builders_base_PageBuilder : PageBuilder
-    src_core_services_pages_builders_mkdocs_MkDocsBuilder --|> src_core_services_pages_builders_base_PageBuilder : PageBuilder
-    src_core_services_pages_builders_raw_RawBuilder --|> src_core_services_pages_builders_base_PageBuilder : PageBuilder
-    src_core_services_pages_builders_sphinx_SphinxBuilder --|> src_core_services_pages_builders_base_PageBuilder : PageBuilder
-    src_core_services_audit_models_L0Result *-- src_core_services_audit_models_AuditMeta : _meta
-    src_core_services_audit_models_L0Result *-- src_core_services_audit_models_OSInfo : os
-    src_core_services_audit_models_L0Result *-- src_core_services_audit_models_RuntimeInfo : runtime
-    src_core_services_audit_models_L0Result o-- src_core_services_audit_models_ToolInfo : tools
-    src_core_services_audit_models_L0Result o-- src_core_services_audit_models_ModuleInfo : modules
-    src_core_services_audit_models_L0Result o-- src_core_services_audit_models_ManifestInfo : manifests
-    src_core_services_audit_models_L1DepsResult *-- src_core_services_audit_models_AuditMeta : _meta
-    src_core_services_audit_models_L1DepsResult o-- src_core_services_audit_models_DependencyInfo : dependencies
-    src_core_services_audit_models_L1DepsResult o-- src_core_services_audit_models_CrossoverInfo : crossovers
-    src_core_services_audit_models_L1StructResult *-- src_core_services_audit_models_AuditMeta : _meta
-    src_core_services_audit_models_L1StructResult o-- src_core_services_audit_models_ComponentInfo : components
-    src_core_services_audit_models_L1StructResult o-- src_core_services_audit_models_EntrypointInfo : entrypoints
-    src_core_services_audit_models_L1ClientsResult *-- src_core_services_audit_models_AuditMeta : _meta
-    src_core_services_audit_models_L1ClientsResult o-- src_core_services_audit_models_ClientInfo : clients
-    src_core_services_audit_models_ScoreResult o-- src_core_services_audit_models_ScoreBreakdownItem : breakdown
-    src_core_services_audit_models_AuditScores *-- src_core_services_audit_models_AuditMeta : _meta
-    src_core_services_audit_models_AuditScores *-- src_core_services_audit_models_ScoreResult : complexity
-    src_core_services_audit_parsers_ParserRegistry o-- src_core_services_audit_parsers__base_BaseParser : _parsers
-    src_core_services_audit_parsers_ParserRegistry --> src_core_services_audit_parsers__base_BaseParser : _fallback
-    src_core_services_audit_parsers__base_FileAnalysis o-- src_core_services_audit_parsers__base_ImportInfo : imports
-    src_core_services_audit_parsers__base_FileAnalysis o-- src_core_services_audit_parsers__base_SymbolInfo : symbols
-    src_core_services_audit_parsers__base_FileAnalysis *-- src_core_services_audit_parsers__base_FileMetrics : metrics
-    src_core_services_audit_parsers__base_FileAnalysis o-- src_core_services_audit_parsers__base_SymbolLocation : symbol_locations
-    src_core_services_changelog_models_Changelog *-- src_core_services_changelog_models_ChangelogSection : unreleased
-    src_core_services_changelog_models_Changelog o-- src_core_services_changelog_models_ChangelogSection : releases
-    src_core_services_chat_models_ChatMessage *-- src_core_services_chat_models_MessageFlags : flags
-    src_core_services_pages_pipeline_scanner_PipelineScanResult o-- src_core_services_pages_pipeline_scanner_DetectedScript : scripts
-    src_core_services_pages_pipeline_scanner_PipelineScanResult o-- src_core_services_pages_pipeline_scanner_DetectedFramework : frameworks
-    src_core_services_pages_pipeline_scanner_PipelineScanResult o-- src_core_services_pages_pipeline_scanner_DetectedCI : ci_workflows
-    src_core_services_pages_builders_audit_directive_ScopedAuditData *-- src_core_services_pages_builders_audit_directive_AuditScope : scope
-    src_core_services_pages_builders_base_PipelineResult o-- src_core_services_pages_builders_base_StageResult : stages
-    src_core_services_pages_builders_custom_CustomBuilder --> src_core_services_pages_builders_base_SegmentConfig : _segment
-    src_core_services_scripts_models_ScriptMeta o-- src_core_services_scripts_models_ScriptParameter : parameters
-    src_core_services_trace_models_SessionTrace o-- src_core_services_trace_models_TraceEvent : events
-    src_core_services_audit_parsers__base_BaseParser ..> src_core_services_audit_parsers__base_FileAnalysis
-    src_core_services_audit_parsers__fallback_FallbackParser ..> src_core_services_audit_parsers__base_FileAnalysis
-    src_core_services_audit_parsers_c_parser_CFamilyParser ..> src_core_services_audit_parsers__base_FileAnalysis
-    src_core_services_audit_parsers_config_parser_ConfigParser ..> src_core_services_audit_parsers__base_FileAnalysis
-    src_core_services_audit_parsers_css_parser_CSSParser ..> src_core_services_audit_parsers__base_FileAnalysis
-    src_core_services_audit_parsers_go_parser_GoParser ..> src_core_services_audit_parsers__base_FileAnalysis
-    src_core_services_audit_parsers_js_parser_JavaScriptParser ..> src_core_services_audit_parsers__base_FileAnalysis
-    src_core_services_audit_parsers_js_parser_JavaScriptParser ..> src_core_services_audit_parsers__base_FileMetrics
-    src_core_services_audit_parsers_jvm_parser_JVMParser ..> src_core_services_audit_parsers__base_FileAnalysis
-    src_core_services_audit_parsers_multilang_parser_MultiLangParser ..> src_core_services_audit_parsers__base_FileAnalysis
-    src_core_services_audit_parsers_python_parser_PythonParser ..> src_core_services_audit_parsers__base_FileAnalysis
-    src_core_services_audit_parsers_rust_parser_RustParser ..> src_core_services_audit_parsers__base_FileAnalysis
-    src_core_services_audit_parsers_template_parser_TemplateParser ..> src_core_services_audit_parsers__base_FileAnalysis
-    src_core_services_pages_builders_base_PageBuilder ..> src_core_services_pages_builders_base_BuilderInfo
-    src_core_services_pages_builders_custom_CustomBuilder ..> src_core_services_pages_builders_base_BuilderInfo
-    src_core_services_pages_builders_docusaurus_DocusaurusBuilder ..> src_core_services_pages_builders_base_BuilderInfo
-    src_core_services_pages_builders_hugo_HugoBuilder ..> src_core_services_pages_builders_base_BuilderInfo
-    src_core_services_pages_builders_mkdocs_MkDocsBuilder ..> src_core_services_pages_builders_base_BuilderInfo
-    src_core_services_pages_builders_raw_RawBuilder ..> src_core_services_pages_builders_base_BuilderInfo
-    src_core_services_pages_builders_sphinx_SphinxBuilder ..> src_core_services_pages_builders_base_BuilderInfo
+    CargoBuilder --|> ArtifactBuilder
+    DockerBuilder --|> ArtifactBuilder
+    DotnetBuilder --|> ArtifactBuilder
+    GemBuilder --|> ArtifactBuilder
+    GoBuilder --|> ArtifactBuilder
+    GradleBuilder --|> ArtifactBuilder
+    MakefileBuilder --|> ArtifactBuilder
+    MavenBuilder --|> ArtifactBuilder
+    MixBuilder --|> ArtifactBuilder
+    NpmBuilder --|> ArtifactBuilder
+    PipBuilder --|> ArtifactBuilder
+    ScriptBuilder --|> ArtifactBuilder
+    GitHubReleasePublisher --|> ArtifactPublisher
+    NpmPublisher --|> ArtifactPublisher
+    PyPIPublisher --|> ArtifactPublisher
+    FallbackParser --|> BaseParser
+    CFamilyParser --|> BaseParser
+    ConfigParser --|> BaseParser
+    CSSParser --|> BaseParser
+    GoParser --|> BaseParser
+    JavaScriptParser --|> BaseParser
+    JVMParser --|> BaseParser
+    MultiLangParser --|> BaseParser
+    PythonParser --|> BaseParser
+    RustParser --|> BaseParser
+    TemplateParser --|> BaseParser
+    MarkdownOutlineStrategy --|> OutlineStrategy
+    PythonOutlineStrategy --|> OutlineStrategy
+    EncryptedOutlineStrategy --|> OutlineStrategy
+    JavaScriptOutlineStrategy --|> OutlineStrategy
+    GoOutlineStrategy --|> OutlineStrategy
+    RustOutlineStrategy --|> OutlineStrategy
+    HtmlOutlineStrategy --|> OutlineStrategy
+    CssOutlineStrategy --|> OutlineStrategy
+    YamlOutlineStrategy --|> OutlineStrategy
+    JsonOutlineStrategy --|> OutlineStrategy
+    TomlOutlineStrategy --|> OutlineStrategy
+    ShellOutlineStrategy --|> OutlineStrategy
+    SqlOutlineStrategy --|> OutlineStrategy
+    FallbackOutlineStrategy --|> OutlineStrategy
+    CustomBuilder --|> PageBuilder
+    DocusaurusBuilder --|> PageBuilder
+    HugoBuilder --|> PageBuilder
+    MkDocsBuilder --|> PageBuilder
+    RawBuilder --|> PageBuilder
+    SphinxBuilder --|> PageBuilder
+    L0Result *-- AuditMeta : _meta
+    L0Result *-- OSInfo : os
+    L0Result *-- RuntimeInfo : runtime
+    L0Result o-- ToolInfo : tools
+    L0Result o-- ModuleInfo : modules
+    L0Result o-- ManifestInfo : manifests
+    L1DepsResult *-- AuditMeta : _meta
+    L1DepsResult o-- DependencyInfo : dependencies
+    L1DepsResult o-- CrossoverInfo : crossovers
+    L1StructResult *-- AuditMeta : _meta
+    L1StructResult o-- ComponentInfo : components
+    L1StructResult o-- EntrypointInfo : entrypoints
+    L1ClientsResult *-- AuditMeta : _meta
+    L1ClientsResult o-- ClientInfo : clients
+    ScoreResult o-- ScoreBreakdownItem : breakdown
+    AuditScores *-- AuditMeta : _meta
+    AuditScores *-- ScoreResult : complexity
+    ParserRegistry o-- BaseParser : _parsers
+    ParserRegistry --> BaseParser : _fallback
+    FileAnalysis o-- ImportInfo : imports
+    FileAnalysis o-- SymbolInfo : symbols
+    FileAnalysis *-- FileMetrics : metrics
+    FileAnalysis o-- SymbolLocation : symbol_locations
+    Changelog *-- ChangelogSection : unreleased
+    Changelog o-- ChangelogSection : releases
+    ChatMessage *-- MessageFlags : flags
+    PipelineScanResult o-- DetectedScript : scripts
+    PipelineScanResult o-- DetectedFramework : frameworks
+    PipelineScanResult o-- DetectedCI : ci_workflows
+    ScopedAuditData *-- AuditScope : scope
+    PipelineResult o-- StageResult : stages
+    CustomBuilder --> SegmentConfig : _segment
+    ScriptMeta o-- ScriptParameter : parameters
+    SessionTrace o-- TraceEvent : events
+    BaseParser ..> FileAnalysis
+    FallbackParser ..> FileAnalysis
+    CFamilyParser ..> FileAnalysis
+    ConfigParser ..> FileAnalysis
+    CSSParser ..> FileAnalysis
+    GoParser ..> FileAnalysis
+    JavaScriptParser ..> FileAnalysis
+    JavaScriptParser ..> FileMetrics
+    JVMParser ..> FileAnalysis
+    MultiLangParser ..> FileAnalysis
+    PythonParser ..> FileAnalysis
+    RustParser ..> FileAnalysis
+    TemplateParser ..> FileAnalysis
+    PageBuilder ..> BuilderInfo
+    CustomBuilder ..> BuilderInfo
+    DocusaurusBuilder ..> BuilderInfo
+    HugoBuilder ..> BuilderInfo
+    MkDocsBuilder ..> BuilderInfo
+    RawBuilder ..> BuilderInfo
+    SphinxBuilder ..> BuilderInfo
 ```
 
 #### core.services.artifacts (21 classes)
@@ -1479,122 +1474,122 @@ classDiagram
     direction TD
 
     namespace src_core_services_artifacts_builders_base {
-        class src_core_services_artifacts_builders_base_ArtifactBuilder {
+        class ArtifactBuilder {
             <<abstract>>
         }
-        class src_core_services_artifacts_builders_base_ArtifactStageInfo {
+        class ArtifactStageInfo {
             <<dataclass>>
         }
     }
 
     namespace src_core_services_artifacts_builders_cargo {
-        class src_core_services_artifacts_builders_cargo_CargoBuilder {
+        class CargoBuilder {
         }
     }
 
     namespace src_core_services_artifacts_builders_docker {
-        class src_core_services_artifacts_builders_docker_DockerBuilder {
+        class DockerBuilder {
         }
     }
 
     namespace src_core_services_artifacts_builders_dotnet {
-        class src_core_services_artifacts_builders_dotnet_DotnetBuilder {
+        class DotnetBuilder {
         }
     }
 
     namespace src_core_services_artifacts_builders_gem {
-        class src_core_services_artifacts_builders_gem_GemBuilder {
+        class GemBuilder {
         }
     }
 
     namespace src_core_services_artifacts_builders_go {
-        class src_core_services_artifacts_builders_go_GoBuilder {
+        class GoBuilder {
         }
     }
 
     namespace src_core_services_artifacts_builders_gradle {
-        class src_core_services_artifacts_builders_gradle_GradleBuilder {
+        class GradleBuilder {
         }
     }
 
     namespace src_core_services_artifacts_builders_makefile {
-        class src_core_services_artifacts_builders_makefile_MakefileBuilder {
+        class MakefileBuilder {
         }
     }
 
     namespace src_core_services_artifacts_builders_maven {
-        class src_core_services_artifacts_builders_maven_MavenBuilder {
+        class MavenBuilder {
         }
     }
 
     namespace src_core_services_artifacts_builders_mix {
-        class src_core_services_artifacts_builders_mix_MixBuilder {
+        class MixBuilder {
         }
     }
 
     namespace src_core_services_artifacts_builders_npm {
-        class src_core_services_artifacts_builders_npm_NpmBuilder {
+        class NpmBuilder {
         }
     }
 
     namespace src_core_services_artifacts_builders_pip_builder {
-        class src_core_services_artifacts_builders_pip_builder_PipBuilder {
+        class PipBuilder {
         }
     }
 
     namespace src_core_services_artifacts_builders_script {
-        class src_core_services_artifacts_builders_script_ScriptBuilder {
+        class ScriptBuilder {
         }
     }
 
     namespace src_core_services_artifacts_engine {
-        class src_core_services_artifacts_engine_ArtifactBuildResult {
+        class ArtifactBuildResult {
             <<dataclass>>
         }
-        class src_core_services_artifacts_engine_ArtifactTarget {
+        class ArtifactTarget {
             <<dataclass>>
         }
     }
 
     namespace src_core_services_artifacts_publishers_base {
-        class src_core_services_artifacts_publishers_base_ArtifactPublishResult {
+        class ArtifactPublishResult {
             <<dataclass>>
         }
-        class src_core_services_artifacts_publishers_base_ArtifactPublisher {
+        class ArtifactPublisher {
             <<abstract>>
         }
     }
 
     namespace src_core_services_artifacts_publishers_github_release {
-        class src_core_services_artifacts_publishers_github_release_GitHubReleasePublisher {
+        class GitHubReleasePublisher {
         }
     }
 
     namespace src_core_services_artifacts_publishers_npm_publisher {
-        class src_core_services_artifacts_publishers_npm_publisher_NpmPublisher {
+        class NpmPublisher {
         }
     }
 
     namespace src_core_services_artifacts_publishers_pypi {
-        class src_core_services_artifacts_publishers_pypi_PyPIPublisher {
+        class PyPIPublisher {
         }
     }
 
-    src_core_services_artifacts_builders_cargo_CargoBuilder --|> src_core_services_artifacts_builders_base_ArtifactBuilder : ArtifactBuilder
-    src_core_services_artifacts_builders_docker_DockerBuilder --|> src_core_services_artifacts_builders_base_ArtifactBuilder : ArtifactBuilder
-    src_core_services_artifacts_builders_dotnet_DotnetBuilder --|> src_core_services_artifacts_builders_base_ArtifactBuilder : ArtifactBuilder
-    src_core_services_artifacts_builders_gem_GemBuilder --|> src_core_services_artifacts_builders_base_ArtifactBuilder : ArtifactBuilder
-    src_core_services_artifacts_builders_go_GoBuilder --|> src_core_services_artifacts_builders_base_ArtifactBuilder : ArtifactBuilder
-    src_core_services_artifacts_builders_gradle_GradleBuilder --|> src_core_services_artifacts_builders_base_ArtifactBuilder : ArtifactBuilder
-    src_core_services_artifacts_builders_makefile_MakefileBuilder --|> src_core_services_artifacts_builders_base_ArtifactBuilder : ArtifactBuilder
-    src_core_services_artifacts_builders_maven_MavenBuilder --|> src_core_services_artifacts_builders_base_ArtifactBuilder : ArtifactBuilder
-    src_core_services_artifacts_builders_mix_MixBuilder --|> src_core_services_artifacts_builders_base_ArtifactBuilder : ArtifactBuilder
-    src_core_services_artifacts_builders_npm_NpmBuilder --|> src_core_services_artifacts_builders_base_ArtifactBuilder : ArtifactBuilder
-    src_core_services_artifacts_builders_pip_builder_PipBuilder --|> src_core_services_artifacts_builders_base_ArtifactBuilder : ArtifactBuilder
-    src_core_services_artifacts_builders_script_ScriptBuilder --|> src_core_services_artifacts_builders_base_ArtifactBuilder : ArtifactBuilder
-    src_core_services_artifacts_publishers_github_release_GitHubReleasePublisher --|> src_core_services_artifacts_publishers_base_ArtifactPublisher : ArtifactPublisher
-    src_core_services_artifacts_publishers_npm_publisher_NpmPublisher --|> src_core_services_artifacts_publishers_base_ArtifactPublisher : ArtifactPublisher
-    src_core_services_artifacts_publishers_pypi_PyPIPublisher --|> src_core_services_artifacts_publishers_base_ArtifactPublisher : ArtifactPublisher
+    CargoBuilder --|> ArtifactBuilder
+    DockerBuilder --|> ArtifactBuilder
+    DotnetBuilder --|> ArtifactBuilder
+    GemBuilder --|> ArtifactBuilder
+    GoBuilder --|> ArtifactBuilder
+    GradleBuilder --|> ArtifactBuilder
+    MakefileBuilder --|> ArtifactBuilder
+    MavenBuilder --|> ArtifactBuilder
+    MixBuilder --|> ArtifactBuilder
+    NpmBuilder --|> ArtifactBuilder
+    PipBuilder --|> ArtifactBuilder
+    ScriptBuilder --|> ArtifactBuilder
+    GitHubReleasePublisher --|> ArtifactPublisher
+    NpmPublisher --|> ArtifactPublisher
+    PyPIPublisher --|> ArtifactPublisher
 ```
 
 #### core.services.audit (40 classes)
@@ -1606,192 +1601,192 @@ classDiagram
     direction TD
 
     namespace src_core_services_audit_catalog {
-        class src_core_services_audit_catalog_LibraryInfo {
+        class LibraryInfo {
         }
     }
 
     namespace src_core_services_audit_models {
-        class src_core_services_audit_models_AuditMeta {
+        class AuditMeta {
         }
-        class src_core_services_audit_models_AuditScores {
+        class AuditScores {
         }
-        class src_core_services_audit_models_ClientInfo {
+        class ClientInfo {
         }
-        class src_core_services_audit_models_ComponentInfo {
+        class ComponentInfo {
         }
-        class src_core_services_audit_models_CrossoverInfo {
+        class CrossoverInfo {
         }
-        class src_core_services_audit_models_DependencyInfo {
+        class DependencyInfo {
         }
-        class src_core_services_audit_models_EntrypointInfo {
+        class EntrypointInfo {
         }
-        class src_core_services_audit_models_L0Result {
+        class L0Result {
         }
-        class src_core_services_audit_models_L1ClientsResult {
+        class L1ClientsResult {
         }
-        class src_core_services_audit_models_L1DepsResult {
+        class L1DepsResult {
         }
-        class src_core_services_audit_models_L1StructResult {
+        class L1StructResult {
         }
-        class src_core_services_audit_models_ManifestInfo {
+        class ManifestInfo {
         }
-        class src_core_services_audit_models_ModuleInfo {
+        class ModuleInfo {
         }
-        class src_core_services_audit_models_OSInfo {
+        class OSInfo {
         }
-        class src_core_services_audit_models_RuntimeInfo {
+        class RuntimeInfo {
         }
-        class src_core_services_audit_models_ScoreBreakdownItem {
+        class ScoreBreakdownItem {
         }
-        class src_core_services_audit_models_ScoreResult {
+        class ScoreResult {
         }
-        class src_core_services_audit_models_ToolInfo {
+        class ToolInfo {
         }
     }
 
     namespace src_core_services_audit_narrative {
-        class src_core_services_audit_narrative_Observation {
+        class Observation {
             <<dataclass>>
         }
-        class src_core_services_audit_narrative_Recommendation {
+        class Recommendation {
             <<dataclass>>
         }
     }
 
     namespace src_core_services_audit_parsers {
-        class src_core_services_audit_parsers_ParserRegistry {
+        class ParserRegistry {
         }
     }
 
     namespace src_core_services_audit_parsers__base {
-        class src_core_services_audit_parsers__base_BaseParser {
+        class BaseParser {
             <<abstract>>
         }
-        class src_core_services_audit_parsers__base_FileAnalysis {
+        class FileAnalysis {
             <<dataclass>>
         }
-        class src_core_services_audit_parsers__base_FileMetrics {
+        class FileMetrics {
             <<dataclass>>
         }
-        class src_core_services_audit_parsers__base_ImportInfo {
+        class ImportInfo {
             <<dataclass>>
         }
-        class src_core_services_audit_parsers__base_SymbolInfo {
+        class SymbolInfo {
             <<dataclass>>
         }
-        class src_core_services_audit_parsers__base_SymbolLocation {
+        class SymbolLocation {
             <<dataclass>>
         }
     }
 
     namespace src_core_services_audit_parsers__fallback {
-        class src_core_services_audit_parsers__fallback_FallbackParser {
+        class FallbackParser {
         }
     }
 
     namespace src_core_services_audit_parsers__rubrics {
-        class src_core_services_audit_parsers__rubrics_QualityDimension {
+        class QualityDimension {
             <<dataclass>>
         }
     }
 
     namespace src_core_services_audit_parsers_c_parser {
-        class src_core_services_audit_parsers_c_parser_CFamilyParser {
+        class CFamilyParser {
         }
     }
 
     namespace src_core_services_audit_parsers_config_parser {
-        class src_core_services_audit_parsers_config_parser_ConfigParser {
+        class ConfigParser {
         }
     }
 
     namespace src_core_services_audit_parsers_css_parser {
-        class src_core_services_audit_parsers_css_parser_CSSParser {
+        class CSSParser {
         }
     }
 
     namespace src_core_services_audit_parsers_go_parser {
-        class src_core_services_audit_parsers_go_parser_GoParser {
+        class GoParser {
         }
     }
 
     namespace src_core_services_audit_parsers_js_parser {
-        class src_core_services_audit_parsers_js_parser_JavaScriptParser {
+        class JavaScriptParser {
         }
     }
 
     namespace src_core_services_audit_parsers_jvm_parser {
-        class src_core_services_audit_parsers_jvm_parser_JVMParser {
+        class JVMParser {
         }
     }
 
     namespace src_core_services_audit_parsers_multilang_parser {
-        class src_core_services_audit_parsers_multilang_parser_MultiLangParser {
+        class MultiLangParser {
         }
     }
 
     namespace src_core_services_audit_parsers_python_parser {
-        class src_core_services_audit_parsers_python_parser_PythonParser {
+        class PythonParser {
         }
     }
 
     namespace src_core_services_audit_parsers_rust_parser {
-        class src_core_services_audit_parsers_rust_parser_RustParser {
+        class RustParser {
         }
     }
 
     namespace src_core_services_audit_parsers_template_parser {
-        class src_core_services_audit_parsers_template_parser_TemplateParser {
+        class TemplateParser {
         }
     }
 
-    src_core_services_audit_parsers__fallback_FallbackParser --|> src_core_services_audit_parsers__base_BaseParser : BaseParser
-    src_core_services_audit_parsers_c_parser_CFamilyParser --|> src_core_services_audit_parsers__base_BaseParser : BaseParser
-    src_core_services_audit_parsers_config_parser_ConfigParser --|> src_core_services_audit_parsers__base_BaseParser : BaseParser
-    src_core_services_audit_parsers_css_parser_CSSParser --|> src_core_services_audit_parsers__base_BaseParser : BaseParser
-    src_core_services_audit_parsers_go_parser_GoParser --|> src_core_services_audit_parsers__base_BaseParser : BaseParser
-    src_core_services_audit_parsers_js_parser_JavaScriptParser --|> src_core_services_audit_parsers__base_BaseParser : BaseParser
-    src_core_services_audit_parsers_jvm_parser_JVMParser --|> src_core_services_audit_parsers__base_BaseParser : BaseParser
-    src_core_services_audit_parsers_multilang_parser_MultiLangParser --|> src_core_services_audit_parsers__base_BaseParser : BaseParser
-    src_core_services_audit_parsers_python_parser_PythonParser --|> src_core_services_audit_parsers__base_BaseParser : BaseParser
-    src_core_services_audit_parsers_rust_parser_RustParser --|> src_core_services_audit_parsers__base_BaseParser : BaseParser
-    src_core_services_audit_parsers_template_parser_TemplateParser --|> src_core_services_audit_parsers__base_BaseParser : BaseParser
-    src_core_services_audit_models_L0Result *-- src_core_services_audit_models_AuditMeta : _meta
-    src_core_services_audit_models_L0Result *-- src_core_services_audit_models_OSInfo : os
-    src_core_services_audit_models_L0Result *-- src_core_services_audit_models_RuntimeInfo : runtime
-    src_core_services_audit_models_L0Result o-- src_core_services_audit_models_ToolInfo : tools
-    src_core_services_audit_models_L0Result o-- src_core_services_audit_models_ModuleInfo : modules
-    src_core_services_audit_models_L0Result o-- src_core_services_audit_models_ManifestInfo : manifests
-    src_core_services_audit_models_L1DepsResult *-- src_core_services_audit_models_AuditMeta : _meta
-    src_core_services_audit_models_L1DepsResult o-- src_core_services_audit_models_DependencyInfo : dependencies
-    src_core_services_audit_models_L1DepsResult o-- src_core_services_audit_models_CrossoverInfo : crossovers
-    src_core_services_audit_models_L1StructResult *-- src_core_services_audit_models_AuditMeta : _meta
-    src_core_services_audit_models_L1StructResult o-- src_core_services_audit_models_ComponentInfo : components
-    src_core_services_audit_models_L1StructResult o-- src_core_services_audit_models_EntrypointInfo : entrypoints
-    src_core_services_audit_models_L1ClientsResult *-- src_core_services_audit_models_AuditMeta : _meta
-    src_core_services_audit_models_L1ClientsResult o-- src_core_services_audit_models_ClientInfo : clients
-    src_core_services_audit_models_ScoreResult o-- src_core_services_audit_models_ScoreBreakdownItem : breakdown
-    src_core_services_audit_models_AuditScores *-- src_core_services_audit_models_AuditMeta : _meta
-    src_core_services_audit_models_AuditScores *-- src_core_services_audit_models_ScoreResult : complexity
-    src_core_services_audit_parsers_ParserRegistry o-- src_core_services_audit_parsers__base_BaseParser : _parsers
-    src_core_services_audit_parsers_ParserRegistry --> src_core_services_audit_parsers__base_BaseParser : _fallback
-    src_core_services_audit_parsers__base_FileAnalysis o-- src_core_services_audit_parsers__base_ImportInfo : imports
-    src_core_services_audit_parsers__base_FileAnalysis o-- src_core_services_audit_parsers__base_SymbolInfo : symbols
-    src_core_services_audit_parsers__base_FileAnalysis *-- src_core_services_audit_parsers__base_FileMetrics : metrics
-    src_core_services_audit_parsers__base_FileAnalysis o-- src_core_services_audit_parsers__base_SymbolLocation : symbol_locations
-    src_core_services_audit_parsers__base_BaseParser ..> src_core_services_audit_parsers__base_FileAnalysis
-    src_core_services_audit_parsers__fallback_FallbackParser ..> src_core_services_audit_parsers__base_FileAnalysis
-    src_core_services_audit_parsers_c_parser_CFamilyParser ..> src_core_services_audit_parsers__base_FileAnalysis
-    src_core_services_audit_parsers_config_parser_ConfigParser ..> src_core_services_audit_parsers__base_FileAnalysis
-    src_core_services_audit_parsers_css_parser_CSSParser ..> src_core_services_audit_parsers__base_FileAnalysis
-    src_core_services_audit_parsers_go_parser_GoParser ..> src_core_services_audit_parsers__base_FileAnalysis
-    src_core_services_audit_parsers_js_parser_JavaScriptParser ..> src_core_services_audit_parsers__base_FileAnalysis
-    src_core_services_audit_parsers_js_parser_JavaScriptParser ..> src_core_services_audit_parsers__base_FileMetrics
-    src_core_services_audit_parsers_jvm_parser_JVMParser ..> src_core_services_audit_parsers__base_FileAnalysis
-    src_core_services_audit_parsers_multilang_parser_MultiLangParser ..> src_core_services_audit_parsers__base_FileAnalysis
-    src_core_services_audit_parsers_python_parser_PythonParser ..> src_core_services_audit_parsers__base_FileAnalysis
-    src_core_services_audit_parsers_rust_parser_RustParser ..> src_core_services_audit_parsers__base_FileAnalysis
-    src_core_services_audit_parsers_template_parser_TemplateParser ..> src_core_services_audit_parsers__base_FileAnalysis
+    FallbackParser --|> BaseParser
+    CFamilyParser --|> BaseParser
+    ConfigParser --|> BaseParser
+    CSSParser --|> BaseParser
+    GoParser --|> BaseParser
+    JavaScriptParser --|> BaseParser
+    JVMParser --|> BaseParser
+    MultiLangParser --|> BaseParser
+    PythonParser --|> BaseParser
+    RustParser --|> BaseParser
+    TemplateParser --|> BaseParser
+    L0Result *-- AuditMeta : _meta
+    L0Result *-- OSInfo : os
+    L0Result *-- RuntimeInfo : runtime
+    L0Result o-- ToolInfo : tools
+    L0Result o-- ModuleInfo : modules
+    L0Result o-- ManifestInfo : manifests
+    L1DepsResult *-- AuditMeta : _meta
+    L1DepsResult o-- DependencyInfo : dependencies
+    L1DepsResult o-- CrossoverInfo : crossovers
+    L1StructResult *-- AuditMeta : _meta
+    L1StructResult o-- ComponentInfo : components
+    L1StructResult o-- EntrypointInfo : entrypoints
+    L1ClientsResult *-- AuditMeta : _meta
+    L1ClientsResult o-- ClientInfo : clients
+    ScoreResult o-- ScoreBreakdownItem : breakdown
+    AuditScores *-- AuditMeta : _meta
+    AuditScores *-- ScoreResult : complexity
+    ParserRegistry o-- BaseParser : _parsers
+    ParserRegistry --> BaseParser : _fallback
+    FileAnalysis o-- ImportInfo : imports
+    FileAnalysis o-- SymbolInfo : symbols
+    FileAnalysis *-- FileMetrics : metrics
+    FileAnalysis o-- SymbolLocation : symbol_locations
+    BaseParser ..> FileAnalysis
+    FallbackParser ..> FileAnalysis
+    CFamilyParser ..> FileAnalysis
+    ConfigParser ..> FileAnalysis
+    CSSParser ..> FileAnalysis
+    GoParser ..> FileAnalysis
+    JavaScriptParser ..> FileAnalysis
+    JavaScriptParser ..> FileMetrics
+    JVMParser ..> FileAnalysis
+    MultiLangParser ..> FileAnalysis
+    PythonParser ..> FileAnalysis
+    RustParser ..> FileAnalysis
+    TemplateParser ..> FileAnalysis
 ```
 
 #### core.services.changelog (4 classes)
@@ -1801,7 +1796,7 @@ classDiagram
     direction TD
 
     namespace src_core_services_changelog_models {
-        class src_core_services_changelog_models_CCMessage {
+        class CCMessage {
             <<dataclass>>
             + type: str
             + scope: str
@@ -1814,7 +1809,7 @@ classDiagram
             + header() str
             + full_message() str
         }
-        class src_core_services_changelog_models_Changelog {
+        class Changelog {
             <<dataclass>>
             + header: str
             + unreleased: ChangelogSection
@@ -1822,14 +1817,14 @@ classDiagram
             + all_sections() list[ChangelogSection]
             + latest_version() str | None
         }
-        class src_core_services_changelog_models_ChangelogEntry {
+        class ChangelogEntry {
             <<dataclass>>
             + text: str
             + breaking: bool
             + scope: str
             + section_key: str
         }
-        class src_core_services_changelog_models_ChangelogSection {
+        class ChangelogSection {
             <<dataclass>>
             + version: str
             + date: str
@@ -1842,8 +1837,8 @@ classDiagram
         }
     }
 
-    src_core_services_changelog_models_Changelog *-- src_core_services_changelog_models_ChangelogSection : unreleased
-    src_core_services_changelog_models_Changelog o-- src_core_services_changelog_models_ChangelogSection : releases
+    Changelog *-- ChangelogSection : unreleased
+    Changelog o-- ChangelogSection : releases
 ```
 
 #### core.services.chat (3 classes)
@@ -1853,7 +1848,7 @@ classDiagram
     direction TD
 
     namespace src_core_services_chat_models {
-        class src_core_services_chat_models_ChatMessage {
+        class ChatMessage {
             + id: str
             + ts: str
             + user: str
@@ -1869,11 +1864,11 @@ classDiagram
             + to_jsonl() str
             + from_jsonl(line) ChatMessage
         }
-        class src_core_services_chat_models_MessageFlags {
+        class MessageFlags {
             + publish: bool
             + encrypted: bool
         }
-        class src_core_services_chat_models_Thread {
+        class Thread {
             + thread_id: str
             + title: str
             + created_at: str
@@ -1884,7 +1879,7 @@ classDiagram
         }
     }
 
-    src_core_services_chat_models_ChatMessage *-- src_core_services_chat_models_MessageFlags : flags
+    ChatMessage *-- MessageFlags : flags
 ```
 
 #### core.services.content (15 classes)
@@ -1894,69 +1889,69 @@ classDiagram
     direction TD
 
     namespace src_core_services_content_outline {
-        class src_core_services_content_outline_CssOutlineStrategy {
+        class CssOutlineStrategy {
             + extract(source, file_path) list[dict]
         }
-        class src_core_services_content_outline_EncryptedOutlineStrategy {
+        class EncryptedOutlineStrategy {
             + extract(source, file_path) list[dict]
         }
-        class src_core_services_content_outline_FallbackOutlineStrategy {
+        class FallbackOutlineStrategy {
             + extract(source, file_path) list[dict]
         }
-        class src_core_services_content_outline_GoOutlineStrategy {
+        class GoOutlineStrategy {
             + extract(source, file_path) list[dict]
         }
-        class src_core_services_content_outline_HtmlOutlineStrategy {
+        class HtmlOutlineStrategy {
             + extract(source, file_path) list[dict]
         }
-        class src_core_services_content_outline_JavaScriptOutlineStrategy {
+        class JavaScriptOutlineStrategy {
             + extract(source, file_path) list[dict]
         }
-        class src_core_services_content_outline_JsonOutlineStrategy {
+        class JsonOutlineStrategy {
             + extract(source, file_path) list[dict]
             # _find_key_line(lines, key, found) int
         }
-        class src_core_services_content_outline_MarkdownOutlineStrategy {
+        class MarkdownOutlineStrategy {
             + extract(source, file_path) list[dict]
         }
-        class src_core_services_content_outline_OutlineStrategy {
+        class OutlineStrategy {
             + extensions: set[str]
             + extract(source, file_path) list[dict]
         }
-        class src_core_services_content_outline_PythonOutlineStrategy {
+        class PythonOutlineStrategy {
             + extract(source, file_path) list[dict]
         }
-        class src_core_services_content_outline_RustOutlineStrategy {
+        class RustOutlineStrategy {
             + extract(source, file_path) list[dict]
         }
-        class src_core_services_content_outline_ShellOutlineStrategy {
+        class ShellOutlineStrategy {
             + extract(source, file_path) list[dict]
         }
-        class src_core_services_content_outline_SqlOutlineStrategy {
+        class SqlOutlineStrategy {
             + extract(source, file_path) list[dict]
         }
-        class src_core_services_content_outline_TomlOutlineStrategy {
+        class TomlOutlineStrategy {
             + extract(source, file_path) list[dict]
         }
-        class src_core_services_content_outline_YamlOutlineStrategy {
+        class YamlOutlineStrategy {
             + extract(source, file_path) list[dict]
         }
     }
 
-    src_core_services_content_outline_MarkdownOutlineStrategy --|> src_core_services_content_outline_OutlineStrategy : OutlineStrategy
-    src_core_services_content_outline_PythonOutlineStrategy --|> src_core_services_content_outline_OutlineStrategy : OutlineStrategy
-    src_core_services_content_outline_EncryptedOutlineStrategy --|> src_core_services_content_outline_OutlineStrategy : OutlineStrategy
-    src_core_services_content_outline_JavaScriptOutlineStrategy --|> src_core_services_content_outline_OutlineStrategy : OutlineStrategy
-    src_core_services_content_outline_GoOutlineStrategy --|> src_core_services_content_outline_OutlineStrategy : OutlineStrategy
-    src_core_services_content_outline_RustOutlineStrategy --|> src_core_services_content_outline_OutlineStrategy : OutlineStrategy
-    src_core_services_content_outline_HtmlOutlineStrategy --|> src_core_services_content_outline_OutlineStrategy : OutlineStrategy
-    src_core_services_content_outline_CssOutlineStrategy --|> src_core_services_content_outline_OutlineStrategy : OutlineStrategy
-    src_core_services_content_outline_YamlOutlineStrategy --|> src_core_services_content_outline_OutlineStrategy : OutlineStrategy
-    src_core_services_content_outline_JsonOutlineStrategy --|> src_core_services_content_outline_OutlineStrategy : OutlineStrategy
-    src_core_services_content_outline_TomlOutlineStrategy --|> src_core_services_content_outline_OutlineStrategy : OutlineStrategy
-    src_core_services_content_outline_ShellOutlineStrategy --|> src_core_services_content_outline_OutlineStrategy : OutlineStrategy
-    src_core_services_content_outline_SqlOutlineStrategy --|> src_core_services_content_outline_OutlineStrategy : OutlineStrategy
-    src_core_services_content_outline_FallbackOutlineStrategy --|> src_core_services_content_outline_OutlineStrategy : OutlineStrategy
+    MarkdownOutlineStrategy --|> OutlineStrategy
+    PythonOutlineStrategy --|> OutlineStrategy
+    EncryptedOutlineStrategy --|> OutlineStrategy
+    JavaScriptOutlineStrategy --|> OutlineStrategy
+    GoOutlineStrategy --|> OutlineStrategy
+    RustOutlineStrategy --|> OutlineStrategy
+    HtmlOutlineStrategy --|> OutlineStrategy
+    CssOutlineStrategy --|> OutlineStrategy
+    YamlOutlineStrategy --|> OutlineStrategy
+    JsonOutlineStrategy --|> OutlineStrategy
+    TomlOutlineStrategy --|> OutlineStrategy
+    ShellOutlineStrategy --|> OutlineStrategy
+    SqlOutlineStrategy --|> OutlineStrategy
+    FallbackOutlineStrategy --|> OutlineStrategy
 ```
 
 #### core.services.detection (1 classes)
@@ -1966,7 +1961,7 @@ classDiagram
     direction TD
 
     namespace src_core_services_detection {
-        class src_core_services_detection_DetectionResult {
+        class DetectionResult {
             <<dataclass>>
             + modules: list[Module]
             + unmatched_refs: list[str]
@@ -1987,7 +1982,7 @@ classDiagram
     direction TD
 
     namespace src_core_services_event_bus {
-        class src_core_services_event_bus_EventBus {
+        class EventBus {
             # _lock: Any
             # _seq: int
             # _buffer: deque[dict]
@@ -2018,7 +2013,7 @@ classDiagram
     direction TD
 
     namespace src_core_services_ledger_models {
-        class src_core_services_ledger_models_Run {
+        class Run {
             + run_id: str
             + type: str
             + subtype: str
@@ -2034,7 +2029,7 @@ classDiagram
             + to_tag_message() str
             + from_tag_message(message) Run
         }
-        class src_core_services_ledger_models_RunEvent {
+        class RunEvent {
             + seq: int
             + ts: str
             + type: str
@@ -2048,7 +2043,7 @@ classDiagram
     }
 
     namespace src_core_services_ledger_worktree {
-        class src_core_services_ledger_worktree_GitIdentityError {
+        class GitIdentityError {
         }
     }
 
@@ -2061,7 +2056,7 @@ classDiagram
     direction TD
 
     namespace src_core_services_pages_pipeline_scanner {
-        class src_core_services_pages_pipeline_scanner_DetectedCI {
+        class DetectedCI {
             <<dataclass>>
             + path: str
             + name: str
@@ -2070,7 +2065,7 @@ classDiagram
             + env_vars: dict
             + deploy_target: str
         }
-        class src_core_services_pages_pipeline_scanner_DetectedFramework {
+        class DetectedFramework {
             <<dataclass>>
             + name: str
             + config_path: str
@@ -2080,7 +2075,7 @@ classDiagram
             + preview_port: int
             + version: str
         }
-        class src_core_services_pages_pipeline_scanner_DetectedScript {
+        class DetectedScript {
             <<dataclass>>
             + path: str
             + type: str
@@ -2091,7 +2086,7 @@ classDiagram
             + operability_notes: list[str]
             + remediation: dict
         }
-        class src_core_services_pages_pipeline_scanner_PipelineScanResult {
+        class PipelineScanResult {
             <<dataclass>>
             + scripts: list[DetectedScript]
             + frameworks: list[DetectedFramework]
@@ -2102,9 +2097,9 @@ classDiagram
         }
     }
 
-    src_core_services_pages_pipeline_scanner_PipelineScanResult o-- src_core_services_pages_pipeline_scanner_DetectedScript : scripts
-    src_core_services_pages_pipeline_scanner_PipelineScanResult o-- src_core_services_pages_pipeline_scanner_DetectedFramework : frameworks
-    src_core_services_pages_pipeline_scanner_PipelineScanResult o-- src_core_services_pages_pipeline_scanner_DetectedCI : ci_workflows
+    PipelineScanResult o-- DetectedScript : scripts
+    PipelineScanResult o-- DetectedFramework : frameworks
+    PipelineScanResult o-- DetectedCI : ci_workflows
 ```
 
 #### core.services.pages_builders (18 classes)
@@ -2116,93 +2111,93 @@ classDiagram
     direction TD
 
     namespace src_core_services_pages_builders_audit_directive {
-        class src_core_services_pages_builders_audit_directive_AuditDataBundle {
+        class AuditDataBundle {
             <<dataclass>>
         }
-        class src_core_services_pages_builders_audit_directive_AuditScope {
+        class AuditScope {
             <<dataclass>>
         }
-        class src_core_services_pages_builders_audit_directive_DirectiveMatch {
+        class DirectiveMatch {
             <<dataclass>>
         }
-        class src_core_services_pages_builders_audit_directive_ScopedAuditData {
+        class ScopedAuditData {
             <<dataclass>>
         }
     }
 
     namespace src_core_services_pages_builders_base {
-        class src_core_services_pages_builders_base_BuildResult {
+        class BuildResult {
             <<dataclass>>
         }
-        class src_core_services_pages_builders_base_BuilderInfo {
+        class BuilderInfo {
             <<dataclass>>
         }
-        class src_core_services_pages_builders_base_ConfigField {
+        class ConfigField {
             <<dataclass>>
         }
-        class src_core_services_pages_builders_base_PageBuilder {
+        class PageBuilder {
             <<abstract>>
         }
-        class src_core_services_pages_builders_base_PipelineResult {
+        class PipelineResult {
             <<dataclass>>
         }
-        class src_core_services_pages_builders_base_SegmentConfig {
+        class SegmentConfig {
             <<dataclass>>
         }
-        class src_core_services_pages_builders_base_StageInfo {
+        class StageInfo {
             <<dataclass>>
         }
-        class src_core_services_pages_builders_base_StageResult {
+        class StageResult {
             <<dataclass>>
         }
     }
 
     namespace src_core_services_pages_builders_custom {
-        class src_core_services_pages_builders_custom_CustomBuilder {
+        class CustomBuilder {
         }
     }
 
     namespace src_core_services_pages_builders_docusaurus {
-        class src_core_services_pages_builders_docusaurus_DocusaurusBuilder {
+        class DocusaurusBuilder {
         }
     }
 
     namespace src_core_services_pages_builders_hugo {
-        class src_core_services_pages_builders_hugo_HugoBuilder {
+        class HugoBuilder {
         }
     }
 
     namespace src_core_services_pages_builders_mkdocs {
-        class src_core_services_pages_builders_mkdocs_MkDocsBuilder {
+        class MkDocsBuilder {
         }
     }
 
     namespace src_core_services_pages_builders_raw {
-        class src_core_services_pages_builders_raw_RawBuilder {
+        class RawBuilder {
         }
     }
 
     namespace src_core_services_pages_builders_sphinx {
-        class src_core_services_pages_builders_sphinx_SphinxBuilder {
+        class SphinxBuilder {
         }
     }
 
-    src_core_services_pages_builders_custom_CustomBuilder --|> src_core_services_pages_builders_base_PageBuilder : PageBuilder
-    src_core_services_pages_builders_docusaurus_DocusaurusBuilder --|> src_core_services_pages_builders_base_PageBuilder : PageBuilder
-    src_core_services_pages_builders_hugo_HugoBuilder --|> src_core_services_pages_builders_base_PageBuilder : PageBuilder
-    src_core_services_pages_builders_mkdocs_MkDocsBuilder --|> src_core_services_pages_builders_base_PageBuilder : PageBuilder
-    src_core_services_pages_builders_raw_RawBuilder --|> src_core_services_pages_builders_base_PageBuilder : PageBuilder
-    src_core_services_pages_builders_sphinx_SphinxBuilder --|> src_core_services_pages_builders_base_PageBuilder : PageBuilder
-    src_core_services_pages_builders_audit_directive_ScopedAuditData *-- src_core_services_pages_builders_audit_directive_AuditScope : scope
-    src_core_services_pages_builders_base_PipelineResult o-- src_core_services_pages_builders_base_StageResult : stages
-    src_core_services_pages_builders_custom_CustomBuilder --> src_core_services_pages_builders_base_SegmentConfig : _segment
-    src_core_services_pages_builders_base_PageBuilder ..> src_core_services_pages_builders_base_BuilderInfo
-    src_core_services_pages_builders_custom_CustomBuilder ..> src_core_services_pages_builders_base_BuilderInfo
-    src_core_services_pages_builders_docusaurus_DocusaurusBuilder ..> src_core_services_pages_builders_base_BuilderInfo
-    src_core_services_pages_builders_hugo_HugoBuilder ..> src_core_services_pages_builders_base_BuilderInfo
-    src_core_services_pages_builders_mkdocs_MkDocsBuilder ..> src_core_services_pages_builders_base_BuilderInfo
-    src_core_services_pages_builders_raw_RawBuilder ..> src_core_services_pages_builders_base_BuilderInfo
-    src_core_services_pages_builders_sphinx_SphinxBuilder ..> src_core_services_pages_builders_base_BuilderInfo
+    CustomBuilder --|> PageBuilder
+    DocusaurusBuilder --|> PageBuilder
+    HugoBuilder --|> PageBuilder
+    MkDocsBuilder --|> PageBuilder
+    RawBuilder --|> PageBuilder
+    SphinxBuilder --|> PageBuilder
+    ScopedAuditData *-- AuditScope : scope
+    PipelineResult o-- StageResult : stages
+    CustomBuilder --> SegmentConfig : _segment
+    PageBuilder ..> BuilderInfo
+    CustomBuilder ..> BuilderInfo
+    DocusaurusBuilder ..> BuilderInfo
+    HugoBuilder ..> BuilderInfo
+    MkDocsBuilder ..> BuilderInfo
+    RawBuilder ..> BuilderInfo
+    SphinxBuilder ..> BuilderInfo
 ```
 
 #### core.services.peek (3 classes)
@@ -2212,7 +2207,7 @@ classDiagram
     direction TD
 
     namespace src_core_services_peek {
-        class src_core_services_peek_PeekCandidate {
+        class PeekCandidate {
             <<dataclass>>
             + text: str
             + type: str
@@ -2220,7 +2215,7 @@ classDiagram
             + line_number: int | None
             + in_code_fence: bool
         }
-        class src_core_services_peek_PeekReference {
+        class PeekReference {
             <<dataclass>>
             + text: str
             + type: str
@@ -2228,7 +2223,7 @@ classDiagram
             + line_number: int | None
             + is_directory: bool
         }
-        class src_core_services_peek_SymbolEntry {
+        class SymbolEntry {
             <<dataclass>>
             + name: str
             + file: str
@@ -2246,14 +2241,14 @@ classDiagram
     direction TD
 
     namespace src_core_services_project_index {
-        class src_core_services_project_index_IndexSymbolEntry {
+        class IndexSymbolEntry {
             <<dataclass>>
             + name: str
             + file: str
             + line: int
             + kind: str
         }
-        class src_core_services_project_index_ProjectIndex {
+        class ProjectIndex {
             <<dataclass>>
             + file_map: dict[str, list[str]]
             + dir_map: dict[str, list[str]]
@@ -2278,7 +2273,7 @@ classDiagram
     direction TD
 
     namespace src_core_services_scripts_models {
-        class src_core_services_scripts_models_ScriptConfig {
+        class ScriptConfig {
             <<dataclass>>
             + root: str
             + template_source: str
@@ -2290,7 +2285,7 @@ classDiagram
             + execution_venv_python: str
             + categories: list[str]
         }
-        class src_core_services_scripts_models_ScriptMeta {
+        class ScriptMeta {
             <<dataclass>>
             + id: str
             + name: str
@@ -2304,7 +2299,7 @@ classDiagram
             + default_output: str
             ... 9 more fields
         }
-        class src_core_services_scripts_models_ScriptParameter {
+        class ScriptParameter {
             <<dataclass>>
             + name: str
             + type: str
@@ -2315,17 +2310,17 @@ classDiagram
         }
     }
 
-    src_core_services_scripts_models_ScriptMeta o-- src_core_services_scripts_models_ScriptParameter : parameters
+    ScriptMeta o-- ScriptParameter : parameters
 ```
 
-#### core.services.trace (3 classes)
+#### core.services.trace (2 classes)
 
 ```mermaid
 classDiagram
     direction TD
 
     namespace src_core_services_trace_models {
-        class src_core_services_trace_models_SessionTrace {
+        class SessionTrace {
             + trace_id: str
             + name: str
             + classification: str
@@ -2339,7 +2334,7 @@ classDiagram
             ... 3 more fields
             + ensure_id() str
         }
-        class src_core_services_trace_models_TraceEvent {
+        class TraceEvent {
             + seq: int
             + ts: str
             + type: str
@@ -2351,21 +2346,7 @@ classDiagram
         }
     }
 
-    namespace src_core_services_trace_trace_recorder {
-        class src_core_services_trace_trace_recorder__Recording {
-            + trace_id: Any
-            + project_root: Any
-            + name: Any
-            + classification: Any
-            + user: Any
-            + code_ref: Any
-            + started_at: Any
-            + q: queue.Queue[dict]
-            # __init__(trace_id, project_root, name, classification, user, code_ref) None
-        }
-    }
-
-    src_core_services_trace_models_SessionTrace o-- src_core_services_trace_models_TraceEvent : events
+    SessionTrace o-- TraceEvent : events
 ```
 
 ### core.use_cases (4 classes)
@@ -2375,7 +2356,7 @@ classDiagram
     direction TD
 
     namespace src_core_use_cases_config_check {
-        class src_core_use_cases_config_check_ConfigCheckResult {
+        class ConfigCheckResult {
             <<dataclass>>
             + valid: bool
             + project: Project | None
@@ -2387,7 +2368,7 @@ classDiagram
     }
 
     namespace src_core_use_cases_detect {
-        class src_core_use_cases_detect_DetectResult {
+        class DetectResult {
             <<dataclass>>
             + detection: DetectionResult | None
             + project: Project | None
@@ -2400,7 +2381,7 @@ classDiagram
     }
 
     namespace src_core_use_cases_run {
-        class src_core_use_cases_run_RunResult {
+        class RunResult {
             <<dataclass>>
             + report: ExecutionReport | None
             + plan: ExecutionPlan | None
@@ -2414,7 +2395,7 @@ classDiagram
     }
 
     namespace src_core_use_cases_status {
-        class src_core_use_cases_status_StatusResult {
+        class StatusResult {
             <<dataclass>>
             + project: Project | None
             + state: ProjectState | None
@@ -2440,7 +2421,7 @@ classDiagram
     direction TD
 
     namespace src_adapters_base {
-        class src_adapters_base_Adapter {
+        class Adapter {
             <<abstract>>
             + name() str
             + is_available() bool
@@ -2448,7 +2429,7 @@ classDiagram
             + execute(context) Receipt
             # __repr__() str
         }
-        class src_adapters_base_ExecutionContext {
+        class ExecutionContext {
             + action: Action
             + project_root: str
             + environment: str
@@ -2460,7 +2441,7 @@ classDiagram
     }
 
     namespace src_adapters_containers_docker {
-        class src_adapters_containers_docker_DockerAdapter {
+        class DockerAdapter {
             + name() str
             + is_available() bool
             + validate(context) tuple[bool, str]
@@ -2478,7 +2459,7 @@ classDiagram
     }
 
     namespace src_adapters_languages_node {
-        class src_adapters_languages_node_NodeAdapter {
+        class NodeAdapter {
             + name() str
             + is_available() bool
             # _detect_package_manager(cwd) str
@@ -2495,7 +2476,7 @@ classDiagram
     }
 
     namespace src_adapters_languages_python {
-        class src_adapters_languages_python_PythonAdapter {
+        class PythonAdapter {
             + name() str
             + is_available() bool
             # _python_cmd() str
@@ -2512,7 +2493,7 @@ classDiagram
     }
 
     namespace src_adapters_mock {
-        class src_adapters_mock_MockAdapter {
+        class MockAdapter {
             # _name: Any
             # _available: Any
             # _default_output: Any
@@ -2532,7 +2513,7 @@ classDiagram
     }
 
     namespace src_adapters_registry {
-        class src_adapters_registry_AdapterRegistry {
+        class AdapterRegistry {
             # _adapters: dict[str, Adapter]
             # _mock_mode: Any
             # _mock_adapter: Adapter | None
@@ -2550,7 +2531,7 @@ classDiagram
     }
 
     namespace src_adapters_shell_command {
-        class src_adapters_shell_command_ShellCommandAdapter {
+        class ShellCommandAdapter {
             + name() str
             + is_available() bool
             + validate(context) tuple[bool, str]
@@ -2559,7 +2540,7 @@ classDiagram
     }
 
     namespace src_adapters_shell_filesystem {
-        class src_adapters_shell_filesystem_FilesystemAdapter {
+        class FilesystemAdapter {
             + name() str
             + is_available() bool
             + validate(context) tuple[bool, str]
@@ -2573,7 +2554,7 @@ classDiagram
     }
 
     namespace src_adapters_vcs_git {
-        class src_adapters_vcs_git_GitAdapter {
+        class GitAdapter {
             + name() str
             + is_available() bool
             + validate(context) tuple[bool, str]
@@ -2592,12 +2573,12 @@ classDiagram
     }
 
     namespace src_core_config_loader {
-        class src_core_config_loader_ConfigError {
+        class ConfigError {
         }
     }
 
     namespace src_core_engine_executor {
-        class src_core_engine_executor_ExecutionPlan {
+        class ExecutionPlan {
             <<dataclass>>
             + operation_id: str
             + automation: str
@@ -2605,7 +2586,7 @@ classDiagram
             + module_actions: dict[str, list[Action]]
             + total_actions() int
         }
-        class src_core_engine_executor_ExecutionReport {
+        class ExecutionReport {
             <<dataclass>>
             + operation_id: str
             + automation: str
@@ -2622,7 +2603,7 @@ classDiagram
     }
 
     namespace src_core_persistence_audit {
-        class src_core_persistence_audit_AuditEntry {
+        class AuditEntry {
             + timestamp: str
             + operation_id: str
             + operation_type: str
@@ -2635,7 +2616,7 @@ classDiagram
             + actions_failed: int
             ... 3 more fields
         }
-        class src_core_persistence_audit_AuditWriter {
+        class AuditWriter {
             # _path: Any
             # __init__(path, project_root)
             + path() Path
@@ -2647,7 +2628,7 @@ classDiagram
     }
 
     namespace src_ui_web_routes_audit_async_scan {
-        class src_ui_web_routes_audit_async_scan_ScanTask {
+        class ScanTask {
             <<dataclass>>
             + task_id: str
             + status: str
@@ -2673,433 +2654,433 @@ classDiagram
     direction TD
 
     namespace src_adapters_base {
-        class src_adapters_base_Adapter {
+        class Adapter {
             <<abstract>>
         }
     }
 
     namespace src_adapters_containers_docker {
-        class src_adapters_containers_docker_DockerAdapter {
+        class DockerAdapter {
         }
     }
 
     namespace src_adapters_languages_node {
-        class src_adapters_languages_node_NodeAdapter {
+        class NodeAdapter {
         }
     }
 
     namespace src_adapters_languages_python {
-        class src_adapters_languages_python_PythonAdapter {
+        class PythonAdapter {
         }
     }
 
     namespace src_adapters_mock {
-        class src_adapters_mock_MockAdapter {
+        class MockAdapter {
         }
     }
 
     namespace src_adapters_registry {
-        class src_adapters_registry_AdapterRegistry {
+        class AdapterRegistry {
         }
     }
 
     namespace src_adapters_shell_command {
-        class src_adapters_shell_command_ShellCommandAdapter {
+        class ShellCommandAdapter {
         }
     }
 
     namespace src_adapters_shell_filesystem {
-        class src_adapters_shell_filesystem_FilesystemAdapter {
+        class FilesystemAdapter {
         }
     }
 
     namespace src_adapters_vcs_git {
-        class src_adapters_vcs_git_GitAdapter {
+        class GitAdapter {
         }
     }
 
     namespace src_core_engine_executor {
-        class src_core_engine_executor_ExecutionReport {
+        class ExecutionReport {
             <<dataclass>>
         }
     }
 
     namespace src_core_models_action {
-        class src_core_models_action_Receipt {
+        class Receipt {
         }
     }
 
     namespace src_core_models_project {
-        class src_core_models_project_Environment {
+        class Environment {
         }
-        class src_core_models_project_ExternalLinks {
+        class ExternalLinks {
         }
-        class src_core_models_project_ModuleRef {
+        class ModuleRef {
         }
-        class src_core_models_project_Project {
+        class Project {
         }
     }
 
     namespace src_core_services_artifacts_builders_base {
-        class src_core_services_artifacts_builders_base_ArtifactBuilder {
+        class ArtifactBuilder {
             <<abstract>>
         }
     }
 
     namespace src_core_services_artifacts_builders_cargo {
-        class src_core_services_artifacts_builders_cargo_CargoBuilder {
+        class CargoBuilder {
         }
     }
 
     namespace src_core_services_artifacts_builders_docker {
-        class src_core_services_artifacts_builders_docker_DockerBuilder {
+        class DockerBuilder {
         }
     }
 
     namespace src_core_services_artifacts_builders_dotnet {
-        class src_core_services_artifacts_builders_dotnet_DotnetBuilder {
+        class DotnetBuilder {
         }
     }
 
     namespace src_core_services_artifacts_builders_gem {
-        class src_core_services_artifacts_builders_gem_GemBuilder {
+        class GemBuilder {
         }
     }
 
     namespace src_core_services_artifacts_builders_go {
-        class src_core_services_artifacts_builders_go_GoBuilder {
+        class GoBuilder {
         }
     }
 
     namespace src_core_services_artifacts_builders_gradle {
-        class src_core_services_artifacts_builders_gradle_GradleBuilder {
+        class GradleBuilder {
         }
     }
 
     namespace src_core_services_artifacts_builders_makefile {
-        class src_core_services_artifacts_builders_makefile_MakefileBuilder {
+        class MakefileBuilder {
         }
     }
 
     namespace src_core_services_artifacts_builders_maven {
-        class src_core_services_artifacts_builders_maven_MavenBuilder {
+        class MavenBuilder {
         }
     }
 
     namespace src_core_services_artifacts_builders_mix {
-        class src_core_services_artifacts_builders_mix_MixBuilder {
+        class MixBuilder {
         }
     }
 
     namespace src_core_services_artifacts_builders_npm {
-        class src_core_services_artifacts_builders_npm_NpmBuilder {
+        class NpmBuilder {
         }
     }
 
     namespace src_core_services_artifacts_builders_pip_builder {
-        class src_core_services_artifacts_builders_pip_builder_PipBuilder {
+        class PipBuilder {
         }
     }
 
     namespace src_core_services_artifacts_builders_script {
-        class src_core_services_artifacts_builders_script_ScriptBuilder {
+        class ScriptBuilder {
         }
     }
 
     namespace src_core_services_audit_models {
-        class src_core_services_audit_models_AuditMeta {
+        class AuditMeta {
         }
-        class src_core_services_audit_models_L0Result {
+        class L0Result {
         }
-        class src_core_services_audit_models_ManifestInfo {
+        class ManifestInfo {
         }
-        class src_core_services_audit_models_ModuleInfo {
+        class ModuleInfo {
         }
-        class src_core_services_audit_models_OSInfo {
+        class OSInfo {
         }
-        class src_core_services_audit_models_RuntimeInfo {
+        class RuntimeInfo {
         }
-        class src_core_services_audit_models_ToolInfo {
+        class ToolInfo {
         }
     }
 
     namespace src_core_services_audit_parsers {
-        class src_core_services_audit_parsers_ParserRegistry {
+        class ParserRegistry {
         }
     }
 
     namespace src_core_services_audit_parsers__base {
-        class src_core_services_audit_parsers__base_BaseParser {
+        class BaseParser {
             <<abstract>>
         }
-        class src_core_services_audit_parsers__base_FileAnalysis {
+        class FileAnalysis {
             <<dataclass>>
         }
-        class src_core_services_audit_parsers__base_FileMetrics {
+        class FileMetrics {
             <<dataclass>>
         }
-        class src_core_services_audit_parsers__base_ImportInfo {
+        class ImportInfo {
             <<dataclass>>
         }
-        class src_core_services_audit_parsers__base_SymbolInfo {
+        class SymbolInfo {
             <<dataclass>>
         }
-        class src_core_services_audit_parsers__base_SymbolLocation {
+        class SymbolLocation {
             <<dataclass>>
         }
     }
 
     namespace src_core_services_audit_parsers__fallback {
-        class src_core_services_audit_parsers__fallback_FallbackParser {
+        class FallbackParser {
         }
     }
 
     namespace src_core_services_audit_parsers_c_parser {
-        class src_core_services_audit_parsers_c_parser_CFamilyParser {
+        class CFamilyParser {
         }
     }
 
     namespace src_core_services_audit_parsers_config_parser {
-        class src_core_services_audit_parsers_config_parser_ConfigParser {
+        class ConfigParser {
         }
     }
 
     namespace src_core_services_audit_parsers_css_parser {
-        class src_core_services_audit_parsers_css_parser_CSSParser {
+        class CSSParser {
         }
     }
 
     namespace src_core_services_audit_parsers_go_parser {
-        class src_core_services_audit_parsers_go_parser_GoParser {
+        class GoParser {
         }
     }
 
     namespace src_core_services_audit_parsers_js_parser {
-        class src_core_services_audit_parsers_js_parser_JavaScriptParser {
+        class JavaScriptParser {
         }
     }
 
     namespace src_core_services_audit_parsers_jvm_parser {
-        class src_core_services_audit_parsers_jvm_parser_JVMParser {
+        class JVMParser {
         }
     }
 
     namespace src_core_services_audit_parsers_multilang_parser {
-        class src_core_services_audit_parsers_multilang_parser_MultiLangParser {
+        class MultiLangParser {
         }
     }
 
     namespace src_core_services_audit_parsers_python_parser {
-        class src_core_services_audit_parsers_python_parser_PythonParser {
+        class PythonParser {
         }
     }
 
     namespace src_core_services_audit_parsers_rust_parser {
-        class src_core_services_audit_parsers_rust_parser_RustParser {
+        class RustParser {
         }
     }
 
     namespace src_core_services_audit_parsers_template_parser {
-        class src_core_services_audit_parsers_template_parser_TemplateParser {
+        class TemplateParser {
         }
     }
 
     namespace src_core_services_content_outline {
-        class src_core_services_content_outline_CssOutlineStrategy {
+        class CssOutlineStrategy {
         }
-        class src_core_services_content_outline_EncryptedOutlineStrategy {
+        class EncryptedOutlineStrategy {
         }
-        class src_core_services_content_outline_FallbackOutlineStrategy {
+        class FallbackOutlineStrategy {
         }
-        class src_core_services_content_outline_GoOutlineStrategy {
+        class GoOutlineStrategy {
         }
-        class src_core_services_content_outline_HtmlOutlineStrategy {
+        class HtmlOutlineStrategy {
         }
-        class src_core_services_content_outline_JavaScriptOutlineStrategy {
+        class JavaScriptOutlineStrategy {
         }
-        class src_core_services_content_outline_JsonOutlineStrategy {
+        class JsonOutlineStrategy {
         }
-        class src_core_services_content_outline_MarkdownOutlineStrategy {
+        class MarkdownOutlineStrategy {
         }
-        class src_core_services_content_outline_OutlineStrategy {
+        class OutlineStrategy {
         }
-        class src_core_services_content_outline_PythonOutlineStrategy {
+        class PythonOutlineStrategy {
         }
-        class src_core_services_content_outline_RustOutlineStrategy {
+        class RustOutlineStrategy {
         }
-        class src_core_services_content_outline_ShellOutlineStrategy {
+        class ShellOutlineStrategy {
         }
-        class src_core_services_content_outline_SqlOutlineStrategy {
+        class SqlOutlineStrategy {
         }
-        class src_core_services_content_outline_TomlOutlineStrategy {
+        class TomlOutlineStrategy {
         }
-        class src_core_services_content_outline_YamlOutlineStrategy {
+        class YamlOutlineStrategy {
         }
     }
 
     namespace src_core_services_pages_builders_base {
-        class src_core_services_pages_builders_base_BuilderInfo {
+        class BuilderInfo {
             <<dataclass>>
         }
-        class src_core_services_pages_builders_base_PageBuilder {
+        class PageBuilder {
             <<abstract>>
         }
     }
 
     namespace src_core_services_pages_builders_custom {
-        class src_core_services_pages_builders_custom_CustomBuilder {
+        class CustomBuilder {
         }
     }
 
     namespace src_core_services_pages_builders_docusaurus {
-        class src_core_services_pages_builders_docusaurus_DocusaurusBuilder {
+        class DocusaurusBuilder {
         }
     }
 
     namespace src_core_services_pages_builders_hugo {
-        class src_core_services_pages_builders_hugo_HugoBuilder {
+        class HugoBuilder {
         }
     }
 
     namespace src_core_services_pages_builders_mkdocs {
-        class src_core_services_pages_builders_mkdocs_MkDocsBuilder {
+        class MkDocsBuilder {
         }
     }
 
     namespace src_core_services_pages_builders_raw {
-        class src_core_services_pages_builders_raw_RawBuilder {
+        class RawBuilder {
         }
     }
 
     namespace src_core_services_pages_builders_sphinx {
-        class src_core_services_pages_builders_sphinx_SphinxBuilder {
+        class SphinxBuilder {
         }
     }
 
     namespace src_core_use_cases_config_check {
-        class src_core_use_cases_config_check_ConfigCheckResult {
+        class ConfigCheckResult {
             <<dataclass>>
         }
     }
 
     namespace src_core_use_cases_detect {
-        class src_core_use_cases_detect_DetectResult {
+        class DetectResult {
             <<dataclass>>
         }
     }
 
     namespace src_core_use_cases_run {
-        class src_core_use_cases_run_RunResult {
+        class RunResult {
             <<dataclass>>
         }
     }
 
     namespace src_core_use_cases_status {
-        class src_core_use_cases_status_StatusResult {
+        class StatusResult {
             <<dataclass>>
         }
     }
 
-    src_adapters_containers_docker_DockerAdapter --|> src_adapters_base_Adapter : Adapter
-    src_adapters_languages_node_NodeAdapter --|> src_adapters_base_Adapter : Adapter
-    src_adapters_languages_python_PythonAdapter --|> src_adapters_base_Adapter : Adapter
-    src_adapters_mock_MockAdapter --|> src_adapters_base_Adapter : Adapter
-    src_adapters_shell_command_ShellCommandAdapter --|> src_adapters_base_Adapter : Adapter
-    src_adapters_shell_filesystem_FilesystemAdapter --|> src_adapters_base_Adapter : Adapter
-    src_adapters_vcs_git_GitAdapter --|> src_adapters_base_Adapter : Adapter
-    src_core_services_artifacts_builders_cargo_CargoBuilder --|> src_core_services_artifacts_builders_base_ArtifactBuilder : ArtifactBuilder
-    src_core_services_artifacts_builders_docker_DockerBuilder --|> src_core_services_artifacts_builders_base_ArtifactBuilder : ArtifactBuilder
-    src_core_services_artifacts_builders_dotnet_DotnetBuilder --|> src_core_services_artifacts_builders_base_ArtifactBuilder : ArtifactBuilder
-    src_core_services_artifacts_builders_gem_GemBuilder --|> src_core_services_artifacts_builders_base_ArtifactBuilder : ArtifactBuilder
-    src_core_services_artifacts_builders_go_GoBuilder --|> src_core_services_artifacts_builders_base_ArtifactBuilder : ArtifactBuilder
-    src_core_services_artifacts_builders_gradle_GradleBuilder --|> src_core_services_artifacts_builders_base_ArtifactBuilder : ArtifactBuilder
-    src_core_services_artifacts_builders_makefile_MakefileBuilder --|> src_core_services_artifacts_builders_base_ArtifactBuilder : ArtifactBuilder
-    src_core_services_artifacts_builders_maven_MavenBuilder --|> src_core_services_artifacts_builders_base_ArtifactBuilder : ArtifactBuilder
-    src_core_services_artifacts_builders_mix_MixBuilder --|> src_core_services_artifacts_builders_base_ArtifactBuilder : ArtifactBuilder
-    src_core_services_artifacts_builders_npm_NpmBuilder --|> src_core_services_artifacts_builders_base_ArtifactBuilder : ArtifactBuilder
-    src_core_services_artifacts_builders_pip_builder_PipBuilder --|> src_core_services_artifacts_builders_base_ArtifactBuilder : ArtifactBuilder
-    src_core_services_artifacts_builders_script_ScriptBuilder --|> src_core_services_artifacts_builders_base_ArtifactBuilder : ArtifactBuilder
-    src_core_services_audit_parsers__fallback_FallbackParser --|> src_core_services_audit_parsers__base_BaseParser : BaseParser
-    src_core_services_audit_parsers_c_parser_CFamilyParser --|> src_core_services_audit_parsers__base_BaseParser : BaseParser
-    src_core_services_audit_parsers_config_parser_ConfigParser --|> src_core_services_audit_parsers__base_BaseParser : BaseParser
-    src_core_services_audit_parsers_css_parser_CSSParser --|> src_core_services_audit_parsers__base_BaseParser : BaseParser
-    src_core_services_audit_parsers_go_parser_GoParser --|> src_core_services_audit_parsers__base_BaseParser : BaseParser
-    src_core_services_audit_parsers_js_parser_JavaScriptParser --|> src_core_services_audit_parsers__base_BaseParser : BaseParser
-    src_core_services_audit_parsers_jvm_parser_JVMParser --|> src_core_services_audit_parsers__base_BaseParser : BaseParser
-    src_core_services_audit_parsers_multilang_parser_MultiLangParser --|> src_core_services_audit_parsers__base_BaseParser : BaseParser
-    src_core_services_audit_parsers_python_parser_PythonParser --|> src_core_services_audit_parsers__base_BaseParser : BaseParser
-    src_core_services_audit_parsers_rust_parser_RustParser --|> src_core_services_audit_parsers__base_BaseParser : BaseParser
-    src_core_services_audit_parsers_template_parser_TemplateParser --|> src_core_services_audit_parsers__base_BaseParser : BaseParser
-    src_core_services_content_outline_MarkdownOutlineStrategy --|> src_core_services_content_outline_OutlineStrategy : OutlineStrategy
-    src_core_services_content_outline_PythonOutlineStrategy --|> src_core_services_content_outline_OutlineStrategy : OutlineStrategy
-    src_core_services_content_outline_EncryptedOutlineStrategy --|> src_core_services_content_outline_OutlineStrategy : OutlineStrategy
-    src_core_services_content_outline_JavaScriptOutlineStrategy --|> src_core_services_content_outline_OutlineStrategy : OutlineStrategy
-    src_core_services_content_outline_GoOutlineStrategy --|> src_core_services_content_outline_OutlineStrategy : OutlineStrategy
-    src_core_services_content_outline_RustOutlineStrategy --|> src_core_services_content_outline_OutlineStrategy : OutlineStrategy
-    src_core_services_content_outline_HtmlOutlineStrategy --|> src_core_services_content_outline_OutlineStrategy : OutlineStrategy
-    src_core_services_content_outline_CssOutlineStrategy --|> src_core_services_content_outline_OutlineStrategy : OutlineStrategy
-    src_core_services_content_outline_YamlOutlineStrategy --|> src_core_services_content_outline_OutlineStrategy : OutlineStrategy
-    src_core_services_content_outline_JsonOutlineStrategy --|> src_core_services_content_outline_OutlineStrategy : OutlineStrategy
-    src_core_services_content_outline_TomlOutlineStrategy --|> src_core_services_content_outline_OutlineStrategy : OutlineStrategy
-    src_core_services_content_outline_ShellOutlineStrategy --|> src_core_services_content_outline_OutlineStrategy : OutlineStrategy
-    src_core_services_content_outline_SqlOutlineStrategy --|> src_core_services_content_outline_OutlineStrategy : OutlineStrategy
-    src_core_services_content_outline_FallbackOutlineStrategy --|> src_core_services_content_outline_OutlineStrategy : OutlineStrategy
-    src_core_services_pages_builders_custom_CustomBuilder --|> src_core_services_pages_builders_base_PageBuilder : PageBuilder
-    src_core_services_pages_builders_docusaurus_DocusaurusBuilder --|> src_core_services_pages_builders_base_PageBuilder : PageBuilder
-    src_core_services_pages_builders_hugo_HugoBuilder --|> src_core_services_pages_builders_base_PageBuilder : PageBuilder
-    src_core_services_pages_builders_mkdocs_MkDocsBuilder --|> src_core_services_pages_builders_base_PageBuilder : PageBuilder
-    src_core_services_pages_builders_raw_RawBuilder --|> src_core_services_pages_builders_base_PageBuilder : PageBuilder
-    src_core_services_pages_builders_sphinx_SphinxBuilder --|> src_core_services_pages_builders_base_PageBuilder : PageBuilder
-    src_adapters_mock_MockAdapter o-- src_core_models_action_Receipt : _responses
-    src_adapters_registry_AdapterRegistry o-- src_adapters_base_Adapter : _adapters
-    src_adapters_registry_AdapterRegistry --> src_adapters_base_Adapter : _mock_adapter
-    src_core_engine_executor_ExecutionReport o-- src_core_models_action_Receipt : receipts
-    src_core_models_project_Project o-- src_core_models_project_Environment : environments
-    src_core_models_project_Project o-- src_core_models_project_ModuleRef : modules
-    src_core_models_project_Project *-- src_core_models_project_ExternalLinks : external
-    src_core_services_audit_models_L0Result *-- src_core_services_audit_models_AuditMeta : _meta
-    src_core_services_audit_models_L0Result *-- src_core_services_audit_models_OSInfo : os
-    src_core_services_audit_models_L0Result *-- src_core_services_audit_models_RuntimeInfo : runtime
-    src_core_services_audit_models_L0Result o-- src_core_services_audit_models_ToolInfo : tools
-    src_core_services_audit_models_L0Result o-- src_core_services_audit_models_ModuleInfo : modules
-    src_core_services_audit_models_L0Result o-- src_core_services_audit_models_ManifestInfo : manifests
-    src_core_services_audit_parsers_ParserRegistry o-- src_core_services_audit_parsers__base_BaseParser : _parsers
-    src_core_services_audit_parsers_ParserRegistry --> src_core_services_audit_parsers__base_BaseParser : _fallback
-    src_core_services_audit_parsers__base_FileAnalysis o-- src_core_services_audit_parsers__base_ImportInfo : imports
-    src_core_services_audit_parsers__base_FileAnalysis o-- src_core_services_audit_parsers__base_SymbolInfo : symbols
-    src_core_services_audit_parsers__base_FileAnalysis *-- src_core_services_audit_parsers__base_FileMetrics : metrics
-    src_core_services_audit_parsers__base_FileAnalysis o-- src_core_services_audit_parsers__base_SymbolLocation : symbol_locations
-    src_core_use_cases_config_check_ConfigCheckResult --> src_core_models_project_Project : project
-    src_core_use_cases_detect_DetectResult --> src_core_models_project_Project : project
-    src_core_use_cases_run_RunResult --> src_core_models_project_Project : project
-    src_core_use_cases_status_StatusResult --> src_core_models_project_Project : project
-    src_adapters_base_Adapter ..> src_core_models_action_Receipt
-    src_adapters_containers_docker_DockerAdapter ..> src_core_models_action_Receipt
-    src_adapters_languages_node_NodeAdapter ..> src_core_models_action_Receipt
-    src_adapters_languages_python_PythonAdapter ..> src_core_models_action_Receipt
-    src_adapters_registry_AdapterRegistry ..> src_core_models_action_Receipt
-    src_adapters_shell_command_ShellCommandAdapter ..> src_core_models_action_Receipt
-    src_adapters_shell_filesystem_FilesystemAdapter ..> src_core_models_action_Receipt
-    src_adapters_vcs_git_GitAdapter ..> src_core_models_action_Receipt
-    src_core_services_audit_parsers__base_BaseParser ..> src_core_services_audit_parsers__base_FileAnalysis
-    src_core_services_audit_parsers__fallback_FallbackParser ..> src_core_services_audit_parsers__base_FileAnalysis
-    src_core_services_audit_parsers_c_parser_CFamilyParser ..> src_core_services_audit_parsers__base_FileAnalysis
-    src_core_services_audit_parsers_config_parser_ConfigParser ..> src_core_services_audit_parsers__base_FileAnalysis
-    src_core_services_audit_parsers_css_parser_CSSParser ..> src_core_services_audit_parsers__base_FileAnalysis
-    src_core_services_audit_parsers_go_parser_GoParser ..> src_core_services_audit_parsers__base_FileAnalysis
-    src_core_services_audit_parsers_js_parser_JavaScriptParser ..> src_core_services_audit_parsers__base_FileAnalysis
-    src_core_services_audit_parsers_jvm_parser_JVMParser ..> src_core_services_audit_parsers__base_FileAnalysis
-    src_core_services_audit_parsers_multilang_parser_MultiLangParser ..> src_core_services_audit_parsers__base_FileAnalysis
-    src_core_services_audit_parsers_python_parser_PythonParser ..> src_core_services_audit_parsers__base_FileAnalysis
-    src_core_services_audit_parsers_rust_parser_RustParser ..> src_core_services_audit_parsers__base_FileAnalysis
-    src_core_services_audit_parsers_template_parser_TemplateParser ..> src_core_services_audit_parsers__base_FileAnalysis
-    src_core_services_pages_builders_base_PageBuilder ..> src_core_services_pages_builders_base_BuilderInfo
-    src_core_services_pages_builders_custom_CustomBuilder ..> src_core_services_pages_builders_base_BuilderInfo
-    src_core_services_pages_builders_docusaurus_DocusaurusBuilder ..> src_core_services_pages_builders_base_BuilderInfo
-    src_core_services_pages_builders_hugo_HugoBuilder ..> src_core_services_pages_builders_base_BuilderInfo
-    src_core_services_pages_builders_mkdocs_MkDocsBuilder ..> src_core_services_pages_builders_base_BuilderInfo
-    src_core_services_pages_builders_raw_RawBuilder ..> src_core_services_pages_builders_base_BuilderInfo
-    src_core_services_pages_builders_sphinx_SphinxBuilder ..> src_core_services_pages_builders_base_BuilderInfo
+    DockerAdapter --|> Adapter
+    NodeAdapter --|> Adapter
+    PythonAdapter --|> Adapter
+    MockAdapter --|> Adapter
+    ShellCommandAdapter --|> Adapter
+    FilesystemAdapter --|> Adapter
+    GitAdapter --|> Adapter
+    CargoBuilder --|> ArtifactBuilder
+    DockerBuilder --|> ArtifactBuilder
+    DotnetBuilder --|> ArtifactBuilder
+    GemBuilder --|> ArtifactBuilder
+    GoBuilder --|> ArtifactBuilder
+    GradleBuilder --|> ArtifactBuilder
+    MakefileBuilder --|> ArtifactBuilder
+    MavenBuilder --|> ArtifactBuilder
+    MixBuilder --|> ArtifactBuilder
+    NpmBuilder --|> ArtifactBuilder
+    PipBuilder --|> ArtifactBuilder
+    ScriptBuilder --|> ArtifactBuilder
+    FallbackParser --|> BaseParser
+    CFamilyParser --|> BaseParser
+    ConfigParser --|> BaseParser
+    CSSParser --|> BaseParser
+    GoParser --|> BaseParser
+    JavaScriptParser --|> BaseParser
+    JVMParser --|> BaseParser
+    MultiLangParser --|> BaseParser
+    PythonParser --|> BaseParser
+    RustParser --|> BaseParser
+    TemplateParser --|> BaseParser
+    MarkdownOutlineStrategy --|> OutlineStrategy
+    PythonOutlineStrategy --|> OutlineStrategy
+    EncryptedOutlineStrategy --|> OutlineStrategy
+    JavaScriptOutlineStrategy --|> OutlineStrategy
+    GoOutlineStrategy --|> OutlineStrategy
+    RustOutlineStrategy --|> OutlineStrategy
+    HtmlOutlineStrategy --|> OutlineStrategy
+    CssOutlineStrategy --|> OutlineStrategy
+    YamlOutlineStrategy --|> OutlineStrategy
+    JsonOutlineStrategy --|> OutlineStrategy
+    TomlOutlineStrategy --|> OutlineStrategy
+    ShellOutlineStrategy --|> OutlineStrategy
+    SqlOutlineStrategy --|> OutlineStrategy
+    FallbackOutlineStrategy --|> OutlineStrategy
+    CustomBuilder --|> PageBuilder
+    DocusaurusBuilder --|> PageBuilder
+    HugoBuilder --|> PageBuilder
+    MkDocsBuilder --|> PageBuilder
+    RawBuilder --|> PageBuilder
+    SphinxBuilder --|> PageBuilder
+    MockAdapter o-- Receipt : _responses
+    AdapterRegistry o-- Adapter : _adapters
+    AdapterRegistry --> Adapter : _mock_adapter
+    ExecutionReport o-- Receipt : receipts
+    Project o-- Environment : environments
+    Project o-- ModuleRef : modules
+    Project *-- ExternalLinks : external
+    L0Result *-- AuditMeta : _meta
+    L0Result *-- OSInfo : os
+    L0Result *-- RuntimeInfo : runtime
+    L0Result o-- ToolInfo : tools
+    L0Result o-- ModuleInfo : modules
+    L0Result o-- ManifestInfo : manifests
+    ParserRegistry o-- BaseParser : _parsers
+    ParserRegistry --> BaseParser : _fallback
+    FileAnalysis o-- ImportInfo : imports
+    FileAnalysis o-- SymbolInfo : symbols
+    FileAnalysis *-- FileMetrics : metrics
+    FileAnalysis o-- SymbolLocation : symbol_locations
+    ConfigCheckResult --> Project : project
+    DetectResult --> Project : project
+    RunResult --> Project : project
+    StatusResult --> Project : project
+    Adapter ..> Receipt
+    DockerAdapter ..> Receipt
+    NodeAdapter ..> Receipt
+    PythonAdapter ..> Receipt
+    AdapterRegistry ..> Receipt
+    ShellCommandAdapter ..> Receipt
+    FilesystemAdapter ..> Receipt
+    GitAdapter ..> Receipt
+    BaseParser ..> FileAnalysis
+    FallbackParser ..> FileAnalysis
+    CFamilyParser ..> FileAnalysis
+    ConfigParser ..> FileAnalysis
+    CSSParser ..> FileAnalysis
+    GoParser ..> FileAnalysis
+    JavaScriptParser ..> FileAnalysis
+    JVMParser ..> FileAnalysis
+    MultiLangParser ..> FileAnalysis
+    PythonParser ..> FileAnalysis
+    RustParser ..> FileAnalysis
+    TemplateParser ..> FileAnalysis
+    PageBuilder ..> BuilderInfo
+    CustomBuilder ..> BuilderInfo
+    DocusaurusBuilder ..> BuilderInfo
+    HugoBuilder ..> BuilderInfo
+    MkDocsBuilder ..> BuilderInfo
+    RawBuilder ..> BuilderInfo
+    SphinxBuilder ..> BuilderInfo
 ```
 
 | Class | Connections | Module |
@@ -3129,7 +3110,7 @@ classDiagram
 
 ## Orphan Index
 
-> 34 classes with no detected relationships. These may be utility classes, constants, or under-connected code.
+> 33 classes with no detected relationships. These may be utility classes, constants, or under-connected code.
 
 | Class | Module | Kind | Fields | Methods |
 
@@ -3198,8 +3179,6 @@ classDiagram
 | ProjectIndex | src.core.services.project_index | dataclass | 16 | 0 |
 
 | ScriptConfig | src.core.services.scripts.models | dataclass | 9 | 0 |
-
-| _Recording | src.core.services.trace.trace_recorder | class | 8 | 1 |
 
 | ScanTask | src.ui.web.routes.audit.async_scan | dataclass | 10 | 0 |
 
