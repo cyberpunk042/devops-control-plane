@@ -426,38 +426,219 @@ try {{
 # ── Persistent CDP session ────────────────────────────────────
 
 
+class _PyWebSocket:
+    """Minimal Python-native WebSocket client (text-only, for CDP).
+
+    Implements RFC 6455 just enough for CDP: text frames,
+    client masking, multi-frame receive, close/ping handling.
+    No external dependencies — uses only Python's ``socket`` module.
+    """
+
+    __slots__ = ("_sock",)
+
+    def __init__(self, ws_url: str, timeout: float = 5.0):
+        import socket
+        import base64
+        import os
+        from urllib.parse import urlparse
+
+        parsed = urlparse(ws_url)
+        host = parsed.hostname or "localhost"
+        port = parsed.port or 80
+        path = parsed.path or "/"
+
+        self._sock = socket.create_connection((host, port), timeout=timeout)
+        self._sock.settimeout(timeout)
+
+        # WebSocket upgrade handshake
+        key = base64.b64encode(os.urandom(16)).decode()
+        handshake = (
+            f"GET {path} HTTP/1.1\r\n"
+            f"Host: {host}:{port}\r\n"
+            f"Upgrade: websocket\r\n"
+            f"Connection: Upgrade\r\n"
+            f"Sec-WebSocket-Key: {key}\r\n"
+            f"Sec-WebSocket-Version: 13\r\n"
+            f"\r\n"
+        )
+        self._sock.sendall(handshake.encode())
+
+        # Read response (must be 101 Switching Protocols)
+        resp = b""
+        while b"\r\n\r\n" not in resp:
+            chunk = self._sock.recv(4096)
+            if not chunk:
+                raise ConnectionError("WS handshake: connection closed")
+            resp += chunk
+
+        status_line = resp.split(b"\r\n")[0]
+        if b"101" not in status_line:
+            raise ConnectionError(
+                f"WS upgrade failed: {status_line.decode(errors='replace')}"
+            )
+
+    def send(self, text: str) -> None:
+        """Send a text frame (client-masked per RFC 6455)."""
+        import os
+
+        data = text.encode("utf-8")
+        mask = os.urandom(4)
+
+        header = bytearray()
+        header.append(0x81)  # FIN + TEXT opcode
+
+        length = len(data)
+        if length < 126:
+            header.append(0x80 | length)  # MASK bit set
+        elif length < 65536:
+            header.append(0x80 | 126)
+            header.extend(length.to_bytes(2, "big"))
+        else:
+            header.append(0x80 | 127)
+            header.extend(length.to_bytes(8, "big"))
+
+        header.extend(mask)
+
+        # Mask the payload
+        masked = bytearray(length)
+        for i in range(length):
+            masked[i] = data[i] ^ mask[i % 4]
+
+        self._sock.sendall(bytes(header) + bytes(masked))
+
+    def recv(self) -> str:
+        """Receive a complete text message (handles continuation frames)."""
+        fragments = []
+        while True:
+            hdr = self._recv_exact(2)
+            fin = hdr[0] & 0x80
+            opcode = hdr[0] & 0x0F
+            has_mask = hdr[1] & 0x80
+            length = hdr[1] & 0x7F
+
+            if length == 126:
+                length = int.from_bytes(self._recv_exact(2), "big")
+            elif length == 127:
+                length = int.from_bytes(self._recv_exact(8), "big")
+
+            mask_key = self._recv_exact(4) if has_mask else None
+            payload = self._recv_exact(length)
+
+            if mask_key:
+                payload = bytearray(payload)
+                for i in range(len(payload)):
+                    payload[i] ^= mask_key[i % 4]
+                payload = bytes(payload)
+
+            if opcode == 0x08:  # Close
+                raise ConnectionError("WS peer sent close frame")
+            if opcode == 0x09:  # Ping → send pong
+                self._send_pong(payload)
+                continue
+            if opcode == 0x0A:  # Pong — ignore
+                continue
+
+            fragments.append(payload)
+            if fin:
+                break
+
+        return b"".join(fragments).decode("utf-8")
+
+    def _recv_exact(self, n: int) -> bytes:
+        """Read exactly *n* bytes from the socket."""
+        buf = bytearray()
+        while len(buf) < n:
+            chunk = self._sock.recv(n - len(buf))
+            if not chunk:
+                raise ConnectionError("WS connection lost")
+            buf.extend(chunk)
+        return bytes(buf)
+
+    def _send_pong(self, payload: bytes) -> None:
+        """Send a pong frame."""
+        import os
+
+        mask = os.urandom(4)
+        header = bytearray([0x8A])  # FIN + PONG
+        length = len(payload)
+        if length < 126:
+            header.append(0x80 | length)
+        else:
+            header.append(0x80 | 126)
+            header.extend(length.to_bytes(2, "big"))
+        header.extend(mask)
+        masked = bytearray(length)
+        for i in range(length):
+            masked[i] = payload[i] ^ mask[i % 4]
+        self._sock.sendall(bytes(header) + bytes(masked))
+
+    def close(self) -> None:
+        """Send a close frame and shut down the socket."""
+        try:
+            # Send close frame (opcode 0x08, masked, zero-length)
+            self._sock.sendall(b"\x88\x80" + b"\x00\x00\x00\x00")
+        except Exception:
+            pass
+        try:
+            self._sock.close()
+        except Exception:
+            pass
+
+
 class CdpSession:
     """Persistent CDP WebSocket session — one connection, many commands.
 
-    Instead of spawning a new PowerShell process for each command
-    (2-3s overhead per call), maintains a single process with an
-    open WebSocket, sending/receiving commands via stdin/stdout.
-
-    Result: ~50ms per command instead of ~2500ms.  10-50x faster.
+    Primary strategy: Python-native socket WebSocket (~50ms connect).
+    Fallback: PowerShell .NET WebSocket (for old WSL2 without localhost
+    forwarding — ~3s connect).
 
     Usage::
 
         with CdpSession(ws_url) as session:
             if session.connected:
                 result = session.evaluate("document.title")
-                # ... more commands ...
     """
 
-    __slots__ = ("_process", "_connected", "_cmd_id", "_ws_url", "_script_path")
+    __slots__ = (
+        "_ws", "_process", "_connected", "_cmd_id",
+        "_ws_url", "_script_path", "_mode",
+    )
 
     def __init__(self, ws_url: str, connect_timeout: float = 10.0):
-        import subprocess
-        import tempfile
-        import os
-        import threading
-
+        self._ws = None
         self._process = None
         self._connected = False
         self._cmd_id = 0
         self._ws_url = ws_url
         self._script_path = None
+        self._mode = ""
 
-        # Ensure Windows temp dir is resolved for WSL2
+        # ── Strategy 1: Python-native WebSocket (instant) ─────
+        try:
+            self._ws = _PyWebSocket(ws_url, timeout=connect_timeout)
+            self._mode = "python"
+            self._connected = True
+            logger.info(
+                "CdpSession connected via Python socket to %s", ws_url,
+            )
+            return
+        except Exception as exc:
+            logger.debug(
+                "Python WS failed (%s), trying PowerShell", exc,
+            )
+
+        # ── Strategy 2: PowerShell (WSL2 fallback) ────────────
+        self._init_powershell(ws_url, connect_timeout)
+
+    def _init_powershell(
+        self, ws_url: str, connect_timeout: float,
+    ) -> None:
+        """Fall back to PowerShell .NET WebSocket for old WSL2."""
+        import subprocess
+        import tempfile
+        import os
+        import threading
+
         global _win_temp_dir, _win_temp_dir_resolved
         if _detect_wsl2() and not _win_temp_dir_resolved:
             try:
@@ -472,7 +653,6 @@ class CdpSession:
                 pass
             _win_temp_dir_resolved = True
 
-        # PowerShell script: persistent WS connection, stdin→command, stdout→response
         ws_url_safe = ws_url.replace("'", "''")
         ps_script = (
             "$ErrorActionPreference = 'Stop'\n"
@@ -515,7 +695,6 @@ class CdpSession:
             "}\n"
         )
 
-        # Write script to temp file (Windows temp dir for WSL2)
         win_temp = _win_temp_dir if _detect_wsl2() else None
         tmp_fd, tmp_path = tempfile.mkstemp(
             suffix=".ps1", prefix="cdp_sess_", dir=win_temp,
@@ -524,7 +703,6 @@ class CdpSession:
         with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
             f.write(ps_script)
 
-        # Convert path for PowerShell on WSL2
         if _detect_wsl2():
             try:
                 win_path = subprocess.run(
@@ -549,7 +727,6 @@ class CdpSession:
                 text=True,
             )
 
-            # Wait for CONNECTED signal with timeout
             connected = [False]
 
             def _wait():
@@ -564,26 +741,35 @@ class CdpSession:
             t.join(timeout=connect_timeout)
 
             self._connected = connected[0]
+            self._mode = "powershell"
             if self._connected:
-                logger.info("CdpSession connected to %s", ws_url)
+                logger.info(
+                    "CdpSession connected via PowerShell to %s", ws_url,
+                )
             else:
                 logger.warning(
-                    "CdpSession: failed to connect within %ss", connect_timeout,
+                    "CdpSession PS: failed to connect within %ss",
+                    connect_timeout,
                 )
                 self.close()
 
         except Exception as exc:
-            logger.warning("CdpSession startup failed: %s", exc)
+            logger.warning("CdpSession PS startup failed: %s", exc)
             self.close()
 
     @property
     def connected(self) -> bool:
-        """True if the session is alive and the WS process is running."""
-        return (
-            self._connected
-            and self._process is not None
-            and self._process.poll() is None
-        )
+        """True if the session is alive."""
+        if not self._connected:
+            return False
+        if self._mode == "python":
+            return self._ws is not None
+        if self._mode == "powershell":
+            return (
+                self._process is not None
+                and self._process.poll() is None
+            )
+        return False
 
     def evaluate(
         self,
@@ -592,13 +778,7 @@ class CdpSession:
         await_promise: bool = False,
         timeout: float = 10.0,
     ) -> dict | None:
-        """Send a JS expression and get the CDP response.
-
-        Returns the raw CDP response dict (same format as evaluate_js),
-        or None on failure.
-        """
-        import threading
-
+        """Send a JS expression and get the CDP response."""
         if not self.connected:
             return None
 
@@ -613,11 +793,36 @@ class CdpSession:
             "params": params,
         })
 
+        if self._mode == "python":
+            return self._evaluate_python(cmd, timeout)
+        return self._evaluate_ps(cmd, timeout)
+
+    def _evaluate_python(self, cmd: str, timeout: float) -> dict | None:
+        """Send/receive via Python socket WebSocket."""
+        old_timeout = self._ws._sock.gettimeout()
+        self._ws._sock.settimeout(timeout)
+        try:
+            self._ws.send(cmd)
+            resp = self._ws.recv()
+            return json.loads(resp)
+        except Exception as exc:
+            logger.warning("CdpSession Python evaluate failed: %s", exc)
+            self._connected = False
+            return None
+        finally:
+            try:
+                self._ws._sock.settimeout(old_timeout)
+            except Exception:
+                pass
+
+    def _evaluate_ps(self, cmd: str, timeout: float) -> dict | None:
+        """Send/receive via PowerShell stdin/stdout."""
+        import threading
+
         try:
             self._process.stdin.write(cmd + "\n")
             self._process.stdin.flush()
 
-            # Read response with timeout (thread-based for safety)
             result_holder: list[dict | None] = [None]
 
             def _read():
@@ -634,7 +839,7 @@ class CdpSession:
 
             if result_holder[0] is None:
                 logger.warning(
-                    "CdpSession: no response within %ss (cmd %d)",
+                    "CdpSession PS: no response within %ss (cmd %d)",
                     timeout, self._cmd_id,
                 )
                 return None
@@ -642,7 +847,7 @@ class CdpSession:
             return result_holder[0]
 
         except Exception as exc:
-            logger.warning("CdpSession evaluate failed: %s", exc)
+            logger.warning("CdpSession PS evaluate failed: %s", exc)
             self._connected = False
             return None
 
@@ -650,16 +855,25 @@ class CdpSession:
         """Shut down the session and clean up."""
         import os
 
-        if self._process and self._process.poll() is None:
+        if self._mode == "python" and self._ws:
             try:
-                self._process.stdin.write("EXIT\n")
-                self._process.stdin.flush()
-                self._process.wait(timeout=3.0)
+                self._ws.close()
             except Exception:
+                pass
+            self._ws = None
+
+        if self._mode == "powershell" and self._process:
+            if self._process.poll() is None:
                 try:
-                    self._process.kill()
+                    self._process.stdin.write("EXIT\n")
+                    self._process.stdin.flush()
+                    self._process.wait(timeout=3.0)
                 except Exception:
-                    pass
+                    try:
+                        self._process.kill()
+                    except Exception:
+                        pass
+            self._process = None
 
         self._connected = False
 

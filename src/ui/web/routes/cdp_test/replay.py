@@ -75,6 +75,7 @@ def cdp_test_replay_start():
 
     # ── Resolve target tab ────────────────────────────────────
     target_id = data.get("target_id")
+    targets = None  # Fetched on demand, reused to avoid extra curl.exe calls
 
     if not target_id:
         # Auto-detect: find a tab matching the suite's target_url
@@ -125,14 +126,25 @@ def cdp_test_replay_start():
         else:
             target_id = match["id"]
 
-    # ── Verify target tab exists ──────────────────────────────
-    targets = cdp_client.get_targets()
-    tab_found = any(t.get("id") == target_id for t in targets)
-    if not tab_found:
+    # ── Verify target tab exists & extract ws_url ─────────────
+    # Reuse the targets list we already fetched (avoid extra curl.exe call)
+    if not targets:
+        targets = cdp_client.get_targets()
+    tab_entry = None
+    for t in (targets or []):
+        if t.get("id") == target_id:
+            tab_entry = t
+            break
+    if not tab_entry:
         return jsonify({
             "ok": False,
             "error": f"Target tab '{target_id}' not found — was it closed?",
         }), 404
+    ws_url = tab_entry.get("webSocketDebuggerUrl", "")
+
+    # Find DCP admin tab (for re-activating after replay)
+    dcp_match = cdp_client.find_target_by_url(targets, "localhost:8000")
+    dcp_tab_id = dcp_match.get("id") if dcp_match else None
 
     # ── Merge variables ───────────────────────────────────────
     variables = data.get("variables") or {}
@@ -152,6 +164,8 @@ def cdp_test_replay_start():
         target_id=target_id,
         variables=variables,
         callback=_bus_callback,
+        ws_url=ws_url,
+        dcp_tab_id=dcp_tab_id,
     )
 
     if isinstance(result, TestRunResult):

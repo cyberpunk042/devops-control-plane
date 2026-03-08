@@ -734,6 +734,8 @@ def replay_suite(
     stop_event: threading.Event,
     *,
     run_id: str = "",
+    ws_url: str = "",
+    dcp_tab_id: str | None = None,
 ) -> TestRunResult:
     """Execute a full test suite against the target tab.
 
@@ -782,10 +784,12 @@ def replay_suite(
     run_result.variables_used = redacted_vars
 
     # Remember DCP tab for switching back
-    dcp_tab_id = _find_dcp_tab()
+    if dcp_tab_id is None:
+        dcp_tab_id = _find_dcp_tab()
 
     # ── Verify and activate target tab ───────────────────────
-    ws_url = _verify_target_tab(target_id)
+    if not ws_url:
+        ws_url = _verify_target_tab(target_id)
     if not ws_url:
         run_result.status = "error"
         run_result.error = f"Target tab not found (id={target_id}). Was it closed?"
@@ -803,10 +807,11 @@ def replay_suite(
         suite.id, suite.name, target_id, len(suite.steps),
     )
 
-    # ── Open persistent CDP session ─────────────────────
+    # ── Open persistent CDP session ─────────────────────────
+    # Python-native WS connects in ~50ms; PS fallback ~3s
     session = cdp_client.CdpSession(ws_url)
     if session.connected:
-        logger.info("Replay using streaming CDP session")
+        logger.info("Replay using streaming CDP session (%s)", session._mode)
     else:
         logger.warning("Streaming session failed, falling back to one-shot mode")
         session = None  # _execute_step will use evaluate_js
@@ -1017,6 +1022,9 @@ def start_replay(
     target_id: str,
     variables: dict[str, str] | None = None,
     callback: callable | None = None,
+    *,
+    ws_url: str = "",
+    dcp_tab_id: str | None = None,
 ) -> TestRunResult | str:
     """Start replaying a suite in a background thread.
 
@@ -1075,6 +1083,8 @@ def start_replay(
                 callback=callback,
                 stop_event=run.stop_event,
                 run_id=run_id,
+                ws_url=ws_url,
+                dcp_tab_id=dcp_tab_id,
             )
             result_holder.append(result)
 
