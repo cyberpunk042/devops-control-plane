@@ -66,6 +66,7 @@ _DEFAULT_PREFS: dict[str, str] = {
     "int:k8s": "auto",
     "int:terraform": "auto",
     "int:pages": "auto",
+    "int:scripts": "auto",
 }
 
 # ── Card scope sets ─────────────────────────────────────────────
@@ -77,7 +78,7 @@ DEVOPS_KEYS: set[str] = {
 }
 
 INTEGRATION_KEYS: set[str] = {
-    "git", "github", "ci", "docker", "k8s", "terraform", "pages",
+    "git", "github", "ci", "docker", "k8s", "terraform", "pages", "scripts",
 }
 
 AUDIT_KEYS: set[str] = {
@@ -191,6 +192,10 @@ _WATCH_PATHS: dict[str, list[str]] = {
     ],
     "pages": [
         "project.yml",
+    ],
+    "scripts": [
+        "scripts/",
+        "src/core/data/script_templates/",
     ],
     # GitHub live-tab data — changes independently of local files.
     # Watch paths are a proxy: bust on push (HEAD) or workflow edits.
@@ -503,7 +508,7 @@ _RECOMPUTE_ORDER: list[str] = [
     # Fast (< 1s) — browser can handle these, bg thread skips if done
     "ci", "git", "quality", "packages",
     # Integration-only
-    "github",
+    "github", "scripts",
     # Audit L0/L1 (fast, 0.5-2s each)
     "audit:scores", "audit:system", "audit:deps",
     "audit:structure", "audit:clients",
@@ -590,7 +595,7 @@ _CASCADE: dict[str, list[str]] = {
 _AGGREGATE_KEYS = ["project-status"]
 
 # All integration card keys (for detecting aggregate cascade).
-_INTEGRATION_KEYS = {"git", "github", "ci", "docker", "k8s", "terraform", "pages", "dns"}
+_INTEGRATION_KEYS = {"git", "github", "ci", "docker", "k8s", "terraform", "pages", "dns", "scripts"}
 
 
 def invalidate_with_cascade(project_root: Path, card_key: str) -> list[str]:

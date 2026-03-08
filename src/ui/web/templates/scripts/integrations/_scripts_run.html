@@ -1,0 +1,664 @@
+/* Integrations Tab JS — Scripts Run Modal (SSE Streaming)
+     _scriptsOpenRunModal()    — configure & launch
+     Same SSE pattern as Artifacts build modal.
+     Depends on: _scripts.html (card helpers)
+*/
+
+    // ── Module state ─────────────────────────────────────────────────
+
+    let _scriptRunAbort = null;
+    let _scriptRunTimerIds = {};
+
+    // Cached packages for scope picker (loaded once)
+    let _scriptPackagesCache = null;
+
+    // ── Run modal entry point ────────────────────────────────────────
+
+    async function _scriptsOpenRunModal(scriptId) {
+        // Show loading state
+        modalOpen({
+            title: '▶ Run Script',
+            body: '<span class="spinner"></span> Loading script info…',
+            footerButtons: [
+                { label: 'Cancel', cls: 'btn-secondary', onclick: 'modalClose()' },
+            ],
+        });
+
+        try {
+            const info = await api(`/scripts/info/${scriptId}`);
+            const s = info.script;
+            const params = s.parameters || [];
+
+            // Pre-load packages for scope-type params
+            const hasScopeParam = params.some(p => p.name === 'scope');
+            if (hasScopeParam && !_scriptPackagesCache) {
+                try {
+                    const pkgData = await api('/scripts/packages');
+                    _scriptPackagesCache = pkgData;
+                } catch (_) {
+                    _scriptPackagesCache = { packages: [], tree: {} };
+                }
+            }
+
+            // Build the configuration form
+            _scriptsRenderConfigModal(scriptId, s, params);
+
+        } catch (e) {
+            modalOpen({
+                title: '▶ Run Script',
+                body: `<p style="color:var(--error)">${esc(e.message)}</p>`,
+                footerButtons: [
+                    { label: 'Close', cls: 'btn-secondary', onclick: 'modalClose()' },
+                ],
+            });
+        }
+    }
+
+    // ── Configuration modal ──────────────────────────────────────────
+
+    function _scriptsRenderConfigModal(scriptId, scriptMeta, params) {
+        let body = '';
+
+        // Script header
+        body += `<div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:var(--space-sm);padding-bottom:var(--space-sm);border-bottom:1px solid var(--border-subtle)">
+            <span style="font-size:1.4rem">${_scriptsLangIcon(scriptMeta.language)}</span>
+            <div>
+                <div style="font-weight:600;font-size:0.9rem">${esc(scriptMeta.name)}</div>
+                <div style="font-size:0.72rem;color:var(--text-muted)">${esc(scriptMeta.category)} · ${esc(scriptMeta.language)} · ${esc(scriptMeta.source)}</div>
+            </div>
+        </div>`;
+
+        if (scriptMeta.description) {
+            body += `<p style="font-size:0.8rem;color:var(--text-secondary);margin-bottom:var(--space-sm)">${esc(scriptMeta.description)}</p>`;
+        }
+
+        // Tags
+        if (scriptMeta.tags && scriptMeta.tags.length > 0) {
+            body += `<div style="display:flex;flex-wrap:wrap;gap:0.25rem;margin-bottom:var(--space-sm)">`;
+            for (const tag of scriptMeta.tags) {
+                body += `<span style="font-size:0.62rem;padding:1px 6px;border-radius:3px;background:var(--bg-inset);border:1px solid var(--border-subtle);color:var(--text-muted)">${esc(tag)}</span>`;
+            }
+            body += `</div>`;
+        }
+
+        // Parameter form
+        if (params.length > 0) {
+            body += `<div style="margin-top:var(--space-sm)">
+                <div style="font-size:0.78rem;font-weight:600;margin-bottom:0.4rem;color:var(--text-muted)">Parameters</div>`;
+
+            for (const p of params) {
+                body += _scriptsRenderParam(p, scriptMeta);
+            }
+            body += `</div>`;
+        }
+
+        // Store metadata for execute
+        window._scriptRunMeta = { scriptId, scriptMeta, params };
+
+        modalOpen({
+            title: `▶ ${esc(scriptMeta.name)}`,
+            body,
+            footerButtons: [
+                { label: 'Cancel', cls: 'btn-secondary', onclick: 'modalClose()' },
+                { label: '▶ Run', cls: 'btn-primary', id: 'script-run-btn',
+                  onclick: '_scriptsStartExecution()' },
+            ],
+        });
+
+        // Smart filename suggestion: update placeholder when scope changes
+        _scriptsAttachFilenameSync();
+    }
+
+    /**
+     * Attach a scope→filename sync so the filename placeholder auto-updates
+     * based on the selected scope (e.g., "core" → placeholder "class_diagram_core.md").
+     */
+    function _scriptsAttachFilenameSync() {
+        const scopeEl = document.getElementById('script-param-scope');
+        const fnEl = document.getElementById('script-param-filename');
+        if (!scopeEl || !fnEl) return;
+
+        function syncPlaceholder() {
+            const scope = scopeEl.value || '';
+            const slug = scope ? scope.replace(/\./g, '_') : '';
+            const suggestion = slug ? `class_diagram_${slug}.md` : 'class_diagram.md';
+            fnEl.placeholder = suggestion;
+        }
+
+        scopeEl.addEventListener('change', syncPlaceholder);
+        syncPlaceholder(); // set initial value
+    }
+
+    // ── Parameter rendering ──────────────────────────────────────────
+
+    function _scriptsRenderParam(p, scriptMeta) {
+        const id = `script-param-${p.name}`;
+        const required = p.required ? ' <span style="color:var(--error)">*</span>' : '';
+        const placeholder = p.default ? `Default: ${p.default}` : (p.required ? 'Required' : 'Optional');
+
+        let html = `<div style="margin-bottom:0.6rem">
+            <label style="font-size:0.76rem;font-weight:500;display:block;margin-bottom:3px">${esc(p.name)}${required}</label>`;
+
+        // Smart rendering based on param name + type
+        if (p.name === 'scope' && _scriptPackagesCache) {
+            html += _scriptsRenderScopePicker(id, p);
+        } else if (p.choices && p.choices.length > 0) {
+            html += _scriptsRenderSelect(id, p);
+        } else if (p.type === 'boolean') {
+            html += _scriptsRenderToggle(id, p);
+        } else if (p.type === 'integer') {
+            html += _scriptsRenderNumber(id, p);
+        } else if (p.type === 'path') {
+            html += _scriptsRenderPathInput(id, p);
+        } else {
+            html += _scriptsRenderTextInput(id, p, placeholder);
+        }
+
+        if (p.description) {
+            html += `<div style="font-size:0.68rem;color:var(--text-muted);margin-top:2px">${esc(p.description)}</div>`;
+        }
+        html += `</div>`;
+        return html;
+    }
+
+    function _scriptsRenderScopePicker(id, p) {
+        const pkgs = _scriptPackagesCache.packages || [];
+        const tree = _scriptPackagesCache.tree || {};
+
+        // Select for common top-level packages + full list in optgroups
+        let html = `<select id="${id}" style="width:100%;font-size:0.8rem;padding:5px 8px;border:1px solid var(--border-subtle);border-radius:4px;background:var(--bg-inset);color:var(--text-primary)">`;
+        html += `<option value="">🌐 Full Project (all packages)</option>`;
+
+        // Group by top-level package
+        const groups = {};
+        for (const pkg of pkgs) {
+            const top = pkg.split('.')[0];
+            if (!groups[top]) groups[top] = [];
+            groups[top].push(pkg);
+        }
+
+        for (const [groupName, groupPkgs] of Object.entries(groups)) {
+            html += `<optgroup label="${esc(groupName)}">`;
+            for (const pkg of groupPkgs) {
+                const indent = '  '.repeat(pkg.split('.').length - 1);
+                const label = indent + pkg;
+                const sel = pkg === p.default ? ' selected' : '';
+                html += `<option value="${esc(pkg)}"${sel}>${esc(label)}</option>`;
+            }
+            html += `</optgroup>`;
+        }
+        html += `</select>`;
+
+        // Manual override toggle
+        html += `<div style="margin-top:3px">
+            <button type="button" onclick="_scriptsToggleManualScope(this)" style="font-size:0.62rem;color:var(--accent);background:none;border:none;cursor:pointer;padding:0;text-decoration:underline">Manual entry…</button>
+            <input id="${id}-manual" type="text" placeholder="e.g. core.services.vault" style="display:none;width:100%;font-size:0.8rem;padding:4px 8px;border:1px solid var(--border-subtle);border-radius:4px;background:var(--bg-inset);color:var(--text-primary);margin-top:3px;font-family:var(--font-mono,monospace)" />
+        </div>`;
+
+        return html;
+    }
+
+    function _scriptsToggleManualScope(btn) {
+        const manual = btn.parentElement.querySelector('input');
+        const select = btn.parentElement.parentElement.querySelector('select');
+        if (manual.style.display === 'none') {
+            manual.style.display = 'block';
+            select.style.display = 'none';
+            btn.textContent = 'Use package list…';
+        } else {
+            manual.style.display = 'none';
+            select.style.display = 'block';
+            btn.textContent = 'Manual entry…';
+        }
+    }
+
+    function _scriptsRenderSelect(id, p) {
+        let html = `<select id="${id}" style="width:100%;font-size:0.8rem;padding:5px 8px;border:1px solid var(--border-subtle);border-radius:4px;background:var(--bg-inset);color:var(--text-primary)">`;
+        if (!p.required) html += `<option value="">—</option>`;
+        for (const c of p.choices) {
+            const sel = c === p.default ? ' selected' : '';
+            html += `<option value="${esc(c)}"${sel}>${esc(c)}</option>`;
+        }
+        html += `</select>`;
+        return html;
+    }
+
+    function _scriptsRenderToggle(id, p) {
+        const checked = (p.default === 'true' || p.default === true) ? ' checked' : '';
+        return `<label style="display:flex;align-items:center;gap:0.4rem;cursor:pointer">
+            <input type="checkbox" id="${id}"${checked} style="width:auto;cursor:pointer" />
+            <span style="font-size:0.76rem;color:var(--text-secondary)">${esc(p.name)}</span>
+        </label>`;
+    }
+
+    function _scriptsRenderNumber(id, p) {
+        return `<input id="${id}" type="number" value="${esc(p.default || '')}"
+            style="width:100%;font-size:0.8rem;padding:4px 8px;border:1px solid var(--border-subtle);border-radius:4px;background:var(--bg-inset);color:var(--text-primary)" />`;
+    }
+
+    function _scriptsRenderPathInput(id, p) {
+        return `<input id="${id}" type="text" value="${esc(p.default || '')}"
+            style="width:100%;font-size:0.8rem;padding:4px 8px;border:1px solid var(--border-subtle);border-radius:4px;background:var(--bg-inset);color:var(--text-primary);font-family:var(--font-mono,monospace)" />`;
+    }
+
+    function _scriptsRenderTextInput(id, p, placeholder) {
+        return `<input id="${id}" type="text" value="${esc(p.default || '')}" placeholder="${esc(placeholder)}"
+            style="width:100%;font-size:0.8rem;padding:4px 8px;border:1px solid var(--border-subtle);border-radius:4px;background:var(--bg-inset);color:var(--text-primary)" />`;
+    }
+
+    // ── Start execution ──────────────────────────────────────────────
+
+    function _scriptsStartExecution() {
+        const meta = window._scriptRunMeta;
+        if (!meta) return;
+
+        // Collect params from form
+        // Empty values are NOT sent — the script uses its own defaults.
+        // Boolean "false" is NOT sent — store_true flags are present or absent.
+        const params = {};
+        for (const p of meta.params) {
+            const el = document.getElementById('script-param-' + p.name);
+            const manualEl = document.getElementById('script-param-' + p.name + '-manual');
+
+            if (p.type === 'boolean') {
+                // Only send when checked (true) — skip false entirely
+                if (el && el.checked) params[p.name] = 'true';
+            } else if (p.name === 'scope' && manualEl && manualEl.style.display !== 'none') {
+                // Manual scope entry — only send if non-empty
+                if (manualEl.value.trim()) params[p.name] = manualEl.value.trim();
+            } else if (el && el.value) {
+                params[p.name] = el.value;
+            }
+        }
+
+        // Validate required params
+        for (const p of meta.params) {
+            if (p.required && !params[p.name]) {
+                toast(`Parameter "${p.name}" is required`, 'error');
+                const el = document.getElementById('script-param-' + p.name);
+                if (el) { el.style.borderColor = 'var(--error)'; el.focus(); }
+                return;
+            }
+        }
+
+        // Switch to execution modal
+        _scriptsRunStream(meta.scriptId, meta.scriptMeta, params);
+    }
+
+    // ── SSE streaming execution ──────────────────────────────────────
+
+    function _scriptsRunStream(scriptId, scriptMeta, params) {
+        // Kill any previous run
+        if (_scriptRunAbort) { try { _scriptRunAbort.abort(); } catch(_){} }
+        for (const id of Object.values(_scriptRunTimerIds)) clearInterval(id);
+        _scriptRunTimerIds = {};
+
+        const oldModal = document.getElementById('script-run-modal');
+        if (oldModal) oldModal.remove();
+
+        _scriptRunAbort = new AbortController();
+
+        // ── Build modal DOM ──
+        const modal = document.createElement('div');
+        modal.className = 'vault-modal-overlay';
+        modal.id = 'script-run-modal';
+        modal.onclick = (e) => { if (e.target === modal) _scriptsCloseRunModal(); };
+        modal.innerHTML = `
+        <div class="vault-modal" style="max-width:760px;max-height:92vh;overflow-y:auto">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-md)">
+                <h3 style="margin:0;display:flex;align-items:center;gap:0.5rem">
+                    ${_scriptsLangIcon(scriptMeta.language)}
+                    <span>Running: <code style="font-size:0.85em;color:#818cf8">${esc(scriptMeta.name)}</code></span>
+                </h3>
+                <button class="btn btn-sm btn-ghost" onclick="_scriptsCloseRunModal()" style="font-size:1.1rem;padding:0.1rem 0.4rem" title="Close">✕</button>
+            </div>
+            <div id="script-run-timer" style="font-size:0.72rem;color:var(--text-muted);margin-bottom:var(--space-sm)">⏱ Elapsed: 0.0s</div>
+            <div id="script-run-stages" style="display:flex;flex-direction:column;gap:0.5rem;margin-bottom:var(--space-md)">
+                <div style="color:var(--text-muted);font-size:0.78rem;padding:0.5rem">Connecting…</div>
+            </div>
+            <div id="script-run-status" style="font-size:0.82rem;padding:0.5rem 0">
+                <span style="color:var(--text-muted)">⏳ Starting execution…</span>
+            </div>
+            <div id="script-run-actions" style="display:flex;gap:var(--space-sm);justify-content:flex-end;padding-top:var(--space-sm);border-top:1px solid var(--border-subtle)">
+                <button class="btn btn-sm" onclick="_scriptsAbortRun()" style="background:var(--error);color:white;border:none">⛔ Abort</button>
+                <button class="btn btn-sm btn-ghost" onclick="_scriptsCloseRunModal()" title="Hide">Minimize</button>
+            </div>
+        </div>`;
+        // Close the existing modalOpen (configuration) before adding the run modal
+        modalClose();
+        document.body.appendChild(modal);
+
+        const stagesEl = document.getElementById('script-run-stages');
+        const statusEl = document.getElementById('script-run-status');
+        const actionsEl = document.getElementById('script-run-actions');
+        const timerEl = document.getElementById('script-run-timer');
+
+        // Per-stage state
+        const stages = {};
+        let currentStage = '';
+        const pipelineStart = performance.now();
+        let pipelineDone = false;
+
+        // Live timer
+        const pipelineTimerId = setInterval(() => {
+            const elapsed = ((performance.now() - pipelineStart) / 1000).toFixed(1);
+            timerEl.textContent = `⏱ Elapsed: ${elapsed}s`;
+        }, 100);
+        _scriptRunTimerIds['_pipeline'] = pipelineTimerId;
+
+        function fmtMs(ms) { return ms < 1000 ? ms + 'ms' : (ms / 1000).toFixed(1) + 's'; }
+
+        // ── Stage card builder (matches artifacts pattern) ──
+        function makeStageCard(stageName, label) {
+            const wrapper = document.createElement('div');
+            wrapper.id = 'script-stage-' + stageName;
+            wrapper.style.cssText = 'border:1px solid var(--border-subtle);border-radius:8px;overflow:hidden;transition:border-color 0.2s';
+
+            const header = document.createElement('div');
+            header.style.cssText = 'display:flex;align-items:center;gap:0.5rem;padding:0.5rem 0.75rem;background:var(--bg-inset);cursor:pointer;user-select:none';
+            header.innerHTML = `
+                <span class="stage-icon" style="min-width:1.2rem;text-align:center;font-size:0.85rem">○</span>
+                <span class="stage-label" style="font-weight:600;font-size:0.82rem;color:var(--text-muted)">${esc(label)}</span>
+                <span class="stage-detail" style="margin-left:auto;font-size:0.68rem;color:var(--text-muted)"></span>
+                <span class="stage-lines" style="font-size:0.6rem;color:var(--text-muted);background:var(--bg-elevated);padding:0 0.25rem;border-radius:3px;display:none">0</span>
+                <span class="stage-toggle" style="font-size:0.6rem;color:var(--text-muted)">▶</span>`;
+            wrapper.appendChild(header);
+
+            const logArea = document.createElement('div');
+            logArea.className = 'stage-log';
+            logArea.style.cssText = 'display:none;background:#0d0f17;padding:0.5rem 0.75rem;font-family:var(--font-mono);font-size:0.66rem;max-height:200px;overflow-y:auto;line-height:1.5;color:#8892a8;white-space:pre-wrap;border-top:1px solid #1a1f2e';
+            wrapper.appendChild(logArea);
+
+            header.onclick = () => {
+                const showing = logArea.style.display !== 'none';
+                logArea.style.display = showing ? 'none' : 'block';
+                header.querySelector('.stage-toggle').textContent = showing ? '▶' : '▼';
+                if (!showing) logArea.scrollTop = logArea.scrollHeight;
+            };
+
+            return wrapper;
+        }
+
+        function setStageStatus(stageName, status, detail) {
+            const info = stages[stageName]; if (!info) return;
+            const wrapper = info.el;
+            const icons = { pending: '○', running: '⟳', done: '✅', error: '❌', skipped: '⊘' };
+            const colors = { pending: 'var(--text-muted)', running: '#818cf8', done: 'var(--success)', error: 'var(--error)', skipped: 'var(--text-muted)' };
+            const borders = { pending: 'var(--border-subtle)', running: '#818cf8', done: '#22c55e40', error: '#ef444460' };
+            const bgs = { running: 'rgba(129,140,248,0.04)', error: 'rgba(239,68,68,0.04)' };
+
+            wrapper.querySelector('.stage-icon').textContent = icons[status] || '○';
+            if (status === 'running') wrapper.querySelector('.stage-icon').style.animation = 'spin 1s linear infinite';
+            else wrapper.querySelector('.stage-icon').style.animation = '';
+            wrapper.querySelector('.stage-label').style.color = colors[status] || 'var(--text-muted)';
+            wrapper.querySelector('.stage-detail').textContent = detail || '';
+            wrapper.style.borderColor = borders[status] || 'var(--border-subtle)';
+            wrapper.querySelector('div').style.background = bgs[status] || 'var(--bg-inset)';
+        }
+
+        // ── Batched log rendering ──
+        const logBuffers = {};
+
+        function addStageLine(stageName, line) {
+            const info = stages[stageName]; if (!info) return;
+            info.lineCount++;
+            if (!logBuffers[stageName]) logBuffers[stageName] = { lines: [], scheduled: false };
+            logBuffers[stageName].lines.push(line);
+            if (!logBuffers[stageName].scheduled) {
+                logBuffers[stageName].scheduled = true;
+                requestAnimationFrame(() => flushStageLog(stageName));
+            }
+        }
+
+        function flushStageLog(stageName) {
+            const buf = logBuffers[stageName]; if (!buf) return;
+            const info = stages[stageName];
+            if (!info) { buf.lines = []; buf.scheduled = false; return; }
+            info.logEl.textContent += buf.lines.join('\n') + '\n';
+            buf.lines = []; buf.scheduled = false;
+            info.logEl.scrollTop = info.logEl.scrollHeight;
+            const linesEl = info.el.querySelector('.stage-lines');
+            linesEl.style.display = 'inline';
+            linesEl.textContent = info.lineCount;
+        }
+
+        function flushAll() {
+            for (const name of Object.keys(logBuffers)) flushStageLog(name);
+        }
+
+        function expandStageLog(sn) { const i = stages[sn]; if (!i) return; i.logEl.style.display = 'block'; i.el.querySelector('.stage-toggle').textContent = '▼'; }
+        function collapseStageLog(sn) { const i = stages[sn]; if (!i) return; i.logEl.style.display = 'none'; i.el.querySelector('.stage-toggle').textContent = '▶'; }
+
+        function startStageTimer(sn) {
+            const i = stages[sn]; if (!i) return;
+            i.startTs = performance.now();
+            const tid = setInterval(() => {
+                const e = ((performance.now() - i.startTs) / 1000).toFixed(1);
+                i.el.querySelector('.stage-detail').textContent = e + 's…';
+            }, 100);
+            _scriptRunTimerIds[sn] = tid;
+        }
+        function stopStageTimer(sn) {
+            if (_scriptRunTimerIds[sn]) { clearInterval(_scriptRunTimerIds[sn]); delete _scriptRunTimerIds[sn]; }
+        }
+
+        // ── SSE connection — same pattern as artifacts ──
+        const runUrl = '/api/scripts/run/stream';
+        fetch(runUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                script_id: scriptId,
+                params,
+            }),
+            signal: _scriptRunAbort.signal,
+        })
+        .then(response => {
+            if (!response.ok) throw new Error(`Server ${response.status}: ${response.statusText}`);
+            stagesEl.innerHTML = '';
+            statusEl.innerHTML = '<span style="color:#818cf8">🔨 Starting pipeline…</span>';
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+
+            function read() {
+                reader.read().then(({ done, value }) => {
+                    if (done) {
+                        flushAll();
+                        if (!pipelineDone) {
+                            statusEl.innerHTML = '<span style="color:var(--warning)">⚠️ Stream ended unexpectedly</span>';
+                            if (currentStage && stages[currentStage]) expandStageLog(currentStage);
+                        }
+                        clearInterval(pipelineTimerId);
+                        for (const id of Object.values(_scriptRunTimerIds)) clearInterval(id);
+                        cardInvalidate('scripts');
+                        return;
+                    }
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop();
+
+                    for (const line of lines) {
+                        if (!line.startsWith('data: ')) continue;
+                        let evt;
+                        try { evt = JSON.parse(line.slice(6)); } catch(e) { continue; }
+
+                        if (evt.type === 'pipeline_start') {
+                            stagesEl.innerHTML = '';
+                            statusEl.innerHTML = `<span style="color:#818cf8">▶ ${esc(evt.label || 'Running…')}</span>`;
+                            for (const s of (evt.stages || [])) {
+                                const card = makeStageCard(s.name, s.label || s.name);
+                                stagesEl.appendChild(card);
+                                stages[s.name] = {
+                                    el: card,
+                                    label: s.label || s.name,
+                                    logEl: card.querySelector('.stage-log'),
+                                    lineCount: 0,
+                                    startTs: 0,
+                                };
+                                setStageStatus(s.name, 'pending', '');
+                            }
+
+                        } else if (evt.type === 'stage_start') {
+                            if (currentStage && currentStage !== evt.stage) collapseStageLog(currentStage);
+                            currentStage = evt.stage;
+                            setStageStatus(evt.stage, 'running', 'starting…');
+                            expandStageLog(evt.stage);
+                            startStageTimer(evt.stage);
+                            statusEl.innerHTML = `<span style="color:#818cf8">▶ ${esc(evt.label || evt.stage)}</span>`;
+
+                        } else if (evt.type === 'log') {
+                            addStageLine(evt.stage || currentStage, evt.line || '');
+
+                        } else if (evt.type === 'stage_done') {
+                            flushAll();
+                            stopStageTimer(evt.stage);
+                            setStageStatus(evt.stage, 'done', fmtMs(evt.duration_ms || 0));
+                            collapseStageLog(evt.stage);
+
+                        } else if (evt.type === 'stage_error') {
+                            flushAll();
+                            stopStageTimer(evt.stage);
+                            const errLines = (evt.error || 'failed').split('\n');
+                            setStageStatus(evt.stage, 'error', esc(errLines[0]));
+                            for (const eLine of errLines) {
+                                addStageLine(evt.stage, `❌ ${eLine}`);
+                            }
+                            expandStageLog(evt.stage);
+
+                        } else if (evt.type === 'pipeline_done') {
+                            pipelineDone = true;
+                            flushAll();
+                            clearInterval(pipelineTimerId);
+                            for (const id of Object.values(_scriptRunTimerIds)) clearInterval(id);
+                            _scriptRunTimerIds = {};
+
+                            const totalT = fmtMs(evt.total_ms || 0);
+                            timerEl.textContent = `⏱ Total: ${totalT}`;
+
+                            if (currentStage) collapseStageLog(currentStage);
+
+                            // Update skipped stages
+                            if (evt.stages) {
+                                for (const s of evt.stages) {
+                                    if (s.status === 'skipped') setStageStatus(s.name, 'skipped', 'skipped');
+                                }
+                            }
+
+                            if (evt.ok) {
+                                statusEl.innerHTML = `<span style="color:var(--success)">✅ Script completed — ${totalT}</span>`;
+                                let resultHtml = '';
+
+                                // Output info
+                                const outRel = evt.output_relative || '';
+                                const outFiles = evt.output_files || [];
+
+                                if (outRel) {
+                                    resultHtml += `<div style="font-size:0.76rem;color:var(--text-secondary);margin-top:var(--space-sm)">📁 Output: <code style="color:#818cf8">${esc(outRel)}</code></div>`;
+                                }
+                                if (evt.line_count) {
+                                    resultHtml += `<div style="font-size:0.72rem;color:var(--text-muted)">📝 ${evt.line_count} output lines</div>`;
+                                }
+
+                                // Output action buttons — one row per file
+                                if (outFiles.length > 0 || outRel) {
+                                    resultHtml += `<div style="display:flex;flex-direction:column;gap:0.4rem;margin-top:var(--space-sm)">`;
+
+                                    for (const fp of outFiles) {
+                                        const fname = fp.split('/').pop();
+                                        resultHtml += `
+                                        <div style="display:flex;align-items:center;gap:0.35rem;padding:0.35rem 0.5rem;background:var(--bg-inset);border:1px solid var(--border-subtle);border-radius:6px">
+                                            <span style="flex:1;font-size:0.76rem;font-weight:500;color:var(--text-primary);font-family:var(--font-mono,monospace)">${esc(fname)}</span>
+                                            <button class="btn btn-sm" onclick="openFileInModal('${esc(fp)}')"
+                                                style="font-size:0.66rem;padding:0.15rem 0.5rem;background:rgba(129,140,248,0.12);border:1px solid rgba(129,140,248,0.3);color:#818cf8"
+                                                title="Quick preview in modal">📄 Open</button>
+                                            <button class="btn btn-sm" onclick="_scriptsCloseRunModal();switchTab('content/docs/${esc(fp)}@edit')"
+                                                style="font-size:0.66rem;padding:0.15rem 0.5rem;background:rgba(251,191,36,0.1);border:1px solid rgba(251,191,36,0.3);color:#fbbf24"
+                                                title="Open in Content Vault — Edit mode">✏️ Edit in Vault</button>
+                                            <button class="btn btn-sm" onclick="_scriptsCloseRunModal();switchTab('content/docs/${esc(fp)}@preview')"
+                                                style="font-size:0.66rem;padding:0.15rem 0.5rem;background:rgba(52,211,153,0.1);border:1px solid rgba(52,211,153,0.3);color:#34d399"
+                                                title="Open in Content Vault — Preview mode (with Mermaid rendering)">👁 Preview in Vault</button>
+                                        </div>`;
+                                    }
+
+                                    // Folder button — separate row
+                                    if (outRel) {
+                                        resultHtml += `
+                                        <div style="display:flex;align-items:center;gap:0.35rem;padding:0.25rem 0.5rem">
+                                            <button class="btn btn-sm" onclick="_scriptsCloseRunModal();switchTab('content/docs/${esc(outRel)}')"
+                                                style="font-size:0.66rem;padding:0.15rem 0.5rem;background:var(--bg-inset);border:1px solid var(--border-subtle);color:var(--text-secondary)"
+                                                title="Browse the output folder in Content Vault">📁 Browse output folder</button>
+                                        </div>`;
+                                    }
+
+                                    resultHtml += `</div>`;
+                                }
+
+                                if (resultHtml) {
+                                    const resultDiv = document.createElement('div');
+                                    resultDiv.innerHTML = resultHtml;
+                                    stagesEl.parentElement.insertBefore(resultDiv, actionsEl);
+                                }
+                                actionsEl.innerHTML = `
+                                    <button class="btn btn-sm" onclick="_scriptsCloseRunModal();_scriptsOpenRunModal('${esc(scriptId)}')" style="background:#818cf8;color:white;border:none">🔄 Run Again</button>
+                                    <button class="btn btn-sm btn-secondary" onclick="_scriptsCloseRunModal()">Close</button>`;
+                                toast('✅ Script completed', 'success');
+                            } else {
+                                statusEl.innerHTML = `<span style="color:var(--error)">❌ Script failed: ${esc((evt.error || 'unknown').split('\\n')[0])}</span>`;
+                                actionsEl.innerHTML = `
+                                    <button class="btn btn-sm" onclick="_scriptsCloseRunModal();_scriptsOpenRunModal('${esc(scriptId)}')" style="background:#818cf8;color:white;border:none">🔄 Retry</button>
+                                    <button class="btn btn-sm btn-secondary" onclick="_scriptsCloseRunModal()">Close</button>`;
+                                // Expand failed stages
+                                if (evt.stages) {
+                                    for (const s of evt.stages) {
+                                        if (s.status === 'error') expandStageLog(s.name);
+                                    }
+                                }
+                                toast('Script failed', 'error');
+                            }
+
+                            cardInvalidate('scripts');
+                            _intLoadScriptsCard();
+                        }
+                    }
+                    read();
+                }).catch(err => {
+                    if (err.name === 'AbortError') return;
+                    clearInterval(pipelineTimerId);
+                    statusEl.innerHTML = `<span style="color:var(--error)">⚠️ Stream interrupted: ${esc(err.message)}</span>`;
+                    actionsEl.innerHTML = `<button class="btn btn-sm btn-secondary" onclick="_scriptsCloseRunModal()">Close</button>`;
+                    if (currentStage) expandStageLog(currentStage);
+                    cardInvalidate('scripts');
+                });
+            }
+            read();
+        })
+        .catch(err => {
+            if (err.name === 'AbortError') return;
+            clearInterval(pipelineTimerId);
+            statusEl.innerHTML = `<span style="color:var(--error)">❌ Connection failed: ${esc(err.message)}</span>`;
+            actionsEl.innerHTML = `<button class="btn btn-sm btn-secondary" onclick="_scriptsCloseRunModal()">Close</button>`;
+        });
+    }
+
+    // ── Modal controls ───────────────────────────────────────────────
+
+    function _scriptsAbortRun() {
+        if (_scriptRunAbort) { try { _scriptRunAbort.abort(); } catch(_){} _scriptRunAbort = null; }
+        for (const id of Object.values(_scriptRunTimerIds)) clearInterval(id);
+        _scriptRunTimerIds = {};
+        const modal = document.getElementById('script-run-modal');
+        if (modal) modal.remove();
+        cardInvalidate('scripts');
+        _intLoadScriptsCard();
+    }
+
+    function _scriptsCloseRunModal() {
+        const modal = document.getElementById('script-run-modal');
+        if (modal) modal.remove();
+        if (_scriptRunAbort) { try { _scriptRunAbort.abort(); } catch(_){} _scriptRunAbort = null; }
+        for (const id of Object.values(_scriptRunTimerIds)) clearInterval(id);
+        _scriptRunTimerIds = {};
+    }
+

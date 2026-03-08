@@ -118,6 +118,17 @@ artifacts:
     config:
       tag: ''
       dockerfile: Dockerfile
+scripts:
+  root: scripts
+  template_source: auto
+  default_output: scripts/output
+  history:
+    max_runs: 100
+    persist_output: true
+  execution:
+    default_timeout: 300
+    parallel: false
+    venv_python: auto
 kubernetes:
   _services:
   - name: cli

@@ -566,6 +566,8 @@ if (data.type === 'image') {
         </div>`;
         _attachPreviewLinkHandlers(body);
         _resolvePeekLinks(path, data.content || '', body);
+        // Render mermaid diagrams if present
+        _renderMermaidBlocks(body);
         // Line tracking: map headings to source lines + restore scroll position
         const sourceText = data.content || '';
         const rendered = body.querySelector('.content-preview-rendered');
@@ -1837,4 +1839,193 @@ monacoGuardUnsaved(() => {
     contentPreviewFile(previewCurrentPath, previewCurrentName);
     contentUpdateHash({ push: false });
 });
+}
+
+// ═════════════════════════════════════════════════════════════════
+//  Mermaid diagram rendering
+// ═════════════════════════════════════════════════════════════════
+
+let _mermaidInitialized = false;
+
+/**
+ * Initialize Mermaid.js once with a dark theme matching the app.
+ * Called lazily on first use.
+ */
+function _mermaidInit() {
+    if (_mermaidInitialized || typeof mermaid === 'undefined') return;
+    mermaid.initialize({
+        startOnLoad: false,
+        theme: 'dark',
+        maxTextSize: 200000,
+        themeVariables: {
+            primaryColor: '#818cf8',
+            primaryTextColor: '#e2e8f0',
+            primaryBorderColor: '#6366f1',
+            lineColor: '#94a3b8',
+            secondaryColor: '#1e293b',
+            tertiaryColor: '#0f172a',
+            background: '#0f172a',
+            mainBkg: '#1e293b',
+            nodeBorder: '#6366f1',
+            clusterBkg: '#1e293b',
+            clusterBorder: '#334155',
+            titleColor: '#e2e8f0',
+            edgeLabelBackground: '#1e293b',
+        },
+        fontFamily: 'Inter, system-ui, sans-serif',
+        fontSize: 13,
+        flowchart: { useMaxWidth: false, htmlLabels: true },
+        classDiagram: { useMaxWidth: false },
+    });
+    _mermaidInitialized = true;
+}
+
+/**
+ * Find all ```mermaid code blocks in the rendered preview,
+ * convert them to interactive Mermaid viewports with zoom/pan,
+ * and run the renderer.
+ *
+ * marked.js renders ```mermaid as:
+ *   <pre><code class="language-mermaid">...</code></pre>
+ *
+ * We replace each with an interactive viewport containing:
+ * - A toolbar with zoom in/out/reset/fit buttons
+ * - Mouse wheel zoom
+ * - Click-drag to pan
+ */
+function _renderMermaidBlocks(container) {
+    if (typeof mermaid === 'undefined') return;
+
+    const codeBlocks = container.querySelectorAll('code.language-mermaid');
+    if (codeBlocks.length === 0) return;
+
+    _mermaidInit();
+
+    let idx = 0;
+    for (const code of codeBlocks) {
+        const pre = code.parentElement;
+        if (!pre || pre.tagName !== 'PRE') continue;
+
+        const viewportId = `mermaid-viewport-${idx++}`;
+
+        // Build the interactive wrapper
+        const wrapper = document.createElement('div');
+        wrapper.className = 'mermaid-wrapper';
+        wrapper.style.cssText = 'position:relative;margin:0.75rem 0;border:1px solid var(--border-subtle);border-radius:var(--radius-sm);overflow:hidden;background:var(--bg-inset);';
+
+        // Toolbar
+        const toolbar = document.createElement('div');
+        toolbar.style.cssText = 'display:flex;align-items:center;gap:0.25rem;padding:0.3rem 0.5rem;background:rgba(15,23,42,0.8);border-bottom:1px solid var(--border-subtle);position:sticky;top:0;z-index:2;';
+        toolbar.innerHTML = `
+            <span style="font-size:0.68rem;color:var(--text-muted);flex:1">🔍 Scroll to zoom · Drag to pan</span>
+            <button class="btn btn-sm" data-mermaid-action="zoom-in" style="font-size:0.62rem;padding:0.1rem 0.35rem;background:var(--bg-card);border:1px solid var(--border-subtle);color:var(--text-secondary)" title="Zoom in">➕</button>
+            <button class="btn btn-sm" data-mermaid-action="zoom-out" style="font-size:0.62rem;padding:0.1rem 0.35rem;background:var(--bg-card);border:1px solid var(--border-subtle);color:var(--text-secondary)" title="Zoom out">➖</button>
+            <button class="btn btn-sm" data-mermaid-action="reset" style="font-size:0.62rem;padding:0.1rem 0.35rem;background:var(--bg-card);border:1px solid var(--border-subtle);color:var(--text-secondary)" title="Reset zoom">↻ Reset</button>
+            <button class="btn btn-sm" data-mermaid-action="fit" style="font-size:0.62rem;padding:0.1rem 0.35rem;background:var(--bg-card);border:1px solid var(--border-subtle);color:var(--text-secondary)" title="Fit to width">⤡ Fit</button>
+            <span data-mermaid-zoom-label style="font-size:0.62rem;color:var(--text-muted);min-width:2.5rem;text-align:right">100%</span>
+        `;
+        wrapper.appendChild(toolbar);
+
+        // Viewport (scrollable + zoomable area)
+        const viewport = document.createElement('div');
+        viewport.id = viewportId;
+        viewport.style.cssText = 'overflow:auto;max-height:70vh;min-height:200px;cursor:grab;position:relative;';
+
+        // Inner canvas (gets transformed by zoom/pan)
+        const canvas = document.createElement('div');
+        canvas.style.cssText = 'transform-origin:0 0;transition:transform 0.15s ease;padding:1rem;display:inline-block;min-width:100%;';
+
+        // Mermaid content div
+        const mermaidDiv = document.createElement('div');
+        mermaidDiv.className = 'mermaid';
+        mermaidDiv.textContent = code.textContent;
+        canvas.appendChild(mermaidDiv);
+
+        viewport.appendChild(canvas);
+        wrapper.appendChild(viewport);
+
+        pre.replaceWith(wrapper);
+
+        // Attach interactivity after render
+        _mermaidAttachControls(wrapper, viewport, canvas, toolbar);
+    }
+
+    // Run Mermaid renderer on the new divs
+    try {
+        mermaid.run({ querySelector: '.mermaid' });
+    } catch (e) {
+        console.warn('[Mermaid] Render failed:', e);
+    }
+}
+
+/**
+ * Attach zoom/pan controls to a mermaid viewport.
+ */
+function _mermaidAttachControls(wrapper, viewport, canvas, toolbar) {
+    let scale = 1;
+    let panX = 0, panY = 0;
+    let isDragging = false;
+    let dragStartX = 0, dragStartY = 0;
+    let scrollStartX = 0, scrollStartY = 0;
+
+    const zoomLabel = toolbar.querySelector('[data-mermaid-zoom-label]');
+
+    function applyTransform() {
+        canvas.style.transform = `scale(${scale}) translate(${panX}px, ${panY}px)`;
+        if (zoomLabel) zoomLabel.textContent = `${Math.round(scale * 100)}%`;
+    }
+
+    function zoomTo(newScale) {
+        scale = Math.max(0.1, Math.min(5, newScale));
+        applyTransform();
+    }
+
+    // Toolbar buttons
+    toolbar.addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-mermaid-action]');
+        if (!btn) return;
+        const action = btn.dataset.mermaidAction;
+        if (action === 'zoom-in') zoomTo(scale * 1.25);
+        else if (action === 'zoom-out') zoomTo(scale / 1.25);
+        else if (action === 'reset') { scale = 1; panX = 0; panY = 0; applyTransform(); }
+        else if (action === 'fit') {
+            const vw = viewport.clientWidth;
+            const cw = canvas.scrollWidth / scale;
+            if (cw > 0) { scale = Math.min(1, vw / cw); panX = 0; panY = 0; applyTransform(); }
+        }
+    });
+
+    // Mouse wheel zoom
+    viewport.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        const delta = e.deltaY > 0 ? 0.9 : 1.1;
+        zoomTo(scale * delta);
+    }, { passive: false });
+
+    // Click-drag to pan
+    viewport.addEventListener('mousedown', (e) => {
+        if (e.button !== 0) return;
+        isDragging = true;
+        dragStartX = e.clientX;
+        dragStartY = e.clientY;
+        scrollStartX = viewport.scrollLeft;
+        scrollStartY = viewport.scrollTop;
+        viewport.style.cursor = 'grabbing';
+        e.preventDefault();
+    });
+
+    window.addEventListener('mousemove', (e) => {
+        if (!isDragging) return;
+        const dx = e.clientX - dragStartX;
+        const dy = e.clientY - dragStartY;
+        viewport.scrollLeft = scrollStartX - dx;
+        viewport.scrollTop = scrollStartY - dy;
+    });
+
+    window.addEventListener('mouseup', () => {
+        if (isDragging) {
+            isDragging = false;
+            viewport.style.cursor = 'grab';
+        }
+    });
 }

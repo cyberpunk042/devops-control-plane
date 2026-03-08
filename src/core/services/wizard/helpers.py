@@ -270,3 +270,64 @@ def _wizard_pages_status(root: Path) -> dict:
     except Exception:
         logger.exception("_wizard_pages_status failed")
     return result
+
+
+# ── Scripts status ─────────────────────────────────────────────────
+
+
+def _wizard_scripts_status(root: Path) -> dict:
+    """Scripts status for wizard use — discovered scripts, categories, config."""
+    try:
+        from src.core.services.scripts.config import load_scripts_config
+        from src.core.services.scripts.registry import discover_scripts
+
+        config = load_scripts_config(root)
+        scripts = discover_scripts(root, config)
+
+        # Group by category
+        by_category: dict[str, int] = {}
+        for s in scripts:
+            by_category[s.category] = by_category.get(s.category, 0) + 1
+
+        # Source breakdown
+        root_count = sum(1 for s in scripts if s.source == "root")
+        template_count = sum(1 for s in scripts if s.source == "template")
+        override_count = sum(1 for s in scripts if s.source == "override")
+
+        return {
+            "ok": True,
+            "root_path": config.root,
+            "scripts_dir_exists": (root / config.root).is_dir(),
+            "total_scripts": len(scripts),
+            "by_category": by_category,
+            "sources": {
+                "root": root_count,
+                "template": template_count,
+                "override": override_count,
+            },
+            "scripts": [
+                {
+                    "id": s.id,
+                    "name": s.name,
+                    "category": s.category,
+                    "source": s.source,
+                    "language": s.language,
+                    "mode": s.mode,
+                }
+                for s in scripts
+            ],
+            "config": {
+                "root": config.root,
+                "template_source": config.template_source,
+                "default_output": config.default_output,
+                "default_timeout": config.execution_default_timeout,
+            },
+        }
+    except Exception as exc:
+        logger.exception("_wizard_scripts_status failed")
+        return {
+            "ok": False,
+            "error": str(exc),
+            "total_scripts": 0,
+            "scripts": [],
+        }

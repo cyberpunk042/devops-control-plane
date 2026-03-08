@@ -176,6 +176,10 @@ def _ensure_registry() -> None:
     reg("testing", lambda root: testing_ops.testing_status(root))
     # Integration-only keys
     reg("github", lambda root: git_ops.gh_status(root))
+
+    from src.core.services.scripts.registry import get_scripts_summary as _scripts_summary
+    reg("scripts", lambda root: _scripts_summary(root))
+
     # Note: "pages" uses complex inlined compute (segments + build_status)
     # so it's not registered here; it computes via the browser GET path.
 

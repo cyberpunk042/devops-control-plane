@@ -1,0 +1,205 @@
+/* Integrations Tab JS — Scripts Card
+     _intLoadScriptsCard(), script list & status rendering.
+     Depends on: _init.html (card registry, cardCached/cardStore/cardRefresh)
+     Modal/run logic lives in: _scripts_run.html
+*/
+    // ── Scripts Card ───────────────────────────────────────────────────
+
+    async function _intLoadScriptsCard() {
+        const badge = document.getElementById('int-scripts-badge');
+        const detail = document.getElementById('int-scripts-detail');
+
+        try {
+            const cached = cardCached('scripts');
+            const data = cached || await api('/scripts/list');
+            if (!cached) cardStore('scripts', data);
+
+            const scripts = data.scripts || [];
+            const total = data.total || scripts.length;
+            const byCat = data.by_category || {};
+            const bySource = data.by_source || {};
+
+            // ── No scripts found ──
+            if (total === 0) {
+                badge.className = 'status-badge degraded';
+                badge.innerHTML = '<span class="status-dot"></span>None';
+                detail.innerHTML = cardEmpty('🧩', 'No scripts discovered.',
+                    { label: '📋 View templates', onclick: '_scriptsTemplatesModal()' });
+                return;
+            }
+
+            // ── Scripts found ──
+            badge.className = 'status-badge ok';
+            badge.innerHTML = `<span class="status-dot"></span>${total} script${total !== 1 ? 's' : ''}`;
+
+            let html = '';
+
+            // Status grid — counts
+            const stats = [
+                { label: 'Total', value: String(total), cls: 'ok' },
+            ];
+            const catEntries = Object.entries(byCat);
+            if (catEntries.length > 0) {
+                for (const [cat, count] of catEntries) {
+                    stats.push({ label: _scriptsCatLabel(cat), value: String(count) });
+                }
+            }
+            const srcEntries = Object.entries(bySource);
+            if (srcEntries.length > 0) {
+                for (const [src, count] of srcEntries) {
+                    stats.push({ label: _scriptsSourceLabel(src), value: String(count) });
+                }
+            }
+            html += cardStatusGrid(stats);
+
+            // Detection list — scripts with click-to-run
+            const detections = scripts.map(s => {
+                const icon = _scriptsLangIcon(s.language);
+                const srcBadge = s.source === 'template' ? ' [T]'
+                    : s.source === 'override' ? ' [O]' : '';
+                return {
+                    icon,
+                    label: s.category || 'script',
+                    value: (s.name || s.id) + srcBadge,
+                    click: `_scriptsOpenRunModal('${esc(s.id)}')`,
+                };
+            });
+            html += cardDetectionList(detections);
+
+            // Action toolbar
+            html += cardActionToolbar([
+                { label: 'Run…', icon: '▶', onclick: '_scriptsPickAndRun()', cls: 'btn-primary' },
+                { label: 'History', icon: '📜', onclick: '_scriptsHistoryModal()' },
+            ]);
+
+            detail.innerHTML = html;
+
+        } catch (e) {
+            badge.className = 'status-badge failed';
+            badge.innerHTML = '<span class="status-dot"></span>Error';
+            detail.innerHTML = `<p class="empty-state-sm" style="color:var(--error)">${esc(e.message)}</p>`;
+        }
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────
+
+    function _scriptsLangIcon(lang) {
+        const icons = { python: '🐍', shell: '🐚', bash: '🐚', sh: '🐚', powershell: '⚡' };
+        return icons[lang] || '📄';
+    }
+
+    function _scriptsCatLabel(cat) {
+        const labels = {
+            generator: '🔧 Generators',
+            audit: '🔍 Audits',
+            setup: '⚙️ Setup',
+            deploy: '🚀 Deploy',
+            maintain: '🛠 Maintenance',
+        };
+        return labels[cat] || cat;
+    }
+
+    function _scriptsSourceLabel(src) {
+        const labels = {
+            template: '📋 Templates',
+            root: '📂 Project',
+            override: '🔀 Overrides',
+        };
+        return labels[src] || src;
+    }
+
+    // ── Quick pick & run ─────────────────────────────────────────────
+
+    async function _scriptsPickAndRun() {
+        const cached = cardCached('scripts');
+        const data = cached || await api('/scripts/list');
+        const scripts = data.scripts || [];
+
+        if (scripts.length === 0) {
+            toast('No scripts available', 'info');
+            return;
+        }
+
+        if (scripts.length === 1) {
+            // Only one script — open its run modal directly
+            _scriptsOpenRunModal(scripts[0].id);
+            return;
+        }
+
+        let rows = scripts.map(s =>
+            `<div class="card-detect-row" style="cursor:pointer" onclick="_scriptsOpenRunModal('${esc(s.id)}')">
+                <span class="card-detect-icon">${_scriptsLangIcon(s.language)}</span>
+                <span class="card-detect-label">${esc(s.category || '')}</span>
+                <span class="card-detect-value" style="color:var(--accent)">${esc(s.name || s.id)}</span>
+            </div>`
+        ).join('');
+
+        modalOpen({
+            title: '🧩 Select Script to Run',
+            body: `<div class="card-detection" style="max-height:400px;overflow:auto">${rows}</div>`,
+            footerButtons: [
+                { label: 'Cancel', cls: 'btn-secondary', onclick: 'modalClose()' },
+            ],
+        });
+    }
+
+    // ── History modal ────────────────────────────────────────────────
+
+    async function _scriptsHistoryModal() {
+        modalOpen({
+            title: '📜 Script History',
+            body: '<span class="spinner"></span> Loading history…',
+            footerButtons: [
+                { label: 'Close', cls: 'btn-secondary', onclick: 'modalClose()' },
+            ],
+        });
+
+        try {
+            const data = await api('/scripts/history?last=20');
+            const runs = data.runs || [];
+
+            if (runs.length === 0) {
+                modalOpen({
+                    title: '📜 Script History',
+                    body: '<p class="empty-state-sm">No script runs recorded yet.</p>',
+                    footerButtons: [
+                        { label: 'Close', cls: 'btn-secondary', onclick: 'modalClose()' },
+                    ],
+                });
+                return;
+            }
+
+            const body = cardDataTable(
+                ['Script', 'Status', 'Duration', 'When'],
+                runs.map(r => {
+                    const status = r.status || 'unknown';
+                    const statusCls = status === 'ok' ? 'ok' : (status === 'error' ? '' : 'muted');
+                    const duration = r.duration_ms != null ? `${(r.duration_ms / 1000).toFixed(1)}s` : '—';
+                    const when = r.started_at ? new Date(r.started_at * 1000).toLocaleString() : '—';
+                    return [
+                        { text: r.summary || r.target || '—', cls: 'name' },
+                        { text: status === 'ok' ? '✅' : '❌', cls: statusCls },
+                        { text: duration, cls: 'muted' },
+                        { text: when, cls: 'muted' },
+                    ];
+                })
+            );
+
+            modalOpen({
+                title: `📜 Script History (${runs.length} runs)`,
+                body: `<div style="max-height:400px;overflow:auto">${body}</div>`,
+                footerButtons: [
+                    { label: 'Close', cls: 'btn-secondary', onclick: 'modalClose()' },
+                ],
+            });
+        } catch (e) {
+            modalOpen({
+                title: '📜 Script History',
+                body: `<p style="color:var(--error)">${esc(e.message)}</p>`,
+                footerButtons: [
+                    { label: 'Close', cls: 'btn-secondary', onclick: 'modalClose()' },
+                ],
+            });
+        }
+    }
+

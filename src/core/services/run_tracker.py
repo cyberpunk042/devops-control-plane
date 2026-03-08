@@ -47,6 +47,7 @@ RUN_TYPES = {
     "test":      "Test execution",
     "scan":      "Security / audit scans",
     "generate":  "Generate configs, templates, scaffolding",
+    "script":    "Script execution (audit, generation, analysis)",
 
     # Data operations
     "backup":    "Backup / export",

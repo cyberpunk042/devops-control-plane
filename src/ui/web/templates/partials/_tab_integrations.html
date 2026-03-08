@@ -117,6 +117,22 @@
             </div>
         </div>
 
+        <!-- ── Scripts Card ──────────────────────────────────────── -->
+        <div class="card" id="int-scripts-card">
+            <div class="card-header">
+                <span class="card-title">🧩 Scripts</span>
+                <div style="display:flex;align-items:center;gap:0.4rem">
+                    <span class="card-age" data-cache-key="scripts" style="font-size:0.64rem;color:var(--text-muted)"></span>
+                    <button class="btn-icon" onclick="cardRefresh('scripts','int-scripts-badge','int-scripts-detail',_intLoadScriptsCard)" title="Refresh" style="font-size:0.7rem;cursor:pointer;background:none;border:none;color:var(--text-muted);padding:0">🔄</button>
+                    <span class="status-badge" id="int-scripts-badge">—</span>
+                </div>
+            </div>
+            <div class="card-subtitle">Automation &amp; code analysis</div>
+            <div id="int-scripts-detail" class="integration-detail" style="margin-top:var(--space-md)">
+                <span class="spinner"></span>
+            </div>
+        </div>
+
     </div>
 
     <!-- ── Build Cards (Pages + Artifacts, side by side) ──────── -->
@@ -170,4 +186,5 @@
             <span class="spinner"></span>
         </div>
     </div>
+
 </div>

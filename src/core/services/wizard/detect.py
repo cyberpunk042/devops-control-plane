@@ -33,12 +33,31 @@ from src.core.services.wizard.helpers import (
     _wizard_gitignore_analysis,
     _wizard_k8s_status,
     _wizard_pages_status,
+    _wizard_scripts_status,
     _wizard_terraform_status,
 )
 
 logger = logging.getLogger(__name__)
 
 _audit = make_auditor("wizard")
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  Helpers
+# ═══════════════════════════════════════════════════════════════════
+
+
+def _has_scripts_config(root: Path) -> bool:
+    """Check if project.yml has a scripts: section."""
+    try:
+        import yaml
+        yml = root / "project.yml"
+        if not yml.is_file():
+            return False
+        data = yaml.safe_load(yml.read_text(encoding="utf-8")) or {}
+        return "scripts" in data
+    except Exception:
+        return False
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -92,6 +111,8 @@ def wizard_detect(root: Path) -> dict:
         "dns_dir":        (root / "dns").is_dir(),
         "cdn_dir":        (root / "cdn").is_dir(),
         "cname_file":     (root / "CNAME").is_file(),
+        "scripts_dir":    (root / "scripts").is_dir(),
+        "scripts_config": _has_scripts_config(root),
     }
 
     # ── Connectivity probes ─────────────────────────────────────
@@ -275,6 +296,25 @@ def wizard_detect(root: Path) -> dict:
                 else ["setup_dns"]
             ),
         },
+        "scripts": {
+            "detected": files["scripts_dir"] or files["scripts_config"],
+            "status": (
+                "ready" if files["scripts_dir"] and files["scripts_config"]
+                else "partial" if files["scripts_dir"] or files["scripts_config"]
+                else "available"
+            ),
+            "suggest": (
+                "auto" if files["scripts_dir"]
+                else "hidden"
+            ),
+            "label": "📜 Scripts",
+            "has_scripts_dir": files["scripts_dir"],
+            "has_scripts_config": files["scripts_config"],
+            "setup_actions": (
+                ([] if files["scripts_dir"] else ["create_scripts_dir"])
+                + ([] if files["scripts_config"] else ["add_scripts_config"])
+            ),
+        },
     }
 
     py_ver = f"{sys.version_info.major}.{sys.version_info.minor}"
@@ -323,6 +363,7 @@ def wizard_detect(root: Path) -> dict:
         "codeowners_content": _wizard_codeowners_content(root),
         "env_status": _wizard_env_status(root),
         "pages_status": _wizard_pages_status(root),
+        "scripts_status": _wizard_scripts_status(root),
     }
 
 

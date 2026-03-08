@@ -95,6 +95,7 @@
         'int:pages':  { loadFn: () => loadPagesCard(),  cardId: 'int-pages-card',  badgeId: 'int-pages-badge',  detailId: 'int-pages-detail',  label: '📄 Pages' },
         'int:artifacts': { loadFn: () => loadArtifactsCard(), cardId: 'int-artifacts-card', badgeId: 'int-artifacts-badge', detailId: 'int-artifacts-detail', label: '📦 Artifacts' },
         'int:dns':    { loadFn: () => _intLoadDnsCard(), cardId: 'int-dns-card',   badgeId: 'int-dns-badge',   detailId: 'int-dns-detail',   label: '🌐 DNS & CDN' },
+        'int:scripts': { loadFn: () => _intLoadScriptsCard(), cardId: 'int-scripts-card', badgeId: 'int-scripts-badge', detailId: 'int-scripts-detail', label: '🧩 Scripts' },
     };
 
     async function _fetchIntPrefs() {
