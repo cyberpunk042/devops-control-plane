@@ -89,6 +89,7 @@ def create_app(
     from src.ui.web.routes.tab_mesh import tab_mesh_bp
     from src.ui.web.routes.notifications import notifications_bp
     from src.ui.web.routes.scripts import scripts_bp
+    from src.ui.web.routes.cdp_test import cdp_test_bp
 
     app.register_blueprint(pages_bp)
     app.register_blueprint(api_bp, url_prefix="/api")
@@ -126,6 +127,7 @@ def create_app(
     app.register_blueprint(tab_mesh_bp, url_prefix="/api")
     app.register_blueprint(notifications_bp, url_prefix="/api")
     app.register_blueprint(scripts_bp)
+    app.register_blueprint(cdp_test_bp, url_prefix="/api")
 
     # Initialize vault with project root (for auto-lock)
     from src.core.services import vault as vault_module

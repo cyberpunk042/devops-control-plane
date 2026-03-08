@@ -56,6 +56,9 @@ RUN_TYPES = {
     # Git operations
     "git":       "Git operations (commit, push, pull)",
     "ci":        "CI/CD workflow operations",
+
+    # CDP browser testing
+    "cdp_test":  "CDP browser test execution (record/replay)",
 }
 
 

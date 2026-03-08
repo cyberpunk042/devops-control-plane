@@ -299,6 +299,10 @@ def evaluate_js(ws_url: str, expression: str, timeout: float = 5.0) -> dict | No
     so we use PowerShell as a bridge — it runs on the Windows side
     where localhost:9222 IS reachable.
 
+    The CDP command JSON is written to a temp file to avoid escaping
+    issues with large or complex JS expressions — embedding them
+    inline in a PowerShell string breaks on $, {}, quotes, etc.
+
     Args:
         ws_url: WebSocket debugger URL from target's
                 ``webSocketDebuggerUrl`` field.
@@ -310,22 +314,66 @@ def evaluate_js(ws_url: str, expression: str, timeout: float = 5.0) -> dict | No
     """
     import subprocess
     import shutil
+    import tempfile
+    import os
 
-    # Escape the JS expression for embedding in PowerShell
-    # Replace single quotes with double-single for PS, and backslashes
-    ps_expr = expression.replace("'", "''")
+    # Build the CDP command as a JSON file — no inline escaping needed
+    cdp_cmd = json.dumps({
+        "id": 1,
+        "method": "Runtime.evaluate",
+        "params": {"expression": expression},
+    })
 
-    ps_script = f"""
+    # Write temp file to the WINDOWS filesystem so PowerShell can read it.
+    # WSL paths (\\wsl.localhost\...) don't work reliably from PS.
+    win_temp_dir = None
+    if _detect_wsl2():
+        # Find the Windows temp dir via /mnt/c
+        try:
+            win_user = subprocess.run(
+                ["cmd.exe", "/C", "echo", "%USERNAME%"],
+                capture_output=True, text=True, timeout=3,
+            ).stdout.strip()
+            candidate = f"/mnt/c/Users/{win_user}/AppData/Local/Temp"
+            if os.path.isdir(candidate):
+                win_temp_dir = candidate
+        except (subprocess.TimeoutExpired, OSError):
+            pass
+
+    tmp_fd, tmp_path = tempfile.mkstemp(
+        suffix=".json", prefix="cdp_cmd_",
+        dir=win_temp_dir,  # None falls back to system default
+    )
+    try:
+        with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
+            f.write(cdp_cmd)
+
+        # Convert to Windows path for PowerShell
+        if _detect_wsl2():
+            try:
+                win_path = subprocess.run(
+                    ["wslpath", "-w", tmp_path],
+                    capture_output=True, text=True, timeout=3,
+                ).stdout.strip()
+            except (subprocess.TimeoutExpired, OSError):
+                win_path = tmp_path
+        else:
+            win_path = tmp_path
+
+        # Escape backslashes for embedding in PS single-quoted string
+        win_path_escaped = win_path.replace("'", "''")
+
+        ps_script = f"""
 $ws = New-Object System.Net.WebSockets.ClientWebSocket
 $cts = New-Object System.Threading.CancellationTokenSource
 $cts.CancelAfter({int(timeout * 1000)})
 try {{
     $ws.ConnectAsync([Uri]'{ws_url}', $cts.Token).Wait()
-    $cmd = '{{"id":1,"method":"Runtime.evaluate","params":{{"expression":"{ps_expr}"}}}}'
+    $cmd = [IO.File]::ReadAllText('{win_path_escaped}')
     $bytes = [Text.Encoding]::UTF8.GetBytes($cmd)
     $segment = New-Object System.ArraySegment[byte](,$bytes)
     $ws.SendAsync($segment, [System.Net.WebSockets.WebSocketMessageType]::Text, $true, $cts.Token).Wait()
-    $buf = New-Object byte[] 65536
+    $buf = New-Object byte[] 262144
     $seg = New-Object System.ArraySegment[byte](,$buf)
     $result = $ws.ReceiveAsync($seg, $cts.Token).Result
     $response = [Text.Encoding]::UTF8.GetString($buf, 0, $result.Count)
@@ -336,20 +384,26 @@ try {{
 }}
 """
 
-    try:
-        r = subprocess.run(
-            ["powershell.exe", "-NoProfile", "-Command", ps_script],
-            capture_output=True, text=True,
-            timeout=timeout + 5,
-        )
-        if r.returncode == 0 and r.stdout.strip():
-            return json.loads(r.stdout.strip())
-        if r.stderr.strip():
-            logger.warning("CDP evaluate_js error: %s", r.stderr.strip()[:200])
-        return None
-    except (subprocess.TimeoutExpired, OSError, json.JSONDecodeError) as exc:
-        logger.warning("CDP evaluate_js failed: %s", exc)
-        return None
+        try:
+            r = subprocess.run(
+                ["powershell.exe", "-NoProfile", "-Command", ps_script],
+                capture_output=True, text=True,
+                timeout=timeout + 5,
+            )
+            if r.returncode == 0 and r.stdout.strip():
+                return json.loads(r.stdout.strip())
+            if r.stderr.strip():
+                logger.warning("CDP evaluate_js error: %s", r.stderr.strip()[:200])
+            return None
+        except (subprocess.TimeoutExpired, OSError, json.JSONDecodeError) as exc:
+            logger.warning("CDP evaluate_js failed: %s", exc)
+            return None
+    finally:
+        # Always clean up the temp file
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
 
 
 # ── Auto-discovery for WSL ────────────────────────────────────
