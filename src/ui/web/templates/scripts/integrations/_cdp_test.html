@@ -1049,6 +1049,26 @@
             } catch (_) {}
         });
 
+        // ── Replay paused (user switched tab) ──────────────────
+        _cdpTestSSESource.addEventListener('cdp_test:replay_paused', (e) => {
+            try {
+                const ev = JSON.parse(e.data);
+                if (ev.data?.run_id !== runId) return;
+                const title = document.getElementById('cdp-replay-title');
+                if (title) title.textContent = '⏸ Paused — switch back to target tab';
+            } catch (_) {}
+        });
+
+        // ── Replay resumed ─────────────────────────────────────
+        _cdpTestSSESource.addEventListener('cdp_test:replay_resumed', (e) => {
+            try {
+                const ev = JSON.parse(e.data);
+                if (ev.data?.run_id !== runId) return;
+                const title = document.getElementById('cdp-replay-title');
+                if (title) title.textContent = '▶ Running';
+            } catch (_) {}
+        });
+
         // ── Replay done ────────────────────────────────────────
         _cdpTestSSESource.addEventListener('cdp_test:replay_done', (e) => {
             try {

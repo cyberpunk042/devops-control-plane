@@ -975,6 +975,46 @@ def replay_suite(
         # ~300ms (curl.exe) per step.  The CdpSession will surface
         # connection errors if the tab closes mid-replay.
 
+        # ── Pre-step: pause if target tab not visible ─────────
+        # When the user switches away from the target tab, Chrome
+        # throttles the page and elements may not be findable.
+        # Pause and wait for the tab to become visible again.
+        if session and session.connected:
+            _VIS_JS = '(function(){ return JSON.stringify({ visible: document.visibilityState === "visible" }); })()'
+            try:
+                vis_result = session.evaluate(_VIS_JS, timeout=2.0)
+                vis_val = vis_result.get("result", {}).get("result", {}).get("value", "{}") if vis_result else "{}"
+                import json as _json_mod
+                vis_parsed = _json_mod.loads(vis_val) if vis_val else {}
+                if not vis_parsed.get("visible", True):
+                    # Tab is hidden — pause
+                    callback("cdp_test:replay_paused", {
+                        "run_id": run_result.id,
+                        "step_id": step.id,
+                        "sequence": step.sequence,
+                        "reason": "Tab not visible",
+                    })
+                    logger.info("Replay paused — target tab hidden (step %d)", i + 1)
+                    # Poll until visible or cancelled
+                    while not stop_event.is_set():
+                        time.sleep(0.5)
+                        try:
+                            vr = session.evaluate(_VIS_JS, timeout=2.0)
+                            vv = vr.get("result", {}).get("result", {}).get("value", "{}") if vr else "{}"
+                            vp = _json_mod.loads(vv) if vv else {}
+                            if vp.get("visible", False):
+                                break
+                        except Exception:
+                            break  # Session died — let the step handle the error
+                    callback("cdp_test:replay_resumed", {
+                        "run_id": run_result.id,
+                        "step_id": step.id,
+                        "sequence": step.sequence,
+                    })
+                    logger.info("Replay resumed — target tab visible again")
+            except Exception:
+                pass  # Visibility check failed — proceed anyway
+
         # ── Report step start ────────────────────────────────
         callback("cdp_test:step_start", {
             "run_id": run_result.id,
@@ -989,6 +1029,18 @@ def replay_suite(
         step_result = _execute_step(
             step_dict, merged_vars, session=session, ws_url=ws_url,
         )
+
+        # ── Post-step pacing — IMMEDIATELY after execution ────
+        # The delay fires right after CDP updates the page, so
+        # the user sees the value change and a visible pause
+        # before anything else happens.
+        _eff_min = min_step_delay_ms if min_step_delay_ms is not None else suite.min_step_delay_ms
+        _eff_vis = visual_delay_ms if visual_delay_ms is not None else suite.visual_delay_ms
+        eff_min_delay = max(_eff_min, 0) / 1000.0
+        eff_visual_delay = max(_eff_vis, 0) / 1000.0
+        step_pause = max(eff_min_delay, eff_visual_delay)
+        if step_pause > 0:
+            time.sleep(step_pause)
 
         # Build step result record
         result_record = {
@@ -1048,18 +1100,6 @@ def replay_suite(
             nav_wait = suite.navigate_wait_ms / 1000.0
             if nav_wait > 0:
                 time.sleep(nav_wait)
-
-        # ── Post-step pacing ─────────────────────────────────
-        # Per-run overrides take precedence over suite defaults.
-        # ALWAYS applied after each step so the user sees the result
-        # of the action before the next step starts.
-        _eff_min = min_step_delay_ms if min_step_delay_ms is not None else suite.min_step_delay_ms
-        _eff_vis = visual_delay_ms if visual_delay_ms is not None else suite.visual_delay_ms
-        eff_min_delay = max(_eff_min, 0) / 1000.0
-        eff_visual_delay = max(_eff_vis, 0) / 1000.0
-        step_pause = max(eff_min_delay, eff_visual_delay)
-        if step_pause > 0:
-            time.sleep(step_pause)
 
     finally:
         # Always close the streaming session
