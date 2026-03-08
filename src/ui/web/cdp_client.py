@@ -47,6 +47,8 @@ def set_endpoint(host: str, port: int = _DEFAULT_PORT) -> None:
 _is_wsl2: bool | None = None
 _curl_exe_path: str | None = None
 _curl_exe_resolved: bool = False
+_win_temp_dir: str | None = None
+_win_temp_dir_resolved: bool = False
 
 
 def _detect_wsl2() -> bool:
@@ -326,9 +328,9 @@ def evaluate_js(ws_url: str, expression: str, timeout: float = 5.0) -> dict | No
 
     # Write temp file to the WINDOWS filesystem so PowerShell can read it.
     # WSL paths (\\wsl.localhost\...) don't work reliably from PS.
-    win_temp_dir = None
-    if _detect_wsl2():
-        # Find the Windows temp dir via /mnt/c
+    # The Windows temp dir is cached to avoid calling cmd.exe every time.
+    global _win_temp_dir, _win_temp_dir_resolved
+    if _detect_wsl2() and not _win_temp_dir_resolved:
         try:
             win_user = subprocess.run(
                 ["cmd.exe", "/C", "echo", "%USERNAME%"],
@@ -336,9 +338,12 @@ def evaluate_js(ws_url: str, expression: str, timeout: float = 5.0) -> dict | No
             ).stdout.strip()
             candidate = f"/mnt/c/Users/{win_user}/AppData/Local/Temp"
             if os.path.isdir(candidate):
-                win_temp_dir = candidate
+                _win_temp_dir = candidate
+                logger.debug("CDP evaluate_js: Windows temp dir = %s", candidate)
         except (subprocess.TimeoutExpired, OSError):
             pass
+        _win_temp_dir_resolved = True
+    win_temp_dir = _win_temp_dir if _detect_wsl2() else None
 
     tmp_fd, tmp_path = tempfile.mkstemp(
         suffix=".json", prefix="cdp_cmd_",

@@ -104,7 +104,7 @@ def save_suite(project_root: Path, suite: TestSuite) -> None:
     path = _suites_dir(project_root) / f"{suite.id}.json"
     with _lock:
         path.write_text(
-            json.dumps(suite.to_dict(), indent=2, ensure_ascii=False),
+            json.dumps(suite.to_dict(), indent=2, ensure_ascii=True),
             encoding="utf-8",
         )
     logger.info("Saved suite %s (%s)", suite.id, suite.name)
@@ -171,7 +171,7 @@ def save_result(project_root: Path, result: TestRunResult) -> None:
     path = _results_dir(project_root) / f"{result.id}.json"
     with _lock:
         path.write_text(
-            json.dumps(result.to_dict(), indent=2, ensure_ascii=False),
+            json.dumps(result.to_dict(), indent=2, ensure_ascii=True),
             encoding="utf-8",
         )
     logger.info(

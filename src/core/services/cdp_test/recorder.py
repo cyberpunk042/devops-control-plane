@@ -137,7 +137,7 @@ def check_recorder_alive(target_ws_url: str) -> bool:
     from src.ui.web import cdp_client
 
     js = "(function() { return !!window.__dcp_recorder_active; })()"
-    result = cdp_client.evaluate_js(target_ws_url, js, timeout=2.0)
+    result = cdp_client.evaluate_js(target_ws_url, js, timeout=5.0)
     if result:
         value = result.get("result", {}).get("result", {}).get("value")
         return value is True
@@ -222,7 +222,7 @@ def start_watcher(
 
         consecutive_failures = 0
         while not _watcher_stop.is_set():
-            _watcher_stop.wait(2.0)  # Check every 2 seconds
+            _watcher_stop.wait(5.0)  # Check every 5 seconds
             if _watcher_stop.is_set():
                 break
 

@@ -304,11 +304,15 @@ def cdp_test_record_event():
 
     data = request.get_json(silent=True) or {}
 
-    # Validate session ID
+    # Validate session ID — old recorder scripts from previous sessions
+    # may still be running in the page; ignore their events gracefully.
     if data.get("session_id") != session.id:
-        resp = jsonify({"ok": False, "error": "Session ID mismatch"})
-        _add_pna_cors(resp)
-        return resp, 400
+        logger.debug(
+            "Ignoring event from stale session %s (active: %s)",
+            data.get("session_id", "?"), session.id,
+        )
+        resp = jsonify({"ok": True, "ignored": True})
+        return resp
 
     # Skip if paused
     if session.status == "paused":

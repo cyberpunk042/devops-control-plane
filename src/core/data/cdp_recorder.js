@@ -200,6 +200,8 @@
     //  Event Sending
     // ═══════════════════════════════════════════════════════════
 
+    var _sendFailed = false;
+
     function sendEvent(data) {
         if (window.__dcp_recorder_paused) return;
 
@@ -210,23 +212,28 @@
             ...data,
         });
 
-        // sendBeacon for reliability (survives page unload)
-        if (navigator.sendBeacon) {
-            try {
-                var blob = new Blob([payload], { type: 'application/json' });
-                navigator.sendBeacon(DCP_CALLBACK, blob);
-                return;
-            } catch (_) { }
-        }
-
-        // Fallback: fetch fire-and-forget
+        // Use fetch with credentials:'omit' — sendBeacon always sends
+        // cookies which triggers stricter CORS rules that block with
+        // ad blockers. fetch with omit avoids credential-mode issues.
         try {
             fetch(DCP_CALLBACK, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: payload,
+                mode: 'cors',
+                credentials: 'omit',
                 keepalive: true,
-            }).catch(function () { });
+            }).then(function (resp) {
+                if (_sendFailed && resp.ok) {
+                    _sendFailed = false;
+                    _updateIndicator('ok');
+                }
+            }).catch(function () {
+                if (!_sendFailed) {
+                    _sendFailed = true;
+                    _updateIndicator('blocked');
+                }
+            });
         } catch (_) { }
     }
 
@@ -398,10 +405,28 @@
         'box-shadow:0 2px 8px rgba(0,0,0,0.3)',
         'pointer-events:none', 'user-select:none',
     ].join(';');
-    indicator.innerHTML =
-        '<span style="width:8px;height:8px;background:#fff;border-radius:50%;' +
-        'animation:__dcp_rec_pulse 1.5s ease-in-out infinite"></span>' +
-        '<span>DCP Recording</span>';
+
+    function _updateIndicator(status) {
+        if (status === 'blocked') {
+            indicator.style.background = 'rgba(234,179,8,0.95)';
+            indicator.style.color = '#000';
+            indicator.style.pointerEvents = 'auto';
+            indicator.innerHTML =
+                '<span style="font-size:14px">⚠️</span>' +
+                '<span>DCP Recording — <b>Ad blocker detected!</b> ' +
+                'Disable it for localhost to capture events.</span>';
+        } else {
+            indicator.style.background = 'rgba(220,38,38,0.9)';
+            indicator.style.color = '#fff';
+            indicator.style.pointerEvents = 'none';
+            indicator.innerHTML =
+                '<span style="width:8px;height:8px;background:#fff;border-radius:50%;' +
+                'animation:__dcp_rec_pulse 1.5s ease-in-out infinite"></span>' +
+                '<span>DCP Recording</span>';
+        }
+    }
+
+    _updateIndicator('ok');
 
     // Pulse animation
     var style = document.createElement('style');
@@ -411,6 +436,23 @@
         '}';
     document.head.appendChild(style);
     document.body.appendChild(indicator);
+
+    // ── Ad blocker detection: send a test ping ───────────────
+    try {
+        fetch(DCP_CALLBACK, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ session_id: SESSION_ID, action: 'ping' }),
+            mode: 'cors',
+            credentials: 'omit',
+        }).catch(function () {
+            _sendFailed = true;
+            _updateIndicator('blocked');
+        });
+    } catch (_) {
+        _sendFailed = true;
+        _updateIndicator('blocked');
+    }
 
 
     // ═══════════════════════════════════════════════════════════
