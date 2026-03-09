@@ -46,6 +46,10 @@ Every design decision traces back to these exact statements.
 
 > "lets fold into another document for each chunks even if in the end we need 7 more documents"
 
+### Message 4 — Browser Execution (2026-03-09)
+
+> "The execution plan will be able to execute in a driven GoogleAccountless browser headless or not based on the desire or even in the default tests script execution tab driven mode background or not. (same browser vs another browser and I said browserless but you can actually re-use an existing profile as much as you can chose a temporary profile, see all the options, we need it all. the advantages is that it doesn't require to put your default browser for the base CDP mode, you can do it into a fresh chrome because we can easily add debug on such another browser even if it mean that we need to use a different port because it is still used by the other instance) obviously we cannot reuse profile that are already existing and created without debugging but we just need to tell the user this limitation with this alternate CDP, we can also choose to run it inside WSL or windows when we detect such a system if the wsl doesn't have a good Xterm or X11 / xserver or such to send to windows the chrome window then it only allow headless."
+
 ---
 
 ## 1. The Big Picture
@@ -276,6 +280,44 @@ The router creates the directory if missing, injects `SCRIPT_OUTPUT_DIR` env var
 
 Ledger logging is automatic via `tracked_run()` — not part of the output router.
 
+### 3.6 Browser Execution Modes (from Message 4)
+
+Execution plans can drive browser automation via CDP. This bridges the Scripts System with the CDP Test infrastructure. There are multiple execution modes:
+
+| Mode | Description | When |
+|------|-------------|------|
+| **Tab-driven (same browser)** | Reuses the currently-connected CDP browser (the user's default). Steps execute in a new or existing tab. Same as current CDP test replay. | Default — quick, zero setup |
+| **Separate Chrome (fresh profile)** | Launches a NEW Chrome instance with a temporary profile. No Google Account, clean state. Different debug port (e.g., 9223 while 9222 is in use). | Isolation needed, no login state wanted |
+| **Separate Chrome (reused profile)** | Launches a NEW Chrome instance using an existing Chrome profile directory. Has the user's extensions, cookies, saved passwords — but NO Google Account login required. | Need user state without account login |
+| **Background** | Any of the above but the execution runs without stealing focus. | CI-like runs, parallel work |
+| **Headless** | Chrome runs with `--headless`. No visible window. | CI, WSL without X11, server environments |
+
+#### Port Allocation
+
+- The base CDP mode uses port `9222` (user's default browser)
+- A separate Chrome instance uses a DIFFERENT port (e.g., `9223`, `9224`)
+- The system must detect which ports are in use and allocate a free one
+- Both instances can run simultaneously — they don't conflict
+
+#### Profile Constraints
+
+| Scenario | Works? | Why |
+|----------|--------|-----|
+| Fresh temporary profile | ✅ | New `--user-data-dir` in temp, launched with `--remote-debugging-port` |
+| Existing profile launched WITH debug flag | ✅ | Profile was started with `--remote-debugging-port`, CDP can attach |
+| Existing profile launched WITHOUT debug flag | ❌ | Chrome doesn't expose CDP. **Must tell the user this limitation.** |
+
+#### WSL / Windows Detection
+
+| Environment | Headed? | Headless? | Notes |
+|-------------|---------|-----------|-------|
+| Native Linux with display | ✅ | ✅ | Full capability |
+| Native Windows | ✅ | ✅ | Full capability |
+| WSL with X11/XServer/Xterm working | ✅ | ✅ | Display forwarded to Windows |
+| WSL WITHOUT X11/display | ❌ | ✅ | **Headless only** — no way to show Chrome window |
+
+The system detects the environment and offers only valid options. If WSL has no display, the "headed" option is grayed out with an explanation.
+
 ---
 
 ## 4. Three Concrete Script Families
@@ -392,15 +434,16 @@ Sub-audit B: Stale Documentation Detection
 - **Result**: Running the script detects `__init__` leaks and stale docs
 - **Depends on**: M1, M2 (report_formatter)
 
-### Milestone 7: Execution Plans + Advanced Modes
+### Milestone 7: Execution Plans + Browser-Driven Execution
 - **Detailed plan**: `.agent/plans/scripts-system-M7-plans.md`
-- **What**: Execution plan model, plan sequencing, semi-automated checkpoints, interactive mode, plan persistence
-- **Result**: Scripts can be composed into multi-step plans with dependency ordering
-- **Depends on**: M1
+- **What**: Execution plan model, plan sequencing, semi-automated checkpoints, interactive mode, plan persistence, **browser execution modes** (tab-driven / separate Chrome / fresh profile / reused profile / headless), **multi-port CDP management**, **WSL/Windows environment detection**, profile constraint communication
+- **Result**: Scripts can be composed into multi-step plans with dependency ordering. Plans can drive browser automation via CDP in multiple configurations — same browser tab-driven, separate Chrome instance (fresh or reused profile, headed or headless), with automatic port allocation and environment-aware option filtering.
+- **Key constraint**: Cannot attach to Chrome profiles launched without `--remote-debugging-port` — system must communicate this limitation clearly to the user
+- **Depends on**: M1, CDP Test infrastructure (replayer, cdp_client)
 
 ### Milestone 8: Interop + Future Compatibility
 - **Detailed plan**: `.agent/plans/scripts-system-M8-interop.md`
-- **What**: PowerShell execution, Salt/Ansible YAML export, extended language support
+- **What**: PowerShell execution, Salt/Ansible YAML export, extended language support, **WSL ↔ Windows Chrome launching** (run Chrome on Windows side from WSL when no X11 available)
 - **Result**: Framework supports cross-platform scripts and exports execution plans for external automation tools
 - **Depends on**: M1 + M7
 
@@ -546,7 +589,7 @@ All questions from the original planning phase have been resolved:
 | `scripts-system-M4-interfaces.md` | M4: CLI + API + UI | ✅ **Planned** (Iteration 2) |
 | `scripts-system-M5-route-audit.md` | M5: Route Quality | ✅ **Planned** (Iteration 1) |
 | `scripts-system-M6-code-hygiene.md` | M6: Code Hygiene | ✅ **Planned** (Iteration 1) |
-| `scripts-system-M7-plans.md` | M7: Execution Plans | Not started |
+| `scripts-system-M7-plans.md` | M7: Execution Plans + Browser-Driven Execution | ✅ **Planned** (Iteration 1) |
 | `scripts-system-M8-interop.md` | M8: Interop | Not started |
 
 ---
