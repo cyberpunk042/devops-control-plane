@@ -602,26 +602,73 @@
             '<div style="padding:12px 18px;display:flex;flex-direction:column;gap:12px">' +
 
             // §0: Target Element picker (when ancestry chain available)
-            (selectorChain.length > 1 ? (
-                '<div>' +
-                '<div style="' + sLabel + '">Target Element</div>' +
-                '<div style="display:flex;flex-direction:column;gap:3px">' +
-                selectorChain.map(function (item, i) {
+            (selectorChain.length > 1 ? (function () {
+                // Check availability of each element NOW (at modal open time)
+                var firstAvail = -1;
+                selectorChain.forEach(function (item, i) {
+                    try {
+                        item.available = !!document.querySelector(item.selector);
+                    } catch (_) {
+                        item.available = false;
+                    }
+                    if (item.available && firstAvail === -1) firstAvail = i;
+                });
+
+                var chainHtml = '<div>' +
+                    '<div style="' + sLabel + '">Target Element</div>' +
+                    '<div style="display:flex;flex-direction:column;gap:3px">';
+
+                selectorChain.forEach(function (item, i) {
                     var indent = i === 0 ? '' : '↳ '.repeat(i);
                     var selPreview = item.selector.length > 40 ? item.selector.slice(0, 37) + '…' : item.selector;
                     var textPreview = item.text ? '"' + (item.text.length > 30 ? item.text.slice(0, 27) + '…' : item.text) + '"' : '';
-                    return '<label style="' + sRadioLabel + ';padding:4px 8px">' +
-                        '<input type="radio" name="__dcp_target" value="' + i + '"' + (i === 0 ? ' checked' : '') + '>' +
-                        '<span style="font-size:11px">' + indent +
-                        '<code style="color:' + C.accent + ';font-size:10px">&lt;' + item.tag + '&gt;</code> ' +
-                        '<span style="font-family:monospace;font-size:9px;color:' + C.textSecondary + '">' + selPreview + '</span>' +
-                        (textPreview ? '<span style="font-size:9px;color:' + C.textMuted + ';margin-left:4px">' + textPreview + '</span>' : '') +
-                        '</span>' +
-                        '</label>';
-                }).join('') +
-                '</div>' +
-                '</div>'
-            ) : '') +
+                    var isDefault = (i === firstAvail);
+
+                    if (item.available) {
+                        chainHtml += '<label style="' + sRadioLabel + ';padding:4px 8px">' +
+                            '<input type="radio" name="__dcp_target" value="' + i + '"' + (isDefault ? ' checked' : '') + '>' +
+                            '<span style="font-size:11px">' + indent +
+                            '<code style="color:' + C.accent + ';font-size:10px">&lt;' + item.tag + '&gt;</code> ' +
+                            '<span style="font-family:monospace;font-size:9px;color:' + C.textSecondary + '">' + selPreview + '</span>' +
+                            (textPreview ? '<span style="font-size:9px;color:' + C.textMuted + ';margin-left:4px">' + textPreview + '</span>' : '') +
+                            '</span>' +
+                            '</label>';
+                    } else {
+                        chainHtml += '<label style="' + sRadioLabel + ';padding:4px 8px;opacity:0.4;cursor:not-allowed" title="Element no longer in DOM — dynamic/focus-dependent elements cannot be asserted">' +
+                            '<input type="radio" name="__dcp_target" value="' + i + '" disabled>' +
+                            '<span style="font-size:11px">' + indent +
+                            '<code style="color:' + C.error + ';font-size:10px">&lt;' + item.tag + '&gt;</code> ' +
+                            '<span style="font-family:monospace;font-size:9px;color:' + C.textMuted + ';text-decoration:line-through">' + selPreview + '</span>' +
+                            '<span style="font-size:9px;color:' + C.warn + ';margin-left:4px">⚠ gone</span>' +
+                            '</span>' +
+                            '</label>';
+                    }
+                });
+
+                chainHtml += '</div>';
+
+                // Show help note if any element is unavailable
+                var anyGone = selectorChain.some(function (item) { return !item.available; });
+                if (anyGone) {
+                    chainHtml += '<div style="font-size:10px;color:' + C.warn + ';margin-top:4px;padding:4px 8px;background:rgba(245,158,11,0.1);border-radius:4px">' +
+                        '⚠ Grayed elements disappeared when focus was lost. ' +
+                        'Dynamic elements (textareas, dropdowns) that only exist on focus cannot be asserted — ' +
+                        'select a parent or sibling that persists in the DOM.' +
+                        '</div>';
+                }
+
+                chainHtml += '</div>';
+
+                // If the original selector (idx 0) is gone, update ctx defaults
+                if (firstAvail >= 0 && firstAvail !== 0) {
+                    // Will be picked up by ctx initialization below
+                    selector = selectorChain[firstAvail].selector;
+                    elemText = selectorChain[firstAvail].text;
+                    elemRect = selectorChain[firstAvail].rect;
+                }
+
+                return chainHtml;
+            })() : '') +
 
             // §1: What to Capture (7 options incl. console)
             '<div>' +

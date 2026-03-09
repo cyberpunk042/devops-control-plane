@@ -305,39 +305,42 @@ def _capture_screenshot_live(session, step: dict) -> None:
                 return
 
             clip = None
+            # captureBeyondViewport causes Chrome to temporarily resize the
+            # page layout (triggers media queries, reflows) — only use it
+            # for full-page captures. Element screenshots use viewport-
+            # relative coordinates with captureBeyondViewport=false.
+            capture_beyond = is_full_page
 
             if not is_full_page:
                 # ── Element screenshot: use pre-captured rect ─────
-                # element_rect was captured at right-click time,
-                # before the modal opened and before focus was lost.
+                # element_rect was captured at right-click time (via
+                # getBoundingClientRect), before the modal opened.
+                # These are VIEWPORT-relative — use directly with
+                # captureBeyondViewport=false (no scroll offset needed).
                 pre_rect = step.get("element_rect", {})
                 if (pre_rect
                         and pre_rect.get("width", 0) > 0
                         and pre_rect.get("height", 0) > 0):
-                    # Pre-captured rect is viewport-relative;
-                    # add scroll offsets via a quick CDP eval
-                    scroll_js = "(function(){ return JSON.stringify({ sx: window.scrollX, sy: window.scrollY, dpr: window.devicePixelRatio || 1 }); })()"
-                    scroll_result = cdp.evaluate(scroll_js, timeout=2.0)
-                    import json as _json
-                    scroll_val = (
-                        scroll_result.get("result", {}).get("result", {}).get("value", "{}")
-                        if scroll_result else "{}"
+                    # Only need devicePixelRatio for the scale factor
+                    dpr_js = "(function(){ return String(window.devicePixelRatio || 1); })()"
+                    dpr_result = cdp.evaluate(dpr_js, timeout=2.0)
+                    dpr_val = (
+                        dpr_result.get("result", {}).get("result", {}).get("value", "1")
+                        if dpr_result else "1"
                     )
-                    scroll = _json.loads(scroll_val) if scroll_val else {}
-                    sx = scroll.get("sx", 0)
-                    sy = scroll.get("sy", 0)
-                    dpr = scroll.get("dpr", 1)
+                    dpr = float(dpr_val) if dpr_val else 1.0
 
+                    # Viewport-relative coords — no scroll offset
                     clip = {
-                        "x": pre_rect["x"] + sx,
-                        "y": pre_rect["y"] + sy,
+                        "x": max(pre_rect["x"], 0),
+                        "y": max(pre_rect["y"], 0),
                         "width": max(pre_rect["width"], 1),
                         "height": max(pre_rect["height"], 1),
                         "scale": dpr,
                     }
                     logger.debug(
-                        "Live screenshot: using pre-captured rect %s (scroll %d,%d)",
-                        pre_rect, sx, sy,
+                        "Live screenshot: viewport-relative clip %s (dpr=%.1f)",
+                        clip, dpr,
                     )
                 else:
                     # Fallback: try to query the DOM (element may have changed)
@@ -348,8 +351,9 @@ def _capture_screenshot_live(session, step: dict) -> None:
                             if (!el) return JSON.stringify({{ ok: false }});
                             var r = el.getBoundingClientRect();
                             return JSON.stringify({{
-                                ok: true, x: r.x + window.scrollX,
-                                y: r.y + window.scrollY,
+                                ok: true,
+                                x: Math.max(r.x, 0),
+                                y: Math.max(r.y, 0),
                                 width: r.width, height: r.height,
                                 dpr: window.devicePixelRatio || 1
                             }});
@@ -369,7 +373,7 @@ def _capture_screenshot_live(session, step: dict) -> None:
                                 "scale": rect.get("dpr", 1),
                             }
 
-            params = {"format": "png", "captureBeyondViewport": True}
+            params = {"format": "png", "captureBeyondViewport": capture_beyond}
             if clip:
                 params["clip"] = clip
 
