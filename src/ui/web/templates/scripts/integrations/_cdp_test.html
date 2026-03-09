@@ -13,6 +13,8 @@
     let _cdpTestReplayInfo = null;        // { replayInfo, suiteId } for returning to replay
     let _cdpTestStepResults = [];           // accumulated step results for return-to-replay
     let _cdpTestReplayPausedTarget = null;   // target_id when paused, null when running
+    const _cdpStepDataMap = new Map();       // step.id → step object (avoids JSON in HTML attrs)
+    let _cdpCurrentStepId = null;            // step ID of the step the current modal targets
 
     // ── Main Modal Entry Point ───────────────────────────────────────
 
@@ -380,10 +382,16 @@
     }
 
     function _cdpTestStepRow(step) {
+        // Store step data in the Map — never serialize into HTML attributes
+        _cdpStepDataMap.set(step.id, step);
+
         const icons = {
             click: '🖱️', type: '⌨️', navigate: '🧭', select: '📋',
             keypress: '⌨️', scroll: '📜', hover: '👆', assert: '✅',
-            screenshot: '📸',
+            capture_screenshot: '📸', diag_screenshot: '📸',
+            capture_text: '📋', capture_html: '📋', capture_value: '📋',
+            capture_attribute: '📋', capture_url: '🔗', capture_computed_style: '🎨',
+            capture_console: '🖥️', inject_js: '💉', diag_capture: '🔍',
         };
         const icon = icons[step.action] || '▪️';
         const desc = step.action === 'navigate' ? step.value
@@ -393,16 +401,696 @@
             : step.action === 'select' ? `${step.selector} → "${step.value}"`
             : `${step.selector || step.value || '?'}`;
 
-        return `<div class="card-detect-row" style="font-size:0.78rem;display:flex;align-items:center;gap:0.5rem" data-step-id="${esc(step.id)}">
+        // Action toolbar — only for steps that target elements (have selector)
+        // Uses data-action attributes instead of inline onclick (no JSON in HTML)
+        const hasSelector = !!(step.selector && step.selector !== 'body');
+        const sid = esc(step.id);
+        const toolbar = hasSelector ? `
+            <div class="cdp-step-actions" style="display:flex;gap:2px;opacity:0;transition:opacity 0.15s;flex-shrink:0">
+                <button class="btn btn-xs cdp-step-action-btn" data-cdp-action="assert" data-cdp-step-id="${sid}"
+                    title="Add assertion" style="font-size:0.65rem;padding:1px 5px;background:var(--bg-tertiary);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer">✅</button>
+                <button class="btn btn-xs cdp-step-action-btn" data-cdp-action="capture" data-cdp-step-id="${sid}"
+                    title="Add capture" style="font-size:0.65rem;padding:1px 5px;background:var(--bg-tertiary);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer">📋</button>
+                <button class="btn btn-xs cdp-step-action-btn" data-cdp-action="diag" data-cdp-step-id="${sid}"
+                    title="Add diagnostic" style="font-size:0.65rem;padding:1px 5px;background:var(--bg-tertiary);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer">💉</button>
+            </div>` : '';
+
+        return `<div class="card-detect-row cdp-rec-step-row" style="font-size:0.78rem;display:flex;align-items:center;gap:0.5rem" data-step-id="${sid}" data-step-sequence="${step.sequence}">
             <span style="font-size:0.72rem;color:var(--text-muted);min-width:1.5rem;text-align:right">${step.sequence + 1}</span>
             <span style="font-size:0.82rem">${icon}</span>
             <span style="font-weight:500;min-width:3.5rem">${esc(step.action)}</span>
             <span style="color:var(--text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">${esc(desc)}</span>
+            ${toolbar}
         </div>`;
     }
 
+    // ── Step action toolbar CSS (hover reveal) ────────────────────────
+    (function() {
+        const style = document.createElement('style');
+        style.textContent = `.cdp-rec-step-row:hover .cdp-step-actions { opacity: 1 !important; }`;
+        document.head.appendChild(style);
+    })();
 
-    // ── SSE for live step capture ─────────────────────────────────────
+    // Event delegation for step action buttons — avoids JSON in onclick attributes
+    document.addEventListener('click', (e) => {
+        const btn = e.target.closest('.cdp-step-action-btn');
+        if (!btn) return;
+        e.stopPropagation();
+        const stepId = btn.dataset.cdpStepId;
+        const step = _cdpStepDataMap.get(stepId);
+        if (!step) { toast('Step data not found — try refreshing', 'error'); return; }
+        const action = btn.dataset.cdpAction;
+        if (action === 'assert') _cdpTestOpenAssertConfig(step);
+        else if (action === 'capture') _cdpTestOpenCaptureConfig(step);
+        else if (action === 'diag') _cdpTestOpenDiagConfig(step);
+    });
+
+
+    // ══════════════════════════════════════════════════════════════════
+    //  ASSERTION CONFIG MODAL — §7.2 (the big one)
+    // ══════════════════════════════════════════════════════════════════
+
+    let _cdpAssertBranches = [];  // branches being configured
+
+    function _cdpTestOpenAssertConfig(step) {
+        _cdpAssertBranches = [];
+        _cdpCurrentStepId = step.id;  // Track which step this modal targets
+
+        // Remove any existing overlay
+        document.getElementById('cdp-assert-config-overlay')?.remove();
+
+        const overlay = document.createElement('div');
+        overlay.id = 'cdp-assert-config-overlay';
+        overlay.style.cssText = `
+            position:fixed;inset:0;z-index:10001;
+            display:flex;align-items:center;justify-content:center;
+            background:rgba(0,0,0,0.55);backdrop-filter:blur(6px);
+        `;
+
+        const selector = step.selector || '';
+        const stepId = step.id || '';
+
+        // Assertion type options grouped
+        const assertTypeGroups = {
+            'Text': [
+                { v: 'text_equals', l: 'Text equals' },
+                { v: 'text_contains', l: 'Text contains' },
+                { v: 'text_not_contains', l: 'Text not contains' },
+                { v: 'text_starts_with', l: 'Starts with' },
+                { v: 'text_ends_with', l: 'Ends with' },
+                { v: 'text_matches', l: 'Matches regex' },
+                { v: 'text_one_of', l: 'One of (comma-sep)' },
+                { v: 'text_empty', l: 'Text is empty' },
+                { v: 'text_not_empty', l: 'Text is not empty' },
+            ],
+            'Value': [
+                { v: 'value_equals', l: 'Value equals' },
+                { v: 'value_contains', l: 'Value contains' },
+                { v: 'value_empty', l: 'Value is empty' },
+                { v: 'value_not_empty', l: 'Value not empty' },
+            ],
+            'Attribute': [
+                { v: 'attribute_equals', l: 'Attribute equals' },
+                { v: 'attribute_contains', l: 'Attribute contains' },
+                { v: 'attribute_exists', l: 'Attribute exists' },
+                { v: 'attribute_not_exists', l: 'Attribute absent' },
+            ],
+            'HTML': [
+                { v: 'html_contains', l: 'HTML contains' },
+                { v: 'html_equals', l: 'HTML equals' },
+                { v: 'children_count', l: 'Children count =' },
+                { v: 'children_count_gt', l: 'Children count >' },
+                { v: 'children_count_lt', l: 'Children count <' },
+            ],
+            'Element State': [
+                { v: 'exists', l: 'Element exists' },
+                { v: 'not_exists', l: 'Element absent' },
+                { v: 'visible', l: 'Is visible' },
+                { v: 'hidden', l: 'Is hidden' },
+                { v: 'enabled', l: 'Is enabled' },
+                { v: 'disabled', l: 'Is disabled' },
+                { v: 'checked', l: 'Is checked' },
+                { v: 'not_checked', l: 'Not checked' },
+                { v: 'focused', l: 'Has focus' },
+            ],
+            'CSS': [
+                { v: 'css_class_present', l: 'Has class' },
+                { v: 'css_class_absent', l: 'Missing class' },
+                { v: 'css_property_equals', l: 'CSS prop equals' },
+            ],
+            'Count': [
+                { v: 'count_equals', l: 'Count =' },
+                { v: 'count_gt', l: 'Count >' },
+                { v: 'count_lt', l: 'Count <' },
+                { v: 'count_gte', l: 'Count ≥' },
+            ],
+            'Numeric': [
+                { v: 'numeric_equals', l: 'Number =' },
+                { v: 'numeric_gt', l: 'Number >' },
+                { v: 'numeric_lt', l: 'Number <' },
+                { v: 'numeric_between', l: 'Between (N1,N2)' },
+            ],
+            'Page': [
+                { v: 'url_equals', l: 'URL equals' },
+                { v: 'url_contains', l: 'URL contains' },
+                { v: 'title_equals', l: 'Title equals' },
+                { v: 'title_contains', l: 'Title contains' },
+            ],
+        };
+
+        // Build optgroup select HTML
+        let assertOpts = '';
+        for (const [group, opts] of Object.entries(assertTypeGroups)) {
+            assertOpts += `<optgroup label="${group}">`;
+            for (const o of opts) {
+                assertOpts += `<option value="${o.v}">${o.l}</option>`;
+            }
+            assertOpts += `</optgroup>`;
+        }
+
+        overlay.innerHTML = `
+        <div style="background:var(--bg-primary);border:1px solid var(--border-subtle);border-radius:12px;
+                    padding:0;width:520px;max-width:92vw;max-height:88vh;overflow-y:auto;
+                    box-shadow:0 20px 60px rgba(0,0,0,0.5)">
+
+            <!-- Header -->
+            <div style="padding:1.2rem 1.5rem 0.8rem;border-bottom:1px solid var(--border-subtle);
+                        display:flex;align-items:center;gap:0.5rem">
+                <span style="font-size:1.2rem">🔍</span>
+                <div>
+                    <div style="font-weight:700;font-size:0.95rem">Assertion Configuration</div>
+                    <div style="font-size:0.72rem;color:var(--text-muted);font-family:monospace;margin-top:2px">${esc(selector.slice(0, 65))}</div>
+                </div>
+            </div>
+
+            <div style="padding:1rem 1.5rem;display:flex;flex-direction:column;gap:1rem">
+
+                <!-- §1: What to Capture -->
+                <div>
+                    <div style="font-size:0.75rem;font-weight:700;color:var(--text-secondary);margin-bottom:8px;text-transform:uppercase;letter-spacing:0.5px">
+                        What to Capture
+                    </div>
+                    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px">
+                        <label style="display:flex;align-items:center;gap:5px;font-size:0.78rem;cursor:pointer;padding:6px 8px;background:var(--bg-tertiary);border-radius:6px;border:1px solid var(--border-subtle)">
+                            <input type="radio" name="cdp-assert-capture" value="text" checked> Text content
+                        </label>
+                        <label style="display:flex;align-items:center;gap:5px;font-size:0.78rem;cursor:pointer;padding:6px 8px;background:var(--bg-tertiary);border-radius:6px;border:1px solid var(--border-subtle)">
+                            <input type="radio" name="cdp-assert-capture" value="html"> innerHTML
+                        </label>
+                        <label style="display:flex;align-items:center;gap:5px;font-size:0.78rem;cursor:pointer;padding:6px 8px;background:var(--bg-tertiary);border-radius:6px;border:1px solid var(--border-subtle)">
+                            <input type="radio" name="cdp-assert-capture" value="value"> Value
+                        </label>
+                        <label style="display:flex;align-items:center;gap:5px;font-size:0.78rem;cursor:pointer;padding:6px 8px;background:var(--bg-tertiary);border-radius:6px;border:1px solid var(--border-subtle)">
+                            <input type="radio" name="cdp-assert-capture" value="attribute"> Attribute
+                        </label>
+                        <label style="display:flex;align-items:center;gap:5px;font-size:0.78rem;cursor:pointer;padding:6px 8px;background:var(--bg-tertiary);border-radius:6px;border:1px solid var(--border-subtle)">
+                            <input type="radio" name="cdp-assert-capture" value="screenshot"> Screenshot
+                        </label>
+                        <label style="display:flex;align-items:center;gap:5px;font-size:0.78rem;cursor:pointer;padding:6px 8px;background:var(--bg-tertiary);border-radius:6px;border:1px solid var(--border-subtle)">
+                            <input type="radio" name="cdp-assert-capture" value="state"> State
+                        </label>
+                        <label style="display:flex;align-items:center;gap:5px;font-size:0.78rem;cursor:pointer;padding:6px 8px;background:var(--bg-tertiary);border-radius:6px;border:1px solid var(--border-subtle)">
+                            <input type="radio" name="cdp-assert-capture" value="console"> Console
+                        </label>
+                    </div>
+                    <!-- Attribute name input (hidden unless "attribute" selected) -->
+                    <div id="cdp-assert-attr-row" style="display:none;margin-top:6px">
+                        <input id="cdp-assert-attr-name" type="text" placeholder="Attribute name (e.g. data-status, href, class)"
+                            style="width:100%;font-size:0.78rem;padding:6px 10px;background:var(--bg-secondary);border:1px solid var(--border-subtle);border-radius:6px;color:var(--text-primary)">
+                    </div>
+                </div>
+
+                <!-- §2: Live Preview -->
+                <div>
+                    <div style="font-size:0.75rem;font-weight:700;color:var(--text-secondary);margin-bottom:8px;text-transform:uppercase;letter-spacing:0.5px">
+                        Live Preview
+                    </div>
+                    <div id="cdp-assert-preview" style="padding:10px 12px;background:var(--bg-tertiary);border-radius:6px;
+                                border:1px solid var(--border-subtle);font-family:monospace;font-size:0.72rem;
+                                max-height:80px;overflow-y:auto;color:var(--text-primary);word-break:break-all">
+                        <span class="spinner" style="font-size:0.7rem"></span> Fetching current value…
+                    </div>
+                </div>
+
+                <!-- §3: Assertion Check -->
+                <div>
+                    <div style="font-size:0.75rem;font-weight:700;color:var(--text-secondary);margin-bottom:8px;text-transform:uppercase;letter-spacing:0.5px">
+                        Assertion Check
+                    </div>
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+                        <label style="font-size:0.72rem;display:flex;flex-direction:column;gap:3px">
+                            <span style="font-weight:600;color:var(--text-secondary)">Check type</span>
+                            <select id="cdp-assert-check-type" style="font-size:0.78rem;padding:6px 8px;background:var(--bg-secondary);border:1px solid var(--border-subtle);border-radius:6px;color:var(--text-primary)">
+                                ${assertOpts}
+                            </select>
+                        </label>
+                        <label style="font-size:0.72rem;display:flex;flex-direction:column;gap:3px">
+                            <span style="font-weight:600;color:var(--text-secondary)">Expected value</span>
+                            <input id="cdp-assert-expected" type="text" placeholder="Expected…"
+                                style="font-size:0.78rem;padding:6px 8px;background:var(--bg-secondary);border:1px solid var(--border-subtle);border-radius:6px;color:var(--text-primary)">
+                        </label>
+                    </div>
+                    <div style="display:flex;gap:12px;margin-top:8px">
+                        <label style="font-size:0.72rem;display:flex;align-items:center;gap:4px;cursor:pointer">
+                            <input type="checkbox" id="cdp-assert-case" checked> Case sensitive
+                        </label>
+                    </div>
+                </div>
+
+                <!-- §4: On Failure -->
+                <div>
+                    <div style="font-size:0.75rem;font-weight:700;color:var(--text-secondary);margin-bottom:8px;text-transform:uppercase;letter-spacing:0.5px">
+                        On Failure
+                    </div>
+                    <div style="display:flex;flex-direction:column;gap:6px">
+                        <label style="display:flex;align-items:center;gap:6px;font-size:0.78rem;cursor:pointer;padding:6px 10px;background:var(--bg-tertiary);border-radius:6px;border:1px solid var(--border-subtle)">
+                            <input type="radio" name="cdp-assert-fail-mode" value="fail" checked>
+                            <span>⛔ <strong>Hard fail</strong> — stop execution immediately</span>
+                        </label>
+                        <label style="display:flex;align-items:center;gap:6px;font-size:0.78rem;cursor:pointer;padding:6px 10px;background:var(--bg-tertiary);border-radius:6px;border:1px solid var(--border-subtle)">
+                            <input type="radio" name="cdp-assert-fail-mode" value="continue">
+                            <span>⚠️ <strong>Soft fail</strong> — mark failed, continue to next step</span>
+                        </label>
+                        <label style="display:flex;align-items:center;gap:6px;font-size:0.78rem;cursor:pointer;padding:6px 10px;background:var(--bg-tertiary);border-radius:6px;border:1px solid var(--border-subtle)">
+                            <input type="radio" name="cdp-assert-fail-mode" value="branch">
+                            <span>🔀 <strong>Branch</strong> — route to diagnostic/fallback branches</span>
+                        </label>
+                    </div>
+
+                    <!-- Branch editor (hidden unless "branch" selected) -->
+                    <div id="cdp-assert-branch-editor" style="display:none;margin-top:10px;padding:10px 12px;background:var(--bg-secondary);border:1px solid var(--border-subtle);border-radius:8px">
+                        <div style="font-size:0.72rem;font-weight:600;color:var(--text-secondary);margin-bottom:8px">Branches</div>
+                        <div id="cdp-assert-branches" style="display:flex;flex-direction:column;gap:4px">
+                            <!-- Pre-populated default branches -->
+                            <div class="cdp-branch-row" style="display:flex;align-items:center;gap:8px;padding:6px 8px;background:var(--bg-tertiary);border-radius:6px;font-size:0.78rem" data-branch-id="diagnose">
+                                <span>🔍</span>
+                                <span style="flex:1;font-weight:500">Diagnose</span>
+                                <button class="btn btn-xs" onclick="_cdpTestRecordBranch('diagnose','Diagnose')" style="font-size:0.65rem;padding:2px 8px;background:var(--bg-primary);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer">Record branch…</button>
+                                <button class="btn btn-xs" onclick="this.closest('.cdp-branch-row').remove()" style="font-size:0.65rem;padding:2px 4px;color:var(--error);cursor:pointer">✕</button>
+                            </div>
+                            <div class="cdp-branch-row" style="display:flex;align-items:center;gap:8px;padding:6px 8px;background:var(--bg-tertiary);border-radius:6px;font-size:0.78rem" data-branch-id="fallback">
+                                <span>🔄</span>
+                                <span style="flex:1;font-weight:500">Fallback</span>
+                                <button class="btn btn-xs" onclick="_cdpTestRecordBranch('fallback','Fallback')" style="font-size:0.65rem;padding:2px 8px;background:var(--bg-primary);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer">Record branch…</button>
+                                <button class="btn btn-xs" onclick="this.closest('.cdp-branch-row').remove()" style="font-size:0.65rem;padding:2px 4px;color:var(--error);cursor:pointer">✕</button>
+                            </div>
+                            <div class="cdp-branch-row" style="display:flex;align-items:center;gap:8px;padding:6px 8px;background:var(--bg-tertiary);border-radius:6px;font-size:0.78rem" data-branch-id="abort">
+                                <span>⛔</span>
+                                <span style="flex:1;font-weight:500">Abort</span>
+                                <span style="font-size:0.65rem;color:var(--text-muted)">(cancels run)</span>
+                            </div>
+                        </div>
+                        <button onclick="_cdpTestAddBranch()" style="margin-top:6px;font-size:0.72rem;padding:4px 10px;background:var(--bg-tertiary);border:1px solid var(--border-subtle);border-radius:6px;cursor:pointer;color:var(--text-secondary)">+ Add branch</button>
+                    </div>
+                </div>
+
+                <!-- §5: Diagnostic Actions -->
+                <div>
+                    <div style="font-size:0.75rem;font-weight:700;color:var(--text-secondary);margin-bottom:8px;text-transform:uppercase;letter-spacing:0.5px">
+                        Diagnostic Actions <span style="font-weight:400;font-size:0.65rem">(pre-branch probes)</span>
+                    </div>
+                    <div style="display:flex;gap:6px;flex-wrap:wrap">
+                        <button onclick="_cdpTestAddDiagStep('inject_js')" style="font-size:0.72rem;padding:5px 12px;background:var(--bg-tertiary);border:1px solid var(--border-subtle);border-radius:6px;cursor:pointer;color:var(--text-secondary)">💉 Inject JS</button>
+                        <button onclick="_cdpTestAddDiagStep('capture')" style="font-size:0.72rem;padding:5px 12px;background:var(--bg-tertiary);border:1px solid var(--border-subtle);border-radius:6px;cursor:pointer;color:var(--text-secondary)">📋 Capture element</button>
+                        <button onclick="_cdpTestAddDiagStep('screenshot')" style="font-size:0.72rem;padding:5px 12px;background:var(--bg-tertiary);border:1px solid var(--border-subtle);border-radius:6px;cursor:pointer;color:var(--text-secondary)">📸 Screenshot</button>
+                        <button onclick="_cdpTestAddDiagStep('console')" style="font-size:0.72rem;padding:5px 12px;background:var(--bg-tertiary);border:1px solid var(--border-subtle);border-radius:6px;cursor:pointer;color:var(--text-secondary)">🖥️ Console capture</button>
+                    </div>
+                    <div id="cdp-assert-diag-steps" style="margin-top:6px;display:flex;flex-direction:column;gap:3px"></div>
+                </div>
+
+            </div>
+
+            <!-- Footer -->
+            <div style="padding:0.8rem 1.5rem 1.2rem;border-top:1px solid var(--border-subtle);display:flex;justify-content:flex-end;gap:8px">
+                <button class="btn btn-sm btn-secondary" onclick="document.getElementById('cdp-assert-config-overlay').remove()">Cancel</button>
+                <button class="btn btn-sm btn-primary" onclick="_cdpTestSaveAssertion()">💾 Save Assertion</button>
+            </div>
+
+        </div>`;
+
+        document.body.appendChild(overlay);
+
+        // Close on backdrop click
+        overlay.addEventListener('click', (e) => {
+            if (e.target === overlay) overlay.remove();
+        });
+
+        // Wire capture type radio → show/hide attribute input + fetch live preview
+        overlay.querySelectorAll('input[name="cdp-assert-capture"]').forEach(radio => {
+            radio.addEventListener('change', () => {
+                document.getElementById('cdp-assert-attr-row').style.display =
+                    radio.value === 'attribute' ? 'block' : 'none';
+                _cdpTestFetchLivePreview(selector, radio.value);
+            });
+        });
+
+        // Wire failure mode radio → show/hide branch editor
+        overlay.querySelectorAll('input[name="cdp-assert-fail-mode"]').forEach(radio => {
+            radio.addEventListener('change', () => {
+                document.getElementById('cdp-assert-branch-editor').style.display =
+                    radio.value === 'branch' ? 'block' : 'none';
+            });
+        });
+
+        // Fetch initial live preview
+        _cdpTestFetchLivePreview(selector, 'text');
+    }
+
+    /** Fetch live value from the target element via CDP eval */
+    async function _cdpTestFetchLivePreview(selector, captureType) {
+        const previewEl = document.getElementById('cdp-assert-preview');
+        if (!previewEl) return;
+        previewEl.innerHTML = '<span class="spinner" style="font-size:0.7rem"></span> Fetching…';
+
+        try {
+            // Use the record/eval endpoint to evaluate JS in the target page
+            // Read attr name from admin panel input and embed in JS string
+            const attrNameForPreview = document.getElementById('cdp-assert-attr-name')?.value || 'class';
+            const evalMap = {
+                text: `(function(){ var el=document.querySelector(${JSON.stringify(selector)}); return el ? el.textContent.trim().slice(0,500) : '[element not found]'; })()`,
+                html: `(function(){ var el=document.querySelector(${JSON.stringify(selector)}); return el ? el.innerHTML.slice(0,500) : '[element not found]'; })()`,
+                value: `(function(){ var el=document.querySelector(${JSON.stringify(selector)}); return el ? (el.value || '') : '[element not found]'; })()`,
+                attribute: `(function(){ var el=document.querySelector(${JSON.stringify(selector)}); return el ? (el.getAttribute(${JSON.stringify(attrNameForPreview)})||'[null]') : '[element not found]'; })()`,
+                state: `(function(){ var el=document.querySelector(${JSON.stringify(selector)}); if(!el) return '[element not found]'; var cs=getComputedStyle(el); return JSON.stringify({visible:cs.display!=='none'&&cs.visibility!=='hidden',disabled:el.disabled||false,checked:el.checked||false,classes:el.className.slice(0,100)},null,2); })()`,
+                screenshot: '[screenshot preview not available — will capture on run]',
+                console: '[console capture — logs will be captured during replay]',
+            };
+
+            const js = evalMap[captureType];
+            if (captureType === 'screenshot' || captureType === 'console') {
+                previewEl.textContent = js;
+                return;
+            }
+
+            const result = await api('/cdp-test/record/eval', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ js }),
+            });
+
+            const val = result?.value ?? result?.result ?? '[no result]';
+            previewEl.textContent = String(val).slice(0, 500);
+
+            // Auto-fill expected value if empty
+            const expectedEl = document.getElementById('cdp-assert-expected');
+            if (expectedEl && !expectedEl.value && typeof val === 'string' && val.length < 200) {
+                expectedEl.value = val;
+            }
+        } catch (e) {
+            previewEl.innerHTML = `<span style="color:var(--error)">Preview failed: ${esc(e.message)}</span>`;
+        }
+    }
+
+    /** Add a custom branch row to the branch editor */
+    function _cdpTestAddBranch() {
+        const container = document.getElementById('cdp-assert-branches');
+        if (!container) return;
+        const id = 'branch-' + Date.now();
+        const row = document.createElement('div');
+        row.className = 'cdp-branch-row';
+        row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:6px 8px;background:var(--bg-tertiary);border-radius:6px;font-size:0.78rem';
+        row.dataset.branchId = id;
+        row.innerHTML = `
+            <span>🔀</span>
+            <input type="text" value="Custom" style="flex:1;font-size:0.75rem;padding:3px 6px;background:var(--bg-primary);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-primary);font-weight:500">
+            <button class="btn btn-xs" onclick="_cdpTestRecordBranch('${id}','Custom')" style="font-size:0.65rem;padding:2px 8px;background:var(--bg-primary);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer">Record branch…</button>
+            <button class="btn btn-xs" onclick="this.closest('.cdp-branch-row').remove()" style="font-size:0.65rem;padding:2px 4px;color:var(--error);cursor:pointer">✕</button>
+        `;
+        container.insertBefore(row, container.querySelector('[data-branch-id="abort"]'));
+    }
+
+    /** Record a branch (placeholder — C5 will implement) */
+    function _cdpTestRecordBranch(branchId, label) {
+        toast(`Branch recording for "${label}" — coming in Phase C5`, 'info');
+    }
+
+    /** Add a diagnostic step to the pre-branch probes list */
+    function _cdpTestAddDiagStep(type) {
+        const container = document.getElementById('cdp-assert-diag-steps');
+        if (!container) return;
+
+        const diagIcons = { inject_js: '💉', capture: '📋', screenshot: '📸', console: '🖥️' };
+        const diagLabels = { inject_js: 'Inject JS', capture: 'Capture element', screenshot: 'Screenshot', console: 'Console capture' };
+        const id = 'diag-' + Date.now();
+
+        let inputHtml = '';
+        if (type === 'inject_js') {
+            inputHtml = `<textarea placeholder="JavaScript to inject…" style="width:100%;font-size:0.68rem;font-family:monospace;padding:4px 6px;background:var(--bg-primary);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-primary);resize:vertical;min-height:40px" data-diag-input="${id}"></textarea>`;
+        } else if (type === 'capture') {
+            inputHtml = `<select style="font-size:0.72rem;padding:3px 6px;background:var(--bg-primary);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-primary)" data-diag-input="${id}">
+                <option value="text">Text</option><option value="html">innerHTML</option>
+                <option value="value">Value</option><option value="attribute">Attribute</option>
+            </select>`;
+        }
+
+        container.insertAdjacentHTML('beforeend', `
+            <div style="display:flex;align-items:flex-start;gap:6px;padding:4px 8px;background:var(--bg-tertiary);border-radius:4px;font-size:0.72rem" data-diag-id="${id}" data-diag-type="${type}">
+                <span>${diagIcons[type]}</span>
+                <div style="flex:1">
+                    <span style="font-weight:600">${diagLabels[type]}</span>
+                    ${inputHtml ? `<div style="margin-top:3px">${inputHtml}</div>` : ''}
+                </div>
+                <button onclick="this.closest('[data-diag-id]').remove()" style="font-size:0.62rem;color:var(--error);cursor:pointer;background:none;border:none">✕</button>
+            </div>
+        `);
+    }
+
+    /** Save assertion — collects form data and adds assert step to recording */
+    async function _cdpTestSaveAssertion() {
+        const stepData = _cdpStepDataMap.get(_cdpCurrentStepId) || {};
+        const captureType = document.querySelector('input[name="cdp-assert-capture"]:checked')?.value || 'text';
+        const checkType = document.getElementById('cdp-assert-check-type')?.value || 'text_contains';
+        const expected = document.getElementById('cdp-assert-expected')?.value || '';
+        const caseSensitive = document.getElementById('cdp-assert-case')?.checked ?? true;
+        const failMode = document.querySelector('input[name="cdp-assert-fail-mode"]:checked')?.value || 'fail';
+        const attrName = document.getElementById('cdp-assert-attr-name')?.value || '';
+
+        // Collect branches if branch mode
+        const branches = [];
+        if (failMode === 'branch') {
+            document.querySelectorAll('#cdp-assert-branches .cdp-branch-row').forEach(row => {
+                const bid = row.dataset.branchId;
+                const nameEl = row.querySelector('input[type="text"]');
+                const label = nameEl ? nameEl.value : row.querySelector('span:nth-child(2)')?.textContent || bid;
+                branches.push({ id: bid, label: label.trim() });
+            });
+        }
+
+        // Collect diagnostic steps
+        const diagSteps = [];
+        document.querySelectorAll('#cdp-assert-diag-steps [data-diag-id]').forEach(row => {
+            const dtype = row.dataset.diagType;
+            const inputEl = row.querySelector('[data-diag-input]');
+            diagSteps.push({
+                type: dtype,
+                value: inputEl ? inputEl.value : '',
+            });
+        });
+
+        // Build the assertion step payload
+        const assertStep = {
+            action: 'assert',
+            selector: stepData.selector || '',
+            after_step_id: stepData.id,
+            assert_config: {
+                capture_type: captureType,
+                attribute_name: attrName,
+                check_type: checkType,
+                expected: expected,
+                case_sensitive: caseSensitive,
+                on_fail: {
+                    mode: failMode,
+                    branches: branches,
+                },
+            },
+            diagnostic_steps: diagSteps,
+        };
+
+        try {
+            // Post to recording API to insert the assertion step
+            await api('/cdp-test/record/add-step', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(assertStep),
+            });
+            toast('Assertion added after step ' + (stepData.sequence + 1), 'success');
+            document.getElementById('cdp-assert-config-overlay')?.remove();
+        } catch (e) {
+            toast('Failed to add assertion: ' + e.message, 'error');
+        }
+    }
+
+
+    // ══════════════════════════════════════════════════════════════════
+    //  CAPTURE CONFIG (lighter modal — C2)
+    // ══════════════════════════════════════════════════════════════════
+
+    function _cdpTestOpenCaptureConfig(step) {
+        _cdpCurrentStepId = step.id;  // Track which step this modal targets
+        const selector = step.selector || '';
+
+        document.getElementById('cdp-capture-config-overlay')?.remove();
+        const overlay = document.createElement('div');
+        overlay.id = 'cdp-capture-config-overlay';
+        overlay.style.cssText = `
+            position:fixed;inset:0;z-index:10001;
+            display:flex;align-items:center;justify-content:center;
+            background:rgba(0,0,0,0.55);backdrop-filter:blur(6px);
+        `;
+
+        overlay.innerHTML = `
+        <div style="background:var(--bg-primary);border:1px solid var(--border-subtle);border-radius:12px;
+                    padding:1.2rem 1.5rem;width:400px;max-width:90vw;box-shadow:0 20px 60px rgba(0,0,0,0.5)">
+
+            <div style="font-weight:700;font-size:0.95rem;margin-bottom:4px">📋 Capture Element Data</div>
+            <div style="font-size:0.72rem;color:var(--text-muted);font-family:monospace;margin-bottom:1rem">${esc(selector.slice(0, 65))}</div>
+
+            <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:1rem">
+                <label style="display:flex;align-items:center;gap:6px;font-size:0.78rem;cursor:pointer;padding:6px 10px;background:var(--bg-tertiary);border-radius:6px;border:1px solid var(--border-subtle)">
+                    <input type="radio" name="cdp-capture-type" value="capture_text" checked> Text content
+                </label>
+                <label style="display:flex;align-items:center;gap:6px;font-size:0.78rem;cursor:pointer;padding:6px 10px;background:var(--bg-tertiary);border-radius:6px;border:1px solid var(--border-subtle)">
+                    <input type="radio" name="cdp-capture-type" value="capture_html"> innerHTML
+                </label>
+                <label style="display:flex;align-items:center;gap:6px;font-size:0.78rem;cursor:pointer;padding:6px 10px;background:var(--bg-tertiary);border-radius:6px;border:1px solid var(--border-subtle)">
+                    <input type="radio" name="cdp-capture-type" value="capture_value"> Input value
+                </label>
+                <label style="display:flex;align-items:center;gap:6px;font-size:0.78rem;cursor:pointer;padding:6px 10px;background:var(--bg-tertiary);border-radius:6px;border:1px solid var(--border-subtle)">
+                    <input type="radio" name="cdp-capture-type" value="capture_attribute"> Attribute
+                </label>
+                <label style="display:flex;align-items:center;gap:6px;font-size:0.78rem;cursor:pointer;padding:6px 10px;background:var(--bg-tertiary);border-radius:6px;border:1px solid var(--border-subtle)">
+                    <input type="radio" name="cdp-capture-type" value="capture_screenshot"> Screenshot
+                </label>
+                <label style="display:flex;align-items:center;gap:6px;font-size:0.78rem;cursor:pointer;padding:6px 10px;background:var(--bg-tertiary);border-radius:6px;border:1px solid var(--border-subtle)">
+                    <input type="radio" name="cdp-capture-type" value="capture_url"> Current URL
+                </label>
+            </div>
+
+            <div id="cdp-capture-attr-row" style="display:none;margin-bottom:1rem">
+                <input id="cdp-capture-attr-name" type="text" placeholder="Attribute name"
+                    style="width:100%;font-size:0.78rem;padding:6px 10px;background:var(--bg-secondary);border:1px solid var(--border-subtle);border-radius:6px;color:var(--text-primary)">
+            </div>
+
+            <div style="display:flex;justify-content:flex-end;gap:8px">
+                <button class="btn btn-sm btn-secondary" onclick="document.getElementById('cdp-capture-config-overlay').remove()">Cancel</button>
+                <button class="btn btn-sm btn-primary" onclick="_cdpTestSaveCapture()">📋 Add Capture</button>
+            </div>
+
+        </div>`;
+
+        document.body.appendChild(overlay);
+        overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+
+        // Show/hide attribute input
+        overlay.querySelectorAll('input[name="cdp-capture-type"]').forEach(radio => {
+            radio.addEventListener('change', () => {
+                document.getElementById('cdp-capture-attr-row').style.display =
+                    radio.value === 'capture_attribute' ? 'block' : 'none';
+            });
+        });
+    }
+
+    async function _cdpTestSaveCapture() {
+        const stepData = _cdpStepDataMap.get(_cdpCurrentStepId) || {};
+        const captureType = document.querySelector('input[name="cdp-capture-type"]:checked')?.value || 'capture_text';
+        const attrName = document.getElementById('cdp-capture-attr-name')?.value || '';
+
+        const captureStep = {
+            action: captureType,
+            selector: stepData.selector || '',
+            after_step_id: stepData.id,
+            value: attrName,  // attribute name goes in value field
+        };
+
+        try {
+            await api('/cdp-test/record/add-step', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(captureStep),
+            });
+            toast('Capture step added after step ' + (stepData.sequence + 1), 'success');
+            document.getElementById('cdp-capture-config-overlay')?.remove();
+        } catch (e) {
+            toast('Failed to add capture: ' + e.message, 'error');
+        }
+    }
+
+
+    // ══════════════════════════════════════════════════════════════════
+    //  DIAGNOSTIC CONFIG (C4 — insertion menu)
+    // ══════════════════════════════════════════════════════════════════
+
+    function _cdpTestOpenDiagConfig(step) {
+        _cdpCurrentStepId = step.id;  // Track which step this modal targets
+        const selector = step.selector || '';
+
+        document.getElementById('cdp-diag-config-overlay')?.remove();
+        const overlay = document.createElement('div');
+        overlay.id = 'cdp-diag-config-overlay';
+        overlay.style.cssText = `
+            position:fixed;inset:0;z-index:10001;
+            display:flex;align-items:center;justify-content:center;
+            background:rgba(0,0,0,0.55);backdrop-filter:blur(6px);
+        `;
+
+        overlay.innerHTML = `
+        <div style="background:var(--bg-primary);border:1px solid var(--border-subtle);border-radius:12px;
+                    padding:1.2rem 1.5rem;width:420px;max-width:90vw;box-shadow:0 20px 60px rgba(0,0,0,0.5)">
+
+            <div style="font-weight:700;font-size:0.95rem;margin-bottom:4px">💉 Add Diagnostic Step</div>
+            <div style="font-size:0.72rem;color:var(--text-muted);font-family:monospace;margin-bottom:1rem">After: ${esc(step.action)} ${esc(selector.slice(0, 50))}</div>
+
+            <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:1rem">
+                <label style="display:flex;align-items:center;gap:6px;font-size:0.78rem;cursor:pointer;padding:8px 10px;background:var(--bg-tertiary);border-radius:6px;border:1px solid var(--border-subtle)">
+                    <input type="radio" name="cdp-diag-type" value="inject_js" checked>
+                    <span>💉 <strong>Inject JavaScript</strong> — execute code in page context</span>
+                </label>
+                <label style="display:flex;align-items:center;gap:6px;font-size:0.78rem;cursor:pointer;padding:8px 10px;background:var(--bg-tertiary);border-radius:6px;border:1px solid var(--border-subtle)">
+                    <input type="radio" name="cdp-diag-type" value="diag_screenshot">
+                    <span>📸 <strong>Screenshot</strong> — capture element or page visual</span>
+                </label>
+                <label style="display:flex;align-items:center;gap:6px;font-size:0.78rem;cursor:pointer;padding:8px 10px;background:var(--bg-tertiary);border-radius:6px;border:1px solid var(--border-subtle)">
+                    <input type="radio" name="cdp-diag-type" value="capture_console">
+                    <span>🖥️ <strong>Console capture</strong> — start capturing console.log</span>
+                </label>
+                <label style="display:flex;align-items:center;gap:6px;font-size:0.78rem;cursor:pointer;padding:8px 10px;background:var(--bg-tertiary);border-radius:6px;border:1px solid var(--border-subtle)">
+                    <input type="radio" name="cdp-diag-type" value="diag_capture">
+                    <span>🔍 <strong>Diagnostic capture</strong> — capture text/HTML tagged as diagnostic</span>
+                </label>
+            </div>
+
+            <!-- JS editor (shown when inject_js selected) -->
+            <div id="cdp-diag-js-editor" style="margin-bottom:1rem">
+                <textarea id="cdp-diag-js-code" placeholder="// JavaScript to inject into the page…&#10;// Return value will be captured&#10;document.querySelector('#app').__vue__.$data"
+                    style="width:100%;font-size:0.72rem;font-family:monospace;padding:8px 10px;background:var(--bg-secondary);border:1px solid var(--border-subtle);border-radius:6px;color:var(--text-primary);resize:vertical;min-height:80px"></textarea>
+            </div>
+
+            <div style="display:flex;justify-content:flex-end;gap:8px">
+                <button class="btn btn-sm btn-secondary" onclick="document.getElementById('cdp-diag-config-overlay').remove()">Cancel</button>
+                <button class="btn btn-sm btn-primary" onclick="_cdpTestSaveDiagStep()">💉 Add Step</button>
+            </div>
+
+        </div>`;
+
+        document.body.appendChild(overlay);
+        overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+
+        // Show/hide JS editor based on type
+        overlay.querySelectorAll('input[name="cdp-diag-type"]').forEach(radio => {
+            radio.addEventListener('change', () => {
+                document.getElementById('cdp-diag-js-editor').style.display =
+                    radio.value === 'inject_js' ? 'block' : 'none';
+            });
+        });
+    }
+
+    async function _cdpTestSaveDiagStep() {
+        const stepData = _cdpStepDataMap.get(_cdpCurrentStepId) || {};
+        const diagType = document.querySelector('input[name="cdp-diag-type"]:checked')?.value || 'inject_js';
+        const jsCode = document.getElementById('cdp-diag-js-code')?.value || '';
+
+        const diagStep = {
+            action: diagType,
+            selector: stepData.selector || '',
+            after_step_id: stepData.id,
+            value: diagType === 'inject_js' ? jsCode : '',
+        };
+
+        try {
+            await api('/cdp-test/record/add-step', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(diagStep),
+            });
+            toast('Diagnostic step added after step ' + (stepData.sequence + 1), 'success');
+            document.getElementById('cdp-diag-config-overlay')?.remove();
+        } catch (e) {
+            toast('Failed to add diagnostic: ' + e.message, 'error');
+        }
+    }
+
+
+
 
     function _cdpTestStartSSE(sessionId) {
         if (_cdpTestSSESource) _cdpTestSSESource.close();
@@ -414,6 +1102,9 @@
                 if (data.data?.session_id !== sessionId) return;
                 const step = data.data?.step;
                 if (!step) return;
+                // Skip internal recorder actions — not user interactions
+                if (step.action === 'ping') return;
+                const isInserted = data.data?.inserted === true;
 
                 // Remove empty state message
                 const empty = document.getElementById('cdp-rec-empty');
@@ -422,7 +1113,29 @@
                 // Add step to list
                 const container = document.getElementById('cdp-rec-steps');
                 if (container) {
-                    container.insertAdjacentHTML('beforeend', _cdpTestStepRow(step));
+                    if (isInserted && typeof step.sequence === 'number') {
+                        // Inserted step — find the correct position by sequence
+                        const rows = container.querySelectorAll('[data-step-id]');
+                        let insertBefore = null;
+                        for (const row of rows) {
+                            const rowSeq = parseInt(row.dataset.stepSequence || '-1');
+                            if (rowSeq >= step.sequence) {
+                                insertBefore = row;
+                                break;
+                            }
+                        }
+                        const tmpDiv = document.createElement('div');
+                        tmpDiv.innerHTML = _cdpTestStepRow(step);
+                        const newRow = tmpDiv.firstElementChild;
+                        if (insertBefore) {
+                            container.insertBefore(newRow, insertBefore);
+                        } else {
+                            container.appendChild(newRow);
+                        }
+                    } else {
+                        // Appended step — add at end (normal recording)
+                        container.insertAdjacentHTML('beforeend', _cdpTestStepRow(step));
+                    }
                     container.scrollTop = container.scrollHeight;
                 }
 
@@ -431,7 +1144,7 @@
                 if (count) {
                     count.textContent = String(parseInt(count.textContent) + 1);
                 }
-            } catch (_) {}
+            } catch (err) { console.error('[CDP SSE] Error handling step:', err, e.data); }
         });
 
         _cdpTestSSESource.addEventListener('cdp_test:recorder_lost', (e) => {
@@ -591,6 +1304,10 @@
         const icons = {
             click: '🖱️', type: '⌨️', navigate: '🧭', select: '📋',
             keypress: '⌨️', scroll: '📜', hover: '👆', assert: '✅',
+            capture_screenshot: '📸', diag_screenshot: '📸',
+            capture_text: '📋', capture_html: '📋', capture_value: '📋',
+            capture_attribute: '📋', capture_url: '🔗', capture_computed_style: '🎨',
+            capture_console: '🖥️', inject_js: '💉', diag_capture: '🔍',
         };
         const icon = icons[step.action] || '▪️';
         const desc = step.action === 'navigate' ? step.value
@@ -625,8 +1342,17 @@
                     { value: 'select', label: 'Select' },
                     { value: 'keypress', label: 'Keypress' },
                     { value: 'wait', label: 'Wait' },
+                    { value: 'hover', label: 'Hover' },
                     { value: 'assert', label: 'Assert' },
-                    { value: 'screenshot', label: 'Screenshot' },
+                    { value: 'capture_text', label: 'Capture Text' },
+                    { value: 'capture_html', label: 'Capture HTML' },
+                    { value: 'capture_value', label: 'Capture Value' },
+                    { value: 'capture_attribute', label: 'Capture Attribute' },
+                    { value: 'capture_url', label: 'Capture URL' },
+                    { value: 'capture_computed_style', label: 'Capture CSS' },
+                    { value: 'capture_screenshot', label: 'Screenshot' },
+                    { value: 'capture_console', label: 'Console Capture' },
+                    { value: 'inject_js', label: 'Inject JS' },
                 ] })}
                 ${modalFormField({ name: 'cdp-step-selector', label: 'Selector', value: step.selector || '' })}
                 ${modalFormField({ name: 'cdp-step-value', label: 'Value', value: step.value || '', fullWidth: true })}
@@ -1026,7 +1752,10 @@
         const icons = {
             click: '🖱️', type: '⌨️', navigate: '🧭', select: '📋',
             keypress: '⌨️', scroll: '📜', hover: '👆', assert: '✅',
-            wait: '⏳', screenshot: '📸',
+            wait: '⏳', capture_screenshot: '📸', diag_screenshot: '📸',
+            capture_text: '📋', capture_html: '📋', capture_value: '📋',
+            capture_attribute: '📋', capture_url: '🔗', capture_computed_style: '🎨',
+            capture_console: '🖥️', inject_js: '💉', diag_capture: '🔍',
         };
         const statusIcons = {
             running: '<span style="color:#3b82f6" class="cdp-spin">⏳</span>',
@@ -1042,6 +1771,74 @@
             ? `<div style="font-size:0.65rem;color:var(--error);margin-top:2px;word-break:break-all">${esc(String(stepData.error).slice(0, 150))}</div>`
             : '';
 
+        // ── Assertion details (expected vs actual) ──────────────
+        let assertDetail = '';
+        if (stepData.action === 'assert' && stepData.assertion_check) {
+            const check = esc(stepData.assertion_check);
+            const expected = esc(String(stepData.assertion_expected || ''));
+            const actual = stepData.assertion_actual != null ? esc(String(stepData.assertion_actual).slice(0, 120)) : '';
+            const passColor = status === 'passed' ? '#22c55e' : '#ef4444';
+            assertDetail = `<div style="font-size:0.65rem;margin-top:3px;padding:4px 8px;background:var(--bg-tertiary);border-radius:4px;border-left:3px solid ${passColor}">
+                <div style="color:var(--text-secondary)"><strong>${check}</strong></div>
+                ${expected ? `<div>Expected: <code style="font-size:0.62rem;padding:1px 4px;background:var(--bg-secondary);border-radius:2px">${expected}</code></div>` : ''}
+                ${actual ? `<div>Actual: <code style="font-size:0.62rem;padding:1px 4px;background:var(--bg-secondary);border-radius:2px">${actual}</code></div>` : ''}
+            </div>`;
+        }
+
+        // ── Captured value display ──────────────────────────────
+        let captureDetail = '';
+        if (stepData.captured_value != null && stepData.action !== 'assert') {
+            const capVal = esc(String(stepData.captured_value).slice(0, 200));
+            captureDetail = `<div style="font-size:0.65rem;margin-top:3px;padding:3px 8px;background:var(--bg-tertiary);border-radius:4px;border-left:3px solid #8b5cf6">
+                <span style="color:#8b5cf6;font-weight:600">captured:</span>
+                <code style="font-size:0.62rem;padding:1px 4px;background:var(--bg-secondary);border-radius:2px">${capVal}</code>
+            </div>`;
+        }
+
+        // ── Screenshot thumbnail ────────────────────────────────
+        let screenshotDetail = '';
+        if (stepData.screenshot_path) {
+            screenshotDetail = `<div style="font-size:0.65rem;margin-top:3px;padding:3px 8px;background:var(--bg-tertiary);border-radius:4px;border-left:3px solid #f59e0b">
+                <span style="color:#f59e0b;font-weight:600">📸 screenshot saved</span>
+                <span style="color:var(--text-muted);margin-left:4px">${esc(stepData.screenshot_path.split('/').pop())}</span>
+            </div>`;
+        }
+
+        // ── Console log entries ─────────────────────────────────
+        let consoleDetail = '';
+        if (stepData.console_log && Array.isArray(stepData.console_log) && stepData.console_log.length > 0) {
+            const uid = 'cdp-console-' + (stepData.step_id || Math.random().toString(36).slice(2));
+            const count = stepData.console_log.length;
+            const levelColors = { log: '#9ca3af', warn: '#f59e0b', error: '#ef4444', info: '#3b82f6' };
+            let logLines = '';
+            for (const entry of stepData.console_log.slice(0, 20)) {
+                const level = entry.level || 'log';
+                const lc = levelColors[level] || '#9ca3af';
+                const ts = entry.ts ? new Date(entry.ts).toLocaleTimeString() : '';
+                logLines += `<div style="display:flex;gap:6px;font-size:0.62rem;padding:1px 0;font-family:monospace">
+                    <span style="color:var(--text-muted);flex-shrink:0">${esc(ts)}</span>
+                    <span style="color:${lc};flex-shrink:0;text-transform:uppercase;font-weight:600;font-size:0.58rem">${esc(level)}</span>
+                    <span style="word-break:break-all">${esc(entry.msg || '')}</span>
+                </div>`;
+            }
+            if (count > 20) logLines += `<div style="font-size:0.62rem;color:var(--text-muted)">… and ${count - 20} more</div>`;
+            consoleDetail = `<div style="font-size:0.65rem;margin-top:3px;padding:3px 8px;background:var(--bg-tertiary);border-radius:4px;border-left:3px solid #06b6d4">
+                <div onclick="var el=document.getElementById('${uid}');el.style.display=el.style.display==='none'?'block':'none'" style="cursor:pointer;color:#06b6d4;font-weight:600">
+                    🖥️ console (${count}) ▸
+                </div>
+                <div id="${uid}" style="display:none;margin-top:4px;max-height:150px;overflow-y:auto">${logLines}</div>
+            </div>`;
+        }
+
+        // ── Branch badge ────────────────────────────────────────
+        let branchBadge = '';
+        if (stepData.branch_id) {
+            branchBadge = `<span style="font-size:0.58rem;padding:1px 5px;background:#8b5cf6;color:#fff;border-radius:8px;margin-left:4px">${esc(stepData.branch_id)}</span>`;
+        }
+        if (stepData.branch_taken) {
+            branchBadge += `<span style="font-size:0.58rem;padding:1px 5px;background:#f59e0b;color:#000;border-radius:8px;margin-left:4px">→ ${esc(stepData.branch_taken)}</span>`;
+        }
+
         return `<div id="cdp-replay-step-${stepData.step_id || stepData.sequence}"
             class="card-detect-row" style="display:flex;align-items:flex-start;gap:0.5rem;font-size:0.78rem;padding:4px 6px">
             <span style="flex-shrink:0;width:24px;text-align:center">${statusIcon}</span>
@@ -1050,8 +1847,13 @@
                 <div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
                     <strong>${esc(stepData.action || '?')}</strong>
                     <span style="color:var(--text-muted);margin-left:4px">${esc(selector.slice(0, 60))}</span>
+                    ${branchBadge}
                 </div>
                 ${errMsg}
+                ${assertDetail}
+                ${captureDetail}
+                ${screenshotDetail}
+                ${consoleDetail}
             </div>
             <span style="flex-shrink:0;font-size:0.68rem;color:var(--text-muted)">${dur}</span>
         </div>`;
@@ -1170,6 +1972,23 @@
                 const ev = JSON.parse(e.data);
                 if (ev.data?.run_id !== runId) return;
                 _cdpTestReplayFinished({ ...ev.data, status: 'error' });
+            } catch (_) {}
+        });
+
+        // ── Branch taken (graph-mode routing) ──────────────────
+        _cdpTestSSESource.addEventListener('cdp_test:branch_taken', (e) => {
+            try {
+                const ev = JSON.parse(e.data);
+                if (ev.data?.run_id !== runId) return;
+                const d = ev.data;
+                toast(`Branch taken: ${d.branch_id || 'unknown'}`, 'info');
+                // Update the step row that triggered the branch
+                const stepId = d.step_id || d.sequence;
+                const stored = _cdpTestStepResults.find(r => (r.data.step_id ?? r.data.sequence) === stepId);
+                if (stored) {
+                    stored.data.branch_taken = d.branch_id;
+                    _cdpTestUpdateReplayStep(stored.data, stored.status);
+                }
             } catch (_) {}
         });
     }

@@ -59,6 +59,35 @@ class RecordingSession:
             self.steps.append(step)
             return step
 
+    def insert_step_after(self, after_step_id: str, step_data: dict) -> dict:
+        """Insert a step after the step with after_step_id.
+
+        If after_step_id is empty or not found, appends to end.
+        Renumbers all subsequent steps' sequence values.
+
+        Returns the enriched step dict.
+        """
+        with self._lock:
+            insert_idx = len(self.steps)  # default: append
+            if after_step_id:
+                for i, s in enumerate(self.steps):
+                    if s.get("id") == after_step_id:
+                        insert_idx = i + 1
+                        break
+
+            step = {
+                "id": str(uuid.uuid4()),
+                "sequence": insert_idx,
+                **step_data,
+            }
+            self.steps.insert(insert_idx, step)
+
+            # Renumber subsequent steps
+            for j in range(insert_idx + 1, len(self.steps)):
+                self.steps[j]["sequence"] = j
+
+            return step
+
     def clear_steps(self) -> None:
         """Clear all recorded steps (restart)."""
         with self._lock:

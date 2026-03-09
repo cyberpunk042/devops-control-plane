@@ -100,8 +100,19 @@ def inject_recorder(
         )
         return False
 
-    if value in ("injected", "already_active"):
-        logger.info("CDP recorder injected: %s", value)
+    if value == "injected":
+        logger.info("CDP recorder injected: fresh")
+        return True
+
+    if value == "already_active":
+        # Recorder from a previous session is still running —
+        # update its session_id so events match the NEW session
+        update_js = f"(function(){{ window.__dcp_session_id = '{session_id}'; return 'session_updated'; }})()"
+        upd = cdp_client.evaluate_js(target_ws_url, update_js, timeout=3.0)
+        upd_val = (upd or {}).get("result", {}).get("result", {}).get("value")
+        logger.info(
+            "CDP recorder already_active — session_id updated: %s", upd_val,
+        )
         return True
 
     logger.warning("CDP recorder injection returned: %s", value)

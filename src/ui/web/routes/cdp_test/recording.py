@@ -321,7 +321,7 @@ def cdp_test_record_event():
         return resp
 
     # Add step to session
-    step = session.add_step({
+    step_data = {
         "action": data.get("action", ""),
         "selector": data.get("selector", ""),
         "xpath": data.get("xpath", ""),
@@ -332,7 +332,20 @@ def cdp_test_record_event():
         "element_text": data.get("element_text", ""),
         "element_rect": data.get("element_rect", {}),
         "timestamp_ms": data.get("timestamp_ms", 0),
-    })
+    }
+
+    # Flatten assertion config into replayer-compatible step fields
+    ac = data.get("assert_config")
+    if ac:
+        step_data["assertion_type"] = ac.get("check_type", "exists")
+        step_data["assertion_expected"] = ac.get("expected", "")
+        step_data["assertion_attribute"] = ac.get("attribute_name", "")
+        step_data["case_sensitive"] = ac.get("case_sensitive", True)
+        on_fail = ac.get("on_fail", {})
+        if on_fail:
+            step_data["on_fail"] = on_fail
+
+    step = session.add_step(step_data)
 
     # Broadcast to admin panel via event bus
     bus.publish(
@@ -367,6 +380,128 @@ def cdp_test_record_event_options():
 
     resp = make_response("", 204)
     return _add_pna_cors(resp)
+
+
+# ── Add step (admin panel — insert assertion/capture/diag) ─────
+
+
+@cdp_test_bp.route("/cdp-test/record/add-step", methods=["POST"])
+def cdp_test_record_add_step():
+    """Insert a step into the recording at a specific position.
+
+    Used by the admin panel modals to add assertion, capture,
+    or diagnostic steps after a given step.
+
+    Body (JSON):
+        {
+            "action": "assert" | "capture_*" | "inject_js" | ...,
+            "selector": "...",
+            "after_step_id": "uuid",   // insert after this step
+            "assert_config": { ... },  // for assertions
+            "diagnostic_steps": [...], // for assertions
+            "value": "...",            // for capture/inject_js
+        }
+    """
+    from src.core.services.cdp_test.session import get_active_session
+    from src.core.services.event_bus import bus
+
+    session = get_active_session()
+    if session is None:
+        return jsonify({"ok": False, "error": "No active recording session"}), 404
+
+    data = request.get_json(silent=True) or {}
+    after_step_id = data.pop("after_step_id", "")
+
+    # Build step data from payload
+    step_data = {
+        "action": data.get("action", ""),
+        "selector": data.get("selector", ""),
+        "value": data.get("value", ""),
+        "page_url": data.get("page_url", ""),
+        "timestamp_ms": data.get("timestamp_ms", 0),
+    }
+
+    # Flatten assertion config into replayer-compatible step fields
+    ac = data.get("assert_config")
+    if ac:
+        step_data["assertion_type"] = ac.get("check_type", "exists")
+        step_data["assertion_expected"] = ac.get("expected", "")
+        step_data["assertion_attribute"] = ac.get("attribute_name", "")
+        step_data["case_sensitive"] = ac.get("case_sensitive", True)
+        # Preserve on_fail config for branching during replay
+        on_fail = ac.get("on_fail", {})
+        if on_fail:
+            step_data["on_fail"] = on_fail
+
+    # Pass through diagnostic steps if present
+    if data.get("diagnostic_steps"):
+        step_data["diagnostic_steps"] = data["diagnostic_steps"]
+
+    step = session.insert_step_after(after_step_id, step_data)
+
+    # Broadcast update to admin panel
+    bus.publish(
+        "cdp_test:step_captured",
+        key=session.id,
+        data={
+            "session_id": session.id,
+            "step": step,
+            "inserted": True,
+        },
+    )
+
+    logger.info("Step inserted after %s: %s", after_step_id, step["action"])
+    return jsonify({
+        "ok": True,
+        "step_id": step["id"],
+        "sequence": step["sequence"],
+    })
+
+
+# ── Eval JS in target page (admin panel live preview) ──────────
+
+
+@cdp_test_bp.route("/cdp-test/record/eval", methods=["POST"])
+def cdp_test_record_eval():
+    """Evaluate JavaScript in the recording target page.
+
+    Used by the admin panel to fetch live element values
+    for assertion preview.
+
+    Body (JSON):
+        {
+            "js": "document.querySelector('#foo').textContent"
+        }
+
+    Returns:
+        { "ok": true, "value": "the result" }
+    """
+    from src.ui.web import cdp_client
+    from src.core.services.cdp_test.session import get_active_session
+
+    session = get_active_session()
+    if session is None:
+        return jsonify({"ok": False, "error": "No active recording session"}), 404
+
+    data = request.get_json(silent=True) or {}
+    js = data.get("js", "")
+    if not js:
+        return jsonify({"ok": False, "error": "js is required"}), 400
+
+    try:
+        cdp_response = cdp_client.evaluate_js(session.target_ws_url, js)
+        if cdp_response is None:
+            return jsonify({"ok": False, "error": "CDP evaluation returned no result"}), 500
+
+        # CDP Runtime.evaluate response structure:
+        # { "id": 1, "result": { "result": { "type": "string", "value": "..." } } }
+        result_obj = cdp_response.get("result", {}).get("result", {})
+        value = result_obj.get("value", result_obj.get("description", ""))
+
+        return jsonify({"ok": True, "value": value})
+    except Exception as e:
+        logger.warning("Eval failed: %s", e)
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 # ── Recording status ───────────────────────────────────────────

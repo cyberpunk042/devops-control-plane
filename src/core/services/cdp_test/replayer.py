@@ -424,11 +424,36 @@ def _js_hover(find_js: str) -> str:
 
 
 def _js_assert_text(find_js: str, expected: str, mode: str = "contains") -> str:
-    """JS: assert that an element's text matches expected."""
+    """JS: assert that an element's text matches expected.
+
+    Supported modes:
+        equals, contains, not_contains, starts_with, ends_with,
+        matches (regex), one_of (pipe-delimited alternatives),
+        empty, not_empty.
+    """
     exp_escaped = _js_escape(expected)
     if mode == "equals":
         check = f"text.trim() === '{exp_escaped}'"
+    elif mode == "not_contains":
+        check = f"text.indexOf('{exp_escaped}') === -1"
+    elif mode == "starts_with":
+        check = f"text.trimStart().indexOf('{exp_escaped}') === 0"
+    elif mode == "ends_with":
+        check = f"text.trimEnd().slice(-{len(expected)}) === '{exp_escaped}'"
+    elif mode == "matches":
+        # expected is a regex pattern — construct RegExp in JS
+        check = f"new RegExp('{exp_escaped}').test(text)"
+    elif mode == "one_of":
+        # expected is pipe-delimited: "val1|val2|val3"
+        alternatives = expected.split("|")
+        alt_js = ", ".join(f"'{_js_escape(a.strip())}'" for a in alternatives)
+        check = f"[{alt_js}].indexOf(text.trim()) !== -1"
+    elif mode == "empty":
+        check = "text.trim() === ''"
+    elif mode == "not_empty":
+        check = "text.trim() !== ''"
     else:
+        # Default: contains
         check = f"text.indexOf('{exp_escaped}') !== -1"
     return f"""
     (async function() {{
@@ -439,6 +464,75 @@ def _js_assert_text(find_js: str, expected: str, mode: str = "contains") -> str:
                 return JSON.stringify({{ ok: true, actual: text.slice(0, 100) }});
             }} else {{
                 return JSON.stringify({{ ok: false, error: 'Text assertion failed. Expected {mode}: \\'{exp_escaped}\\', got: \\'' + text.slice(0, 100) + '\\'' }});
+            }}
+        }} catch (e) {{
+            return JSON.stringify({{ ok: false, error: typeof e === 'string' ? e : (e.message || String(e)) }});
+        }}
+    }})()
+    """
+
+
+def _js_assert_value(find_js: str, expected: str, mode: str = "equals") -> str:
+    """JS: assert that an input/textarea/select element's value matches expected.
+
+    Supported modes: equals, contains, empty, not_empty.
+    """
+    exp_escaped = _js_escape(expected)
+    if mode == "equals":
+        check = f"val === '{exp_escaped}'"
+    elif mode == "contains":
+        check = f"val.indexOf('{exp_escaped}') !== -1"
+    elif mode == "empty":
+        check = "val === ''"
+    elif mode == "not_empty":
+        check = "val !== ''"
+    else:
+        check = f"val === '{exp_escaped}'"
+    return f"""
+    (async function() {{
+        try {{
+            var el = await {find_js};
+            var val = (el.value || '');
+            if ({check}) {{
+                return JSON.stringify({{ ok: true, actual: val.slice(0, 100) }});
+            }} else {{
+                return JSON.stringify({{ ok: false, error: 'Value assertion failed. Expected {mode}: \\'{exp_escaped}\\', got: \\'' + val.slice(0, 100) + '\\'' }});
+            }}
+        }} catch (e) {{
+            return JSON.stringify({{ ok: false, error: typeof e === 'string' ? e : (e.message || String(e)) }});
+        }}
+    }})()
+    """
+
+
+def _js_assert_attribute(
+    find_js: str, attr_name: str, expected: str, mode: str = "equals",
+) -> str:
+    """JS: assert on an element's attribute value.
+
+    Supported modes: equals, contains, attr_exists, attr_not_exists.
+    """
+    attr_escaped = _js_escape(attr_name)
+    exp_escaped = _js_escape(expected)
+    if mode == "equals":
+        check = f"attrVal === '{exp_escaped}'"
+    elif mode == "contains":
+        check = f"attrVal !== null && attrVal.indexOf('{exp_escaped}') !== -1"
+    elif mode == "attr_exists":
+        check = "attrVal !== null"
+    elif mode == "attr_not_exists":
+        check = "attrVal === null"
+    else:
+        check = f"attrVal === '{exp_escaped}'"
+    return f"""
+    (async function() {{
+        try {{
+            var el = await {find_js};
+            var attrVal = el.getAttribute('{attr_escaped}');
+            if ({check}) {{
+                return JSON.stringify({{ ok: true, actual: attrVal }});
+            }} else {{
+                return JSON.stringify({{ ok: false, error: 'Attribute assertion failed. Attribute \\'{attr_escaped}\\' expected {mode}: \\'{exp_escaped}\\', got: \\'' + String(attrVal) + '\\'' }});
             }}
         }} catch (e) {{
             return JSON.stringify({{ ok: false, error: typeof e === 'string' ? e : (e.message || String(e)) }});
@@ -500,6 +594,455 @@ def _js_assert_visible(find_js: str) -> str:
     """
 
 
+def _js_assert_state(find_js: str, mode: str) -> str:
+    """JS: assert on an element's boolean state.
+
+    Supported modes: hidden, enabled, disabled, checked, not_checked,
+    focused, selected.
+    """
+    if mode == "hidden":
+        check = (
+            "!(rect.width > 0 && rect.height > 0 "
+            "&& style.display !== 'none' "
+            "&& style.visibility !== 'hidden' "
+            "&& style.opacity !== '0')"
+        )
+        # hidden needs computed style + rect
+        return f"""
+    (async function() {{
+        try {{
+            var el = await {find_js};
+            var rect = el.getBoundingClientRect();
+            var style = window.getComputedStyle(el);
+            var hidden = {check};
+            if (hidden) {{
+                return JSON.stringify({{ ok: true }});
+            }} else {{
+                return JSON.stringify({{ ok: false, error: 'Element is visible but expected hidden' }});
+            }}
+        }} catch (e) {{
+            return JSON.stringify({{ ok: false, error: typeof e === 'string' ? e : (e.message || String(e)) }});
+        }}
+    }})()
+    """
+    # All other modes are simple property checks
+    checks = {
+        "enabled": ("!el.disabled", "Element is disabled but expected enabled"),
+        "disabled": ("el.disabled === true", "Element is enabled but expected disabled"),
+        "checked": ("el.checked === true", "Element is not checked but expected checked"),
+        "not_checked": ("!el.checked", "Element is checked but expected not checked"),
+        "focused": (
+            "document.activeElement === el",
+            "Element is not focused but expected focused",
+        ),
+        "selected": ("el.selected === true", "Element is not selected but expected selected"),
+    }
+    js_check, fail_msg = checks.get(mode, ("true", f"Unknown state mode: {mode}"))
+    return f"""
+    (async function() {{
+        try {{
+            var el = await {find_js};
+            if ({js_check}) {{
+                return JSON.stringify({{ ok: true }});
+            }} else {{
+                return JSON.stringify({{ ok: false, error: '{_js_escape(fail_msg)}' }});
+            }}
+        }} catch (e) {{
+            return JSON.stringify({{ ok: false, error: typeof e === 'string' ? e : (e.message || String(e)) }});
+        }}
+    }})()
+    """
+
+
+def _js_assert_css(
+    find_js: str, expected: str, mode: str = "class_present",
+    attr_name: str = "",
+) -> str:
+    """JS: assert on CSS classes or computed style properties.
+
+    Supported modes: class_present, class_absent, property_equals.
+    For property_equals, attr_name is the CSS property name.
+    """
+    exp_escaped = _js_escape(expected)
+    attr_escaped = _js_escape(attr_name)
+    if mode == "class_present":
+        return f"""
+    (async function() {{
+        try {{
+            var el = await {find_js};
+            if (el.classList.contains('{exp_escaped}')) {{
+                return JSON.stringify({{ ok: true }});
+            }} else {{
+                return JSON.stringify({{ ok: false, error: 'Element does not have class \\'{exp_escaped}\\'. Classes: ' + el.className }});
+            }}
+        }} catch (e) {{
+            return JSON.stringify({{ ok: false, error: typeof e === 'string' ? e : (e.message || String(e)) }});
+        }}
+    }})()
+    """
+    if mode == "class_absent":
+        return f"""
+    (async function() {{
+        try {{
+            var el = await {find_js};
+            if (!el.classList.contains('{exp_escaped}')) {{
+                return JSON.stringify({{ ok: true }});
+            }} else {{
+                return JSON.stringify({{ ok: false, error: 'Element should not have class \\'{exp_escaped}\\' but does' }});
+            }}
+        }} catch (e) {{
+            return JSON.stringify({{ ok: false, error: typeof e === 'string' ? e : (e.message || String(e)) }});
+        }}
+    }})()
+    """
+    # property_equals — check getComputedStyle
+    return f"""
+    (async function() {{
+        try {{
+            var el = await {find_js};
+            var val = window.getComputedStyle(el)['{attr_escaped}'];
+            if (val === '{exp_escaped}') {{
+                return JSON.stringify({{ ok: true, actual: val }});
+            }} else {{
+                return JSON.stringify({{ ok: false, error: 'CSS property \\'{attr_escaped}\\' expected \\'{exp_escaped}\\', got: \\'' + val + '\\'' }});
+            }}
+        }} catch (e) {{
+            return JSON.stringify({{ ok: false, error: typeof e === 'string' ? e : (e.message || String(e)) }});
+        }}
+    }})()
+    """
+
+
+def _js_assert_html(find_js: str, expected: str, mode: str = "html_contains") -> str:
+    """JS: assert on innerHTML content or children count.
+
+    Supported modes: html_contains, html_equals,
+    children_count, children_count_gt, children_count_lt.
+    """
+    exp_escaped = _js_escape(expected)
+    if mode in ("children_count", "children_count_gt", "children_count_lt"):
+        # expected is an integer string
+        op = {"children_count": "===", "children_count_gt": ">", "children_count_lt": "<"}
+        return f"""
+    (async function() {{
+        try {{
+            var el = await {find_js};
+            var count = el.children.length;
+            if (count {op[mode]} {int(expected)}) {{
+                return JSON.stringify({{ ok: true, actual: count }});
+            }} else {{
+                return JSON.stringify({{ ok: false, error: 'Children count: ' + count + ', expected {mode.replace("children_count", "").replace("_", "") or "=="} {expected}' }});
+            }}
+        }} catch (e) {{
+            return JSON.stringify({{ ok: false, error: typeof e === 'string' ? e : (e.message || String(e)) }});
+        }}
+    }})()
+    """
+    # html_contains / html_equals
+    if mode == "html_equals":
+        check = f"html.trim() === '{exp_escaped}'"
+    else:
+        check = f"html.indexOf('{exp_escaped}') !== -1"
+    return f"""
+    (async function() {{
+        try {{
+            var el = await {find_js};
+            var html = (el.innerHTML || '');
+            if ({check}) {{
+                return JSON.stringify({{ ok: true, actual: html.slice(0, 200) }});
+            }} else {{
+                return JSON.stringify({{ ok: false, error: 'HTML assertion failed. Expected {mode}: got: ' + html.slice(0, 200) }});
+            }}
+        }} catch (e) {{
+            return JSON.stringify({{ ok: false, error: typeof e === 'string' ? e : (e.message || String(e)) }});
+        }}
+    }})()
+    """
+
+
+def _js_assert_count(selector: str, expected: str, mode: str = "count_equals") -> str:
+    """JS: assert on the count of elements matching a selector.
+
+    Supported modes: count_equals, count_gt, count_lt, count_gte.
+    Uses querySelectorAll — does NOT need find_js (operates on selector).
+    """
+    sel_escaped = _js_escape(selector)
+    op = {
+        "count_equals": "===",
+        "count_gt": ">",
+        "count_lt": "<",
+        "count_gte": ">=",
+    }
+    operator = op.get(mode, "===")
+    return f"""
+    (function() {{
+        var els = document.querySelectorAll('{sel_escaped}');
+        var count = els.length;
+        if (count {operator} {int(expected)}) {{
+            return JSON.stringify({{ ok: true, actual: count }});
+        }} else {{
+            return JSON.stringify({{ ok: false, error: 'Count assertion failed. Found ' + count + ' elements matching \\'{sel_escaped}\\', expected {mode.replace("count_", "")} {expected}' }});
+        }}
+    }})()
+    """
+
+
+def _js_assert_numeric(find_js: str, expected: str, mode: str = "numeric_equals") -> str:
+    """JS: assert on an element's text parsed as a number.
+
+    Supported modes: numeric_equals, numeric_gt, numeric_lt, numeric_between.
+    For numeric_between, expected is "min,max".
+    """
+    if mode == "numeric_between":
+        parts = expected.split(",")
+        lo, hi = parts[0].strip(), parts[1].strip()
+        check = f"num >= {lo} && num <= {hi}"
+        label = f"between {lo} and {hi}"
+    else:
+        op = {"numeric_equals": "===", "numeric_gt": ">", "numeric_lt": "<"}
+        operator = op.get(mode, "===")
+        check = f"num {operator} {expected}"
+        label = f"{mode.replace('numeric_', '')} {expected}"
+    return f"""
+    (async function() {{
+        try {{
+            var el = await {find_js};
+            var raw = (el.textContent || el.value || '').trim();
+            var num = parseFloat(raw);
+            if (isNaN(num)) {{
+                return JSON.stringify({{ ok: false, error: 'Cannot parse as number: ' + raw.slice(0, 50) }});
+            }}
+            if ({check}) {{
+                return JSON.stringify({{ ok: true, actual: num }});
+            }} else {{
+                return JSON.stringify({{ ok: false, error: 'Numeric assertion failed. Got ' + num + ', expected {label}' }});
+            }}
+        }} catch (e) {{
+            return JSON.stringify({{ ok: false, error: typeof e === 'string' ? e : (e.message || String(e)) }});
+        }}
+    }})()
+    """
+
+
+def _js_assert_page(expected: str, mode: str = "url_equals") -> str:
+    """JS: assert on page-level properties (URL, title). No element needed.
+
+    Supported modes: url_equals, url_contains, title_equals, title_contains.
+    """
+    exp_escaped = _js_escape(expected)
+    sources = {
+        "url_equals": "window.location.href",
+        "url_contains": "window.location.href",
+        "title_equals": "document.title",
+        "title_contains": "document.title",
+    }
+    source = sources.get(mode, "window.location.href")
+    if mode in ("url_equals", "title_equals"):
+        check = f"val === '{exp_escaped}'"
+    else:
+        check = f"val.indexOf('{exp_escaped}') !== -1"
+    return f"""
+    (function() {{
+        var val = {source};
+        if ({check}) {{
+            return JSON.stringify({{ ok: true, actual: val }});
+        }} else {{
+            return JSON.stringify({{ ok: false, error: 'Page assertion failed. {mode}: expected \\'{exp_escaped}\\', got: \\'' + val + '\\'' }});
+        }}
+    }})()
+    """
+
+
+def _js_assert_captured(
+    find_js: str, captured_value: str, mode: str = "captured_equals",
+) -> str:
+    """JS: assert current element text against a previously captured value.
+
+    The captured_value is injected from Python's captures context dict.
+    Supported modes: captured_equals, captured_contains,
+    captured_changed, captured_unchanged.
+    """
+    cv_escaped = _js_escape(captured_value)
+    if mode == "captured_equals":
+        check = f"current === '{cv_escaped}'"
+    elif mode == "captured_contains":
+        check = f"current.indexOf('{cv_escaped}') !== -1"
+    elif mode == "captured_changed":
+        check = f"current !== '{cv_escaped}'"
+    elif mode == "captured_unchanged":
+        check = f"current === '{cv_escaped}'"
+    else:
+        check = f"current === '{cv_escaped}'"
+    return f"""
+    (async function() {{
+        try {{
+            var el = await {find_js};
+            var current = (el.textContent || el.value || '').trim();
+            if ({check}) {{
+                return JSON.stringify({{ ok: true, actual: current.slice(0, 100), captured: '{cv_escaped}' }});
+            }} else {{
+                return JSON.stringify({{ ok: false, error: 'Cross-step assertion failed ({mode}). Current: ' + current.slice(0, 100) + ', captured was: {cv_escaped}' }});
+            }}
+        }} catch (e) {{
+            return JSON.stringify({{ ok: false, error: typeof e === 'string' ? e : (e.message || String(e)) }});
+        }}
+    }})()
+    """
+
+
+# ── Capture JS generators ─────────────────────────────────────
+
+
+def _js_capture_text(find_js: str) -> str:
+    """JS: capture element textContent."""
+    return f"""
+    (async function() {{
+        try {{
+            var el = await {find_js};
+            var text = (el.textContent || '');
+            return JSON.stringify({{ ok: true, captured: text }});
+        }} catch (e) {{
+            return JSON.stringify({{ ok: false, error: typeof e === 'string' ? e : (e.message || String(e)) }});
+        }}
+    }})()
+    """
+
+
+def _js_capture_html(find_js: str) -> str:
+    """JS: capture element innerHTML."""
+    return f"""
+    (async function() {{
+        try {{
+            var el = await {find_js};
+            var html = (el.innerHTML || '');
+            return JSON.stringify({{ ok: true, captured: html }});
+        }} catch (e) {{
+            return JSON.stringify({{ ok: false, error: typeof e === 'string' ? e : (e.message || String(e)) }});
+        }}
+    }})()
+    """
+
+
+def _js_capture_value(find_js: str) -> str:
+    """JS: capture input/textarea/select element value."""
+    return f"""
+    (async function() {{
+        try {{
+            var el = await {find_js};
+            var val = (el.value || '');
+            return JSON.stringify({{ ok: true, captured: val }});
+        }} catch (e) {{
+            return JSON.stringify({{ ok: false, error: typeof e === 'string' ? e : (e.message || String(e)) }});
+        }}
+    }})()
+    """
+
+
+def _js_capture_attribute(find_js: str, attr_name: str) -> str:
+    """JS: capture a specific attribute from an element."""
+    attr_escaped = _js_escape(attr_name)
+    return f"""
+    (async function() {{
+        try {{
+            var el = await {find_js};
+            var val = el.getAttribute('{attr_escaped}');
+            return JSON.stringify({{ ok: true, captured: val }});
+        }} catch (e) {{
+            return JSON.stringify({{ ok: false, error: typeof e === 'string' ? e : (e.message || String(e)) }});
+        }}
+    }})()
+    """
+
+
+def _js_capture_url() -> str:
+    """JS: capture the current page URL. No element needed."""
+    return """
+    (function() {
+        return JSON.stringify({ ok: true, captured: window.location.href });
+    })()
+    """
+
+
+def _js_capture_computed_style(find_js: str, prop_name: str) -> str:
+    """JS: capture a computed CSS property value."""
+    prop_escaped = _js_escape(prop_name)
+    return f"""
+    (async function() {{
+        try {{
+            var el = await {find_js};
+            var val = window.getComputedStyle(el)['{prop_escaped}'];
+            return JSON.stringify({{ ok: true, captured: val }});
+        }} catch (e) {{
+            return JSON.stringify({{ ok: false, error: typeof e === 'string' ? e : (e.message || String(e)) }});
+        }}
+    }})()
+    """
+
+
+def _js_capture_console_start() -> str:
+    """JS: start console capture by monkey-patching console methods.
+
+    Patches console.log, console.warn, console.error, and console.info
+    to buffer all output into ``window.__cdp_console_buffer``.
+    Original methods are preserved and still called (non-destructive).
+    """
+    return """
+    (function() {
+        if (window.__cdp_console_originals) {
+            return JSON.stringify({ ok: true, captured: 'already_active' });
+        }
+        window.__cdp_console_originals = {
+            log: console.log,
+            warn: console.warn,
+            error: console.error,
+            info: console.info
+        };
+        window.__cdp_console_buffer = [];
+        ['log', 'warn', 'error', 'info'].forEach(function(method) {
+            console[method] = function() {
+                var args = Array.prototype.slice.call(arguments);
+                var strs = args.map(function(a) {
+                    if (typeof a === 'object') {
+                        try { return JSON.stringify(a); } catch(e) { return String(a); }
+                    }
+                    return String(a);
+                });
+                window.__cdp_console_buffer.push({
+                    ts: Date.now(),
+                    level: method,
+                    msg: strs.join(' ')
+                });
+                window.__cdp_console_originals[method].apply(console, arguments);
+            };
+        });
+        return JSON.stringify({ ok: true, captured: 'started' });
+    })()
+    """
+
+
+def _js_capture_console_stop() -> str:
+    """JS: stop console capture — read buffer, restore originals.
+
+    Returns all captured console entries as a JSON array.
+    Each entry has: ``ts`` (epoch ms), ``level``, ``msg``.
+    """
+    return """
+    (function() {
+        var entries = window.__cdp_console_buffer || [];
+        var originals = window.__cdp_console_originals;
+        if (originals) {
+            console.log = originals.log;
+            console.warn = originals.warn;
+            console.error = originals.error;
+            console.info = originals.info;
+        }
+        delete window.__cdp_console_originals;
+        delete window.__cdp_console_buffer;
+        return JSON.stringify({ ok: true, captured: JSON.stringify(entries) });
+    })()
+    """
+
+
 # ── Step JS builder ───────────────────────────────────────────
 
 
@@ -552,11 +1095,186 @@ def _build_find_js(step: dict, variables: dict[str, str]) -> str:
     )
 
 
-def _build_step_js(step: dict, variables: dict[str, str]) -> str:
+def _execute_capture_screenshot(
+    step: dict,
+    variables: dict[str, str],
+    *,
+    session,
+    run_id: str = "",
+    project_root: str = "",
+) -> dict:
+    """Capture an element screenshot via CDP protocol commands.
+
+    Flow:
+        1. Find element + get bounding rect via JS evaluation
+        2. Call ``Page.captureScreenshot`` with ``clip`` parameter
+        3. Save base64 PNG to ``.state/cdp-tests/screenshots/``
+        4. Return result dict with ``screenshot_path``
+
+    This cannot be done through JS alone — ``Page.captureScreenshot``
+    is a CDP domain command, not a browser API.
+
+    Returns:
+        Standard step result dict with ``details.screenshot_path``.
+    """
+    import base64
+    import json as json_mod
+    from pathlib import Path
+
+    start = time.monotonic()
+
+    if not session or not session.connected:
+        elapsed_ms = int((time.monotonic() - start) * 1000)
+        return {
+            "status": "failed",
+            "duration_ms": elapsed_ms,
+            "error": "No CDP session for screenshot capture",
+            "details": {},
+        }
+
+    # ── Step 1: Find element and get bounding rect ────────────
+    find_js = _build_find_js(step, variables)
+    rect_js = f"""(function() {{
+        {find_js}
+        if (!el) return JSON.stringify({{ ok: false, error: 'Element not found' }});
+        var r = el.getBoundingClientRect();
+        return JSON.stringify({{
+            ok: true,
+            x: r.x + window.scrollX,
+            y: r.y + window.scrollY,
+            width: r.width,
+            height: r.height,
+            devicePixelRatio: window.devicePixelRatio || 1
+        }});
+    }})()"""
+
+    try:
+        rect_result = session.evaluate(rect_js, timeout=5.0)
+        rect_val = (
+            rect_result.get("result", {}).get("result", {}).get("value", "{}")
+            if rect_result else "{}"
+        )
+        rect_parsed = json_mod.loads(rect_val) if rect_val else {}
+    except Exception as exc:
+        elapsed_ms = int((time.monotonic() - start) * 1000)
+        return {
+            "status": "failed",
+            "duration_ms": elapsed_ms,
+            "error": f"Failed to get element rect: {exc}",
+            "details": {},
+        }
+
+    if not rect_parsed.get("ok"):
+        elapsed_ms = int((time.monotonic() - start) * 1000)
+        return {
+            "status": "failed",
+            "duration_ms": elapsed_ms,
+            "error": rect_parsed.get("error", "Element not found"),
+            "details": {},
+        }
+
+    # ── Step 2: Capture screenshot with clip ──────────────────
+    dpr = rect_parsed.get("devicePixelRatio", 1)
+    clip = {
+        "x": rect_parsed["x"],
+        "y": rect_parsed["y"],
+        "width": max(rect_parsed["width"], 1),
+        "height": max(rect_parsed["height"], 1),
+        "scale": dpr,
+    }
+
+    try:
+        screenshot_result = session.send_command(
+            "Page.captureScreenshot",
+            {
+                "format": "png",
+                "clip": clip,
+                "captureBeyondViewport": True,
+            },
+            timeout=10.0,
+        )
+    except Exception as exc:
+        elapsed_ms = int((time.monotonic() - start) * 1000)
+        return {
+            "status": "failed",
+            "duration_ms": elapsed_ms,
+            "error": f"CDP screenshot command failed: {exc}",
+            "details": {},
+        }
+
+    if not screenshot_result:
+        elapsed_ms = int((time.monotonic() - start) * 1000)
+        return {
+            "status": "failed",
+            "duration_ms": elapsed_ms,
+            "error": "CDP returned None for screenshot",
+            "details": {},
+        }
+
+    # Extract base64 data from CDP response
+    b64_data = (
+        screenshot_result.get("result", {}).get("data", "")
+        if screenshot_result else ""
+    )
+    if not b64_data:
+        elapsed_ms = int((time.monotonic() - start) * 1000)
+        return {
+            "status": "failed",
+            "duration_ms": elapsed_ms,
+            "error": "No screenshot data in CDP response",
+            "details": {},
+        }
+
+    # ── Step 3: Save to disk ──────────────────────────────────
+    step_id = step.get("id", "unknown")
+    filename = f"{run_id}_{step_id}.png" if run_id else f"{step_id}.png"
+
+    if project_root:
+        screenshots_dir = Path(project_root) / ".state" / "cdp-tests" / "screenshots"
+    else:
+        screenshots_dir = Path(".state") / "cdp-tests" / "screenshots"
+    screenshots_dir.mkdir(parents=True, exist_ok=True)
+
+    screenshot_path = screenshots_dir / filename
+    try:
+        screenshot_path.write_bytes(base64.b64decode(b64_data))
+    except Exception as exc:
+        elapsed_ms = int((time.monotonic() - start) * 1000)
+        return {
+            "status": "failed",
+            "duration_ms": elapsed_ms,
+            "error": f"Failed to save screenshot: {exc}",
+            "details": {},
+        }
+
+    elapsed_ms = int((time.monotonic() - start) * 1000)
+    rel_path = str(screenshot_path)
+    logger.info("Screenshot captured: %s (%dx%d)", rel_path,
+                int(rect_parsed["width"]), int(rect_parsed["height"]))
+
+    return {
+        "status": "passed",
+        "duration_ms": elapsed_ms,
+        "error": None,
+        "details": {
+            "screenshot_path": rel_path,
+            "width": int(rect_parsed["width"]),
+            "height": int(rect_parsed["height"]),
+        },
+    }
+
+
+def _build_step_js(
+    step: dict,
+    variables: dict[str, str],
+    captures: dict[str, str] | None = None,
+) -> str:
     """Build the JavaScript expression for a single step.
 
     Each step's value field is resolved for variables first.
     Uses multi-strategy element finding and post-action DOM waits.
+    captures: dict of previously captured values keyed by step_id
+    (used for cross-step assertions).
     """
     action = step.get("action", "")
     raw_value = step.get("value", "")
@@ -592,15 +1310,174 @@ def _build_step_js(step: dict, variables: dict[str, str]) -> str:
     if action == "hover":
         return _js_hover(find_js)
 
+    # ── Capture actions ───────────────────────────────────────
+    if action == "capture_text":
+        return _js_capture_text(find_js)
+
+    if action == "capture_html":
+        return _js_capture_html(find_js)
+
+    if action == "capture_value":
+        return _js_capture_value(find_js)
+
+    if action == "capture_attribute":
+        attr_name = step.get("assertion_attribute", "")
+        return _js_capture_attribute(find_js, attr_name)
+
+    if action == "capture_url":
+        return _js_capture_url()
+
+    if action == "capture_computed_style":
+        prop_name = step.get("assertion_attribute", "")
+        return _js_capture_computed_style(find_js, prop_name)
+
+    if action == "capture_console":
+        # Mode: "start" begins capture, "stop" reads buffer and restores
+        diag_cfg = step.get("diagnostic_config", {})
+        mode = diag_cfg.get("mode", step.get("value", "start"))
+        if mode == "stop":
+            return _js_capture_console_stop()
+        return _js_capture_console_start()
+
+    # ── Diagnostic actions ─────────────────────────────────────
+    if action == "inject_js":
+        # Execute user-written JS from diagnostic_config or value field
+        diag_cfg = step.get("diagnostic_config", {})
+        js_code = diag_cfg.get("js_code", "") or value
+        if not js_code:
+            return """(function() { return JSON.stringify({ ok: false, error: 'No JS code to inject' }); })()"""
+        # Wrap in try/catch, capture return value
+        escaped_code = js_code.replace("\\", "\\\\").replace("`", "\\`")
+        return f"""(function() {{
+            try {{
+                var __result = (function() {{ {escaped_code} }})();
+                if (__result !== undefined && __result !== null) {{
+                    var __str = (typeof __result === 'object')
+                        ? JSON.stringify(__result)
+                        : String(__result);
+                    return JSON.stringify({{ ok: true, captured: __str }});
+                }}
+                return JSON.stringify({{ ok: true, captured: null }});
+            }} catch (e) {{
+                return JSON.stringify({{ ok: false, error: 'inject_js error: ' + e.message }});
+            }}
+        }})()"""
+
+    if action == "diag_capture":
+        # Diagnostic capture — same as capture_* but tagged as diagnostic
+        diag_cfg = step.get("diagnostic_config", {})
+        cap_type = diag_cfg.get("capture_type", "text")
+        if cap_type == "html":
+            return _js_capture_html(find_js)
+        elif cap_type == "attribute":
+            attr_name = diag_cfg.get("attribute_name", "")
+            return _js_capture_attribute(find_js, attr_name)
+        elif cap_type == "value":
+            return _js_capture_value(find_js)
+        elif cap_type == "computed_style":
+            prop = diag_cfg.get("attribute_name", "")
+            return _js_capture_computed_style(find_js, prop)
+        else:
+            # Default to text capture
+            return _js_capture_text(find_js)
+
     if action == "assert":
         a_type = step.get("assertion_type", "exists")
         a_expected = _resolve_variables(
             step.get("assertion_expected", ""), variables,
         )
-        if a_type == "text_contains":
-            return _js_assert_text(find_js, a_expected, "contains")
-        if a_type == "text_equals":
-            return _js_assert_text(find_js, a_expected, "equals")
+        # ── Text assertions — all map to _js_assert_text(mode) ──
+        _text_modes = {
+            "text_contains": "contains",
+            "text_equals": "equals",
+            "text_not_contains": "not_contains",
+            "text_starts_with": "starts_with",
+            "text_ends_with": "ends_with",
+            "text_matches": "matches",
+            "text_one_of": "one_of",
+            "text_empty": "empty",
+            "text_not_empty": "not_empty",
+        }
+        if a_type in _text_modes:
+            return _js_assert_text(find_js, a_expected, _text_modes[a_type])
+        # ── Value assertions — all map to _js_assert_value(mode) ──
+        _value_modes = {
+            "value_equals": "equals",
+            "value_contains": "contains",
+            "value_empty": "empty",
+            "value_not_empty": "not_empty",
+        }
+        if a_type in _value_modes:
+            return _js_assert_value(find_js, a_expected, _value_modes[a_type])
+        # ── Attribute assertions — need assertion_attribute name ──
+        _attr_modes = {
+            "attribute_equals": "equals",
+            "attribute_contains": "contains",
+            "attribute_exists": "attr_exists",
+            "attribute_not_exists": "attr_not_exists",
+        }
+        if a_type in _attr_modes:
+            a_attr = step.get("assertion_attribute", "")
+            return _js_assert_attribute(
+                find_js, a_attr, a_expected, _attr_modes[a_type],
+            )
+        # ── Element state assertions ─────────────────────────────
+        _state_modes = {
+            "hidden", "enabled", "disabled",
+            "checked", "not_checked", "focused", "selected",
+        }
+        if a_type in _state_modes:
+            return _js_assert_state(find_js, a_type)
+        # ── CSS / style assertions ───────────────────────────────
+        if a_type == "css_class_present":
+            return _js_assert_css(find_js, a_expected, "class_present")
+        if a_type == "css_class_absent":
+            return _js_assert_css(find_js, a_expected, "class_absent")
+        if a_type == "css_property_equals":
+            a_attr = step.get("assertion_attribute", "")
+            return _js_assert_css(
+                find_js, a_expected, "property_equals", attr_name=a_attr,
+            )
+        # ── HTML / structure assertions ──────────────────────────
+        _html_modes = {
+            "html_contains", "html_equals",
+            "children_count", "children_count_gt", "children_count_lt",
+        }
+        if a_type in _html_modes:
+            return _js_assert_html(find_js, a_expected, a_type)
+        # ── Count assertions — uses raw selector, not find_js ────
+        _count_modes = {"count_equals", "count_gt", "count_lt", "count_gte"}
+        if a_type in _count_modes:
+            return _js_assert_count(
+                step.get("selector", ""), a_expected, a_type,
+            )
+        # ── Numeric assertions — parse element text as number ────
+        _numeric_modes = {
+            "numeric_equals", "numeric_gt", "numeric_lt", "numeric_between",
+        }
+        if a_type in _numeric_modes:
+            return _js_assert_numeric(find_js, a_expected, a_type)
+        # ── Page-level assertions — no element needed ────────────
+        _page_modes = {
+            "url_equals", "url_contains", "title_equals", "title_contains",
+        }
+        if a_type in _page_modes:
+            return _js_assert_page(a_expected, a_type)
+        # ── Cross-step assertions — compare with captured value ──
+        _captured_modes = {
+            "captured_equals", "captured_contains",
+            "captured_changed", "captured_unchanged",
+        }
+        if a_type in _captured_modes:
+            # a_expected holds the capture_step_id to reference
+            capture_ref = a_expected
+            _caps = captures or {}
+            if capture_ref not in _caps:
+                # Return a failing JS if the capture doesn't exist
+                return f"""(function() {{ return JSON.stringify({{ ok: false, error: 'No captured value found for step_id: {_js_escape(capture_ref)}' }}); }})()"""
+            return _js_assert_captured(
+                find_js, _caps[capture_ref], a_type,
+            )
         if a_type == "not_exists":
             return _js_assert_not_exists(step.get("selector", ""))
         if a_type == "visible":
@@ -625,6 +1502,7 @@ def _execute_step(
     *,
     session: "cdp_client.CdpSession | None" = None,
     ws_url: str = "",
+    captures: dict[str, str] | None = None,
 ) -> dict:
     """Execute a single test step via CDP.
 
@@ -643,7 +1521,16 @@ def _execute_step(
 
     from src.ui.web import cdp_client
 
-    js_expr = _build_step_js(step, variables)
+    # ── Protocol-level actions (bypass JS path) ───────────────
+    action = step.get("action", "")
+    if action in ("capture_screenshot", "diag_screenshot"):
+        return _execute_capture_screenshot(
+            step, variables, session=session,
+            run_id=step.get("_run_id", ""),
+            project_root=step.get("_project_root", ""),
+        )
+
+    js_expr = _build_step_js(step, variables, captures=captures)
     timeout_s = max(step.get("timeout_ms", 5000) / 1000.0, 5.0) + 2.0
 
     # Detect if the JS is async (needs awaitPromise)
@@ -760,6 +1647,64 @@ def _find_dcp_tab() -> str | None:
     return None
 
 
+# ── Graph-mode step routing ───────────────────────────────────
+
+# Sentinel returned by _route_after_step to signal hard stop
+_ROUTE_STOP = "__STOP__"
+
+
+def _route_after_step(
+    step,
+    step_result: dict,
+) -> str | None:
+    """Determine the next step ID in graph-mode traversal.
+
+    For normal (non-assert) steps, returns the step's ``next_step_id``
+    (which may be None to signal end-of-branch / end-of-suite).
+
+    For assert steps with an ``assert_config``, the routing depends
+    on pass/fail and the configured ``on_fail`` mode:
+
+        * **pass** → ``assert_config.on_pass``
+        * **fail + mode "fail"** → ``_ROUTE_STOP`` (hard stop)
+        * **fail + mode "continue"** → ``assert_config.on_pass``
+          (continue despite failure)
+        * **fail + mode "branch"** → first non-cancel branch's
+          ``first_step_id`` (automated mode)
+
+    Returns:
+        Step ID string, ``_ROUTE_STOP`` to abort, or ``None`` to end.
+    """
+    passed = step_result["status"] == "passed"
+
+    # If the step has no assert_config, follow the default edge
+    ac = getattr(step, "assert_config", None)
+    if ac is None:
+        return getattr(step, "next_step_id", None)
+
+    # Assert step with routing config
+    if passed:
+        return ac.on_pass or None
+
+    # Failed assertion — apply failure route
+    fr = ac.on_fail
+    if fr.mode == "fail":
+        return _ROUTE_STOP
+    elif fr.mode == "continue":
+        # Soft fail — continue to on_pass target
+        return ac.on_pass or None
+    elif fr.mode == "branch":
+        # Automated mode: take first non-cancel branch
+        for branch in fr.branches:
+            if branch.action != "cancel":
+                return branch.first_step_id or None
+        # All branches are cancel — hard stop
+        return _ROUTE_STOP
+
+    # Unknown mode — default to hard stop
+    return _ROUTE_STOP
+
+
 # ── Suite replay ───────────────────────────────────────────────
 
 
@@ -777,6 +1722,7 @@ def replay_suite(
     visual_delay_ms: int | None = None,
     min_step_delay_ms: int | None = None,
     keep_background: bool = False,
+    project_root: str = "",
 ) -> TestRunResult:
     """Execute a full test suite against the target tab.
 
@@ -945,7 +1891,24 @@ def replay_suite(
         time.sleep(suite.navigate_wait_ms / 1000.0)
 
     # ── Execute steps ────────────────────────────────────
-    step_list = sorted(suite.steps, key=lambda s: s.sequence)
+    # In graph mode, walk the main flow from start_step_id.
+    # In linear mode, sort by sequence (existing behavior).
+    if suite.steps_dict and suite.start_step_id:
+        # Graph mode: walk main flow edges
+        step_list = []
+        _visited = set()
+        _cur = suite.start_step_id
+        while _cur and _cur in suite.steps_dict and _cur not in _visited:
+            _visited.add(_cur)
+            _st = suite.steps_dict[_cur]
+            # Only include main-flow steps (not branch steps)
+            if not _st.branch_id:
+                step_list.append(_st)
+            _cur = _st.next_step_id
+        # Update total_steps to reflect the initial traversal
+        run_result.total_steps = len(step_list)
+    else:
+        step_list = sorted(suite.steps, key=lambda s: s.sequence)
     had_failure = False
 
     # ── Layer 2 (always): prevent Chrome timer throttling ───
@@ -998,8 +1961,26 @@ def replay_suite(
         })()""", timeout=3.0)
         time.sleep(0.3)  # Let backdrop fade + scroll settle
 
+    captures = {}  # Captured values keyed by step_id (for cross-step assertions)
+
+    # ── Graph-mode detection ──────────────────────────────────
+    # If the suite has a steps_dict and start_step_id, we're in
+    # graph mode: follow next_step_id edges instead of sequence.
+    _graph_mode = bool(suite.steps_dict and suite.start_step_id)
+    _step_lookup: dict[str, object] = {}  # step_id → TestStep
+    if _graph_mode:
+        _step_lookup = suite.steps_dict
+        logger.info("Replay: graph mode enabled (start=%s, %d steps in graph)",
+                    suite.start_step_id, len(_step_lookup))
+    else:
+        # Build lookup from step_list for Layer 4/5 retry (already exists)
+        for _s in step_list:
+            _step_lookup[_s.id] = _s
+
     try:
-      for i, step in enumerate(step_list):
+      i = 0
+      while i < len(step_list):
+        step = step_list[i]
         if stop_event.is_set():
             run_result.status = "cancelled"
             run_result.error = "Replay cancelled by user"
@@ -1018,6 +1999,9 @@ def replay_suite(
             break
 
         step_dict = step.to_dict()
+        # Inject replay context for protocol-level actions (screenshots)
+        step_dict["_run_id"] = run_result.id
+        step_dict["_project_root"] = str(project_root) if project_root else ""
 
         # ── Pre-step: wait_before_ms ─────────────────────────
         wait_before = step.wait_before_ms
@@ -1090,6 +2074,7 @@ def replay_suite(
         # ── Execute the step ─────────────────────────────────
         step_result = _execute_step(
             step_dict, merged_vars, session=session, ws_url=ws_url,
+            captures=captures,
         )
 
         # Retry settle time — shorter than normal pacing, just DOM reaction
@@ -1119,6 +2104,7 @@ def replay_suite(
             time.sleep(_retry_settle)
             step_result = _execute_step(
                 step_dict, merged_vars, session=session, ws_url=ws_url,
+                captures=captures,
             )
             if step_result["status"] == "passed":
                 logger.info("Layer 4 retry succeeded for step %d", i + 1)
@@ -1150,6 +2136,7 @@ def replay_suite(
             time.sleep(_retry_settle)
             step_result = _execute_step(
                 step_dict, merged_vars, session=session, ws_url=ws_url,
+                captures=captures,
             )
             if step_result["status"] == "passed":
                 logger.info("Layer 5 retry succeeded for step %d", i + 1)
@@ -1176,6 +2163,7 @@ def replay_suite(
             time.sleep(_pace_ms / 1000.0)
 
         # Build step result record
+        details = step_result.get("details", {})
         result_record = {
             "step_id": step.id,
             "sequence": step.sequence,
@@ -1185,6 +2173,49 @@ def replay_suite(
             "duration_ms": step_result["duration_ms"],
             "error": step_result.get("error"),
         }
+
+        # Store captured value from capture_* actions
+        if step.action.startswith("capture_") and step_result["status"] == "passed":
+            captured_val = details.get("captured")
+            if captured_val is not None:
+                captures[step.id] = captured_val
+                result_record["captured_value"] = captured_val
+
+        # Store assertion metadata for assert steps
+        if step.action == "assert":
+            actual = details.get("actual")
+            if actual is not None:
+                result_record["assertion_actual"] = actual
+            # Include check config from flat fields or assert_config
+            ac = getattr(step, "assert_config", None)
+            if ac:
+                result_record["assertion_check"] = ac.check_type
+                result_record["assertion_expected"] = ac.expected
+            elif step.assertion_type:
+                result_record["assertion_check"] = step.assertion_type
+                result_record["assertion_expected"] = step.assertion_expected
+
+        # Tag branch membership
+        if getattr(step, "branch_id", None):
+            result_record["branch_id"] = step.branch_id
+
+        # Store screenshot path from capture_screenshot / diag_screenshot
+        screenshot_path = details.get("screenshot_path")
+        if screenshot_path:
+            result_record["screenshot_path"] = screenshot_path
+
+        # Parse console capture data into structured entries
+        if step.action == "capture_console" and step_result["status"] == "passed":
+            captured_raw = details.get("captured", "")
+            if captured_raw and captured_raw not in ("started", "already_active"):
+                import json as _json
+                try:
+                    console_entries = _json.loads(captured_raw)
+                    if isinstance(console_entries, list):
+                        result_record["console_log"] = console_entries
+                except (ValueError, TypeError):
+                    result_record["console_log"] = [{"msg": captured_raw}]
+
         run_result.step_results.append(result_record)
 
         if step_result["status"] == "passed":
@@ -1213,8 +2244,15 @@ def replay_suite(
             )
 
             # If step is not optional and stop_on_failure is set, abort
-            if not step.optional and suite.stop_on_failure:
-                # Mark remaining steps as skipped
+            # In graph mode with assert_config, routing is handled below;
+            # only apply linear stop logic for steps without assert_config.
+            _has_routing = (
+                _graph_mode
+                and step.action == "assert"
+                and getattr(step, "assert_config", None) is not None
+            )
+            if not _has_routing and not step.optional and suite.stop_on_failure:
+                # Mark remaining steps as skipped (linear mode)
                 for remaining in step_list[i + 1:]:
                     run_result.step_results.append({
                         "step_id": remaining.id,
@@ -1233,6 +2271,63 @@ def replay_suite(
             nav_wait = suite.navigate_wait_ms / 1000.0
             if nav_wait > 0:
                 time.sleep(nav_wait)
+
+        # ── Graph-mode routing: determine next step ──────────
+        if _graph_mode and getattr(step, "next_step_id", None) is not None:
+            next_id = _route_after_step(step, step_result)
+            if next_id == _ROUTE_STOP:
+                logger.info("Graph routing: hard stop at step %s", step.id)
+                # Mark as failed and break (remaining steps aren't
+                # deterministic in graph mode — no skip markers)
+                break
+            elif next_id is None:
+                # End of branch / end of suite
+                logger.info("Graph routing: end of branch at step %s", step.id)
+                break
+            elif next_id in _step_lookup:
+                # Jump to the target step
+                target_step = _step_lookup[next_id]
+                _target_branch = getattr(target_step, "branch_id", None)
+                if _target_branch:
+                    logger.info(
+                        "Graph routing: branch taken at step %s → %s (branch %s)",
+                        step.id, next_id, _target_branch,
+                    )
+                    # Record branch_taken in the last result record
+                    run_result.step_results[-1]["branch_taken"] = _target_branch
+                    callback("cdp_test:branch_taken", {
+                        "run_id": run_result.id,
+                        "step_id": step.id,
+                        "target_step_id": next_id,
+                        "branch_id": _target_branch,
+                    })
+                else:
+                    logger.debug(
+                        "Graph routing: step %s → %s", step.id, next_id,
+                    )
+                # Find its index in step_list (if it exists there)
+                _found_idx = None
+                for _j, _s in enumerate(step_list):
+                    if _s.id == next_id:
+                        _found_idx = _j
+                        break
+                if _found_idx is not None:
+                    i = _found_idx
+                    continue  # Skip the i += 1 below
+                else:
+                    # Step is in steps_dict but not in step_list
+                    # (branch step). Execute it inline.
+                    step_list.insert(i + 1, target_step)
+                    # i += 1 below will land on the inserted step
+            else:
+                logger.warning(
+                    "Graph routing: step %s references unknown step %s",
+                    step.id, next_id,
+                )
+                break
+
+        # ── Linear mode: advance to next step ────────────────
+        i += 1
 
     finally:
         # Always close the streaming session
@@ -1369,6 +2464,7 @@ def start_replay(
                 visual_delay_ms=visual_delay_ms,
                 min_step_delay_ms=min_step_delay_ms,
                 keep_background=keep_background,
+                project_root=str(project_root) if project_root else "",
             )
             result_holder.append(result)
 
