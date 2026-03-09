@@ -164,6 +164,7 @@ def cdp_test_replay_start():
     clear_site_data = data.get("clear_site_data")  # None = use suite default
     visual_delay_ms = data.get("visual_delay_ms")  # None = use suite default
     min_step_delay_ms = data.get("min_step_delay_ms")  # None = use suite default
+    keep_background = bool(data.get("keep_background", False))
 
     # ── Start the replay ──────────────────────────────────────
     result = start_replay(
@@ -176,6 +177,7 @@ def cdp_test_replay_start():
         clear_site_data=clear_site_data,
         visual_delay_ms=visual_delay_ms,
         min_step_delay_ms=min_step_delay_ms,
+        keep_background=keep_background,
     )
 
     if isinstance(result, TestRunResult):

@@ -1152,6 +1152,36 @@ class CdpSession:
             return _bridge_send(cmd, timeout)
         return self._evaluate_fresh_ps(cmd, timeout)
 
+    def send_command(
+        self,
+        method: str,
+        params: dict | None = None,
+        *,
+        timeout: float = 10.0,
+    ) -> dict | None:
+        """Send an arbitrary CDP command and return the response.
+
+        Unlike :meth:`evaluate` (which hardcodes ``Runtime.evaluate``),
+        this accepts any CDP domain method — e.g.
+        ``Emulation.setFocusEmulationEnabled``,
+        ``Page.setWebLifecycleState``.
+        """
+        if not self.connected:
+            return None
+
+        self._cmd_id += 1
+        cmd = json.dumps({
+            "id": self._cmd_id,
+            "method": method,
+            "params": params or {},
+        })
+
+        if self._mode == "python":
+            return self._evaluate_python(cmd, timeout)
+        if self._mode == "bridge":
+            return _bridge_send(cmd, timeout)
+        return self._evaluate_fresh_ps(cmd, timeout)
+
     def _evaluate_python(self, cmd: str, timeout: float) -> dict | None:
         """Send/receive via Python socket WebSocket."""
         old_timeout = self._ws._sock.gettimeout()

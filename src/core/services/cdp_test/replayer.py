@@ -776,6 +776,7 @@ def replay_suite(
     clear_site_data: bool | None = None,
     visual_delay_ms: int | None = None,
     min_step_delay_ms: int | None = None,
+    keep_background: bool = False,
 ) -> TestRunResult:
     """Execute a full test suite against the target tab.
 
@@ -947,6 +948,46 @@ def replay_suite(
     step_list = sorted(suite.steps, key=lambda s: s.sequence)
     had_failure = False
 
+    # ── Layer 2 (always): prevent Chrome timer throttling ───
+    # Keep page lifecycle active so timers/rAF aren't slowed
+    # in background tabs. Does NOT affect visibilityState.
+    if session and session.connected:
+        session.send_command(
+            "Page.setWebLifecycleState",
+            {"state": "active"},
+            timeout=2.0,
+        )
+
+    # ── Layers 1 & 3 (background mode only) ───────────────
+    # When keep_background is True, prevent the page from knowing
+    # the tab lost focus — replay runs regardless of tab visibility.
+    if keep_background and session and session.connected:
+        # Layer 1: Emulate focused page (prevents blur/visibility
+        #          events when switching between DevTools & target)
+        session.send_command(
+            "Emulation.setFocusEmulationEnabled",
+            {"enabled": True},
+            timeout=2.0,
+        )
+        # Layer 3: JS-level visibility override (prevents the web
+        #          app itself from reacting to visibilitychange)
+        _VIS_OVERRIDE_JS = """(function() {
+            Object.defineProperty(document, 'visibilityState', {
+                get: function() { return 'visible'; },
+                configurable: true,
+            });
+            Object.defineProperty(document, 'hidden', {
+                get: function() { return false; },
+                configurable: true,
+            });
+            document.addEventListener('visibilitychange', function(e) {
+                e.stopImmediatePropagation();
+            }, true);
+            return JSON.stringify({ok: true});
+        })()"""
+        session.evaluate(_VIS_OVERRIDE_JS, timeout=2.0)
+        logger.info("Replay: background mode layers applied (1+3)")
+
     # Remove backdrop + scroll to top — single call, ONCE before loop
     if session and session.connected:
         session.evaluate("""(function() {
@@ -998,8 +1039,8 @@ def replay_suite(
         # ── Pre-step: pause if target tab not visible ─────────
         # When the user switches away from the target tab, Chrome
         # throttles the page and elements may not be findable.
-        # Pause and wait for the tab to become visible again.
-        if session and session.connected:
+        # Skipped in background mode (layers handle it).
+        if not keep_background and session and session.connected:
             _VIS_JS = '(function(){ return JSON.stringify({ visible: document.visibilityState === "visible" }); })()'
             try:
                 vis_result = session.evaluate(_VIS_JS, timeout=2.0)
@@ -1050,6 +1091,34 @@ def replay_suite(
         step_result = _execute_step(
             step_dict, merged_vars, session=session, ws_url=ws_url,
         )
+
+        # ── Layer 4 safety: retry after re-executing previous click ──
+        # If the step failed with "not found" and the previous step was
+        # a click (which likely opened the element we're targeting),
+        # re-execute the previous click to restore transient DOM state,
+        # then retry this step once.
+        if (
+            step_result["status"] == "failed"
+            and "not found" in (step_result.get("error") or "").lower()
+            and i > 0
+            and step_list[i - 1].action == "click"
+        ):
+            prev_step = step_list[i - 1]
+            prev_dict = prev_step.model_dump() if hasattr(prev_step, "model_dump") else prev_step.__dict__.copy()
+            logger.info(
+                "Layer 4 retry: re-executing previous click (step %d) "
+                "before retrying step %d",
+                i, i + 1,
+            )
+            _execute_step(
+                prev_dict, merged_vars, session=session, ws_url=ws_url,
+            )
+            time.sleep(0.3)  # Let the UI react to the click
+            step_result = _execute_step(
+                step_dict, merged_vars, session=session, ws_url=ws_url,
+            )
+            if step_result["status"] == "passed":
+                logger.info("Layer 4 retry succeeded for step %d", i + 1)
 
         # ── Post-step pacing (two-tier) ─────────────────────────
         # Effective values: per-run override or suite default
@@ -1203,6 +1272,7 @@ def start_replay(
     clear_site_data: bool | None = None,
     visual_delay_ms: int | None = None,
     min_step_delay_ms: int | None = None,
+    keep_background: bool = False,
 ) -> TestRunResult | str:
     """Start replaying a suite in a background thread.
 
@@ -1266,6 +1336,7 @@ def start_replay(
                 clear_site_data=clear_site_data,
                 visual_delay_ms=visual_delay_ms,
                 min_step_delay_ms=min_step_delay_ms,
+                keep_background=keep_background,
             )
             result_holder.append(result)
 

@@ -779,6 +779,7 @@
         const visualDelay = defaults?.visual_delay_ms ?? suite?.visual_delay_ms ?? 300;
         const minDelay = defaults?.min_step_delay_ms ?? suite?.min_step_delay_ms ?? 700;
         const clearData = defaults?.clear_site_data ?? suite?.clear_site_data ?? false;
+        const keepBg = defaults?.keep_background ?? (localStorage.getItem('cdp-replay-keep-bg') === 'true');
 
         const overlay = document.createElement('div');
         overlay.id = 'cdp-replay-config-overlay';
@@ -820,11 +821,22 @@
 
             <!-- Session -->
             <div style="font-size:0.78rem;font-weight:600;margin-bottom:var(--space-xs);color:var(--text-secondary)">🧹 Session</div>
-            <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.78rem;margin-bottom:var(--space-md);cursor:pointer">
+            <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.78rem;margin-bottom:var(--space-sm);cursor:pointer">
                 <input id="cdp-cfg-clear-data" type="checkbox" ${clearData ? 'checked' : ''}
                     style="width:16px;height:16px;accent-color:#8b5cf6">
                 <span>Clear site data &amp; refresh before running</span>
             </label>
+
+            <!-- Background mode -->
+            <div style="font-size:0.78rem;font-weight:600;margin-bottom:var(--space-xs);color:var(--text-secondary)">🔄 Tab Focus</div>
+            <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.78rem;margin-bottom:var(--space-md);cursor:pointer">
+                <input id="cdp-cfg-keep-bg" type="checkbox" ${keepBg ? 'checked' : ''}
+                    style="width:16px;height:16px;accent-color:#8b5cf6">
+                <span>Keep running in background</span>
+            </label>
+            <div style="font-size:0.65rem;color:var(--text-muted);margin-top:-0.5rem;margin-bottom:var(--space-md);padding-left:1.5rem">
+                When off, replay pauses if you leave the target tab. When on, it keeps running regardless.
+            </div>
 
             <!-- Tab status -->
             <div id="cdp-cfg-tab-status" style="font-size:0.72rem;color:var(--text-muted);margin-bottom:var(--space-md);padding:8px 12px;background:var(--bg-tertiary);border-radius:6px">
@@ -890,7 +902,10 @@
             visual_delay_ms: parseInt(document.getElementById('cdp-cfg-visual-delay')?.value) || 300,
             min_step_delay_ms: parseInt(document.getElementById('cdp-cfg-min-delay')?.value) || 100,
             clear_site_data: document.getElementById('cdp-cfg-clear-data')?.checked ?? false,
+            keep_background: document.getElementById('cdp-cfg-keep-bg')?.checked ?? false,
         };
+        // Persist background preference for next time
+        localStorage.setItem('cdp-replay-keep-bg', String(overrides.keep_background));
         _cdpTestLastOverrides = overrides;  // Preserve for Replay Again
 
         // Remove the config overlay — the CDP Test Recorder modal stays open
@@ -909,6 +924,7 @@
                     clear_site_data: overrides?.clear_site_data ?? null,
                     visual_delay_ms: overrides?.visual_delay_ms ?? null,
                     min_step_delay_ms: overrides?.min_step_delay_ms ?? null,
+                    keep_background: overrides?.keep_background ?? false,
                 }),
             });
 
