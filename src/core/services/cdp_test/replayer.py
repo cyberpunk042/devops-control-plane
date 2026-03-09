@@ -1154,28 +1154,26 @@ def replay_suite(
             if step_result["status"] == "passed":
                 logger.info("Layer 5 retry succeeded for step %d", i + 1)
 
-        # ── Post-step pacing (two-tier) ─────────────────────────
+        # ── Post-step pacing (action-aware) ─────────────────────
         # Effective values: per-run override or suite default
         _eff_min = min_step_delay_ms if min_step_delay_ms is not None else suite.min_step_delay_ms
         _eff_vis = visual_delay_ms if visual_delay_ms is not None else suite.visual_delay_ms
 
-        # Tier 1: Base delay
-        #   - If the action caused page changes (DOM mutations detected):
-        #     debounce by min_step_delay_ms (default 700ms) to let page settle
-        #   - If no page changes: 100ms base minimum
         page_changed = step_result.get("details", {}).get("changed", False)
-        if page_changed:
-            debounce_s = max(_eff_min, 0) / 1000.0
-            if debounce_s > 0:
-                time.sleep(debounce_s)
-        else:
-            time.sleep(0.1)
+        _is_mutation = step.action in ("type", "select", "key")
 
-        # Tier 2: Visual delay — added ON TOP for ALL operations
-        # Pure visibility pause so the user can see the result
-        vis_delay_s = max(_eff_vis, 0) / 1000.0
-        if vis_delay_s > 0:
-            time.sleep(vis_delay_s)
+        if _is_mutation and page_changed:
+            # Mutation actions need full debounce for page to settle
+            _pace_ms = max(_eff_min, _eff_vis)
+        elif page_changed:
+            # Clicks that trigger DOM changes — shorter settle
+            _pace_ms = max(_eff_vis, 200)
+        else:
+            # No DOM changes — minimal pause for visual tracking
+            _pace_ms = max(_eff_vis, 100)
+
+        if _pace_ms > 0:
+            time.sleep(_pace_ms / 1000.0)
 
         # Build step result record
         result_record = {
