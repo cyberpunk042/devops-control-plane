@@ -1353,7 +1353,7 @@
 
         let body = '';
 
-        // Suite metadata form
+        // ── Suite metadata ───────────────────────────────────────
         body += `<div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-xs);margin-bottom:var(--space-sm);padding-bottom:var(--space-sm);border-bottom:1px solid var(--border-subtle)">
             ${modalFormField({ name: 'cdp-suite-name', label: 'Suite Name', placeholder: 'Login Flow', required: true })}
             ${modalFormField({ name: 'cdp-suite-category', label: 'Category', type: 'select', value: 'smoke', options: [
@@ -1366,20 +1366,26 @@
             ${modalFormField({ name: 'cdp-suite-desc', label: 'Description', type: 'textarea', placeholder: 'What this test validates…', fullWidth: true })}
         </div>`;
 
-        // Steps list (editable)
-        body += `<div style="font-size:0.78rem;font-weight:600;margin-bottom:var(--space-xs);color:var(--text-secondary)">
-            Steps (${steps.length}) — click to edit
+        // ── Steps header ─────────────────────────────────────────
+        body += `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-xs)">
+            <div style="font-size:0.78rem;font-weight:600;color:var(--text-secondary)">
+                Steps (<span id="cdp-val-step-count">${steps.length}</span>)
+            </div>
+            <div style="font-size:0.65rem;color:var(--text-muted)">click a step to edit</div>
         </div>`;
 
-        body += `<div id="cdp-val-steps" style="max-height:300px;overflow-y:auto;border:1px solid var(--border-subtle);border-radius:6px;padding:0.5rem">`;
+        // ── Steps list ───────────────────────────────────────────
+        body += `<div id="cdp-val-steps" style="max-height:360px;overflow-y:auto;border:1px solid var(--border-subtle);border-radius:6px">`;
         for (let i = 0; i < steps.length; i++) {
-            const step = steps[i];
-            body += _cdpTestValidationStepRow(step, i);
+            body += _cdpTestValStepRow(steps[i], i);
         }
         body += `</div>`;
 
-        // Store steps data for editing (hidden div — not <script>, which would break the outer <script> context)
+        // Hidden data store
         body += `<div id="cdp-val-steps-data" style="display:none">${esc(JSON.stringify(steps))}</div>`;
+
+        // ── Sub-modal overlay container ──────────────────────────
+        body += `<div id="cdp-val-sub-overlay" style="display:none;position:absolute;inset:0;z-index:10;background:rgba(0,0,0,0.5);border-radius:inherit;align-items:center;justify-content:center"></div>`;
 
         modalOpen({
             title: '✅ Validate Test Suite',
@@ -1390,10 +1396,17 @@
                 { label: '💾 Save Suite', cls: 'btn-primary', id: 'cdp-save-suite-btn', onclick: '_cdpTestSaveSuite()' },
             ],
         });
+
+        // Make the modal-box position:relative for the sub-overlay
+        var box = document.querySelector('#active-modal-overlay .modal-box');
+        if (box) box.style.position = 'relative';
     }
 
-    function _cdpTestValidationStepRow(step, index) {
-        const icons = {
+
+    // ── Step row rendering ───────────────────────────────────────
+
+    function _cdpTestValStepRow(step, index) {
+        var icons = {
             click: '🖱️', type: '⌨️', navigate: '🧭', select: '📋',
             keypress: '⌨️', scroll: '📜', hover: '👆', assert: '✅',
             capture_screenshot: '📸', capture_screenshot_full: '🖼️', diag_screenshot: '📸',
@@ -1401,103 +1414,595 @@
             capture_attribute: '📋', capture_url: '🔗', capture_computed_style: '🎨',
             capture_console: '🖥️', inject_js: '💉', diag_capture: '🔍',
         };
-        const icon = icons[step.action] || '▪️';
-        const desc = step.action === 'navigate' ? step.value
-            : step.action === 'type' ? `${step.selector} → "${(step.value || '').slice(0, 40)}"`
-            : step.action === 'click' ? `${step.selector}`
-            : `${step.selector || step.value || '?'}`;
+        var icon = icons[step.action] || '▪️';
 
-        return `<div class="card-detect-row" style="font-size:0.78rem;display:flex;align-items:center;gap:0.5rem;cursor:pointer" onclick="_cdpTestEditStep(${index})">
-            <span style="font-size:0.72rem;color:var(--text-muted);min-width:1.5rem;text-align:right">${index + 1}</span>
-            <span style="font-size:0.82rem">${icon}</span>
-            <span style="font-weight:500;min-width:3.5rem">${esc(step.action)}</span>
-            <span style="color:var(--text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">${esc(desc)}</span>
-            <button class="btn btn-xs btn-secondary" onclick="event.stopPropagation();_cdpTestRemoveStep(${index})" title="Remove" style="color:var(--error)">✕</button>
-        </div>`;
+        // Build detail line per action type
+        var detail = '';
+        if (step.action === 'navigate') {
+            detail = '<span style="color:var(--text-muted);font-family:monospace;font-size:0.68rem">' + esc((step.value || '').slice(0, 80)) + '</span>';
+        } else if (step.action === 'click') {
+            var text = step.element_text ? ' "' + esc(step.element_text.slice(0, 30)) + '"' : '';
+            detail = '<code style="font-size:0.65rem;padding:1px 3px;background:var(--bg-secondary);border-radius:2px">' + esc(step.selector || '?') + '</code>' + text;
+        } else if (step.action === 'type') {
+            detail = '<code style="font-size:0.65rem;padding:1px 3px;background:var(--bg-secondary);border-radius:2px">' + esc(step.selector || '?') + '</code>'
+                + ' → <span style="color:var(--text-muted)">"' + esc((step.value || '').slice(0, 40)) + '"</span>';
+        } else if (step.action === 'assert') {
+            var ac = step.assert_config || {};
+            var checkType = ac.check_type || step.assertion_type || '?';
+            var expected = ac.expected || step.assertion_expected || '';
+            detail = '<span style="font-size:0.65rem;padding:1px 4px;background:var(--bg-secondary);border-radius:2px;color:#f59e0b">' + esc(checkType) + '</span>';
+            if (expected) {
+                detail += ' <span style="color:var(--text-muted);font-size:0.65rem">expects</span> <code style="font-size:0.65rem;padding:1px 3px;background:var(--bg-secondary);border-radius:2px">"' + esc(expected.slice(0, 40)) + '"</code>';
+            }
+            detail += '<br><code style="font-size:0.62rem;color:var(--text-muted)">' + esc(step.selector || '?') + '</code>';
+        } else if (step.action === 'capture_screenshot' || step.action === 'capture_screenshot_full') {
+            detail = '<code style="font-size:0.65rem;padding:1px 3px;background:var(--bg-secondary);border-radius:2px">' + esc(step.selector || 'viewport') + '</code>';
+            if (step.screenshot_path) {
+                detail += ' <span style="font-size:0.62rem;color:#22c55e">📸 captured</span>';
+            }
+        } else {
+            detail = '<code style="font-size:0.65rem;padding:1px 3px;background:var(--bg-secondary);border-radius:2px">' + esc(step.selector || step.value || '?') + '</code>';
+        }
+
+        var optBadge = step.optional
+            ? '<span style="font-size:0.58rem;padding:1px 4px;background:#f59e0b22;color:#f59e0b;border-radius:3px;margin-left:4px">optional</span>'
+            : '';
+
+        return '<div class="card-detect-row" style="font-size:0.75rem;display:flex;align-items:center;gap:0.5rem;padding:6px 10px;cursor:pointer;border-bottom:1px solid var(--border-subtle)" onclick="_cdpTestEditStep(' + index + ')" title="Click to edit">'
+            + '<span style="font-size:0.68rem;color:var(--text-muted);min-width:1.5rem;text-align:right">' + (index + 1) + '</span>'
+            + '<span style="font-size:0.82rem">' + icon + '</span>'
+            + '<span style="font-weight:600;min-width:3rem;font-size:0.72rem">' + esc(step.action) + '</span>'
+            + '<span style="flex:1;overflow:hidden">' + detail + optBadge + '</span>'
+            + '<button class="btn btn-xs btn-secondary" onclick="event.stopPropagation();_cdpTestRemoveStep(' + index + ')" title="Remove step" style="color:var(--error);font-size:0.7rem;padding:2px 6px">✕</button>'
+            + '</div>';
     }
+
+
+    // ── Sub-modal overlay for step editing ────────────────────────
+
+    function _cdpTestSubModalOpen(title, bodyHtml, footerButtons) {
+        var overlay = document.getElementById('cdp-val-sub-overlay');
+        if (!overlay) return;
+
+        var btns = (footerButtons || []).map(function(b) {
+            return '<button class="btn btn-sm ' + (b.cls || 'btn-secondary') + '" onclick="' + (b.onclick || '') + '"' + (b.id ? ' id="' + b.id + '"' : '') + '>' + esc(b.label) + '</button>';
+        }).join('');
+
+        overlay.innerHTML = '<div style="background:var(--bg-primary);border-radius:10px;border:1px solid var(--border-subtle);box-shadow:0 8px 32px rgba(0,0,0,0.4);width:min(560px,90%);max-height:80%;display:flex;flex-direction:column;overflow:hidden">'
+            + '<div style="display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid var(--border-subtle)">'
+            + '<span style="font-weight:700;font-size:0.85rem">' + title + '</span>'
+            + '<button class="btn btn-xs" onclick="_cdpTestSubModalClose()" style="font-size:0.8rem;padding:2px 6px" title="Close">✕</button>'
+            + '</div>'
+            + '<div style="padding:16px;overflow-y:auto;flex:1">' + bodyHtml + '</div>'
+            + (btns ? '<div style="display:flex;justify-content:flex-end;gap:8px;padding:10px 16px;border-top:1px solid var(--border-subtle)">' + btns + '</div>' : '')
+            + '</div>';
+
+        overlay.style.display = 'flex';
+    }
+
+    function _cdpTestSubModalClose() {
+        var overlay = document.getElementById('cdp-val-sub-overlay');
+        if (overlay) {
+            overlay.style.display = 'none';
+            overlay.innerHTML = '';
+        }
+    }
+
+
+    // ── Edit step ────────────────────────────────────────────────
 
     function _cdpTestEditStep(index) {
-        const dataEl = document.getElementById('cdp-val-steps-data');
+        var dataEl = document.getElementById('cdp-val-steps-data');
         if (!dataEl) return;
-        const steps = JSON.parse(dataEl.textContent);
-        const step = steps[index];
+        var steps = JSON.parse(dataEl.textContent);
+        var step = steps[index];
         if (!step) return;
 
-        // Simple inline edit modal
-        modalOpen({
-            title: `Edit Step ${index + 1}: ${step.action}`,
-            body: `<div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-xs)">
-                ${modalFormField({ name: 'cdp-step-action', label: 'Action', type: 'select', value: step.action, options: [
-                    { value: 'navigate', label: 'Navigate' },
-                    { value: 'click', label: 'Click' },
-                    { value: 'type', label: 'Type' },
-                    { value: 'select', label: 'Select' },
-                    { value: 'keypress', label: 'Keypress' },
-                    { value: 'wait', label: 'Wait' },
-                    { value: 'hover', label: 'Hover' },
-                    { value: 'assert', label: 'Assert' },
-                    { value: 'capture_text', label: 'Capture Text' },
-                    { value: 'capture_html', label: 'Capture HTML' },
-                    { value: 'capture_value', label: 'Capture Value' },
-                    { value: 'capture_attribute', label: 'Capture Attribute' },
-                    { value: 'capture_url', label: 'Capture URL' },
-                    { value: 'capture_computed_style', label: 'Capture CSS' },
-                    { value: 'capture_screenshot', label: 'Screenshot' },
-                    { value: 'capture_console', label: 'Console Capture' },
-                    { value: 'inject_js', label: 'Inject JS' },
-                ] })}
-                ${modalFormField({ name: 'cdp-step-selector', label: 'Selector', value: step.selector || '' })}
-                ${modalFormField({ name: 'cdp-step-value', label: 'Value', value: step.value || '', fullWidth: true })}
-                ${modalFormField({ name: 'cdp-step-xpath', label: 'XPath (alternative)', value: step.xpath || '', fullWidth: true })}
-                ${modalFormField({ name: 'cdp-step-timeout', label: 'Timeout (ms)', type: 'number', value: String(step.timeout_ms || 5000) })}
-                ${modalFormField({ name: 'cdp-step-optional', label: 'Optional (failure OK)', type: 'checkbox', value: step.optional || false })}
-                ${modalFormField({ name: 'cdp-step-desc', label: 'Description', value: step.description || '', fullWidth: true })}
-            </div>`,
-            footerButtons: [
-                { label: 'Cancel', cls: 'btn-secondary', onclick: `_cdpTestOpenValidation({steps:${JSON.stringify(steps)},target_url:mfVal('cdp-suite-url')})` },
-                { label: 'Apply', cls: 'btn-primary', onclick: `_cdpTestApplyStepEdit(${index})` },
-            ],
-        });
+        var body = _cdpTestBuildEditForm(step);
+
+        // Screenshot preview if available
+        if (step.screenshot_path) {
+            var filename = step.screenshot_path.split('/').pop();
+            var imgUrl = '/api/cdp-test/screenshots/' + encodeURIComponent(filename);
+            body += '<div style="margin-top:12px;padding:8px;background:var(--bg-tertiary);border-radius:6px;border:1px solid var(--border-subtle)">'
+                + '<div style="font-size:0.68rem;font-weight:600;color:#f59e0b;margin-bottom:6px">📸 Recorded Screenshot</div>'
+                + '<img src="' + imgUrl + '" alt="screenshot" style="max-width:100%;max-height:200px;border-radius:4px;border:1px solid var(--border-subtle)"'
+                + ' onerror="this.outerHTML=\'<span style=\\\'color:var(--error)\\\'>\u26a0 screenshot not found</span>\'" />'
+                + '</div>';
+        }
+
+        _cdpTestSubModalOpen('\u270f\ufe0f Edit Step ' + (index + 1) + ': ' + step.action, body, [
+            { label: 'Cancel', cls: 'btn-secondary', onclick: '_cdpTestSubModalClose()' },
+            { label: '\u2705 Apply', cls: 'btn-primary', onclick: '_cdpTestApplyStepEdit(' + index + ')' },
+        ]);
+
+        // When action changes, rebuild the dynamic fields
+        var actionSel = document.getElementById('mf-cdp-edit-action');
+        if (actionSel) {
+            actionSel.addEventListener('change', function() {
+                var dynContainer = document.getElementById('cdp-edit-dynamic-fields');
+                if (dynContainer) {
+                    // Build a temporary step with the new action to get correct fields
+                    var tmpStep = JSON.parse(JSON.stringify(step));
+                    tmpStep.action = actionSel.value;
+                    dynContainer.innerHTML = _cdpTestBuildDynamicFields(tmpStep);
+                }
+            });
+        }
     }
+
+    // Build the entire edit form body
+    function _cdpTestBuildEditForm(step) {
+        var actionOptions = [
+            { value: 'navigate', label: 'Navigate' },
+            { value: 'click', label: 'Click' },
+            { value: 'type', label: 'Type' },
+            { value: 'select', label: 'Select' },
+            { value: 'keypress', label: 'Keypress' },
+            { value: 'scroll', label: 'Scroll' },
+            { value: 'hover', label: 'Hover' },
+            { value: 'assert', label: 'Assert' },
+            { value: 'capture_text', label: 'Capture Text' },
+            { value: 'capture_html', label: 'Capture HTML' },
+            { value: 'capture_value', label: 'Capture Value' },
+            { value: 'capture_attribute', label: 'Capture Attribute' },
+            { value: 'capture_url', label: 'Capture URL' },
+            { value: 'capture_computed_style', label: 'Capture CSS' },
+            { value: 'capture_screenshot', label: 'Screenshot' },
+            { value: 'capture_console', label: 'Console Capture' },
+            { value: 'inject_js', label: 'Inject JS' },
+        ];
+
+        // Action selector + timeout (always shown)
+        var body = '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">';
+        body += modalFormField({ name: 'cdp-edit-action', label: 'Action', type: 'select', value: step.action, options: actionOptions });
+        body += modalFormField({ name: 'cdp-edit-timeout', label: 'Timeout (ms)', type: 'number', value: String(step.timeout_ms || 5000) });
+        body += '</div>';
+
+        // Dynamic fields container — content depends on action
+        body += '<div id="cdp-edit-dynamic-fields" style="margin-top:8px">';
+        body += _cdpTestBuildDynamicFields(step);
+        body += '</div>';
+
+        // Optional + description (always shown)
+        body += '<div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border-subtle)">';
+        body += '<label class="modal-form-check" style="margin-bottom:6px">'
+            + '<input type="checkbox" id="mf-cdp-edit-optional" ' + (step.optional ? 'checked' : '') + '>'
+            + ' Optional (failure won\'t fail the suite)</label>';
+        body += modalFormField({ name: 'cdp-edit-desc', label: 'Description', value: step.description || '', fullWidth: true, placeholder: 'What this step does\u2026' });
+        body += '</div>';
+
+        return body;
+    }
+
+    // ── Assert category data (matches replayer _build_step_js exactly) ──
+
+    var _cdpAssertCategories = [
+        { id: 'text', label: '📝 Text Content', types: [
+            { value: 'text_contains', label: 'Text Contains' },
+            { value: 'text_equals', label: 'Text Equals' },
+            { value: 'text_not_contains', label: 'Text Not Contains' },
+            { value: 'text_starts_with', label: 'Text Starts With' },
+            { value: 'text_ends_with', label: 'Text Ends With' },
+            { value: 'text_matches', label: 'Text Matches (regex)' },
+            { value: 'text_one_of', label: 'Text One Of (pipe-separated)' },
+            { value: 'text_empty', label: 'Text Is Empty' },
+            { value: 'text_not_empty', label: 'Text Not Empty' },
+        ]},
+        { id: 'value', label: '📋 Input Value', types: [
+            { value: 'value_equals', label: 'Value Equals' },
+            { value: 'value_contains', label: 'Value Contains' },
+            { value: 'value_empty', label: 'Value Is Empty' },
+            { value: 'value_not_empty', label: 'Value Not Empty' },
+        ]},
+        { id: 'attribute', label: '🏷️ Attribute', types: [
+            { value: 'attribute_equals', label: 'Attribute Equals' },
+            { value: 'attribute_contains', label: 'Attribute Contains' },
+            { value: 'attribute_exists', label: 'Attribute Exists' },
+            { value: 'attribute_not_exists', label: 'Attribute Not Exists' },
+        ]},
+        { id: 'element', label: '🔍 Element', types: [
+            { value: 'exists', label: 'Element Exists' },
+            { value: 'not_exists', label: 'Element Not Exists' },
+            { value: 'visible', label: 'Is Visible' },
+        ]},
+        { id: 'state', label: '🔘 State', types: [
+            { value: 'hidden', label: 'Is Hidden' },
+            { value: 'enabled', label: 'Is Enabled' },
+            { value: 'disabled', label: 'Is Disabled' },
+            { value: 'checked', label: 'Is Checked' },
+            { value: 'not_checked', label: 'Is Not Checked' },
+            { value: 'focused', label: 'Is Focused' },
+            { value: 'selected', label: 'Is Selected' },
+        ]},
+        { id: 'css', label: '🎨 CSS / Style', types: [
+            { value: 'css_class_present', label: 'Has CSS Class' },
+            { value: 'css_class_absent', label: 'Missing CSS Class' },
+            { value: 'css_property_equals', label: 'CSS Property Equals' },
+        ]},
+        { id: 'html', label: '📄 HTML / Structure', types: [
+            { value: 'html_contains', label: 'HTML Contains' },
+            { value: 'html_equals', label: 'HTML Equals' },
+            { value: 'children_count', label: 'Children Count Equals' },
+            { value: 'children_count_gt', label: 'Children Count >' },
+            { value: 'children_count_lt', label: 'Children Count <' },
+        ]},
+        { id: 'count', label: '🔢 Element Count', types: [
+            { value: 'count_equals', label: 'Count Equals' },
+            { value: 'count_gt', label: 'Count >' },
+            { value: 'count_lt', label: 'Count <' },
+            { value: 'count_gte', label: 'Count >=' },
+        ]},
+        { id: 'numeric', label: '🔣 Numeric', types: [
+            { value: 'numeric_equals', label: 'Number Equals' },
+            { value: 'numeric_gt', label: 'Number >' },
+            { value: 'numeric_lt', label: 'Number <' },
+            { value: 'numeric_between', label: 'Number Between (min,max)' },
+        ]},
+        { id: 'page', label: '🌐 Page-level', types: [
+            { value: 'url_equals', label: 'URL Equals' },
+            { value: 'url_contains', label: 'URL Contains' },
+            { value: 'title_equals', label: 'Title Equals' },
+            { value: 'title_contains', label: 'Title Contains' },
+        ]},
+        { id: 'captured', label: '🔗 Cross-step', types: [
+            { value: 'captured_equals', label: 'Matches Captured Value' },
+            { value: 'captured_contains', label: 'Contains Captured Value' },
+            { value: 'captured_changed', label: 'Changed Since Capture' },
+            { value: 'captured_unchanged', label: 'Unchanged Since Capture' },
+        ]},
+        { id: 'screenshot', label: '📸 Screenshot / OCR', types: [
+            { value: 'ocr_text_contains', label: 'OCR Text Contains' },
+            { value: 'ocr_text_equals', label: 'OCR Text Equals' },
+            { value: 'capture_only', label: 'Capture Only (no check)' },
+        ]},
+    ];
+
+    var _cdpAssertNoExpected = [
+        'exists', 'not_exists', 'visible', 'hidden', 'enabled', 'disabled',
+        'checked', 'not_checked', 'focused', 'selected',
+        'text_empty', 'text_not_empty', 'value_empty', 'value_not_empty',
+        'attribute_exists', 'attribute_not_exists', 'capture_only',
+    ];
+
+    var _cdpAssertNeedsAttr = [
+        'attribute_equals', 'attribute_contains', 'attribute_exists', 'attribute_not_exists',
+        'css_property_equals',
+    ];
+
+    var _cdpAssertCaseSensitiveCats = ['text', 'value'];
+    var _cdpAssertNoSelectorCats = ['page'];
+
+    function _cdpTestAssertCategory(assertType) {
+        if (!assertType) return 'text';
+        for (var i = 0; i < _cdpAssertCategories.length; i++) {
+            var cat = _cdpAssertCategories[i];
+            for (var j = 0; j < cat.types.length; j++) {
+                if (cat.types[j].value === assertType) return cat.id;
+            }
+        }
+        return 'text';
+    }
+
+    function _cdpTestAssertCheckOptions(categoryId) {
+        for (var i = 0; i < _cdpAssertCategories.length; i++) {
+            if (_cdpAssertCategories[i].id === categoryId) return _cdpAssertCategories[i].types;
+        }
+        return _cdpAssertCategories[0].types;
+    }
+
+    function _cdpTestAssertConditionalFields(checkType, category, stepData) {
+        var ac = (stepData && stepData.assert_config) || {};
+        var html = '';
+
+        if (_cdpAssertNoExpected.indexOf(checkType) === -1) {
+            var expLabel = 'Expected Value';
+            if (category === 'captured') expLabel = 'Capture Step ID';
+            else if (checkType === 'numeric_between') expLabel = 'Range (min,max)';
+            else if (category === 'count') expLabel = 'Expected Count';
+            else if (checkType === 'text_one_of') expLabel = 'Values (pipe-separated)';
+            else if (checkType === 'text_matches') expLabel = 'Regex Pattern';
+            html += modalFormField({ name: 'cdp-edit-expected', label: expLabel, value: ac.expected || stepData.assertion_expected || '', fullWidth: true });
+        }
+
+        if (_cdpAssertNeedsAttr.indexOf(checkType) !== -1) {
+            html += modalFormField({
+                name: 'cdp-edit-attr-name',
+                label: checkType === 'css_property_equals' ? 'CSS Property' : 'Attribute Name',
+                value: ac.attribute || stepData.assertion_attribute || '',
+                placeholder: checkType === 'css_property_equals' ? 'color, display, opacity…' : 'href, data-id, aria-label…',
+            });
+        }
+
+        if (_cdpAssertCaseSensitiveCats.indexOf(category) !== -1) {
+            html += '<label class="modal-form-check full-width">'
+                + '<input type="checkbox" id="mf-cdp-edit-case-sensitive" ' + (ac.case_sensitive ? 'checked' : '') + '>'
+                + ' Case Sensitive</label>';
+        }
+
+        return html;
+    }
+
+    function _cdpTestAssertCategoryChanged() {
+        var catSel = document.getElementById('mf-cdp-edit-assert-category');
+        if (!catSel) return;
+        var category = catSel.value;
+        var types = _cdpTestAssertCheckOptions(category);
+
+        var container = document.getElementById('cdp-edit-assert-checks');
+        if (!container) return;
+
+        var html = '<div class="modal-form-field" style="grid-column:1/-1">';
+        html += '<label class="modal-form-label">Check Type</label>';
+        html += '<select id="mf-cdp-edit-check-type" class="modal-form-input" onchange="_cdpTestAssertCheckChanged()">';
+        for (var i = 0; i < types.length; i++) {
+            html += '<option value="' + types[i].value + '">' + types[i].label + '</option>';
+        }
+        html += '</select></div>';
+
+        html += '<div id="cdp-edit-assert-fields">';
+        html += _cdpTestAssertConditionalFields(types[0].value, category, {});
+        html += '</div>';
+
+        container.innerHTML = html;
+
+        var selectorWrap = document.getElementById('cdp-edit-selector-container');
+        if (selectorWrap) {
+            selectorWrap.style.display = (_cdpAssertNoSelectorCats.indexOf(category) !== -1) ? 'none' : '';
+        }
+    }
+
+    function _cdpTestAssertCheckChanged() {
+        var checkSel = document.getElementById('mf-cdp-edit-check-type');
+        var catSel = document.getElementById('mf-cdp-edit-assert-category');
+        if (!checkSel || !catSel) return;
+
+        var container = document.getElementById('cdp-edit-assert-fields');
+        if (!container) return;
+
+        container.innerHTML = _cdpTestAssertConditionalFields(checkSel.value, catSel.value, {});
+    }
+
+    // Build only the action-specific fields
+    function _cdpTestBuildDynamicFields(step) {
+        var action = step.action;
+        var body = '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">';
+
+        // ── Actions that need a selector ─────────────────────────
+        var needsSelector = ['click', 'type', 'select', 'keypress', 'hover', 'assert',
+            'capture_text', 'capture_html', 'capture_value', 'capture_attribute',
+            'capture_computed_style', 'capture_screenshot', 'capture_screenshot_full'].indexOf(action) !== -1;
+
+        if (needsSelector) {
+            if (action === 'assert') body += '<div id="cdp-edit-selector-container">';
+            body += modalFormField({ name: 'cdp-edit-selector', label: 'CSS Selector', value: step.selector || '', fullWidth: true });
+            body += modalFormField({ name: 'cdp-edit-xpath', label: 'XPath (alternative)', value: step.xpath || '', fullWidth: true });
+            if (action === 'assert') body += '</div>';
+        }
+
+        // ── Navigate: URL ────────────────────────────────────────
+        if (action === 'navigate') {
+            body += modalFormField({ name: 'cdp-edit-value', label: 'URL', value: step.value || '', fullWidth: true, placeholder: 'https://example.com/page' });
+        }
+
+        // ── Type: text to type ───────────────────────────────────
+        if (action === 'type') {
+            body += modalFormField({ name: 'cdp-edit-value', label: 'Text to type', value: step.value || '', fullWidth: true });
+        }
+
+        // ── Select: option value ─────────────────────────────────
+        if (action === 'select') {
+            body += modalFormField({ name: 'cdp-edit-value', label: 'Option value', value: step.value || '', fullWidth: true });
+        }
+
+        // ── Keypress: key ────────────────────────────────────────
+        if (action === 'keypress') {
+            body += modalFormField({ name: 'cdp-edit-value', label: 'Key (e.g. Enter, Tab, Escape)', value: step.value || '' });
+        }
+
+        // ── Inject JS: code ──────────────────────────────────────
+        if (action === 'inject_js') {
+            body += modalFormField({ name: 'cdp-edit-value', label: 'JavaScript code', type: 'textarea', value: step.value || '', fullWidth: true });
+        }
+
+        // ── Capture attribute: attribute name ────────────────────
+        if (action === 'capture_attribute') {
+            body += modalFormField({ name: 'cdp-edit-attr-name', label: 'Attribute Name', value: step.assertion_attribute || '', placeholder: 'href, data-id, aria-label\u2026' });
+        }
+
+        // ── Capture computed style: property name ────────────────
+        if (action === 'capture_computed_style') {
+            body += modalFormField({ name: 'cdp-edit-attr-name', label: 'CSS Property', value: step.assertion_attribute || '', placeholder: 'color, display, opacity\u2026' });
+        }
+
+        // ── Capture variable name (for captures that store results) ──
+        var isCapture = action.indexOf('capture_') === 0;
+        if (isCapture) {
+            body += modalFormField({ name: 'cdp-edit-var-name', label: 'Store as variable', value: step.variable_name || '', placeholder: 'my_var (optional)' });
+        }
+
+        // ── Assert: category-based check type system ──────────────
+        if (action === 'assert') {
+            var ac = step.assert_config || {};
+            var currentCheckType = ac.check_type || step.assertion_type || 'text_contains';
+            var currentCategory = _cdpTestAssertCategory(currentCheckType);
+            var checkOptions = _cdpTestAssertCheckOptions(currentCategory);
+
+            // Hide selector for page-level assertions
+            if (_cdpAssertNoSelectorCats.indexOf(currentCategory) !== -1) {
+                var selWrap = document.getElementById('cdp-edit-selector-container');
+                if (selWrap) selWrap.style.display = 'none';
+            }
+
+            // Category dropdown
+            var catOptions = [];
+            for (var ci = 0; ci < _cdpAssertCategories.length; ci++) {
+                catOptions.push({ value: _cdpAssertCategories[ci].id, label: _cdpAssertCategories[ci].label });
+            }
+            body += modalFormField({ name: 'cdp-edit-assert-category', label: 'Check Category', type: 'select', value: currentCategory, options: catOptions, fullWidth: true });
+
+            // Attach onchange after render (deferred)
+            setTimeout(function() {
+                var catEl = document.getElementById('mf-cdp-edit-assert-category');
+                if (catEl) catEl.addEventListener('change', _cdpTestAssertCategoryChanged);
+                var chkEl = document.getElementById('mf-cdp-edit-check-type');
+                if (chkEl) chkEl.addEventListener('change', _cdpTestAssertCheckChanged);
+            }, 50);
+
+            // Check type dropdown + conditional fields
+            body += '<div id="cdp-edit-assert-checks">';
+            body += '<div class="modal-form-field" style="grid-column:1/-1">';
+            body += '<label class="modal-form-label">Check Type</label>';
+            body += '<select id="mf-cdp-edit-check-type" class="modal-form-input">';
+            for (var ti = 0; ti < checkOptions.length; ti++) {
+                var sel = (checkOptions[ti].value === currentCheckType) ? ' selected' : '';
+                body += '<option value="' + checkOptions[ti].value + '"' + sel + '>' + checkOptions[ti].label + '</option>';
+            }
+            body += '</select></div>';
+
+            body += '<div id="cdp-edit-assert-fields">';
+            body += _cdpTestAssertConditionalFields(currentCheckType, currentCategory, step);
+            body += '</div>';
+            body += '</div>';
+        }
+
+        body += '</div>';
+        return body;
+    }
+
+
+    // ── Apply step edit ──────────────────────────────────────────
 
     function _cdpTestApplyStepEdit(index) {
-        // This is a simplification — in production we'd track state better
-        // For now, reconstruct from the last known state
-        toast('Step updated', 'success');
-        // Re-render validation with updated step would go here
-    }
-
-    function _cdpTestRemoveStep(index) {
-        const dataEl = document.getElementById('cdp-val-steps-data');
+        var dataEl = document.getElementById('cdp-val-steps-data');
         if (!dataEl) return;
-        const steps = JSON.parse(dataEl.textContent);
-        steps.splice(index, 1);
-        // Re-number sequences
-        steps.forEach((s, i) => s.sequence = i);
+        var steps = JSON.parse(dataEl.textContent);
+        var step = steps[index];
+        if (!step) return;
+
+        // Read common fields
+        step.action = mfVal('cdp-edit-action') || step.action;
+        step.timeout_ms = parseInt(mfVal('cdp-edit-timeout'), 10) || 5000;
+        step.optional = mfVal('cdp-edit-optional');
+        step.description = mfVal('cdp-edit-desc');
+
+        // Selector (only if field exists)
+        var selEl = document.getElementById('mf-cdp-edit-selector');
+        if (selEl) step.selector = selEl.value;
+
+        var xpEl = document.getElementById('mf-cdp-edit-xpath');
+        if (xpEl) step.xpath = xpEl.value;
+
+        // Value (for navigate, type, keypress, select, inject_js)
+        var valEl = document.getElementById('mf-cdp-edit-value');
+        if (valEl) step.value = valEl.value;
+
+        // Variable name (for captures)
+        var varEl = document.getElementById('mf-cdp-edit-var-name');
+        if (varEl) step.variable_name = varEl.value;
+
+        // Attribute name (for capture_attribute, capture_computed_style)
+        var attrEl = document.getElementById('mf-cdp-edit-attr-name');
+        if (attrEl) step.assertion_attribute = attrEl.value;
+
+        // Assert-specific
+        if (step.action === 'assert') {
+            if (!step.assert_config) step.assert_config = {};
+
+            // Read check type (exact replayer assertion_type value)
+            var checkTypeEl = document.getElementById('mf-cdp-edit-check-type');
+            if (checkTypeEl) {
+                step.assertion_type = checkTypeEl.value;
+                step.assert_config.check_type = checkTypeEl.value;
+            }
+
+            // Read category for capture_type mapping
+            var catEl = document.getElementById('mf-cdp-edit-assert-category');
+            if (catEl) {
+                step.assert_config.capture_type = (catEl.value === 'screenshot') ? 'screenshot' : 'dom';
+            }
+
+            // Expected value (only if field exists)
+            var expEl = document.getElementById('mf-cdp-edit-expected');
+            if (expEl) {
+                step.assertion_expected = expEl.value;
+                step.assert_config.expected = expEl.value;
+            }
+
+            // Attribute name (only if field exists)
+            if (attrEl) {
+                step.assertion_attribute = attrEl.value;
+                step.assert_config.attribute = attrEl.value;
+            }
+
+            // Case sensitive (only if field exists)
+            var csEl = document.getElementById('mf-cdp-edit-case-sensitive');
+            if (csEl) {
+                step.assert_config.case_sensitive = csEl.checked;
+            }
+        }
+
+        // Persist
+        steps[index] = step;
+        dataEl.textContent = JSON.stringify(steps);
 
         // Re-render step list
-        const container = document.getElementById('cdp-val-steps');
+        var container = document.getElementById('cdp-val-steps');
         if (container) {
-            container.innerHTML = steps.map((s, i) => _cdpTestValidationStepRow(s, i)).join('');
+            container.innerHTML = steps.map(function(s, i) { return _cdpTestValStepRow(s, i); }).join('');
         }
-        dataEl.textContent = JSON.stringify(steps);
+        var countEl = document.getElementById('cdp-val-step-count');
+        if (countEl) countEl.textContent = steps.length;
+
+        _cdpTestSubModalClose();
+        toast('Step ' + (index + 1) + ' updated', 'success');
     }
 
+
+    // ── Remove step ──────────────────────────────────────────────
+
+    function _cdpTestRemoveStep(index) {
+        var dataEl = document.getElementById('cdp-val-steps-data');
+        if (!dataEl) return;
+        var steps = JSON.parse(dataEl.textContent);
+
+        if (steps.length <= 1) {
+            toast('Cannot remove the last step', 'error');
+            return;
+        }
+
+        steps.splice(index, 1);
+        steps.forEach(function(s, i) { s.sequence = i; });
+        dataEl.textContent = JSON.stringify(steps);
+
+        var container = document.getElementById('cdp-val-steps');
+        if (container) {
+            container.innerHTML = steps.map(function(s, i) { return _cdpTestValStepRow(s, i); }).join('');
+        }
+        var countEl = document.getElementById('cdp-val-step-count');
+        if (countEl) countEl.textContent = steps.length;
+
+        toast('Step ' + (index + 1) + ' removed', 'info');
+    }
+
+
+    // ── Save suite ───────────────────────────────────────────────
+
     async function _cdpTestSaveSuite() {
-        const name = mfVal('cdp-suite-name');
+        var name = mfVal('cdp-suite-name');
         if (!name) {
             modalError('Suite name is required');
             return;
         }
 
-        const dataEl = document.getElementById('cdp-val-steps-data');
-        const steps = dataEl ? JSON.parse(dataEl.textContent) : [];
+        var dataEl = document.getElementById('cdp-val-steps-data');
+        var steps = dataEl ? JSON.parse(dataEl.textContent) : [];
 
-        const btn = document.getElementById('cdp-save-suite-btn');
+        var btn = document.getElementById('cdp-save-suite-btn');
         if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
 
         try {
-            const result = await api('/cdp-test/suites', {
+            var result = await api('/cdp-test/suites', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -1510,7 +2015,7 @@
             });
 
             if (result.ok) {
-                toast(`Suite "${name}" saved`, 'success');
+                toast('Suite "' + name + '" saved', 'success');
                 _cdpTestRenderHome();
             } else {
                 modalError(result.error || 'Save failed');
@@ -1522,8 +2027,8 @@
         }
     }
 
-
     // ══════════════════════════════════════════════════════════════════
+
     //  SUITE DETAIL VIEW — open, edit, replay
     // ══════════════════════════════════════════════════════════════════
 
