@@ -313,8 +313,19 @@
             element_rect: elemRect,
         });
 
-        // Show assertion badge near the clicked element
-        _showAssertBadge(el, selector, elemText, elemRect);
+        // Show assertion badge on the FOCUSED element after the click settles
+        // (user wants to assert on what has focus, not what they clicked)
+        setTimeout(function () {
+            var focused = document.activeElement;
+            // If focus landed on body/html or null, fall back to click target
+            if (!focused || focused === document.body || focused === document.documentElement) {
+                focused = el;
+            }
+            var focusSelector = buildSelector(focused);
+            var focusText = (focused.textContent || '').trim().slice(0, 80);
+            var focusRect = getRect(focused);
+            _showAssertBadge(focused, focusSelector, focusText, focusRect);
+        }, 150);
     }, true);
 
     /**
