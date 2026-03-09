@@ -1092,6 +1092,9 @@ def replay_suite(
             step_dict, merged_vars, session=session, ws_url=ws_url,
         )
 
+        # Retry settle time — shorter than normal pacing, just DOM reaction
+        _retry_settle = max(suite.min_step_delay_ms // 2, 350) / 1000.0
+
         # ── Layer 4 safety: retry after re-executing previous click ──
         # If the step failed with "not found" and the previous step was
         # a click (which likely opened the element we're targeting),
@@ -1104,7 +1107,7 @@ def replay_suite(
             and step_list[i - 1].action == "click"
         ):
             prev_step = step_list[i - 1]
-            prev_dict = prev_step.model_dump() if hasattr(prev_step, "model_dump") else prev_step.__dict__.copy()
+            prev_dict = prev_step.to_dict()
             logger.info(
                 "Layer 4 retry: re-executing previous click (step %d) "
                 "before retrying step %d",
@@ -1113,12 +1116,43 @@ def replay_suite(
             _execute_step(
                 prev_dict, merged_vars, session=session, ws_url=ws_url,
             )
-            time.sleep(0.3)  # Let the UI react to the click
+            time.sleep(_retry_settle)
             step_result = _execute_step(
                 step_dict, merged_vars, session=session, ws_url=ws_url,
             )
             if step_result["status"] == "passed":
                 logger.info("Layer 4 retry succeeded for step %d", i + 1)
+
+        # ── Layer 5 safety: rewind 2 steps ───────────────────────
+        # If Layer 4 didn't fix it, the context may depend on an
+        # earlier click (e.g. click article → click markdown → type).
+        # Re-execute steps N-2 and N-1, then retry N.
+        if (
+            step_result["status"] == "failed"
+            and "not found" in (step_result.get("error") or "").lower()
+            and i > 1
+            and step_list[i - 2].action == "click"
+        ):
+            step_n2 = step_list[i - 2]
+            step_n1 = step_list[i - 1]
+            logger.info(
+                "Layer 5 retry: re-executing steps %d+%d "
+                "before retrying step %d",
+                i - 1, i, i + 1,
+            )
+            _execute_step(
+                step_n2.to_dict(), merged_vars, session=session, ws_url=ws_url,
+            )
+            time.sleep(_retry_settle)
+            _execute_step(
+                step_n1.to_dict(), merged_vars, session=session, ws_url=ws_url,
+            )
+            time.sleep(_retry_settle)
+            step_result = _execute_step(
+                step_dict, merged_vars, session=session, ws_url=ws_url,
+            )
+            if step_result["status"] == "passed":
+                logger.info("Layer 5 retry succeeded for step %d", i + 1)
 
         # ── Post-step pacing (two-tier) ─────────────────────────
         # Effective values: per-run override or suite default
