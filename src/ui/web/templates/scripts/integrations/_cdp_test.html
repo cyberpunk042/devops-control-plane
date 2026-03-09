@@ -1383,6 +1383,7 @@
 
         // Hidden data store
         body += `<div id="cdp-val-steps-data" style="display:none">${esc(JSON.stringify(steps))}</div>`;
+        body += `<div id="cdp-val-suite-id" style="display:none">${suiteDraft.suite_id || ''}</div>`;
 
         // ── Sub-modal overlay container ──────────────────────────
         body += `<div id="cdp-val-sub-overlay" style="display:none;position:absolute;inset:0;z-index:10;background:rgba(0,0,0,0.5);border-radius:inherit;align-items:center;justify-content:center"></div>`;
@@ -2002,8 +2003,13 @@
         if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
 
         try {
-            var result = await api('/cdp-test/suites', {
-                method: 'POST',
+            var suiteIdEl = document.getElementById('cdp-val-suite-id');
+            var suiteId = suiteIdEl ? suiteIdEl.textContent.trim() : '';
+            var endpoint = suiteId ? '/cdp-test/suites/' + suiteId : '/cdp-test/suites';
+            var method = suiteId ? 'PUT' : 'POST';
+
+            var result = await api(endpoint, {
+                method: method,
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     name: name,
@@ -2049,6 +2055,7 @@
             _cdpTestOpenValidation({
                 steps: suite.steps,
                 target_url: suite.target_url,
+                suite_id: suiteId,
             });
 
             // Fill in the name and other fields after rendering

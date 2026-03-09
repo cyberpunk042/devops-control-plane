@@ -2458,12 +2458,21 @@ def replay_suite(
                 step.selector or step.value, step_result["duration_ms"],
             )
         else:
-            run_result.failed_steps += 1
-            had_failure = True
-            callback("cdp_test:step_failed", {
-                "run_id": run_result.id,
-                **result_record,
-            })
+            if step.optional:
+                # Optional step failed — report it but don't count as hard failure
+                run_result.passed_steps += 1  # count as "soft pass"
+                callback("cdp_test:step_failed", {
+                    "run_id": run_result.id,
+                    "optional": True,
+                    **result_record,
+                })
+            else:
+                run_result.failed_steps += 1
+                had_failure = True
+                callback("cdp_test:step_failed", {
+                    "run_id": run_result.id,
+                    **result_record,
+                })
             logger.warning(
                 "Step %d/%d FAILED: %s %s — %s",
                 i + 1, len(step_list), step.action,
