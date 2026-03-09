@@ -492,7 +492,7 @@
         var liveValue = '';
         try {
             var targetEl = document.querySelector(selector);
-            if (targetEl) liveValue = (targetEl.textContent || '').trim().slice(0, 500);
+            if (targetEl) liveValue = (targetEl.textContent || '').trim();
         } catch (_) { }
 
         var s = function (obj) {
@@ -696,25 +696,36 @@
                 attribute: 'capture_attribute', screenshot: 'capture_screenshot',
                 state: 'capture_computed_style', console: 'capture_console',
             };
-            sendEvent({
-                action: actionMap[capType] || 'capture_text',
-                selector: selector,
-                value: capType === 'attribute' ? (document.getElementById('__dcp_attr_name') || {}).value || '' : '',
-            });
+            if (capType === 'console') {
+                // Console needs start + stop pair
+                window.__dcp_recorder_paused = false;
+                sendEvent({ action: 'capture_console', selector: '', value: 'start' });
+                sendEvent({ action: 'capture_console', selector: '', value: 'stop' });
+            } else {
+                window.__dcp_recorder_paused = false;
+                sendEvent({
+                    action: actionMap[capType] || 'capture_text',
+                    selector: selector,
+                    value: capType === 'attribute' ? (document.getElementById('__dcp_attr_name') || {}).value || '' : '',
+                });
+            }
             _closeAssertModal();
         });
 
         // Quick action: screenshot
         document.getElementById('__dcp_qa_screenshot').addEventListener('click', function (e) {
             e.stopPropagation();
+            window.__dcp_recorder_paused = false;
             sendEvent({ action: 'capture_screenshot', selector: selector });
             _closeAssertModal();
         });
 
-        // Quick action: console capture
+        // Quick action: console capture (sends start + stop pair)
         document.getElementById('__dcp_qa_console').addEventListener('click', function (e) {
             e.stopPropagation();
-            sendEvent({ action: 'capture_console', selector: '' });
+            window.__dcp_recorder_paused = false;
+            sendEvent({ action: 'capture_console', selector: '', value: 'start' });
+            sendEvent({ action: 'capture_console', selector: '', value: 'stop' });
             _closeAssertModal();
         });
 
@@ -730,6 +741,7 @@
             e.stopPropagation();
             var code = (document.getElementById('__dcp_js_code') || {}).value || '';
             if (!code.trim()) return;
+            window.__dcp_recorder_paused = false;
             sendEvent({ action: 'inject_js', selector: selector, value: code });
             _closeAssertModal();
         });
@@ -782,8 +794,8 @@
             var el = document.querySelector(selector);
             if (!el) { previewEl.textContent = '[element not found]'; return; }
             var val = '';
-            if (captureType === 'text') val = (el.textContent || '').trim().slice(0, 500);
-            else if (captureType === 'html') val = (el.innerHTML || '').slice(0, 2000);
+            if (captureType === 'text') val = (el.textContent || '').trim();
+            else if (captureType === 'html') val = (el.innerHTML || '');
             else if (captureType === 'value') val = el.value || '';
             else if (captureType === 'attribute') {
                 var attrName = (document.getElementById('__dcp_attr_name') || {}).value || 'class';
@@ -807,7 +819,7 @@
             // Auto-update expected value for text-based types
             var expectedEl = document.getElementById('__dcp_expected');
             if (expectedEl && val && captureType !== 'screenshot' && captureType !== 'state' && captureType !== 'console') {
-                expectedEl.value = val.slice(0, 500);
+                expectedEl.value = val;
             }
         } catch (e) {
             previewEl.textContent = '[error: ' + e.message + ']';
@@ -858,6 +870,9 @@
             state: 'capture_computed_style', console: 'capture_console',
         };
 
+        // Resume recording BEFORE sending — sendEvent checks the paused flag
+        window.__dcp_recorder_paused = false;
+
         // Send assertion step back to DCP
         sendEvent({
             action: 'assert',
@@ -876,6 +891,7 @@
             },
         });
 
+        // Close modal (also sets paused=false, but we already did)
         _closeAssertModal();
     }
 

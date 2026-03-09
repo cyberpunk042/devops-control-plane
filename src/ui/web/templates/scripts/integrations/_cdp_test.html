@@ -346,6 +346,7 @@
         body += `<div id="cdp-rec-steps" style="max-height:340px;overflow-y:auto;border:1px solid var(--border-subtle);border-radius:6px;padding:0.5rem">`;
         if (session.steps && session.steps.length > 0) {
             for (const step of session.steps) {
+                if (step.action === 'ping') continue;  // skip internal actions
                 body += _cdpTestStepRow(step);
             }
         } else {
@@ -747,8 +748,8 @@
             // Read attr name from admin panel input and embed in JS string
             const attrNameForPreview = document.getElementById('cdp-assert-attr-name')?.value || 'class';
             const evalMap = {
-                text: `(function(){ var el=document.querySelector(${JSON.stringify(selector)}); return el ? el.textContent.trim().slice(0,500) : '[element not found]'; })()`,
-                html: `(function(){ var el=document.querySelector(${JSON.stringify(selector)}); return el ? el.innerHTML.slice(0,500) : '[element not found]'; })()`,
+                text: `(function(){ var el=document.querySelector(${JSON.stringify(selector)}); return el ? el.textContent.trim() : '[element not found]'; })()`,
+                html: `(function(){ var el=document.querySelector(${JSON.stringify(selector)}); return el ? el.innerHTML : '[element not found]'; })()`,
                 value: `(function(){ var el=document.querySelector(${JSON.stringify(selector)}); return el ? (el.value || '') : '[element not found]'; })()`,
                 attribute: `(function(){ var el=document.querySelector(${JSON.stringify(selector)}); return el ? (el.getAttribute(${JSON.stringify(attrNameForPreview)})||'[null]') : '[element not found]'; })()`,
                 state: `(function(){ var el=document.querySelector(${JSON.stringify(selector)}); if(!el) return '[element not found]'; var cs=getComputedStyle(el); return JSON.stringify({visible:cs.display!=='none'&&cs.visibility!=='hidden',disabled:el.disabled||false,checked:el.checked||false,classes:el.className.slice(0,100)},null,2); })()`,
@@ -769,11 +770,11 @@
             });
 
             const val = result?.value ?? result?.result ?? '[no result]';
-            previewEl.textContent = String(val).slice(0, 500);
+            previewEl.textContent = String(val);
 
             // Auto-fill expected value if empty
             const expectedEl = document.getElementById('cdp-assert-expected');
-            if (expectedEl && !expectedEl.value && typeof val === 'string' && val.length < 200) {
+            if (expectedEl && !expectedEl.value && typeof val === 'string') {
                 expectedEl.value = val;
             }
         } catch (e) {
@@ -975,19 +976,41 @@
         const captureType = document.querySelector('input[name="cdp-capture-type"]:checked')?.value || 'capture_text';
         const attrName = document.getElementById('cdp-capture-attr-name')?.value || '';
 
-        const captureStep = {
-            action: captureType,
-            selector: stepData.selector || '',
-            after_step_id: stepData.id,
-            value: attrName,  // attribute name goes in value field
-        };
-
         try {
-            await api('/cdp-test/record/add-step', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(captureStep),
-            });
+            if (captureType === 'capture_console') {
+                // Console needs start + stop pair
+                await api('/cdp-test/record/add-step', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        action: 'capture_console',
+                        selector: '',
+                        after_step_id: stepData.id,
+                        value: 'start',
+                    }),
+                });
+                await api('/cdp-test/record/add-step', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        action: 'capture_console',
+                        selector: '',
+                        after_step_id: stepData.id,
+                        value: 'stop',
+                    }),
+                });
+            } else {
+                await api('/cdp-test/record/add-step', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        action: captureType,
+                        selector: captureType === 'capture_screenshot' ? '' : (stepData.selector || ''),
+                        after_step_id: stepData.id,
+                        value: attrName,
+                    }),
+                });
+            }
             toast('Capture step added after step ' + (stepData.sequence + 1), 'success');
             document.getElementById('cdp-capture-config-overlay')?.remove();
         } catch (e) {

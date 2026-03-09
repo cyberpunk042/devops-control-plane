@@ -320,6 +320,12 @@ def cdp_test_record_event():
         _add_pna_cors(resp)
         return resp
 
+    # Skip internal recorder actions (ping, etc.) — not user interactions
+    if data.get("action") in ("ping",):
+        resp = jsonify({"ok": True, "ignored": True})
+        _add_pna_cors(resp)
+        return resp
+
     # Add step to session
     step_data = {
         "action": data.get("action", ""),
