@@ -394,6 +394,20 @@
         if (_lastBadge) { _lastBadge.remove(); _lastBadge = null; }
         if (_badgeTimer) { clearTimeout(_badgeTimer); _badgeTimer = null; }
 
+        // Build ancestor chain: element + up to 4 parents
+        var selectorChain = [];
+        var cur = el;
+        for (var ci = 0; ci < 5 && cur && cur !== document.body && cur !== document.documentElement; ci++) {
+            selectorChain.push({
+                selector: buildSelector(cur),
+                text: (cur.textContent || '').trim().slice(0, 60),
+                rect: getRect(cur),
+                tag: cur.tagName.toLowerCase(),
+                idx: ci,
+            });
+            cur = cur.parentElement;
+        }
+
         var badge = document.createElement('div');
         badge.className = '__dcp_assert_badge';
         badge.style.cssText = [
@@ -437,7 +451,7 @@
             e.preventDefault();
             badge.remove();
             _lastBadge = null;
-            _openAssertModal(selector, elemText, elemRect);
+            _openAssertModal(selector, elemText, elemRect, selectorChain);
         });
 
         document.body.appendChild(badge);
@@ -459,7 +473,8 @@
     //  Assertion Config Modal (injected into target page)
     // ═══════════════════════════════════════════════════════════
 
-    function _openAssertModal(selector, elemText, elemRect) {
+    function _openAssertModal(selector, elemText, elemRect, selectorChain) {
+        selectorChain = selectorChain || [];
         // Remove existing
         var existing = document.getElementById('__dcp_assert_overlay');
         if (existing) existing.remove();
@@ -586,6 +601,28 @@
 
             '<div style="padding:12px 18px;display:flex;flex-direction:column;gap:12px">' +
 
+            // §0: Target Element picker (when ancestry chain available)
+            (selectorChain.length > 1 ? (
+                '<div>' +
+                '<div style="' + sLabel + '">Target Element</div>' +
+                '<div style="display:flex;flex-direction:column;gap:3px">' +
+                selectorChain.map(function (item, i) {
+                    var indent = i === 0 ? '' : '↳ '.repeat(i);
+                    var selPreview = item.selector.length > 40 ? item.selector.slice(0, 37) + '…' : item.selector;
+                    var textPreview = item.text ? '"' + (item.text.length > 30 ? item.text.slice(0, 27) + '…' : item.text) + '"' : '';
+                    return '<label style="' + sRadioLabel + ';padding:4px 8px">' +
+                        '<input type="radio" name="__dcp_target" value="' + i + '"' + (i === 0 ? ' checked' : '') + '>' +
+                        '<span style="font-size:11px">' + indent +
+                        '<code style="color:' + C.accent + ';font-size:10px">&lt;' + item.tag + '&gt;</code> ' +
+                        '<span style="font-family:monospace;font-size:9px;color:' + C.textSecondary + '">' + selPreview + '</span>' +
+                        (textPreview ? '<span style="font-size:9px;color:' + C.textMuted + ';margin-left:4px">' + textPreview + '</span>' : '') +
+                        '</span>' +
+                        '</label>';
+                }).join('') +
+                '</div>' +
+                '</div>'
+            ) : '') +
+
             // §1: What to Capture (7 options incl. console)
             '<div>' +
             '<div style="' + sLabel + '">What to Capture</div>' +
@@ -647,7 +684,8 @@
             '<div style="' + sLabel + '">Quick Actions</div>' +
             '<div style="display:flex;gap:4px;flex-wrap:wrap">' +
             '<button id="__dcp_qa_capture" style="' + sBtn(C.bgInput) + ';border:1px solid ' + C.border + '">📋 Capture only</button>' +
-            '<button id="__dcp_qa_screenshot" style="' + sBtn(C.bgInput) + ';border:1px solid ' + C.border + '">📸 Screenshot</button>' +
+            '<button id="__dcp_qa_screenshot" style="' + sBtn(C.bgInput) + ';border:1px solid ' + C.border + '">📸 Element</button>' +
+            '<button id="__dcp_qa_screenshot_full" style="' + sBtn(C.bgInput) + ';border:1px solid ' + C.border + '">🖼️ Full Page</button>' +
             '<button id="__dcp_qa_console" style="' + sBtn(C.bgInput) + ';border:1px solid ' + C.border + '">🖥️ Console</button>' +
             '<button id="__dcp_qa_inject" style="' + sBtn(C.bgInput) + ';border:1px solid ' + C.border + '">💉 Inject JS</button>' +
             '</div>' +
@@ -691,6 +729,9 @@
 
         // ── Wire interactivity (all addEventListener — CSP-safe) ──
 
+        // Mutable context so all quick actions use the CURRENTLY selected target
+        var ctx = { selector: selector, elemText: elemText, elemRect: elemRect };
+
         // Close on backdrop
         overlay.addEventListener('click', function (e) {
             if (e.target === overlay) _closeAssertModal();
@@ -705,8 +746,38 @@
         // Save button
         document.getElementById('__dcp_save_btn').addEventListener('click', function (e) {
             e.stopPropagation();
-            _saveAssertion(selector);
+            _saveAssertion(ctx.selector);
         });
+
+        // Target element picker → update selector/rect/text
+        if (selectorChain.length > 1) {
+            var targetRadios = overlay.querySelectorAll('input[name="__dcp_target"]');
+            for (var ti = 0; ti < targetRadios.length; ti++) {
+                targetRadios[ti].addEventListener('change', function () {
+                    var idx = parseInt(this.value, 10);
+                    var picked = selectorChain[idx];
+                    if (picked) {
+                        ctx.selector = picked.selector;
+                        ctx.elemText = picked.text;
+                        ctx.elemRect = picked.rect;
+                        // Update header
+                        var hs = document.getElementById('__dcp_header_selector');
+                        if (hs) hs.textContent = picked.selector.slice(0, 80);
+                        // Update live preview for new target
+                        _refreshPreview(ctx.selector, 'text');
+                        // Update expected value
+                        var expEl = document.getElementById('__dcp_expected');
+                        if (expEl) {
+                            try {
+                                var tEl = document.querySelector(ctx.selector);
+                                expEl.value = tEl ? (tEl.textContent || '').trim().slice(0, 500) : '';
+                            } catch (_) { }
+                        }
+                        _dcpLog('info', 'Target changed', { idx: idx, selector: ctx.selector });
+                    }
+                });
+            }
+        }
 
         // Capture type → show/hide attribute input + refresh preview
         var capRadios = overlay.querySelectorAll('input[name="__dcp_cap"]');
@@ -714,7 +785,7 @@
             capRadios[i].addEventListener('change', function () {
                 var attrRow = document.getElementById('__dcp_attr_row');
                 if (attrRow) attrRow.style.display = this.value === 'attribute' ? 'block' : 'none';
-                _refreshPreview(selector, this.value);
+                _refreshPreview(ctx.selector, this.value);
             });
         }
 
@@ -722,7 +793,7 @@
         var attrInput = document.getElementById('__dcp_attr_name');
         if (attrInput) {
             attrInput.addEventListener('input', function () {
-                _refreshPreview(selector, 'attribute');
+                _refreshPreview(ctx.selector, 'attribute');
             });
         }
 
@@ -761,23 +832,32 @@
                 sendEvent({ action: 'capture_console', selector: '', value: 'start' });
                 sendEvent({ action: 'capture_console', selector: '', value: 'stop' });
             } else {
-                _dcpLog('info', 'Quick capture', { type: capType, selector: selector });
+                _dcpLog('info', 'Quick capture', { type: capType, selector: ctx.selector });
                 window.__dcp_recorder_paused = false;
                 sendEvent({
                     action: actionMap[capType] || 'capture_text',
-                    selector: selector,
+                    selector: ctx.selector,
                     value: capType === 'attribute' ? (document.getElementById('__dcp_attr_name') || {}).value || '' : '',
                 });
             }
             _closeAssertModal();
         });
 
-        // Quick action: screenshot
+        // Quick action: element screenshot (clips to selected element)
         document.getElementById('__dcp_qa_screenshot').addEventListener('click', function (e) {
             e.stopPropagation();
-            _dcpLog('info', 'Quick screenshot', { selector: selector });
+            _dcpLog('info', 'Quick element screenshot', { selector: ctx.selector, rect: ctx.elemRect });
             window.__dcp_recorder_paused = false;
-            sendEvent({ action: 'capture_screenshot', selector: selector });
+            sendEvent({ action: 'capture_screenshot', selector: ctx.selector, element_rect: ctx.elemRect });
+            _closeAssertModal();
+        });
+
+        // Quick action: full page screenshot
+        document.getElementById('__dcp_qa_screenshot_full').addEventListener('click', function (e) {
+            e.stopPropagation();
+            _dcpLog('info', 'Quick full-page screenshot');
+            window.__dcp_recorder_paused = false;
+            sendEvent({ action: 'capture_screenshot_full', selector: '' });
             _closeAssertModal();
         });
 
@@ -805,7 +885,7 @@
             if (!code.trim()) return;
             _dcpLog('info', 'Quick inject JS', { codeLen: code.length });
             window.__dcp_recorder_paused = false;
-            sendEvent({ action: 'inject_js', selector: selector, value: code });
+            sendEvent({ action: 'inject_js', selector: ctx.selector, value: code });
             _closeAssertModal();
         });
     }

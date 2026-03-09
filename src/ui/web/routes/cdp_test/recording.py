@@ -281,6 +281,13 @@ def _capture_screenshot_live(session, step: dict) -> None:
     Uses a temporary CdpSession to call Page.captureScreenshot.
     The resulting PNG is saved to .state/cdp-tests/screenshots/
     and the step dict is updated with screenshot_path.
+
+    For element screenshots: uses the pre-captured element_rect
+    (from when the user right-clicked, BEFORE the modal opened)
+    so the clip is accurate even if the element changed state
+    (e.g. textarea lost focus and collapsed).
+
+    For full-page screenshots (capture_screenshot_full): no clip.
     """
     import base64
     from pathlib import Path
@@ -288,41 +295,79 @@ def _capture_screenshot_live(session, step: dict) -> None:
     from src.ui.web import cdp_client
     from src.ui.web.helpers import project_root as _project_root
 
+    action = step.get("action", "")
+    is_full_page = action == "capture_screenshot_full"
+
     try:
         with cdp_client.CdpSession(session.target_ws_url, connect_timeout=5.0) as cdp:
             if not cdp.connected:
                 logger.warning("Live screenshot: CDP not connected")
                 return
 
-            # If selector is provided, clip to element; otherwise full page
-            selector = step.get("selector", "")
             clip = None
-            if selector:
-                find_js = f"""(function() {{
-                    var el = document.querySelector('{selector.replace("'", "\\\\'")}');
-                    if (!el) return JSON.stringify({{ ok: false }});
-                    var r = el.getBoundingClientRect();
-                    return JSON.stringify({{
-                        ok: true, x: r.x + window.scrollX,
-                        y: r.y + window.scrollY,
-                        width: r.width, height: r.height,
-                        dpr: window.devicePixelRatio || 1
-                    }});
-                }})()"""
-                rect_result = cdp.evaluate(find_js, timeout=3.0)
-                rect_val = (
-                    rect_result.get("result", {}).get("result", {}).get("value", "{}")
-                    if rect_result else "{}"
-                )
-                import json as _json
-                rect = _json.loads(rect_val) if rect_val else {}
-                if rect.get("ok"):
+
+            if not is_full_page:
+                # ── Element screenshot: use pre-captured rect ─────
+                # element_rect was captured at right-click time,
+                # before the modal opened and before focus was lost.
+                pre_rect = step.get("element_rect", {})
+                if (pre_rect
+                        and pre_rect.get("width", 0) > 0
+                        and pre_rect.get("height", 0) > 0):
+                    # Pre-captured rect is viewport-relative;
+                    # add scroll offsets via a quick CDP eval
+                    scroll_js = "(function(){ return JSON.stringify({ sx: window.scrollX, sy: window.scrollY, dpr: window.devicePixelRatio || 1 }); })()"
+                    scroll_result = cdp.evaluate(scroll_js, timeout=2.0)
+                    import json as _json
+                    scroll_val = (
+                        scroll_result.get("result", {}).get("result", {}).get("value", "{}")
+                        if scroll_result else "{}"
+                    )
+                    scroll = _json.loads(scroll_val) if scroll_val else {}
+                    sx = scroll.get("sx", 0)
+                    sy = scroll.get("sy", 0)
+                    dpr = scroll.get("dpr", 1)
+
                     clip = {
-                        "x": rect["x"], "y": rect["y"],
-                        "width": max(rect["width"], 1),
-                        "height": max(rect["height"], 1),
-                        "scale": rect.get("dpr", 1),
+                        "x": pre_rect["x"] + sx,
+                        "y": pre_rect["y"] + sy,
+                        "width": max(pre_rect["width"], 1),
+                        "height": max(pre_rect["height"], 1),
+                        "scale": dpr,
                     }
+                    logger.debug(
+                        "Live screenshot: using pre-captured rect %s (scroll %d,%d)",
+                        pre_rect, sx, sy,
+                    )
+                else:
+                    # Fallback: try to query the DOM (element may have changed)
+                    selector = step.get("selector", "")
+                    if selector:
+                        find_js = f"""(function() {{
+                            var el = document.querySelector('{selector.replace("'", "\\\\'")}');
+                            if (!el) return JSON.stringify({{ ok: false }});
+                            var r = el.getBoundingClientRect();
+                            return JSON.stringify({{
+                                ok: true, x: r.x + window.scrollX,
+                                y: r.y + window.scrollY,
+                                width: r.width, height: r.height,
+                                dpr: window.devicePixelRatio || 1
+                            }});
+                        }})()"""
+                        rect_result = cdp.evaluate(find_js, timeout=3.0)
+                        rect_val = (
+                            rect_result.get("result", {}).get("result", {}).get("value", "{}")
+                            if rect_result else "{}"
+                        )
+                        import json as _json
+                        rect = _json.loads(rect_val) if rect_val else {}
+                        if rect.get("ok"):
+                            clip = {
+                                "x": rect["x"], "y": rect["y"],
+                                "width": max(rect["width"], 1),
+                                "height": max(rect["height"], 1),
+                                "scale": rect.get("dpr", 1),
+                            }
 
             params = {"format": "png", "captureBeyondViewport": True}
             if clip:
@@ -343,13 +388,15 @@ def _capture_screenshot_live(session, step: dict) -> None:
             ss_dir = Path(root) / ".state" / "cdp-tests" / "screenshots"
             ss_dir.mkdir(parents=True, exist_ok=True)
 
-            filename = f"rec_{session.id[:8]}_{step['id'][:8]}.png"
+            prefix = "full" if is_full_page else "elem"
+            filename = f"rec_{prefix}_{session.id[:8]}_{step['id'][:8]}.png"
             filepath = ss_dir / filename
             filepath.write_bytes(base64.b64decode(b64_data))
 
             # Update step dict so SSE broadcast includes the path
             step["screenshot_path"] = str(filepath)
-            logger.info("Live screenshot saved: %s", filename)
+            logger.info("Live screenshot saved: %s (%s)", filename,
+                        "full page" if is_full_page else f"clip {clip}")
 
     except Exception as exc:
         logger.warning("Live screenshot failed: %s", exc)
@@ -480,7 +527,7 @@ def cdp_test_record_event():
     # Take screenshots/console NOW so results are visible immediately
     action = step_data.get("action", "")
 
-    if action == "capture_screenshot" and session.target_ws_url:
+    if action in ("capture_screenshot", "capture_screenshot_full") and session.target_ws_url:
         _capture_screenshot_live(session, step)
 
     if (action == "capture_console"
