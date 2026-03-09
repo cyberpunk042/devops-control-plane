@@ -10,6 +10,9 @@
     let _cdpBridgeReady = false;          // true once the PS bridge is warm
     let _cdpTestSuites = null;            // Cached suite list for config modal
     let _cdpTestReplayActive = false;     // true while replay is running
+    let _cdpTestReplayInfo = null;        // { replayInfo, suiteId } for returning to replay
+    let _cdpTestStepResults = [];           // accumulated step results for return-to-replay
+    let _cdpTestReplayPausedTarget = null;   // target_id when paused, null when running
 
     // ── Main Modal Entry Point ───────────────────────────────────────
 
@@ -70,6 +73,24 @@
             const status = await api('/cdp-test/record/status');
             if (status.active) {
                 body += _cdpTestActiveRecordingBanner(status.session);
+            }
+
+            // Active replay awareness banner
+            if (_cdpTestReplayActive && _cdpTestReplayInfo) {
+                const rSuiteName = _cdpTestReplayInfo.replayInfo?.suite_name || 'Test Suite';
+                body += `<div style="background:rgba(59,130,246,0.1);border:1px solid rgba(59,130,246,0.3);border-radius:8px;padding:0.75rem 1rem;margin-bottom:var(--space-sm);display:flex;align-items:center;justify-content:space-between">
+                    <div style="display:flex;align-items:center;gap:0.5rem">
+                        <span style="width:10px;height:10px;background:#3b82f6;border-radius:50%;animation:__cdp_pulse 1.5s ease-in-out infinite;display:inline-block"></span>
+                        <div>
+                            <div style="font-weight:600;font-size:0.78rem">Replay in progress</div>
+                            <div style="font-size:0.68rem;color:var(--text-muted)">${esc(rSuiteName)}</div>
+                        </div>
+                    </div>
+                    <div style="display:flex;gap:0.5rem">
+                        <button class="btn btn-xs btn-primary" onclick="_cdpTestReturnToReplay()">🔙 Return to Replay</button>
+                        <button class="btn btn-xs btn-secondary" onclick="_cdpTestCancelReplay(); setTimeout(_cdpTestRenderHome, 500)" style="color:var(--error)">⏹ Cancel</button>
+                    </div>
+                </div>`;
             }
 
             // Fetch suites
@@ -896,6 +917,10 @@
                 return;
             }
 
+            // Store replay info for "Return to Replay"
+            _cdpTestReplayInfo = { replayInfo: result, suiteId };
+            _cdpTestStepResults = [];
+
             // Show the replay view
             _cdpTestShowReplayView(result, suiteId);
 
@@ -1029,6 +1054,9 @@
                 if (ev.data?.run_id !== runId) return;
                 const d = ev.data;
 
+                // Store for return-to-replay
+                _cdpTestStepResults.push({ data: d, status: 'running' });
+
                 // Remove waiting message
                 const waiting = document.getElementById('cdp-replay-waiting');
                 if (waiting) waiting.remove();
@@ -1047,6 +1075,10 @@
             try {
                 const ev = JSON.parse(e.data);
                 if (ev.data?.run_id !== runId) return;
+                // Update stored result status
+                const seq = ev.data.sequence ?? ev.data.step_id;
+                const stored = _cdpTestStepResults.find(r => (r.data.sequence ?? r.data.step_id) === seq);
+                if (stored) { stored.status = 'passed'; stored.data = ev.data; }
                 _cdpTestUpdateReplayStep(ev.data, 'passed');
             } catch (_) {}
         });
@@ -1056,6 +1088,10 @@
             try {
                 const ev = JSON.parse(e.data);
                 if (ev.data?.run_id !== runId) return;
+                // Update stored result status
+                const seq = ev.data.sequence ?? ev.data.step_id;
+                const stored = _cdpTestStepResults.find(r => (r.data.sequence ?? r.data.step_id) === seq);
+                if (stored) { stored.status = 'failed'; stored.data = ev.data; }
                 _cdpTestUpdateReplayStep(ev.data, 'failed');
             } catch (_) {}
         });
@@ -1065,6 +1101,7 @@
             try {
                 const ev = JSON.parse(e.data);
                 if (ev.data?.run_id !== runId) return;
+                _cdpTestReplayPausedTarget = ev.data?.target_id || true;
                 const title = document.getElementById('cdp-replay-title');
                 if (title) title.textContent = '⏸ Paused — target tab not visible';
                 const controls = document.getElementById('cdp-replay-controls');
@@ -1095,6 +1132,7 @@
             try {
                 const ev = JSON.parse(e.data);
                 if (ev.data?.run_id !== runId) return;
+                _cdpTestReplayPausedTarget = null;
                 const title = document.getElementById('cdp-replay-title');
                 if (title) title.textContent = '▶ Running';
                 document.getElementById('cdp-replay-resume-btn')?.remove();
@@ -1223,6 +1261,65 @@
     }
 
 
+    function _cdpTestReturnToReplay() {
+        if (!_cdpTestReplayInfo) return;
+        // Re-show the replay view (this recreates DOM + reconnects SSE)
+        _cdpTestShowReplayView(_cdpTestReplayInfo.replayInfo, _cdpTestReplayInfo.suiteId);
+        // Repopulate stored step results into the fresh DOM
+        setTimeout(() => {
+            const waiting = document.getElementById('cdp-replay-waiting');
+            if (waiting && _cdpTestStepResults.length > 0) waiting.remove();
+            const container = document.getElementById('cdp-replay-steps');
+            if (!container) return;
+            // Clear any default content and render stored results
+            container.innerHTML = '';
+            let doneCount = 0;
+            for (const r of _cdpTestStepResults) {
+                container.insertAdjacentHTML('beforeend', _cdpTestReplayStepRow(r.data, r.status));
+                if (r.status === 'passed' || r.status === 'failed') doneCount++;
+            }
+            container.scrollTop = container.scrollHeight;
+            // Update progress bar
+            const totalEl = document.getElementById('cdp-replay-total');
+            const doneEl = document.getElementById('cdp-replay-done-count');
+            const total = totalEl ? parseInt(totalEl.value) : 0;
+            if (doneEl) doneEl.value = String(doneCount);
+            const pct = total > 0 ? Math.round((doneCount / total) * 100) : 0;
+            const label = document.getElementById('cdp-replay-progress-label');
+            const pctEl = document.getElementById('cdp-replay-progress-pct');
+            const bar = document.getElementById('cdp-replay-progress-bar');
+            if (label) label.textContent = `${doneCount} / ${total} steps`;
+            if (pctEl) pctEl.textContent = `${pct}%`;
+            if (bar) bar.style.width = `${pct}%`;
+            // Restore paused state if applicable
+            if (_cdpTestReplayPausedTarget) {
+                const title = document.getElementById('cdp-replay-title');
+                if (title) title.textContent = '⏸ Paused — target tab not visible';
+                const controls = document.getElementById('cdp-replay-controls');
+                if (controls && !document.getElementById('cdp-replay-resume-btn')) {
+                    const targetId = _cdpTestReplayPausedTarget;
+                    const btn = document.createElement('button');
+                    btn.id = 'cdp-replay-resume-btn';
+                    btn.className = 'btn btn-sm btn-primary';
+                    btn.textContent = '▶ Resume';
+                    btn.onclick = async () => {
+                        btn.disabled = true;
+                        btn.textContent = '⏳ Focusing…';
+                        try {
+                            await fetch('/api/tab-mesh/focus', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ targetId }),
+                            });
+                        } catch (_) {}
+                    };
+                    controls.insertBefore(btn, controls.firstChild);
+                }
+            }
+        }, 50);
+    }
+
+
     async function _cdpTestCancelReplay() {
         try {
             await api('/cdp-test/replay/cancel', { method: 'POST' });
@@ -1233,11 +1330,8 @@
     }
 
     async function _cdpTestBackToTests() {
-        if (_cdpTestReplayActive) {
-            // Fire cancel — don't wait for it
-            api('/cdp-test/replay/cancel', { method: 'POST' }).catch(() => {});
-        }
-        // Navigate immediately — SSE stays alive to receive replay_done
+        // Just navigate — don't cancel, don't close SSE
+        // The replay keeps running, user can return to it from the test list banner
         _cdpTestRenderHome();
     }
 
