@@ -750,7 +750,7 @@
 
         const suite = _cdpTestSuites?.find(s => s.id === suiteId);
         const visualDelay = defaults?.visual_delay_ms ?? suite?.visual_delay_ms ?? 300;
-        const minDelay = defaults?.min_step_delay_ms ?? suite?.min_step_delay_ms ?? 100;
+        const minDelay = defaults?.min_step_delay_ms ?? suite?.min_step_delay_ms ?? 700;
         const clearData = defaults?.clear_site_data ?? suite?.clear_site_data ?? false;
 
         const overlay = document.createElement('div');
@@ -784,10 +784,10 @@
                     <span style="font-size:0.65rem;color:var(--text-muted)">Pause between steps for visibility</span>
                 </label>
                 <label style="font-size:0.75rem;display:flex;flex-direction:column;gap:4px">
-                    <span>Min step delay (ms)</span>
-                    <input id="cdp-cfg-min-delay" type="number" min="0" step="25" value="${minDelay}"
+                    <span>Page change settle (ms)</span>
+                    <input id="cdp-cfg-min-delay" type="number" min="0" step="50" value="${minDelay}"
                         style="width:100%;padding:6px 8px;border-radius:6px;border:1px solid var(--border-subtle);background:var(--bg-secondary);color:var(--text-primary);font-size:0.8rem">
-                    <span style="font-size:0.65rem;color:var(--text-muted)">Internal floor — not recommended below 100</span>
+                    <span style="font-size:0.65rem;color:var(--text-muted)">Debounce after input/select changes</span>
                 </label>
             </div>
 
@@ -853,6 +853,8 @@
     }
 
     /** Called from the config modal Execute button */
+    let _cdpTestLastOverrides = null;  // Saved for "Replay Again"
+
     async function _cdpTestExecuteFromConfig() {
         const suiteId = document.getElementById('cdp-cfg-suite-id')?.value;
         if (!suiteId) return;
@@ -862,6 +864,7 @@
             min_step_delay_ms: parseInt(document.getElementById('cdp-cfg-min-delay')?.value) || 100,
             clear_site_data: document.getElementById('cdp-cfg-clear-data')?.checked ?? false,
         };
+        _cdpTestLastOverrides = overrides;  // Preserve for Replay Again
 
         // Remove the config overlay — the CDP Test Recorder modal stays open
         document.getElementById('cdp-replay-config-overlay')?.remove();
@@ -1155,7 +1158,7 @@
             const replaySuiteId = document.getElementById('cdp-replay-suite-id')?.value || '';
             controls.innerHTML = `
                 <span style="font-size:0.75rem;color:var(--text-muted)">${duration}</span>
-                ${replaySuiteId ? `<button class="btn btn-sm btn-primary" onclick="_cdpTestShowReplayConfig('${replaySuiteId}')">🔄 Replay Again</button>` : ''}
+                ${replaySuiteId ? `<button class="btn btn-sm btn-primary" onclick="_cdpTestShowReplayConfig('${replaySuiteId}', _cdpTestLastOverrides)">🔄 Replay Again</button>` : ''}
                 <button class="btn btn-sm btn-secondary" onclick="_cdpTestRenderHome()">← Back</button>
             `;
         }

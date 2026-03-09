@@ -208,55 +208,67 @@ def _js_find_element_smart(
 _JS_WAIT_FOR_STABLE = """
     new Promise(function(resolve) {
         var settled = false;
+        var changed = false;
         var timer = null;
         var observer = new MutationObserver(function() {
+            changed = true;
             clearTimeout(timer);
             timer = setTimeout(function() {
                 settled = true;
                 observer.disconnect();
-                resolve();
+                resolve({ changed: true });
             }, 150);
         });
         observer.observe(document.body || document.documentElement, {
             childList: true, subtree: true, attributes: true
         });
-        // If nothing mutates within 300ms, consider it stable
+        // If nothing mutates within 20000ms, consider it stable
         timer = setTimeout(function() {
-            if (!settled) { observer.disconnect(); resolve(); }
-        }, 300);
+            if (!settled) { observer.disconnect(); resolve({ changed: changed }); }
+        }, 20000);
     })
 """
 
 
 # ── Per-action JavaScript generators ──────────────────────────
 #
-# Each function returns a JS expression string that:
-#   - Finds the element (multi-strategy with timeout)
-#   - Performs the action
-#   - Waits for DOM stability after mutations
-#   - Returns JSON: { ok: true, ... } or { ok: false, error: "..." }
+# Design contract for every action JS function:
+#   1. Find the element (via the smart finder Promise)
+#   2. Scroll into view + highlight (single call, ONE scroll)
+#   3. Small settle pause (50ms) so the user sees the highlight
+#   4. Perform the action
+#   5. Wait for DOM stability
+#   6. Return JSON: { ok: true, ... } or { ok: false, error: "..." }
+#
+# RULES:
+#   - NO backdrop removal inside actions (done once before the loop)
+#   - ONE scroll per step via _JS_SCROLL_AND_HIGHLIGHT
+#   - NO el.focus() with default scroll — always preventScroll: true
+#   - Each action is a self-contained async IIFE
 
-# Remove the loading backdrop (if present) — called at the start of
-# every step so it disappears on the first action.
-_JS_REMOVE_BACKDROP = """
-    var __bd = document.getElementById('__cdp_replay_backdrop');
-    if (__bd) { __bd.style.opacity='0'; setTimeout(function(){__bd.remove()},300); }
-"""
 
-# Briefly highlight element with a blue outline so the user can see
-# which element the replay is interacting with.
-_JS_HIGHLIGHT = """
-    if (el && el.style) {
-        var __origOutline = el.style.outline;
-        var __origTransition = el.style.transition;
+# Scroll to element + highlight outline.
+# Used by EVERY action. This is the SINGLE source of scroll.
+_JS_SCROLL_AND_HIGHLIGHT = """
+    (function(el) {
+        if (!el || !el.style) return;
+        var rect = el.getBoundingClientRect();
+        // Scroll normal-sized elements to center of viewport.
+        // Skip scroll for huge containers (>500px) — they'd jump
+        // the viewport to the middle of a content wrapper.
+        if (rect.height < 500) {
+            el.scrollIntoView({ block: 'center', behavior: 'instant' });
+        }
+        // Visual highlight
+        var origOutline = el.style.outline;
+        var origTransition = el.style.transition;
         el.style.transition = 'outline 0.15s ease';
         el.style.outline = '2px solid #3b82f6';
-        el.scrollIntoView({ block: 'center', behavior: 'instant' });
         setTimeout(function() {
-            el.style.outline = __origOutline;
-            el.style.transition = __origTransition;
+            el.style.outline = origOutline;
+            el.style.transition = origTransition;
         }, 400);
-    }
+    })(el);
 """
 
 
@@ -281,19 +293,16 @@ def _js_navigate(url: str) -> str:
 
 
 def _js_click(find_js: str) -> str:
-    """JS: find element with smart finder, click it, wait for DOM stability."""
+    """JS: find → scroll/highlight → pause → click → wait stable."""
     return f"""
     (async function() {{
         try {{
-            {_JS_REMOVE_BACKDROP}
             var el = await {find_js};
-            {_JS_HIGHLIGHT}
-            if (el.scrollIntoView) el.scrollIntoView({{ block: 'center', behavior: 'instant' }});
-            await new Promise(function(r) {{ setTimeout(r, 30); }});
+            {_JS_SCROLL_AND_HIGHLIGHT}
+            await new Promise(function(r) {{ setTimeout(r, 50); }});
             el.click();
-            // Wait for DOM to stabilize after click (dropdowns, modals, etc.)
-            await {_JS_WAIT_FOR_STABLE};
-            return JSON.stringify({{ ok: true, tag: el.tagName, text: (el.textContent || '').slice(0, 50) }});
+            var __stable = await {_JS_WAIT_FOR_STABLE};
+            return JSON.stringify({{ ok: true, changed: __stable.changed, tag: el.tagName, text: (el.textContent || '').slice(0, 50) }});
         }} catch (e) {{
             return JSON.stringify({{ ok: false, error: typeof e === 'string' ? e : (e.message || String(e)) }});
         }}
@@ -302,19 +311,15 @@ def _js_click(find_js: str) -> str:
 
 
 def _js_type(find_js: str, value: str) -> str:
-    """JS: find element, clear it, type text, wait for stability.
-
-    Handles both standard inputs (value property) and contentEditable
-    elements (innerText) automatically.
-    """
+    """JS: find → scroll/highlight → pause → focus (no scroll) → set value → wait stable."""
     val_escaped = _js_escape(value)
     return f"""
     (async function() {{
         try {{
-            {_JS_REMOVE_BACKDROP}
             var el = await {find_js};
-            {_JS_HIGHLIGHT}
-            el.focus();
+            {_JS_SCROLL_AND_HIGHLIGHT}
+            await new Promise(function(r) {{ setTimeout(r, 50); }});
+            el.focus({{ preventScroll: true }});
             var tag = el.tagName.toLowerCase();
             var isInput = (tag === 'input' || tag === 'textarea');
             if (isInput) {{
@@ -324,14 +329,13 @@ def _js_type(find_js: str, value: str) -> str:
                 el.dispatchEvent(new Event('input', {{ bubbles: true }}));
                 el.dispatchEvent(new Event('change', {{ bubbles: true }}));
             }} else {{
-                // contentEditable element (td, div, etc.)
                 el.innerText = '{val_escaped}';
                 el.dispatchEvent(new Event('input', {{ bubbles: true }}));
                 el.dispatchEvent(new Event('change', {{ bubbles: true }}));
             }}
-            await {_JS_WAIT_FOR_STABLE};
+            var __stable = await {_JS_WAIT_FOR_STABLE};
             var result = isInput ? el.value : el.innerText;
-            return JSON.stringify({{ ok: true, value: result }});
+            return JSON.stringify({{ ok: true, changed: __stable.changed, value: result }});
         }} catch (e) {{
             return JSON.stringify({{ ok: false, error: typeof e === 'string' ? e : (e.message || String(e)) }});
         }}
@@ -340,16 +344,18 @@ def _js_type(find_js: str, value: str) -> str:
 
 
 def _js_select(find_js: str, value: str) -> str:
-    """JS: find <select> element, set value, wait for stability."""
+    """JS: find → scroll/highlight → set select value → wait stable."""
     val_escaped = _js_escape(value)
     return f"""
     (async function() {{
         try {{
             var el = await {find_js};
+            {_JS_SCROLL_AND_HIGHLIGHT}
+            await new Promise(function(r) {{ setTimeout(r, 50); }});
             el.value = '{val_escaped}';
             el.dispatchEvent(new Event('change', {{ bubbles: true }}));
-            await {_JS_WAIT_FOR_STABLE};
-            return JSON.stringify({{ ok: true, value: el.value }});
+            var __stable = await {_JS_WAIT_FOR_STABLE};
+            return JSON.stringify({{ ok: true, changed: __stable.changed, value: el.value }});
         }} catch (e) {{
             return JSON.stringify({{ ok: false, error: typeof e === 'string' ? e : (e.message || String(e)) }});
         }}
@@ -358,20 +364,23 @@ def _js_select(find_js: str, value: str) -> str:
 
 
 def _js_keypress(find_js: str, key: str) -> str:
-    """JS: dispatch keyboard event on element."""
+    """JS: find → scroll/highlight → focus (no scroll) → keypress."""
     key_escaped = _js_escape(key)
     return f"""
     (async function() {{
         try {{
             var el = await {find_js};
-            el.focus();
+            {_JS_SCROLL_AND_HIGHLIGHT}
+            await new Promise(function(r) {{ setTimeout(r, 50); }});
+            el.focus({{ preventScroll: true }});
             el.dispatchEvent(new KeyboardEvent('keydown', {{
                 key: '{key_escaped}', bubbles: true, cancelable: true
             }}));
             el.dispatchEvent(new KeyboardEvent('keyup', {{
                 key: '{key_escaped}', bubbles: true, cancelable: true
             }}));
-            return JSON.stringify({{ ok: true, key: '{key_escaped}' }});
+            var __stable = await {_JS_WAIT_FOR_STABLE};
+            return JSON.stringify({{ ok: true, changed: __stable.changed, key: '{key_escaped}' }});
         }} catch (e) {{
             return JSON.stringify({{ ok: false, error: typeof e === 'string' ? e : (e.message || String(e)) }});
         }}
@@ -394,12 +403,13 @@ def _js_scroll(x: int = 0, y: int = 0) -> str:
 
 
 def _js_hover(find_js: str) -> str:
-    """JS: find element and dispatch mouseenter/mouseover."""
+    """JS: find → scroll/highlight → dispatch mouseenter/mouseover."""
     return f"""
     (async function() {{
         try {{
             var el = await {find_js};
-            if (el.scrollIntoView) el.scrollIntoView({{ block: 'center', behavior: 'instant' }});
+            {_JS_SCROLL_AND_HIGHLIGHT}
+            await new Promise(function(r) {{ setTimeout(r, 50); }});
             el.dispatchEvent(new MouseEvent('mouseenter', {{ bubbles: true }}));
             el.dispatchEvent(new MouseEvent('mouseover', {{ bubbles: true }}));
             return JSON.stringify({{ ok: true }});
@@ -937,6 +947,16 @@ def replay_suite(
     step_list = sorted(suite.steps, key=lambda s: s.sequence)
     had_failure = False
 
+    # Remove backdrop + scroll to top — single call, ONCE before loop
+    if session and session.connected:
+        session.evaluate("""(function() {
+            var bd = document.getElementById('__cdp_replay_backdrop');
+            if (bd) { bd.style.opacity='0'; setTimeout(function(){bd.remove()},300); }
+            window.scrollTo(0, 0);
+            return JSON.stringify({ok:true});
+        })()""", timeout=3.0)
+        time.sleep(0.3)  # Let backdrop fade + scroll settle
+
     try:
       for i, step in enumerate(step_list):
         if stop_event.is_set():
@@ -1030,17 +1050,28 @@ def replay_suite(
             step_dict, merged_vars, session=session, ws_url=ws_url,
         )
 
-        # ── Post-step pacing — IMMEDIATELY after execution ────
-        # The delay fires right after CDP updates the page, so
-        # the user sees the value change and a visible pause
-        # before anything else happens.
+        # ── Post-step pacing (two-tier) ─────────────────────────
+        # Effective values: per-run override or suite default
         _eff_min = min_step_delay_ms if min_step_delay_ms is not None else suite.min_step_delay_ms
         _eff_vis = visual_delay_ms if visual_delay_ms is not None else suite.visual_delay_ms
-        eff_min_delay = max(_eff_min, 0) / 1000.0
-        eff_visual_delay = max(_eff_vis, 0) / 1000.0
-        step_pause = max(eff_min_delay, eff_visual_delay)
-        if step_pause > 0:
-            time.sleep(step_pause)
+
+        # Tier 1: Base delay
+        #   - If the action caused page changes (DOM mutations detected):
+        #     debounce by min_step_delay_ms (default 700ms) to let page settle
+        #   - If no page changes: 100ms base minimum
+        page_changed = step_result.get("details", {}).get("changed", False)
+        if page_changed:
+            debounce_s = max(_eff_min, 0) / 1000.0
+            if debounce_s > 0:
+                time.sleep(debounce_s)
+        else:
+            time.sleep(0.1)
+
+        # Tier 2: Visual delay — added ON TOP for ALL operations
+        # Pure visibility pause so the user can see the result
+        vis_delay_s = max(_eff_vis, 0) / 1000.0
+        if vis_delay_s > 0:
+            time.sleep(vis_delay_s)
 
         # Build step result record
         result_record = {

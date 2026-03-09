@@ -172,7 +172,7 @@ class TestSuite:
     stop_on_failure: bool = True        # Stop suite on first failure
     take_screenshots: bool = False      # Capture screenshots at each step
     visual_delay_ms: int = 300          # Pause between steps for user to see
-    min_step_delay_ms: int = 100        # Internal floor — let page keep up
+    min_step_delay_ms: int = 700        # Debounce for mutation actions (type, select)
     clear_site_data: bool = False       # Flush cookies/storage + refresh before run
 
     # ── Metadata ──────────────────────────────────────────────
@@ -235,7 +235,7 @@ class TestSuite:
             stop_on_failure=data.get("stop_on_failure", True),
             take_screenshots=data.get("take_screenshots", False),
             visual_delay_ms=data.get("visual_delay_ms", 300),
-            min_step_delay_ms=data.get("min_step_delay_ms", 100),
+            min_step_delay_ms=data.get("min_step_delay_ms", 700),
             clear_site_data=data.get("clear_site_data", False),
             created_at=data.get("created_at", _now_iso()),
             updated_at=data.get("updated_at", _now_iso()),
