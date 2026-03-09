@@ -717,12 +717,28 @@
             '<div style="display:flex;flex-direction:column;gap:4px">' +
             '<label style="' + sRadioLabel + '"><input type="radio" name="__dcp_fail" value="fail" checked> <span>⛔ <b>Hard fail</b> — stop execution</span></label>' +
             '<label style="' + sRadioLabel + '"><input type="radio" name="__dcp_fail" value="continue"> <span>⚠️ <b>Soft fail</b> — mark failed, continue</span></label>' +
-            '<label style="' + sRadioLabel + '"><input type="radio" name="__dcp_fail" value="branch"> <span>🔀 <b>Branch</b> — route to branches</span></label>' +
             '</div>' +
-            '<div id="__dcp_branch_editor" style="display:none;margin-top:8px;padding:8px 10px;background:' + C.bgCard + ';border:1px solid ' + C.border + ';border-radius:6px">' +
-            '<div style="font-size:10px;font-weight:600;color:' + C.textMuted + ';margin-bottom:6px">Branches</div>' +
-            '<div id="__dcp_branches"></div>' +
-            '<button id="__dcp_add_branch_btn" style="' + s({ 'margin-top': '5px', 'font-size': '10px', padding: '3px 8px', background: C.bgInput, border: '1px solid ' + C.border, 'border-radius': '4px', cursor: 'pointer', color: C.textSecondary }) + '">+ Add branch</button>' +
+
+            // Diagnose on failure toggle + template picker
+            '<div style="margin-top:8px">' +
+            '<label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;color:' + C.text + '">' +
+            '<input type="checkbox" id="__dcp_diag_toggle">' +
+            '<span>🔍 <b>Diagnose on failure</b> — run diagnostics before failing</span>' +
+            '</label>' +
+            '<div id="__dcp_diag_panel" style="display:none;margin-top:6px;padding:8px 10px;background:' + C.bgCard + ';border:1px solid ' + C.border + ';border-radius:6px">' +
+            '<div style="font-size:10px;font-weight:600;color:' + C.textMuted + ';margin-bottom:6px">Diagnostic templates</div>' +
+            '<div style="display:flex;flex-direction:column;gap:3px">' +
+            '<label style="' + sRadioLabel + ';padding:3px 8px"><input type="checkbox" class="__dcp_diag_tpl" value="screenshot" checked> 📸 Screenshot</label>' +
+            '<label style="' + sRadioLabel + ';padding:3px 8px"><input type="checkbox" class="__dcp_diag_tpl" value="console"> 🖥️ Console dump</label>' +
+            '<label style="' + sRadioLabel + ';padding:3px 8px"><input type="checkbox" class="__dcp_diag_tpl" value="element_state"> 🔍 Element state (styles, attrs)</label>' +
+            '<label style="' + sRadioLabel + ';padding:3px 8px"><input type="checkbox" class="__dcp_diag_tpl" value="page_html"> 📄 Page HTML snapshot</label>' +
+            '<label style="' + sRadioLabel + ';padding:3px 8px"><input type="checkbox" class="__dcp_diag_tpl" value="custom_js"> 💉 Custom JS diagnostic</label>' +
+            '</div>' +
+            '<div id="__dcp_diag_js_editor" style="display:none;margin-top:6px">' +
+            '<textarea id="__dcp_diag_js_code" placeholder="// Diagnostic JS — runs on failure to collect debug info…" style="' + s({ width: '100%', 'font-size': '11px', 'font-family': 'monospace', padding: '6px 8px', background: C.bgInput, border: '1px solid ' + C.border, 'border-radius': '5px', color: C.text, resize: 'vertical', 'min-height': '50px', 'box-sizing': 'border-box' }) + '"></textarea>' +
+            '</div>' +
+            '<div style="font-size:9px;color:' + C.textMuted + ';margin-top:4px">Diagnostics run <b>after</b> the step fails, <b>before</b> the fail mode takes effect.</div>' +
+            '</div>' +
             '</div>' +
             '</div>' +
 
@@ -756,6 +772,13 @@
 
         // ── Set user data safely via DOM properties (not innerHTML) ──
 
+        // Recompute liveValue from the (potentially updated) selector
+        // The IIFE above may have changed selector due to auto-fallover
+        try {
+            var targetEl = document.querySelector(selector);
+            if (targetEl) liveValue = (targetEl.textContent || '').trim();
+        } catch (_) { }
+
         // Selector in header — textContent is XSS-safe
         var headerSel = document.getElementById('__dcp_header_selector');
         if (headerSel) headerSel.textContent = selector.slice(0, 80);
@@ -767,12 +790,6 @@
         // Expected value — input .value property (safe, no parsing)
         var expectedEl = document.getElementById('__dcp_expected');
         if (expectedEl) expectedEl.value = liveValue.slice(0, 500);
-
-        // ── Populate default branches (DOM-built, not innerHTML) ──
-        var branchContainer = document.getElementById('__dcp_branches');
-        _addBranchRow(branchContainer, 'diagnose', '🔍', 'Diagnose', C);
-        _addBranchRow(branchContainer, 'fallback', '🔄', 'Fallback', C);
-        _addBranchRow(branchContainer, 'abort', '⛔', 'Abort', C);
 
         // ── Wire interactivity (all addEventListener — CSP-safe) ──
 
@@ -810,17 +827,15 @@
                         // Update header
                         var hs = document.getElementById('__dcp_header_selector');
                         if (hs) hs.textContent = picked.selector.slice(0, 80);
-                        // Update live preview for new target
-                        _refreshPreview(ctx.selector, 'text');
-                        // Update expected value
-                        var expEl = document.getElementById('__dcp_expected');
-                        if (expEl) {
-                            try {
-                                var tEl = document.querySelector(ctx.selector);
-                                expEl.value = tEl ? (tEl.textContent || '').trim().slice(0, 500) : '';
-                            } catch (_) { }
+                        // Read current capture type (don't assume 'text')
+                        var curCapType = 'text';
+                        var cRadios = document.querySelectorAll('input[name="__dcp_cap"]');
+                        for (var ci = 0; ci < cRadios.length; ci++) {
+                            if (cRadios[ci].checked) { curCapType = cRadios[ci].value; break; }
                         }
-                        _dcpLog('info', 'Target changed', { idx: idx, selector: ctx.selector });
+                        // Update live preview with the correct capture type
+                        _refreshPreview(ctx.selector, curCapType);
+                        _dcpLog('info', 'Target changed', { idx: idx, selector: ctx.selector, captureType: curCapType });
                     }
                 });
             }
@@ -844,20 +859,27 @@
             });
         }
 
-        // Failure mode → show/hide branch editor
-        var failRadios = overlay.querySelectorAll('input[name="__dcp_fail"]');
-        for (var j = 0; j < failRadios.length; j++) {
-            failRadios[j].addEventListener('change', function () {
-                var editor = document.getElementById('__dcp_branch_editor');
-                if (editor) editor.style.display = this.value === 'branch' ? 'block' : 'none';
+        // ── Wire diagnostic toggle + template interactions ──
+
+        // Diagnose on failure toggle → show/hide diagnostic panel
+        var diagToggle = document.getElementById('__dcp_diag_toggle');
+        if (diagToggle) {
+            diagToggle.addEventListener('change', function () {
+                var panel = document.getElementById('__dcp_diag_panel');
+                if (panel) panel.style.display = this.checked ? 'block' : 'none';
             });
         }
 
-        // Add branch button
-        document.getElementById('__dcp_add_branch_btn').addEventListener('click', function (e) {
-            e.stopPropagation();
-            _addBranchRow(branchContainer, 'custom-' + Date.now(), '🔀', 'Custom', C);
-        });
+        // Custom JS template → show/hide JS diagnostic editor
+        var diagTpls = overlay.querySelectorAll('input.__dcp_diag_tpl');
+        for (var di = 0; di < diagTpls.length; di++) {
+            diagTpls[di].addEventListener('change', function () {
+                if (this.value === 'custom_js') {
+                    var jsEditor = document.getElementById('__dcp_diag_js_editor');
+                    if (jsEditor) jsEditor.style.display = this.checked ? 'block' : 'none';
+                }
+            });
+        }
 
         // Quick action: capture only (respects selected capture type)
         document.getElementById('__dcp_qa_capture').addEventListener('click', function (e) {
@@ -937,45 +959,6 @@
         });
     }
 
-    /** Add an interactive branch row to the branch editor (DOM-built) */
-    function _addBranchRow(container, id, icon, label, C) {
-        if (!container) return;
-        var row = document.createElement('div');
-        row.style.cssText = 'display:flex;align-items:center;gap:6px;padding:4px 6px;background:' + C.bgInput + ';border-radius:4px;font-size:11px;margin-bottom:3px';
-        row.dataset.branchId = id;
-
-        var iconSpan = document.createElement('span');
-        iconSpan.textContent = icon;
-        row.appendChild(iconSpan);
-
-        if (id === 'abort') {
-            // Abort is static, not editable
-            var labelSpan = document.createElement('span');
-            labelSpan.style.cssText = 'flex:1;font-weight:500';
-            labelSpan.textContent = label;
-            row.appendChild(labelSpan);
-        } else {
-            // Editable name input
-            var nameInput = document.createElement('input');
-            nameInput.type = 'text';
-            nameInput.value = label;
-            nameInput.style.cssText = 'flex:1;font-size:10px;padding:2px 5px;background:' + C.bg + ';border:1px solid ' + C.border + ';border-radius:3px;color:' + C.text + ';font-weight:500';
-            row.appendChild(nameInput);
-
-            // Remove button
-            var removeBtn = document.createElement('button');
-            removeBtn.textContent = '✕';
-            removeBtn.style.cssText = 'font-size:10px;color:' + C.error + ';cursor:pointer;background:none;border:none;padding:1px 3px';
-            removeBtn.addEventListener('click', function (e) {
-                e.stopPropagation();
-                row.remove();
-            });
-            row.appendChild(removeBtn);
-        }
-
-        container.appendChild(row);
-    }
-
     /** Refresh the live preview panel based on capture type */
     function _refreshPreview(selector, captureType) {
         var previewEl = document.getElementById('__dcp_preview');
@@ -1042,15 +1025,19 @@
             if (failRadios[j].checked) { failMode = failRadios[j].value; break; }
         }
 
-        // Collect branches if branch mode
-        var branches = [];
-        if (failMode === 'branch') {
-            var rows = document.querySelectorAll('#__dcp_branches [data-branch-id]');
-            for (var k = 0; k < rows.length; k++) {
-                var rid = rows[k].dataset.branchId;
-                var inp = rows[k].querySelector('input[type="text"]');
-                var lbl = inp ? inp.value : (rows[k].querySelector('span:nth-child(2)') || {}).textContent || rid;
-                branches.push({ id: rid, label: (lbl || rid).trim() });
+        // Collect diagnostic config if diagnose-on-failure is enabled
+        var diagnoseEnabled = (document.getElementById('__dcp_diag_toggle') || {}).checked || false;
+        var diagnostics = [];
+        if (diagnoseEnabled) {
+            var tpls = document.querySelectorAll('input.__dcp_diag_tpl');
+            for (var k = 0; k < tpls.length; k++) {
+                if (tpls[k].checked) {
+                    var diag = { type: tpls[k].value };
+                    if (tpls[k].value === 'custom_js') {
+                        diag.code = (document.getElementById('__dcp_diag_js_code') || {}).value || '';
+                    }
+                    diagnostics.push(diag);
+                }
             }
         }
 
@@ -1063,7 +1050,7 @@
 
         // Resume recording BEFORE sending — sendEvent checks the paused flag
         window.__dcp_recorder_paused = false;
-        _dcpLog('info', 'saveAssertion called', { selector: selector, captureType: captureType, checkType: checkType, expected: expected.slice(0, 50) });
+        _dcpLog('info', 'saveAssertion called', { selector: selector, captureType: captureType, checkType: checkType, expected: expected.slice(0, 50), diagnose: diagnoseEnabled });
 
         // Send assertion step back to DCP
         sendEvent({
@@ -1078,7 +1065,8 @@
                 case_sensitive: caseSensitive,
                 on_fail: {
                     mode: failMode,
-                    branches: branches,
+                    diagnose: diagnoseEnabled,
+                    diagnostics: diagnostics,
                 },
             },
         });

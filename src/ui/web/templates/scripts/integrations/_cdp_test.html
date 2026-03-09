@@ -491,10 +491,7 @@
     //  ASSERTION CONFIG MODAL — §7.2 (the big one)
     // ══════════════════════════════════════════════════════════════════
 
-    let _cdpAssertBranches = [];  // branches being configured
-
     function _cdpTestOpenAssertConfig(step) {
-        _cdpAssertBranches = [];
         _cdpCurrentStepId = step.id;  // Track which step this modal targets
 
         // Remove any existing overlay
@@ -692,52 +689,42 @@
                             <input type="radio" name="cdp-assert-fail-mode" value="continue">
                             <span>⚠️ <strong>Soft fail</strong> — mark failed, continue to next step</span>
                         </label>
-                        <label style="display:flex;align-items:center;gap:6px;font-size:0.78rem;cursor:pointer;padding:6px 10px;background:var(--bg-tertiary);border-radius:6px;border:1px solid var(--border-subtle)">
-                            <input type="radio" name="cdp-assert-fail-mode" value="branch">
-                            <span>🔀 <strong>Branch</strong> — route to diagnostic/fallback branches</span>
+                    </div>
+
+                    <!-- Diagnose on failure toggle + template picker -->
+                    <div style="margin-top:10px">
+                        <label style="display:flex;align-items:center;gap:6px;font-size:0.78rem;cursor:pointer">
+                            <input type="checkbox" id="cdp-assert-diag-toggle">
+                            <span>🔍 <strong>Diagnose on failure</strong> — run diagnostics before failing</span>
                         </label>
-                    </div>
-
-                    <!-- Branch editor (hidden unless "branch" selected) -->
-                    <div id="cdp-assert-branch-editor" style="display:none;margin-top:10px;padding:10px 12px;background:var(--bg-secondary);border:1px solid var(--border-subtle);border-radius:8px">
-                        <div style="font-size:0.72rem;font-weight:600;color:var(--text-secondary);margin-bottom:8px">Branches</div>
-                        <div id="cdp-assert-branches" style="display:flex;flex-direction:column;gap:4px">
-                            <!-- Pre-populated default branches -->
-                            <div class="cdp-branch-row" style="display:flex;align-items:center;gap:8px;padding:6px 8px;background:var(--bg-tertiary);border-radius:6px;font-size:0.78rem" data-branch-id="diagnose">
-                                <span>🔍</span>
-                                <span style="flex:1;font-weight:500">Diagnose</span>
-                                <button class="btn btn-xs" onclick="_cdpTestRecordBranch('diagnose','Diagnose')" style="font-size:0.65rem;padding:2px 8px;background:var(--bg-primary);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer">Record branch…</button>
-                                <button class="btn btn-xs" onclick="this.closest('.cdp-branch-row').remove()" style="font-size:0.65rem;padding:2px 4px;color:var(--error);cursor:pointer">✕</button>
+                        <div id="cdp-assert-diag-panel" style="display:none;margin-top:8px;padding:10px 12px;background:var(--bg-secondary);border:1px solid var(--border-subtle);border-radius:8px">
+                            <div style="font-size:0.72rem;font-weight:600;color:var(--text-secondary);margin-bottom:8px">Diagnostic templates</div>
+                            <div style="display:flex;flex-direction:column;gap:4px">
+                                <label style="display:flex;align-items:center;gap:6px;font-size:0.78rem;cursor:pointer;padding:4px 8px;background:var(--bg-tertiary);border-radius:6px">
+                                    <input type="checkbox" class="cdp-diag-tpl" value="screenshot" checked> 📸 Screenshot
+                                </label>
+                                <label style="display:flex;align-items:center;gap:6px;font-size:0.78rem;cursor:pointer;padding:4px 8px;background:var(--bg-tertiary);border-radius:6px">
+                                    <input type="checkbox" class="cdp-diag-tpl" value="console"> 🖥️ Console dump
+                                </label>
+                                <label style="display:flex;align-items:center;gap:6px;font-size:0.78rem;cursor:pointer;padding:4px 8px;background:var(--bg-tertiary);border-radius:6px">
+                                    <input type="checkbox" class="cdp-diag-tpl" value="element_state"> 🔍 Element state (styles, attrs)
+                                </label>
+                                <label style="display:flex;align-items:center;gap:6px;font-size:0.78rem;cursor:pointer;padding:4px 8px;background:var(--bg-tertiary);border-radius:6px">
+                                    <input type="checkbox" class="cdp-diag-tpl" value="page_html"> 📄 Page HTML snapshot
+                                </label>
+                                <label style="display:flex;align-items:center;gap:6px;font-size:0.78rem;cursor:pointer;padding:4px 8px;background:var(--bg-tertiary);border-radius:6px">
+                                    <input type="checkbox" class="cdp-diag-tpl" value="custom_js"> 💉 Custom JS diagnostic
+                                </label>
                             </div>
-                            <div class="cdp-branch-row" style="display:flex;align-items:center;gap:8px;padding:6px 8px;background:var(--bg-tertiary);border-radius:6px;font-size:0.78rem" data-branch-id="fallback">
-                                <span>🔄</span>
-                                <span style="flex:1;font-weight:500">Fallback</span>
-                                <button class="btn btn-xs" onclick="_cdpTestRecordBranch('fallback','Fallback')" style="font-size:0.65rem;padding:2px 8px;background:var(--bg-primary);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer">Record branch…</button>
-                                <button class="btn btn-xs" onclick="this.closest('.cdp-branch-row').remove()" style="font-size:0.65rem;padding:2px 4px;color:var(--error);cursor:pointer">✕</button>
+                            <div id="cdp-assert-diag-js-editor" style="display:none;margin-top:6px">
+                                <textarea id="cdp-assert-diag-js-code" placeholder="// Diagnostic JS — runs on failure to collect debug info…" style="width:100%;font-size:0.72rem;font-family:monospace;padding:6px 8px;background:var(--bg-primary);border:1px solid var(--border-subtle);border-radius:6px;color:var(--text-primary);resize:vertical;min-height:50px;box-sizing:border-box"></textarea>
                             </div>
-                            <div class="cdp-branch-row" style="display:flex;align-items:center;gap:8px;padding:6px 8px;background:var(--bg-tertiary);border-radius:6px;font-size:0.78rem" data-branch-id="abort">
-                                <span>⛔</span>
-                                <span style="flex:1;font-weight:500">Abort</span>
-                                <span style="font-size:0.65rem;color:var(--text-muted)">(cancels run)</span>
-                            </div>
+                            <div style="font-size:0.65rem;color:var(--text-muted);margin-top:6px">Diagnostics run <strong>after</strong> the step fails, <strong>before</strong> the fail mode takes effect.</div>
                         </div>
-                        <button onclick="_cdpTestAddBranch()" style="margin-top:6px;font-size:0.72rem;padding:4px 10px;background:var(--bg-tertiary);border:1px solid var(--border-subtle);border-radius:6px;cursor:pointer;color:var(--text-secondary)">+ Add branch</button>
                     </div>
                 </div>
 
-                <!-- §5: Diagnostic Actions -->
-                <div>
-                    <div style="font-size:0.75rem;font-weight:700;color:var(--text-secondary);margin-bottom:8px;text-transform:uppercase;letter-spacing:0.5px">
-                        Diagnostic Actions <span style="font-weight:400;font-size:0.65rem">(pre-branch probes)</span>
-                    </div>
-                    <div style="display:flex;gap:6px;flex-wrap:wrap">
-                        <button onclick="_cdpTestAddDiagStep('inject_js')" style="font-size:0.72rem;padding:5px 12px;background:var(--bg-tertiary);border:1px solid var(--border-subtle);border-radius:6px;cursor:pointer;color:var(--text-secondary)">💉 Inject JS</button>
-                        <button onclick="_cdpTestAddDiagStep('capture')" style="font-size:0.72rem;padding:5px 12px;background:var(--bg-tertiary);border:1px solid var(--border-subtle);border-radius:6px;cursor:pointer;color:var(--text-secondary)">📋 Capture element</button>
-                        <button onclick="_cdpTestAddDiagStep('screenshot')" style="font-size:0.72rem;padding:5px 12px;background:var(--bg-tertiary);border:1px solid var(--border-subtle);border-radius:6px;cursor:pointer;color:var(--text-secondary)">📸 Screenshot</button>
-                        <button onclick="_cdpTestAddDiagStep('console')" style="font-size:0.72rem;padding:5px 12px;background:var(--bg-tertiary);border:1px solid var(--border-subtle);border-radius:6px;cursor:pointer;color:var(--text-secondary)">🖥️ Console capture</button>
-                    </div>
-                    <div id="cdp-assert-diag-steps" style="margin-top:6px;display:flex;flex-direction:column;gap:3px"></div>
-                </div>
+                <!-- §5: removed — diagnostic actions are now in the On Failure panel -->
 
             </div>
 
@@ -765,11 +752,22 @@
             });
         });
 
-        // Wire failure mode radio → show/hide branch editor
-        overlay.querySelectorAll('input[name="cdp-assert-fail-mode"]').forEach(radio => {
-            radio.addEventListener('change', () => {
-                document.getElementById('cdp-assert-branch-editor').style.display =
-                    radio.value === 'branch' ? 'block' : 'none';
+        // Wire diagnose-on-failure toggle → show/hide diagnostic panel
+        const diagToggle = document.getElementById('cdp-assert-diag-toggle');
+        if (diagToggle) {
+            diagToggle.addEventListener('change', () => {
+                const panel = document.getElementById('cdp-assert-diag-panel');
+                if (panel) panel.style.display = diagToggle.checked ? 'block' : 'none';
+            });
+        }
+
+        // Wire custom JS template checkbox → show/hide JS editor
+        overlay.querySelectorAll('input.cdp-diag-tpl').forEach(cb => {
+            cb.addEventListener('change', () => {
+                if (cb.value === 'custom_js') {
+                    const jsEditor = document.getElementById('cdp-assert-diag-js-editor');
+                    if (jsEditor) jsEditor.style.display = cb.checked ? 'block' : 'none';
+                }
             });
         });
 
@@ -822,59 +820,6 @@
         }
     }
 
-    /** Add a custom branch row to the branch editor */
-    function _cdpTestAddBranch() {
-        const container = document.getElementById('cdp-assert-branches');
-        if (!container) return;
-        const id = 'branch-' + Date.now();
-        const row = document.createElement('div');
-        row.className = 'cdp-branch-row';
-        row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:6px 8px;background:var(--bg-tertiary);border-radius:6px;font-size:0.78rem';
-        row.dataset.branchId = id;
-        row.innerHTML = `
-            <span>🔀</span>
-            <input type="text" value="Custom" style="flex:1;font-size:0.75rem;padding:3px 6px;background:var(--bg-primary);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-primary);font-weight:500">
-            <button class="btn btn-xs" onclick="_cdpTestRecordBranch('${id}','Custom')" style="font-size:0.65rem;padding:2px 8px;background:var(--bg-primary);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer">Record branch…</button>
-            <button class="btn btn-xs" onclick="this.closest('.cdp-branch-row').remove()" style="font-size:0.65rem;padding:2px 4px;color:var(--error);cursor:pointer">✕</button>
-        `;
-        container.insertBefore(row, container.querySelector('[data-branch-id="abort"]'));
-    }
-
-    /** Record a branch (placeholder — C5 will implement) */
-    function _cdpTestRecordBranch(branchId, label) {
-        toast(`Branch recording for "${label}" — coming in Phase C5`, 'info');
-    }
-
-    /** Add a diagnostic step to the pre-branch probes list */
-    function _cdpTestAddDiagStep(type) {
-        const container = document.getElementById('cdp-assert-diag-steps');
-        if (!container) return;
-
-        const diagIcons = { inject_js: '💉', capture: '📋', screenshot: '📸', console: '🖥️' };
-        const diagLabels = { inject_js: 'Inject JS', capture: 'Capture element', screenshot: 'Screenshot', console: 'Console capture' };
-        const id = 'diag-' + Date.now();
-
-        let inputHtml = '';
-        if (type === 'inject_js') {
-            inputHtml = `<textarea placeholder="JavaScript to inject…" style="width:100%;font-size:0.68rem;font-family:monospace;padding:4px 6px;background:var(--bg-primary);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-primary);resize:vertical;min-height:40px" data-diag-input="${id}"></textarea>`;
-        } else if (type === 'capture') {
-            inputHtml = `<select style="font-size:0.72rem;padding:3px 6px;background:var(--bg-primary);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-primary)" data-diag-input="${id}">
-                <option value="text">Text</option><option value="html">innerHTML</option>
-                <option value="value">Value</option><option value="attribute">Attribute</option>
-            </select>`;
-        }
-
-        container.insertAdjacentHTML('beforeend', `
-            <div style="display:flex;align-items:flex-start;gap:6px;padding:4px 8px;background:var(--bg-tertiary);border-radius:4px;font-size:0.72rem" data-diag-id="${id}" data-diag-type="${type}">
-                <span>${diagIcons[type]}</span>
-                <div style="flex:1">
-                    <span style="font-weight:600">${diagLabels[type]}</span>
-                    ${inputHtml ? `<div style="margin-top:3px">${inputHtml}</div>` : ''}
-                </div>
-                <button onclick="this.closest('[data-diag-id]').remove()" style="font-size:0.62rem;color:var(--error);cursor:pointer;background:none;border:none">✕</button>
-            </div>
-        `);
-    }
 
     /** Save assertion — collects form data and adds assert step to recording */
     async function _cdpTestSaveAssertion() {
@@ -886,27 +831,20 @@
         const failMode = document.querySelector('input[name="cdp-assert-fail-mode"]:checked')?.value || 'fail';
         const attrName = document.getElementById('cdp-assert-attr-name')?.value || '';
 
-        // Collect branches if branch mode
-        const branches = [];
-        if (failMode === 'branch') {
-            document.querySelectorAll('#cdp-assert-branches .cdp-branch-row').forEach(row => {
-                const bid = row.dataset.branchId;
-                const nameEl = row.querySelector('input[type="text"]');
-                const label = nameEl ? nameEl.value : row.querySelector('span:nth-child(2)')?.textContent || bid;
-                branches.push({ id: bid, label: label.trim() });
+        // Collect diagnostic config if diagnose-on-failure is enabled
+        const diagnoseEnabled = document.getElementById('cdp-assert-diag-toggle')?.checked || false;
+        const diagnostics = [];
+        if (diagnoseEnabled) {
+            document.querySelectorAll('input.cdp-diag-tpl').forEach(cb => {
+                if (cb.checked) {
+                    const diag = { type: cb.value };
+                    if (cb.value === 'custom_js') {
+                        diag.code = document.getElementById('cdp-assert-diag-js-code')?.value || '';
+                    }
+                    diagnostics.push(diag);
+                }
             });
         }
-
-        // Collect diagnostic steps
-        const diagSteps = [];
-        document.querySelectorAll('#cdp-assert-diag-steps [data-diag-id]').forEach(row => {
-            const dtype = row.dataset.diagType;
-            const inputEl = row.querySelector('[data-diag-input]');
-            diagSteps.push({
-                type: dtype,
-                value: inputEl ? inputEl.value : '',
-            });
-        });
 
         // Build the assertion step payload
         const assertStep = {
@@ -921,10 +859,10 @@
                 case_sensitive: caseSensitive,
                 on_fail: {
                     mode: failMode,
-                    branches: branches,
+                    diagnose: diagnoseEnabled,
+                    diagnostics: diagnostics,
                 },
             },
-            diagnostic_steps: diagSteps,
         };
 
         try {
@@ -1898,13 +1836,14 @@
             </div>`;
         }
 
-        // ── Branch badge ────────────────────────────────────────
-        let branchBadge = '';
-        if (stepData.branch_id) {
-            branchBadge = `<span style="font-size:0.58rem;padding:1px 5px;background:#8b5cf6;color:#fff;border-radius:8px;margin-left:4px">${esc(stepData.branch_id)}</span>`;
+        // ── Diagnostic badge ────────────────────────────────────
+        let diagBadge = '';
+        if (stepData.on_fail?.diagnose) {
+            const diagCount = (stepData.on_fail.diagnostics || []).length;
+            diagBadge = `<span style="font-size:0.58rem;padding:1px 5px;background:#8b5cf6;color:#fff;border-radius:8px;margin-left:4px">🔍 ${diagCount} diag</span>`;
         }
-        if (stepData.branch_taken) {
-            branchBadge += `<span style="font-size:0.58rem;padding:1px 5px;background:#f59e0b;color:#000;border-radius:8px;margin-left:4px">→ ${esc(stepData.branch_taken)}</span>`;
+        if (stepData.diagnostic_results) {
+            diagBadge += `<span style="font-size:0.58rem;padding:1px 5px;background:#f59e0b;color:#000;border-radius:8px;margin-left:4px">📋 diag ran</span>`;
         }
 
         return `<div id="cdp-replay-step-${stepData.step_id || stepData.sequence}"
@@ -1915,7 +1854,7 @@
                 <div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
                     <strong>${esc(stepData.action || '?')}</strong>
                     <span style="color:var(--text-muted);margin-left:4px">${esc(selector.slice(0, 60))}</span>
-                    ${branchBadge}
+                    ${diagBadge}
                 </div>
                 ${errMsg}
                 ${assertDetail}
@@ -2043,18 +1982,18 @@
             } catch (_) {}
         });
 
-        // ── Branch taken (graph-mode routing) ──────────────────
-        _cdpTestSSESource.addEventListener('cdp_test:branch_taken', (e) => {
+        // ── Diagnostic results (post-failure diagnostics) ──────
+        _cdpTestSSESource.addEventListener('cdp_test:diagnostic_done', (e) => {
             try {
                 const ev = JSON.parse(e.data);
                 if (ev.data?.run_id !== runId) return;
                 const d = ev.data;
-                toast(`Branch taken: ${d.branch_id || 'unknown'}`, 'info');
-                // Update the step row that triggered the branch
+                toast(`Diagnostics completed for step ${d.step_id || d.sequence}`, 'info');
+                // Update the step row with diagnostic results
                 const stepId = d.step_id || d.sequence;
                 const stored = _cdpTestStepResults.find(r => (r.data.step_id ?? r.data.sequence) === stepId);
                 if (stored) {
-                    stored.data.branch_taken = d.branch_id;
+                    stored.data.diagnostic_results = d.results || [];
                     _cdpTestUpdateReplayStep(stored.data, stored.status);
                 }
             } catch (_) {}
