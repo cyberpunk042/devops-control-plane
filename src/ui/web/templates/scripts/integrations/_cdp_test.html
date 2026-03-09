@@ -1859,31 +1859,47 @@
         const statusIcon = statusIcons[status] || '—';
         const dur = stepData.duration_ms != null ? `${stepData.duration_ms}ms` : '';
         const selector = stepData.selector || stepData.value || '';
-        const errMsg = stepData.error
-            ? `<div style="font-size:0.65rem;color:var(--error);margin-top:2px;word-break:break-all">${esc(String(stepData.error).slice(0, 150))}</div>`
-            : '';
+        let errMsg = '';
+        if (stepData.error) {
+            const errFull = esc(String(stepData.error));
+            const errShort = esc(String(stepData.error).slice(0, 150));
+            const errLong = stepData.error.length > 150;
+            const errUid = 'cdp-err-' + Math.random().toString(36).slice(2, 8);
+            errMsg = `<div style="font-size:0.65rem;color:var(--error);margin-top:2px;word-break:break-all">`
+                + `<span>${errShort}${errLong ? '…' : ''}</span>`
+                + (errLong ? `<span onclick="var el=document.getElementById('${errUid}');el.style.display=el.style.display==='none'?'block':'none'" style="cursor:pointer;color:var(--text-muted);font-size:0.58rem;margin-left:4px">▸ full</span><pre id="${errUid}" style="display:none;margin-top:4px;white-space:pre-wrap;word-break:break-all;font-size:0.60rem;padding:4px;background:var(--bg-secondary);border-radius:4px;max-height:200px;overflow-y:auto">${errFull}</pre>` : '')
+                + `</div>`;
+        }
 
         // ── Assertion details (expected vs actual) ──────────────
         let assertDetail = '';
         if (stepData.action === 'assert' && stepData.assertion_check) {
             const check = esc(stepData.assertion_check);
             const expected = esc(String(stepData.assertion_expected || ''));
-            const actual = stepData.assertion_actual != null ? esc(String(stepData.assertion_actual).slice(0, 120)) : '';
+            const actualRaw = stepData.assertion_actual != null ? String(stepData.assertion_actual) : '';
+            const actualShort = esc(actualRaw.slice(0, 120));
+            const actualFull = esc(actualRaw);
+            const actualLong = actualRaw.length > 120;
+            const actualUid = 'cdp-actual-' + Math.random().toString(36).slice(2, 8);
             const passColor = status === 'passed' ? '#22c55e' : '#ef4444';
             assertDetail = `<div style="font-size:0.65rem;margin-top:3px;padding:4px 8px;background:var(--bg-tertiary);border-radius:4px;border-left:3px solid ${passColor}">
                 <div style="color:var(--text-secondary)"><strong>${check}</strong></div>
                 ${expected ? `<div>Expected: <code style="font-size:0.62rem;padding:1px 4px;background:var(--bg-secondary);border-radius:2px">${expected}</code></div>` : ''}
-                ${actual ? `<div>Actual: <code style="font-size:0.62rem;padding:1px 4px;background:var(--bg-secondary);border-radius:2px">${actual}</code></div>` : ''}
+                ${actualRaw ? `<div>Actual: <code style="font-size:0.62rem;padding:1px 4px;background:var(--bg-secondary);border-radius:2px">${actualShort}${actualLong ? '…' : ''}</code>${actualLong ? `<span onclick="var el=document.getElementById('${actualUid}');el.style.display=el.style.display==='none'?'block':'none'" style="cursor:pointer;color:var(--text-muted);font-size:0.58rem;margin-left:4px">▸ full</span><pre id="${actualUid}" style="display:none;margin-top:4px;white-space:pre-wrap;word-break:break-all;font-size:0.60rem;padding:4px;background:var(--bg-secondary);border-radius:4px;max-height:200px;overflow-y:auto">${actualFull}</pre>` : ''}</div>` : ''}
             </div>`;
         }
 
         // ── Captured value display ──────────────────────────────
         let captureDetail = '';
         if (stepData.captured_value != null && stepData.action !== 'assert') {
-            const capVal = esc(String(stepData.captured_value).slice(0, 200));
+            const capRaw = String(stepData.captured_value);
+            const capShort = esc(capRaw.slice(0, 200));
+            const capFull = esc(capRaw);
+            const capLong = capRaw.length > 200;
+            const capUid = 'cdp-cap-' + Math.random().toString(36).slice(2, 8);
             captureDetail = `<div style="font-size:0.65rem;margin-top:3px;padding:3px 8px;background:var(--bg-tertiary);border-radius:4px;border-left:3px solid #8b5cf6">
                 <span style="color:#8b5cf6;font-weight:600">captured:</span>
-                <code style="font-size:0.62rem;padding:1px 4px;background:var(--bg-secondary);border-radius:2px">${capVal}</code>
+                <code style="font-size:0.62rem;padding:1px 4px;background:var(--bg-secondary);border-radius:2px">${capShort}${capLong ? '…' : ''}</code>${capLong ? `<span onclick="var el=document.getElementById('${capUid}');el.style.display=el.style.display==='none'?'block':'none'" style="cursor:pointer;color:var(--text-muted);font-size:0.58rem;margin-left:4px">▸ full</span><pre id="${capUid}" style="display:none;margin-top:4px;white-space:pre-wrap;word-break:break-all;font-size:0.60rem;padding:4px;background:var(--bg-secondary);border-radius:4px;max-height:200px;overflow-y:auto">${capFull}</pre>` : ''}
             </div>`;
         }
 

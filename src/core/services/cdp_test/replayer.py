@@ -1134,22 +1134,26 @@ def _execute_capture_screenshot(
 
     # ── Step 1: Find element and get bounding rect ────────────
     find_js = _build_find_js(step, variables)
-    rect_js = f"""(function() {{
-        {find_js}
-        if (!el) return JSON.stringify({{ ok: false, error: 'Element not found' }});
-        var r = el.getBoundingClientRect();
-        return JSON.stringify({{
-            ok: true,
-            x: r.x + window.scrollX,
-            y: r.y + window.scrollY,
-            width: r.width,
-            height: r.height,
-            devicePixelRatio: window.devicePixelRatio || 1
-        }});
+    rect_js = f"""(async function() {{
+        try {{
+            var el = await {find_js};
+            if (!el) return JSON.stringify({{ ok: false, error: 'Element not found' }});
+            var r = el.getBoundingClientRect();
+            return JSON.stringify({{
+                ok: true,
+                x: r.x + window.scrollX,
+                y: r.y + window.scrollY,
+                width: r.width,
+                height: r.height,
+                devicePixelRatio: window.devicePixelRatio || 1
+            }});
+        }} catch (e) {{
+            return JSON.stringify({{ ok: false, error: typeof e === 'string' ? e : (e.message || String(e)) }});
+        }}
     }})()"""
 
     try:
-        rect_result = session.evaluate(rect_js, timeout=5.0)
+        rect_result = session.evaluate(rect_js, await_promise=True, timeout=10.0)
         rect_val = (
             rect_result.get("result", {}).get("result", {}).get("value", "{}")
             if rect_result else "{}"
@@ -1409,7 +1413,7 @@ def _execute_screenshot_assertion(
     expected = _resolve_variables(
         _ac.get("expected") or step.get("assertion_expected", ""), variables,
     )
-    case_sensitive = _ac.get("case_sensitive", step.get("case_sensitive", True))
+    case_sensitive = _ac.get("case_sensitive", step.get("case_sensitive", False))
 
     actual_cmp = ocr_text if case_sensitive else ocr_text.lower()
     expected_cmp = expected if case_sensitive else expected.lower()
@@ -1467,7 +1471,7 @@ def _execute_screenshot_assertion(
             "duration_ms": elapsed_ms,
             "error": (
                 f"OCR assertion failed: expected {check_type.replace('ocr_text_', '')} "
-                f"'{expected}' but OCR extracted: '{ocr_text[:200]}'"
+                f"'{expected}' but OCR extracted: '{ocr_text}'"
             ),
             "details": {
                 "screenshot_path": screenshot_path,
