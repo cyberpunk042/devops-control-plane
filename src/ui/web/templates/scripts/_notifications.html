@@ -135,6 +135,8 @@ function _ackErrors() {
 // ── Rendering ───────────────────────────────────────────────────
 
 function _notifIcon(type) {
+    // Handle prefixed types (e.g. missing_dep:pytesseract → missing_dep)
+    var baseType = type && type.indexOf(':') > -1 ? type.split(':')[0] : type;
     var icons = {
         'cdp_suggestion': '🔌',
         'session_expiring': '⏰',
@@ -142,8 +144,9 @@ function _notifIcon(type) {
         'chat_message': '💬',
         'port_fallback': '🔀',
         'config_changed': '⚙️',
+        'missing_dep': '📦',
     };
-    return icons[type] || '📋';
+    return icons[baseType] || '📋';
 }
 
 function _timeAgo(ts) {
@@ -178,6 +181,12 @@ function _renderNotifications(notifications) {
         if (n.type === 'port_fallback' && n.meta && n.meta.config_path) {
             actionAttr = ' data-action-type="open-config" data-config-path="' + _esc(n.meta.config_path) + '"';
             actionHint = '<div class="notif-item-action-hint">Click to configure →</div>';
+            cursorStyle = ' style="cursor:pointer"';
+        } else if (n.meta && n.meta.action === 'install_dependency' && n.meta.recipe_id) {
+            actionAttr = ' data-action-type="install-dependency"'
+                + ' data-recipe-id="' + _esc(n.meta.recipe_id) + '"'
+                + ' data-recipe-label="' + _esc(n.meta.recipe_label || n.meta.recipe_id) + '"';
+            actionHint = '<div class="notif-item-action-hint">Click to install →</div>';
             cursorStyle = ' style="cursor:pointer"';
         }
 
@@ -328,14 +337,25 @@ function _notifItemAction(itemEl) {
     switch (actionType) {
         case 'open-config':
             var configPath = itemEl.getAttribute('data-config-path') || 'project.yml';
-            // Open in modal preview (root-level file)
             if (typeof openFileInModal === 'function') {
                 openFileInModal(configPath);
             }
-            // Close the notification panel
             if (_notifPanelOpen) _toggleNotifPanel();
-            // Dismiss the notification
             if (notifId) _dismissNotif(notifId);
+            break;
+
+        case 'install-dependency':
+            var recipeId = itemEl.getAttribute('data-recipe-id');
+            var recipeLabel = itemEl.getAttribute('data-recipe-label') || recipeId;
+            if (recipeId && typeof installWithPlan === 'function') {
+                if (_notifPanelOpen) _toggleNotifPanel();
+                installWithPlan(recipeId, recipeLabel, {
+                    onComplete: function() {
+                        toast('✅ Dependency installed! Re-record the assertion to see OCR results.', 'success');
+                        if (notifId) _dismissNotif(notifId);
+                    },
+                });
+            }
             break;
     }
 }
@@ -379,6 +399,19 @@ document.addEventListener('sse:notification:new', function(e) {
     }
     if (notif.type === 'config_changed') {
         _showConfigChangedBanner(notif);
+    }
+    // Missing dependency — auto-trigger install modal
+    if (notif.meta && notif.meta.action === 'install_dependency' && notif.meta.recipe_id) {
+        setTimeout(function() {
+            if (typeof installWithPlan === 'function') {
+                installWithPlan(notif.meta.recipe_id, notif.meta.recipe_label || notif.meta.recipe_id, {
+                    onComplete: function() {
+                        toast('✅ Dependency installed! Re-record the assertion to see OCR results.', 'success');
+                        if (notif.id) _dismissNotif(notif.id);
+                    },
+                });
+            }
+        }, 400);
     }
 
     // Cross-tab sync: broadcast to other tabs

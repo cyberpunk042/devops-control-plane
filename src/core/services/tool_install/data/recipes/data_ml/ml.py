@@ -7,6 +7,8 @@ Pure data, no logic.
 
 from __future__ import annotations
 
+import sys
+
 from src.core.services.tool_install.data.constants import _PIP
 
 
@@ -17,7 +19,6 @@ _ML_RECIPES: dict[str, dict] = {
 
     "pytorch": {
         "label": "PyTorch",
-        "cli": "python3",
         "cli_verify_args": ["-c", "import torch; print(torch.__version__)"],
         "category": "ml",
         "risk": "low",
@@ -88,11 +89,10 @@ _ML_RECIPES: dict[str, dict] = {
             "pip": ["pip3", "install", "torch"],
         },
         "needs_sudo": {"pip": False},
-        "verify": ["python3", "-c", "import torch; print(torch.__version__)"],
+        "verify": [sys.executable, "-c", "import torch; print(torch.__version__)"],
     },
     "opencv": {
         "label": "OpenCV",
-        "cli": "python3",
         "cli_verify_args": ["-c", "import cv2; print(cv2.__version__)"],
         "category": "ml",
         "risk": "low",
@@ -148,7 +148,7 @@ _ML_RECIPES: dict[str, dict] = {
             "pip": ["pip3", "install", "opencv-python-headless"],
         },
         "needs_sudo": {"pip": False},
-        "verify": ["python3", "-c", "import cv2; print(cv2.__version__)"],
+        "verify": [sys.executable, "-c", "import cv2; print(cv2.__version__)"],
     },
 
     "jupyter": {
@@ -166,8 +166,7 @@ _ML_RECIPES: dict[str, dict] = {
         "install": {"_default": _PIP + ["install", "numpy"]},
         "needs_sudo": {"_default": False},
         "install_via": {"_default": "pip"},
-        "cli": "python3",
-        "verify": ["python3", "-c", "import numpy; print(numpy.__version__)"],
+        "verify": [sys.executable, "-c", "import numpy; print(numpy.__version__)"],
     },
     "pandas": {
         "label": "Pandas",
@@ -175,8 +174,7 @@ _ML_RECIPES: dict[str, dict] = {
         "install": {"_default": _PIP + ["install", "pandas"]},
         "needs_sudo": {"_default": False},
         "install_via": {"_default": "pip"},
-        "cli": "python3",
-        "verify": ["python3", "-c", "import pandas; print(pandas.__version__)"],
+        "verify": [sys.executable, "-c", "import pandas; print(pandas.__version__)"],
     },
     "tensorflow": {
         "label": "TensorFlow",
@@ -184,8 +182,57 @@ _ML_RECIPES: dict[str, dict] = {
         "install": {"_default": _PIP + ["install", "tensorflow"]},
         "needs_sudo": {"_default": False},
         "install_via": {"_default": "pip"},
-        "cli": "python3",
-        "verify": ["python3", "-c",
+        "verify": [sys.executable, "-c",
                    "import tensorflow; print(tensorflow.__version__)"],
+    },
+
+    # ── OCR ───────────────────────────────────────────────────
+    "tesseract": {
+        "label": "Tesseract OCR",
+        "cli": "tesseract",
+        "category": "ml",
+        "risk": "low",
+        "install": {
+            "apt": ["apt-get", "install", "-y", "tesseract-ocr"],
+            "dnf": ["dnf", "install", "-y", "tesseract"],
+            "brew": ["brew", "install", "tesseract"],
+            "apk": ["apk", "add", "tesseract-ocr"],
+            "pacman": ["pacman", "-S", "--noconfirm", "tesseract"],
+        },
+        "needs_sudo": {
+            "apt": True, "dnf": True, "brew": False,
+            "apk": True, "pacman": True,
+        },
+        "requires": {
+            "packages": {
+                "debian": ["tesseract-ocr-eng", "libtesseract-dev"],
+                "rhel": ["tesseract-langpack-eng"],
+                "alpine": ["tesseract-ocr-data-eng"],
+                "arch": ["tesseract-data-eng"],
+                "macos": [],  # brew formula includes eng data
+            },
+        },
+        "verify": ["tesseract", "--version"],
+        "rollback": {
+            "apt": ["apt-get", "remove", "-y", "tesseract-ocr"],
+            "dnf": ["dnf", "remove", "-y", "tesseract"],
+            "brew": ["brew", "uninstall", "tesseract"],
+        },
+    },
+    "pytesseract": {
+        "label": "pytesseract (Python OCR wrapper)",
+        "cli_verify_args": ["-c", "import pytesseract; print(pytesseract.get_tesseract_version())"],
+        "category": "ml",
+        "risk": "low",
+        "install": {
+            "_default": _PIP + ["install", "pytesseract"],
+        },
+        "needs_sudo": {"_default": False},
+        "install_via": {"_default": "pip"},
+        "requires": {
+            "binaries": ["tesseract"],  # Resolver recurses → installs system tesseract first
+        },
+        "verify": [sys.executable, "-c",
+                    "import pytesseract; print(pytesseract.get_tesseract_version())"],
     },
 }

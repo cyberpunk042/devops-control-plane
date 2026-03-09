@@ -115,6 +115,15 @@ class AssertConfig:
     branching engine.
     """
 
+    # ── Capture source ────────────────────────────────────────
+    capture_type: str = ""              # "text" | "html" | "value" | "attribute" |
+                                        # "screenshot" | "state" | "console" | ""
+                                        # Determines HOW data is captured before
+                                        # checking.  "screenshot" triggers the OCR
+                                        # path via _execute_screenshot_assertion.
+    capture_action: str = ""            # Backend action alias, e.g.
+                                        # "capture_text", "capture_screenshot"
+
     # ── What to check ─────────────────────────────────────────
     check_type: str = "exists"          # Same values as assertion_type —
                                         # text_contains, value_equals, etc.
@@ -133,7 +142,7 @@ class AssertConfig:
                                         # What to do on failure
 
     def to_dict(self) -> dict:
-        return {
+        d = {
             "check_type": self.check_type,
             "attribute_name": self.attribute_name,
             "capture_step_id": self.capture_step_id,
@@ -142,12 +151,19 @@ class AssertConfig:
             "on_pass": self.on_pass,
             "on_fail": self.on_fail.to_dict(),
         }
+        if self.capture_type:
+            d["capture_type"] = self.capture_type
+        if self.capture_action:
+            d["capture_action"] = self.capture_action
+        return d
 
     @classmethod
     def from_dict(cls, data: dict) -> AssertConfig:
         on_fail_data = data.get("on_fail", {})
         on_fail = FailureRoute.from_dict(on_fail_data) if on_fail_data else FailureRoute()
         return cls(
+            capture_type=data.get("capture_type", ""),
+            capture_action=data.get("capture_action", ""),
             check_type=data.get("check_type", "exists"),
             attribute_name=data.get("attribute_name", ""),
             capture_step_id=data.get("capture_step_id", ""),

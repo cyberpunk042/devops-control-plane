@@ -473,6 +473,35 @@
     //  Assertion Config Modal (injected into target page)
     // ═══════════════════════════════════════════════════════════
 
+    /** Build check type <option> groups filtered by capture type */
+    function _buildCheckOptions(checkGroups, captureType) {
+        var html = '';
+        // Default selection per capture type
+        var defaults = {
+            text: 'text_contains', html: 'html_contains', value: 'value_equals',
+            attribute: 'attribute_equals', screenshot: 'ocr_text_contains',
+            state: 'exists', console: 'no_errors',
+        };
+        var defaultVal = defaults[captureType] || 'text_contains';
+        var found = false;
+        checkGroups.forEach(function (g) {
+            // Skip groups not applicable to this capture type
+            if (g.for && g.for.indexOf(captureType) === -1) return;
+            html += '<optgroup label="' + g.label + '">';
+            g.checks.forEach(function (c) {
+                var sel = (!found && c[0] === defaultVal) ? ' selected' : '';
+                if (sel) found = true;
+                html += '<option value="' + c[0] + '"' + sel + '>' + c[1] + '</option>';
+            });
+            html += '</optgroup>';
+        });
+        // Auto-select first option if no default matched
+        if (!found && html) {
+            html = html.replace('<option ', '<option selected ');
+        }
+        return html;
+    }
+
     function _openAssertModal(selector, elemText, elemRect, selectorChain) {
         selectorChain = selectorChain || [];
         // Remove existing
@@ -502,10 +531,10 @@
             primary: '#6366f1', primaryHover: '#4f46e5',
         };
 
-        // Assertion check types
+        // Assertion check types — tagged with which capture types they apply to
         var checkGroups = [
             {
-                label: 'Text', checks: [
+                label: 'Text', for: ['text'], checks: [
                     ['text_equals', 'Text equals'], ['text_contains', 'Text contains'],
                     ['text_not_contains', 'Text not contains'], ['text_starts_with', 'Starts with'],
                     ['text_ends_with', 'Ends with'], ['text_matches', 'Matches regex'],
@@ -513,19 +542,26 @@
                 ]
             },
             {
-                label: 'Value', checks: [
+                label: 'HTML', for: ['html'], checks: [
+                    ['html_equals', 'HTML equals'], ['html_contains', 'HTML contains'],
+                    ['html_not_contains', 'HTML not contains'], ['html_matches', 'Matches regex'],
+                    ['html_empty', 'HTML empty'], ['html_not_empty', 'HTML not empty'],
+                ]
+            },
+            {
+                label: 'Value', for: ['value'], checks: [
                     ['value_equals', 'Value equals'], ['value_contains', 'Value contains'],
                     ['value_empty', 'Value empty'], ['value_not_empty', 'Value not empty'],
                 ]
             },
             {
-                label: 'Attribute', checks: [
+                label: 'Attribute', for: ['attribute'], checks: [
                     ['attribute_equals', 'Attr equals'], ['attribute_contains', 'Attr contains'],
                     ['attribute_exists', 'Attr exists'], ['attribute_not_exists', 'Attr absent'],
                 ]
             },
             {
-                label: 'Element', checks: [
+                label: 'Element', for: ['text', 'html', 'value', 'attribute', 'state'], checks: [
                     ['exists', 'Exists'], ['not_exists', 'Absent'],
                     ['visible', 'Visible'], ['hidden', 'Hidden'],
                     ['enabled', 'Enabled'], ['disabled', 'Disabled'],
@@ -533,33 +569,40 @@
                 ]
             },
             {
-                label: 'CSS', checks: [
+                label: 'CSS', for: ['state'], checks: [
                     ['css_class_present', 'Has class'], ['css_class_absent', 'No class'],
                     ['css_property_equals', 'CSS prop ='],
                 ]
             },
             {
-                label: 'Count', checks: [
+                label: 'Count', for: ['text', 'html', 'value', 'attribute'], checks: [
                     ['count_equals', 'Count ='], ['count_gt', 'Count >'], ['count_lt', 'Count <'],
                 ]
             },
             {
-                label: 'Page', checks: [
+                label: 'Page', for: ['text', 'html', 'console'], checks: [
                     ['url_equals', 'URL equals'], ['url_contains', 'URL contains'],
                     ['title_equals', 'Title equals'], ['title_contains', 'Title contains'],
                 ]
             },
+            {
+                label: 'Screenshot', for: ['screenshot'], checks: [
+                    ['ocr_text_contains', 'OCR text contains'],
+                    ['ocr_text_equals', 'OCR text equals'],
+                    ['ocr_text_matches', 'OCR text matches regex'],
+                    ['capture_only', 'Capture only (no assert)'],
+                ]
+            },
+            {
+                label: 'Console', for: ['console'], checks: [
+                    ['log_contains', 'Log contains'], ['log_matches', 'Log matches regex'],
+                    ['no_errors', 'No errors'], ['no_warnings', 'No warnings'],
+                ]
+            },
         ];
 
-        var optgroupHtml = '';
-        checkGroups.forEach(function (g) {
-            optgroupHtml += '<optgroup label="' + g.label + '">';
-            g.checks.forEach(function (c) {
-                var sel = c[0] === 'text_contains' ? ' selected' : '';
-                optgroupHtml += '<option value="' + c[0] + '"' + sel + '>' + c[1] + '</option>';
-            });
-            optgroupHtml += '</optgroup>';
-        });
+        // Build initial optgroup HTML for default capture type (text)
+        var optgroupHtml = _buildCheckOptions(checkGroups, 'text');
 
         // Live preview: capture current value
         var liveValue = '';
@@ -683,7 +726,8 @@
             '<label style="' + sRadioLabel + '"><input type="radio" name="__dcp_cap" value="console"> Console</label>' +
             '</div>' +
             '<div id="__dcp_attr_row" style="display:none;margin-top:5px">' +
-            '<input id="__dcp_attr_name" type="text" placeholder="Attribute name (e.g. data-status, href)" style="' + sInput + '">' +
+            '<input id="__dcp_attr_name" type="text" list="__dcp_attr_list" placeholder="Attribute name (e.g. data-status, href)" style="' + sInput + '">' +
+            '<datalist id="__dcp_attr_list"></datalist>' +
             '</div>' +
             '</div>' +
 
@@ -727,11 +771,30 @@
             '</label>' +
             '<div id="__dcp_diag_panel" style="display:none;margin-top:6px;padding:8px 10px;background:' + C.bgCard + ';border:1px solid ' + C.border + ';border-radius:6px">' +
             '<div style="font-size:10px;font-weight:600;color:' + C.textMuted + ';margin-bottom:6px">Diagnostic templates</div>' +
-            '<div style="display:flex;flex-direction:column;gap:3px">' +
-            '<label style="' + sRadioLabel + ';padding:3px 8px"><input type="checkbox" class="__dcp_diag_tpl" value="screenshot" checked> 📸 Screenshot</label>' +
+
+            // Capture diagnostics
+            '<div style="font-size:9px;font-weight:600;color:' + C.textSecondary + ';margin-bottom:3px;text-transform:uppercase;letter-spacing:0.3px">Capture</div>' +
+            '<div style="display:flex;flex-direction:column;gap:3px;margin-bottom:6px">' +
+            '<label style="' + sRadioLabel + ';padding:3px 8px"><input type="checkbox" class="__dcp_diag_tpl" value="screenshot_element" checked> 📸 Element screenshot</label>' +
+            '<label style="' + sRadioLabel + ';padding:3px 8px"><input type="checkbox" class="__dcp_diag_tpl" value="screenshot_full"> 🖼️ Full page screenshot</label>' +
             '<label style="' + sRadioLabel + ';padding:3px 8px"><input type="checkbox" class="__dcp_diag_tpl" value="console"> 🖥️ Console dump</label>' +
-            '<label style="' + sRadioLabel + ';padding:3px 8px"><input type="checkbox" class="__dcp_diag_tpl" value="element_state"> 🔍 Element state (styles, attrs)</label>' +
+            '<label style="' + sRadioLabel + ';padding:3px 8px"><input type="checkbox" class="__dcp_diag_tpl" value="element_state"> 🔍 Element state (styles, attrs, rect)</label>' +
             '<label style="' + sRadioLabel + ';padding:3px 8px"><input type="checkbox" class="__dcp_diag_tpl" value="page_html"> 📄 Page HTML snapshot</label>' +
+            '<label style="' + sRadioLabel + ';padding:3px 8px"><input type="checkbox" class="__dcp_diag_tpl" value="network_stack"> 🌐 Network request stack</label>' +
+            '</div>' +
+
+            // Debug diagnostics
+            '<div style="font-size:9px;font-weight:600;color:' + C.textSecondary + ';margin-bottom:3px;text-transform:uppercase;letter-spacing:0.3px">Debug</div>' +
+            '<div style="display:flex;flex-direction:column;gap:3px;margin-bottom:6px">' +
+            '<label style="' + sRadioLabel + ';padding:3px 8px"><input type="checkbox" class="__dcp_diag_tpl" value="local_storage"> 🗄️ Dump localStorage</label>' +
+            '<label style="' + sRadioLabel + ';padding:3px 8px"><input type="checkbox" class="__dcp_diag_tpl" value="session_storage"> 📦 Dump sessionStorage</label>' +
+            '<label style="' + sRadioLabel + ';padding:3px 8px"><input type="checkbox" class="__dcp_diag_tpl" value="cookies"> 🍪 Dump cookies</label>' +
+            '<label style="' + sRadioLabel + ';padding:3px 8px"><input type="checkbox" class="__dcp_diag_tpl" value="auth_token"> 🔑 Check auth token</label>' +
+            '</div>' +
+
+            // Custom
+            '<div style="font-size:9px;font-weight:600;color:' + C.textSecondary + ';margin-bottom:3px;text-transform:uppercase;letter-spacing:0.3px">Custom</div>' +
+            '<div style="display:flex;flex-direction:column;gap:3px">' +
             '<label style="' + sRadioLabel + ';padding:3px 8px"><input type="checkbox" class="__dcp_diag_tpl" value="custom_js"> 💉 Custom JS diagnostic</label>' +
             '</div>' +
             '<div id="__dcp_diag_js_editor" style="display:none;margin-top:6px">' +
@@ -841,12 +904,31 @@
             }
         }
 
-        // Capture type → show/hide attribute input + refresh preview
+        // Capture type → show/hide attribute input + refresh preview + update check options
         var capRadios = overlay.querySelectorAll('input[name="__dcp_cap"]');
         for (var i = 0; i < capRadios.length; i++) {
             capRadios[i].addEventListener('change', function () {
                 var attrRow = document.getElementById('__dcp_attr_row');
                 if (attrRow) attrRow.style.display = this.value === 'attribute' ? 'block' : 'none';
+                // Update check type options based on capture type
+                var selectEl = document.getElementById('__dcp_check_type');
+                if (selectEl) selectEl.innerHTML = _buildCheckOptions(checkGroups, this.value);
+                // Populate attribute datalist from the element's actual attributes
+                if (this.value === 'attribute') {
+                    try {
+                        var targetEl = document.querySelector(ctx.selector);
+                        var datalist = document.getElementById('__dcp_attr_list');
+                        if (targetEl && datalist) {
+                            datalist.innerHTML = '';
+                            var attrs = targetEl.attributes;
+                            for (var ai = 0; ai < attrs.length; ai++) {
+                                var opt = document.createElement('option');
+                                opt.value = attrs[ai].name;
+                                datalist.appendChild(opt);
+                            }
+                        }
+                    } catch (_) { }
+                }
                 _refreshPreview(ctx.selector, this.value);
             });
         }
@@ -856,6 +938,19 @@
         if (attrInput) {
             attrInput.addEventListener('input', function () {
                 _refreshPreview(ctx.selector, 'attribute');
+            });
+        }
+
+        // Check type dropdown → refresh preview (updates OCR note for screenshot)
+        var checkTypeSelect = document.getElementById('__dcp_check_type');
+        if (checkTypeSelect) {
+            checkTypeSelect.addEventListener('change', function () {
+                var curCapType = 'text';
+                var cRadios = document.querySelectorAll('input[name="__dcp_cap"]');
+                for (var ci = 0; ci < cRadios.length; ci++) {
+                    if (cRadios[ci].checked) { curCapType = cRadios[ci].value; break; }
+                }
+                _refreshPreview(ctx.selector, curCapType);
             });
         }
 
@@ -968,7 +1063,13 @@
             if (!el) { previewEl.textContent = '[element not found]'; return; }
             var val = '';
             if (captureType === 'text') val = (el.textContent || '').trim();
-            else if (captureType === 'html') val = (el.innerHTML || '');
+            else if (captureType === 'html') {
+                val = (el.innerHTML || '');
+                // If innerHTML is just plain text (no markup), tell the user
+                if (val && val.trim() === (el.textContent || '').trim()) {
+                    val = val.trim() + '\n\n💡 This element contains plain text only — no inner HTML markup. Select "Text" to capture its content.';
+                }
+            }
             else if (captureType === 'value') val = el.value || '';
             else if (captureType === 'attribute') {
                 var attrName = (document.getElementById('__dcp_attr_name') || {}).value || 'class';
@@ -983,8 +1084,26 @@
                     classes: (el.className || '').slice(0, 100),
                 }, null, 2);
             }
-            else if (captureType === 'screenshot') val = '[screenshot — captured during replay]';
+            else if (captureType === 'screenshot') {
+                var rect = el.getBoundingClientRect();
+                var checkSel = document.getElementById('__dcp_check_type');
+                var checkVal = checkSel ? checkSel.value : '';
+                val = '📸 Capture area: ' + Math.round(rect.width) + ' × ' + Math.round(rect.height) + 'px\n' +
+                    'Position: (' + Math.round(rect.left) + ', ' + Math.round(rect.top) + ') from viewport top-left\n' +
+                    'Element: <' + el.tagName.toLowerCase() + (el.id ? ' id="' + el.id + '"' : '') + '>';
+                // Show OCR note for OCR-based checks
+                if (checkVal && checkVal.indexOf('ocr_') === 0) {
+                    val += '\n\n💡 Screenshot assertions use OCR (Tesseract) to extract text from the captured image. OCR is highly accurate for standard rendered text but may be imperfect for stylized fonts, very small text, or complex backgrounds.';
+                } else if (checkVal === 'capture_only') {
+                    val += '\n\n📷 Capture only — screenshot will be stored as a diagnostic artifact. No text assertion performed.';
+                }
+                // Show bounding box overlay on the page
+                _showScreenshotOverlay(rect);
+            }
             else if (captureType === 'console') val = '[console capture — logs captured during replay]';
+
+            // Remove screenshot overlay for non-screenshot types
+            if (captureType !== 'screenshot') _removeScreenshotOverlay();
 
             // textContent is safe — no HTML injection possible
             previewEl.textContent = val || '[empty]';
@@ -999,7 +1118,52 @@
         }
     }
 
+    /** Show a pulsing overlay on the page around the element's bounding box */
+    function _showScreenshotOverlay(rect) {
+        _removeScreenshotOverlay();
+        var ov = document.createElement('div');
+        ov.id = '__dcp_screenshot_overlay';
+        ov.style.cssText = [
+            'position:fixed',
+            'top:' + rect.top + 'px',
+            'left:' + rect.left + 'px',
+            'width:' + rect.width + 'px',
+            'height:' + rect.height + 'px',
+            'border:2px dashed #06b6d4',
+            'background:rgba(6,182,212,0.08)',
+            'z-index:2147483644',
+            'pointer-events:none',
+            'box-sizing:border-box',
+            'border-radius:3px',
+        ].join(';');
+        // Pulsing animation via inline style
+        ov.animate([
+            { borderColor: '#06b6d4', opacity: 1 },
+            { borderColor: '#22d3ee', opacity: 0.5 },
+            { borderColor: '#06b6d4', opacity: 1 },
+        ], { duration: 2000, iterations: Infinity });
+        // Dimension label
+        var label = document.createElement('div');
+        label.style.cssText = [
+            'position:absolute', 'bottom:-20px', 'left:0',
+            'font-size:10px', 'font-family:system-ui,sans-serif',
+            'background:#06b6d4', 'color:#fff',
+            'padding:1px 6px', 'border-radius:3px',
+            'white-space:nowrap',
+        ].join(';');
+        label.textContent = Math.round(rect.width) + ' × ' + Math.round(rect.height) + 'px';
+        ov.appendChild(label);
+        document.body.appendChild(ov);
+    }
+
+    /** Remove the screenshot bounding box overlay */
+    function _removeScreenshotOverlay() {
+        var existing = document.getElementById('__dcp_screenshot_overlay');
+        if (existing) existing.remove();
+    }
+
     function _closeAssertModal() {
+        _removeScreenshotOverlay();
         var overlay = document.getElementById('__dcp_assert_overlay');
         if (overlay) overlay.remove();
         // Resume recording

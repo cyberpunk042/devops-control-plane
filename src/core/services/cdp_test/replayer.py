@@ -1264,6 +1264,221 @@ def _execute_capture_screenshot(
     }
 
 
+def _execute_screenshot_assertion(
+    step: dict,
+    variables: dict[str, str],
+    *,
+    session,
+    run_id: str = "",
+    project_root: str = "",
+) -> dict:
+    """Execute a screenshot-based assertion using OCR.
+
+    Flow:
+        1. Capture element screenshot via CDP (reuses existing infra)
+        2. If check_type is ``capture_only`` → pass immediately
+        3. Otherwise → run Tesseract OCR to extract text
+        4. Evaluate extracted text against the assertion check type
+
+    Returns:
+        Standard step result dict with ``details.screenshot_path``,
+        ``details.ocr_text``, and assertion status.
+    """
+    import re as re_mod
+
+    start = time.monotonic()
+
+    # Step 1: Capture the element screenshot
+    screenshot_result = _execute_capture_screenshot(
+        step, variables, session=session,
+        run_id=run_id, project_root=project_root,
+    )
+
+    if screenshot_result["status"] == "failed":
+        return screenshot_result
+
+    screenshot_path = screenshot_result["details"].get("screenshot_path", "")
+
+    # Read assertion params from assert_config (graph mode, where recorder
+    # puts them), falling back to flat step fields for backward compat.
+    _ac = step.get("assert_config") or {}
+    check_type = _ac.get("check_type") or step.get("assertion_type", "ocr_text_contains")
+    if check_type == "capture_only":
+        elapsed_ms = int((time.monotonic() - start) * 1000)
+        return {
+            "status": "passed",
+            "duration_ms": elapsed_ms,
+            "error": None,
+            "details": {
+                "screenshot_path": screenshot_path,
+                "check_type": "capture_only",
+                "actual": "[screenshot captured — no assertion]",
+            },
+        }
+
+    # Step 3: Multi-level OCR dependency detection
+    # Level 1: System binary (tesseract-ocr)
+    # Level 2: Python wrapper (pytesseract)
+    # Level 3: Image library (Pillow)
+    import importlib.util
+    import shutil
+
+    missing_deps: list[dict] = []
+
+    # Level 1: tesseract binary
+    if not shutil.which("tesseract"):
+        missing_deps.append({
+            "level": 1,
+            "name": "tesseract-ocr",
+            "type": "system",
+            "description": "Tesseract OCR engine (system binary)",
+            "install_hint": "apt install tesseract-ocr",
+            "recipe_id": "tesseract",
+        })
+
+    # Level 2: pytesseract Python package
+    if not importlib.util.find_spec("pytesseract"):
+        missing_deps.append({
+            "level": 2,
+            "name": "pytesseract",
+            "type": "pip",
+            "description": "Python wrapper for Tesseract OCR",
+            "install_hint": "pip install pytesseract",
+            "recipe_id": "pytesseract",
+        })
+
+    # Level 3: Pillow (image loading)
+    if not importlib.util.find_spec("PIL"):
+        missing_deps.append({
+            "level": 3,
+            "name": "Pillow",
+            "type": "pip",
+            "description": "Image processing library (required for OCR input)",
+            "install_hint": "pip install Pillow",
+            "recipe_id": None,  # Pillow is a Pillow-specific dep, no recipe
+        })
+
+    if missing_deps:
+        elapsed_ms = int((time.monotonic() - start) * 1000)
+        # Build human-readable checklist
+        lines = ["Screenshot OCR assertions require dependencies that are not installed:"]
+        for dep in missing_deps:
+            lines.append(
+                f"  {'❌' if dep['type'] == 'system' else '📦'} "
+                f"Level {dep['level']}: {dep['name']} — {dep['description']}"
+            )
+            lines.append(f"     → {dep['install_hint']}")
+        lines.append("")
+        lines.append("Install these dependencies to enable OCR screenshot assertions.")
+
+        return {
+            "status": "failed",
+            "duration_ms": elapsed_ms,
+            "error": "\n".join(lines),
+            "details": {
+                "screenshot_path": screenshot_path,
+                "missing_dependencies": missing_deps,
+                "install_plan": {
+                    "tool": "pytesseract",
+                    "steps": [d for d in missing_deps],
+                    "can_auto_install": all(
+                        d["type"] == "pip" for d in missing_deps
+                    ),
+                },
+            },
+        }
+
+    import pytesseract
+    from PIL import Image
+
+    try:
+        img = Image.open(screenshot_path)
+        ocr_text = pytesseract.image_to_string(img).strip()
+    except Exception as exc:
+        elapsed_ms = int((time.monotonic() - start) * 1000)
+        return {
+            "status": "failed",
+            "duration_ms": elapsed_ms,
+            "error": f"OCR extraction failed: {exc}",
+            "details": {"screenshot_path": screenshot_path},
+        }
+
+    logger.info("OCR extracted %d chars from %s", len(ocr_text), screenshot_path)
+
+    # Step 4: Evaluate OCR text against expected value
+    expected = _resolve_variables(
+        _ac.get("expected") or step.get("assertion_expected", ""), variables,
+    )
+    case_sensitive = _ac.get("case_sensitive", step.get("case_sensitive", True))
+
+    actual_cmp = ocr_text if case_sensitive else ocr_text.lower()
+    expected_cmp = expected if case_sensitive else expected.lower()
+
+    passed = False
+    if check_type == "ocr_text_contains":
+        passed = expected_cmp in actual_cmp
+    elif check_type == "ocr_text_equals":
+        passed = actual_cmp == expected_cmp
+    elif check_type == "ocr_text_matches":
+        try:
+            flags = 0 if case_sensitive else re_mod.IGNORECASE
+            passed = bool(re_mod.search(expected, ocr_text, flags))
+        except re_mod.error as exc:
+            elapsed_ms = int((time.monotonic() - start) * 1000)
+            return {
+                "status": "failed",
+                "duration_ms": elapsed_ms,
+                "error": f"Invalid regex pattern: {exc}",
+                "details": {
+                    "screenshot_path": screenshot_path,
+                    "ocr_text": ocr_text,
+                },
+            }
+    else:
+        elapsed_ms = int((time.monotonic() - start) * 1000)
+        return {
+            "status": "failed",
+            "duration_ms": elapsed_ms,
+            "error": f"Unknown screenshot check type: {check_type}",
+            "details": {
+                "screenshot_path": screenshot_path,
+                "ocr_text": ocr_text,
+            },
+        }
+
+    elapsed_ms = int((time.monotonic() - start) * 1000)
+
+    if passed:
+        return {
+            "status": "passed",
+            "duration_ms": elapsed_ms,
+            "error": None,
+            "details": {
+                "screenshot_path": screenshot_path,
+                "ocr_text": ocr_text,
+                "actual": ocr_text,
+                "expected": expected,
+                "check_type": check_type,
+            },
+        }
+    else:
+        return {
+            "status": "failed",
+            "duration_ms": elapsed_ms,
+            "error": (
+                f"OCR assertion failed: expected {check_type.replace('ocr_text_', '')} "
+                f"'{expected}' but OCR extracted: '{ocr_text[:200]}'"
+            ),
+            "details": {
+                "screenshot_path": screenshot_path,
+                "ocr_text": ocr_text,
+                "actual": ocr_text,
+                "expected": expected,
+                "check_type": check_type,
+            },
+        }
+
+
 def _build_step_js(
     step: dict,
     variables: dict[str, str],
@@ -1525,6 +1740,15 @@ def _execute_step(
     action = step.get("action", "")
     if action in ("capture_screenshot", "diag_screenshot"):
         return _execute_capture_screenshot(
+            step, variables, session=session,
+            run_id=step.get("_run_id", ""),
+            project_root=step.get("_project_root", ""),
+        )
+
+    # ── Screenshot assertion via OCR (bypass JS path) ─────────
+    _ac = step.get("assert_config") or {}
+    if action == "assert" and _ac.get("capture_type") == "screenshot":
+        return _execute_screenshot_assertion(
             step, variables, session=session,
             run_id=step.get("_run_id", ""),
             project_root=step.get("_project_root", ""),
@@ -2242,6 +2466,40 @@ def replay_suite(
                 step.selector or step.value,
                 step_result.get("error", "unknown"),
             )
+
+            # ── Missing dependency remediation ──────────────────
+            # If the step failed because a tool/package is missing,
+            # emit a dedicated event so the frontend can auto-trigger
+            # the install flow via installWithPlan().
+            _missing_deps = step_result.get("details", {}).get(
+                "missing_dependencies",
+            )
+            if _missing_deps:
+                # Find the top-level recipe to install (the one that
+                # transitively pulls everything else via requires.binaries)
+                _recipe_id = None
+                _recipe_label = None
+                for _dep in _missing_deps:
+                    if _dep.get("recipe_id"):
+                        _recipe_id = _dep["recipe_id"]
+                        _recipe_label = _dep.get("description", _dep["name"])
+                        break
+                if _recipe_id:
+                    callback("cdp_test:missing_dependency", {
+                        "run_id": run_result.id,
+                        "step_id": step.id,
+                        "recipe_id": _recipe_id,
+                        "recipe_label": _recipe_label,
+                        "missing": [
+                            {
+                                "name": d["name"],
+                                "type": d["type"],
+                                "level": d["level"],
+                                "hint": d["install_hint"],
+                            }
+                            for d in _missing_deps
+                        ],
+                    })
 
             # If step is not optional and stop_on_failure is set, abort
             # In graph mode with assert_config, routing is handled below;

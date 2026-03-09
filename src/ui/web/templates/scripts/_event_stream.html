@@ -157,6 +157,7 @@
                 case 'server:restarting': this._onServerRestarting(payload); break;
                 case 'index:ready':    this._onIndexReady(payload);    break;
 
+
                 // Notification & error events → DOM CustomEvents
                 // Listened to by _notifications.html (fully decoupled)
                 case 'notification:new':
@@ -701,6 +702,8 @@
                 _resolvePeekLinks(previewCurrentPath, '', body);
             }
         },
+
+
 
         /**
          * Map run subtype → candidate card element IDs.

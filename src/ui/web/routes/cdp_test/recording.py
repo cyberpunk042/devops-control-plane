@@ -520,15 +520,29 @@ def cdp_test_record_event():
     }
 
     # Flatten assertion config into replayer-compatible step fields
+    # AND build a proper assert_config dict for model persistence.
     ac = data.get("assert_config")
     if ac:
         step_data["assertion_type"] = ac.get("check_type", "exists")
         step_data["assertion_expected"] = ac.get("expected", "")
         step_data["assertion_attribute"] = ac.get("attribute_name", "")
         step_data["case_sensitive"] = ac.get("case_sensitive", True)
+        step_data["capture_type"] = ac.get("capture_type", "text")
         on_fail = ac.get("on_fail", {})
         if on_fail:
             step_data["on_fail"] = on_fail
+
+        # Build structured assert_config so it survives save/load
+        # through the TestStep → AssertConfig model round-trip.
+        step_data["assert_config"] = {
+            "capture_type": ac.get("capture_type", "text"),
+            "capture_action": ac.get("capture_action", ""),
+            "check_type": ac.get("check_type", "exists"),
+            "attribute_name": ac.get("attribute_name", ""),
+            "expected": ac.get("expected", ""),
+            "case_sensitive": ac.get("case_sensitive", True),
+            "on_fail": on_fail if on_fail else {"mode": "fail"},
+        }
 
     step = session.add_step(step_data)
 
@@ -538,6 +552,93 @@ def cdp_test_record_event():
 
     if action in ("capture_screenshot", "capture_screenshot_full") and session.target_ws_url:
         _capture_screenshot_live(session, step)
+
+    # Also capture for assertion steps that use screenshot (OCR) capture
+    if (action == "assert"
+            and step_data.get("capture_type") == "screenshot"
+            and session.target_ws_url):
+        _capture_screenshot_live(session, step)
+
+        # ── Live OCR attempt ────────────────────────────────────
+        # Run OCR immediately so the user sees extracted text during recording.
+        # If deps are missing, emit remediation event.
+        import importlib.util
+        import shutil
+
+        missing_deps = []
+        if not shutil.which("tesseract"):
+            missing_deps.append({
+                "level": 1, "name": "tesseract-ocr", "type": "system",
+                "description": "Tesseract OCR engine (system binary)",
+                "install_hint": "apt install tesseract-ocr",
+                "recipe_id": "tesseract",
+            })
+        if not importlib.util.find_spec("pytesseract"):
+            missing_deps.append({
+                "level": 2, "name": "pytesseract", "type": "pip",
+                "description": "Python wrapper for Tesseract OCR",
+                "install_hint": "pip install pytesseract",
+                "recipe_id": "pytesseract",
+            })
+        if not importlib.util.find_spec("PIL"):
+            missing_deps.append({
+                "level": 3, "name": "Pillow", "type": "pip",
+                "description": "Image processing library",
+                "install_hint": "pip install Pillow",
+                "recipe_id": None,
+            })
+
+        if missing_deps:
+            step["ocr_status"] = "missing_deps"
+            step["missing_dependencies"] = missing_deps
+            # Emit remediation event so frontend can auto-install
+            _recipe_id = None
+            _recipe_label = None
+            for dep in missing_deps:
+                if dep.get("recipe_id"):
+                    _recipe_id = dep["recipe_id"]
+                    _recipe_label = dep.get("description", dep["name"])
+                    break
+            if _recipe_id:
+                from src.core.services.notifications import create_notification
+                from flask import current_app
+                create_notification(
+                    current_app.config["PROJECT_ROOT"],
+                    notif_type=f"missing_dep:{_recipe_id}",
+                    title=f"⚠️ Missing dependency: {_recipe_label}",
+                    message=(
+                        f"OCR requires {_recipe_label} which is not installed. "
+                        "Click to install."
+                    ),
+                    meta={
+                        "action": "install_dependency",
+                        "recipe_id": _recipe_id,
+                        "recipe_label": _recipe_label,
+                        "missing": [
+                            {"name": d["name"], "type": d["type"],
+                             "level": d["level"], "hint": d["install_hint"]}
+                            for d in missing_deps
+                        ],
+                    },
+                    dedup=True,
+                )
+        elif step.get("screenshot_path"):
+            # All deps present — run OCR
+            try:
+                import pytesseract
+                from PIL import Image
+                img = Image.open(step["screenshot_path"])
+                ocr_text = pytesseract.image_to_string(img).strip()
+                step["ocr_text"] = ocr_text
+                step["ocr_status"] = "ok"
+                logger.info(
+                    "Live OCR extracted %d chars from %s",
+                    len(ocr_text), step["screenshot_path"],
+                )
+            except Exception as exc:
+                step["ocr_status"] = "error"
+                step["ocr_error"] = str(exc)
+                logger.warning("Live OCR failed: %s", exc)
 
     if (action == "capture_console"
             and step_data.get("value") == "stop"

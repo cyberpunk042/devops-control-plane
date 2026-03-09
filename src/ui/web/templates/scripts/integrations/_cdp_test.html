@@ -416,6 +416,34 @@
                     title="Add diagnostic" style="font-size:0.65rem;padding:1px 5px;background:var(--bg-tertiary);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer">💉</button>
             </div>` : '';
         // Screenshot preview (from live capture during recording)
+        // ── Assertion detail block (ALL assert types) ────────────
+        let assertHtml = '';
+        if (step.action === 'assert') {
+            const captureType = step.capture_type || (step.assert_config || {}).capture_type || 'text';
+            const checkType = step.assertion_type || (step.assert_config || {}).check_type || '';
+            const expected = step.assertion_expected || (step.assert_config || {}).expected || '';
+            const caseSensitive = step.case_sensitive !== undefined ? step.case_sensitive
+                : (step.assert_config || {}).case_sensitive !== undefined ? (step.assert_config || {}).case_sensitive
+                : true;
+
+            const captureIcons = {
+                text: '📋', html: '📝', value: '🔢', attribute: '🏷️',
+                screenshot: '📸', state: '🔘', console: '🖥️',
+            };
+            const capIcon = captureIcons[captureType] || '📋';
+            const capLabel = captureType === 'screenshot' ? 'screenshot (OCR)' : captureType;
+            const checkLabel = checkType.replace(/_/g, ' ');
+
+            assertHtml = '<div style="margin-top:4px;padding:4px 8px;background:var(--bg-tertiary);border-radius:4px;border-left:3px solid #8b5cf6">'
+                + '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">'
+                + '<span style="font-size:0.62rem;padding:1px 6px;background:#8b5cf6;color:#fff;border-radius:8px;font-weight:600">' + capIcon + ' ' + esc(capLabel) + '</span>'
+                + (checkType ? '<span style="font-size:0.62rem;color:var(--text-secondary);font-weight:500">' + esc(checkLabel) + '</span>' : '')
+                + (!caseSensitive ? '<span style="font-size:0.58rem;padding:1px 4px;background:var(--bg-secondary);border-radius:4px;color:var(--text-muted)">Aa\u2195</span>' : '')
+                + '</div>'
+                + (expected ? '<div style="font-size:0.62rem;margin-top:3px;color:var(--text-secondary)">Expected: <code style="font-size:0.60rem;padding:1px 4px;background:var(--bg-secondary);border-radius:2px">' + esc(expected.slice(0, 100)) + (expected.length > 100 ? '\u2026' : '') + '</code></div>' : '')
+                + '</div>';
+        }
+
         let screenshotHtml = '';
         if (step.screenshot_path) {
             const filename = step.screenshot_path.split('/').pop();
@@ -453,7 +481,38 @@
             </div>`;
         }
 
-        const hasDetails = screenshotHtml || consoleHtml;
+        // ── OCR result (from live OCR during recording) ─────────
+        let ocrHtml = '';
+        if (step.ocr_status === 'ok' && step.ocr_text) {
+            const ocrUid = 'cdp-rec-ocr-' + sid;
+            const ocrPreview = esc(step.ocr_text.slice(0, 80));
+            const ocrFull = esc(step.ocr_text);
+            const isLong = step.ocr_text.length > 80;
+            ocrHtml = '<div style="margin-top:4px;padding:4px 8px;background:var(--bg-tertiary);border-radius:4px;border-left:3px solid #22c55e">'
+                + '<div style="font-size:0.62rem;color:#22c55e;font-weight:600;margin-bottom:2px">🔍 OCR text extracted</div>'
+                + '<code style="font-size:0.60rem;padding:1px 4px;background:var(--bg-secondary);border-radius:2px;word-break:break-all">' + ocrPreview + (isLong ? '…' : '') + '</code>'
+                + (isLong ? '<div onclick="var el=document.getElementById(\'' + ocrUid + '\');el.style.display=el.style.display===\'none\'?\'block\':\'none\'" style="cursor:pointer;font-size:0.58rem;color:var(--text-muted);margin-top:2px">▸ show full OCR text</div>'
+                    + '<pre id="' + ocrUid + '" style="display:none;margin-top:4px;padding:4px;font-size:0.58rem;background:var(--bg-secondary);border-radius:4px;max-height:150px;overflow-y:auto;white-space:pre-wrap;word-break:break-all">' + ocrFull + '</pre>' : '')
+                + '</div>';
+        } else if (step.ocr_status === 'missing_deps') {
+            // Map to the standard missingTools format used by renderMissingToolsInline
+            const missingTools = (step.missing_dependencies || [])
+                .filter(d => d.recipe_id)
+                .map(d => ({
+                    id: d.recipe_id,
+                    label: d.description || d.name,
+                    needs_sudo: d.type === 'system',
+                    has_recipe: true,
+                }));
+            ocrHtml = renderMissingToolsInline(missingTools);
+        } else if (step.ocr_status === 'error') {
+            ocrHtml = '<div style="margin-top:4px;padding:4px 8px;background:var(--bg-tertiary);border-radius:4px;border-left:3px solid #ef4444">'
+                + '<div style="font-size:0.62rem;color:#ef4444;font-weight:600">❌ OCR failed</div>'
+                + '<div style="font-size:0.58rem;color:var(--text-muted)">' + esc(step.ocr_error || 'Unknown error') + '</div>'
+                + '</div>';
+        }
+
+        const hasDetails = assertHtml || screenshotHtml || ocrHtml || consoleHtml;
 
         return `<div class="card-detect-row cdp-rec-step-row" style="font-size:0.78rem;display:flex;align-items:${hasDetails ? 'flex-start' : 'center'};gap:0.5rem;flex-wrap:${hasDetails ? 'wrap' : 'nowrap'}" data-step-id="${sid}" data-step-sequence="${step.sequence}">
             <span style="font-size:0.72rem;color:var(--text-muted);min-width:1.5rem;text-align:right">${step.sequence + 1}</span>
@@ -461,7 +520,7 @@
             <span style="font-weight:500;min-width:3.5rem">${esc(step.action)}</span>
             <span style="color:var(--text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">${esc(desc)}</span>
             ${toolbar}
-            ${hasDetails ? `<div style="width:100%;padding-left:5rem">${screenshotHtml}${consoleHtml}</div>` : ''}
+            ${hasDetails ? `<div style="width:100%;padding-left:5rem">${assertHtml}${screenshotHtml}${ocrHtml}${consoleHtml}</div>` : ''}
         </div>`;
     }
 
@@ -699,19 +758,47 @@
                         </label>
                         <div id="cdp-assert-diag-panel" style="display:none;margin-top:8px;padding:10px 12px;background:var(--bg-secondary);border:1px solid var(--border-subtle);border-radius:8px">
                             <div style="font-size:0.72rem;font-weight:600;color:var(--text-secondary);margin-bottom:8px">Diagnostic templates</div>
-                            <div style="display:flex;flex-direction:column;gap:4px">
+                            <!-- Capture diagnostics -->
+                            <div style="font-size:0.65rem;font-weight:600;color:var(--text-secondary);margin-bottom:3px;text-transform:uppercase;letter-spacing:0.3px">Capture</div>
+                            <div style="display:flex;flex-direction:column;gap:4px;margin-bottom:8px">
                                 <label style="display:flex;align-items:center;gap:6px;font-size:0.78rem;cursor:pointer;padding:4px 8px;background:var(--bg-tertiary);border-radius:6px">
-                                    <input type="checkbox" class="cdp-diag-tpl" value="screenshot" checked> 📸 Screenshot
+                                    <input type="checkbox" class="cdp-diag-tpl" value="screenshot_element" checked> 📸 Element screenshot
+                                </label>
+                                <label style="display:flex;align-items:center;gap:6px;font-size:0.78rem;cursor:pointer;padding:4px 8px;background:var(--bg-tertiary);border-radius:6px">
+                                    <input type="checkbox" class="cdp-diag-tpl" value="screenshot_full"> 🖼️ Full page screenshot
                                 </label>
                                 <label style="display:flex;align-items:center;gap:6px;font-size:0.78rem;cursor:pointer;padding:4px 8px;background:var(--bg-tertiary);border-radius:6px">
                                     <input type="checkbox" class="cdp-diag-tpl" value="console"> 🖥️ Console dump
                                 </label>
                                 <label style="display:flex;align-items:center;gap:6px;font-size:0.78rem;cursor:pointer;padding:4px 8px;background:var(--bg-tertiary);border-radius:6px">
-                                    <input type="checkbox" class="cdp-diag-tpl" value="element_state"> 🔍 Element state (styles, attrs)
+                                    <input type="checkbox" class="cdp-diag-tpl" value="element_state"> 🔍 Element state (styles, attrs, rect)
                                 </label>
                                 <label style="display:flex;align-items:center;gap:6px;font-size:0.78rem;cursor:pointer;padding:4px 8px;background:var(--bg-tertiary);border-radius:6px">
                                     <input type="checkbox" class="cdp-diag-tpl" value="page_html"> 📄 Page HTML snapshot
                                 </label>
+                                <label style="display:flex;align-items:center;gap:6px;font-size:0.78rem;cursor:pointer;padding:4px 8px;background:var(--bg-tertiary);border-radius:6px">
+                                    <input type="checkbox" class="cdp-diag-tpl" value="network_stack"> 🌐 Network request stack
+                                </label>
+                            </div>
+                            <!-- Debug diagnostics -->
+                            <div style="font-size:0.65rem;font-weight:600;color:var(--text-secondary);margin-bottom:3px;text-transform:uppercase;letter-spacing:0.3px">Debug</div>
+                            <div style="display:flex;flex-direction:column;gap:4px;margin-bottom:8px">
+                                <label style="display:flex;align-items:center;gap:6px;font-size:0.78rem;cursor:pointer;padding:4px 8px;background:var(--bg-tertiary);border-radius:6px">
+                                    <input type="checkbox" class="cdp-diag-tpl" value="local_storage"> 🗄️ Dump localStorage
+                                </label>
+                                <label style="display:flex;align-items:center;gap:6px;font-size:0.78rem;cursor:pointer;padding:4px 8px;background:var(--bg-tertiary);border-radius:6px">
+                                    <input type="checkbox" class="cdp-diag-tpl" value="session_storage"> 📦 Dump sessionStorage
+                                </label>
+                                <label style="display:flex;align-items:center;gap:6px;font-size:0.78rem;cursor:pointer;padding:4px 8px;background:var(--bg-tertiary);border-radius:6px">
+                                    <input type="checkbox" class="cdp-diag-tpl" value="cookies"> 🍪 Dump cookies
+                                </label>
+                                <label style="display:flex;align-items:center;gap:6px;font-size:0.78rem;cursor:pointer;padding:4px 8px;background:var(--bg-tertiary);border-radius:6px">
+                                    <input type="checkbox" class="cdp-diag-tpl" value="auth_token"> 🔑 Check auth token
+                                </label>
+                            </div>
+                            <!-- Custom diagnostics -->
+                            <div style="font-size:0.65rem;font-weight:600;color:var(--text-secondary);margin-bottom:3px;text-transform:uppercase;letter-spacing:0.3px">Custom</div>
+                            <div style="display:flex;flex-direction:column;gap:4px">
                                 <label style="display:flex;align-items:center;gap:6px;font-size:0.78rem;cursor:pointer;padding:4px 8px;background:var(--bg-tertiary);border-radius:6px">
                                     <input type="checkbox" class="cdp-diag-tpl" value="custom_js"> 💉 Custom JS diagnostic
                                 </label>
@@ -1157,6 +1244,10 @@
                 }
             } catch (_) {}
         });
+
+        // NOTE: cdp_test:missing_dependency is handled by the main
+        // event stream (_event_stream.html → _onMissingDependency)
+        // which auto-triggers installWithPlan(). No duplicate here.
     }
 
 
@@ -1998,6 +2089,10 @@
                 }
             } catch (_) {}
         });
+
+        // NOTE: missing dependency remediation is handled by the
+        // notification system (_notifications.html → install_dependency action).
+        // No direct SSE listener needed here.
     }
 
 
