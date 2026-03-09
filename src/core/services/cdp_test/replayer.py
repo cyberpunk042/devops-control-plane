@@ -1849,26 +1849,38 @@ def _execute_step(
 # ── Target tab verification ───────────────────────────────────
 
 
-def _verify_target_tab(target_id: str) -> str | None:
+def _verify_target_tab(
+    target_id: str,
+    *,
+    cdp_port: int | None = None,
+) -> str | None:
     """Verify the target tab is alive and return its WS URL.
+
+    Args:
+        cdp_port: When provided, query this Chrome instance instead of
+                  the global endpoint.
 
     Returns:
         The webSocketDebuggerUrl string, or None if tab not found.
     """
     from src.ui.web import cdp_client
 
-    targets = cdp_client.get_targets()
+    targets = cdp_client.get_targets(port=cdp_port)
     for t in targets:
         if t.get("id") == target_id:
             return t.get("webSocketDebuggerUrl")
     return None
 
 
-def _find_dcp_tab() -> str | None:
-    """Find the DCP admin panel tab's target ID (for re-activating after replay)."""
+def _find_dcp_tab(*, cdp_port: int | None = None) -> str | None:
+    """Find the DCP admin panel tab's target ID (for re-activating after replay).
+
+    When replaying against a separate Chrome instance (cdp_port is set),
+    the DCP tab won't exist in that browser — returns None gracefully.
+    """
     from src.ui.web import cdp_client
 
-    targets = cdp_client.get_targets()
+    targets = cdp_client.get_targets(port=cdp_port)
     dcp = cdp_client.find_target_by_url(targets, "localhost:8000")
     if dcp:
         return dcp.get("id")
@@ -1951,6 +1963,7 @@ def replay_suite(
     min_step_delay_ms: int | None = None,
     keep_background: bool = False,
     project_root: str = "",
+    cdp_port: int | None = None,
 ) -> TestRunResult:
     """Execute a full test suite against the target tab.
 
@@ -2000,11 +2013,11 @@ def replay_suite(
 
     # Remember DCP tab for switching back
     if dcp_tab_id is None:
-        dcp_tab_id = _find_dcp_tab()
+        dcp_tab_id = _find_dcp_tab(cdp_port=cdp_port)
 
     # ── Verify and activate target tab ───────────────────────
     if not ws_url:
-        ws_url = _verify_target_tab(target_id)
+        ws_url = _verify_target_tab(target_id, cdp_port=cdp_port)
     if not ws_url:
         run_result.status = "error"
         run_result.error = f"Target tab not found (id={target_id}). Was it closed?"
@@ -2671,6 +2684,7 @@ def start_replay(
     visual_delay_ms: int | None = None,
     min_step_delay_ms: int | None = None,
     keep_background: bool = False,
+    cdp_port: int | None = None,
 ) -> TestRunResult | str:
     """Start replaying a suite in a background thread.
 
@@ -2736,6 +2750,7 @@ def start_replay(
                 min_step_delay_ms=min_step_delay_ms,
                 keep_background=keep_background,
                 project_root=str(project_root) if project_root else "",
+                cdp_port=cdp_port,
             )
             result_holder.append(result)
 

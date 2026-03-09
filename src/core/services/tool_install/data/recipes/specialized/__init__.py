@@ -1,9 +1,12 @@
 """
-L0 Data — Specialized tool recipes (devtools, media, docs, config, build tools).
+L0 Data — Specialized tool recipes (devtools, media, docs, config, build tools, browser).
 """
 
 from __future__ import annotations
 
+from src.core.services.tool_install.data.recipes.specialized.browser import (
+    _BROWSER_RECIPES,
+)
 from src.core.services.tool_install.data.recipes.specialized.build_tools import (
     _BUILD_TOOLS_RECIPES,
 )
@@ -18,6 +21,7 @@ from src.core.services.tool_install.data.recipes.specialized.media_docs import (
 )
 
 _SPECIALIZED_RECIPES: dict[str, dict] = {
+    **_BROWSER_RECIPES,
     **_DEVTOOLS_RECIPES,
     **_MEDIA_DOCS_RECIPES,
     **_CONFIG_RECIPES,

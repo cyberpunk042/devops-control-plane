@@ -2168,6 +2168,36 @@
                 When off, replay pauses if you leave the target tab. When on, it keeps running regardless.
             </div>
 
+            <!-- Browser mode -->
+            <div style="font-size:0.78rem;font-weight:600;margin-bottom:var(--space-xs);color:var(--text-secondary)">🌐 Browser</div>
+            <div style="display:flex;flex-direction:column;gap:var(--space-xs);margin-bottom:var(--space-sm)">
+                <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.78rem;cursor:pointer">
+                    <input type="radio" name="cdp-cfg-browser-mode" value="same" checked
+                        onchange="_cdpTestBrowserModeChanged()"
+                        style="width:16px;height:16px;accent-color:#8b5cf6">
+                    <span>🖥️ Same Browser</span>
+                    <span style="font-size:0.65rem;color:var(--text-muted)">— replay in your current browser tab</span>
+                </label>
+                <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.78rem;cursor:pointer">
+                    <input type="radio" name="cdp-cfg-browser-mode" value="separate"
+                        onchange="_cdpTestBrowserModeChanged()"
+                        style="width:16px;height:16px;accent-color:#8b5cf6">
+                    <span>🧪 Separate Browser</span>
+                    <span style="font-size:0.65rem;color:var(--text-muted)">— launch a fresh Chrome instance</span>
+                </label>
+            </div>
+            <div id="cdp-cfg-separate-opts" style="display:none;margin-bottom:var(--space-md);padding:8px 12px;background:var(--bg-tertiary);border-radius:6px">
+                <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.75rem;cursor:pointer;margin-bottom:var(--space-xs)">
+                    <input id="cdp-cfg-headless" type="checkbox"
+                        style="width:14px;height:14px;accent-color:#8b5cf6">
+                    <span>Headless mode</span>
+                    <span style="font-size:0.6rem;color:var(--text-muted)">(no visible window)</span>
+                </label>
+                <div id="cdp-cfg-chrome-status" style="font-size:0.68rem;color:var(--text-muted);margin-top:var(--space-xs)">
+                    ⏳ Checking Chrome availability…
+                </div>
+            </div>
+
             <!-- Tab status -->
             <div id="cdp-cfg-tab-status" style="font-size:0.72rem;color:var(--text-muted);margin-bottom:var(--space-md);padding:8px 12px;background:var(--bg-tertiary);border-radius:6px">
                 🔍 Checking target tab…
@@ -2224,6 +2254,34 @@
     /** Called from the config modal Execute button */
     let _cdpTestLastOverrides = null;  // Saved for "Replay Again"
 
+    /** Toggle visibility of separate browser options */
+    function _cdpTestBrowserModeChanged() {
+        const mode = document.querySelector('input[name="cdp-cfg-browser-mode"]:checked')?.value;
+        const opts = document.getElementById('cdp-cfg-separate-opts');
+        if (opts) opts.style.display = mode === 'separate' ? 'block' : 'none';
+        if (mode === 'separate') _cdpTestCheckChromeStatus();
+    }
+
+    /** Check Chrome availability when separate mode is selected */
+    async function _cdpTestCheckChromeStatus() {
+        const el = document.getElementById('cdp-cfg-chrome-status');
+        if (!el) return;
+        el.textContent = '⏳ Checking Chrome availability…';
+        try {
+            const res = await api('/tab-mesh/chrome-status');
+            if (res.available) {
+                el.innerHTML = `✅ Chrome ready — <code style="font-size:0.65rem">${esc(res.binary || 'detected')}</code>`;
+            } else {
+                el.innerHTML = '❌ Chrome not installed. Install via <strong>Audit → Tool Install</strong>.';
+            }
+        } catch {
+            el.textContent = '⚠️ Could not check Chrome status';
+        }
+    }
+
+    /** Track launched browser port for cleanup */
+    let _cdpTestLaunchedPort = null;
+
     async function _cdpTestExecuteFromConfig() {
         const suiteId = document.getElementById('cdp-cfg-suite-id')?.value;
         if (!suiteId) return;
@@ -2236,9 +2294,50 @@
         };
         // Persist background preference for next time
         localStorage.setItem('cdp-replay-keep-bg', String(overrides.keep_background));
-        _cdpTestLastOverrides = overrides;  // Preserve for Replay Again
+        _cdpTestLastOverrides = overrides;
 
-        // Remove the config overlay — the CDP Test Recorder modal stays open
+        // Check browser mode
+        const browserMode = document.querySelector('input[name="cdp-cfg-browser-mode"]:checked')?.value || 'same';
+
+        if (browserMode === 'separate') {
+            const headless = document.getElementById('cdp-cfg-headless')?.checked ?? false;
+            const suite = _cdpTestSuites?.find(s => s.id === suiteId);
+            const targetUrl = suite?.target_url || '';
+
+            // Update config overlay to show launch status
+            const statusEl = document.getElementById('cdp-cfg-chrome-status');
+            if (statusEl) statusEl.textContent = '🚀 Launching Chrome…';
+
+            try {
+                const launchRes = await api('/cdp-test/launch-browser', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ headless, url: targetUrl }),
+                });
+
+                if (!launchRes.ok) {
+                    toast(launchRes.error || 'Failed to launch Chrome', 'error');
+                    if (statusEl) statusEl.textContent = `❌ ${launchRes.error || 'Launch failed'}`;
+                    return;
+                }
+
+                _cdpTestLaunchedPort = launchRes.port;
+                overrides.cdp_port = launchRes.port;
+                if (statusEl) statusEl.textContent = `✅ Chrome launched on port ${launchRes.port}`;
+
+                // Give Chrome a moment to fully initialize
+                await new Promise(r => setTimeout(r, 1500));
+
+            } catch (e) {
+                toast('Failed to launch Chrome: ' + e.message, 'error');
+                if (statusEl) statusEl.textContent = '❌ Launch error';
+                return;
+            }
+        } else {
+            _cdpTestLaunchedPort = null;
+        }
+
+        // Remove the config overlay — the CDP Test panel stays open
         document.getElementById('cdp-replay-config-overlay')?.remove();
         await _cdpTestExecuteReplay(suiteId, overrides);
     }
@@ -2255,6 +2354,7 @@
                     visual_delay_ms: overrides?.visual_delay_ms ?? null,
                     min_step_delay_ms: overrides?.min_step_delay_ms ?? null,
                     keep_background: overrides?.keep_background ?? false,
+                    cdp_port: overrides?.cdp_port ?? null,
                 }),
             });
 
@@ -2694,11 +2794,21 @@
         }
         if (controls) {
             const replaySuiteId = document.getElementById('cdp-replay-suite-id')?.value || '';
-            controls.innerHTML = `
+            let controlsHtml = `
                 <span style="font-size:0.75rem;color:var(--text-muted)">${duration}</span>
                 ${replaySuiteId ? `<button class="btn btn-sm btn-primary" onclick="_cdpTestShowReplayConfig('${replaySuiteId}', _cdpTestLastOverrides)">🔄 Replay Again</button>` : ''}
                 <button class="btn btn-sm btn-secondary" onclick="_cdpTestRenderHome()">← Back</button>
             `;
+            // If a separate browser was launched, offer cleanup
+            if (_cdpTestLaunchedPort) {
+                controlsHtml += `
+                    <button class="btn btn-sm btn-secondary" id="cdp-replay-kill-browser"
+                        onclick="_cdpTestKillLaunchedBrowser()" style="color:var(--warning)">
+                        🗑️ Close test browser
+                    </button>
+                `;
+            }
+            controls.innerHTML = controlsHtml;
         }
 
         // Update progress bar to final state
@@ -2723,6 +2833,32 @@
         } else {
             toast(`Replay ${status}: ${passed}/${total} passed, ${failed} failed`, 'error');
         }
+    }
+
+
+    /** Kill the separate Chrome instance that was launched for replay */
+    async function _cdpTestKillLaunchedBrowser() {
+        if (!_cdpTestLaunchedPort) return;
+        const btn = document.getElementById('cdp-replay-kill-browser');
+        if (btn) btn.disabled = true;
+        try {
+            const res = await api('/cdp-test/kill-browser', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ port: _cdpTestLaunchedPort }),
+            });
+            if (res.ok) {
+                toast('Test browser closed', 'info');
+                if (btn) btn.remove();
+            } else {
+                toast(res.error || 'Failed to close browser', 'error');
+                if (btn) btn.disabled = false;
+            }
+        } catch (e) {
+            toast('Error closing browser: ' + e.message, 'error');
+            if (btn) btn.disabled = false;
+        }
+        _cdpTestLaunchedPort = null;
     }
 
 

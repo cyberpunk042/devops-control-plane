@@ -74,29 +74,81 @@ from src.core.services.chrome.shortcuts import (
 def kill_chrome():
     """Force-kill all Chrome processes.
 
+    Environment-aware: delegates to ChromeLauncher.kill_all() which
+    uses taskkill.exe on WSL or pkill on native Linux.
+
     Returns::
 
         { "killed": true/false, "message": "..." }
     """
-    if not _is_wsl():
-        return jsonify({"killed": False, "message": "Not running under WSL"}), 400
-
+    from src.core.services.chrome.launcher import get_launcher
     try:
-        r = subprocess.run(
-            ["taskkill.exe", "/F", "/IM", "chrome.exe"],
-            capture_output=True, text=True, timeout=10,
-        )
-        killed = r.returncode == 0 or "not found" in r.stderr.lower()
+        killed = get_launcher().kill_all()
         return jsonify({
             "killed": killed,
             "message": (
                 "All Chrome processes terminated."
-                if r.returncode == 0
+                if killed
                 else "Chrome was not running."
             ),
         })
     except Exception as exc:
         return jsonify({"killed": False, "message": str(exc)}), 500
+
+
+@tab_mesh_bp.route("/tab-mesh/chrome-status")
+def chrome_status():
+    """Check Chrome availability and create a notification if missing.
+
+    Returns the output of ``require_chrome()``. If Chrome is not
+    available, also creates a deduplicated ``chrome_missing``
+    notification with installation guidance.
+
+    Returns::
+
+        {
+            "available": true/false,
+            "binary": "...",
+            "version": "...",
+            "environment": "wsl" | "linux",
+            "install_plan": { ... }  // only when available=False
+        }
+    """
+    from src.core.services.chrome.launcher import require_chrome
+
+    status = require_chrome()
+
+    if not status["available"]:
+        # Create a notification with remediation guidance
+        from flask import current_app
+        from src.core.services.notifications import create_notification
+
+        project_root = Path(current_app.config["PROJECT_ROOT"])
+        install_plan = status.get("install_plan", {})
+        steps = install_plan.get("steps", [])
+        step_text = steps[0].get("command", "") if steps else ""
+
+        create_notification(
+            project_root,
+            notif_type="chrome_missing",
+            title="Chrome Not Installed",
+            message=(
+                "Chrome is required for CDP-based tab management, "
+                "test recording, and browser automation. "
+                f"Install it via: {step_text}"
+                if step_text
+                else "Chrome is required but not installed. "
+                "Use the Audit → Tool Install panel to set it up."
+            ),
+            meta={
+                "action_tab": "audit",
+                "action_hash": "#audit",
+                "install_plan": install_plan,
+            },
+            dedup=True,
+        )
+
+    return jsonify(status)
 
 
 @tab_mesh_bp.route("/tab-mesh/restart-chrome", methods=["POST"])

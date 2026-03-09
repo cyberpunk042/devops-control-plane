@@ -127,9 +127,20 @@ def _curl_exe_put(url: str, timeout: float = 2.0) -> str | None:
         return None
 
 
-def _get_json(path: str, timeout: float = 1.0) -> dict | list | None:
-    """GET a Chrome JSON API endpoint.  Returns parsed JSON or None."""
-    url = f"{_base_url()}{path}"
+def _get_json(
+    path: str,
+    timeout: float = 1.0,
+    *,
+    port: int | None = None,
+) -> dict | list | None:
+    """GET a Chrome JSON API endpoint.  Returns parsed JSON or None.
+
+    Args:
+        port: When provided, target ``http://localhost:{port}`` instead
+              of the global endpoint.  Used for multi-instance support.
+    """
+    base = f"http://localhost:{port}" if port is not None else _base_url()
+    url = f"{base}{path}"
 
     # WSL2: skip direct HTTP (always fails), go straight to curl.exe
     if _detect_wsl2():
@@ -150,9 +161,20 @@ def _get_json(path: str, timeout: float = 1.0) -> dict | list | None:
         return None
 
 
-def _get_raw(path: str, timeout: float = 1.0) -> str | None:
-    """GET a Chrome debugging endpoint, return raw text or None."""
-    url = f"{_base_url()}{path}"
+def _get_raw(
+    path: str,
+    timeout: float = 1.0,
+    *,
+    port: int | None = None,
+) -> str | None:
+    """GET a Chrome debugging endpoint, return raw text or None.
+
+    Args:
+        port: When provided, target ``http://localhost:{port}`` instead
+              of the global endpoint.
+    """
+    base = f"http://localhost:{port}" if port is not None else _base_url()
+    url = f"{base}{path}"
 
     # WSL2: skip direct HTTP (always fails), go straight to curl.exe
     if _detect_wsl2():
@@ -170,14 +192,21 @@ def _get_raw(path: str, timeout: float = 1.0) -> str | None:
 # ── Public API ────────────────────────────────────────────────
 
 
-def is_available() -> bool:
-    """Check if Chrome's debugging endpoint is reachable."""
-    version = _get_json("/json/version", timeout=0.5)
+def is_available(*, port: int | None = None) -> bool:
+    """Check if Chrome's debugging endpoint is reachable.
+
+    Args:
+        port: Target a specific Chrome instance instead of the global one.
+    """
+    version = _get_json("/json/version", timeout=0.5, port=port)
     return version is not None
 
 
-def get_version() -> dict | None:
+def get_version(*, port: int | None = None) -> dict | None:
     """Return Chrome version info, or None if unreachable.
+
+    Args:
+        port: Target a specific Chrome instance instead of the global one.
 
     Example response::
 
@@ -189,11 +218,14 @@ def get_version() -> dict | None:
             "WebKit-Version": "..."
         }
     """
-    return _get_json("/json/version")
+    return _get_json("/json/version", port=port)
 
 
-def get_targets() -> list[dict]:
+def get_targets(*, port: int | None = None) -> list[dict]:
     """Return all open browser targets (tabs, extensions, etc).
+
+    Args:
+        port: Target a specific Chrome instance instead of the global one.
 
     Each target is a dict with at least::
 
@@ -209,7 +241,7 @@ def get_targets() -> list[dict]:
 
     Returns an empty list if CDP is unreachable.
     """
-    result = _get_json("/json")
+    result = _get_json("/json", port=port)
     if isinstance(result, list):
         return result
     return []
@@ -246,15 +278,18 @@ def find_target_by_url(
     return None
 
 
-def activate_target(target_id: str) -> bool:
+def activate_target(target_id: str, *, port: int | None = None) -> bool:
     """Bring a tab to the foreground by its target ID.
 
     Uses Chrome's ``/json/activate/{id}`` endpoint.
 
+    Args:
+        port: Target a specific Chrome instance instead of the global one.
+
     Returns:
         True if activation succeeded, False otherwise.
     """
-    raw = _get_raw(f"/json/activate/{target_id}", timeout=1.0)
+    raw = _get_raw(f"/json/activate/{target_id}", timeout=1.0, port=port)
     if raw is not None:
         logger.info("CDP activated target: %s", target_id)
         return True
@@ -262,17 +297,21 @@ def activate_target(target_id: str) -> bool:
     return False
 
 
-def create_tab(url: str) -> dict | None:
+def create_tab(url: str, *, port: int | None = None) -> dict | None:
     """Open a new browser tab via CDP.
 
     Uses the ``PUT /json/new?url`` endpoint (PUT required by Chrome).
+
+    Args:
+        port: Target a specific Chrome instance instead of the global one.
 
     Returns:
         The target dict for the new tab, or None on failure.
     """
     from urllib.parse import quote
     path = f"/json/new?{quote(url, safe='/:?=&%')}"
-    full_url = f"{_base_url()}{path}"
+    base = f"http://localhost:{port}" if port is not None else _base_url()
+    full_url = f"{base}{path}"
 
     # Try direct PUT first
     try:

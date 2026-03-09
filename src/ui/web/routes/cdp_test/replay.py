@@ -35,6 +35,7 @@ def cdp_test_replay_start():
             "suite_id": "abc-123",
             "target_id": "CHROME-TARGET-ID",      // optional — auto-detect from suite URL
             "variables": { "PASSWORD": "secret" }, // optional overrides
+            "cdp_port": 9223,                      // optional — target a specific Chrome instance
         }
 
     Returns::
@@ -73,6 +74,11 @@ def cdp_test_replay_start():
     if suite is None:
         return jsonify({"ok": False, "error": f"Suite '{suite_id}' not found"}), 404
 
+    # ── Optional: target a specific Chrome instance ────────────
+    cdp_port = data.get("cdp_port")  # None = use global endpoint
+    if cdp_port is not None:
+        cdp_port = int(cdp_port)
+
     # ── Resolve target tab ────────────────────────────────────
     target_id = data.get("target_id")
     targets = None  # Fetched on demand, reused to avoid extra curl.exe calls
@@ -85,7 +91,7 @@ def cdp_test_replay_start():
                 "error": "No target_id provided and suite has no target_url",
             }), 400
 
-        targets = cdp_client.get_targets()
+        targets = cdp_client.get_targets(port=cdp_port)
         if not targets:
             return jsonify({
                 "ok": False,
@@ -110,7 +116,7 @@ def cdp_test_replay_start():
                 "No tab matches '%s', creating one via CDP",
                 suite.target_url,
             )
-            new_tab = cdp_client.create_tab(suite.target_url)
+            new_tab = cdp_client.create_tab(suite.target_url, port=cdp_port)
             if not new_tab or "id" not in new_tab:
                 return jsonify({
                     "ok": False,
@@ -131,7 +137,7 @@ def cdp_test_replay_start():
     # ── Verify target tab exists & extract ws_url ─────────────
     # Reuse the targets list we already fetched (avoid extra curl.exe call)
     if not targets:
-        targets = cdp_client.get_targets()
+        targets = cdp_client.get_targets(port=cdp_port)
     tab_entry = None
     for t in (targets or []):
         if t.get("id") == target_id:
@@ -178,6 +184,7 @@ def cdp_test_replay_start():
         visual_delay_ms=visual_delay_ms,
         min_step_delay_ms=min_step_delay_ms,
         keep_background=keep_background,
+        cdp_port=cdp_port,
     )
 
     if isinstance(result, TestRunResult):

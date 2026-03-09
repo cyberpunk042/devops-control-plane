@@ -40,3 +40,4 @@ def _cors_for_record_event(response):
 from src.ui.web.routes.cdp_test import suites as _suites  # noqa: F401, E402
 from src.ui.web.routes.cdp_test import recording as _recording  # noqa: F401, E402
 from src.ui.web.routes.cdp_test import replay as _replay  # noqa: F401, E402
+from src.ui.web.routes.cdp_test import browser as _browser  # noqa: F401, E402

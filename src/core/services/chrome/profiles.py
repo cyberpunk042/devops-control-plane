@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import shutil
 from pathlib import Path
 
@@ -34,6 +35,52 @@ def chrome_debug_data_dir_win(windows_user: str) -> str:
     profile there on first launch.
     """
     return f"C:\\Users\\{windows_user}\\AppData\\Local\\Google\\ChromeDebug"
+
+
+def create_temp_profile_dir(port: int) -> str:
+    """Create a temporary Chrome profile directory for Linux.
+
+    Creates ``/tmp/chrome-debug-{port}/`` with a ``First Run``
+    sentinel file and default ``Preferences`` to suppress
+    first-run dialogs and default-browser checks.
+
+    Each port gets its own directory to avoid profile locking
+    conflicts between simultaneous Chrome instances.
+
+    Args:
+        port: The debug port, used to namespace the directory.
+
+    Returns:
+        Absolute path to the created profile directory.
+    """
+    profile_dir = f"/tmp/chrome-debug-{port}"
+    os.makedirs(profile_dir, exist_ok=True)
+
+    # Write the "First Run" sentinel so Chrome skips the welcome flow
+    first_run = os.path.join(profile_dir, "First Run")
+    if not os.path.exists(first_run):
+        with open(first_run, "w") as f:
+            f.write("")
+
+    # Write minimal Preferences to suppress default-browser check
+    # and restore-pages prompt
+    prefs_path = os.path.join(profile_dir, "Default", "Preferences")
+    prefs_dir = os.path.dirname(prefs_path)
+    os.makedirs(prefs_dir, exist_ok=True)
+    if not os.path.exists(prefs_path):
+        prefs = {
+            "browser": {
+                "check_default_browser": False,
+            },
+            "session": {
+                "restore_on_startup": 4,  # 4 = open blank page
+            },
+        }
+        with open(prefs_path, "w", encoding="utf-8") as f:
+            json.dump(prefs, f)
+
+    logger.info("Temp profile dir ready: %s", profile_dir)
+    return profile_dir
 
 
 def read_chrome_profiles(data_dir: str) -> list[dict]:
