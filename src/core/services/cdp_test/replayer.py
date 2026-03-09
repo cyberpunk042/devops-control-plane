@@ -1012,6 +1012,7 @@ def replay_suite(
                         "run_id": run_result.id,
                         "step_id": step.id,
                         "sequence": step.sequence,
+                        "target_id": target_id,
                         "reason": "Tab not visible",
                     })
                     logger.info("Replay paused — target tab hidden (step %d)", i + 1)

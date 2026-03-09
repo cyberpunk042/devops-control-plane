@@ -9,6 +9,7 @@
     let _cdpTestCurrentView = 'home';    // 'home' | 'recording' | 'validation' | 'replay'
     let _cdpBridgeReady = false;          // true once the PS bridge is warm
     let _cdpTestSuites = null;            // Cached suite list for config modal
+    let _cdpTestReplayActive = false;     // true while replay is running
 
     // ── Main Modal Entry Point ───────────────────────────────────────
 
@@ -158,7 +159,7 @@
                         <div style="font-size:0.62rem;color:var(--text-muted)">${esc(lastRun)}</div>
                     </div>
                     <div style="display:flex;gap:0.25rem" onclick="event.stopPropagation()">
-                        <button class="btn btn-xs btn-secondary" onclick="_cdpTestReplaySuite('${esc(s.id)}')" title="Replay">▶</button>
+                        <button class="btn btn-xs btn-secondary" onclick="_cdpTestReplaySuite('${esc(s.id)}')" title="Replay" ${_cdpTestReplayActive ? 'disabled style="opacity:0.4;cursor:not-allowed"' : ''}>▶</button>
                         <button class="btn btn-xs btn-secondary" onclick="_cdpTestDuplicateSuite('${esc(s.id)}')" title="Duplicate">📋</button>
                         <button class="btn btn-xs btn-secondary" onclick="_cdpTestDeleteSuite('${esc(s.id)}')" title="Delete" style="color:var(--error)">✕</button>
                     </div>
@@ -735,6 +736,11 @@
     // ══════════════════════════════════════════════════════════════════
 
     async function _cdpTestReplaySuite(suiteId, overrides) {
+        // Block if a replay is already running
+        if (_cdpTestReplayActive) {
+            toast('A replay is already running — cancel it first', 'warning');
+            return;
+        }
         // If overrides provided, execute directly (from config modal)
         if (overrides) {
             return _cdpTestExecuteReplay(suiteId, overrides);
@@ -953,12 +959,14 @@
         body += `<input type="hidden" id="cdp-replay-total" value="${totalSteps}">`;
         body += `<input type="hidden" id="cdp-replay-done-count" value="0">`;
 
+        _cdpTestReplayActive = true;
+
         modalOpen({
             title: '▶ CDP Test Replay',
             body: body,
             size: 'wide',
             footerButtons: [
-                { label: '⏹ Cancel', cls: 'btn-secondary', onclick: '_cdpTestCancelReplay()', style: 'color:var(--error)' },
+                { label: '← Back to Tests', cls: 'btn-secondary', onclick: '_cdpTestBackToTests()', id: 'cdp-replay-back-btn', disabled: true },
             ],
             onClose: () => {
                 if (_cdpTestSSESource) {
@@ -1058,7 +1066,27 @@
                 const ev = JSON.parse(e.data);
                 if (ev.data?.run_id !== runId) return;
                 const title = document.getElementById('cdp-replay-title');
-                if (title) title.textContent = '⏸ Paused — switch back to target tab';
+                if (title) title.textContent = '⏸ Paused — target tab not visible';
+                const controls = document.getElementById('cdp-replay-controls');
+                if (controls && !document.getElementById('cdp-replay-resume-btn')) {
+                    const targetId = ev.data?.target_id;
+                    const btn = document.createElement('button');
+                    btn.id = 'cdp-replay-resume-btn';
+                    btn.className = 'btn btn-sm btn-primary';
+                    btn.textContent = '▶ Resume';
+                    btn.onclick = async () => {
+                        btn.disabled = true;
+                        btn.textContent = '⏳ Focusing…';
+                        try {
+                            await fetch('/api/tab-mesh/focus', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ targetId }),
+                            });
+                        } catch (_) {}
+                    };
+                    controls.insertBefore(btn, controls.firstChild);
+                }
             } catch (_) {}
         });
 
@@ -1069,6 +1097,7 @@
                 if (ev.data?.run_id !== runId) return;
                 const title = document.getElementById('cdp-replay-title');
                 if (title) title.textContent = '▶ Running';
+                document.getElementById('cdp-replay-resume-btn')?.remove();
             } catch (_) {}
         });
 
@@ -1125,6 +1154,12 @@
 
 
     function _cdpTestReplayFinished(data) {
+        _cdpTestReplayActive = false;
+
+        // Unblock the back button
+        const backBtn = document.getElementById('cdp-replay-back-btn');
+        if (backBtn) backBtn.disabled = false;
+
         // Close SSE
         if (_cdpTestSSESource) {
             _cdpTestSSESource.close();
@@ -1195,6 +1230,15 @@
         } catch (e) {
             toast('Cancel error: ' + e.message, 'error');
         }
+    }
+
+    async function _cdpTestBackToTests() {
+        if (_cdpTestReplayActive) {
+            // Fire cancel — don't wait for it
+            api('/cdp-test/replay/cancel', { method: 'POST' }).catch(() => {});
+        }
+        // Navigate immediately — SSE stays alive to receive replay_done
+        _cdpTestRenderHome();
     }
 
     async function _cdpTestDuplicateSuite(suiteId) {
