@@ -415,13 +415,53 @@
                 <button class="btn btn-xs cdp-step-action-btn" data-cdp-action="diag" data-cdp-step-id="${sid}"
                     title="Add diagnostic" style="font-size:0.65rem;padding:1px 5px;background:var(--bg-tertiary);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer">💉</button>
             </div>` : '';
+        // Screenshot preview (from live capture during recording)
+        let screenshotHtml = '';
+        if (step.screenshot_path) {
+            const filename = step.screenshot_path.split('/').pop();
+            const imgUrl = `/api/cdp-test/screenshots/${encodeURIComponent(filename)}`;
+            screenshotHtml = `<div style="margin-top:4px;padding:4px 8px;background:var(--bg-tertiary);border-radius:4px;border-left:3px solid #f59e0b">
+                <div style="font-size:0.65rem;color:#f59e0b;font-weight:600;margin-bottom:4px">📸 screenshot</div>
+                <img src="${imgUrl}" alt="screenshot"
+                    style="max-width:240px;max-height:140px;border-radius:4px;border:1px solid var(--border-subtle);cursor:pointer"
+                    onclick="(function(src){var o=document.createElement('div');o.style.cssText='position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,0.85);display:flex;align-items:center;justify-content:center;cursor:pointer';o.onclick=function(){o.remove()};var i=document.createElement('img');i.src=src;i.style.cssText='max-width:90vw;max-height:90vh;border-radius:8px;box-shadow:0 8px 32px rgba(0,0,0,0.5)';o.appendChild(i);document.body.appendChild(o)})('${imgUrl}')"
+                    onerror="this.outerHTML='<span style=\\'color:var(--error);font-size:0.65rem\\'>⚠ screenshot not found</span>'" />
+            </div>`;
+        }
 
-        return `<div class="card-detect-row cdp-rec-step-row" style="font-size:0.78rem;display:flex;align-items:center;gap:0.5rem" data-step-id="${sid}" data-step-sequence="${step.sequence}">
+        // Console log entries (from live capture during recording)
+        let consoleHtml = '';
+        if (step.console_log && Array.isArray(step.console_log) && step.console_log.length > 0) {
+            const uid = 'cdp-rec-console-' + sid;
+            const count = step.console_log.length;
+            const levelColors = { log: '#9ca3af', warn: '#f59e0b', error: '#ef4444', info: '#3b82f6' };
+            let logLines = '';
+            for (const entry of step.console_log.slice(0, 20)) {
+                const level = entry.level || 'log';
+                const lc = levelColors[level] || '#9ca3af';
+                logLines += `<div style="display:flex;gap:6px;font-size:0.62rem;padding:1px 0;font-family:monospace">
+                    <span style="color:${lc};flex-shrink:0;text-transform:uppercase;font-weight:600;font-size:0.58rem">${esc(level)}</span>
+                    <span style="word-break:break-all">${esc(entry.msg || '')}</span>
+                </div>`;
+            }
+            if (count > 20) logLines += `<div style="font-size:0.62rem;color:var(--text-muted)">… and ${count - 20} more</div>`;
+            consoleHtml = `<div style="margin-top:4px;padding:3px 8px;background:var(--bg-tertiary);border-radius:4px;border-left:3px solid #06b6d4">
+                <div onclick="var el=document.getElementById('${uid}');el.style.display=el.style.display==='none'?'block':'none'" style="cursor:pointer;color:#06b6d4;font-weight:600;font-size:0.65rem">
+                    🖥️ console (${count}) ▸
+                </div>
+                <div id="${uid}" style="display:none;margin-top:4px;max-height:150px;overflow-y:auto">${logLines}</div>
+            </div>`;
+        }
+
+        const hasDetails = screenshotHtml || consoleHtml;
+
+        return `<div class="card-detect-row cdp-rec-step-row" style="font-size:0.78rem;display:flex;align-items:${hasDetails ? 'flex-start' : 'center'};gap:0.5rem;flex-wrap:${hasDetails ? 'wrap' : 'nowrap'}" data-step-id="${sid}" data-step-sequence="${step.sequence}">
             <span style="font-size:0.72rem;color:var(--text-muted);min-width:1.5rem;text-align:right">${step.sequence + 1}</span>
             <span style="font-size:0.82rem">${icon}</span>
             <span style="font-weight:500;min-width:3.5rem">${esc(step.action)}</span>
             <span style="color:var(--text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">${esc(desc)}</span>
             ${toolbar}
+            ${hasDetails ? `<div style="width:100%;padding-left:5rem">${screenshotHtml}${consoleHtml}</div>` : ''}
         </div>`;
     }
 
@@ -1821,9 +1861,14 @@
         // ── Screenshot thumbnail ────────────────────────────────
         let screenshotDetail = '';
         if (stepData.screenshot_path) {
-            screenshotDetail = `<div style="font-size:0.65rem;margin-top:3px;padding:3px 8px;background:var(--bg-tertiary);border-radius:4px;border-left:3px solid #f59e0b">
-                <span style="color:#f59e0b;font-weight:600">📸 screenshot saved</span>
-                <span style="color:var(--text-muted);margin-left:4px">${esc(stepData.screenshot_path.split('/').pop())}</span>
+            const filename = stepData.screenshot_path.split('/').pop();
+            const imgUrl = `/api/cdp-test/screenshots/${encodeURIComponent(filename)}`;
+            screenshotDetail = `<div style="font-size:0.65rem;margin-top:3px;padding:4px 8px;background:var(--bg-tertiary);border-radius:4px;border-left:3px solid #f59e0b">
+                <div style="color:#f59e0b;font-weight:600;margin-bottom:4px">📸 screenshot</div>
+                <img src="${imgUrl}" alt="screenshot"
+                    style="max-width:280px;max-height:160px;border-radius:4px;border:1px solid var(--border-subtle);cursor:pointer"
+                    onclick="(function(src){var o=document.createElement('div');o.style.cssText='position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,0.85);display:flex;align-items:center;justify-content:center;cursor:pointer';o.onclick=function(){o.remove()};var i=document.createElement('img');i.src=src;i.style.cssText='max-width:90vw;max-height:90vh;border-radius:8px;box-shadow:0 8px 32px rgba(0,0,0,0.5)';o.appendChild(i);document.body.appendChild(o)})('${imgUrl}')"
+                    onerror="this.outerHTML='<span style=\\'color:var(--error)\\'>⚠ screenshot not found</span>'" />
             </div>`;
         }
 

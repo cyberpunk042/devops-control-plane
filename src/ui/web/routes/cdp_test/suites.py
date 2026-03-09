@@ -211,3 +211,39 @@ def cdp_test_get_result(run_id: str):
     if result is None:
         return jsonify({"ok": False, "error": f"Result '{run_id}' not found"}), 404
     return jsonify({"ok": True, "result": result.to_dict()})
+
+
+# ── Serve screenshot images ───────────────────────────────────
+
+
+@cdp_test_bp.route("/cdp-test/screenshots/<filename>")
+def cdp_test_screenshot(filename: str):
+    """Serve a captured screenshot image.
+
+    Screenshots are stored in ``.state/cdp-tests/screenshots/``.
+    Only serves .png files from that directory (no path traversal).
+    """
+    import os
+    from pathlib import Path
+
+    from flask import send_file
+
+    # Block path traversal
+    if "/" in filename or "\\" in filename or ".." in filename:
+        return jsonify({"ok": False, "error": "Invalid filename"}), 400
+
+    root = _project_root()
+    screenshot_dir = Path(root) / ".state" / "cdp-tests" / "screenshots"
+    filepath = screenshot_dir / filename
+
+    if not filepath.exists() or not filepath.is_file():
+        return jsonify({"ok": False, "error": "Screenshot not found"}), 404
+
+    # Verify it's actually inside the screenshots dir (belt + suspenders)
+    try:
+        filepath.resolve().relative_to(screenshot_dir.resolve())
+    except ValueError:
+        return jsonify({"ok": False, "error": "Invalid path"}), 400
+
+    return send_file(str(filepath), mimetype="image/png")
+

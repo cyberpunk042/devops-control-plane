@@ -272,6 +272,129 @@ def cdp_test_record_restart():
     return jsonify({"ok": ok, "session_id": session.id})
 
 
+# ── Live capture helpers ──────────────────────────────────────
+
+
+def _capture_screenshot_live(session, step: dict) -> None:
+    """Take a screenshot NOW during recording and attach to step.
+
+    Uses a temporary CdpSession to call Page.captureScreenshot.
+    The resulting PNG is saved to .state/cdp-tests/screenshots/
+    and the step dict is updated with screenshot_path.
+    """
+    import base64
+    from pathlib import Path
+
+    from src.ui.web import cdp_client
+    from src.ui.web.helpers import project_root as _project_root
+
+    try:
+        with cdp_client.CdpSession(session.target_ws_url, connect_timeout=5.0) as cdp:
+            if not cdp.connected:
+                logger.warning("Live screenshot: CDP not connected")
+                return
+
+            # If selector is provided, clip to element; otherwise full page
+            selector = step.get("selector", "")
+            clip = None
+            if selector:
+                find_js = f"""(function() {{
+                    var el = document.querySelector('{selector.replace("'", "\\\\'")}');
+                    if (!el) return JSON.stringify({{ ok: false }});
+                    var r = el.getBoundingClientRect();
+                    return JSON.stringify({{
+                        ok: true, x: r.x + window.scrollX,
+                        y: r.y + window.scrollY,
+                        width: r.width, height: r.height,
+                        dpr: window.devicePixelRatio || 1
+                    }});
+                }})()"""
+                rect_result = cdp.evaluate(find_js, timeout=3.0)
+                rect_val = (
+                    rect_result.get("result", {}).get("result", {}).get("value", "{}")
+                    if rect_result else "{}"
+                )
+                import json as _json
+                rect = _json.loads(rect_val) if rect_val else {}
+                if rect.get("ok"):
+                    clip = {
+                        "x": rect["x"], "y": rect["y"],
+                        "width": max(rect["width"], 1),
+                        "height": max(rect["height"], 1),
+                        "scale": rect.get("dpr", 1),
+                    }
+
+            params = {"format": "png", "captureBeyondViewport": True}
+            if clip:
+                params["clip"] = clip
+
+            result = cdp.send_command("Page.captureScreenshot", params, timeout=10.0)
+            if not result:
+                logger.warning("Live screenshot: no CDP response")
+                return
+
+            b64_data = result.get("result", {}).get("data", "")
+            if not b64_data:
+                logger.warning("Live screenshot: no image data")
+                return
+
+            # Save to disk
+            root = _project_root()
+            ss_dir = Path(root) / ".state" / "cdp-tests" / "screenshots"
+            ss_dir.mkdir(parents=True, exist_ok=True)
+
+            filename = f"rec_{session.id[:8]}_{step['id'][:8]}.png"
+            filepath = ss_dir / filename
+            filepath.write_bytes(base64.b64decode(b64_data))
+
+            # Update step dict so SSE broadcast includes the path
+            step["screenshot_path"] = str(filepath)
+            logger.info("Live screenshot saved: %s", filename)
+
+    except Exception as exc:
+        logger.warning("Live screenshot failed: %s", exc)
+
+
+def _capture_console_live(session, step: dict) -> None:
+    """Read accumulated console buffer from the target page.
+
+    The recorder JS monkey-patches console methods from the moment
+    it's injected, buffering everything into window.__cdp_console_buffer.
+    This function reads that buffer and attaches it to the step.
+    """
+    from src.ui.web import cdp_client
+
+    try:
+        # Read the buffer — don't clear it (user may want to capture again)
+        read_js = """(function() {
+            var entries = window.__cdp_console_buffer || [];
+            return JSON.stringify(entries);
+        })()"""
+
+        result = cdp_client.evaluate_js(
+            session.target_ws_url, read_js, timeout=5.0,
+        )
+        if not result:
+            logger.warning("Live console capture: no CDP response")
+            return
+
+        raw = (
+            result.get("result", {}).get("result", {}).get("value", "[]")
+        )
+        if not raw or raw == "[]":
+            logger.info("Live console capture: no entries")
+            return
+
+        import json as _json
+        entries = _json.loads(raw)
+        if isinstance(entries, list) and entries:
+            step["console_log"] = entries
+            logger.info("Live console capture: %d entries", len(entries))
+
+    except Exception as exc:
+        logger.warning("Live console capture failed: %s", exc)
+
+
 # ── Receive event from recorder JS ────────────────────────────
 
 
@@ -352,6 +475,18 @@ def cdp_test_record_event():
             step_data["on_fail"] = on_fail
 
     step = session.add_step(step_data)
+
+    # ── Live capture during recording ─────────────────────────
+    # Take screenshots/console NOW so results are visible immediately
+    action = step_data.get("action", "")
+
+    if action == "capture_screenshot" and session.target_ws_url:
+        _capture_screenshot_live(session, step)
+
+    if (action == "capture_console"
+            and step_data.get("value") == "stop"
+            and session.target_ws_url):
+        _capture_console_live(session, step)
 
     # Broadcast to admin panel via event bus
     bus.publish(
@@ -508,6 +643,49 @@ def cdp_test_record_eval():
     except Exception as e:
         logger.warning("Eval failed: %s", e)
         return jsonify({"ok": False, "error": str(e)}), 500
+
+# ── Recorder diagnostic log ───────────────────────────────────
+
+
+@cdp_test_bp.route("/cdp-test/record/log", methods=["POST", "OPTIONS"])
+def cdp_test_record_log():
+    """Receive diagnostic log messages from the injected recorder.
+
+    This endpoint gives visibility into what happens inside the
+    target page — modal opens, sendEvent calls, errors, etc.
+
+    Body (JSON):
+        {
+            "level": "info" | "warn" | "error",
+            "msg": "description of what happened",
+            "data": { ... }   // optional extra context
+        }
+    """
+    if request.method == "OPTIONS":
+        resp = jsonify({"ok": True})
+        _add_pna_cors(resp)
+        return resp
+
+    data = request.get_json(silent=True) or {}
+    level = data.get("level", "info")
+    msg = data.get("msg", "")
+    extra = data.get("data", {})
+
+    prefix = "[CDP recorder]"
+    log_msg = f"{prefix} {msg}"
+    if extra:
+        log_msg += f" | {extra}"
+
+    if level == "error":
+        logger.error(log_msg)
+    elif level == "warn":
+        logger.warning(log_msg)
+    else:
+        logger.info(log_msg)
+
+    resp = jsonify({"ok": True})
+    _add_pna_cors(resp)
+    return resp
 
 
 # ── Recording status ───────────────────────────────────────────

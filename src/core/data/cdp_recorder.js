@@ -38,6 +38,37 @@
     var _INPUT_DEBOUNCE = 600;   // ms to wait after typing stops
     var _lastClickTime = 0;
 
+    // ── Always-on console capture ─────────────────────────────
+    // Monkey-patch console methods from the moment recording starts.
+    // All output is buffered into window.__cdp_console_buffer so it's
+    // available when the user requests a console capture.
+    if (!window.__cdp_console_originals) {
+        window.__cdp_console_originals = {
+            log: console.log,
+            warn: console.warn,
+            error: console.error,
+            info: console.info,
+        };
+        window.__cdp_console_buffer = [];
+        ['log', 'warn', 'error', 'info'].forEach(function (method) {
+            console[method] = function () {
+                var args = Array.prototype.slice.call(arguments);
+                var strs = args.map(function (a) {
+                    if (typeof a === 'object') {
+                        try { return JSON.stringify(a); } catch (_) { return String(a); }
+                    }
+                    return String(a);
+                });
+                window.__cdp_console_buffer.push({
+                    ts: Date.now(),
+                    level: method,
+                    msg: strs.join(' '),
+                });
+                window.__cdp_console_originals[method].apply(console, arguments);
+            };
+        });
+    }
+
 
     // ═══════════════════════════════════════════════════════════
     //  Selector Building
@@ -204,7 +235,10 @@
     var _sendFailed = false;
 
     function sendEvent(data) {
-        if (window.__dcp_recorder_paused) return;
+        if (window.__dcp_recorder_paused) {
+            _dcpLog('warn', 'sendEvent BLOCKED — recorder is paused', { action: data.action || '?' });
+            return;
+        }
 
         var payload = JSON.stringify({
             session_id: window.__dcp_session_id || SESSION_ID,
@@ -229,12 +263,35 @@
                     _sendFailed = false;
                     _updateIndicator('ok');
                 }
-            }).catch(function () {
+            }).catch(function (err) {
+                _dcpLog('error', 'sendEvent fetch FAILED', { action: data.action || '?', error: String(err) });
                 if (!_sendFailed) {
                     _sendFailed = true;
                     _updateIndicator('blocked');
                 }
             });
+        } catch (_) { }
+    }
+
+    // ── Diagnostic logging — visible in DCP terminal ────────────
+    var DCP_LOG_URL = 'http://${DCP_HOST}:${DCP_PORT}/api/cdp-test/record/log';
+
+    function _dcpLog(level, msg, data) {
+        // Always log to target page console too
+        var prefix = '[DCP recorder] ';
+        if (level === 'error') console.error(prefix + msg, data || '');
+        else if (level === 'warn') console.warn(prefix + msg, data || '');
+        else console.log(prefix + msg, data || '');
+
+        // Send to backend for terminal visibility
+        try {
+            fetch(DCP_LOG_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ level: level, msg: msg, data: data || {} }),
+                mode: 'cors',
+                credentials: 'omit',
+            }).catch(function () { /* log delivery failed — don't recurse */ });
         } catch (_) { }
     }
 
@@ -409,6 +466,7 @@
 
         // Pause recording while configuring
         window.__dcp_recorder_paused = true;
+        _dcpLog('info', 'Assert modal opened', { selector: selector, paused: true });
 
         var overlay = document.createElement('div');
         overlay.id = '__dcp_assert_overlay';
@@ -698,10 +756,12 @@
             };
             if (capType === 'console') {
                 // Console needs start + stop pair
+                _dcpLog('info', 'Quick capture: console start+stop');
                 window.__dcp_recorder_paused = false;
                 sendEvent({ action: 'capture_console', selector: '', value: 'start' });
                 sendEvent({ action: 'capture_console', selector: '', value: 'stop' });
             } else {
+                _dcpLog('info', 'Quick capture', { type: capType, selector: selector });
                 window.__dcp_recorder_paused = false;
                 sendEvent({
                     action: actionMap[capType] || 'capture_text',
@@ -715,6 +775,7 @@
         // Quick action: screenshot
         document.getElementById('__dcp_qa_screenshot').addEventListener('click', function (e) {
             e.stopPropagation();
+            _dcpLog('info', 'Quick screenshot', { selector: selector });
             window.__dcp_recorder_paused = false;
             sendEvent({ action: 'capture_screenshot', selector: selector });
             _closeAssertModal();
@@ -723,6 +784,7 @@
         // Quick action: console capture (sends start + stop pair)
         document.getElementById('__dcp_qa_console').addEventListener('click', function (e) {
             e.stopPropagation();
+            _dcpLog('info', 'Quick console start+stop');
             window.__dcp_recorder_paused = false;
             sendEvent({ action: 'capture_console', selector: '', value: 'start' });
             sendEvent({ action: 'capture_console', selector: '', value: 'stop' });
@@ -741,6 +803,7 @@
             e.stopPropagation();
             var code = (document.getElementById('__dcp_js_code') || {}).value || '';
             if (!code.trim()) return;
+            _dcpLog('info', 'Quick inject JS', { codeLen: code.length });
             window.__dcp_recorder_paused = false;
             sendEvent({ action: 'inject_js', selector: selector, value: code });
             _closeAssertModal();
@@ -831,6 +894,7 @@
         if (overlay) overlay.remove();
         // Resume recording
         window.__dcp_recorder_paused = false;
+        _dcpLog('info', 'Assert modal closed', { paused: false });
     }
 
     function _saveAssertion(selector) {
@@ -872,6 +936,7 @@
 
         // Resume recording BEFORE sending — sendEvent checks the paused flag
         window.__dcp_recorder_paused = false;
+        _dcpLog('info', 'saveAssertion called', { selector: selector, captureType: captureType, checkType: checkType, expected: expected.slice(0, 50) });
 
         // Send assertion step back to DCP
         sendEvent({
@@ -1113,6 +1178,16 @@
         window.__dcp_recorder_active = false;
         window.__dcp_recorder_paused = false;
         window.__dcp_recorder_cleanup = null;
+
+        // Restore original console methods
+        if (window.__cdp_console_originals) {
+            console.log = window.__cdp_console_originals.log;
+            console.warn = window.__cdp_console_originals.warn;
+            console.error = window.__cdp_console_originals.error;
+            console.info = window.__cdp_console_originals.info;
+            delete window.__cdp_console_originals;
+            delete window.__cdp_console_buffer;
+        }
     };
 
     return 'injected';
