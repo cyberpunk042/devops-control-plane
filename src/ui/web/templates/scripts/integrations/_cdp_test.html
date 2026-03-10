@@ -1902,6 +1902,9 @@
                         valContainer.insertAdjacentHTML('beforeend', _cdpTestValStepRow(localSteps[i], i));
                     }
                 }
+
+                // Re-render I/O panel to show new/removed exports
+                _cdpTestRefreshIOPanel(localSteps);
             } else {
                 // Re-render the step row in recording view
                 const container = document.getElementById('cdp-rec-steps');
@@ -2189,11 +2192,13 @@
             }
         }
 
-        // Merge detected outputs with saved outputs
+        // Merge detected outputs with saved outputs — only keep saved entries
+        // that are still present as exports on live steps.
         var outputNames = Object.keys(detected.outputs);
         var savedOutKeys = Object.keys(savedOutputs);
         for (var so = 0; so < savedOutKeys.length; so++) {
             if (outputNames.indexOf(savedOutKeys[so]) === -1) {
+                // Stale: exists in saved data but no step has this export_as
                 outputNames.push(savedOutKeys[so]);
             }
         }
@@ -2276,8 +2281,9 @@
                 var iDefault = savedVars[iName] || (iDet ? iDet.default_val : '');
                 var iSteps = iDet ? iDet.step_indices.map(function(x){ return x + 1; }) : [];
                 var iSource = iSteps.length > 0 ? ('Step ' + iSteps.join(', ')) : 'manual';
+                var iIsStale = !iDet;
 
-                // Status: ✅ has default, ⚠️ no default, ❌ unresolved
+                // Status: ✅ has default, ⚠️ no default, ✕ stale
                 var iStatus = '✅';
                 var iStatusTitle = 'Has default value';
                 if (!iDefault) {
@@ -2286,11 +2292,17 @@
                 }
 
                 var firstStepIdx = iDet ? iDet.step_indices[0] : -1;
-                html += '<tr style="border-bottom:1px solid var(--border-subtle);cursor:pointer" ' + (firstStepIdx >= 0 ? 'onclick="_cdpTestOpenIOFromValidation(' + firstStepIdx + ')" title="Click to configure I/O"' : '') + '>';
+                html += '<tr style="border-bottom:1px solid var(--border-subtle);' + (iIsStale ? 'opacity:0.6;' : 'cursor:pointer;') + '" ' + (firstStepIdx >= 0 ? 'onclick="_cdpTestOpenIOFromValidation(' + firstStepIdx + ')" title="Click to configure I/O"' : '') + '>';
                 html += '<td style="padding:3px 6px;font-family:monospace;color:#8b5cf6">' + esc(iName) + '</td>';
                 html += '<td style="padding:3px 6px"><code style="font-size:0.65rem">' + esc(iDefault ? (iDefault.length > 30 ? iDefault.slice(0, 30) + '…' : iDefault) : '—') + '</code></td>';
-                html += '<td style="padding:3px 6px;color:var(--text-muted)">' + iSource + '</td>';
-                html += '<td style="padding:3px 6px;text-align:center" title="' + iStatusTitle + '">' + iStatus + '</td>';
+                html += '<td style="padding:3px 6px;color:var(--text-muted)">' + (iIsStale ? '<span style="color:var(--error);font-size:0.62rem">stale</span>' : iSource) + '</td>';
+                html += '<td style="padding:3px 6px;text-align:center" title="' + iStatusTitle + '">';
+                if (iIsStale) {
+                    html += '<button class="btn btn-xs" style="font-size:0.55rem;color:var(--error);padding:0 4px;line-height:1.2" onclick="event.stopPropagation(); _cdpTestRemoveStaleInput(\'' + esc(iName).replace(/'/g, "\\'") + '\')" title="Remove stale input">✕</button>';
+                } else {
+                    html += iStatus;
+                }
+                html += '</td>';
                 html += '</tr>';
             }
             html += '</tbody></table>';
@@ -2343,12 +2355,19 @@
                 }
 
                 var oStepIdx = oDet ? oDet.step_index : -1;
-                html += '<tr style="border-bottom:1px solid var(--border-subtle);cursor:pointer" ' + (oStepIdx >= 0 ? 'onclick="_cdpTestOpenIOFromValidation(' + oStepIdx + ')" title="Click to configure I/O"' : '') + '>';
+                var isStale = !oDet;
+                html += '<tr style="border-bottom:1px solid var(--border-subtle);' + (isStale ? 'opacity:0.6;' : 'cursor:pointer;') + '" ' + (oStepIdx >= 0 ? 'onclick="_cdpTestOpenIOFromValidation(' + oStepIdx + ')" title="Click to configure I/O"' : '') + '>';
                 html += '<td style="padding:3px 6px;font-family:monospace;color:#22c55e">' + esc(oName) + '</td>';
                 html += '<td style="padding:3px 6px"><span style="font-size:0.62rem;padding:1px 4px;background:var(--bg-secondary);border-radius:3px">' + esc(oCap) + '</span></td>';
                 html += '<td style="padding:3px 6px;font-family:monospace;font-size:0.65rem;color:var(--text-muted)">' + esc(oDetail) + '</td>';
-                html += '<td style="padding:3px 6px;color:var(--text-muted)">' + oStepNum + '</td>';
-                html += '<td style="padding:3px 6px;text-align:center" title="' + oStatusTitle + '">' + oStatus + '</td>';
+                html += '<td style="padding:3px 6px;color:var(--text-muted)">' + (isStale ? '<span style="color:var(--error);font-size:0.62rem">stale</span>' : oStepNum) + '</td>';
+                html += '<td style="padding:3px 6px;text-align:center" title="' + oStatusTitle + '">';
+                if (isStale) {
+                    html += '<button class="btn btn-xs" style="font-size:0.55rem;color:var(--error);padding:0 4px;line-height:1.2" onclick="event.stopPropagation(); _cdpTestRemoveStaleOutput(\'' + esc(oName).replace(/'/g, "\\'") + '\')" title="Remove stale output">✕</button>';
+                } else {
+                    html += oStatus;
+                }
+                html += '</td>';
                 html += '</tr>';
             }
             html += '</tbody></table>';
@@ -2385,7 +2404,7 @@
         for (var xo = 0; xo < outputNames.length; xo++) {
             var xon = outputNames[xo];
             var xoDet = detected.outputs[xon];
-            ioData.outputs[xon] = xoDet ? xoDet.description : (savedOutputs[xon] || '');
+            ioData.outputs[xon] = xoDet ? (xoDet.description || '') : (savedOutputs[xon] || '');
         }
         html += '<div id="cdp-val-io-data" style="display:none">' + esc(JSON.stringify(ioData)) + '</div>';
 
@@ -2399,6 +2418,103 @@
         var isHidden = panel.style.display === 'none';
         panel.style.display = isHidden ? '' : 'none';
         if (chevron) chevron.style.transform = isHidden ? 'rotate(90deg)' : '';
+    }
+
+    /** Re-render just the I/O section after step edits */
+    function _cdpTestRefreshIOPanel(steps) {
+        // Read current saved IO data (variables/outputs) from the hidden store
+        var ioEl = document.getElementById('cdp-val-io-data');
+        var ioData = ioEl ? JSON.parse(ioEl.textContent) : { inputs: {}, outputs: {} };
+
+        // Build a minimal suiteDraft with current state
+        var suiteDraft = {
+            variables: {},
+            outputs: ioData.outputs || {},
+        };
+        // Convert ioData.inputs to variables format (name → default_value)
+        var inputKeys = Object.keys(ioData.inputs || {});
+        for (var ii = 0; ii < inputKeys.length; ii++) {
+            var inp = ioData.inputs[inputKeys[ii]];
+            suiteDraft.variables[inputKeys[ii]] = (inp && inp.default_value) ? inp.default_value : '';
+        }
+
+        // Find the container that holds the I/O panel
+        // The I/O panel is rendered as the last major section before the hidden data stores
+        var newHtml = _cdpTestBuildIOPanel(steps, suiteDraft);
+
+        // Replace the existing I/O section — it starts at the first div after the steps list
+        // We'll find the parent of cdp-io-panel or cdp-io-chevron and replace from there
+        var ioSection = document.getElementById('cdp-io-panel');
+        if (ioSection) {
+            // The section wrapper is two levels up from the panel
+            var wrapper = ioSection.parentElement;
+            if (wrapper) {
+                var container = wrapper.parentElement;
+                if (container) {
+                    // Create a temp element to hold the new HTML
+                    var temp = document.createElement('div');
+                    temp.innerHTML = newHtml;
+                    container.replaceChild(temp.firstElementChild, wrapper);
+                }
+            }
+        }
+    }
+
+    /** Build a suiteDraft from current DOM state for re-rendering */
+    function _cdpTestBuildSuiteDraftFromDOM() {
+        var dataEl = document.getElementById('cdp-val-steps-data');
+        var steps = dataEl ? JSON.parse(dataEl.textContent) : [];
+        var ioEl = document.getElementById('cdp-val-io-data');
+        var ioData = ioEl ? JSON.parse(ioEl.textContent) : { inputs: {}, outputs: {} };
+
+        // Convert ioData.inputs to variables format: { name: default_value }
+        var variables = {};
+        var inputKeys = Object.keys(ioData.inputs || {});
+        for (var i = 0; i < inputKeys.length; i++) {
+            var inp = ioData.inputs[inputKeys[i]];
+            variables[inputKeys[i]] = (inp && inp.default_value) ? inp.default_value : '';
+        }
+
+        return {
+            suite_id: (document.getElementById('cdp-val-suite-id') || {}).textContent || '',
+            target_url: mfVal('cdp-suite-url') || '',
+            steps: steps,
+            variables: variables,
+            outputs: ioData.outputs || {},
+            _ioData: ioData,  // keep reference for mutation
+        };
+    }
+
+    /** Remove a stale output from the saved outputs and refresh I/O panel only */
+    function _cdpTestRemoveStaleOutput(outputName) {
+        // Update the hidden IO data store
+        var ioEl = document.getElementById('cdp-val-io-data');
+        if (ioEl) {
+            var ioData = JSON.parse(ioEl.textContent);
+            delete ioData.outputs[outputName];
+            ioEl.textContent = JSON.stringify(ioData);
+        }
+        // Refresh just the I/O panel — don't touch the rest of the form
+        var dataEl = document.getElementById('cdp-val-steps-data');
+        var steps = dataEl ? JSON.parse(dataEl.textContent) : [];
+        _cdpTestRefreshIOPanel(steps);
+        toast('Removed stale output: ' + outputName, 'info');
+    }
+
+    /** Remove a stale input from the saved inputs and refresh I/O panel only */
+    function _cdpTestRemoveStaleInput(inputName) {
+        // Update the hidden IO data store
+        var ioEl = document.getElementById('cdp-val-io-data');
+        if (ioEl) {
+            var ioData = JSON.parse(ioEl.textContent);
+            delete ioData.inputs[inputName];
+            ioEl.textContent = JSON.stringify(ioData);
+        }
+        // Refresh just the I/O panel — don't touch the rest of the form
+        var dataEl = document.getElementById('cdp-val-steps-data');
+        var steps = dataEl ? JSON.parse(dataEl.textContent) : [];
+        _cdpTestRefreshIOPanel(steps);
+        toast('Removed stale input: ' + inputName, 'info');
     }
 
     function _cdpTestOpenValidation(suiteDraft) {
@@ -3246,6 +3362,9 @@
         var countEl = document.getElementById('cdp-val-step-count');
         if (countEl) countEl.textContent = steps.length;
 
+        // Re-render I/O panel to reflect export_as / variable changes
+        _cdpTestRefreshIOPanel(steps);
+
         _cdpTestSubModalClose();
         toast('Step ' + (index + 1) + ' updated', 'success');
     }
@@ -3273,6 +3392,9 @@
         }
         var countEl = document.getElementById('cdp-val-step-count');
         if (countEl) countEl.textContent = steps.length;
+
+        // Re-render I/O panel to reflect removed step's exports/inputs
+        _cdpTestRefreshIOPanel(steps);
 
         toast('Step ' + (index + 1) + ' removed', 'info');
     }
@@ -3312,6 +3434,21 @@
             var endpoint = suiteId ? '/cdp-test/suites/' + suiteId : '/cdp-test/suites';
             var method = suiteId ? 'PUT' : 'POST';
 
+            // Filter I/O: only save entries that are live-detected from current steps
+            var liveIO = _cdpTestAutoDetectIO(steps);
+            var liveOutputs = {};
+            var liveOutputKeys = Object.keys(liveIO.outputs);
+            for (var lo = 0; lo < liveOutputKeys.length; lo++) {
+                var lok = liveOutputKeys[lo];
+                liveOutputs[lok] = (ioData.outputs || {})[lok] || '';
+            }
+            var liveVariables = {};
+            var liveInputKeys = Object.keys(liveIO.inputs);
+            for (var li = 0; li < liveInputKeys.length; li++) {
+                var lik = liveInputKeys[li];
+                liveVariables[lik] = variables[lik] || '';
+            }
+
             var result = await api(endpoint, {
                 method: method,
                 headers: { 'Content-Type': 'application/json' },
@@ -3321,8 +3458,8 @@
                     target_url: mfVal('cdp-suite-url'),
                     category: mfVal('cdp-suite-category'),
                     steps: steps,
-                    variables: variables,
-                    outputs: ioData.outputs || {},
+                    variables: liveVariables,
+                    outputs: liveOutputs,
                 }),
             });
 

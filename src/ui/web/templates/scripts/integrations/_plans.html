@@ -286,6 +286,57 @@
             // Show pre-run confirmation
             const stepList = (plan.steps || []).sort((a, b) => a.sequence - b.sequence);
 
+            // ── Auto-refresh I/O from live suite/script data ───────
+            // Prevents stale cached consumes/produces from misleading the wiring analysis
+            _plansMetaCache.suites = {};
+            _plansMetaCache.scripts = {};
+            let _ioChanged = false;
+            for (let ri = 0; ri < stepList.length; ri++) {
+                const rs = stepList[ri];
+                if (rs.type === 'cdp_test' && rs.suite_id) {
+                    const suite = await _plansFetchSuiteMeta(rs.suite_id);
+                    if (suite) {
+                        const newP = suite.outputs ? Object.keys(suite.outputs) : [];
+                        const newC = suite.variables ? Object.keys(suite.variables) : [];
+                        if (JSON.stringify(newP) !== JSON.stringify(rs.produces) ||
+                            JSON.stringify(newC) !== JSON.stringify(rs.consumes)) {
+                            rs.produces = newP;
+                            rs.consumes = newC;
+                            // Sync suite_variables: keep user overrides, drop stale keys
+                            const liveVars = suite.variables || {};
+                            const updated = {};
+                            for (const [k, v] of Object.entries(liveVars)) {
+                                updated[k] = (k in (rs.suite_variables || {})) ? rs.suite_variables[k] : v;
+                            }
+                            rs.suite_variables = updated;
+                            _ioChanged = true;
+                        }
+                    }
+                } else if (rs.type === 'script' && rs.script_id) {
+                    const meta = await _plansFetchScriptMeta(rs.script_id);
+                    if (meta) {
+                        const newP = meta.outputs ? meta.outputs.map(o => o.name) : [];
+                        const newC = meta.parameters ? meta.parameters.filter(p => p.required).map(p => p.name) : [];
+                        if (JSON.stringify(newP) !== JSON.stringify(rs.produces) ||
+                            JSON.stringify(newC) !== JSON.stringify(rs.consumes)) {
+                            rs.produces = newP;
+                            rs.consumes = newC;
+                            _ioChanged = true;
+                        }
+                    }
+                }
+            }
+            // Persist refreshed I/O back to disk so the plan stays in sync
+            if (_ioChanged) {
+                try {
+                    await api(`/plans/${planId}`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ steps: plan.steps }),
+                    });
+                } catch (_e) { /* best-effort sync */ }
+            }
+
             // ── I/O Wiring Analysis ────────────────────────────────
             // Walk steps simulating namespace accumulation to detect missing inputs
             const initialVars = new Set(Object.keys(plan.variables || {}));
@@ -547,6 +598,20 @@
             _plansEditorPlanId = planId;
             _plansEditorSteps = (plan.steps || []).sort((a, b) => a.sequence - b.sequence);
             _plansEditorVars = plan.variables || {};
+
+            // Auto-refresh I/O metadata from live suite/script data
+            // so stale consumes/produces from deleted suite steps don't persist.
+            _plansMetaCache.suites = {};
+            _plansMetaCache.scripts = {};
+            for (let i = 0; i < _plansEditorSteps.length; i++) {
+                const s = _plansEditorSteps[i];
+                if (s.type === 'cdp_test' && s.suite_id) {
+                    await _plansRefreshStepIO(i, 'cdp_test');
+                } else if (s.type === 'script' && s.script_id) {
+                    await _plansRefreshStepIO(i, 'script');
+                }
+            }
+
             _plansShowEditor(plan);
         } catch (e) {
             toast(`Failed to load plan: ${e.message}`, 'error');
@@ -1061,6 +1126,14 @@
             if (suite) {
                 s.produces = suite.outputs ? Object.keys(suite.outputs) : [];
                 s.consumes = suite.variables ? Object.keys(suite.variables) : [];
+                // Sync suite_variables: remove stale keys, add new defaults
+                const liveVars = suite.variables || {};
+                const updated = {};
+                for (const [k, v] of Object.entries(liveVars)) {
+                    // Keep user-edited value if it exists, otherwise use suite default
+                    updated[k] = (k in (s.suite_variables || {})) ? s.suite_variables[k] : v;
+                }
+                s.suite_variables = updated;
             }
         } else if (stepType === 'script' && s.script_id) {
             const meta = await _plansFetchScriptMeta(s.script_id);

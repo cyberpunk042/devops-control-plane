@@ -218,16 +218,18 @@ def _validate_plan(
                     f"CDP test suite '{step.suite_id}' not found"
                 )
 
-    # Validate variable chain: consumed vars must be produced by
-    # earlier steps or provided in plan.variables
+    # Variable chain — warn about consumed vars not available.
+    # This is informational: the replayer uses suite defaults for any
+    # variable not in the namespace.  Stale consumes metadata must not
+    # block execution.
     available_vars = set(plan.variables.keys())
     for step in sorted(plan.steps, key=lambda s: s.sequence):
         for var_name in step.consumes:
             if var_name not in available_vars:
-                errors.append(
-                    f"Step {step.sequence} ({step.name}): "
-                    f"consumes variable '{var_name}' but no earlier step "
-                    f"produces it and it's not in plan variables"
+                logger.warning(
+                    "Step %d (%s): consumes '%s' but no producer found "
+                    "— suite default will be used",
+                    step.sequence, step.name, var_name,
                 )
         for var_name in step.produces:
             available_vars.add(var_name)
