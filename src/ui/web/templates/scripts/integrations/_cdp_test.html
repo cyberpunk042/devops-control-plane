@@ -360,6 +360,9 @@
         }
         body += `</div>`;
 
+        // Sub-modal overlay for step editing (shared with validation view)
+        body += `<div id="cdp-val-sub-overlay" style="display:none;position:fixed;inset:0;z-index:10002;background:rgba(0,0,0,0.5);align-items:center;justify-content:center"></div>`;
+
         body += `<style>@keyframes __cdp_pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }</style>`;
 
         modalOpen({
@@ -546,7 +549,7 @@
             ioBadgeHtml = `<span class="cdp-step-action-btn" data-cdp-action="io" data-cdp-step-id="${sid}" style="font-size:0.58rem;padding:1px 5px;background:#22c55e22;color:#22c55e;border-radius:3px;font-family:monospace;font-weight:600;flex-shrink:0;cursor:pointer" title="Click to edit I/O config">📤 ${esc(step.export_as)}${_capSuffix}</span>`;
         }
 
-        return `<div class="card-detect-row cdp-rec-step-row" style="font-size:0.78rem;display:flex;align-items:${hasDetails ? 'flex-start' : 'center'};gap:0.5rem;flex-wrap:${hasDetails ? 'wrap' : 'nowrap'}" data-step-id="${sid}" data-step-sequence="${step.sequence}">
+        return `<div class="card-detect-row cdp-rec-step-row" style="font-size:0.78rem;display:flex;align-items:${hasDetails ? 'flex-start' : 'center'};gap:0.5rem;flex-wrap:${hasDetails ? 'wrap' : 'nowrap'};cursor:pointer" data-step-id="${sid}" data-step-sequence="${step.sequence}" title="Click to edit">
             <span style="font-size:0.72rem;color:var(--text-muted);min-width:1.5rem;text-align:right">${step.sequence + 1}</span>
             <span style="font-size:0.82rem">${icon}</span>
             <span style="font-weight:500;min-width:3.5rem">${esc(step.action)}</span>
@@ -578,6 +581,142 @@
         else if (action === 'diag') _cdpTestOpenDiagConfig(step);
         else if (action === 'io') _cdpTestOpenIOConfig(step);
     });
+
+    // Click on recording step row → open edit modal (same form as validation view)
+    document.addEventListener('click', (e) => {
+        const row = e.target.closest('.cdp-rec-step-row');
+        if (!row) return;
+        // Don't fire if a toolbar button was clicked (they stopPropagation, but guard anyway)
+        if (e.target.closest('.cdp-step-action-btn')) return;
+        const stepId = row.dataset.stepId;
+        const step = _cdpStepDataMap.get(stepId);
+        if (!step) { toast('Step data not found', 'error'); return; }
+        _cdpTestEditRecStep(step);
+    });
+
+    // Edit modal for a recording step — reuses _cdpTestBuildEditForm, saves via modify-step API
+    function _cdpTestEditRecStep(step) {
+        var body = _cdpTestBuildEditForm(step);
+        _cdpTestSubModalOpen('\u270f\ufe0f Edit Step ' + (step.sequence + 1) + ': ' + step.action, body, [
+            { label: 'Cancel', cls: 'btn-secondary', onclick: '_cdpTestSubModalClose()' },
+            { label: '\u2705 Apply', cls: 'btn-primary', onclick: '_cdpTestApplyRecStepEdit("' + step.id + '")' },
+        ]);
+        // When action changes, rebuild the dynamic fields
+        var actionSel = document.getElementById('mf-cdp-edit-action');
+        if (actionSel) {
+            actionSel.addEventListener('change', function() {
+                var dynContainer = document.getElementById('cdp-edit-dynamic-fields');
+                if (dynContainer) {
+                    var tmpStep = JSON.parse(JSON.stringify(step));
+                    tmpStep.action = actionSel.value;
+                    dynContainer.innerHTML = _cdpTestBuildDynamicFields(tmpStep);
+                }
+            });
+        }
+    }
+    window._cdpTestEditRecStep = _cdpTestEditRecStep;
+
+    // Apply recording step edit — read form, call modify-step API, re-render row
+    async function _cdpTestApplyRecStepEdit(stepId) {
+        var step = _cdpStepDataMap.get(stepId);
+        if (!step) { toast('Step data lost', 'error'); return; }
+
+        var updates = {};
+
+        // Read common fields
+        updates.action = mfVal('cdp-edit-action') || step.action;
+        updates.timeout_ms = parseInt(mfVal('cdp-edit-timeout'), 10) || 5000;
+        updates.optional = mfVal('cdp-edit-optional');
+        updates.description = mfVal('cdp-edit-desc');
+
+        var selEl = document.getElementById('mf-cdp-edit-selector');
+        if (selEl) updates.selector = selEl.value;
+        var xpEl = document.getElementById('mf-cdp-edit-xpath');
+        if (xpEl) updates.xpath = xpEl.value;
+        var valEl = document.getElementById('mf-cdp-edit-value');
+        if (valEl) updates.value = valEl.value;
+
+        // Variable binding
+        var varBindEl = document.getElementById('mf-cdp-edit-var-bind');
+        if (varBindEl && varBindEl.checked) {
+            var bindName = mfVal('cdp-edit-var-name-bind').trim();
+            if (bindName) {
+                var defValEl = document.getElementById('mf-cdp-edit-default-value');
+                if (defValEl) updates.original_value = defValEl.value;
+                else if (valEl && valEl.value && !valEl.value.match(/^\$\{\w+\}$/)) updates.original_value = valEl.value;
+                updates.value = '${' + bindName + '}';
+                updates.export_as = '';
+            }
+        } else if (varBindEl && !varBindEl.checked && step.original_value) {
+            if (step.value && step.value.match(/^\$\{\w+\}$/)) {
+                updates.value = step.original_value;
+            }
+        }
+
+        // Export as
+        var exportEl = document.getElementById('mf-cdp-edit-export-as');
+        if (exportEl) updates.export_as = exportEl.value.trim();
+
+        // Capture type
+        var captureTypeSel = document.getElementById('mf-cdp-edit-capture-type');
+        if (captureTypeSel) updates.action = captureTypeSel.value;
+
+        // Attribute/CSS for capture steps
+        if (updates.action === 'capture_attribute') {
+            var attrSel = document.getElementById('mf-cdp-edit-attr-select');
+            var attrInp = document.getElementById('mf-cdp-edit-attr-name');
+            if (attrSel && attrSel.value && attrSel.value !== '__custom__' && attrSel.value !== '') {
+                updates.assertion_attribute = attrSel.value;
+            } else if (attrInp) {
+                updates.assertion_attribute = attrInp.value.trim();
+            }
+        } else if (updates.action === 'capture_computed_style') {
+            var cssSel = document.getElementById('mf-cdp-edit-css-select');
+            var cssInp = document.getElementById('mf-cdp-edit-css-name');
+            if (cssSel && cssSel.value && cssSel.value !== '__custom__' && cssSel.value !== '') {
+                updates.assertion_attribute = cssSel.value;
+            } else if (cssInp) {
+                updates.assertion_attribute = cssInp.value.trim();
+            }
+        }
+
+        // Assert config
+        if (updates.action === 'assert') {
+            var ac = step.assert_config || {};
+            var checkTypeEl = document.getElementById('mf-cdp-edit-check-type');
+            if (checkTypeEl) { updates.assertion_type = checkTypeEl.value; ac.check_type = checkTypeEl.value; }
+            var expEl = document.getElementById('mf-cdp-edit-expected');
+            if (expEl) { updates.assertion_expected = expEl.value; ac.expected = expEl.value; }
+            var csEl = document.getElementById('mf-cdp-edit-case-sensitive');
+            if (csEl) ac.case_sensitive = csEl.checked;
+            updates.assert_config = ac;
+        }
+
+        try {
+            var result = await apiPost('/cdp-test/record/modify-step', {
+                step_id: stepId,
+                updates: updates,
+            });
+            if (result.step) {
+                _cdpStepDataMap.set(stepId, result.step);
+                // Re-render the step row
+                var container = document.getElementById('cdp-rec-steps');
+                if (container) {
+                    var existingRow = container.querySelector('[data-step-id="' + stepId + '"]');
+                    if (existingRow) {
+                        var tmpDiv = document.createElement('div');
+                        tmpDiv.innerHTML = _cdpTestStepRow(result.step);
+                        existingRow.replaceWith(tmpDiv.firstElementChild);
+                    }
+                }
+            }
+            toast('Step ' + (step.sequence + 1) + ' updated', 'success');
+        } catch (err) {
+            toast('Failed to update step: ' + err.message, 'error');
+        }
+        _cdpTestSubModalClose();
+    }
+    window._cdpTestApplyRecStepEdit = _cdpTestApplyRecStepEdit;
 
 
     // ══════════════════════════════════════════════════════════════════

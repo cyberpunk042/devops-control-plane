@@ -933,8 +933,10 @@ def cdp_test_record_modify_step():
 
     # Only allow known fields to be modified (whitelist)
     allowed_fields = {
-        "value", "original_value", "export_as",
-        "description",
+        "action", "selector", "xpath", "value", "original_value",
+        "export_as", "description", "timeout_ms", "optional",
+        "assertion_type", "assertion_expected", "assertion_attribute",
+        "assert_config",
     }
     sanitized = {k: v for k, v in updates.items() if k in allowed_fields}
     if not sanitized:
