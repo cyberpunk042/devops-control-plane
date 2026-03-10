@@ -1347,6 +1347,197 @@
     //  VALIDATION VIEW — edit steps, save as suite
     // ══════════════════════════════════════════════════════════════════
 
+    // ── Auto-detect I/O from steps ───────────────────────────────
+
+    function _cdpTestAutoDetectIO(steps) {
+        var inputs = {};   // name → { default_val, step_indices[] }
+        var outputs = {};  // name → { step_index, description }
+
+        for (var i = 0; i < steps.length; i++) {
+            var s = steps[i];
+            // Detect ${VAR} references in value
+            var val = s.value || '';
+            var refs = val.match(/\$\{(\w+)\}/g);
+            if (refs) {
+                for (var r = 0; r < refs.length; r++) {
+                    var name = refs[r].slice(2, -1);
+                    if (!inputs[name]) inputs[name] = { default_val: s._original_value || '', step_indices: [] };
+                    inputs[name].step_indices.push(i);
+                }
+            }
+            // Detect export_as
+            if (s.export_as) {
+                outputs[s.export_as] = { step_index: i, description: s.description || '' };
+            }
+        }
+        return { inputs: inputs, outputs: outputs };
+    }
+
+    // ── Build I/O summary panel ──────────────────────────────────
+
+    function _cdpTestBuildIOPanel(steps, suiteDraft) {
+        var detected = _cdpTestAutoDetectIO(steps);
+        var savedVarDefs = suiteDraft.variable_defs || [];
+        var savedOutputs = suiteDraft.outputs || {};
+        var savedVars = suiteDraft.variables || {};
+
+        // Merge detected inputs with saved variable_defs
+        var inputNames = Object.keys(detected.inputs);
+        // Also include saved variables not in detected (manual ones)
+        for (var sv = 0; sv < savedVarDefs.length; sv++) {
+            if (inputNames.indexOf(savedVarDefs[sv].name) === -1) {
+                inputNames.push(savedVarDefs[sv].name);
+            }
+        }
+        var savedVarKeys = Object.keys(savedVars);
+        for (var sk = 0; sk < savedVarKeys.length; sk++) {
+            if (inputNames.indexOf(savedVarKeys[sk]) === -1) {
+                inputNames.push(savedVarKeys[sk]);
+            }
+        }
+
+        // Merge detected outputs with saved outputs
+        var outputNames = Object.keys(detected.outputs);
+        var savedOutKeys = Object.keys(savedOutputs);
+        for (var so = 0; so < savedOutKeys.length; so++) {
+            if (outputNames.indexOf(savedOutKeys[so]) === -1) {
+                outputNames.push(savedOutKeys[so]);
+            }
+        }
+
+        var hasIO = inputNames.length > 0 || outputNames.length > 0;
+        var panelId = 'cdp-io-panel';
+
+        var html = '<div style="margin-top:var(--space-sm);border-top:1px solid var(--border-subtle);padding-top:var(--space-xs)">';
+        html += '<div style="display:flex;align-items:center;gap:6px;cursor:pointer;user-select:none" onclick="_cdpTestToggleIOPanel()">';
+        html += '<span style="font-size:0.78rem;font-weight:600;color:var(--text-secondary)">📥📤 I/O Configuration</span>';
+        if (hasIO) {
+            html += '<span style="font-size:0.62rem;padding:1px 5px;background:var(--accent-dim);color:var(--accent);border-radius:8px">' + inputNames.length + ' in / ' + outputNames.length + ' out</span>';
+        }
+        html += '<span id="cdp-io-chevron" style="font-size:0.65rem;color:var(--text-muted);transition:transform 0.2s">▶</span>';
+        html += '</div>';
+
+        html += '<div id="' + panelId + '" style="display:none;margin-top:var(--space-xs)">';
+
+        // ── Inputs table ──
+        html += '<div style="margin-bottom:var(--space-xs)">';
+        html += '<div style="font-size:0.72rem;font-weight:600;color:var(--text-secondary);margin-bottom:4px">📥 Input Variables (' + inputNames.length + ')</div>';
+        if (inputNames.length > 0) {
+            html += '<table style="width:100%;font-size:0.7rem;border-collapse:collapse">';
+            html += '<thead><tr style="border-bottom:1px solid var(--border-subtle);color:var(--text-muted)">';
+            html += '<th style="text-align:left;padding:3px 6px">Name</th>';
+            html += '<th style="text-align:left;padding:3px 6px">Type</th>';
+            html += '<th style="text-align:left;padding:3px 6px">Default</th>';
+            html += '<th style="text-align:left;padding:3px 6px">Source</th>';
+            html += '</tr></thead><tbody>';
+            for (var ii = 0; ii < inputNames.length; ii++) {
+                var iName = inputNames[ii];
+                var det = detected.inputs[iName];
+                // Find saved def
+                var savedDef = null;
+                for (var sd = 0; sd < savedVarDefs.length; sd++) {
+                    if (savedVarDefs[sd].name === iName) { savedDef = savedVarDefs[sd]; break; }
+                }
+                var iType = savedDef ? (savedDef.type || 'string') : 'string';
+                var iDefault = savedDef ? (savedDef['default'] || savedDef.default_value || '') : (savedVars[iName] || (det ? det.default_val : ''));
+                var iSource = det ? ('Step ' + det.step_indices.map(function(x){ return x + 1; }).join(', ')) : 'manual';
+
+                html += '<tr style="border-bottom:1px solid var(--border-subtle)">';
+                html += '<td style="padding:3px 6px;font-family:monospace;color:var(--accent)">' + esc(iName) + '</td>';
+                html += '<td style="padding:3px 6px">' + esc(iType) + '</td>';
+                html += '<td style="padding:3px 6px"><code style="font-size:0.65rem">' + esc(iDefault ? iDefault.slice(0, 30) : '—') + '</code></td>';
+                html += '<td style="padding:3px 6px;color:var(--text-muted)">' + iSource + '</td>';
+                html += '</tr>';
+            }
+            html += '</tbody></table>';
+        } else {
+            html += '<div style="font-size:0.68rem;color:var(--text-muted);padding:4px 0">No input variables detected. Bind step values to use variables.</div>';
+        }
+        html += '</div>';
+
+        // ── Outputs table ──
+        html += '<div style="margin-bottom:var(--space-xs)">';
+        html += '<div style="font-size:0.72rem;font-weight:600;color:var(--text-secondary);margin-bottom:4px">📤 Declared Outputs (' + outputNames.length + ')</div>';
+        if (outputNames.length > 0) {
+            html += '<table style="width:100%;font-size:0.7rem;border-collapse:collapse">';
+            html += '<thead><tr style="border-bottom:1px solid var(--border-subtle);color:var(--text-muted)">';
+            html += '<th style="text-align:left;padding:3px 6px">Name</th>';
+            html += '<th style="text-align:left;padding:3px 6px">Source</th>';
+            html += '<th style="text-align:left;padding:3px 6px">Description</th>';
+            html += '</tr></thead><tbody>';
+            for (var oi = 0; oi < outputNames.length; oi++) {
+                var oName = outputNames[oi];
+                var oDet = detected.outputs[oName];
+                var oSource = oDet ? ('Step ' + (oDet.step_index + 1)) : 'manual';
+                var oDesc = oDet ? oDet.description : (savedOutputs[oName] || '');
+
+                html += '<tr style="border-bottom:1px solid var(--border-subtle)">';
+                html += '<td style="padding:3px 6px;font-family:monospace;color:#22c55e">' + esc(oName) + '</td>';
+                html += '<td style="padding:3px 6px;color:var(--text-muted)">' + oSource + '</td>';
+                html += '<td style="padding:3px 6px">' + esc(oDesc || '—') + '</td>';
+                html += '</tr>';
+            }
+            html += '</tbody></table>';
+        } else {
+            html += '<div style="font-size:0.68rem;color:var(--text-muted);padding:4px 0">No outputs declared. Use "Export as" on capture steps to declare outputs.</div>';
+        }
+        html += '</div>';
+
+        // Auto-detected hint
+        if (hasIO) {
+            var autoHints = [];
+            var detInKeys = Object.keys(detected.inputs);
+            for (var ah = 0; ah < detInKeys.length; ah++) {
+                var di = detected.inputs[detInKeys[ah]];
+                autoHints.push(detInKeys[ah] + ' (step ' + di.step_indices.map(function(x){ return x + 1; }).join(', ') + ')');
+            }
+            var detOutKeys = Object.keys(detected.outputs);
+            for (var aoh = 0; aoh < detOutKeys.length; aoh++) {
+                autoHints.push(detOutKeys[aoh] + ' (step ' + (detected.outputs[detOutKeys[aoh]].step_index + 1) + ')');
+            }
+            if (autoHints.length > 0) {
+                html += '<div style="font-size:0.62rem;color:var(--text-muted);margin-top:2px">🔍 Auto-detected: ' + esc(autoHints.join(', ')) + '</div>';
+            }
+        }
+
+        html += '</div>';
+        html += '</div>';
+
+        // Store detected IO as hidden data for save
+        var ioData = { inputs: {}, outputs: {} };
+        for (var xi = 0; xi < inputNames.length; xi++) {
+            var xn = inputNames[xi];
+            var xd = detected.inputs[xn];
+            var xDef = null;
+            for (var xsd = 0; xsd < savedVarDefs.length; xsd++) {
+                if (savedVarDefs[xsd].name === xn) { xDef = savedVarDefs[xsd]; break; }
+            }
+            ioData.inputs[xn] = {
+                type: xDef ? (xDef.type || 'string') : 'string',
+                default_value: xDef ? (xDef['default'] || xDef.default_value || '') : (savedVars[xn] || (xd ? xd.default_val : '')),
+                description: xDef ? (xDef.description || '') : '',
+                required: xDef ? !!xDef.required : true,
+            };
+        }
+        for (var xo = 0; xo < outputNames.length; xo++) {
+            var xon = outputNames[xo];
+            var xoDet = detected.outputs[xon];
+            ioData.outputs[xon] = xoDet ? xoDet.description : (savedOutputs[xon] || '');
+        }
+        html += '<div id="cdp-val-io-data" style="display:none">' + esc(JSON.stringify(ioData)) + '</div>';
+
+        return html;
+    }
+
+    function _cdpTestToggleIOPanel() {
+        var panel = document.getElementById('cdp-io-panel');
+        var chevron = document.getElementById('cdp-io-chevron');
+        if (!panel) return;
+        var isHidden = panel.style.display === 'none';
+        panel.style.display = isHidden ? '' : 'none';
+        if (chevron) chevron.style.transform = isHidden ? 'rotate(90deg)' : '';
+    }
+
     function _cdpTestOpenValidation(suiteDraft) {
         _cdpTestCurrentView = 'validation';
         const steps = suiteDraft.steps || [];
@@ -1380,6 +1571,9 @@
             body += _cdpTestValStepRow(steps[i], i);
         }
         body += `</div>`;
+
+        // ── I/O Configuration panel ────────────────────────────────
+        body += _cdpTestBuildIOPanel(steps, suiteDraft);
 
         // Hidden data store
         body += `<div id="cdp-val-steps-data" style="display:none">${esc(JSON.stringify(steps))}</div>`;
@@ -1764,6 +1958,22 @@
         container.innerHTML = _cdpTestAssertConditionalFields(checkSel.value, catSel.value, {});
     }
 
+    // Toggle handler for variable binding checkbox
+    function _cdpTestVarBindToggle() {
+        var cb = document.getElementById('mf-cdp-edit-var-bind');
+        var fields = document.getElementById('cdp-edit-var-bind-fields');
+        var valEl = document.getElementById('mf-cdp-edit-value');
+        if (!cb || !fields) return;
+
+        if (cb.checked) {
+            fields.style.display = '';
+            if (valEl) valEl.setAttribute('readonly', 'readonly');
+        } else {
+            fields.style.display = 'none';
+            if (valEl) valEl.removeAttribute('readonly');
+        }
+    }
+
     // Build only the action-specific fields
     function _cdpTestBuildDynamicFields(step) {
         var action = step.action;
@@ -1806,6 +2016,36 @@
             body += modalFormField({ name: 'cdp-edit-value', label: 'JavaScript code', type: 'textarea', value: step.value || '', fullWidth: true });
         }
 
+        // ── Variable binding toggle (for actions with a value field) ──
+        var _cdpValueActions = ['navigate', 'type', 'select', 'keypress', 'inject_js'];
+        if (_cdpValueActions.indexOf(action) !== -1) {
+            var currentVal = step.value || '';
+            var varMatch = currentVal.match(/^\$\{(\w+)\}$/);
+            var isBound = !!varMatch;
+            var boundVarName = isBound ? varMatch[1] : '';
+            var originalVal = step._original_value || (isBound ? '' : currentVal);
+
+            body += '<div style="grid-column:1/-1;margin-top:4px;padding:8px;border:1px solid var(--border-subtle);border-radius:var(--radius-sm);background:var(--surface-raised)">';
+            body += '<label class="modal-form-check" style="margin-bottom:6px">';
+            body += '<input type="checkbox" id="mf-cdp-edit-var-bind" ' + (isBound ? 'checked' : '') + ' onchange="_cdpTestVarBindToggle()">';
+            body += ' Bind to variable</label>';
+            body += '<div id="cdp-edit-var-bind-fields" style="' + (isBound ? '' : 'display:none;') + 'margin-top:6px">';
+            body += modalFormField({ name: 'cdp-edit-var-name-bind', label: 'Variable name', value: boundVarName, placeholder: 'LOGIN_EMAIL' });
+            if (originalVal) {
+                body += '<div style="font-size:0.72rem;color:var(--text-muted);margin-top:2px">Default: <code>' + esc(originalVal) + '</code></div>';
+            }
+            body += '</div>';
+            body += '</div>';
+
+            // If already bound, set value field readonly after DOM render
+            if (isBound) {
+                setTimeout(function() {
+                    var ve = document.getElementById('mf-cdp-edit-value');
+                    if (ve) ve.setAttribute('readonly', 'readonly');
+                }, 30);
+            }
+        }
+
         // ── Capture attribute: attribute name ────────────────────
         if (action === 'capture_attribute') {
             body += modalFormField({ name: 'cdp-edit-attr-name', label: 'Attribute Name', value: step.assertion_attribute || '', placeholder: 'href, data-id, aria-label\u2026' });
@@ -1820,6 +2060,7 @@
         var isCapture = action.indexOf('capture_') === 0;
         if (isCapture) {
             body += modalFormField({ name: 'cdp-edit-var-name', label: 'Store as variable', value: step.variable_name || '', placeholder: 'my_var (optional)' });
+            body += modalFormField({ name: 'cdp-edit-export-as', label: 'Export as (plan output)', value: step.export_as || '', placeholder: 'AUTH_TOKEN (optional)', hint: 'Exports to plan namespace' });
         }
 
         // ── Assert: category-based check type system ──────────────
@@ -1898,9 +2139,33 @@
         var valEl = document.getElementById('mf-cdp-edit-value');
         if (valEl) step.value = valEl.value;
 
+        // Variable binding — if toggle is on, wrap value in ${}
+        var varBindEl = document.getElementById('mf-cdp-edit-var-bind');
+        if (varBindEl && varBindEl.checked) {
+            var bindName = mfVal('cdp-edit-var-name-bind').trim();
+            if (bindName) {
+                // Preserve the original value before overwriting
+                if (valEl && valEl.value && !valEl.value.match(/^\$\{\w+\}$/)) {
+                    step._original_value = valEl.value;
+                } else if (!step._original_value) {
+                    step._original_value = '';
+                }
+                step.value = '${' + bindName + '}';
+            }
+        } else if (varBindEl && !varBindEl.checked && step._original_value) {
+            // Toggle was unchecked — restore original value if current is ${...}
+            if (step.value && step.value.match(/^\$\{\w+\}$/)) {
+                step.value = step._original_value;
+            }
+        }
+
         // Variable name (for captures)
         var varEl = document.getElementById('mf-cdp-edit-var-name');
         if (varEl) step.variable_name = varEl.value;
+
+        // Export as (for captures — exports to plan namespace)
+        var exportEl = document.getElementById('mf-cdp-edit-export-as');
+        if (exportEl) step.export_as = exportEl.value.trim();
 
         // Attribute name (for capture_attribute, capture_computed_style)
         var attrEl = document.getElementById('mf-cdp-edit-attr-name');
@@ -1999,6 +2264,27 @@
         var dataEl = document.getElementById('cdp-val-steps-data');
         var steps = dataEl ? JSON.parse(dataEl.textContent) : [];
 
+        // Read I/O data from the hidden element built by _cdpTestBuildIOPanel
+        var ioDataEl = document.getElementById('cdp-val-io-data');
+        var ioData = ioDataEl ? JSON.parse(ioDataEl.textContent) : { inputs: {}, outputs: {} };
+
+        // Build variable_defs array and variables dict from ioData.inputs
+        var variableDefs = [];
+        var variables = {};
+        var inputKeys = Object.keys(ioData.inputs || {});
+        for (var vi = 0; vi < inputKeys.length; vi++) {
+            var vk = inputKeys[vi];
+            var vd = ioData.inputs[vk];
+            variableDefs.push({
+                name: vk,
+                type: vd.type || 'string',
+                description: vd.description || '',
+                'default': vd.default_value || '',
+                required: vd.required !== false,
+            });
+            variables[vk] = vd.default_value || '';
+        }
+
         var btn = document.getElementById('cdp-save-suite-btn');
         if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
 
@@ -2017,6 +2303,9 @@
                     target_url: mfVal('cdp-suite-url'),
                     category: mfVal('cdp-suite-category'),
                     steps: steps,
+                    variable_defs: variableDefs,
+                    variables: variables,
+                    outputs: ioData.outputs || {},
                 }),
             });
 
@@ -2056,6 +2345,9 @@
                 steps: suite.steps,
                 target_url: suite.target_url,
                 suite_id: suiteId,
+                variable_defs: suite.variable_defs || [],
+                variables: suite.variables || {},
+                outputs: suite.outputs || {},
             });
 
             // Fill in the name and other fields after rendering

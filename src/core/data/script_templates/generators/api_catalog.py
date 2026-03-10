@@ -22,6 +22,10 @@ description: Generates a complete API catalog from Flask route definitions.
 @param base-url: string = http://localhost:5000 | Base URL for the API
 @param title: string = DevOps Control Plane API | API title
 @param version: string = 1.0.0 | API version
+
+@output OUTPUT_DIR: string | Output directory containing generated files
+@output ENDPOINT_COUNT: integer | Total number of API endpoints found
+@output MODULES_FOUND: integer | Total number of modules with routes
 """
 
 import argparse
@@ -107,6 +111,12 @@ def main() -> int:
             print(f"   ✅ {bruno_dir}/")
 
     print(f"✅ API catalog generated in {output_dir}")
+
+    # ── DCP output variables (consumed by plan executor) ─────────
+    print(f"DCP_VAR_OUTPUT_DIR={output_dir}")
+    print(f"DCP_VAR_ENDPOINT_COUNT={total}")
+    print(f"DCP_VAR_MODULES_FOUND={len(modules)}")
+
     return 0
 
 

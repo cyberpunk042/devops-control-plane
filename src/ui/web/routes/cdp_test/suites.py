@@ -116,6 +116,17 @@ def cdp_test_update_suite(suite_id: str):
     if "steps" in data:
         suite.steps = [TestStep.from_dict(s) for s in data["steps"]]
 
+    # Update variable_defs if provided (full replacement, needs deserialization)
+    if "variable_defs" in data:
+        from src.core.services.cdp_test.models import SuiteVariable
+        suite.variable_defs = [
+            SuiteVariable.from_dict(v) for v in data["variable_defs"]
+        ]
+
+    # Update outputs if provided
+    if "outputs" in data:
+        suite.outputs = data["outputs"]
+
     suite.updated_at = _now_iso()
     save_suite(root, suite)
 

@@ -24,6 +24,11 @@ description: Audits architectural layer boundaries for data leaks.
 @param min-dict-size: string = 5 | Minimum dict/list/set size to flag inline (Tier 1)
 @param min-const-size: string = 3 | Minimum module constant size (Tier 2)
 @param tier: choice = all [all, 1, 2, 3, 4] | Which tier(s) to analyze
+
+@output REPORT_PATH: string | Path to the generated report file
+@output TIER1_REAL: integer | Number of real inline data leaks (Tier 1)
+@output TIER2_COUNT: integer | Number of wrong-layer definitions (Tier 2)
+@output TIER3_COUNT: integer | Number of import direction violations (Tier 3)
 """
 
 import argparse
@@ -114,6 +119,12 @@ def main() -> int:
     out_path = output_dir / filename
     out_path.write_text(content, encoding="utf-8")
     print(f"✅ Report written to {out_path}")
+
+    # ── DCP output variables (consumed by plan executor) ─────────
+    print(f"DCP_VAR_REPORT_PATH={out_path}")
+    print(f"DCP_VAR_TIER1_REAL={result.tier1_real}")
+    print(f"DCP_VAR_TIER2_COUNT={result.tier2_count}")
+    print(f"DCP_VAR_TIER3_COUNT={result.tier3_count}")
 
     return 0
 

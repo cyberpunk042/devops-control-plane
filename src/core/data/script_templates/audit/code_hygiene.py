@@ -24,6 +24,11 @@ description: Audits code hygiene across the project. Two sub-audits:
 @param source-dir: string = src | Source directory to analyze (relative to project root)
 @param doc-dirs: string = docs | Documentation directories to scan, comma-separated
 @param sub-audit: choice = all [all, init, docs] | Which sub-audit to run
+
+@output REPORT_PATH: string | Path to the generated report file
+@output FILES_WITH_LOGIC: integer | Number of init files containing logic (sub-audit: init)
+@output TOTAL_STALE: integer | Number of stale documentation references (sub-audit: docs)
+@output CLEAN_FILES: integer | Number of clean init files (sub-audit: init)
 """
 
 import argparse
@@ -118,6 +123,14 @@ def main() -> int:
     filename = args.filename or f"code_hygiene{ext}"
     output_path = write_report(content, output_dir / filename)
     print(f"✅ Report written to {output_path}")
+
+    # ── DCP output variables (consumed by plan executor) ─────────
+    print(f"DCP_VAR_REPORT_PATH={output_path}")
+    if init_result:
+        print(f"DCP_VAR_FILES_WITH_LOGIC={init_result.files_with_logic}")
+        print(f"DCP_VAR_CLEAN_FILES={init_result.clean_files}")
+    if doc_result:
+        print(f"DCP_VAR_TOTAL_STALE={doc_result.total_stale}")
 
     return 0
 

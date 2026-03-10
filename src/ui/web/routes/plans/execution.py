@@ -129,10 +129,17 @@ def plans_cancel(run_id: str):
 
 @plans_bp.route("/plans/run/<run_id>/resume", methods=["POST"])
 def plans_resume(run_id: str):
-    """Resume a paused plan execution."""
+    """Resume a paused plan execution.
+
+    Optionally accepts JSON body with ``variables`` dict to merge
+    into the running namespace before continuing.
+    """
     from src.core.services.scripts.plan_executor import resume_plan
 
-    resumed = resume_plan(run_id)
+    body = request.get_json(silent=True) or {}
+    var_updates = body.get("variables") if isinstance(body, dict) else None
+
+    resumed = resume_plan(run_id, variable_updates=var_updates)
     if not resumed:
         return jsonify({
             "ok": False,

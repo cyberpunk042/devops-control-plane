@@ -20,6 +20,11 @@ description: Audits HTTP route quality across the project. Detects framework
 @param format: choice = markdown [markdown, json] | Output format
 @param filename: string = none | Output filename (default: route_audit.md)
 @param routes-path: string = src/ui/web/routes | Path to route directory (relative to project root)
+
+@output REPORT_PATH: string | Path to the generated report file
+@output TOTAL_ROUTES: integer | Total number of routes analyzed
+@output TOTAL_BLUEPRINTS: integer | Total number of blueprints found
+@output FRAMEWORK: string | Detected web framework name
 """
 
 import argparse
@@ -112,6 +117,12 @@ def main() -> int:
     filename = args.filename or f"route_audit{ext}"
     output_path = write_report(content, output_dir / filename)
     print(f"✅ Report written to {output_path}")
+
+    # ── DCP output variables (consumed by plan executor) ─────────
+    print(f"DCP_VAR_REPORT_PATH={output_path}")
+    print(f"DCP_VAR_TOTAL_ROUTES={result.total_routes}")
+    print(f"DCP_VAR_TOTAL_BLUEPRINTS={result.total_blueprints}")
+    print(f"DCP_VAR_FRAMEWORK={result.framework}")
 
     return 0
 

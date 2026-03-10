@@ -112,6 +112,14 @@ def scripts_info(script_id: str):
                 }
                 for p in meta.parameters
             ],
+            "outputs": [
+                {
+                    "name": o.name,
+                    "type": o.type,
+                    "description": o.description,
+                }
+                for o in meta.outputs
+            ],
         },
     })
 

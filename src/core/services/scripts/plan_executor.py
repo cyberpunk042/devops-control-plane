@@ -51,22 +51,52 @@ _DCP_VAR_PREFIX = "DCP_VAR_"
 
 _DCP_VAR_RE = re.compile(r"^DCP_VAR_([A-Za-z_][A-Za-z0-9_]*)=(.*)$")
 
+_DCP_JSON_PREFIX = "DCP_JSON_"
+"""Scripts produce JSON variables by printing DCP_JSON_KEY={...} to stdout."""
 
-def _extract_variables_from_lines(lines: list[str]) -> dict[str, str]:
-    """Parse DCP_VAR_KEY=VALUE lines from script output.
+_DCP_JSON_RE = re.compile(r"^DCP_JSON_([A-Za-z_][A-Za-z0-9_]*)=(.*)$")
+
+
+def _extract_variables_from_lines(lines: list[str]) -> dict[str, Any]:
+    """Parse DCP_VAR_KEY=VALUE and DCP_JSON_KEY={...} lines from script output.
 
     Returns dict of extracted variable names → values.
-    The DCP_VAR_ prefix is stripped from keys.
+    The DCP_VAR_ / DCP_JSON_ prefix is stripped from keys.
+
+    DCP_VAR_ lines produce string values.
+    DCP_JSON_ lines produce parsed JSON values (dict, list, etc.).
+    If JSON parsing fails, the raw string is kept as fallback.
 
     Example:
         Input line:  "DCP_VAR_DEPLOY_PATH=/opt/app/v2"
         Output:      {"DEPLOY_PATH": "/opt/app/v2"}
+
+        Input line:  'DCP_JSON_AUDIT={"ok": true, "score": 95}'
+        Output:      {"AUDIT": {"ok": True, "score": 95}}
     """
-    variables: dict[str, str] = {}
+    import json as _json
+
+    variables: dict[str, Any] = {}
     for line in lines:
-        m = _DCP_VAR_RE.match(line.strip())
+        stripped = line.strip()
+
+        # Try DCP_JSON_ first (more specific prefix)
+        m = _DCP_JSON_RE.match(stripped)
+        if m:
+            key = m.group(1)
+            raw = m.group(2)
+            try:
+                variables[key] = _json.loads(raw)
+            except (ValueError, TypeError):
+                # Fallback to string if JSON is invalid
+                variables[key] = raw
+            continue
+
+        # Try DCP_VAR_ (simple string)
+        m = _DCP_VAR_RE.match(stripped)
         if m:
             variables[m.group(1)] = m.group(2)
+
     return variables
 
 
@@ -79,7 +109,7 @@ class _PlanRun:
     __slots__ = (
         "run_id", "plan_id", "thread", "stop_event",
         "resume_event", "paused", "current_step_sequence",
-        "skip_requested",
+        "skip_requested", "pending_var_updates",
     )
 
     def __init__(self, run_id: str, plan_id: str):
@@ -91,6 +121,7 @@ class _PlanRun:
         self.paused = False
         self.current_step_sequence = 0
         self.skip_requested = False
+        self.pending_var_updates: dict[str, Any] | None = None
 
 
 _active_plan: _PlanRun | None = None
@@ -117,13 +148,22 @@ def cancel_active_plan() -> bool:
     return True
 
 
-def resume_plan(run_id: str) -> bool:
-    """Resume a paused plan.  Returns True if resumed."""
+def resume_plan(run_id: str, variable_updates: dict | None = None) -> bool:
+    """Resume a paused plan.  Returns True if resumed.
+
+    Args:
+        run_id: The run ID to resume.
+        variable_updates: Optional dict of variable name → value to merge
+            into the namespace before continuing execution.  Sent by the
+            UI when the user edits namespace values at a pause point.
+    """
     with _plan_lock:
         run = _active_plan
     if run is None or run.run_id != run_id or not run.paused:
         return False
     run.skip_requested = False
+    if variable_updates:
+        run.pending_var_updates = variable_updates
     run.resume_event.set()
     return True
 
@@ -253,7 +293,7 @@ def _resolve_cdp_target(
 def _execute_script_step(
     project_root: Path,
     step: PlanStep,
-    namespace: dict[str, str],
+    namespace: dict[str, Any],
 ) -> StepResult:
     """Execute a script step via the M1 executor."""
     from src.core.services.scripts.executor import execute_script
@@ -290,7 +330,7 @@ def _execute_script_step(
 def _execute_cdp_test_step(
     project_root: Path,
     step: PlanStep,
-    namespace: dict[str, str],
+    namespace: dict[str, Any],
     cdp_port: int | None,
     stop_event: threading.Event,
     callback: callable,
@@ -355,11 +395,14 @@ def _execute_cdp_test_step(
     )
 
     # Extract captured variables from diagnostic steps
-    produced: dict[str, str] = {}
+    produced: dict[str, Any] = {}
     for sr in run_result.step_results:
         if sr.get("captured_value"):
-            # Use the step selector as the variable name (cleaned up)
-            key = sr.get("selector", "").replace(".", "_").replace("#", "")
+            # Prefer explicit export_name (from step.export_as) over selector
+            key = sr.get("export_name") or ""
+            if not key:
+                # Fallback: use the step selector as variable name (cleaned up)
+                key = sr.get("selector", "").replace(".", "_").replace("#", "")
             if key:
                 produced[key] = sr["captured_value"]
 
@@ -401,10 +444,12 @@ def _execute_cdp_test_step(
 
 def _execute_checkpoint_step(
     step: PlanStep,
-    namespace: dict[str, str],
+    namespace: dict[str, Any],
     plan_run: _PlanRun,
     plan_mode: str,
     callback: callable,
+    sorted_steps: list | None = None,
+    step_results_map: dict | None = None,
 ) -> StepResult:
     """Execute a checkpoint step.
 
@@ -412,6 +457,33 @@ def _execute_checkpoint_step(
     In fully_automated mode: just log and continue.
     """
     if plan_mode in ("semi_automated", "interactive"):
+        # Find next step info for the UI
+        next_step_info = None
+        steps_produced_since: dict[str, Any] = {}
+        if sorted_steps:
+            idx = next(
+                (i for i, s in enumerate(sorted_steps) if s.id == step.id),
+                -1,
+            )
+            if idx >= 0 and idx + 1 < len(sorted_steps):
+                ns = sorted_steps[idx + 1]
+                next_step_info = {
+                    "id": ns.id,
+                    "name": ns.name,
+                    "type": ns.type,
+                    "sequence": ns.sequence,
+                    "consumes": ns.consumes,
+                    "produces": ns.produces,
+                }
+            # Gather all variables produced since the last checkpoint
+            if step_results_map:
+                for s in sorted_steps:
+                    if s.id == step.id:
+                        break  # stop at current checkpoint
+                    sr = step_results_map.get(s.id)
+                    if sr and sr.variables_produced:
+                        steps_produced_since.update(sr.variables_produced)
+
         # Emit pause event
         callback("plan:paused", {
             "run_id": plan_run.run_id,
@@ -420,6 +492,8 @@ def _execute_checkpoint_step(
             "reason": "checkpoint",
             "message": step.checkpoint_message,
             "variables": namespace,
+            "next_step": next_step_info,
+            "steps_produced_since": steps_produced_since,
         })
 
         # Wait for resume/skip/cancel
@@ -427,6 +501,11 @@ def _execute_checkpoint_step(
         plan_run.resume_event.clear()
         plan_run.resume_event.wait()  # Blocks until resume/skip/cancel
         plan_run.paused = False
+
+        # Apply any variable updates from the UI
+        if plan_run.pending_var_updates:
+            namespace.update(plan_run.pending_var_updates)
+            plan_run.pending_var_updates = None
 
         if plan_run.stop_event.is_set():
             return StepResult(
@@ -635,7 +714,7 @@ def execute_plan(
         cdp_port = None  # Use global endpoint
 
     # ── Step 3: Execute steps ─────────────────────────────────
-    namespace: dict[str, str] = dict(plan.variables)
+    namespace: dict[str, Any] = dict(plan.variables)
     step_results_map: dict[str, StepResult] = {}
     sorted_steps = sorted(plan.steps, key=lambda s: s.sequence)
 
@@ -679,6 +758,8 @@ def execute_plan(
         elif step.type == "checkpoint":
             step_result = _execute_checkpoint_step(
                 step, namespace, plan_run, plan.mode, callback,
+                sorted_steps=sorted_steps,
+                step_results_map=step_results_map,
             )
 
         elif step.type == "conditional":
@@ -752,6 +833,20 @@ def execute_plan(
 
         # ── Interactive mode: pause after every step ──
         if plan.mode == "interactive" and step.type != "checkpoint":
+            # Find the next step for preview
+            step_idx = sorted_steps.index(step)
+            next_step_info = None
+            if step_idx + 1 < len(sorted_steps):
+                ns = sorted_steps[step_idx + 1]
+                next_step_info = {
+                    "id": ns.id,
+                    "name": ns.name,
+                    "type": ns.type,
+                    "sequence": ns.sequence,
+                    "consumes": ns.consumes,
+                    "produces": ns.produces,
+                }
+
             callback("plan:paused", {
                 "run_id": run_id,
                 "step_id": step.id,
@@ -759,12 +854,19 @@ def execute_plan(
                 "reason": "interactive",
                 "message": f"Step {step.sequence} completed: {step_result.status}",
                 "variables": namespace,
+                "step_produced": step_result.variables_produced,
+                "next_step": next_step_info,
             })
 
             plan_run.paused = True
             plan_run.resume_event.clear()
             plan_run.resume_event.wait()
             plan_run.paused = False
+
+            # Apply any variable updates from the UI
+            if plan_run.pending_var_updates:
+                namespace.update(plan_run.pending_var_updates)
+                plan_run.pending_var_updates = None
 
             if stop_event.is_set():
                 result.status = "cancelled"

@@ -18,7 +18,7 @@ import threading
 from pathlib import Path
 
 from src.core.services.scripts.config import load_scripts_config
-from src.core.services.scripts.models import ScriptConfig, ScriptMeta, ScriptParameter
+from src.core.services.scripts.models import ScriptConfig, ScriptMeta, ScriptOutput, ScriptParameter
 
 logger = logging.getLogger(__name__)
 
@@ -372,6 +372,7 @@ def _parse_header_fields(
     # Parse @script fields
     fields: dict[str, str] = {}
     params: list[ScriptParameter] = []
+    outputs: list[ScriptOutput] = []
 
     lines = header_text.splitlines()
     in_script_block = False
@@ -387,6 +388,12 @@ def _parse_header_fields(
             param = _parse_param_line(stripped)
             if param:
                 params.append(param)
+            continue
+
+        if stripped.startswith("@output"):
+            output = _parse_output_line(stripped)
+            if output:
+                outputs.append(output)
             continue
 
         if in_script_block and ":" in stripped:
@@ -410,6 +417,7 @@ def _parse_header_fields(
         mode=fields.get("mode", "fully_automated"),
         timeout=int(fields.get("timeout", "300")),
         parameters=params,
+        outputs=outputs,
         default_output=fields.get("default_output", ""),
         output_formats=output_formats,
         source=source,
@@ -479,6 +487,44 @@ def _parse_param_line(line: str) -> ScriptParameter | None:
         required=not bool(default),
         default=default,
         choices=choices,
+    )
+
+
+def _parse_output_line(line: str) -> ScriptOutput | None:
+    """Parse an @output line into a ScriptOutput.
+
+    Format: @output NAME: type | description
+
+    Examples:
+        @output DEPLOY_PATH: string | Resolved deployment path
+        @output AUDIT_RESULT: json | Full audit result as JSON object
+        @output CONFIG_OK: boolean | Whether current config is valid
+        @output ITEM_COUNT: integer | Number of items found
+    """
+    # Strip @output prefix
+    text = line[len("@output"):].strip()
+    if not text:
+        return None
+
+    # Split description from the rest: everything after |
+    description = ""
+    if "|" in text:
+        text, _, description = text.rpartition("|")
+        description = description.strip()
+        text = text.strip()
+
+    # Split name from type: NAME: type
+    if ":" not in text:
+        return ScriptOutput(name=text.strip(), description=description)
+
+    name, _, type_part = text.partition(":")
+    name = name.strip()
+    output_type = type_part.strip() or "string"
+
+    return ScriptOutput(
+        name=name,
+        type=output_type,
+        description=description,
     )
 
 
@@ -553,6 +599,8 @@ def get_scripts_summary(project_root: Path) -> dict:
             "category": meta.category,
             "source": meta.source,
             "language": meta.language,
+            "param_count": len(meta.parameters),
+            "output_count": len(meta.outputs),
         })
 
     return {

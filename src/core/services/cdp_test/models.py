@@ -1,16 +1,18 @@
 """
-CDP Test data models — TestStep, TestSuite, TestRunResult.
+CDP Test data models — TestStep, TestSuite, SuiteVariable, TestRunResult.
 
 Pure data shapes with no I/O.  These define:
 - What a test step looks like (action, selector, value, assertion)
 - What a test suite is (ordered steps with metadata and variables)
+- What a suite variable declaration looks like (typed, with defaults)
 - What a test run result contains (per-step pass/fail + summary)
 
 Used by:
-    storage.py   — serialization to/from JSON
-    session.py   — building steps during recording
-    recorder.py  — populating steps from DOM events
-    replayer.py  — reading steps for execution
+    storage.py    — serialization to/from JSON
+    session.py    — building steps during recording
+    recorder.py   — populating steps from DOM events
+    replayer.py   — reading steps for execution
+    plan_executor — reading variable_defs/outputs for I/O chaining
 """
 
 from __future__ import annotations
@@ -327,6 +329,13 @@ class TestStep:
     tag: str = ""                       # User-assigned tag for grouping
     optional: bool = False              # If True, failure doesn't fail the suite
 
+    # ── Output export ─────────────────────────────────────────
+    export_as: str = ""                 # If set on a capture_* step, the captured
+                                        # value is exported with this name into the
+                                        # plan namespace (e.g., "AUTH_TOKEN").
+                                        # Without this, plan executor uses the CSS
+                                        # selector as the variable name (ad-hoc).
+
     # ── Recording context ─────────────────────────────────────
     page_url: str = ""                  # URL when step was recorded
     element_tag: str = ""               # Tag name (div, input, button, etc.)
@@ -361,6 +370,8 @@ class TestStep:
             "element_text": self.element_text,
             "element_rect": self.element_rect,
         }
+        if self.export_as:
+            d["export_as"] = self.export_as
         # Only include configs when present (keeps JSON clean for old suites)
         if self.assert_config is not None:
             d["assert_config"] = self.assert_config.to_dict()
@@ -399,10 +410,56 @@ class TestStep:
             description=data.get("description", ""),
             tag=data.get("tag", ""),
             optional=data.get("optional", False),
+            export_as=data.get("export_as", ""),
             page_url=data.get("page_url", ""),
             element_tag=data.get("element_tag", ""),
             element_text=data.get("element_text", ""),
             element_rect=data.get("element_rect", {}),
+        )
+
+
+# ── Suite Variable ─────────────────────────────────────────────
+
+
+@dataclass
+class SuiteVariable:
+    """A declared variable for a CDP test suite.
+
+    Enriches the existing TestSuite.variables (dict[str, str]) with
+    type information, descriptions, and required flags for the plan
+    editor.  When variable_defs is empty, the editor falls back to
+    the raw variables dict.
+
+    Example usage in suite JSON:
+        "variable_defs": [
+            {"name": "BASE_URL", "type": "url", "default": "http://localhost:3000",
+             "description": "Application base URL", "required": true}
+        ]
+    """
+
+    name: str                                   # Variable name (e.g., "BASE_URL")
+    type: str = "string"                        # "string" | "secret" | "url" | "integer"
+    description: str = ""                       # Help text
+    default: str = ""                           # Default value
+    required: bool = False                      # Must be provided at runtime
+
+    def to_dict(self) -> dict:
+        return {
+            "name": self.name,
+            "type": self.type,
+            "description": self.description,
+            "default": self.default,
+            "required": self.required,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "SuiteVariable":
+        return cls(
+            name=data.get("name", ""),
+            type=data.get("type", "string"),
+            description=data.get("description", ""),
+            default=data.get("default", ""),
+            required=data.get("required", False),
         )
 
 
@@ -452,6 +509,16 @@ class TestSuite:
     variables: dict[str, str] = field(default_factory=dict)
                                         # Name → default value
                                         # Empty string = required at runtime
+    variable_defs: list[SuiteVariable] = field(default_factory=list)
+                                        # Typed variable declarations (enrichment)
+                                        # Used by plan editor for I/O wiring
+                                        # When empty, editor uses raw variables dict
+
+    # ── Declared Outputs ──────────────────────────────────────
+    outputs: dict[str, str] = field(default_factory=dict)
+                                        # Declared output variable names → descriptions
+                                        # e.g., {"AUTH_TOKEN": "Bearer token from login"}
+                                        # Used by plan editor for I/O wiring
 
     # ── Configuration ─────────────────────────────────────────
     default_timeout_ms: int = 5000      # Default per-step timeout
@@ -485,6 +552,8 @@ class TestSuite:
             "target_description": self.target_description,
             "steps": [s.to_dict() for s in self.steps],
             "variables": self.variables,
+            "variable_defs": [v.to_dict() for v in self.variable_defs],
+            "outputs": self.outputs,
             "default_timeout_ms": self.default_timeout_ms,
             "navigate_wait_ms": self.navigate_wait_ms,
             "replay_speed": self.replay_speed,
@@ -549,6 +618,11 @@ class TestSuite:
             start_step_id=data.get("start_step_id", ""),
             branches=data.get("branches", {}),
             variables=data.get("variables", {}),
+            variable_defs=[
+                SuiteVariable.from_dict(v)
+                for v in data.get("variable_defs", [])
+            ],
+            outputs=data.get("outputs", {}),
             default_timeout_ms=data.get("default_timeout_ms", 5000),
             navigate_wait_ms=data.get("navigate_wait_ms", 2000),
             replay_speed=data.get("replay_speed", 1.0),

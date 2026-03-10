@@ -236,6 +236,39 @@
         return icons[status] || '—';
     }
 
+    /** Format a variable value for display — handles strings, objects, arrays */
+    function _plansFormatValue(v, maxLen = 120) {
+        if (v === null || v === undefined) return '<span style="color:var(--text-muted)">null</span>';
+        if (typeof v === 'object') {
+            const json = JSON.stringify(v, null, 2);
+            const id = 'pv-' + Math.random().toString(36).slice(2, 8);
+            if (json.length <= 60) {
+                // Short object — show inline with syntax coloring
+                return `<code style="font-size:0.68rem;background:var(--bg-tertiary);padding:1px 4px;border-radius:3px;color:#8b5cf6">${esc(json)}</code>`;
+            }
+            // Longer object — collapsible
+            return `<span style="cursor:pointer;color:#8b5cf6;font-size:0.68rem" onclick="var el=document.getElementById('${id}');el.style.display=el.style.display==='none'?'block':'none'">📦 Object (${Object.keys(v).length} keys) ▸</span>
+                <pre id="${id}" style="display:none;font-size:0.66rem;background:var(--bg-tertiary);padding:6px;border-radius:4px;margin:2px 0;max-height:200px;overflow:auto;white-space:pre-wrap;word-break:break-all">${esc(json)}</pre>`;
+        }
+        const s = String(v);
+        if (s.length <= maxLen) return esc(s);
+        const id = 'pv-' + Math.random().toString(36).slice(2, 8);
+        return `<span>${esc(s.slice(0, maxLen))}…</span>
+            <span style="cursor:pointer;color:var(--info);font-size:0.64rem" onclick="var el=document.getElementById('${id}');el.style.display=el.style.display==='none'?'block':'none'"> show all</span>
+            <pre id="${id}" style="display:none;font-size:0.66rem;background:var(--bg-tertiary);padding:6px;border-radius:4px;margin:2px 0;max-height:200px;overflow:auto;white-space:pre-wrap;word-break:break-all">${esc(s)}</pre>`;
+    }
+
+    /** Format a value for inline badge display (short, no expand) */
+    function _plansFormatValueShort(v, maxLen = 40) {
+        if (v === null || v === undefined) return 'null';
+        if (typeof v === 'object') {
+            const json = JSON.stringify(v);
+            return json.length <= maxLen ? json : json.slice(0, maxLen - 1) + '…';
+        }
+        const s = String(v);
+        return s.length <= maxLen ? s : s.slice(0, maxLen - 1) + '…';
+    }
+
     // ══════════════════════════════════════════════════════════════════
     //  PLAN ACTIONS — run, delete, duplicate, detail, create
     // ══════════════════════════════════════════════════════════════════
@@ -252,13 +285,99 @@
 
             // Show pre-run confirmation
             const stepList = (plan.steps || []).sort((a, b) => a.sequence - b.sequence);
-            let stepsHtml = '';
+
+            // ── I/O Wiring Analysis ────────────────────────────────
+            // Walk steps simulating namespace accumulation to detect missing inputs
+            const initialVars = new Set(Object.keys(plan.variables || {}));
+            const namespaceAtStep = [];  // [{available: Set, missing: [], produced: []}]
+            let cumulativeNamespace = new Set(initialVars);
+
             for (const s of stepList) {
-                stepsHtml += `<div style="display:flex;align-items:center;gap:0.5rem;padding:4px 0;font-size:0.78rem">
-                    <span>${_plansStepIcon(s.type)}</span>
-                    <span style="font-weight:500">${esc(s.name || s.type)}</span>
-                    <span style="color:var(--text-muted);font-size:0.68rem">${esc(s.type)}${s.optional ? ' · optional' : ''}</span>
+                const consumed = (s.consumes || []);
+                const produced = (s.produces || []);
+                const missing = consumed.filter(v => !cumulativeNamespace.has(v));
+                namespaceAtStep.push({
+                    available: new Set(cumulativeNamespace),
+                    missing,
+                    consumed,
+                    produced,
+                });
+                // Add produces to namespace for subsequent steps
+                for (const p of produced) cumulativeNamespace.add(p);
+            }
+
+            const totalMissing = namespaceAtStep.reduce((acc, s) => acc + s.missing.length, 0);
+            const isFullyAutomated = plan.mode === 'fully_automated';
+            const blockExecution = isFullyAutomated && totalMissing > 0;
+
+            // ── Step list with I/O badges ──────────────────────────
+            let stepsHtml = '';
+            for (let i = 0; i < stepList.length; i++) {
+                const s = stepList[i];
+                const io = namespaceAtStep[i];
+                const hasMissing = io.missing.length > 0;
+
+                // I/O wiring detail under each step
+                let ioDetail = '';
+                if (io.consumed.length > 0 || io.produced.length > 0) {
+                    const consumedHtml = io.consumed.map(v => {
+                        const ok = !io.missing.includes(v);
+                        return `<span style="font-size:0.66rem;padding:1px 4px;border-radius:3px;background:${ok ? 'color-mix(in srgb,var(--success) 15%,transparent)' : 'color-mix(in srgb,var(--error) 15%,transparent)'}">${ok ? '✅' : '❌'} ${esc(v)}</span>`;
+                    }).join(' ');
+                    const producedHtml = io.produced.map(v =>
+                        `<span style="font-size:0.66rem;padding:1px 4px;border-radius:3px;background:color-mix(in srgb,var(--success) 15%,transparent)">📤 ${esc(v)}</span>`
+                    ).join(' ');
+
+                    ioDetail = `<div style="margin-left:28px;margin-top:2px;display:flex;gap:4px;flex-wrap:wrap">
+                        ${consumedHtml ? `<span style="font-size:0.62rem;color:var(--text-muted)">needs:</span> ${consumedHtml}` : ''}
+                        ${producedHtml ? `<span style="font-size:0.62rem;color:var(--text-muted);${consumedHtml ? 'margin-left:6px' : ''}">outputs:</span> ${producedHtml}` : ''}
+                    </div>`;
+                }
+
+                // Flow arrow between steps
+                const arrow = i < stepList.length - 1 && (io.produced.length > 0)
+                    ? `<div style="margin-left:12px;color:var(--text-muted);font-size:0.64rem;line-height:1">↓</div>` : '';
+
+                stepsHtml += `<div style="padding:3px 0;${hasMissing ? 'border-left:2px solid var(--error);padding-left:6px' : ''}">
+                    <div style="display:flex;align-items:center;gap:0.5rem;font-size:0.78rem">
+                        <span>${_plansStepIcon(s.type)}</span>
+                        <span style="font-weight:500">${esc(s.name || s.type)}</span>
+                        <span style="color:var(--text-muted);font-size:0.68rem">${esc(s.type)}${s.optional ? ' · optional' : ''}</span>
+                    </div>
+                    ${ioDetail}
+                </div>${arrow}`;
+            }
+
+            // ── Missing inputs diagnostic ──────────────────────────
+            let missingHtml = '';
+            if (totalMissing > 0) {
+                let missingItems = '';
+                for (let i = 0; i < stepList.length; i++) {
+                    const io = namespaceAtStep[i];
+                    if (io.missing.length > 0) {
+                        for (const v of io.missing) {
+                            missingItems += `<div style="font-size:0.72rem;padding:2px 0">
+                                Step ${i + 1} <strong>${esc(stepList[i].name || stepList[i].type)}</strong>
+                                needs <code style="background:var(--bg-tertiary);padding:1px 4px;border-radius:3px">${esc(v)}</code>
+                                — no producer, no initial value
+                            </div>`;
+                        }
+                    }
+                }
+
+                const severity = isFullyAutomated ? 'error' : 'warning';
+                const icon = isFullyAutomated ? '❌' : '⚠️';
+                missingHtml = `<div style="margin-top:var(--space-sm);padding:0.5rem;border-radius:6px;border:1px solid var(--${severity});background:color-mix(in srgb,var(--${severity}) 8%,transparent)">
+                    <div style="font-size:0.76rem;font-weight:600;color:var(--${severity})">${icon} ${totalMissing} input${totalMissing !== 1 ? 's' : ''} cannot be satisfied</div>
+                    ${missingItems}
+                    <div style="font-size:0.68rem;color:var(--text-muted);margin-top:4px">
+                        ${isFullyAutomated
+                            ? '💡 Add missing values to Initial Variables, or switch to <strong>semi_automated</strong>/<strong>interactive</strong> mode to fill them at runtime.'
+                            : '💡 These will need to be provided at runtime pause points.'}
+                    </div>
                 </div>`;
+            } else if (stepList.some((_, i) => namespaceAtStep[i].consumed.length > 0)) {
+                missingHtml = `<div style="margin-top:var(--space-sm);font-size:0.72rem;color:var(--success)">✅ All required inputs satisfied</div>`;
             }
 
             modalOpen({
@@ -274,21 +393,25 @@
                             ${stepList.length} step${stepList.length !== 1 ? 's' : ''}
                         </div>
                     </div>
-                    <div style="border:1px solid var(--border-subtle);border-radius:6px;padding:0.5rem;max-height:200px;overflow-y:auto">
+                    <div style="font-size:0.72rem;color:var(--text-muted);margin-bottom:4px;font-weight:600">🔗 I/O Wiring</div>
+                    <div style="border:1px solid var(--border-subtle);border-radius:6px;padding:0.5rem;max-height:240px;overflow-y:auto">
                         ${stepsHtml || '<span style="color:var(--text-muted);font-size:0.78rem">No steps defined</span>'}
                     </div>
+                    ${missingHtml}
                     ${Object.keys(plan.variables || {}).length > 0 ? `
                     <div style="margin-top:var(--space-sm)">
                         <div style="font-size:0.72rem;color:var(--text-muted);margin-bottom:4px">Initial Variables</div>
                         <div style="font-size:0.72rem;font-family:var(--font-mono);background:var(--bg-tertiary);padding:0.5rem;border-radius:4px">
-                            ${Object.entries(plan.variables).map(([k, v]) => `<div>${esc(k)} = ${esc(v)}</div>`).join('')}
+                            ${Object.entries(plan.variables).map(([k, v]) => `<div>${esc(k)} = ${esc(typeof v === 'object' ? JSON.stringify(v) : v)}</div>`).join('')}
                         </div>
                     </div>` : ''}
                 </div>`,
                 size: 'wide',
                 footerButtons: [
                     { label: '← Back', cls: 'btn-secondary', onclick: '_plansRenderHome()' },
-                    { label: '▶ Execute', cls: 'btn-primary', onclick: `_plansDoRun('${esc(planId)}')` },
+                    blockExecution
+                        ? { label: '🚫 Cannot Execute — Missing Inputs', cls: 'btn-secondary', disabled: true }
+                        : { label: '▶ Execute', cls: 'btn-primary', onclick: `_plansDoRun('${esc(planId)}')` },
                 ],
             });
 
@@ -475,6 +598,8 @@
                         <strong style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(s.name || s.type)}</strong>
                         ${detail}
                         ${s.optional ? '<span style="font-size:0.58rem;padding:1px 5px;background:var(--bg-tertiary);border-radius:8px">optional</span>' : ''}
+                        ${(s.produces || []).length > 0 ? `<span style="font-size:0.58rem;padding:1px 5px;background:color-mix(in srgb,var(--success) 20%,transparent);border-radius:8px" title="Produces: ${(s.produces || []).join(', ')}">📤${s.produces.length}</span>` : ''}
+                        ${(s.consumes || []).length > 0 ? `<span style="font-size:0.58rem;padding:1px 5px;background:color-mix(in srgb,var(--info) 20%,transparent);border-radius:8px" title="Consumes: ${(s.consumes || []).join(', ')}">📥${s.consumes.length}</span>` : ''}
                     </div>
                 </div>
                 <div style="display:flex;gap:0.2rem;flex-shrink:0">
@@ -647,20 +772,208 @@
 
     // ── Edit single step (inline form) ────────────────────────────────
 
-    function _plansEditStep(index) {
+    // ── I/O Metadata Cache ─────────────────────────────────────────────
+    // Caches fetched script and suite metadata to avoid repeated API calls
+    const _plansMetaCache = { scripts: {}, suites: {} };
+
+    async function _plansFetchScriptMeta(scriptId) {
+        if (_plansMetaCache.scripts[scriptId]) return _plansMetaCache.scripts[scriptId];
+        try {
+            const data = await api(`/scripts/info/${scriptId}`);
+            if (data.ok && data.script) {
+                _plansMetaCache.scripts[scriptId] = data.script;
+                return data.script;
+            }
+        } catch (e) { /* silent */ }
+        return null;
+    }
+
+    async function _plansFetchSuiteMeta(suiteId) {
+        if (_plansMetaCache.suites[suiteId]) return _plansMetaCache.suites[suiteId];
+        try {
+            const data = await api(`/cdp-test/suites/${suiteId}`);
+            if (data.ok && data.suite) {
+                _plansMetaCache.suites[suiteId] = data.suite;
+                return data.suite;
+            }
+        } catch (e) { /* silent */ }
+        return null;
+    }
+
+    /** Build a list of all variable names available from prior steps' declared outputs */
+    function _plansUpstreamVars(currentIndex) {
+        const vars = [];
+        // Start with plan initial variables
+        const varInputs = document.querySelectorAll('#plans-editor-vars [data-var-key]');
+        varInputs.forEach(input => {
+            const key = input.value.trim();
+            if (key) vars.push({ name: key, source: 'initial' });
+        });
+        // Add produces from prior steps
+        for (let i = 0; i < currentIndex && i < _plansEditorSteps.length; i++) {
+            const ps = _plansEditorSteps[i];
+            for (const p of (ps.produces || [])) {
+                vars.push({ name: p, source: `Step ${i + 1}: ${ps.name || ps.type}` });
+            }
+        }
+        return vars;
+    }
+
+    /** Render a namespace variable dropdown for an input field */
+    function _plansVarDropdown(fieldName, currentVal, upstreamVars) {
+        if (upstreamVars.length === 0) return '';
+        const options = upstreamVars.map(v =>
+            `<option value="\${${v.name}}"${currentVal === '${' + v.name + '}' ? ' selected' : ''}>${v.name} (${v.source})</option>`
+        ).join('');
+        return `<select class="modal-form-input" style="font-size:0.72rem;margin-top:2px;width:auto;max-width:200px"
+            onchange="const inp=document.getElementById('mf-${fieldName}');if(this.value&&inp)inp.value=this.value;this.selectedIndex=0;">
+            <option value="">← use variable</option>${options}</select>`;
+    }
+
+    async function _plansEditStep(index) {
         _plansCaptureEditorState();
         const s = _plansEditorSteps[index];
+        const upstream = _plansUpstreamVars(index);
         let body = '';
 
         body += modalFormField({ name: 'step-name', label: 'Step Name', value: s.name || '', placeholder: 'Human label' });
 
         if (s.type === 'script') {
             body += modalFormField({ name: 'step-script-id', label: 'Script ID', value: s.script_id || '', placeholder: 'e.g. audit-docker' });
-            body += modalFormField({ name: 'step-script-params', label: 'Params (key=val, one per line)', type: 'textarea', value: Object.entries(s.script_params || {}).map(([k, v]) => `${k}=${v}`).join('\n'), placeholder: 'target=production\nverbose=true' });
+
+            // Fetch script metadata for typed fields
+            const meta = s.script_id ? await _plansFetchScriptMeta(s.script_id) : null;
+
+            if (meta && meta.parameters && meta.parameters.length > 0) {
+                body += `<div class="modal-form-group" style="margin-top:8px">
+                    <label class="modal-form-label" style="color:var(--info)">📥 Declared Parameters</label>`;
+                for (const p of meta.parameters) {
+                    const currentVal = (s.script_params || {})[p.name] || p.default || '';
+                    const reqBadge = p.required ? '<span style="color:var(--error);font-size:0.68rem;margin-left:4px">required</span>' : '';
+                    const typeBadge = `<span style="color:var(--text-muted);font-size:0.64rem;margin-left:4px">${p.type}</span>`;
+                    const desc = p.description ? `<div style="font-size:0.66rem;color:var(--text-muted);margin:1px 0 3px">${esc(p.description)}</div>` : '';
+
+                    if (p.type === 'boolean') {
+                        body += `<div style="margin:4px 0;">
+                            <div style="display:flex;align-items:center;gap:6px">
+                                <label style="font-size:0.74rem;font-weight:500">${esc(p.name)}${typeBadge}${reqBadge}</label>
+                                ${_plansVarDropdown('sp-' + p.name, currentVal, upstream)}
+                            </div>
+                            ${desc}
+                            <input type="checkbox" id="mf-sp-${esc(p.name)}" class="modal-form-input" data-sp-name="${esc(p.name)}"
+                                ${currentVal === 'true' || currentVal === true ? 'checked' : ''}>
+                        </div>`;
+                    } else if (p.type === 'choice' && p.choices && p.choices.length > 0) {
+                        const opts = p.choices.map(c =>
+                            `<option value="${esc(c)}"${currentVal === c ? ' selected' : ''}>${esc(c)}</option>`
+                        ).join('');
+                        body += `<div style="margin:4px 0;">
+                            <div style="display:flex;align-items:center;gap:6px">
+                                <label style="font-size:0.74rem;font-weight:500">${esc(p.name)}${typeBadge}${reqBadge}</label>
+                                ${_plansVarDropdown('sp-' + p.name, currentVal, upstream)}
+                            </div>
+                            ${desc}
+                            <select id="mf-sp-${esc(p.name)}" class="modal-form-input" data-sp-name="${esc(p.name)}">${opts}</select>
+                        </div>`;
+                    } else {
+                        body += `<div style="margin:4px 0;">
+                            <div style="display:flex;align-items:center;gap:6px">
+                                <label style="font-size:0.74rem;font-weight:500">${esc(p.name)}${typeBadge}${reqBadge}</label>
+                                ${_plansVarDropdown('sp-' + p.name, currentVal, upstream)}
+                            </div>
+                            ${desc}
+                            <input id="mf-sp-${esc(p.name)}" class="modal-form-input" data-sp-name="${esc(p.name)}"
+                                type="${p.type === 'integer' ? 'number' : 'text'}"
+                                value="${esc(currentVal)}" placeholder="${esc(p.default || '')}">
+                        </div>`;
+                    }
+                }
+                body += `</div>`;
+            } else {
+                // Fallback: raw textarea (no metadata or no declared params)
+                body += modalFormField({ name: 'step-script-params', label: 'Params (key=val, one per line)', type: 'textarea', value: Object.entries(s.script_params || {}).map(([k, v]) => `${k}=${v}`).join('\n'), placeholder: 'target=production\nverbose=true' });
+            }
+
+            // Show declared outputs
+            if (meta && meta.outputs && meta.outputs.length > 0) {
+                body += `<div class="modal-form-group" style="margin-top:8px">
+                    <label class="modal-form-label" style="color:var(--success)">📤 Declared Outputs</label>
+                    <div style="font-size:0.72rem;padding:4px 6px;background:var(--bg-tertiary);border-radius:4px">
+                    ${meta.outputs.map(o => `<div style="margin:2px 0">
+                        <strong>${esc(o.name)}</strong>
+                        <span style="color:var(--text-muted)">(${o.type})</span>
+                        ${o.description ? ` — <span style="color:var(--text-muted)">${esc(o.description)}</span>` : ''}
+                    </div>`).join('')}
+                    </div></div>`;
+            } else if (meta) {
+                body += `<div style="font-size:0.68rem;color:var(--text-muted);margin-top:4px">📤 No declared outputs. Undeclared DCP_VAR_ outputs still flow.</div>`;
+            }
+
+            // Store meta ref for save
+            if (meta) s._meta = meta;
+
         } else if (s.type === 'cdp_test') {
             body += `<div class="modal-form-group"><label class="modal-form-label">Suite ID</label>
                 <div style="font-size:0.78rem;font-family:var(--font-mono);padding:4px 6px;background:var(--bg-tertiary);border-radius:4px">${esc(s.suite_id || 'N/A')}</div></div>`;
-            body += modalFormField({ name: 'step-suite-vars', label: 'Suite Variables (key=val, one per line)', type: 'textarea', value: Object.entries(s.suite_variables || {}).map(([k, v]) => `${k}=${v}`).join('\n'), placeholder: 'user=admin\npass=secret' });
+
+            // Fetch suite metadata for typed variable fields
+            const suite = s.suite_id ? await _plansFetchSuiteMeta(s.suite_id) : null;
+
+            if (suite && suite.variable_defs && suite.variable_defs.length > 0) {
+                body += `<div class="modal-form-group" style="margin-top:8px">
+                    <label class="modal-form-label" style="color:var(--info)">📥 Declared Variables</label>`;
+                for (const v of suite.variable_defs) {
+                    const currentVal = (s.suite_variables || {})[v.name] || v.default || '';
+                    const reqBadge = v.required ? '<span style="color:var(--error);font-size:0.68rem;margin-left:4px">required</span>' : '';
+                    const typeBadge = `<span style="color:var(--text-muted);font-size:0.64rem;margin-left:4px">${v.type}</span>`;
+                    const desc = v.description ? `<div style="font-size:0.66rem;color:var(--text-muted);margin:1px 0 3px">${esc(v.description)}</div>` : '';
+                    body += `<div style="margin:4px 0;">
+                        <div style="display:flex;align-items:center;gap:6px">
+                            <label style="font-size:0.74rem;font-weight:500">${esc(v.name)}${typeBadge}${reqBadge}</label>
+                            ${_plansVarDropdown('sv-' + v.name, currentVal, upstream)}
+                        </div>
+                        ${desc}
+                        <input id="mf-sv-${esc(v.name)}" class="modal-form-input" data-sv-name="${esc(v.name)}"
+                            value="${esc(currentVal)}" placeholder="${esc(v.default || '')}">
+                    </div>`;
+                }
+                body += `</div>`;
+            } else if (suite && suite.variables && Object.keys(suite.variables).length > 0) {
+                // Fallback: render raw variables dict as fields
+                body += `<div class="modal-form-group" style="margin-top:8px">
+                    <label class="modal-form-label" style="color:var(--info)">📥 Suite Variables</label>`;
+                for (const [vName, vDefault] of Object.entries(suite.variables)) {
+                    const currentVal = (s.suite_variables || {})[vName] || vDefault || '';
+                    body += `<div style="margin:4px 0;">
+                        <div style="display:flex;align-items:center;gap:6px">
+                            <label style="font-size:0.74rem;font-weight:500">${esc(vName)}</label>
+                            ${_plansVarDropdown('sv-' + vName, currentVal, upstream)}
+                        </div>
+                        <input id="mf-sv-${esc(vName)}" class="modal-form-input" data-sv-name="${esc(vName)}"
+                            value="${esc(currentVal)}" placeholder="${esc(vDefault || '')}">
+                    </div>`;
+                }
+                body += `</div>`;
+            } else {
+                // Fallback: raw textarea
+                body += modalFormField({ name: 'step-suite-vars', label: 'Suite Variables (key=val, one per line)', type: 'textarea', value: Object.entries(s.suite_variables || {}).map(([k, v]) => `${k}=${v}`).join('\n'), placeholder: 'user=admin\npass=secret' });
+            }
+
+            // Show declared outputs
+            if (suite && suite.outputs && Object.keys(suite.outputs).length > 0) {
+                body += `<div class="modal-form-group" style="margin-top:8px">
+                    <label class="modal-form-label" style="color:var(--success)">📤 Declared Outputs</label>
+                    <div style="font-size:0.72rem;padding:4px 6px;background:var(--bg-tertiary);border-radius:4px">
+                    ${Object.entries(suite.outputs).map(([name, desc]) => `<div style="margin:2px 0">
+                        <strong>${esc(name)}</strong>
+                        ${desc ? ` — <span style="color:var(--text-muted)">${esc(desc)}</span>` : ''}
+                    </div>`).join('')}
+                    </div></div>`;
+            }
+
+            // Store suite ref for save
+            if (suite) s._suiteMeta = suite;
+
         } else if (s.type === 'checkpoint') {
             body += modalFormField({ name: 'step-checkpoint-msg', label: 'Checkpoint Message', type: 'textarea', value: s.checkpoint_message || '', placeholder: 'Message shown when paused' });
         }
@@ -693,22 +1006,66 @@
 
         if (s.type === 'script') {
             s.script_id = mfVal('step-script-id') || s.script_id;
-            const paramsStr = mfVal('step-script-params') || '';
-            s.script_params = {};
-            for (const line of paramsStr.split('\n')) {
-                const eq = line.indexOf('=');
-                if (eq > 0) s.script_params[line.slice(0, eq).trim()] = line.slice(eq + 1).trim();
+
+            // Check if we used typed fields (data-sp-name) or raw textarea
+            const typedInputs = document.querySelectorAll('[data-sp-name]');
+            if (typedInputs.length > 0) {
+                s.script_params = {};
+                typedInputs.forEach(inp => {
+                    const name = inp.getAttribute('data-sp-name');
+                    let val;
+                    if (inp.type === 'checkbox') {
+                        val = inp.checked ? 'true' : 'false';
+                    } else {
+                        val = inp.value;
+                    }
+                    if (val !== undefined && val !== '') s.script_params[name] = val;
+                });
+            } else {
+                // Fallback: raw textarea parsing
+                const paramsStr = mfVal('step-script-params') || '';
+                s.script_params = {};
+                for (const line of paramsStr.split('\n')) {
+                    const eq = line.indexOf('=');
+                    if (eq > 0) s.script_params[line.slice(0, eq).trim()] = line.slice(eq + 1).trim();
+                }
+            }
+
+            // Auto-populate produces from declared outputs if empty
+            if (s.produces.length === 0 && s._meta && s._meta.outputs && s._meta.outputs.length > 0) {
+                s.produces = s._meta.outputs.map(o => o.name);
             }
         } else if (s.type === 'cdp_test') {
-            const varsStr = mfVal('step-suite-vars') || '';
-            s.suite_variables = {};
-            for (const line of varsStr.split('\n')) {
-                const eq = line.indexOf('=');
-                if (eq > 0) s.suite_variables[line.slice(0, eq).trim()] = line.slice(eq + 1).trim();
+            // Check if we used typed fields (data-sv-name) or raw textarea
+            const typedInputs = document.querySelectorAll('[data-sv-name]');
+            if (typedInputs.length > 0) {
+                s.suite_variables = {};
+                typedInputs.forEach(inp => {
+                    const name = inp.getAttribute('data-sv-name');
+                    const val = inp.value;
+                    if (val !== undefined && val !== '') s.suite_variables[name] = val;
+                });
+            } else {
+                // Fallback: raw textarea parsing
+                const varsStr = mfVal('step-suite-vars') || '';
+                s.suite_variables = {};
+                for (const line of varsStr.split('\n')) {
+                    const eq = line.indexOf('=');
+                    if (eq > 0) s.suite_variables[line.slice(0, eq).trim()] = line.slice(eq + 1).trim();
+                }
+            }
+
+            // Auto-populate produces from declared outputs if empty
+            if (s.produces.length === 0 && s._suiteMeta && s._suiteMeta.outputs) {
+                s.produces = Object.keys(s._suiteMeta.outputs);
             }
         } else if (s.type === 'checkpoint') {
             s.checkpoint_message = mfVal('step-checkpoint-msg') || s.checkpoint_message;
         }
+
+        // Clean up temp meta refs (don't save to JSON)
+        delete s._meta;
+        delete s._suiteMeta;
 
         _plansReturnToEditor();
     }
@@ -968,19 +1325,41 @@
 
             let body = '';
 
-            // Summary header
+            // ── Verdict summary card ──────────────────────────
             const statusIcon = _plansStatusIcon(result.status);
             const dur = result.duration_ms ? `${(result.duration_ms / 1000).toFixed(1)}s` : '—';
-            body += `<div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:var(--space-sm);padding-bottom:var(--space-sm);border-bottom:1px solid var(--border-subtle)">
-                <span style="font-size:1.5rem">${statusIcon}</span>
-                <div>
-                    <div style="font-weight:600;font-size:0.9rem">${esc(result.plan_name || 'Plan')}</div>
-                    <div style="font-size:0.72rem;color:var(--text-muted)">
-                        ${result.passed_steps || 0} passed · ${result.failed_steps || 0} failed · ${result.skipped_steps || 0} skipped · ${dur}
-                    </div>
-                    <div style="font-size:0.68rem;color:var(--text-muted)">${_plansModeLabel(result.mode)}</div>
-                </div>
-            </div>`;
+            const verdict = result.status === 'passed' ? 'PASSED' : result.status === 'cancelled' ? 'CANCELLED' : 'FAILED';
+            const verdictColor = result.status === 'passed' ? '#22c55e' : result.status === 'cancelled' ? '#6b7280' : '#ef4444';
+            const verdictBg = result.status === 'passed' ? 'rgba(34,197,94,0.06)' : result.status === 'cancelled' ? 'rgba(107,114,128,0.06)' : 'rgba(239,68,68,0.06)';
+            const varCount = result.variables ? Object.keys(result.variables).length : 0;
+            const ts = result.started_at ? new Date(result.started_at).toLocaleString() : '';
+
+            body += `<div style="padding:1rem;border-radius:8px;border:1px solid ${verdictColor}33;background:${verdictBg};margin-bottom:var(--space-sm)">`;
+            body += `<div style="display:flex;align-items:center;gap:1rem;margin-bottom:0.75rem">`;
+            body += `<span style="font-size:2rem">${statusIcon}</span>`;
+            body += `<div>`;
+            body += `<div style="font-weight:700;font-size:1.1rem;color:${verdictColor}">${verdict}</div>`;
+            body += `<div style="font-size:0.78rem;font-weight:600">${esc(result.plan_name || 'Plan')}</div>`;
+            body += `</div>`;
+            body += `</div>`;
+
+            // Metrics row
+            body += `<div style="display:flex;gap:1.25rem;flex-wrap:wrap;font-size:0.72rem;margin-bottom:0.5rem">`;
+            body += `<div>⏱ <strong>${dur}</strong></div>`;
+            body += `<div><span style="color:#22c55e;font-weight:600">${result.passed_steps || 0}</span> passed</div>`;
+            body += `<div><span style="color:#ef4444;font-weight:600">${result.failed_steps || 0}</span> failed</div>`;
+            body += `<div><span style="color:#6b7280;font-weight:600">${result.skipped_steps || 0}</span> skipped</div>`;
+            if (varCount > 0) {
+                body += `<div><span style="color:#8b5cf6;font-weight:600">${varCount}</span> vars</div>`;
+            }
+            body += `</div>`;
+
+            // Mode + timestamp
+            body += `<div style="font-size:0.66rem;color:var(--text-muted)">`;
+            body += `${_plansModeLabel(result.mode)}`;
+            if (ts) body += ` · ${ts}`;
+            body += `</div>`;
+            body += `</div>`;
 
             if (result.error) {
                 body += `<div style="background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.2);border-radius:6px;padding:0.5rem;margin-bottom:var(--space-sm);font-size:0.78rem;color:var(--error)">
@@ -988,10 +1367,32 @@
                 </div>`;
             }
 
+            // ── Timeline visualization ────────────────────────
             // Step results — populate drill-down data
             _plansStepData = {};  // Reset
             const steps = result.step_results || [];
+
             if (steps.length > 0) {
+                const totalDuration = steps.reduce((sum, s) => sum + (s.duration_ms || 0), 0) || 1;
+
+                body += `<div style="margin-bottom:var(--space-sm)">`;
+                body += `<div style="font-size:0.66rem;font-weight:600;color:var(--text-muted);margin-bottom:4px">Timeline</div>`;
+                body += `<div style="display:flex;height:18px;border-radius:4px;overflow:hidden;border:1px solid var(--border-subtle)">`;
+                for (const s of steps) {
+                    const pct = Math.max((s.duration_ms || 0) / totalDuration * 100, 1.5);
+                    let color;
+                    if (s.step_type === 'checkpoint') color = '#f59e0b';
+                    else if (s.status === 'passed') color = '#22c55e';
+                    else if (s.status === 'failed') color = '#ef4444';
+                    else color = '#6b7280';
+                    const segDur = s.duration_ms != null ? `${(s.duration_ms / 1000).toFixed(1)}s` : '';
+                    const label = esc(s.step_name || s.step_type || '?');
+                    body += `<div style="width:${pct}%;background:${color};transition:opacity 0.15s" title="${label} — ${segDur}" onmouseover="this.style.opacity='0.7'" onmouseout="this.style.opacity='1'"></div>`;
+                }
+                body += `</div>`;
+                body += `</div>`;
+
+                // Step list
                 body += `<div style="font-size:0.78rem;font-weight:600;margin-bottom:var(--space-xs);color:var(--text-secondary)">Steps <span style="font-size:0.62rem;color:var(--text-muted);font-weight:400">(click for details)</span></div>`;
                 body += `<div style="border:1px solid var(--border-subtle);border-radius:6px;padding:0.5rem;max-height:300px;overflow-y:auto">`;
                 for (const s of steps) {
@@ -1006,7 +1407,7 @@
             const finalKeys = Object.keys(finalVars);
             if (finalKeys.length > 0 || steps.some(s => Object.keys(s.variables_produced || {}).length > 0)) {
                 body += `<div style="margin-top:var(--space-sm)">`;
-                body += `<div style="font-size:0.72rem;font-weight:600;color:var(--text-secondary);margin-bottom:4px;cursor:pointer" onclick="var el=document.getElementById('plans-result-vars');el.style.display=el.style.display==='none'?'block':'none'">Variables ▸</div>`;
+                body += `<div style="font-size:0.72rem;font-weight:600;color:var(--text-secondary);margin-bottom:4px;cursor:pointer" onclick="var el=document.getElementById('plans-result-vars');el.style.display=el.style.display==='none'?'block':'none'">Variables ▾</div>`;
                 body += `<div id="plans-result-vars" style="font-size:0.70rem;font-family:var(--font-mono);background:var(--bg-tertiary);padding:0.5rem;border-radius:4px;max-height:180px;overflow-y:auto">`;
 
                 // Per-step variable trace
@@ -1017,7 +1418,7 @@
                     if (prodKeys.length > 0) {
                         body += `<div style="color:var(--text-muted);font-size:0.62rem;margin:4px 0 2px 0;border-top:1px solid var(--border-subtle);padding-top:3px">← ${esc(s.step_name || s.step_type)}</div>`;
                         for (const k of prodKeys) {
-                            body += `<div><strong style="color:#8b5cf6">${esc(k)}</strong> = ${esc(produced[k])}</div>`;
+                            body += `<div><strong style="color:#8b5cf6">${esc(k)}</strong> = ${_plansFormatValue(produced[k])}</div>`;
                             accumulated[k] = produced[k];
                         }
                     }
@@ -1026,7 +1427,7 @@
                 // Final accumulated
                 body += `<div style="color:var(--text-muted);font-size:0.62rem;margin:6px 0 2px 0;border-top:1px solid var(--border-subtle);padding-top:3px">Final namespace</div>`;
                 for (const k of finalKeys) {
-                    body += `<div><strong>${esc(k)}</strong> = ${esc(finalVars[k])}</div>`;
+                    body += `<div><strong>${esc(k)}</strong> = ${_plansFormatValue(finalVars[k])}</div>`;
                 }
                 body += `</div></div>`;
             }
@@ -1085,7 +1486,7 @@
         const produced = step.variables_produced || {};
         const prodKeys = Object.keys(produced);
         if (prodKeys.length > 0) {
-            const varSummary = prodKeys.map(k => `${k}=${produced[k]}`).join(', ');
+            const varSummary = prodKeys.map(k => `${k}=${_plansFormatValueShort(produced[k])}`).join(', ');
             const short = varSummary.length > 60 ? varSummary.slice(0, 57) + '…' : varSummary;
             varsBadge = `<div style="font-size:0.62rem;color:#8b5cf6;margin-top:2px">📤 ${esc(short)}</div>`;
         }
@@ -1116,6 +1517,7 @@
 
         return `<div id="plans-step-${esc(step.step_id)}"
             class="card-detect-row" ${clickAttr} style="display:flex;align-items:flex-start;gap:0.5rem;font-size:0.78rem;padding:4px 6px${canDrill ? ';cursor:pointer' : ''}">
+            <span style="flex-shrink:0;width:18px;text-align:right;font-size:0.62rem;color:var(--text-muted);font-weight:600;padding-top:2px">${step.sequence != null ? step.sequence + 1 : ''}</span>
             <span style="flex-shrink:0;width:24px;text-align:center">${statusIcon}</span>
             <span style="flex-shrink:0;width:20px">${icon}</span>
             <div style="flex:1;min-width:0">
@@ -1149,7 +1551,7 @@
 
         const detail = _plansStepDetailHtml(step);
         rowEl.insertAdjacentHTML('afterend',
-            `<div id="plans-step-detail-${esc(stepId)}" style="margin:2px 0 6px 44px;animation:__plans_fadeIn 0.15s ease">${detail}</div>`);
+            `<div id="plans-step-detail-${esc(stepId)}" style="margin:2px 0 6px 62px;animation:__plans_fadeIn 0.15s ease">${detail}</div>`);
     }
 
     function _plansStepDetailHtml(step) {
@@ -1165,27 +1567,63 @@
         const lines = step.script_lines || [];
         const exitCode = step.script_exit_code != null ? step.script_exit_code : '—';
         const exitColor = exitCode === 0 ? '#22c55e' : (exitCode === '—' ? 'var(--text-muted)' : '#ef4444');
+        const dur = step.duration_ms != null ? `${(step.duration_ms / 1000).toFixed(1)}s` : '';
 
-        let header = `<div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:6px">`;
-        header += `<span style="font-size:0.68rem;font-weight:600;color:var(--text-secondary)">Script Output</span>`;
-        header += `<span style="font-size:0.62rem;padding:1px 6px;border-radius:8px;background:var(--bg-tertiary);color:${exitColor}">exit: ${exitCode}</span>`;
-        if (step.script_run_id) {
-            header += `<span style="font-size:0.58rem;color:var(--text-muted);font-family:var(--font-mono)">${esc(step.script_run_id.slice(0, 8))}</span>`;
+        let html = `<div style="background:var(--bg-secondary);border:1px solid var(--border-subtle);border-radius:6px;overflow:hidden">`;
+
+        // Header
+        html += `<div style="padding:6px 8px;border-bottom:1px solid var(--border-subtle);display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap">`;
+        html += `<span style="font-size:0.68rem;font-weight:600;color:var(--text-secondary)">Script Output</span>`;
+        html += `<span style="font-size:0.62rem;padding:1px 6px;border-radius:8px;background:var(--bg-tertiary);color:${exitColor}">exit: ${exitCode}</span>`;
+        if (dur) {
+            html += `<span style="font-size:0.60rem;color:var(--text-muted)">⏱ ${dur}</span>`;
         }
-        header += `</div>`;
+        if (step.script_run_id) {
+            html += `<span style="font-size:0.58rem;color:var(--text-muted);font-family:var(--font-mono)">${esc(step.script_run_id.slice(0, 8))}</span>`;
+        }
+        // Copy button
+        if (lines.length > 0) {
+            const copyId = `plans-copy-${step.step_id || Math.random().toString(36).slice(2)}`;
+            html += `<button id="${copyId}" class="btn btn-sm" style="margin-left:auto;font-size:0.58rem;padding:1px 6px;border:1px solid var(--border-subtle);background:var(--bg-tertiary);cursor:pointer;border-radius:4px" onclick="(function(){var t=document.getElementById('${copyId}-pre');if(t){navigator.clipboard.writeText(t.textContent).then(function(){var b=document.getElementById('${copyId}');if(b){b.textContent='Copied!';setTimeout(function(){b.textContent='📋 Copy'},1500)}})}})()" title="Copy output to clipboard">📋 Copy</button>`;
+        }
+        html += `</div>`;
 
-        let output;
+        // Error banner (above terminal, prominent)
+        if (step.error) {
+            html += `<div style="padding:6px 10px;background:rgba(239,68,68,0.08);border-bottom:1px solid rgba(239,68,68,0.2);font-size:0.72rem;color:var(--error)">`;
+            html += `<strong>Error:</strong> ${esc(String(step.error).slice(0, 300))}`;
+            html += `</div>`;
+        }
+
+        // Terminal
+        const preId = `plans-copy-${step.step_id || Math.random().toString(36).slice(2)}-pre`;
         if (lines.length === 0) {
-            output = `<div style="padding:0.75rem;text-align:center;color:var(--text-muted);font-size:0.72rem">No output captured</div>`;
+            html += `<div style="padding:0.75rem;text-align:center;color:var(--text-muted);font-size:0.72rem;background:#1a1a2e">No output captured</div>`;
         } else {
             const content = lines.map(l => esc(l)).join('\n');
-            output = `<pre style="margin:0;padding:0.5rem;font-size:0.68rem;line-height:1.5;max-height:200px;overflow-y:auto;white-space:pre-wrap;word-break:break-all">${content}</pre>`;
+            html += `<div style="background:#1a1a2e;color:#e0e0e0;font-family:var(--font-mono)">`;
+            html += `<pre id="${preId}" style="margin:0;padding:0.5rem;font-size:0.68rem;line-height:1.5;max-height:200px;overflow-y:auto;white-space:pre-wrap;word-break:break-all">${content}</pre>`;
+            html += `</div>`;
         }
 
-        return `<div style="background:var(--bg-secondary);border:1px solid var(--border-subtle);border-radius:6px;overflow:hidden">
-            <div style="padding:6px 8px;border-bottom:1px solid var(--border-subtle)">${header}</div>
-            <div style="background:#1a1a2e;color:#e0e0e0;font-family:var(--font-mono)">${output}</div>
-        </div>`;
+        // Outputs section
+        const produced = step.variables_produced || {};
+        const prodKeys = Object.keys(produced);
+        if (prodKeys.length > 0) {
+            html += `<div style="padding:6px 8px;border-top:1px solid var(--border-subtle)">`;
+            html += `<div style="font-size:0.62rem;font-weight:600;color:var(--text-secondary);margin-bottom:4px">📤 Outputs (${prodKeys.length})</div>`;
+            for (const k of prodKeys) {
+                html += `<div style="display:flex;align-items:baseline;gap:6px;font-size:0.66rem;padding:2px 0">`;
+                html += `<span style="font-weight:600;color:#8b5cf6;font-family:var(--font-mono)">${esc(k)}</span>`;
+                html += `<span style="color:var(--text-muted)">=</span>`;
+                html += `<span style="flex:1;font-family:var(--font-mono);color:var(--text-primary);word-break:break-all">${_plansFormatValue(produced[k])}</span>`;
+                html += `</div>`;
+            }
+            html += `</div>`;
+        }
+
+        html += `</div>`;
+        return html;
     }
 
     // ── Shared replay step renderer (used by live + drill-down) ──────
@@ -1233,6 +1671,9 @@
             const cvShort = cv.length > 200 ? cv.slice(0, 197) + '…' : cv;
             html += `<div style="margin-left:22px;margin-bottom:4px;font-size:0.58rem;padding:3px 6px;background:var(--bg-tertiary);border-radius:4px;color:var(--text-secondary)">`;
             html += `<span style="color:var(--text-muted)">captured:</span> ${esc(cvShort)}`;
+            if (rs.export_name) {
+                html += ` <span style="display:inline-block;padding:0 4px;background:rgba(139,92,246,0.15);color:#8b5cf6;border-radius:3px;font-weight:600">📤 ${esc(rs.export_name)}</span>`;
+            }
             html += `</div>`;
         }
 
@@ -1267,11 +1708,19 @@
         const total = step.replay_total || 0;
         const pct = total > 0 ? Math.round(passed / total * 100) : 0;
         const replaySteps = step.replay_step_results || [];
+        const dur = step.duration_ms != null ? `${(step.duration_ms / 1000).toFixed(1)}s` : '';
 
-        let body = `<div style="display:flex;align-items:center;gap:1rem;margin-bottom:6px">`;
+        // Collect exported variables
+        const produced = step.variables_produced || {};
+        const exportedKeys = Object.keys(produced);
+
+        let body = `<div style="display:flex;align-items:center;gap:1rem;margin-bottom:6px;flex-wrap:wrap">`;
         body += `<span style="font-size:0.68rem;font-weight:600;color:var(--text-secondary)">CDP Test Replay</span>`;
         if (step.replay_run_id) {
             body += `<span style="font-size:0.58rem;color:var(--text-muted);font-family:var(--font-mono)">${esc(step.replay_run_id.slice(0, 8))}</span>`;
+        }
+        if (dur) {
+            body += `<span style="font-size:0.60rem;color:var(--text-muted)">⏱ ${dur}</span>`;
         }
         body += `</div>`;
 
@@ -1288,14 +1737,58 @@
         body += `<div><span style="color:#22c55e;font-weight:600">${passed}</span> <span style="color:var(--text-muted)">passed</span></div>`;
         if (failed > 0) body += `<div><span style="color:#ef4444;font-weight:600">${failed}</span> <span style="color:var(--text-muted)">failed</span></div>`;
         body += `<div><span style="font-weight:600">${total}</span> <span style="color:var(--text-muted)">total</span></div>`;
+        if (exportedKeys.length > 0) {
+            body += `<div><span style="font-weight:600;color:#8b5cf6">${exportedKeys.length}</span> <span style="color:var(--text-muted)">exported</span></div>`;
+        }
         body += `</div>`;
 
-        // Per-replay-step list with full detail
+        // Exported variables section
+        if (exportedKeys.length > 0) {
+            body += `<div style="margin-bottom:6px;padding:4px 6px;background:rgba(139,92,246,0.06);border:1px solid rgba(139,92,246,0.15);border-radius:4px">`;
+            body += `<div style="font-size:0.62rem;font-weight:600;color:#8b5cf6;margin-bottom:2px">📤 Exported to Plan</div>`;
+            for (const k of exportedKeys) {
+                body += `<div style="font-size:0.62rem;font-family:var(--font-mono);padding:1px 0"><strong>${esc(k)}</strong> = ${_plansFormatValue(produced[k])}</div>`;
+            }
+            body += `</div>`;
+        }
+
+        // Sort: failures first, then rest
+        const failedSteps = replaySteps.filter(rs => rs.status === 'failed');
+        const passedSteps = replaySteps.filter(rs => rs.status !== 'failed');
+
         if (replaySteps.length > 0) {
             body += `<div style="border-top:1px solid var(--border-subtle);padding-top:6px;max-height:400px;overflow-y:auto">`;
-            for (const rs of replaySteps) {
-                body += _plansReplayStepHtml(rs);
+
+            // Failed steps first (always visible)
+            if (failedSteps.length > 0) {
+                body += `<div style="font-size:0.60rem;font-weight:600;color:#ef4444;margin-bottom:4px">❌ Failed (${failedSteps.length})</div>`;
+                for (const rs of failedSteps) {
+                    body += _plansReplayStepHtml(rs);
+                }
             }
+
+            // Passed steps (collapsed by default if there are failures)
+            if (passedSteps.length > 0) {
+                const toggleId = `plans-cdp-passed-${step.step_id || Math.random().toString(36).slice(2)}`;
+                if (failedSteps.length > 0) {
+                    // Collapse passed steps behind a toggle
+                    body += `<div style="margin-top:6px">`;
+                    body += `<div style="font-size:0.60rem;color:var(--text-muted);cursor:pointer;user-select:none" onclick="var el=document.getElementById('${toggleId}');el.style.display=el.style.display==='none'?'':'none'">`;
+                    body += `✓ Passed (${passedSteps.length}) ▸ <span style="font-size:0.56rem">click to show</span>`;
+                    body += `</div>`;
+                    body += `<div id="${toggleId}" style="display:none">`;
+                    for (const rs of passedSteps) {
+                        body += _plansReplayStepHtml(rs);
+                    }
+                    body += `</div></div>`;
+                } else {
+                    // No failures — show all steps
+                    for (const rs of passedSteps) {
+                        body += _plansReplayStepHtml(rs);
+                    }
+                }
+            }
+
             body += `</div>`;
         }
 
@@ -1306,10 +1799,31 @@
 
     function _plansCheckpointDetail(step) {
         const msg = step.checkpoint_message || step.step_name || 'Checkpoint completed';
-        return `<div style="background:rgba(245,158,11,0.06);border:1px solid rgba(245,158,11,0.15);border-radius:6px;padding:8px 10px">
-            <div style="font-size:0.68rem;font-weight:600;color:var(--text-secondary);margin-bottom:4px">⏸ Checkpoint</div>
-            <div style="font-size:0.72rem;color:var(--text-primary)">${esc(msg)}</div>
-        </div>`;
+        const dur = step.duration_ms != null ? `${(step.duration_ms / 1000).toFixed(1)}s` : '';
+
+        let html = `<div style="background:rgba(245,158,11,0.06);border:1px solid rgba(245,158,11,0.15);border-radius:6px;padding:8px 10px">`;
+        html += `<div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:4px">`;
+        html += `<span style="font-size:0.68rem;font-weight:600;color:var(--text-secondary)">⏸ Checkpoint</span>`;
+        if (dur) {
+            html += `<span style="font-size:0.60rem;color:var(--text-muted)">paused ${dur}</span>`;
+        }
+        html += `</div>`;
+        html += `<div style="font-size:0.72rem;color:var(--text-primary)">${esc(msg)}</div>`;
+
+        // Namespace snapshot (variables produced at this checkpoint)
+        const produced = step.variables_produced || {};
+        const prodKeys = Object.keys(produced);
+        if (prodKeys.length > 0) {
+            html += `<div style="margin-top:6px;padding-top:6px;border-top:1px solid rgba(245,158,11,0.15)">`;
+            html += `<div style="font-size:0.60rem;font-weight:600;color:var(--text-muted);margin-bottom:3px">Namespace at checkpoint</div>`;
+            for (const k of prodKeys) {
+                html += `<div style="font-size:0.62rem;font-family:var(--font-mono);padding:1px 0"><strong style="color:#f59e0b">${esc(k)}</strong> = ${_plansFormatValue(produced[k])}</div>`;
+            }
+            html += `</div>`;
+        }
+
+        html += `</div>`;
+        return html;
     }
 
     // Fade-in animation for drill-down panels
@@ -1400,6 +1914,7 @@
                         step_name: d.step_name,
                         step_type: d.step_type || '?',
                         status: d.status,
+                        sequence: d.sequence,
                         duration_ms: d.duration_ms,
                         error: d.error,
                         variables_produced: d.variables_produced,
@@ -1487,24 +2002,89 @@
                 const controls = document.getElementById('plans-exec-controls');
                 if (controls) {
                     controls.innerHTML = `
-                        <button class="btn btn-sm btn-primary" onclick="_plansResumeRun('${esc(runId)}')">▶ Resume</button>
+                        <button class="btn btn-sm btn-primary" onclick="_plansResumeWithVars('${esc(runId)}')">▶ Resume</button>
                         <button class="btn btn-sm btn-secondary" onclick="_plansSkipStep('${esc(runId)}')">⏭ Skip</button>
                         <button class="btn btn-sm btn-secondary" onclick="_plansCancelRun('${esc(runId)}')" style="color:var(--error)">⏹ Cancel</button>
                     `;
                 }
 
-                // Show pause message if checkpoint
-                if (d.message) {
-                    const container = document.getElementById('plans-exec-steps');
-                    if (container) {
-                        container.insertAdjacentHTML('beforeend', `
-                            <div style="text-align:center;padding:0.75rem;margin:0.5rem 0;background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.2);border-radius:6px;font-size:0.78rem" id="plans-pause-msg">
-                                <div style="font-weight:600;margin-bottom:4px">⏸ ${esc(d.reason === 'checkpoint' ? 'Checkpoint' : 'Paused')}</div>
-                                <div style="color:var(--text-secondary)">${esc(d.message)}</div>
-                            </div>
-                        `);
-                        container.scrollTop = container.scrollHeight;
+                // Build I/O-aware pause panel
+                const container = document.getElementById('plans-exec-steps');
+                if (container) {
+                    let html = '';
+
+                    // ── Pause reason header ──
+                    html += `<div style="text-align:center;padding:0.5rem;margin:0.5rem 0;background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.2);border-radius:6px;font-size:0.78rem">
+                        <div style="font-weight:600;margin-bottom:4px">⏸ ${esc(d.reason === 'checkpoint' ? 'Checkpoint' : 'Paused')}</div>
+                        <div style="color:var(--text-secondary)">${esc(d.message || '')}</div>
+                    </div>`;
+
+                    // ── Variables produced (by step or since last checkpoint) ──
+                    const produced = Object.assign({}, d.steps_produced_since || {}, d.step_produced || {});
+                    const prodKeys = Object.keys(produced);
+                    const prodLabel = d.reason === 'checkpoint'
+                        ? `📤 ${prodKeys.length} variable${prodKeys.length !== 1 ? 's' : ''} produced since last checkpoint`
+                        : `📤 Step produced ${prodKeys.length} variable${prodKeys.length !== 1 ? 's' : ''}`;
+                    if (prodKeys.length > 0) {
+                        html += `<div style="margin:0.5rem 0;padding:0.5rem;background:color-mix(in srgb,var(--success) 6%,transparent);border-radius:6px;border:1px solid color-mix(in srgb,var(--success) 20%,transparent)">
+                            <div style="font-size:0.72rem;font-weight:600;color:var(--success);margin-bottom:4px">${prodLabel}</div>`;
+                        for (const [k, v] of Object.entries(produced)) {
+                            const display = typeof v === 'object' ? JSON.stringify(v) : String(v);
+                            html += `<div style="font-size:0.72rem;font-family:var(--font-mono);margin:2px 0">
+                                <strong>${esc(k)}</strong> = <span style="color:var(--text-secondary)">${esc(display.length > 80 ? display.slice(0, 80) + '…' : display)}</span>
+                            </div>`;
+                        }
+                        html += `</div>`;
                     }
+
+                    // ── Next step preview ──
+                    const next = d.next_step;
+                    if (next) {
+                        const nextConsumes = next.consumes || [];
+                        const nextProduces = next.produces || [];
+                        const vars = d.variables || {};
+
+                        html += `<div style="margin:0.5rem 0;padding:0.5rem;background:color-mix(in srgb,var(--info) 6%,transparent);border-radius:6px;border:1px solid color-mix(in srgb,var(--info) 20%,transparent)">
+                            <div style="font-size:0.72rem;font-weight:600;color:var(--info);margin-bottom:4px">
+                                ⏭ Next: ${_plansStepIcon(next.type)} ${esc(next.name || next.type)}
+                            </div>`;
+
+                        if (nextConsumes.length > 0) {
+                            html += `<div style="font-size:0.68rem;margin:2px 0">Needs: `;
+                            for (const c of nextConsumes) {
+                                const ok = c in vars;
+                                html += `<span style="padding:1px 4px;border-radius:3px;font-size:0.66rem;background:${ok ? 'color-mix(in srgb,var(--success) 15%,transparent)' : 'color-mix(in srgb,var(--error) 15%,transparent)'}">${ok ? '✅' : '❌'} ${esc(c)}</span> `;
+                            }
+                            html += `</div>`;
+                        }
+                        if (nextProduces.length > 0) {
+                            html += `<div style="font-size:0.68rem;margin:2px 0;color:var(--text-muted)">Will produce: ${nextProduces.map(p => '📤 ' + esc(p)).join(', ')}</div>`;
+                        }
+                        html += `</div>`;
+                    }
+
+                    // ── Editable namespace ──
+                    const vars = d.variables || {};
+                    const varKeys = Object.keys(vars);
+                    if (varKeys.length > 0) {
+                        html += `<div style="margin:0.5rem 0" id="plans-pause-ns">
+                            <div style="font-size:0.72rem;font-weight:600;margin-bottom:4px">🔧 Namespace (editable)</div>
+                            <div style="max-height:150px;overflow-y:auto;border:1px solid var(--border-subtle);border-radius:4px;padding:4px">`;
+                        for (const [k, v] of Object.entries(vars)) {
+                            const display = typeof v === 'object' ? JSON.stringify(v) : String(v);
+                            html += `<div style="display:flex;align-items:center;gap:4px;margin:2px 0;font-size:0.72rem">
+                                <span style="font-weight:500;min-width:80px;font-family:var(--font-mono)">${esc(k)}</span>
+                                <input data-ns-key="${esc(k)}" class="modal-form-input" value="${esc(display)}"
+                                    style="font-size:0.7rem;padding:2px 4px;flex:1">
+                            </div>`;
+                        }
+                        html += `</div>
+                            <div style="font-size:0.62rem;color:var(--text-muted);margin-top:2px">Edit values above before resuming. Changes will apply to subsequent steps.</div>
+                        </div>`;
+                    }
+
+                    container.insertAdjacentHTML('beforeend', html);
+                    container.scrollTop = container.scrollHeight;
                 }
             } catch (_) {}
         });
@@ -1592,7 +2172,7 @@
                     if (panel) {
                         panel.style.display = 'block';
                         panel.innerHTML = Object.entries(d.variables).map(
-                            ([k, v]) => `<div><strong>${esc(k)}</strong> = ${esc(v)}</div>`
+                            ([k, v]) => `<div><strong>${esc(k)}</strong> = ${_plansFormatValue(v)}</div>`
                         ).join('');
                     }
                 }
@@ -1607,6 +2187,46 @@
                             </div>
                         `);
                     }
+                }
+
+                // ── Summary card ──────────────────────────────
+                const stepsContainer = document.getElementById('plans-exec-steps');
+                if (stepsContainer) {
+                    const varCount = d.variables ? Object.keys(d.variables).length : 0;
+                    const verdict = d.status === 'passed' ? 'PASSED' : d.status === 'cancelled' ? 'CANCELLED' : 'FAILED';
+                    const verdictColor = d.status === 'passed' ? '#22c55e' : d.status === 'cancelled' ? '#6b7280' : '#ef4444';
+                    const verdictBg = d.status === 'passed' ? 'rgba(34,197,94,0.08)' : d.status === 'cancelled' ? 'rgba(107,114,128,0.08)' : 'rgba(239,68,68,0.08)';
+                    const dur = d.duration_ms ? (d.duration_ms / 1000).toFixed(1) + 's' : '—';
+
+                    let card = `<div style="margin-top:0.75rem;padding:1rem;border-radius:8px;border:1px solid ${verdictColor}33;background:${verdictBg}">`;
+                    card += `<div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:0.75rem">`;
+                    card += `<span style="font-size:1.8rem">${statusIcon}</span>`;
+                    card += `<div>`;
+                    card += `<div style="font-weight:700;font-size:1rem;color:${verdictColor}">${verdict}</div>`;
+                    card += `<div style="font-size:0.72rem;color:var(--text-muted)">${dur} total</div>`;
+                    card += `</div>`;
+                    card += `</div>`;
+
+                    // Metrics row
+                    card += `<div style="display:flex;gap:1rem;margin-bottom:0.75rem;flex-wrap:wrap">`;
+                    card += `<div style="font-size:0.72rem"><span style="color:#22c55e;font-weight:600">${d.passed || 0}</span> passed</div>`;
+                    card += `<div style="font-size:0.72rem"><span style="color:#ef4444;font-weight:600">${d.failed || 0}</span> failed</div>`;
+                    card += `<div style="font-size:0.72rem"><span style="color:#6b7280;font-weight:600">${d.skipped || 0}</span> skipped</div>`;
+                    if (varCount > 0) {
+                        card += `<div style="font-size:0.72rem"><span style="font-weight:600;color:var(--accent)">${varCount}</span> vars produced</div>`;
+                    }
+                    card += `</div>`;
+
+                    // Quick actions
+                    card += `<div style="display:flex;gap:0.5rem;flex-wrap:wrap">`;
+                    if (d.result_id) {
+                        card += `<button class="btn btn-sm btn-secondary" onclick="_plansViewResult('${esc(d.result_id)}')">📋 View Details</button>`;
+                    }
+                    card += `<button class="btn btn-sm btn-secondary" onclick="_plansBackToList()">← Back to Plans</button>`;
+                    card += `</div>`;
+                    card += `</div>`;
+
+                    stepsContainer.insertAdjacentHTML('beforeend', card);
                 }
 
                 _plansActiveRunId = null;
@@ -1639,7 +2259,7 @@
         const keys = Object.keys(existing);
         if (keys.length > 0) {
             panel.innerHTML = keys.map(k =>
-                `<div><strong>${esc(k)}</strong> = ${esc(existing[k])}</div>`
+                `<div><strong>${esc(k)}</strong> = ${_plansFormatValue(existing[k])}</div>`
             ).join('');
         }
     }
@@ -1658,6 +2278,30 @@
     async function _plansResumeRun(runId) {
         try {
             await apiPost(`/plans/run/${runId}/resume`);
+        } catch (e) {
+            toast(`Resume failed: ${e.message}`, 'error');
+        }
+    }
+
+    async function _plansResumeWithVars(runId) {
+        // Collect edited namespace values from the pause panel
+        const nsInputs = document.querySelectorAll('[data-ns-key]');
+        let variables = null;
+        if (nsInputs.length > 0) {
+            variables = {};
+            nsInputs.forEach(inp => {
+                const key = inp.getAttribute('data-ns-key');
+                let val = inp.value;
+                // Try parsing JSON values back to objects
+                if (val.startsWith('{') || val.startsWith('[')) {
+                    try { val = JSON.parse(val); } catch (_) { /* keep as string */ }
+                }
+                variables[key] = val;
+            });
+        }
+
+        try {
+            await apiPost(`/plans/run/${runId}/resume`, variables ? { variables } : {});
         } catch (e) {
             toast(`Resume failed: ${e.message}`, 'error');
         }

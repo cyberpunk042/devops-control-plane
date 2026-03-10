@@ -21,6 +21,10 @@ description: Generates Mermaid class diagrams from Python source code.
 @param max-depth: integer = 3 | Maximum package nesting depth for diagram grouping
 @param include-private: boolean = false | Include _private classes in diagrams
 @param per-module: boolean = false | Generate separate diagrams per top-level module (e.g., core, adapters, ui)
+
+@output REPORT_PATH: string | Path to the last generated report file
+@output TOTAL_CLASSES: integer | Total number of classes discovered
+@output FILES_ANALYZED: integer | Total number of Python files analyzed
 """
 
 import argparse
@@ -126,6 +130,12 @@ def main() -> int:
         output_path = write_report(content, output_dir / filename)
         print(f"✅ Report written to {output_path}")
         last_output = output_path
+
+    # ── DCP output variables (consumed by plan executor) ─────────
+    if last_output:
+        print(f"DCP_VAR_REPORT_PATH={last_output}")
+    print(f"DCP_VAR_TOTAL_CLASSES={analysis.total_classes}")
+    print(f"DCP_VAR_FILES_ANALYZED={analysis.files_analyzed}")
 
     return 0
 

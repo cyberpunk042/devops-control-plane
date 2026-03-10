@@ -2421,6 +2421,9 @@ def replay_suite(
             if captured_val is not None:
                 captures[step.id] = captured_val
                 result_record["captured_value"] = captured_val
+                # Named export for plan variable chaining
+                if step.export_as:
+                    result_record["export_name"] = step.export_as
 
         # Store assertion metadata for assert steps
         if step.action == "assert":

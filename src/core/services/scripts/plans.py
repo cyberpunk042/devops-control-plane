@@ -18,6 +18,7 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from typing import Any
 
 
 # ── Helpers ────────────────────────────────────────────────────
@@ -188,8 +189,10 @@ class ExecutionPlan:
     browser_config: BrowserConfig | None = None
 
     # ── Variables ─────────────────────────────────────────────
-    variables: dict[str, str] = field(default_factory=dict)
-    """Initial/default variable values. These seed the shared namespace."""
+    variables: dict[str, Any] = field(default_factory=dict)
+    """Initial/default variable values. These seed the shared namespace.
+    Values are usually strings but may be JSON objects (dict, list) for
+    variables produced by DCP_JSON_ convention."""
 
     # ── Metadata ──────────────────────────────────────────────
     created_at: str = field(default_factory=_now_iso)
@@ -274,7 +277,7 @@ class StepResult:
     replay_step_results: list[dict] = field(default_factory=list)
 
     # ── Variables produced ────────────────────────────────────
-    variables_produced: dict[str, str] = field(default_factory=dict)
+    variables_produced: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -355,8 +358,9 @@ class PlanRunResult:
     step_results: list[StepResult] = field(default_factory=list)
 
     # ── Variables ─────────────────────────────────────────────
-    variables: dict[str, str] = field(default_factory=dict)
-    """Final accumulated variable namespace after all steps."""
+    variables: dict[str, Any] = field(default_factory=dict)
+    """Final accumulated variable namespace after all steps.
+    Values are usually strings but may include JSON objects."""
 
     # ── Browser info ──────────────────────────────────────────
     chrome_instance: dict | None = None  # port, pid, endpoint if separate

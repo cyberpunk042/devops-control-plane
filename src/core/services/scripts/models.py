@@ -1,15 +1,17 @@
 """
-Scripts data models — ScriptMeta, ScriptParameter, ScriptConfig.
+Scripts data models — ScriptMeta, ScriptParameter, ScriptOutput, ScriptConfig.
 
 Pure data shapes with no I/O. These define how scripts are described
-(ScriptMeta), what parameters they accept (ScriptParameter), and
-how the system is configured (ScriptConfig from project.yml).
+(ScriptMeta), what parameters they accept (ScriptParameter), what
+variables they produce (ScriptOutput), and how the system is
+configured (ScriptConfig from project.yml).
 
 Used by:
   - registry.py (discovery produces ScriptMeta instances)
   - config.py (loads ScriptConfig from project.yml)
   - executor.py (reads ScriptMeta for execution)
   - output_router.py (reads ScriptMeta.default_output)
+  - plan_executor.py (reads ScriptMeta.outputs for variable chaining)
 """
 
 from __future__ import annotations
@@ -41,6 +43,28 @@ class ScriptParameter:
     default: str = ""                           # Default value (as string)
     choices: list[str] = field(default_factory=list)
                                                 # Valid values for "choice" type
+
+
+# ── Script Output ───────────────────────────────────────────────────
+
+
+@dataclass
+class ScriptOutput:
+    """A declared output variable for a script.
+
+    Describes a variable that the script is expected to produce
+    during execution. Scripts output variables by printing lines
+    matching the DCP_VAR_KEY=VALUE or DCP_JSON_KEY={...} convention.
+
+    Parsed from @output declarations in the script's @script header.
+    Example header line:
+        @output DEPLOY_PATH: string | Resolved deployment path
+        @output AUDIT_RESULT: json | Full audit result as JSON object
+    """
+
+    name: str                                   # Variable name (e.g., "DEPLOY_PATH")
+    type: str = "string"                        # "string" | "json" | "boolean" | "integer"
+    description: str = ""                       # Help text
 
 
 # ── Script Metadata ─────────────────────────────────────────────────
@@ -80,6 +104,11 @@ class ScriptMeta:
     parameters: list[ScriptParameter] = field(default_factory=list)
                                                 # Declared parameters the script accepts
                                                 # Rendered as form fields in UI, CLI flags
+
+    # ── Declared Outputs ──────────────────────────────────────────
+    outputs: list[ScriptOutput] = field(default_factory=list)
+                                                # Declared output variables the script produces
+                                                # Used by plan editor for I/O wiring
 
     # ── Output ────────────────────────────────────────────────────
     default_output: str = ""                    # Default output directory/path
