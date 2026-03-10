@@ -1859,17 +1859,47 @@
             }
 
             if (isValidation) {
-                // Update the hidden data store with the full steps list
-                if (result.steps) {
-                    const valDataEl2 = document.getElementById('cdp-val-steps-data');
-                    if (valDataEl2) valDataEl2.textContent = JSON.stringify(result.steps);
+                // Patch the changed step into the LOCAL steps list
+                // (don't use result.steps — backend loads from disk, erasing other unsaved changes)
+                const valDataEl2 = document.getElementById('cdp-val-steps-data');
+                let localSteps = valDataEl2 ? JSON.parse(valDataEl2.textContent) : [];
+
+                if (result.step) {
+                    // Find and update the existing step
+                    let found = false;
+                    for (let si = 0; si < localSteps.length; si++) {
+                        if (localSteps[si].id === result.step.id) {
+                            localSteps[si] = result.step;
+                            found = true;
+                            break;
+                        }
+                    }
+                    // If created_capture — insert the new step after the target step
+                    if (!found && result.created_capture) {
+                        let insertIdx = localSteps.length;
+                        for (let si = 0; si < localSteps.length; si++) {
+                            if (localSteps[si].id === stepData.id) {
+                                insertIdx = si + 1;
+                                break;
+                            }
+                        }
+                        localSteps.splice(insertIdx, 0, result.step);
+                        // Re-sequence
+                        for (let si = 0; si < localSteps.length; si++) {
+                            localSteps[si].sequence = si;
+                        }
+                    }
                 }
+
+                // Write back
+                if (valDataEl2) valDataEl2.textContent = JSON.stringify(localSteps);
+
                 // Re-render all step rows in validation view
                 const valContainer = document.getElementById('cdp-val-steps');
-                if (valContainer && result.steps) {
+                if (valContainer) {
                     valContainer.innerHTML = '';
-                    for (let i = 0; i < result.steps.length; i++) {
-                        valContainer.insertAdjacentHTML('beforeend', _cdpTestValStepRow(result.steps[i], i));
+                    for (let i = 0; i < localSteps.length; i++) {
+                        valContainer.insertAdjacentHTML('beforeend', _cdpTestValStepRow(localSteps[i], i));
                     }
                 }
             } else {
