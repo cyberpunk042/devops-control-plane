@@ -43,10 +43,12 @@ def cdp_test_io_configure():
             "step_id": "uuid",                  // REQUIRED
             "session_id": "uuid",               // Recording context
             "suite_id": "uuid",                 // Validation context (mutually exclusive)
-            "io_type": "input" | "output",      // REQUIRED
-            "name": "LOGIN_EMAIL",              // REQUIRED — variable or export name
+            "io_type": "input" | "output" | "remove",  // REQUIRED
+            "name": "LOGIN_EMAIL",              // REQUIRED for input/output
             "default_value": "admin@test.com",  // INPUT only — user-chosen default
-            "remove": false                     // true = remove I/O from this step
+            "capture_type": "capture_text",     // OUTPUT on non-capture step — user-chosen
+            "attribute_name": "href",           // When capture_type is capture_attribute
+            "css_property": "color"             // When capture_type is capture_computed_style
         }
 
     Returns::
@@ -71,15 +73,18 @@ def cdp_test_io_configure():
     io_type = data.get("io_type", "")
     name = data.get("name", "").strip()
     default_value = data.get("default_value", "")
-    remove = data.get("remove", False)
+    capture_type = data.get("capture_type", "")
+    attribute_name = data.get("attribute_name", "")
+    css_property = data.get("css_property", "")
+    remove = io_type == "remove" or data.get("remove", False)
 
     # ── Validation ────────────────────────────────────────────
     if not step_id:
         return jsonify({"ok": False, "error": "step_id is required"}), 400
     if not io_type and not remove:
         return jsonify({"ok": False, "error": "io_type is required"}), 400
-    if io_type not in ("input", "output", "") and not remove:
-        return jsonify({"ok": False, "error": "io_type must be 'input' or 'output'"}), 400
+    if io_type not in ("input", "output", "remove", "") and not remove:
+        return jsonify({"ok": False, "error": "io_type must be 'input', 'output', or 'remove'"}), 400
     if not name and not remove:
         return jsonify({"ok": False, "error": "name is required"}), 400
 
@@ -90,6 +95,9 @@ def cdp_test_io_configure():
             io_type=io_type,
             name=name,
             default_value=default_value,
+            capture_type=capture_type,
+            attribute_name=attribute_name,
+            css_property=css_property,
             remove=remove,
             bus_ref=bus,
         )
@@ -101,6 +109,9 @@ def cdp_test_io_configure():
         io_type=io_type,
         name=name,
         default_value=default_value,
+        capture_type=capture_type,
+        attribute_name=attribute_name,
+        css_property=css_property,
         remove=remove,
     )
 
@@ -111,6 +122,9 @@ def _configure_recording_io(
     io_type: str,
     name: str,
     default_value: str,
+    capture_type: str,
+    attribute_name: str,
+    css_property: str,
     remove: bool,
     bus_ref,
 ) -> tuple:
@@ -183,9 +197,13 @@ def _configure_recording_io(
             return jsonify({"ok": True, "step": step})
 
         # Non-capture step (click, hover, type, etc.) — create a capture step
-        element_tag = target_step.get("element_tag", "").lower()
-        is_form = element_tag in ("input", "textarea", "select")
-        capture_action = "capture_value" if is_form else "capture_text"
+        # Use capture_type from user if provided, fall back to guess
+        if capture_type:
+            capture_action = capture_type
+        else:
+            element_tag = target_step.get("element_tag", "").lower()
+            is_form = element_tag in ("input", "textarea", "select")
+            capture_action = "capture_value" if is_form else "capture_text"
 
         capture_step_data = {
             "action": capture_action,
@@ -193,9 +211,14 @@ def _configure_recording_io(
             "xpath": target_step.get("xpath", ""),
             "export_as": name,
             "page_url": target_step.get("page_url", ""),
-            "element_tag": element_tag,
+            "element_tag": target_step.get("element_tag", ""),
             "element_text": target_step.get("element_text", ""),
         }
+        # For capture_attribute / capture_computed_style, set assertion_attribute
+        if capture_action == "capture_attribute" and attribute_name:
+            capture_step_data["assertion_attribute"] = attribute_name
+        elif capture_action == "capture_computed_style" and css_property:
+            capture_step_data["assertion_attribute"] = css_property
 
         new_step = session.insert_step_after(step_id, capture_step_data)
 
@@ -228,6 +251,9 @@ def _configure_suite_io(
     io_type: str,
     name: str,
     default_value: str,
+    capture_type: str,
+    attribute_name: str,
+    css_property: str,
     remove: bool,
 ) -> tuple:
     """Configure I/O on a step in a saved suite (validation context).
@@ -310,10 +336,14 @@ def _configure_suite_io(
         # Non-capture step — create a capture step after it
         from src.core.services.cdp_test.models import TestStep
 
-        is_form = target_step.element_tag.lower() in ("input", "textarea", "select")
-        capture_action = "capture_value" if is_form else "capture_text"
+        # Use capture_type from user if provided, fall back to guess
+        if capture_type:
+            capture_action = capture_type
+        else:
+            is_form = target_step.element_tag.lower() in ("input", "textarea", "select")
+            capture_action = "capture_value" if is_form else "capture_text"
 
-        new_step = TestStep(
+        step_kwargs = dict(
             action=capture_action,
             selector=target_step.selector,
             xpath=target_step.xpath,
@@ -322,6 +352,13 @@ def _configure_suite_io(
             element_tag=target_step.element_tag,
             element_text=target_step.element_text,
         )
+        # For capture_attribute / capture_computed_style, set assertion_attribute
+        if capture_action == "capture_attribute" and attribute_name:
+            step_kwargs["assertion_attribute"] = attribute_name
+        elif capture_action == "capture_computed_style" and css_property:
+            step_kwargs["assertion_attribute"] = css_property
+
+        new_step = TestStep(**step_kwargs)
 
         # Insert after the target step and re-sequence
         suite.steps.insert(target_idx + 1, new_step)

@@ -515,6 +515,9 @@ def cdp_test_record_event():
         io_type = data.get("io_type", "")
         io_name = data.get("name", "").strip()
         default_value = data.get("default_value", "")
+        capture_type = data.get("capture_type", "")
+        attribute_name = data.get("attribute_name", "")
+        css_property = data.get("css_property", "")
 
         if not io_type or not io_name:
             resp = jsonify({"ok": False, "error": "io_type and name required"})
@@ -577,9 +580,13 @@ def cdp_test_record_event():
                 )
             else:
                 # Non-capture step — create a capture step after it
-                element_tag = target_step.get("element_tag", "").lower()
-                is_form = element_tag in ("input", "textarea", "select")
-                capture_action = "capture_value" if is_form else "capture_text"
+                # Use capture_type from user if provided, fall back to guess
+                if capture_type:
+                    capture_action = capture_type
+                else:
+                    element_tag = target_step.get("element_tag", "").lower()
+                    is_form = element_tag in ("input", "textarea", "select")
+                    capture_action = "capture_value" if is_form else "capture_text"
 
                 capture_data = {
                     "action": capture_action,
@@ -587,9 +594,15 @@ def cdp_test_record_event():
                     "xpath": target_step.get("xpath", ""),
                     "export_as": io_name,
                     "page_url": target_step.get("page_url", ""),
-                    "element_tag": element_tag,
+                    "element_tag": target_step.get("element_tag", ""),
                     "element_text": target_step.get("element_text", ""),
                 }
+                # For capture_attribute / capture_computed_style
+                if capture_action == "capture_attribute" and attribute_name:
+                    capture_data["assertion_attribute"] = attribute_name
+                elif capture_action == "capture_computed_style" and css_property:
+                    capture_data["assertion_attribute"] = css_property
+
                 new_step = session.insert_step_after(step_id, capture_data)
                 bus.publish(
                     "cdp_test:step_captured",

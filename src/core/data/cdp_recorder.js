@@ -303,9 +303,8 @@
     // ── Click ─────────────────────────────────────────────────
 
     var _lastBadge = null;
-    var _badgeTimer = null;
     var _lastIOBadge = null;
-    var _ioBadgeTimer = null;
+    var _lastTypedValues = {};  // selector → last typed value (for default value when element gone)
 
     /**
      * Walk up from a leaf element to find the nearest "meaningful" element.
@@ -394,7 +393,7 @@
     function _showAssertBadge(el, selector, elemText, elemRect) {
         // Remove previous badge
         if (_lastBadge) { _lastBadge.remove(); _lastBadge = null; }
-        if (_badgeTimer) { clearTimeout(_badgeTimer); _badgeTimer = null; }
+
 
         // Build ancestor chain: element + up to 4 parents
         var selectorChain = [];
@@ -414,7 +413,7 @@
         badge.className = '__dcp_assert_badge';
         badge.style.cssText = [
             'position:fixed',
-            'z-index:2147483646',
+            'z-index:2147483644',
             'background:rgba(34,197,94,0.95)',
             'color:white',
             'font-family:system-ui,-apple-system,sans-serif',
@@ -466,7 +465,7 @@
         ioBadge.className = '__dcp_io_badge';
         ioBadge.style.cssText = [
             'position:fixed',
-            'z-index:2147483646',
+            'z-index:2147483644',
             'background:rgba(139,92,246,0.95)',
             'color:white',
             'font-family:system-ui,-apple-system,sans-serif',
@@ -502,8 +501,6 @@
             e.preventDefault();
             ioBadge.remove();
             _lastIOBadge = null;
-            // Also remove assert badge
-            if (_lastBadge) { _lastBadge.remove(); _lastBadge = null; }
             _openIOModal(selector, elemText, elemRect, selectorChain);
         });
 
@@ -1309,7 +1306,7 @@
             border: '#2a2a4a', borderLight: '#3a3a5a',
             text: '#e0e0e8', textMuted: '#8888aa', textSecondary: '#b0b0cc',
             purple: '#8b5cf6', purpleHover: '#7c3aed',
-            green: '#22c55e',
+            green: '#22c55e', warn: '#f59e0b',
         };
 
         var s = function (obj) {
@@ -1323,8 +1320,10 @@
             return s({ 'font-size': '12px', 'font-weight': '600', padding: '6px 16px', border: 'none', 'border-radius': '6px', cursor: 'pointer', background: bg, color: '#fff' });
         };
 
-        // Suggest INPUT for form fields, OUTPUT for everything else — just a default
-        function _suggestInput(sel) {
+        // ── Form element detection ──
+        // Only form elements (input, textarea, select) can be INPUT.
+        // Everything can be OUTPUT.
+        function _isFormElement(sel) {
             try {
                 var el = document.querySelector(sel);
                 if (!el) return false;
@@ -1336,19 +1335,36 @@
             return false;
         }
 
-        // §0: Target Element picker
+        // Read element's live value (for default value / export preview)
+        // Falls back to _lastTypedValues if element is gone
+        function _readElementValue(sel) {
+            try {
+                var el = document.querySelector(sel);
+                if (el) {
+                    var tag = el.tagName.toLowerCase();
+                    if (tag === 'input' || tag === 'textarea' || tag === 'select') {
+                        return (el.value || '').trim();
+                    }
+                    return (el.textContent || '').trim().slice(0, 120);
+                }
+            } catch (_) { }
+            // Fallback: use last typed value for this selector
+            if (_lastTypedValues[sel]) return _lastTypedValues[sel];
+            return '';
+        }
+
+        // §0: Target Element picker — always defaults to index 0 (the original element).
+        // For I/O, we keep the original element selected even if it's gone from the page.
+        // The selector will still work during replay.
         var chainHtml = '';
         if (selectorChain.length > 1) {
-            var firstAvail = -1;
             for (var ci = 0; ci < selectorChain.length; ci++) {
                 try {
                     selectorChain[ci].available = !!document.querySelector(selectorChain[ci].selector);
                 } catch (_) {
                     selectorChain[ci].available = false;
                 }
-                if (selectorChain[ci].available && firstAvail === -1) firstAvail = ci;
             }
-            if (firstAvail === -1) firstAvail = 0;
 
             chainHtml += '<div>' +
                 '<div style="' + sLabel + '">Target Element</div>' +
@@ -1358,7 +1374,8 @@
                 var item = selectorChain[ci2];
                 var indent = ci2 === 0 ? '' : '\u21b3 '.repeat(ci2);
                 var selPreview = item.selector.length > 40 ? item.selector.slice(0, 37) + '\u2026' : item.selector;
-                var isDefault = (ci2 === firstAvail);
+                // Always default to index 0 — the original clicked element
+                var isDefault = (ci2 === 0);
 
                 chainHtml += '<label style="' + sRadioLabel + ';padding:4px 8px">' +
                     '<input type="radio" name="__dcp_io_target" value="' + ci2 + '"' + (isDefault ? ' checked' : '') + '>' +
@@ -1367,7 +1384,7 @@
                     '<span style="font-family:monospace;font-size:9px;color:' + C.textSecondary + '">' + selPreview + '</span>' +
                     (item.available
                         ? '<span style="font-size:8px;color:' + C.green + ';margin-left:4px">\u2713</span>'
-                        : '<span style="font-size:8px;color:' + C.textMuted + ';margin-left:4px">\ud83d\udd17</span>') +
+                        : '<span style="font-size:8px;color:' + C.warn + ';margin-left:4px" title="Not on page now \u2014 will work during replay">\u26a0</span>') +
                     '</span>' +
                     '</label>';
             }
@@ -1375,42 +1392,109 @@
             chainHtml += '</div></div>';
         }
 
-        // Initial suggestion
-        var initSuggest = _suggestInput(selector);
+        // Determine if INPUT is a valid option for the selected element
+        // Check via querySelector first, fall back to selectorChain tag
+        var canBeInput = _isFormElement(selector);
+        if (!canBeInput && selectorChain.length > 0) {
+            var tag0 = (selectorChain[0].tag || '').toLowerCase();
+            if (tag0 === 'input' || tag0 === 'textarea' || tag0 === 'select') canBeInput = true;
+        }
+        // Form element → default INPUT; non-form → OUTPUT only
+        var initIsInput = canBeInput;
 
-        // §1: Mode toggle — INPUT / OUTPUT
-        var modeHtml = '<div>' +
-            '<div style="' + sLabel + '">I/O Type</div>' +
-            '<div style="display:flex;gap:6px">' +
-            '<label style="' + sRadioLabel + ';flex:1;justify-content:center;border-color:' + C.purple + '44">' +
-            '<input type="radio" name="__dcp_io_mode" value="input"' + (initSuggest ? ' checked' : '') + '>' +
-            '<span style="font-size:12px;color:' + C.purple + ';font-weight:600">\ud83d\udce5 Input</span>' +
-            '</label>' +
-            '<label style="' + sRadioLabel + ';flex:1;justify-content:center;border-color:' + C.green + '44">' +
-            '<input type="radio" name="__dcp_io_mode" value="output"' + (initSuggest ? '' : ' checked') + '>' +
-            '<span style="font-size:12px;color:' + C.green + ';font-weight:600">\ud83d\udce4 Output</span>' +
-            '</label>' +
-            '</div>' +
-            '</div>';
+        // §1: Mode toggle — only show if element can be both INPUT and OUTPUT
+        var modeHtml = '';
+        if (canBeInput) {
+            modeHtml = '<div>' +
+                '<div style="' + sLabel + '">I/O Type</div>' +
+                '<div style="display:flex;gap:6px">' +
+                '<label style="' + sRadioLabel + ';flex:1;justify-content:center;border-color:' + C.purple + '44">' +
+                '<input type="radio" name="__dcp_io_mode" value="input" checked>' +
+                '<span style="font-size:12px;color:' + C.purple + ';font-weight:600">\ud83d\udce5 Input</span>' +
+                '</label>' +
+                '<label style="' + sRadioLabel + ';flex:1;justify-content:center;border-color:' + C.green + '44">' +
+                '<input type="radio" name="__dcp_io_mode" value="output">' +
+                '<span style="font-size:12px;color:' + C.green + ';font-weight:600">\ud83d\udce4 Output</span>' +
+                '</label>' +
+                '</div>' +
+                '</div>';
+        }
 
-        // §2: INPUT section
-        var inputHtml = '<div id="__dcp_io_input_section" style="' + (initSuggest ? '' : 'display:none') + '">' +
+        // Read current element value for defaults / preview
+        var liveValue = _readElementValue(selector);
+        var liveValueEsc = liveValue.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+        // §2: INPUT section — with editable default value field
+        var inputHtml = '<div id="__dcp_io_input_section" style="' + (initIsInput ? '' : 'display:none') + '">' +
             '<div style="padding:10px;border:1px solid ' + C.purple + '33;border-radius:8px;background:' + C.purple + '0a">' +
             '<div style="font-size:11px;font-weight:600;color:' + C.purple + ';margin-bottom:6px">\ud83d\udce5 Input \u2014 Suite Parameter</div>' +
             '<div style="font-size:10px;color:' + C.textMuted + ';margin-bottom:8px">This value becomes configurable when running the suite</div>' +
             '<div style="' + sLabel + '">Variable Name</div>' +
-            '<input id="__dcp_io_var_name" type="text" placeholder="LOGIN_EMAIL" style="' + sInputField + ';margin-bottom:6px">' +
-            '<div id="__dcp_io_default_hint" style="font-size:10px;color:' + C.textMuted + '"></div>' +
+            '<input id="__dcp_io_var_name" type="text" placeholder="LOGIN_EMAIL" style="' + sInputField + ';margin-bottom:8px">' +
+            '<div style="' + sLabel + '">Default Value</div>' +
+            '<input id="__dcp_io_default_value" type="text" value="' + liveValueEsc + '" placeholder="Pre-populated from element" style="' + sInputField + '">' +
+            '<div style="font-size:9px;color:' + C.textMuted + ';margin-top:4px">Editable \u2014 this default is used when no runtime value is provided</div>' +
             '</div></div>';
 
-        // §3: OUTPUT section
-        var outputHtml = '<div id="__dcp_io_output_section" style="' + (initSuggest ? 'display:none' : '') + '">' +
+        // §3: OUTPUT section — with capture type picker + live preview
+        var outputHtml = '<div id="__dcp_io_output_section" style="' + (initIsInput ? 'display:none' : '') + '">' +
             '<div style="padding:10px;border:1px solid ' + C.green + '33;border-radius:8px;background:' + C.green + '0a">' +
             '<div style="font-size:11px;font-weight:600;color:' + C.green + ';margin-bottom:6px">\ud83d\udce4 Output \u2014 Export</div>' +
             '<div style="font-size:10px;color:' + C.textMuted + ';margin-bottom:8px">The captured value will be exported to the plan namespace</div>' +
+
+            // Capture type picker
+            '<div style="' + sLabel + '">Capture Type</div>' +
+            '<select id="__dcp_io_capture_type" style="' + sInputField + ';margin-bottom:6px">' +
+            '<option value="capture_text">\ud83d\udccb Text content</option>' +
+            '<option value="capture_html">\ud83d\udcdd HTML</option>' +
+            '<option value="capture_value"' + (canBeInput ? ' selected' : '') + '>\ud83d\udd22 Value (form fields)</option>' +
+            '<option value="capture_attribute">\ud83c\udff7\ufe0f Attribute (href, data-id\u2026)</option>' +
+            '<option value="capture_url">\ud83d\udd17 URL</option>' +
+            '<option value="capture_computed_style">\ud83c\udfa8 Computed style</option>' +
+            '</select>' +
+
+            // Attribute name — select with auto-detected attrs + Custom option
+            '<div id="__dcp_io_attr_row" style="display:none;margin-bottom:6px">' +
+            '<div style="' + sLabel + '">Attribute Name</div>' +
+            '<select id="__dcp_io_attr_select" style="' + sInputField + ';margin-bottom:4px">' +
+            '<option value="" disabled selected>Select attribute\u2026</option>' +
+            '</select>' +
+            '<input id="__dcp_io_attr_name" type="text" placeholder="Custom attribute name" style="' + sInputField + ';display:none">' +
+            '</div>' +
+
+            // CSS property — select with common props + Custom option
+            '<div id="__dcp_io_css_row" style="display:none;margin-bottom:6px">' +
+            '<div style="' + sLabel + '">CSS Property</div>' +
+            '<select id="__dcp_io_css_select" style="' + sInputField + ';margin-bottom:4px">' +
+            '<option value="" disabled selected>Select property\u2026</option>' +
+            '<option value="color">color</option>' +
+            '<option value="background-color">background-color</option>' +
+            '<option value="display">display</option>' +
+            '<option value="visibility">visibility</option>' +
+            '<option value="opacity">opacity</option>' +
+            '<option value="font-size">font-size</option>' +
+            '<option value="font-weight">font-weight</option>' +
+            '<option value="width">width</option>' +
+            '<option value="height">height</option>' +
+            '<option value="margin">margin</option>' +
+            '<option value="padding">padding</option>' +
+            '<option value="border">border</option>' +
+            '<option value="position">position</option>' +
+            '<option value="z-index">z-index</option>' +
+            '<option value="overflow">overflow</option>' +
+            '<option value="text-align">text-align</option>' +
+            '<option value="__custom__">Custom\u2026</option>' +
+            '</select>' +
+            '<input id="__dcp_io_css_prop" type="text" placeholder="Custom CSS property" style="' + sInputField + ';display:none">' +
+            '</div>' +
+
+            // Export name
             '<div style="' + sLabel + '">Export Name</div>' +
             '<input id="__dcp_io_export_name" type="text" placeholder="AUTH_TOKEN" style="' + sInputField + ';margin-bottom:6px">' +
-            '<div style="font-size:10px;color:' + C.textMuted + '">Available as a named output for downstream suites</div>' +
+
+            // Live preview (updated dynamically)
+            '<div id="__dcp_io_preview" style="font-size:10px;color:' + C.textMuted + ';margin-top:4px"></div>' +
+            '<div style="font-size:9px;color:' + C.textMuted + ';margin-top:2px">Available as a named output for downstream suites</div>' +
             '</div></div>';
 
         overlay.innerHTML =
@@ -1440,7 +1524,7 @@
         var headerSel = document.getElementById('__dcp_io_header_selector');
         if (headerSel) headerSel.textContent = selector.slice(0, 70);
 
-        var _currentIsInput = initSuggest;
+        var _currentIsInput = initIsInput;
 
         function _showSection(isInput) {
             var inSec = document.getElementById('__dcp_io_input_section');
@@ -1450,25 +1534,13 @@
             _currentIsInput = isInput;
         }
 
-        function _updateHint(sel) {
-            var hintEl = document.getElementById('__dcp_io_default_hint');
-            if (!hintEl) return;
-            try {
-                var el = document.querySelector(sel);
-                if (el) {
-                    var val = (el.value || el.textContent || '').trim().slice(0, 60);
-                    if (val) {
-                        hintEl.innerHTML = 'Default: <code style="font-size:9px;padding:1px 4px;background:' + C.bgCard + ';border-radius:3px">' + val + '</code>';
-                        return;
-                    }
-                }
-            } catch (_) { }
-            hintEl.textContent = '';
+        // Mark default value as user-edited so we don't overwrite changes
+        var defValEl = document.getElementById('__dcp_io_default_value');
+        if (defValEl) {
+            defValEl.addEventListener('input', function () { this._userEdited = true; });
         }
 
-        _updateHint(selector);
-
-        // Mode toggle — user clicks INPUT or OUTPUT
+        // Mode toggle — user clicks INPUT or OUTPUT (only exists for form elements)
         var modeRadios = overlay.querySelectorAll('input[name="__dcp_io_mode"]');
         for (var mi = 0; mi < modeRadios.length; mi++) {
             modeRadios[mi].addEventListener('change', function () {
@@ -1476,7 +1548,7 @@
             });
         }
 
-        // Target element selection — update selector AND suggest mode (user can override)
+        // Target element selection — update selector, re-check form status
         var targetRadios = overlay.querySelectorAll('input[name="__dcp_io_target"]');
         for (var ti = 0; ti < targetRadios.length; ti++) {
             targetRadios[ti].addEventListener('change', function () {
@@ -1484,16 +1556,135 @@
                 if (selectorChain[idx]) {
                     selector = selectorChain[idx].selector;
                     if (headerSel) headerSel.textContent = selector.slice(0, 70);
-                    var suggest = _suggestInput(selector);
-                    // Update mode radio to match suggestion
-                    for (var ri = 0; ri < modeRadios.length; ri++) {
-                        modeRadios[ri].checked = (modeRadios[ri].value === (suggest ? 'input' : 'output'));
+                    var nowCanInput = _isFormElement(selector);
+
+                    // If element can't be INPUT, force OUTPUT
+                    if (!nowCanInput && _currentIsInput) {
+                        _showSection(false);
+                        for (var ri = 0; ri < modeRadios.length; ri++) {
+                            modeRadios[ri].checked = (modeRadios[ri].value === 'output');
+                        }
                     }
-                    _showSection(suggest);
-                    _updateHint(selector);
+
+                    // Update default value field if not user-edited
+                    var dEl = document.getElementById('__dcp_io_default_value');
+                    if (dEl && !dEl._userEdited) {
+                        dEl.value = _readElementValue(selector);
+                    }
                 }
             });
         }
+
+        // ── Capture type picker — show/hide attribute/css fields + populate datalist + update preview ──
+        function _updateIOPreview() {
+            var previewEl = document.getElementById('__dcp_io_preview');
+            if (!previewEl) return;
+            var capType = (document.getElementById('__dcp_io_capture_type') || {}).value || 'capture_text';
+            try {
+                var el = document.querySelector(selector);
+                if (!el) {
+                    previewEl.innerHTML = 'Element not currently visible \u2014 value will be captured during replay';
+                    return;
+                }
+                var val = '';
+                if (capType === 'capture_text') val = (el.textContent || '').trim();
+                else if (capType === 'capture_html') val = el.innerHTML.trim();
+                else if (capType === 'capture_value') val = el.value || '';
+                else if (capType === 'capture_attribute') {
+                    var attrSel = document.getElementById('__dcp_io_attr_select');
+                    var attrCustom = document.getElementById('__dcp_io_attr_name');
+                    var attrName = '';
+                    if (attrSel && attrSel.value && attrSel.value !== '__custom__' && attrSel.value !== '') attrName = attrSel.value;
+                    else if (attrCustom) attrName = attrCustom.value.trim();
+                    val = attrName ? (el.getAttribute(attrName) || '[null]') : '[select attribute]';
+                } else if (capType === 'capture_url') val = window.location.href;
+                else if (capType === 'capture_computed_style') {
+                    var cssSel = document.getElementById('__dcp_io_css_select');
+                    var cssCustom = document.getElementById('__dcp_io_css_prop');
+                    var cssProp = '';
+                    if (cssSel && cssSel.value && cssSel.value !== '__custom__' && cssSel.value !== '') cssProp = cssSel.value;
+                    else if (cssCustom) cssProp = cssCustom.value.trim();
+                    val = cssProp ? (window.getComputedStyle(el).getPropertyValue(cssProp) || '[empty]') : '[select property]';
+                }
+                var escaped = val.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                previewEl.innerHTML = 'Preview: <code style="font-size:9px;padding:1px 4px;background:' + C.bgCard + ';border-radius:3px;color:' + C.green + '">' + escaped.slice(0, 80) + '</code>';
+            } catch (_) {
+                previewEl.innerHTML = 'Element not currently visible \u2014 value will be captured during replay';
+            }
+        }
+
+        var capTypeSelect = document.getElementById('__dcp_io_capture_type');
+        if (capTypeSelect) {
+            capTypeSelect.addEventListener('change', function () {
+                var v = this.value;
+                var attrRow = document.getElementById('__dcp_io_attr_row');
+                var cssRow = document.getElementById('__dcp_io_css_row');
+                if (attrRow) attrRow.style.display = v === 'capture_attribute' ? '' : 'none';
+                if (cssRow) cssRow.style.display = v === 'capture_computed_style' ? '' : 'none';
+
+                // Populate attribute select from element's actual attributes
+                if (v === 'capture_attribute') {
+                    try {
+                        var targetEl = document.querySelector(selector);
+                        var attrSelect = document.getElementById('__dcp_io_attr_select');
+                        if (targetEl && attrSelect) {
+                            attrSelect.innerHTML = '<option value="" disabled selected>Select attribute\u2026</option>';
+                            var attrs = targetEl.attributes;
+                            for (var ai = 0; ai < attrs.length; ai++) {
+                                var opt = document.createElement('option');
+                                opt.value = attrs[ai].name;
+                                opt.textContent = attrs[ai].name + ' = "' + (attrs[ai].value || '').slice(0, 30) + '"';
+                                attrSelect.appendChild(opt);
+                            }
+                            var customOpt = document.createElement('option');
+                            customOpt.value = '__custom__';
+                            customOpt.textContent = 'Custom\u2026';
+                            attrSelect.appendChild(customOpt);
+                        }
+                    } catch (_) { }
+                }
+                _updateIOPreview();
+            });
+        }
+
+        // Attribute select → show/hide custom input + refresh preview
+        var ioAttrSelect = document.getElementById('__dcp_io_attr_select');
+        var ioAttrInput = document.getElementById('__dcp_io_attr_name');
+        if (ioAttrSelect) {
+            ioAttrSelect.addEventListener('change', function () {
+                if (this.value === '__custom__') {
+                    if (ioAttrInput) { ioAttrInput.style.display = ''; ioAttrInput.focus(); }
+                } else {
+                    if (ioAttrInput) { ioAttrInput.style.display = 'none'; ioAttrInput.value = ''; }
+                }
+                _updateIOPreview();
+            });
+        }
+        if (ioAttrInput) {
+            ioAttrInput.addEventListener('input', function () { _updateIOPreview(); });
+        }
+
+        // CSS select → show/hide custom input + refresh preview
+        var ioCssSelect = document.getElementById('__dcp_io_css_select');
+        var ioCssInput = document.getElementById('__dcp_io_css_prop');
+        if (ioCssSelect) {
+            ioCssSelect.addEventListener('change', function () {
+                if (this.value === '__custom__') {
+                    if (ioCssInput) { ioCssInput.style.display = ''; ioCssInput.focus(); }
+                } else {
+                    if (ioCssInput) { ioCssInput.style.display = 'none'; ioCssInput.value = ''; }
+                }
+                _updateIOPreview();
+            });
+        }
+        if (ioCssInput) {
+            ioCssInput.addEventListener('input', function () { _updateIOPreview(); });
+        }
+
+
+
+        // Initial preview
+        _updateIOPreview();
 
         document.getElementById('__dcp_io_cancel').addEventListener('click', function () {
             _closeIOModal();
@@ -1517,9 +1708,10 @@
 
     function _saveIO(selector, isInput) {
         var ioType, name, defaultValue = '';
+        var captureType = '', attributeName = '', cssProp = '';
 
         if (isInput) {
-            // INPUT: variable name → suite parameter
+            // INPUT: variable name + user-editable default
             var varName = (document.getElementById('__dcp_io_var_name') || {}).value || '';
             varName = varName.trim();
             if (!varName) {
@@ -1529,13 +1721,11 @@
             }
             ioType = 'input';
             name = varName;
-            // Read default value from the live element
-            try {
-                var el = document.querySelector(selector);
-                if (el) defaultValue = (el.value || el.textContent || '').trim();
-            } catch (_) { }
+            // Read default from the editable field (user may have changed it)
+            var defEl = document.getElementById('__dcp_io_default_value');
+            defaultValue = defEl ? defEl.value.trim() : '';
         } else {
-            // OUTPUT: export name
+            // OUTPUT: export name + capture type
             var exportName = (document.getElementById('__dcp_io_export_name') || {}).value || '';
             exportName = exportName.trim();
             if (!exportName) {
@@ -1545,20 +1735,61 @@
             }
             ioType = 'output';
             name = exportName;
+
+            // Read capture type
+            var capTypeEl = document.getElementById('__dcp_io_capture_type');
+            if (capTypeEl) captureType = capTypeEl.value;
+
+            // Read attribute name (for capture_attribute)
+            if (captureType === 'capture_attribute') {
+                var attrSel = document.getElementById('__dcp_io_attr_select');
+                if (attrSel && attrSel.value && attrSel.value !== '__custom__' && attrSel.value !== '') {
+                    attributeName = attrSel.value;
+                } else {
+                    attributeName = (document.getElementById('__dcp_io_attr_name') || {}).value || '';
+                    attributeName = attributeName.trim();
+                }
+                if (!attributeName) {
+                    var attrInp = document.getElementById('__dcp_io_attr_select') || document.getElementById('__dcp_io_attr_name');
+                    if (attrInp) { attrInp.style.border = '2px solid #ef4444'; setTimeout(function () { attrInp.style.border = ''; }, 1500); }
+                    return;
+                }
+            }
+
+            // Read CSS property (for capture_computed_style)
+            if (captureType === 'capture_computed_style') {
+                var cssSel = document.getElementById('__dcp_io_css_select');
+                if (cssSel && cssSel.value && cssSel.value !== '__custom__' && cssSel.value !== '') {
+                    cssProp = cssSel.value;
+                } else {
+                    cssProp = (document.getElementById('__dcp_io_css_prop') || {}).value || '';
+                    cssProp = cssProp.trim();
+                }
+                if (!cssProp) {
+                    var cssInp = document.getElementById('__dcp_io_css_select') || document.getElementById('__dcp_io_css_prop');
+                    if (cssInp) { cssInp.style.border = '2px solid #ef4444'; setTimeout(function () { cssInp.style.border = ''; }, 1500); }
+                    return;
+                }
+            }
         }
 
         // Resume recording BEFORE sending
         window.__dcp_recorder_paused = false;
-        _dcpLog('info', 'saveIO called', { selector: selector, isInput: isInput, ioType: ioType, name: name });
+        _dcpLog('info', 'saveIO called', { selector: selector, isInput: isInput, ioType: ioType, name: name, captureType: captureType });
 
         // Send I/O config via the event endpoint (io_configure action)
-        sendEvent({
+        var payload = {
             action: 'io_configure',
             selector: selector,
             io_type: ioType,
             name: name,
             default_value: defaultValue,
-        });
+        };
+        if (captureType) payload.capture_type = captureType;
+        if (attributeName) payload.attribute_name = attributeName;
+        if (cssProp) payload.css_property = cssProp;
+
+        sendEvent(payload);
 
         _closeIOModal();
     }
@@ -1581,6 +1812,9 @@
 
         _inputTimers[key] = setTimeout(function () {
             delete _inputTimers[key];
+            var sel = buildSelector(el);
+            // Track last typed value for default value fallback
+            if (!isPassword) _lastTypedValues[sel] = el.value;
             sendEvent({
                 action: 'type',
                 selector: buildSelector(el),

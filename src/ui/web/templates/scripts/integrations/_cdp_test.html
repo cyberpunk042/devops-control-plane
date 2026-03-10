@@ -1215,106 +1215,333 @@
         const selector = step.selector || '';
         const currentValue = step.value || '';
         const isValueAction = ['navigate', 'type', 'select', 'keypress', 'inject_js'].indexOf(step.action) !== -1;
-        const isCaptureAction = step.action.indexOf('capture_') === 0;
+        const isCaptureAction = (step.action || '').indexOf('capture_') === 0;
+        const isFormTargeting = ['type', 'select', 'keypress'].indexOf(step.action) !== -1;
+        const hasSelector = !!(step.selector && step.selector !== 'body');
+        const isClickHover = hasSelector && ['click', 'hover'].indexOf(step.action) !== -1;
 
-        // Detect if already bound to a variable (INPUT)
+        // Detect existing I/O config
         const varMatch = currentValue.match(/^\$\{(\w+)\}$/);
-        const isBound = !!varMatch;
-        const boundVarName = isBound ? varMatch[1] : '';
-        const originalVal = step.original_value || (isBound ? '' : currentValue);
+        const isBoundInput = !!varMatch;
+        const boundVarName = isBoundInput ? varMatch[1] : '';
+        const originalVal = step.original_value || (isBoundInput ? '' : currentValue);
+        const isBoundOutput = !!step.export_as;
+        const hasExistingIO = isBoundInput || isBoundOutput;
+
+        // Determine available modes
+        // Form-targeting value actions: both INPUT + OUTPUT (default INPUT)
+        // navigate, inject_js: INPUT only
+        // Capture steps: OUTPUT only (capture type already set)
+        // Click/hover: OUTPUT only (add capture step, user picks capture type)
+        const canInput = isValueAction;
+        const canOutput = isCaptureAction || isClickHover || isFormTargeting;
+        const showToggle = canInput && canOutput; // Only form-targeting value actions
+        const needsCaptureTypePicker = !isCaptureAction; // Non-capture steps need to choose capture type
+
+        // Default mode: if already configured, use that; otherwise INPUT for form actions, OUTPUT for rest
+        let defaultIsInput;
+        if (isBoundInput) defaultIsInput = true;
+        else if (isBoundOutput) defaultIsInput = false;
+        else defaultIsInput = canInput && (!canOutput || isFormTargeting);
 
         document.getElementById('cdp-io-config-overlay')?.remove();
         const overlay = document.createElement('div');
         overlay.id = 'cdp-io-config-overlay';
         overlay.style.cssText = `
-            position:fixed;inset:0;z-index:10001;
-            display:flex;align-items:center;justify-content:center;
-            background:rgba(0,0,0,0.55);backdrop-filter:blur(6px);
-        `;
+                position:fixed;inset:0;z-index:10001;
+                display:flex;align-items:center;justify-content:center;
+                background:rgba(0,0,0,0.55);backdrop-filter:blur(6px);
+            `;
 
-        // Determine which section to show — value actions get INPUT, everything with a selector or capture gets OUTPUT
-        let ioSection = '';
-        let accentColor = '#8b5cf6';
-        let title = '🔗 I/O Configuration';
-        let subtitle = '';
-        const hasStepSelector = !!(step.selector && step.selector !== 'body');
+        // ── Build the modal content ──
+        let accentColor = defaultIsInput ? '#8b5cf6' : '#22c55e';
 
-        if (isValueAction) {
-            // ───── INPUT: Suite Parameter ─────
-            accentColor = '#8b5cf6';
-            title = '📥 Input — Suite Parameter';
-            subtitle = 'This value becomes configurable when running the suite. The recorded value is the default.';
-            ioSection = `
-            <div style="padding:10px;border:1px solid #8b5cf633;border-radius:8px;background:#8b5cf60a;margin-bottom:1rem">
-                <div style="margin-bottom:6px">
-                    <label style="font-size:0.7rem;color:var(--text-secondary);display:block;margin-bottom:2px">Variable name</label>
-                    <input id="cdp-io-var-name" type="text" value="${esc(boundVarName)}" placeholder="LOGIN_EMAIL"
-                        style="width:100%;font-size:0.78rem;padding:6px 10px;background:var(--bg-secondary);border:1px solid var(--border-subtle);border-radius:6px;color:var(--text-primary);font-family:monospace">
+        // Header
+        let headerHtml = `
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+                    <span style="font-weight:700;font-size:0.95rem">🔗 I/O Configuration</span>
                 </div>
-                ${originalVal ? `<div style="font-size:0.68rem;color:var(--text-muted);margin-top:4px">
-                    Default: <code style="font-size:0.65rem;padding:1px 4px;background:var(--bg-tertiary);border-radius:3px">${esc(originalVal.slice(0, 60))}</code>
-                </div>` : ''}
-            </div>`;
+                <div style="font-size:0.72rem;color:var(--text-muted);margin-bottom:4px">
+                    <span style="font-family:monospace">${esc(step.action)}</span>
+                    ${selector ? ` · <span style="font-family:monospace">${esc(selector.slice(0, 50))}</span>` : ''}
+                </div>`;
 
-        } else if (isCaptureAction) {
-            // ───── OUTPUT: Export (capture actions) ─────
-            accentColor = '#22c55e';
-            title = '📤 Output — Export';
-            subtitle = 'The captured value will be exported to the plan namespace for downstream suites.';
-            const exportVal = step.export_as || '';
-            ioSection = `
-            <div style="padding:10px;border:1px solid #22c55e33;border-radius:8px;background:#22c55e0a;margin-bottom:1rem">
-                <div style="margin-bottom:6px">
-                    <label style="font-size:0.7rem;color:var(--text-secondary);display:block;margin-bottom:2px">Export name</label>
-                    <input id="cdp-io-export-name" type="text" value="${esc(exportVal)}" placeholder="AUTH_TOKEN"
-                        style="width:100%;font-size:0.78rem;padding:6px 10px;background:var(--bg-secondary);border:1px solid var(--border-subtle);border-radius:6px;color:var(--text-primary);font-family:monospace">
-                </div>
-                <div style="font-size:0.62rem;color:var(--text-muted)">Available as a named output in the plan namespace after execution</div>
-            </div>`;
+        // ── Mode toggle (only for form-targeting value actions) ──
+        let toggleHtml = '';
+        if (showToggle) {
+            toggleHtml = `
+                <div style="margin-bottom:0.8rem">
+                    <div style="font-size:0.68rem;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px">I/O Type</div>
+                    <div style="display:flex;gap:6px">
+                        <label style="flex:1;display:flex;align-items:center;justify-content:center;gap:5px;padding:6px 8px;border-radius:6px;cursor:pointer;font-size:0.75rem;font-weight:600;
+                            background:var(--bg-secondary);border:1px solid ${defaultIsInput ? '#8b5cf6' : 'var(--border-subtle)'}44" id="cdp-io-toggle-input">
+                            <input type="radio" name="cdp-io-mode" value="input" ${defaultIsInput ? 'checked' : ''}>
+                            <span style="color:#8b5cf6">📥 Input</span>
+                        </label>
+                        <label style="flex:1;display:flex;align-items:center;justify-content:center;gap:5px;padding:6px 8px;border-radius:6px;cursor:pointer;font-size:0.75rem;font-weight:600;
+                            background:var(--bg-secondary);border:1px solid ${defaultIsInput ? 'var(--border-subtle)' : '#22c55e'}44" id="cdp-io-toggle-output">
+                            <input type="radio" name="cdp-io-mode" value="output" ${defaultIsInput ? '' : 'checked'}>
+                            <span style="color:#22c55e">📤 Output</span>
+                        </label>
+                    </div>
+                </div>`;
+        }
 
-        } else if (hasStepSelector && ['click', 'hover'].indexOf(step.action) !== -1) {
-            // ───── OUTPUT via capture step addition (click/hover) ─────
-            accentColor = '#22c55e';
-            title = '📤 Export Element Content';
-            subtitle = 'Adds a capture step after this step to export the element\u2019s text content.';
-            ioSection = `
-            <div style="padding:10px;border:1px solid #22c55e33;border-radius:8px;background:#22c55e0a;margin-bottom:1rem">
-                <div style="margin-bottom:6px">
-                    <label style="font-size:0.7rem;color:var(--text-secondary);display:block;margin-bottom:2px">Export name</label>
-                    <input id="cdp-io-export-name" type="text" value="" placeholder="ELEMENT_TEXT"
-                        style="width:100%;font-size:0.78rem;padding:6px 10px;background:var(--bg-secondary);border:1px solid var(--border-subtle);border-radius:6px;color:var(--text-primary);font-family:monospace">
-                </div>
-                <div style="font-size:0.62rem;color:var(--text-muted)">A new capture step will be inserted after this ${esc(step.action)} step</div>
-            </div>`;
+        // ── INPUT section ──
+        let inputHtml = '';
+        if (canInput) {
+            inputHtml = `
+                <div id="cdp-io-input-section" style="${defaultIsInput ? '' : 'display:none;'}">
+                    <div style="padding:10px;border:1px solid #8b5cf633;border-radius:8px;background:#8b5cf60a;margin-bottom:1rem">
+                        <div style="font-size:0.72rem;font-weight:600;color:#8b5cf6;margin-bottom:6px">📥 Input — Suite Parameter</div>
+                        <div style="font-size:0.65rem;color:var(--text-muted);margin-bottom:8px">This value becomes configurable when running the suite</div>
+                        <div style="margin-bottom:8px">
+                            <label style="font-size:0.68rem;color:var(--text-secondary);display:block;margin-bottom:2px">Variable name</label>
+                            <input id="cdp-io-var-name" type="text" value="${esc(boundVarName)}" placeholder="LOGIN_EMAIL"
+                                style="width:100%;font-size:0.78rem;padding:6px 10px;background:var(--bg-secondary);border:1px solid var(--border-subtle);border-radius:6px;color:var(--text-primary);font-family:monospace;box-sizing:border-box">
+                        </div>
+                        <div>
+                            <label style="font-size:0.68rem;color:var(--text-secondary);display:block;margin-bottom:2px">Default value</label>
+                            <input id="cdp-io-default-value" type="text" value="${esc(originalVal)}" placeholder="Pre-populated from recorded value"
+                                style="width:100%;font-size:0.78rem;padding:6px 10px;background:var(--bg-secondary);border:1px solid var(--border-subtle);border-radius:6px;color:var(--text-primary);font-family:monospace;box-sizing:border-box">
+                            <div style="font-size:0.60rem;color:var(--text-muted);margin-top:3px">Editable — used when no runtime value is provided</div>
+                        </div>
+                    </div>
+                </div>`;
+        }
+
+        // ── OUTPUT section ──
+        let outputHtml = '';
+        if (canOutput) {
+            // For existing capture steps, capture type is already set
+            // For non-capture steps (click/hover/form value actions), user must choose
+            let captureTypeHtml = '';
+            if (needsCaptureTypePicker) {
+                captureTypeHtml = `
+                        <div style="margin-bottom:8px">
+                            <label style="font-size:0.68rem;color:var(--text-secondary);display:block;margin-bottom:2px">Capture type</label>
+                            <select id="cdp-io-capture-type"
+                                style="width:100%;font-size:0.78rem;padding:6px 10px;background:var(--bg-secondary);border:1px solid var(--border-subtle);border-radius:6px;color:var(--text-primary);box-sizing:border-box">
+                                <option value="capture_text">📋 Text content</option>
+                                <option value="capture_html">📝 HTML</option>
+                                <option value="capture_value" ${isFormTargeting ? 'selected' : ''}>🔢 Value (form fields)</option>
+                                <option value="capture_attribute">🏷️ Attribute (href, data-id…)</option>
+                                <option value="capture_url">🔗 URL</option>
+                                <option value="capture_computed_style">🎨 Computed style</option>
+                            </select>
+                        </div>
+                        <div id="cdp-io-attr-name-row" style="display:none;margin-bottom:8px">
+                            <label style="font-size:0.68rem;color:var(--text-secondary);display:block;margin-bottom:2px">Attribute name</label>
+                            <select id="cdp-io-attr-select"
+                                style="width:100%;font-size:0.78rem;padding:6px 10px;background:var(--bg-secondary);border:1px solid var(--border-subtle);border-radius:6px;color:var(--text-primary);box-sizing:border-box;margin-bottom:4px">
+                                <option value="" disabled selected>Select attribute…</option>
+                                <option value="href">href</option>
+                                <option value="src">src</option>
+                                <option value="data-testid">data-testid</option>
+                                <option value="data-id">data-id</option>
+                                <option value="aria-label">aria-label</option>
+                                <option value="title">title</option>
+                                <option value="alt">alt</option>
+                                <option value="name">name</option>
+                                <option value="type">type</option>
+                                <option value="role">role</option>
+                                <option value="class">class</option>
+                                <option value="id">id</option>
+                                <option value="__custom__">Custom…</option>
+                            </select>
+                            <input id="cdp-io-attr-name" type="text" placeholder="Custom attribute name"
+                                style="width:100%;font-size:0.78rem;padding:6px 10px;background:var(--bg-secondary);border:1px solid var(--border-subtle);border-radius:6px;color:var(--text-primary);font-family:monospace;box-sizing:border-box;display:none">
+                        </div>
+                        <div id="cdp-io-css-prop-row" style="display:none;margin-bottom:8px">
+                            <label style="font-size:0.68rem;color:var(--text-secondary);display:block;margin-bottom:2px">CSS property</label>
+                            <select id="cdp-io-css-select"
+                                style="width:100%;font-size:0.78rem;padding:6px 10px;background:var(--bg-secondary);border:1px solid var(--border-subtle);border-radius:6px;color:var(--text-primary);box-sizing:border-box;margin-bottom:4px">
+                                <option value="" disabled selected>Select property…</option>
+                                <option value="color">color</option>
+                                <option value="background-color">background-color</option>
+                                <option value="display">display</option>
+                                <option value="visibility">visibility</option>
+                                <option value="opacity">opacity</option>
+                                <option value="font-size">font-size</option>
+                                <option value="font-weight">font-weight</option>
+                                <option value="width">width</option>
+                                <option value="height">height</option>
+                                <option value="margin">margin</option>
+                                <option value="padding">padding</option>
+                                <option value="border">border</option>
+                                <option value="position">position</option>
+                                <option value="z-index">z-index</option>
+                                <option value="overflow">overflow</option>
+                                <option value="text-align">text-align</option>
+                                <option value="__custom__">Custom…</option>
+                            </select>
+                            <input id="cdp-io-css-prop" type="text" placeholder="Custom CSS property"
+                                style="width:100%;font-size:0.78rem;padding:6px 10px;background:var(--bg-secondary);border:1px solid var(--border-subtle);border-radius:6px;color:var(--text-primary);font-family:monospace;box-sizing:border-box;display:none">
+                        </div>`;
+            } else {
+                // Existing capture step — show the current capture type as info
+                const captureLabels = {
+                    capture_text: '📋 Text content',
+                    capture_html: '📝 HTML',
+                    capture_value: '🔢 Value',
+                    capture_attribute: '🏷️ Attribute',
+                    capture_url: '🔗 URL',
+                    capture_computed_style: '🎨 Computed style',
+                    capture_screenshot: '📸 Screenshot',
+                    capture_screenshot_full: '🖼️ Full page screenshot',
+                    capture_console: '🖥️ Console',
+                };
+                const capLabel = captureLabels[step.action] || step.action;
+                captureTypeHtml = `
+                        <div style="font-size:0.68rem;color:var(--text-secondary);margin-bottom:8px;padding:4px 8px;background:var(--bg-tertiary);border-radius:4px">
+                            Capture type: <strong>${capLabel}</strong>
+                        </div>`;
+            }
+
+            // Preview: show what would be captured (if element is available)
+            let previewHtml = '';
+            if (isBoundOutput) {
+                previewHtml = `<div style="font-size:0.62rem;color:var(--text-muted);margin-top:4px">Currently exported as: <code style="font-size:0.60rem;padding:1px 4px;background:var(--bg-tertiary);border-radius:2px;color:#22c55e">${esc(step.export_as)}</code></div>`;
+            }
+            if (isCaptureAction && !needsCaptureTypePicker) {
+                // For click/hover we'll add a dynamic preview via JS below
+                previewHtml += `<div id="cdp-io-preview" style="font-size:0.62rem;color:var(--text-muted);margin-top:4px"></div>`;
+            }
+
+            outputHtml = `
+                <div id="cdp-io-output-section" style="${defaultIsInput ? 'display:none;' : ''}">
+                    <div style="padding:10px;border:1px solid #22c55e33;border-radius:8px;background:#22c55e0a;margin-bottom:1rem">
+                        <div style="font-size:0.72rem;font-weight:600;color:#22c55e;margin-bottom:6px">📤 Output — Export</div>
+                        <div style="font-size:0.65rem;color:var(--text-muted);margin-bottom:8px">${isCaptureAction
+                    ? 'Name this export for downstream suites in the plan'
+                    : isClickHover
+                        ? 'A new capture step will be inserted after this ' + esc(step.action) + ' step'
+                        : 'A new capture step will be inserted after this step'
+                }</div>
+                        ${captureTypeHtml}
+                        <div style="margin-bottom:6px">
+                            <label style="font-size:0.68rem;color:var(--text-secondary);display:block;margin-bottom:2px">Export name</label>
+                            <input id="cdp-io-export-name" type="text" value="${esc(step.export_as || '')}" placeholder="AUTH_TOKEN"
+                                style="width:100%;font-size:0.78rem;padding:6px 10px;background:var(--bg-secondary);border:1px solid var(--border-subtle);border-radius:6px;color:var(--text-primary);font-family:monospace;box-sizing:border-box">
+                        </div>
+                        ${previewHtml}
+                        <div style="font-size:0.60rem;color:var(--text-muted);margin-top:4px">Available as a named output for downstream suites</div>
+                    </div>
+                </div>`;
+        }
+
+        // ── Remove I/O button (only if already configured) ──
+        let removeHtml = '';
+        if (hasExistingIO) {
+            removeHtml = `<button id="cdp-io-remove" class="btn btn-sm"
+                    style="background:#ef4444;color:white;border:none;border-radius:6px;padding:4px 14px;font-size:0.72rem;cursor:pointer"
+                    >🗑️ Remove I/O</button>`;
         }
 
         overlay.innerHTML = `
-        <div style="background:var(--bg-primary);border:1px solid ${accentColor}44;border-radius:12px;
-                    padding:1.2rem 1.5rem;width:440px;max-width:90vw;box-shadow:0 20px 60px rgba(0,0,0,0.5)">
-
-            <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
-                <span style="font-weight:700;font-size:0.95rem">${title}</span>
-            </div>
-            <div style="font-size:0.72rem;color:var(--text-muted);margin-bottom:4px">
-                <span style="font-family:monospace">${esc(step.action)}</span>
-                ${selector ? ` · <span style="font-family:monospace">${esc(selector.slice(0, 50))}</span>` : ''}
-            </div>
-            <div style="font-size:0.65rem;color:${accentColor};margin-bottom:1rem">
-                ${subtitle}
-            </div>
-
-            ${ioSection}
-
-            <div style="display:flex;justify-content:flex-end;gap:8px">
-                <button class="btn btn-sm btn-secondary" onclick="document.getElementById('cdp-io-config-overlay').remove()">Cancel</button>
-                <button class="btn btn-sm" onclick="_cdpTestSaveIO()"
-                    style="background:${accentColor};color:white;border:none;border-radius:6px;padding:4px 14px;font-size:0.78rem;cursor:pointer">💾 Save</button>
-            </div>
-
-        </div>`;
+            <div style="background:var(--bg-primary);border:1px solid ${accentColor}44;border-radius:12px;
+                        padding:1.2rem 1.5rem;width:460px;max-width:90vw;max-height:85vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,0.5)">
+                ${headerHtml}
+                ${toggleHtml}
+                ${inputHtml}
+                ${outputHtml}
+                <div style="display:flex;justify-content:flex-end;gap:8px;align-items:center">
+                    ${removeHtml}
+                    <span style="flex:1"></span>
+                    <button class="btn btn-sm btn-secondary" onclick="document.getElementById('cdp-io-config-overlay').remove()">Cancel</button>
+                    <button id="cdp-io-save-btn" class="btn btn-sm"
+                        style="background:${accentColor};color:white;border:none;border-radius:6px;padding:4px 14px;font-size:0.78rem;cursor:pointer">💾 Save</button>
+                </div>
+            </div>`;
 
         document.body.appendChild(overlay);
         overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+
+        // ── Wire up mode toggle ──
+        if (showToggle) {
+            const modeRadios = overlay.querySelectorAll('input[name="cdp-io-mode"]');
+            modeRadios.forEach(r => r.addEventListener('change', function () {
+                const isInput = this.value === 'input';
+                const inSec = document.getElementById('cdp-io-input-section');
+                const outSec = document.getElementById('cdp-io-output-section');
+                if (inSec) inSec.style.display = isInput ? '' : 'none';
+                if (outSec) outSec.style.display = isInput ? 'none' : '';
+                // Update save button color
+                const saveBtn = document.getElementById('cdp-io-save-btn');
+                if (saveBtn) saveBtn.style.background = isInput ? '#8b5cf6' : '#22c55e';
+            }));
+        }
+
+        // ── Wire up capture type picker (show/hide attribute/css property fields) ──
+        const capTypeEl = document.getElementById('cdp-io-capture-type');
+        if (capTypeEl) {
+            const _updateCapFields = () => {
+                const v = capTypeEl.value;
+                const attrRow = document.getElementById('cdp-io-attr-name-row');
+                const cssRow = document.getElementById('cdp-io-css-prop-row');
+                if (attrRow) attrRow.style.display = v === 'capture_attribute' ? '' : 'none';
+                if (cssRow) cssRow.style.display = v === 'capture_computed_style' ? '' : 'none';
+            };
+            capTypeEl.addEventListener('change', _updateCapFields);
+            _updateCapFields(); // initial state
+        }
+
+        // ── Wire up attribute select → custom input toggle ──
+        const attrSelect = document.getElementById('cdp-io-attr-select');
+        const attrCustomInput = document.getElementById('cdp-io-attr-name');
+        if (attrSelect) {
+            attrSelect.addEventListener('change', () => {
+                if (attrCustomInput) {
+                    attrCustomInput.style.display = attrSelect.value === '__custom__' ? '' : 'none';
+                    if (attrSelect.value === '__custom__') attrCustomInput.focus();
+                    else attrCustomInput.value = '';
+                }
+            });
+        }
+
+        // ── Wire up CSS select → custom input toggle ──
+        const cssSelect = document.getElementById('cdp-io-css-select');
+        const cssCustomInput = document.getElementById('cdp-io-css-prop');
+        if (cssSelect) {
+            cssSelect.addEventListener('change', () => {
+                if (cssCustomInput) {
+                    cssCustomInput.style.display = cssSelect.value === '__custom__' ? '' : 'none';
+                    if (cssSelect.value === '__custom__') cssCustomInput.focus();
+                    else cssCustomInput.value = '';
+                }
+            });
+        }
+
+        // ── Wire up remove button ──
+        const removeBtn = document.getElementById('cdp-io-remove');
+        if (removeBtn) {
+            removeBtn.addEventListener('click', async () => {
+                try {
+                    const payload = {
+                        step_id: step.id,
+                        io_type: 'remove',
+                    };
+                    const valDataEl = document.getElementById('cdp-val-steps-data');
+                    if (valDataEl) {
+                        payload.suite_id = document.getElementById('cdp-val-suite-id')?.value || '';
+                    } else {
+                        payload.session_id = _cdpActiveSessionId || '';
+                    }
+                    const result = await apiPost('/cdp-test/io/configure', payload);
+                    if (result.step) {
+                        Object.assign(step, result.step);
+                        _cdpStepDataMap.set(step.id, step);
+                    }
+                    toast('I/O removed from step ' + (step.sequence + 1), 'success');
+                } catch (e) {
+                    toast('Failed to remove I/O: ' + e.message, 'error');
+                }
+                document.getElementById('cdp-io-config-overlay')?.remove();
+            });
+        }
+
+        // ── Wire up save button ──
+        document.getElementById('cdp-io-save-btn').addEventListener('click', () => _cdpTestSaveIO());
     }
 
     async function _cdpTestSaveIO() {
@@ -1322,31 +1549,84 @@
         const isValueAction = ['navigate', 'type', 'select', 'keypress', 'inject_js'].indexOf(stepData.action) !== -1;
         const isCaptureAction = (stepData.action || '').indexOf('capture_') === 0;
 
-        // Determine io_type and name from the overlay fields
-        let ioType, ioName, defaultValue = '';
+        // Determine which mode is active (check toggle, or infer from available sections)
+        let isInputMode = false;
+        const modeRadio = document.querySelector('input[name="cdp-io-mode"]:checked');
+        if (modeRadio) {
+            isInputMode = modeRadio.value === 'input';
+        } else {
+            // No toggle = only one mode available
+            isInputMode = isValueAction && !isCaptureAction;
+        }
 
-        if (isValueAction) {
-            const varName = (document.getElementById('cdp-io-var-name')?.value || '').trim();
+        let ioType, ioName, defaultValue = '', captureType = '', attrName = '', cssProp = '';
+
+        if (isInputMode) {
+            // INPUT: variable name + editable default
+            const varNameEl = document.getElementById('cdp-io-var-name');
+            const varName = (varNameEl?.value || '').trim();
             if (!varName) {
                 toast('Variable name is required', 'error');
+                if (varNameEl) { varNameEl.style.border = '2px solid #ef4444'; setTimeout(() => { varNameEl.style.border = ''; }, 1500); }
+                return;
+            }
+            // Validate identifier format
+            if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(varName)) {
+                toast('Variable name must be a valid identifier (letters, numbers, underscores)', 'error');
                 return;
             }
             ioType = 'input';
             ioName = varName;
-            // Default value is the original recorded value
-            defaultValue = stepData.original_value || stepData.value || '';
-            if (defaultValue.match(/^\$\{\w+\}$/)) defaultValue = '';
+            // Read from the editable default value field
+            const defEl = document.getElementById('cdp-io-default-value');
+            defaultValue = defEl ? defEl.value.trim() : '';
         } else {
-            const exportName = (document.getElementById('cdp-io-export-name')?.value || '').trim();
+            // OUTPUT: export name + capture type (if non-capture step)
+            const exportEl = document.getElementById('cdp-io-export-name');
+            const exportName = (exportEl?.value || '').trim();
             if (!exportName) {
                 toast('Export name is required', 'error');
+                if (exportEl) { exportEl.style.border = '2px solid #ef4444'; setTimeout(() => { exportEl.style.border = ''; }, 1500); }
+                return;
+            }
+            if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(exportName)) {
+                toast('Export name must be a valid identifier (letters, numbers, underscores)', 'error');
                 return;
             }
             ioType = 'output';
             ioName = exportName;
+
+            // Capture type (only for non-capture steps that need a new capture step)
+            const capTypeEl = document.getElementById('cdp-io-capture-type');
+            if (capTypeEl) {
+                captureType = capTypeEl.value;
+                if (captureType === 'capture_attribute') {
+                    const attrSelectEl = document.getElementById('cdp-io-attr-select');
+                    if (attrSelectEl && attrSelectEl.value && attrSelectEl.value !== '__custom__' && attrSelectEl.value !== '') {
+                        attrName = attrSelectEl.value;
+                    } else {
+                        attrName = (document.getElementById('cdp-io-attr-name')?.value || '').trim();
+                    }
+                    if (!attrName) {
+                        toast('Attribute name is required for attribute capture', 'error');
+                        return;
+                    }
+                } else if (captureType === 'capture_computed_style') {
+                    const cssSelectEl = document.getElementById('cdp-io-css-select');
+                    if (cssSelectEl && cssSelectEl.value && cssSelectEl.value !== '__custom__' && cssSelectEl.value !== '') {
+                        cssProp = cssSelectEl.value;
+                    } else {
+                        cssProp = (document.getElementById('cdp-io-css-prop')?.value || '').trim();
+                    }
+                    if (!cssProp) {
+                        toast('CSS property is required for computed style capture', 'error');
+                        return;
+                    }
+                }
+            }
         }
 
-        // Detect context: validation view (has cdp-val-steps-data) vs recording view (API call)
+        // Detect context
         const valDataEl = document.getElementById('cdp-val-steps-data');
         const isValidation = !!valDataEl;
 
@@ -1357,24 +1637,22 @@
                 name: ioName,
                 default_value: defaultValue,
             };
+            if (captureType) payload.capture_type = captureType;
+            if (attrName) payload.attribute_name = attrName;
+            if (cssProp) payload.css_property = cssProp;
 
             if (isValidation) {
-                const suiteId = document.getElementById('cdp-val-suite-id')?.value || '';
-                payload.suite_id = suiteId;
+                payload.suite_id = document.getElementById('cdp-val-suite-id')?.value || '';
             } else {
                 payload.session_id = _cdpActiveSessionId || '';
             }
 
-            // api() returns parsed JSON directly and throws on HTTP errors
             const result = await apiPost('/cdp-test/io/configure', payload);
 
-            // Update local step data
             if (result.step) {
                 Object.assign(stepData, result.step);
                 _cdpStepDataMap.set(stepData.id, stepData);
             }
-
-            // If a capture step was created, add it to local data
             if (result.created_capture && result.step) {
                 _cdpStepDataMap.set(result.step.id, result.step);
             }
