@@ -34,7 +34,35 @@
     var SESSION_ID = '${SESSION_ID}';
     var DCP_CALLBACK = 'http://${DCP_HOST}:${DCP_PORT}/api/cdp-test/record/event';
     var _lastUrl = location.href;
-    var _inputTimers = {};       // debounce timers per element
+    var _inputTimers = {};       // debounce timers per element: { timerId, el, isPassword }
+
+    // Flush all pending debounced input events immediately
+    function _flushPendingInputs() {
+        var keys = Object.keys(_inputTimers);
+        for (var fi = 0; fi < keys.length; fi++) {
+            var entry = _inputTimers[keys[fi]];
+            if (!entry) continue;
+            clearTimeout(entry.timerId);
+            var el = entry.el;
+            var isPassword = entry.isPassword;
+            if (el) {
+                var sel = buildSelector(el);
+                if (!isPassword) _lastTypedValues[sel] = el.value;
+                sendEvent({
+                    action: 'type',
+                    selector: sel,
+                    xpath: buildXPath(el),
+                    selector_alternatives: buildAlternatives(el),
+                    value: isPassword ? '' : el.value,
+                    element_tag: el.tagName.toLowerCase(),
+                    element_text: '',
+                    element_rect: getRect(el),
+                    is_password: isPassword,
+                });
+            }
+            delete _inputTimers[keys[fi]];
+        }
+    }
     var _INPUT_DEBOUNCE = 600;   // ms to wait after typing stops
     var _lastClickTime = 0;
 
@@ -1291,6 +1319,8 @@
         var existing = document.getElementById('__dcp_io_overlay');
         if (existing) existing.remove();
 
+        // Flush any pending debounced input events so the type step exists
+        _flushPendingInputs();
         window.__dcp_recorder_paused = true;
         _dcpLog('info', 'I/O modal opened', { selector: selector, paused: true });
 
@@ -1830,25 +1860,47 @@
 
         // Use element identity for debounce key
         var key = buildSelector(el);
-        if (_inputTimers[key]) clearTimeout(_inputTimers[key]);
+        // Track value immediately (before debounce) — ensures _readElementValue
+        // always has the latest value even if the I/O modal opens before debounce fires
+        if (!isPassword) _lastTypedValues[key] = el.value;
+        if (_inputTimers[key]) clearTimeout(_inputTimers[key].timerId);
 
-        _inputTimers[key] = setTimeout(function () {
-            delete _inputTimers[key];
-            var sel = buildSelector(el);
-            // Track last typed value for default value fallback
-            if (!isPassword) _lastTypedValues[sel] = el.value;
-            sendEvent({
-                action: 'type',
-                selector: buildSelector(el),
-                xpath: buildXPath(el),
-                selector_alternatives: buildAlternatives(el),
-                value: isPassword ? '' : el.value,
-                element_tag: tag,
-                element_text: '',
-                element_rect: getRect(el),
-                is_password: isPassword,
-            });
-        }, _INPUT_DEBOUNCE);
+        _inputTimers[key] = {
+            el: el,
+            isPassword: isPassword,
+            timerId: setTimeout(function () {
+                delete _inputTimers[key];
+                var sel = buildSelector(el);
+                // Track last typed value for default value fallback
+                if (!isPassword) _lastTypedValues[sel] = el.value;
+                sendEvent({
+                    action: 'type',
+                    selector: buildSelector(el),
+                    xpath: buildXPath(el),
+                    selector_alternatives: buildAlternatives(el),
+                    value: isPassword ? '' : el.value,
+                    element_tag: tag,
+                    element_text: '',
+                    element_rect: getRect(el),
+                    is_password: isPassword,
+                });
+            }, _INPUT_DEBOUNCE),
+        };
+    }, true);
+
+
+    // ── Focus capture — snapshot element value on focus ────────
+    // Captures the current value of any input/textarea/select on focus,
+    // regardless of how focus was acquired (click, tab, JS, etc.).
+    // This ensures _lastTypedValues always has the freshest value.
+    document.addEventListener('focusin', function (e) {
+        if (window.__dcp_recorder_paused) return;
+        var el = e.target;
+        if (!el || !el.tagName) return;
+        var tag = el.tagName.toLowerCase();
+        if (tag !== 'input' && tag !== 'textarea' && tag !== 'select') return;
+        var sel = buildSelector(el);
+        _lastTypedValues[sel] = el.value || '';
     }, true);
 
 
