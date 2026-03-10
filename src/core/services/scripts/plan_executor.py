@@ -831,10 +831,13 @@ def execute_plan(
             )
             break
 
-        # ── Interactive mode: pause after every step ──
-        if plan.mode == "interactive" and step.type != "checkpoint":
-            # Find the next step for preview
-            step_idx = sorted_steps.index(step)
+        # ── Interactive mode: pause after every step (except the last) ──
+        step_idx = sorted_steps.index(step)
+        if (
+            plan.mode == "interactive"
+            and step.type != "checkpoint"
+            and step_idx + 1 < len(sorted_steps)
+        ):
             next_step_info = None
             if step_idx + 1 < len(sorted_steps):
                 ns = sorted_steps[step_idx + 1]
