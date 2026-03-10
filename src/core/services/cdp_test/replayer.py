@@ -2415,6 +2415,19 @@ def replay_suite(
             "error": step_result.get("error"),
         }
 
+        # ── I/O annotations ──────────────────────────────────────
+        # INPUT: steps whose raw value contains ${VAR} bindings
+        raw_val = step.value or ""
+        if "${" in raw_val:
+            import re as _re_mod
+            var_matches = _re_mod.findall(r"\$\{(\w+)\}", raw_val)
+            if var_matches:
+                resolved = _resolve_variables(raw_val, merged_vars)
+                result_record["io_type"] = "input"
+                result_record["variable_name"] = var_matches[0]
+                result_record["original_value"] = getattr(step, "original_value", "")
+                result_record["resolved_value"] = resolved
+
         # Store captured value from capture_* actions
         if step.action.startswith("capture_") and step_result["status"] == "passed":
             captured_val = details.get("captured")
@@ -2424,6 +2437,7 @@ def replay_suite(
                 # Named export for plan variable chaining
                 if step.export_as:
                     result_record["export_name"] = step.export_as
+                    result_record["io_type"] = "output"
 
         # Store assertion metadata for assert steps
         if step.action == "assert":
@@ -2660,6 +2674,12 @@ def replay_suite(
         "skipped": run_result.skipped_steps,
         "total": run_result.total_steps,
         "duration_ms": run_result.duration_ms,
+        "variables_used": run_result.variables_used,
+        "captures": {
+            sr["export_name"]: sr.get("captured_value", "")
+            for sr in run_result.step_results
+            if sr.get("export_name")
+        },
     })
 
     logger.info(
