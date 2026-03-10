@@ -326,6 +326,7 @@ def _execute_script_step(
         script_exit_code=result.get("exit_code", -1),
         script_lines=result.get("lines", []),
         variables_produced=produced,
+        variables_consumed=params,
     )
 
 
@@ -828,6 +829,7 @@ def execute_plan(
             "status": step_result.status,
             "duration_ms": step_result.duration_ms,
             "variables_produced": step_result.variables_produced,
+            "variables_consumed": step_result.variables_consumed,
             "error": step_result.error,
             # Drill-down data (script)
             "script_run_id": step_result.script_run_id,

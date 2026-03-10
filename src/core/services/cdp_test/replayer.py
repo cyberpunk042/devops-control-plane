@@ -2410,6 +2410,7 @@ def replay_suite(
             "sequence": step.sequence,
             "action": step.action,
             "selector": step.selector,
+            "value": step.value or "",
             "status": step_result["status"],
             "duration_ms": step_result["duration_ms"],
             "error": step_result.get("error"),

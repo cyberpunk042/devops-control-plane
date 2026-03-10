@@ -2020,6 +2020,26 @@
         html += `<span style="flex-shrink:0;color:var(--text-muted);font-size:0.58rem">${dur}</span>`;
         html += `</div>`;
 
+        // I/O badge — show value for data-input actions
+        const _ioActions = ['type', 'select', 'navigate', 'set_value'];
+        const val = rs.value || '';
+        if (val && _ioActions.indexOf(rs.action) !== -1) {
+            const valShort = val.length > 60 ? val.slice(0, 57) + '…' : val;
+            if (rs.io_type === 'input' && rs.variable_name) {
+                // Variable binding: show var name → resolved value
+                html += `<div style="margin-left:22px;margin-bottom:2px;font-size:0.58rem;display:flex;align-items:center;gap:3px;flex-wrap:wrap">`;
+                html += `<span style="padding:1px 4px;background:color-mix(in srgb,var(--info) 12%,transparent);border-radius:3px;color:var(--info);font-family:var(--font-mono)">📥 \${${esc(rs.variable_name)}}</span>`;
+                html += `<span style="color:var(--text-muted)">→</span>`;
+                html += `<span style="font-family:var(--font-mono);color:var(--text-secondary)">${esc(rs.resolved_value || valShort)}</span>`;
+                html += `</div>`;
+            } else {
+                // Plain value badge
+                html += `<div style="margin-left:22px;margin-bottom:2px;font-size:0.58rem">`;
+                html += `<span style="padding:1px 4px;background:color-mix(in srgb,var(--info) 8%,transparent);border-radius:3px;color:var(--info);font-family:var(--font-mono)">📥 ${esc(valShort)}</span>`;
+                html += `</div>`;
+            }
+        }
+
         // Error message
         if (rs.error) {
             html += `<div style="font-size:0.58rem;color:var(--error);margin-left:22px;word-break:break-all;margin-bottom:2px">${esc(String(rs.error).slice(0, 200))}</div>`;
@@ -2294,6 +2314,7 @@
                         duration_ms: d.duration_ms,
                         error: d.error,
                         variables_produced: d.variables_produced,
+                        variables_consumed: d.variables_consumed,
                         script_run_id: d.script_run_id,
                         script_exit_code: d.script_exit_code,
                         script_lines: d.script_lines,
