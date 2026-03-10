@@ -369,6 +369,20 @@ def _execute_cdp_test_step(
     else:
         plan_status = "failed"
 
+    # Forward full replay step results — keep all fields the replayer
+    # produces so the UI can show screenshots, OCR, assertions, etc.
+    replay_steps = []
+    for sr in run_result.step_results:
+        entry = dict(sr)  # shallow copy
+        # Convert absolute screenshot_path to just the filename
+        # (the UI serves them via /api/cdp-test/screenshots/<filename>)
+        sp = entry.get("screenshot_path")
+        if sp:
+            import os
+            entry["screenshot_file"] = os.path.basename(sp)
+        entry.pop("screenshot_path", None)
+        replay_steps.append(entry)
+
     return StepResult(
         step_id=step.id,
         step_name=step.name,
@@ -380,16 +394,7 @@ def _execute_cdp_test_step(
         replay_passed=run_result.passed_steps,
         replay_failed=run_result.failed_steps,
         replay_total=run_result.total_steps,
-        replay_step_results=[
-            {
-                "action": sr.get("action", ""),
-                "selector": sr.get("selector", ""),
-                "status": sr.get("status", ""),
-                "duration_ms": sr.get("duration_ms", 0),
-                "error": sr.get("error", ""),
-            }
-            for sr in run_result.step_results
-        ],
+        replay_step_results=replay_steps,
         variables_produced=produced,
     )
 

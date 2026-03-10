@@ -11,6 +11,8 @@
     let _plansActiveRunId = null;         // Active run ID being watched
     let _plansStepResults = [];           // Step results for current run
     let _plansStepData = {};              // step_id → full step data (for drill-down)
+    let _plansLiveCdpStepId = null;       // step_id of currently running CDP test step
+    let _plansLiveReplaySteps = [];       // accumulates replay step results during live run
     let _plansEditorSteps = [];           // Steps being edited (mutable)
     let _plansEditorVars = {};            // Variables being edited
     let _plansEditorPlanId = null;        // null = create, string = edit
@@ -1186,6 +1188,77 @@
         </div>`;
     }
 
+    // ── Shared replay step renderer (used by live + drill-down) ──────
+
+    function _plansReplayStepHtml(rs) {
+        const sIcon = rs.status === 'passed' ? '<span style="color:#22c55e">✓</span>'
+            : rs.status === 'failed' ? '<span style="color:#ef4444">✗</span>'
+            : rs.status === 'skipped' ? '<span style="color:var(--text-muted)">⊘</span>'
+            : '<span style="color:var(--text-muted)">·</span>';
+        const dur = rs.duration_ms ? `${rs.duration_ms}ms` : '';
+        const sel = rs.selector || '';
+        const selShort = sel.length > 50 ? sel.slice(0, 47) + '…' : sel;
+
+        let html = `<div style="display:flex;align-items:center;gap:6px;font-size:0.66rem;padding:2px 0">`;
+        html += `<span style="width:14px;text-align:center;flex-shrink:0">${sIcon}</span>`;
+        html += `<span style="color:var(--text-secondary);font-weight:500;min-width:60px">${esc(rs.action || '?')}</span>`;
+        html += `<span style="flex:1;color:var(--text-muted);font-family:var(--font-mono);font-size:0.60rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(selShort)}</span>`;
+        html += `<span style="flex-shrink:0;color:var(--text-muted);font-size:0.58rem">${dur}</span>`;
+        html += `</div>`;
+
+        // Error message
+        if (rs.error) {
+            html += `<div style="font-size:0.58rem;color:var(--error);margin-left:22px;word-break:break-all;margin-bottom:2px">${esc(String(rs.error).slice(0, 200))}</div>`;
+        }
+
+        // Assertion detail (expected vs actual)
+        if (rs.action === 'assert' && (rs.assertion_expected || rs.assertion_actual)) {
+            const check = rs.assertion_check || 'contains';
+            html += `<div style="margin-left:22px;margin-bottom:4px;font-size:0.60rem;padding:4px 6px;background:var(--bg-tertiary);border-radius:4px;border-left:2px solid ${rs.status === 'passed' ? '#22c55e' : '#ef4444'}">`;
+            html += `<div><span style="color:var(--text-muted)">check:</span> <strong>${esc(check)}</strong></div>`;
+            if (rs.assertion_expected) {
+                html += `<div><span style="color:var(--text-muted)">expected:</span> <span style="color:#8b5cf6">${esc(String(rs.assertion_expected))}</span></div>`;
+            }
+            if (rs.assertion_actual != null) {
+                const actualStr = String(rs.assertion_actual);
+                const actualShort = actualStr.length > 300 ? actualStr.slice(0, 297) + '…' : actualStr;
+                html += `<div><span style="color:var(--text-muted)">actual:</span> <span style="font-family:var(--font-mono);font-size:0.58rem">${esc(actualShort)}</span></div>`;
+            }
+            html += `</div>`;
+        }
+
+        // Captured value (OCR text for capture/assert steps)
+        if (rs.captured_value && rs.action !== 'assert') {
+            const cv = String(rs.captured_value);
+            const cvShort = cv.length > 200 ? cv.slice(0, 197) + '…' : cv;
+            html += `<div style="margin-left:22px;margin-bottom:4px;font-size:0.58rem;padding:3px 6px;background:var(--bg-tertiary);border-radius:4px;color:var(--text-secondary)">`;
+            html += `<span style="color:var(--text-muted)">captured:</span> ${esc(cvShort)}`;
+            html += `</div>`;
+        }
+
+        // Screenshot thumbnail
+        const ssFile = rs.screenshot_file || (rs.screenshot_path ? rs.screenshot_path.split('/').pop() : '');
+        if (ssFile) {
+            html += `<div style="margin-left:22px;margin-bottom:4px">`;
+            html += `<a href="/api/cdp-test/screenshots/${esc(ssFile)}" target="_blank" title="Click to view full screenshot">`;
+            html += `<img src="/api/cdp-test/screenshots/${esc(ssFile)}" style="max-width:200px;max-height:120px;border-radius:4px;border:1px solid var(--border-subtle);cursor:pointer" loading="lazy">`;
+            html += `</a>`;
+            html += `</div>`;
+        }
+
+        // Console log
+        if (rs.console_log && rs.console_log.length > 0) {
+            html += `<div style="margin-left:22px;margin-bottom:4px;font-size:0.58rem;padding:3px 6px;background:#1a1a2e;color:#e0e0e0;border-radius:4px;font-family:var(--font-mono);max-height:80px;overflow-y:auto">`;
+            for (const entry of rs.console_log.slice(0, 20)) {
+                const msg = entry.msg || entry.text || JSON.stringify(entry);
+                html += `<div>${esc(msg)}</div>`;
+            }
+            html += `</div>`;
+        }
+
+        return html;
+    }
+
     // ── CDP test step detail ─────────────────────────────────────────
 
     function _plansCdpTestDetail(step) {
@@ -1217,25 +1290,11 @@
         body += `<div><span style="font-weight:600">${total}</span> <span style="color:var(--text-muted)">total</span></div>`;
         body += `</div>`;
 
-        // Per-replay-step list
+        // Per-replay-step list with full detail
         if (replaySteps.length > 0) {
-            body += `<div style="border-top:1px solid var(--border-subtle);padding-top:6px;max-height:200px;overflow-y:auto">`;
+            body += `<div style="border-top:1px solid var(--border-subtle);padding-top:6px;max-height:400px;overflow-y:auto">`;
             for (const rs of replaySteps) {
-                const sIcon = rs.status === 'passed' ? '<span style="color:#22c55e">✓</span>'
-                    : rs.status === 'failed' ? '<span style="color:#ef4444">✗</span>'
-                    : rs.status === 'skipped' ? '<span style="color:var(--text-muted)">⊘</span>'
-                    : '<span style="color:var(--text-muted)">·</span>';
-                const dur = rs.duration_ms ? `${rs.duration_ms}ms` : '';
-                const sel = rs.selector ? esc(rs.selector.length > 40 ? rs.selector.slice(0, 37) + '…' : rs.selector) : '';
-                const errLine = rs.error ? `<div style="font-size:0.58rem;color:var(--error);margin-left:22px;word-break:break-all">${esc(rs.error.slice(0, 120))}</div>` : '';
-
-                body += `<div style="display:flex;align-items:center;gap:6px;font-size:0.66rem;padding:2px 0">`;
-                body += `<span style="width:14px;text-align:center;flex-shrink:0">${sIcon}</span>`;
-                body += `<span style="color:var(--text-secondary);font-weight:500;min-width:60px">${esc(rs.action || '?')}</span>`;
-                body += `<span style="flex:1;color:var(--text-muted);font-family:var(--font-mono);font-size:0.60rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${sel}</span>`;
-                body += `<span style="flex-shrink:0;color:var(--text-muted);font-size:0.58rem">${dur}</span>`;
-                body += `</div>`;
-                body += errLine;
+                body += _plansReplayStepHtml(rs);
             }
             body += `</div>`;
         }
@@ -1291,6 +1350,28 @@
                         status: 'running',
                         sequence: d.sequence,
                     }));
+
+                    // Auto-expand live detail for CDP test steps
+                    if (d.step_type === 'cdp_test') {
+                        _plansLiveCdpStepId = d.step_id;
+                        _plansLiveReplaySteps = [];
+                        const rowEl = document.getElementById(`plans-step-${d.step_id}`);
+                        if (rowEl) {
+                            rowEl.insertAdjacentHTML('afterend',
+                                `<div id="plans-live-detail-${d.step_id}" style="margin:2px 0 6px 44px;animation:__plans_fadeIn 0.15s ease">
+                                    <div style="background:var(--bg-secondary);border:1px solid var(--border-subtle);border-radius:6px;padding:8px 10px">
+                                        <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:4px">
+                                            <span style="font-size:0.68rem;font-weight:600;color:var(--text-secondary)">CDP Test Replay</span>
+                                            <span id="plans-live-counter-${d.step_id}" style="font-size:0.60rem;color:var(--text-muted)">Starting…</span>
+                                        </div>
+                                        <div id="plans-live-steps-${d.step_id}" style="max-height:200px;overflow-y:auto"></div>
+                                    </div>
+                                </div>`);
+                        }
+                    } else {
+                        _plansLiveCdpStepId = null;
+                    }
+
                     container.scrollTop = container.scrollHeight;
                 }
             } catch (_) {}
@@ -1305,6 +1386,11 @@
 
                 // Store full data for drill-down
                 _plansStepData[d.step_id] = d;
+
+                // Remove live detail panel (replaced by clickable drill-down)
+                const livePanel = document.getElementById(`plans-live-detail-${d.step_id}`);
+                if (livePanel) livePanel.remove();
+                if (_plansLiveCdpStepId === d.step_id) _plansLiveCdpStepId = null;
 
                 // Replace the step row with final result
                 const rowEl = document.getElementById(`plans-step-${d.step_id}`);
@@ -1351,6 +1437,37 @@
                 _plansStepResults.push(d);
             } catch (_) {}
         });
+
+        // ── cdp_test:step_passed / step_failed — live replay progress ──
+        function _plansHandleLiveReplayStep(e) {
+            if (!_plansLiveCdpStepId) return;
+            try {
+                const ev = JSON.parse(e.data);
+                const rs = ev.data;
+                _plansLiveReplaySteps.push(rs);
+
+                const container = document.getElementById(`plans-live-steps-${_plansLiveCdpStepId}`);
+                if (!container) return;
+
+                // Use shared renderer for full detail (screenshot, assertion, OCR, etc.)
+                container.insertAdjacentHTML('beforeend',
+                    `<div style="animation:__plans_fadeIn 0.15s ease">${_plansReplayStepHtml(rs)}</div>`);
+                container.scrollTop = container.scrollHeight;
+
+                // Update counter
+                const counter = document.getElementById(`plans-live-counter-${_plansLiveCdpStepId}`);
+                if (counter) {
+                    const failed = _plansLiveReplaySteps.filter(s => s.status !== 'passed').length;
+                    let text = `${_plansLiveReplaySteps.length} steps`;
+                    if (failed > 0) text += ` (${failed} failed)`;
+                    counter.textContent = text;
+                    counter.style.color = failed > 0 ? '#ef4444' : 'var(--text-muted)';
+                }
+            } catch (_) {}
+        }
+
+        _plansSSESource.addEventListener('cdp_test:step_passed', _plansHandleLiveReplayStep);
+        _plansSSESource.addEventListener('cdp_test:step_failed', _plansHandleLiveReplayStep);
 
         // ── plan:paused ──────────────────────────────────────────
         _plansSSESource.addEventListener('plan:paused', (e) => {
