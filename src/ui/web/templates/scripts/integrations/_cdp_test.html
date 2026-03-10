@@ -1727,7 +1727,7 @@
                     };
                     const valDataEl = document.getElementById('cdp-val-steps-data');
                     if (valDataEl) {
-                        payload.suite_id = document.getElementById('cdp-val-suite-id')?.value || '';
+                                        payload.suite_id = document.getElementById('cdp-val-suite-id')?.textContent || '';
                     } else {
                         payload.session_id = _cdpActiveSessionId || '';
                     }
@@ -1846,7 +1846,7 @@
             if (cssProp) payload.css_property = cssProp;
 
             if (isValidation) {
-                payload.suite_id = document.getElementById('cdp-val-suite-id')?.value || '';
+                                payload.suite_id = document.getElementById('cdp-val-suite-id')?.textContent || '';
             } else {
                 payload.session_id = _cdpActiveSessionId || '';
             }
@@ -1856,9 +1856,26 @@
             if (result.step) {
                 Object.assign(stepData, result.step);
                 _cdpStepDataMap.set(stepData.id, stepData);
-                // Re-render the step row so badges appear immediately
+            }
+
+            if (isValidation) {
+                // Update the hidden data store with the full steps list
+                if (result.steps) {
+                    const valDataEl2 = document.getElementById('cdp-val-steps-data');
+                    if (valDataEl2) valDataEl2.textContent = JSON.stringify(result.steps);
+                }
+                // Re-render all step rows in validation view
+                const valContainer = document.getElementById('cdp-val-steps');
+                if (valContainer && result.steps) {
+                    valContainer.innerHTML = '';
+                    for (let i = 0; i < result.steps.length; i++) {
+                        valContainer.insertAdjacentHTML('beforeend', _cdpTestValStepRow(result.steps[i], i));
+                    }
+                }
+            } else {
+                // Re-render the step row in recording view
                 const container = document.getElementById('cdp-rec-steps');
-                if (container) {
+                if (container && result.step) {
                     const existingRow = container.querySelector('[data-step-id="' + stepData.id + '"]');
                     if (existingRow) {
                         const tmpDiv = document.createElement('div');

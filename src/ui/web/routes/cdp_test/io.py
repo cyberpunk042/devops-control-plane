@@ -262,7 +262,7 @@ def _configure_suite_io(
     and saves the suite back.
     """
     from src.core.services.cdp_test.io_sync import sync_suite_io
-    from src.core.services.cdp_test.storage import get_suite, save_suite
+    from src.core.services.cdp_test.storage import get_suite
     from src.ui.web.helpers import project_root as _project_root
 
     root = _project_root()
@@ -289,11 +289,11 @@ def _configure_suite_io(
             target_step.original_value = ""
         target_step.export_as = ""
         io_summary = sync_suite_io(suite)
-        save_suite(root, suite)
         return jsonify({
             "ok": True,
             "step": target_step.to_dict(),
             "suite_io": io_summary,
+            "steps": [s.to_dict() for s in suite.steps],
             "removed": True,
         })
 
@@ -313,12 +313,12 @@ def _configure_suite_io(
         io_summary = sync_suite_io(suite)
         # Override the default with user's chosen value
         suite.variables[name] = default_value
-        save_suite(root, suite)
 
         return jsonify({
             "ok": True,
             "step": target_step.to_dict(),
             "suite_io": io_summary,
+            "steps": [s.to_dict() for s in suite.steps],
         })
 
     # ── OUTPUT ────────────────────────────────────────────────
@@ -326,11 +326,11 @@ def _configure_suite_io(
         if target_step.action.startswith("capture_"):
             target_step.export_as = name
             io_summary = sync_suite_io(suite)
-            save_suite(root, suite)
             return jsonify({
                 "ok": True,
                 "step": target_step.to_dict(),
                 "suite_io": io_summary,
+                "steps": [s.to_dict() for s in suite.steps],
             })
 
         # Non-capture step — create a capture step after it
@@ -366,12 +366,12 @@ def _configure_suite_io(
             s.sequence = j
 
         io_summary = sync_suite_io(suite)
-        save_suite(root, suite)
 
         return jsonify({
             "ok": True,
             "step": new_step.to_dict(),
             "suite_io": io_summary,
+            "steps": [s.to_dict() for s in suite.steps],
             "created_capture": True,
         })
 
