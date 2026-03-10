@@ -88,6 +88,23 @@ class RecordingSession:
 
             return step
 
+    def modify_step(self, step_id: str, updates: dict) -> dict | None:
+        """Modify an existing step's fields in-place.
+
+        Finds the step by ID and applies the key/value pairs from
+        updates to it.  Used by I/O configuration to change a step's
+        value (input binding) or set export_as (output export) without
+        inserting a new step.
+
+        Returns the modified step dict, or None if step_id not found.
+        """
+        with self._lock:
+            for step in self.steps:
+                if step.get("id") == step_id:
+                    step.update(updates)
+                    return step
+            return None
+
     def clear_steps(self) -> None:
         """Clear all recorded steps (restart)."""
         with self._lock:

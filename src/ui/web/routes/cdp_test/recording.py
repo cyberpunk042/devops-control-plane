@@ -10,6 +10,8 @@ Endpoints:
     POST /cdp-test/record/resume    — resume recording
     POST /cdp-test/record/restart   — clear steps, re-inject
     POST /cdp-test/record/event     — receive event from recorder JS
+    POST /cdp-test/record/add-step   — insert assertion/capture/diag step
+    POST /cdp-test/record/modify-step — modify existing step (I/O config)
     GET  /cdp-test/record/status    — current session status + steps
     GET  /cdp-test/targets          — list browser tabs available for recording
 """
@@ -505,6 +507,59 @@ def cdp_test_record_event():
         _add_pna_cors(resp)
         return resp
 
+    # ── I/O binding from target site ───────────────────────────
+    # io_bind modifies the most recent step matching the selector
+    # (changes its value to ${VAR_NAME} for input binding, or sets
+    # export_as for output export). This is NOT a new step.
+    if data.get("action") in ("io_bind", "io_export"):
+        target_selector = data.get("selector", "")
+        io_config = data.get("io_config", {})
+
+        # Find most recent step with this selector (walk backwards)
+        steps = session.get_steps()
+        target_step = None
+        for s in reversed(steps):
+            if s.get("selector") == target_selector:
+                target_step = s
+                break
+
+        if target_step is None:
+            resp = jsonify({
+                "ok": False,
+                "error": "No step found for selector",
+            })
+            _add_pna_cors(resp)
+            return resp, 404
+
+        # Build updates from io_config
+        updates = {}
+        if io_config.get("variable_name"):
+            original_val = target_step.get("value", "")
+            if original_val and not original_val.startswith("${"):
+                updates["_original_value"] = original_val
+            updates["value"] = "${" + io_config["variable_name"] + "}"
+        if io_config.get("export_as"):
+            updates["export_as"] = io_config["export_as"]
+
+        if updates:
+            step = session.modify_step(target_step["id"], updates)
+            bus.publish(
+                "cdp_test:step_modified",
+                key=session.id,
+                data={
+                    "session_id": session.id,
+                    "step": step,
+                },
+            )
+            logger.info(
+                "I/O configured from target site: %s → %s",
+                target_selector[:50], list(updates.keys()),
+            )
+
+        resp = jsonify({"ok": True, "io_applied": True})
+        _add_pna_cors(resp)
+        return resp
+
     # Add step to session
     step_data = {
         "action": data.get("action", ""),
@@ -753,6 +808,77 @@ def cdp_test_record_add_step():
         "ok": True,
         "step_id": step["id"],
         "sequence": step["sequence"],
+    })
+
+# ── Modify step (admin panel — I/O configuration) ─────────────
+
+
+@cdp_test_bp.route("/cdp-test/record/modify-step", methods=["POST"])
+def cdp_test_record_modify_step():
+    """Modify an existing step in the active recording.
+
+    Used by the admin panel I/O overlay to update a step's value
+    (input binding → ${VAR_NAME}) or set export_as (output export)
+    without inserting a new step.
+
+    Body (JSON):
+        {
+            "step_id": "uuid",
+            "updates": {
+                "value": "${LOGIN_EMAIL}",
+                "_original_value": "admin@test.com",
+                "export_as": "AUTH_TOKEN"
+            }
+        }
+    """
+    from src.core.services.cdp_test.session import get_active_session
+    from src.core.services.event_bus import bus
+
+    session = get_active_session()
+    if session is None:
+        return jsonify({"ok": False, "error": "No active recording session"}), 404
+
+    data = request.get_json(silent=True) or {}
+    step_id = data.get("step_id", "")
+    updates = data.get("updates", {})
+
+    if not step_id:
+        return jsonify({"ok": False, "error": "step_id is required"}), 400
+
+    if not updates:
+        return jsonify({"ok": False, "error": "updates is required"}), 400
+
+    # Only allow known fields to be modified (whitelist)
+    allowed_fields = {
+        "value", "_original_value", "export_as", "variable_name",
+        "description",
+    }
+    sanitized = {k: v for k, v in updates.items() if k in allowed_fields}
+    if not sanitized:
+        return jsonify({
+            "ok": False,
+            "error": "No allowed fields in updates",
+        }), 400
+
+    step = session.modify_step(step_id, sanitized)
+    if step is None:
+        return jsonify({"ok": False, "error": "Step not found"}), 404
+
+    # Broadcast update to admin panel
+    bus.publish(
+        "cdp_test:step_modified",
+        key=session.id,
+        data={
+            "session_id": session.id,
+            "step": step,
+        },
+    )
+
+    logger.info("Step modified %s: %s", step_id, list(sanitized.keys()))
+    return jsonify({
+        "ok": True,
+        "step_id": step["id"],
+        "updated_fields": list(sanitized.keys()),
     })
 
 

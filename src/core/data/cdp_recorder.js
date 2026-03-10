@@ -304,6 +304,8 @@
 
     var _lastBadge = null;
     var _badgeTimer = null;
+    var _lastIOBadge = null;
+    var _ioBadgeTimer = null;
 
     /**
      * Walk up from a leaf element to find the nearest "meaningful" element.
@@ -464,6 +466,68 @@
                 badge.style.transition = 'opacity 0.3s';
                 setTimeout(function () { badge.remove(); }, 300);
                 _lastBadge = null;
+            }
+        }, 4000);
+
+        // ── I/O badge (purple, appears below assert badge) ──
+        if (_lastIOBadge) { _lastIOBadge.remove(); _lastIOBadge = null; }
+        if (_ioBadgeTimer) { clearTimeout(_ioBadgeTimer); _ioBadgeTimer = null; }
+
+        var ioBadge = document.createElement('div');
+        ioBadge.className = '__dcp_io_badge';
+        ioBadge.style.cssText = [
+            'position:fixed',
+            'z-index:2147483646',
+            'background:rgba(139,92,246,0.95)',
+            'color:white',
+            'font-family:system-ui,-apple-system,sans-serif',
+            'font-size:11px',
+            'font-weight:600',
+            'padding:3px 10px',
+            'border-radius:10px',
+            'cursor:pointer',
+            'box-shadow:0 2px 12px rgba(0,0,0,0.35)',
+            'display:flex',
+            'align-items:center',
+            'gap:4px',
+            'animation:__dcp_badge_in 0.2s ease',
+            'transition:background 0.15s',
+        ].join(';');
+
+        // Position below the assert badge
+        ioBadge.style.top = (top + 26) + 'px';
+        ioBadge.style.left = left + 'px';
+
+        ioBadge.innerHTML = '<span style="font-size:13px">\ud83d\udd17</span><span>I/O</span>';
+        ioBadge.title = 'Configure variable binding / output export for this element';
+
+        ioBadge.addEventListener('mouseenter', function () {
+            ioBadge.style.background = 'rgba(109,62,216,1)';
+        });
+        ioBadge.addEventListener('mouseleave', function () {
+            ioBadge.style.background = 'rgba(139,92,246,0.95)';
+        });
+
+        ioBadge.addEventListener('click', function (e) {
+            e.stopPropagation();
+            e.preventDefault();
+            ioBadge.remove();
+            _lastIOBadge = null;
+            // Also remove assert badge
+            if (_lastBadge) { _lastBadge.remove(); _lastBadge = null; }
+            _openIOModal(selector, elemText, elemRect, selectorChain);
+        });
+
+        document.body.appendChild(ioBadge);
+        _lastIOBadge = ioBadge;
+
+        // Auto-dismiss I/O badge after 4s
+        _ioBadgeTimer = setTimeout(function () {
+            if (_lastIOBadge === ioBadge) {
+                ioBadge.style.opacity = '0';
+                ioBadge.style.transition = 'opacity 0.3s';
+                setTimeout(function () { ioBadge.remove(); }, 300);
+                _lastIOBadge = null;
             }
         }, 4000);
     }
@@ -1237,6 +1301,271 @@
 
         // Close modal (also sets paused=false, but we already did)
         _closeAssertModal();
+    }
+
+
+    // ═══════════════════════════════════════════════════════════
+    //  I/O Config Modal (injected into target page)
+    // ═══════════════════════════════════════════════════════════
+
+    function _openIOModal(selector, elemText, elemRect, selectorChain) {
+        selectorChain = selectorChain || [];
+        // Remove existing
+        var existing = document.getElementById('__dcp_io_overlay');
+        if (existing) existing.remove();
+
+        // Pause recording while configuring
+        window.__dcp_recorder_paused = true;
+        _dcpLog('info', 'I/O modal opened', { selector: selector, paused: true });
+
+        var overlay = document.createElement('div');
+        overlay.id = '__dcp_io_overlay';
+        overlay.style.cssText = [
+            'position:fixed', 'inset:0', 'z-index:2147483645',
+            'display:flex', 'align-items:center', 'justify-content:center',
+            'background:rgba(0,0,0,0.55)', 'backdrop-filter:blur(6px)',
+            'font-family:system-ui,-apple-system,sans-serif',
+        ].join(';');
+
+        // Color palette (self-contained, no CSS vars — injected into foreign pages)
+        var C = {
+            bg: '#1a1a2e', bgCard: '#16213e', bgInput: '#0f3460',
+            border: '#2a2a4a', borderLight: '#3a3a5a',
+            text: '#e0e0e8', textMuted: '#8888aa', textSecondary: '#b0b0cc',
+            accent: '#8b5cf6', accentHover: '#7c3aed',
+            green: '#22c55e',
+            error: '#ef4444', warn: '#f59e0b',
+        };
+
+        var s = function (obj) {
+            return Object.keys(obj).map(function (k) { return k + ':' + obj[k]; }).join(';');
+        };
+
+        var sLabel = s({ 'font-size': '11px', 'font-weight': '700', color: C.textMuted, 'text-transform': 'uppercase', 'letter-spacing': '0.5px', 'margin-bottom': '6px' });
+        var sRadioLabel = s({ display: 'flex', 'align-items': 'center', gap: '5px', 'font-size': '12px', cursor: 'pointer', padding: '5px 8px', background: C.bgInput, 'border-radius': '5px', border: '1px solid ' + C.border, color: C.text });
+        var sInput = s({ 'font-size': '12px', padding: '5px 8px', background: C.bgInput, border: '1px solid ' + C.border, 'border-radius': '5px', color: C.text, width: '100%', 'box-sizing': 'border-box', outline: 'none', 'font-family': 'monospace' });
+        var sBtn = function (bg) {
+            return s({ 'font-size': '12px', 'font-weight': '600', padding: '6px 16px', border: 'none', 'border-radius': '6px', cursor: 'pointer', background: bg, color: '#fff' });
+        };
+
+        // Detect current element value (for default suggestion)
+        var currentElValue = '';
+        try {
+            var targetEl = document.querySelector(selector);
+            if (targetEl) {
+                currentElValue = targetEl.value || targetEl.textContent || '';
+                currentElValue = currentElValue.trim().slice(0, 80);
+            }
+        } catch (_) { }
+
+        // §0: Target Element picker — DIFFERENT from assertion:
+        // Gone elements are NOT greyed out, they show as bindable
+        var chainHtml = '';
+        if (selectorChain.length > 1) {
+            var firstAvail = -1;
+            selectorChain.forEach(function (item, i) {
+                try {
+                    item.available = !!document.querySelector(item.selector);
+                } catch (_) {
+                    item.available = false;
+                }
+                if (item.available && firstAvail === -1) firstAvail = i;
+            });
+            // For I/O, if no element is available, default to first (it's still bindable)
+            if (firstAvail === -1) firstAvail = 0;
+
+            chainHtml += '<div>' +
+                '<div style="' + sLabel + '">Target Element</div>' +
+                '<div style="display:flex;flex-direction:column;gap:3px">';
+
+            selectorChain.forEach(function (item, i) {
+                var indent = i === 0 ? '' : '\u21b3 '.repeat(i);
+                var selPreview = item.selector.length > 40 ? item.selector.slice(0, 37) + '\u2026' : item.selector;
+                var isDefault = (i === firstAvail);
+
+                // Key difference: gone elements are NOT greyed out for I/O
+                if (item.available) {
+                    chainHtml += '<label style="' + sRadioLabel + ';padding:4px 8px">' +
+                        '<input type="radio" name="__dcp_io_target" value="' + i + '"' + (isDefault ? ' checked' : '') + '>' +
+                        '<span style="font-size:11px">' + indent +
+                        '<code style="color:' + C.accent + ';font-size:10px">&lt;' + item.tag + '&gt;</code> ' +
+                        '<span style="font-family:monospace;font-size:9px;color:' + C.textSecondary + '">' + selPreview + '</span>' +
+                        '<span style="font-size:8px;color:' + C.green + ';margin-left:4px">\u2713 in DOM</span>' +
+                        '</span>' +
+                        '</label>';
+                } else {
+                    // NOT greyed out — still selectable (bindable)
+                    chainHtml += '<label style="' + sRadioLabel + ';padding:4px 8px;border-color:' + C.accent + '40">' +
+                        '<input type="radio" name="__dcp_io_target" value="' + i + '"' + (isDefault ? ' checked' : '') + '>' +
+                        '<span style="font-size:11px">' + indent +
+                        '<code style="color:' + C.accent + ';font-size:10px">&lt;' + item.tag + '&gt;</code> ' +
+                        '<span style="font-family:monospace;font-size:9px;color:' + C.textSecondary + '">' + selPreview + '</span>' +
+                        '<span style="font-size:8px;color:' + C.accent + ';margin-left:4px">\ud83d\udd17 bindable</span>' +
+                        '</span>' +
+                        '</label>';
+                }
+            });
+
+            chainHtml += '</div></div>';
+        }
+
+        // §1: Mode selection (Input vs Output)
+        var modeHtml = '<div>' +
+            '<div style="' + sLabel + '">Mode</div>' +
+            '<div style="display:flex;gap:6px">' +
+            '<label style="' + sRadioLabel + ';flex:1">' +
+            '<input type="radio" name="__dcp_io_mode" value="input" checked>' +
+            '<span>\ud83d\udce5 Input \u2014 bind to variable</span>' +
+            '</label>' +
+            '<label style="' + sRadioLabel + ';flex:1">' +
+            '<input type="radio" name="__dcp_io_mode" value="output">' +
+            '<span>\ud83d\udce4 Output \u2014 export value</span>' +
+            '</label>' +
+            '</div>' +
+            '</div>';
+
+        // §2: Input section
+        var inputHtml = '<div id="__dcp_io_input_section">' +
+            '<div style="' + sLabel + '">Variable Name</div>' +
+            '<input id="__dcp_io_var_name" type="text" placeholder="LOGIN_EMAIL" style="' + sInput + ';margin-bottom:6px">' +
+            (currentElValue ? '<div style="font-size:10px;color:' + C.textMuted + '">Current value: <code style="font-size:9px;padding:1px 4px;background:' + C.bgCard + ';border-radius:3px">' + currentElValue.slice(0, 50) + '</code>' +
+                '<br><span style="color:' + C.accent + '">\u2192 will become default for this variable</span></div>' : '') +
+            '</div>';
+
+        // §3: Output section (hidden by default)
+        var outputHtml = '<div id="__dcp_io_output_section" style="display:none">' +
+            '<div style="' + sLabel + '">Export Name</div>' +
+            '<input id="__dcp_io_export_name" type="text" placeholder="AUTH_TOKEN" style="' + sInput + ';margin-bottom:6px">' +
+            '<div style="font-size:10px;color:' + C.textMuted + '">Captured value will be exported to the plan namespace</div>' +
+            '</div>';
+
+        overlay.innerHTML =
+            '<div style="' + s({
+                background: C.bg, border: '1px solid ' + C.accent + '44', 'border-radius': '12px',
+                width: '440px', 'max-width': '92vw', 'max-height': '85vh', 'overflow-y': 'auto',
+                'box-shadow': '0 20px 60px rgba(0,0,0,0.6)', color: C.text,
+            }) + '">' +
+
+            // Header
+            '<div style="' + s({ padding: '14px 18px 10px', 'border-bottom': '1px solid ' + C.border, display: 'flex', 'align-items': 'center', gap: '8px' }) + '">' +
+            '<span style="font-size:16px">\ud83d\udd17</span>' +
+            '<div>' +
+            '<div style="font-weight:700;font-size:14px">I/O Configuration</div>' +
+            '<div id="__dcp_io_header_selector" style="font-size:10px;color:' + C.textMuted + ';font-family:monospace;margin-top:2px"></div>' +
+            '</div>' +
+            '</div>' +
+
+            '<div style="padding:12px 18px;display:flex;flex-direction:column;gap:12px">' +
+            chainHtml +
+            modeHtml +
+            inputHtml +
+            outputHtml +
+
+            // Buttons
+            '<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:4px">' +
+            '<button id="__dcp_io_cancel" style="' + sBtn(C.border) + '">Cancel</button>' +
+            '<button id="__dcp_io_save" style="' + sBtn(C.accent) + '">\ud83d\udcbe Save I/O</button>' +
+            '</div>' +
+
+            '</div>' +
+            '</div>';
+
+        document.body.appendChild(overlay);
+
+        // Set selector text safely (avoids XSS)
+        var headerSel = document.getElementById('__dcp_io_header_selector');
+        if (headerSel) headerSel.textContent = selector.slice(0, 70);
+
+        // Mode toggle — show/hide input vs output sections
+        overlay.querySelectorAll('input[name="__dcp_io_mode"]').forEach(function (radio) {
+            radio.addEventListener('change', function () {
+                var inSec = document.getElementById('__dcp_io_input_section');
+                var outSec = document.getElementById('__dcp_io_output_section');
+                if (radio.value === 'input') {
+                    if (inSec) inSec.style.display = '';
+                    if (outSec) outSec.style.display = 'none';
+                } else {
+                    if (inSec) inSec.style.display = 'none';
+                    if (outSec) outSec.style.display = '';
+                }
+            });
+        });
+
+        // Target element selection — update selector variable
+        overlay.querySelectorAll('input[name="__dcp_io_target"]').forEach(function (radio) {
+            radio.addEventListener('change', function () {
+                var idx = parseInt(radio.value, 10);
+                if (selectorChain[idx]) {
+                    selector = selectorChain[idx].selector;
+                    if (headerSel) headerSel.textContent = selector.slice(0, 70);
+                }
+            });
+        });
+
+        // Cancel
+        document.getElementById('__dcp_io_cancel').addEventListener('click', function () {
+            _closeIOModal();
+        });
+
+        // Save
+        document.getElementById('__dcp_io_save').addEventListener('click', function () {
+            _saveIO(selector);
+        });
+
+        // Click outside to close
+        overlay.addEventListener('click', function (e) {
+            if (e.target === overlay) _closeIOModal();
+        });
+    }
+
+    function _closeIOModal() {
+        var overlay = document.getElementById('__dcp_io_overlay');
+        if (overlay) overlay.remove();
+        window.__dcp_recorder_paused = false;
+        _dcpLog('info', 'I/O modal closed, recording resumed');
+    }
+
+    function _saveIO(selector) {
+        var mode = 'input';
+        var modeRadios = document.querySelectorAll('input[name="__dcp_io_mode"]');
+        for (var i = 0; i < modeRadios.length; i++) {
+            if (modeRadios[i].checked) { mode = modeRadios[i].value; break; }
+        }
+
+        var ioConfig = {};
+        if (mode === 'input') {
+            var varName = (document.getElementById('__dcp_io_var_name') || {}).value || '';
+            varName = varName.trim();
+            if (!varName) {
+                // Flash the input field
+                var inp = document.getElementById('__dcp_io_var_name');
+                if (inp) { inp.style.border = '2px solid #ef4444'; setTimeout(function () { inp.style.border = ''; }, 1500); }
+                return;
+            }
+            ioConfig.variable_name = varName;
+        } else {
+            var exportName = (document.getElementById('__dcp_io_export_name') || {}).value || '';
+            exportName = exportName.trim();
+            if (!exportName) {
+                var inp2 = document.getElementById('__dcp_io_export_name');
+                if (inp2) { inp2.style.border = '2px solid #ef4444'; setTimeout(function () { inp2.style.border = ''; }, 1500); }
+                return;
+            }
+            ioConfig.export_as = exportName;
+        }
+
+        // Resume recording BEFORE sending
+        window.__dcp_recorder_paused = false;
+        _dcpLog('info', 'saveIO called', { selector: selector, mode: mode, config: ioConfig });
+
+        // Send I/O config via the event endpoint (CORS-enabled)
+        sendEvent({
+            action: 'io_bind',
+            selector: selector,
+            io_config: ioConfig,
+        });
+
+        _closeIOModal();
     }
 
 
