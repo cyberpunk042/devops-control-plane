@@ -348,6 +348,8 @@
         if (rawEl.closest && rawEl.closest('#__dcp_recorder_indicator')) return;
         if (rawEl.closest && rawEl.closest('#__dcp_assert_overlay')) return;
         if (rawEl.closest && rawEl.closest('.__dcp_assert_badge')) return;
+        if (rawEl.closest && rawEl.closest('.__dcp_io_badge')) return;
+        if (rawEl.closest && rawEl.closest('#__dcp_io_overlay')) return;
 
         // Debounce rapid double-clicks
         var now = Date.now();
@@ -1777,19 +1779,39 @@
         window.__dcp_recorder_paused = false;
         _dcpLog('info', 'saveIO called', { selector: selector, isInput: isInput, ioType: ioType, name: name, captureType: captureType });
 
-        // Send I/O config via the event endpoint (io_configure action)
-        var payload = {
-            action: 'io_configure',
-            selector: selector,
-            io_type: ioType,
-            name: name,
-            default_value: defaultValue,
-        };
-        if (captureType) payload.capture_type = captureType;
-        if (attributeName) payload.attribute_name = attributeName;
-        if (cssProp) payload.css_property = cssProp;
-
-        sendEvent(payload);
+        // Send I/O config via the event endpoint
+        if (isInput) {
+            // INPUT modifies an existing step's value → use io_configure
+            var payload = {
+                action: 'io_configure',
+                selector: selector,
+                io_type: 'input',
+                name: name,
+                default_value: defaultValue,
+            };
+            sendEvent(payload);
+        } else {
+            // OUTPUT creates a capture step directly (proper recording flow)
+            var payload = {
+                action: captureType || 'capture_text',
+                selector: selector,
+                export_as: name,
+            };
+            if (attributeName) payload.assertion_attribute = attributeName;
+            if (cssProp) payload.assertion_attribute = cssProp;
+            // Carry element metadata for the capture step
+            try {
+                var el = document.querySelector(selector);
+                if (el) {
+                    payload.element_tag = el.tagName.toLowerCase();
+                    payload.element_text = (el.textContent || '').slice(0, 200).trim();
+                    var rect = el.getBoundingClientRect();
+                    payload.element_rect = { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
+                }
+            } catch (_) { }
+            payload.page_url = location.href;
+            sendEvent(payload);
+        }
 
         _closeIOModal();
     }

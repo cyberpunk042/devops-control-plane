@@ -529,6 +529,9 @@ def cdp_test_record_event():
         target_step = None
         for s in reversed(steps):
             if s.get("selector") == target_selector:
+                # For INPUT, skip capture steps — find the value step
+                if io_type == "input" and s.get("action", "").startswith("capture_"):
+                    continue
                 target_step = s
                 break
 
@@ -637,6 +640,12 @@ def cdp_test_record_event():
         "element_rect": data.get("element_rect", {}),
         "timestamp_ms": data.get("timestamp_ms", 0),
     }
+
+    # I/O output: capture step sent directly from target page with export_as
+    if data.get("export_as"):
+        step_data["export_as"] = data["export_as"]
+    if data.get("assertion_attribute") and not data.get("assert_config"):
+        step_data["assertion_attribute"] = data["assertion_attribute"]
 
     # Flatten assertion config into replayer-compatible step fields
     # AND build a proper assert_config dict for model persistence.

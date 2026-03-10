@@ -523,13 +523,27 @@
 
         const hasDetails = assertHtml || screenshotHtml || ocrHtml || consoleHtml;
 
-        // I/O badge for step row
+        // I/O badge for step row — enriched
         let ioBadgeHtml = '';
         const stepVarMatch = (step.value || '').match(/^\$\{(\w+)\}$/);
         if (stepVarMatch) {
-            ioBadgeHtml = `<span style="font-size:0.58rem;padding:1px 5px;background:#8b5cf622;color:#8b5cf6;border-radius:3px;font-family:monospace;font-weight:600;flex-shrink:0">📥 \${${esc(stepVarMatch[1])}}</span>`;
+            const _defVal = step.original_value || '';
+            const _defDisplay = _defVal ? ` = "${esc(_defVal.length > 20 ? _defVal.slice(0, 20) + '…' : _defVal)}"` : '';
+            ioBadgeHtml = `<span style="font-size:0.58rem;padding:1px 5px;background:#8b5cf622;color:#8b5cf6;border-radius:3px;font-family:monospace;font-weight:600;flex-shrink:0">📥 ${esc(stepVarMatch[1])}${_defDisplay}</span>`;
         } else if (step.export_as) {
-            ioBadgeHtml = `<span style="font-size:0.58rem;padding:1px 5px;background:#22c55e22;color:#22c55e;border-radius:3px;font-family:monospace;font-weight:600;flex-shrink:0">📤 ${esc(step.export_as)}</span>`;
+            // Build capture detail: action → short label + attribute/CSS detail
+            let _capDetail = '';
+            const _act = step.action || '';
+            if (_act === 'capture_text') _capDetail = 'text';
+            else if (_act === 'capture_html') _capDetail = 'html';
+            else if (_act === 'capture_value') _capDetail = 'value';
+            else if (_act === 'capture_url') _capDetail = 'url';
+            else if (_act === 'capture_attribute') _capDetail = 'attr:' + (step.assertion_attribute || '?');
+            else if (_act === 'capture_computed_style') _capDetail = 'style:' + (step.assertion_attribute || '?');
+            else if (_act === 'capture_screenshot' || _act === 'capture_screenshot_full') _capDetail = 'screenshot';
+            else if (_act === 'capture_console') _capDetail = 'console';
+            const _capSuffix = _capDetail ? ` <span style="opacity:0.7">(${esc(_capDetail)})</span>` : '';
+            ioBadgeHtml = `<span style="font-size:0.58rem;padding:1px 5px;background:#22c55e22;color:#22c55e;border-radius:3px;font-family:monospace;font-weight:600;flex-shrink:0">📤 ${esc(step.export_as)}${_capSuffix}</span>`;
         }
 
         return `<div class="card-detect-row cdp-rec-step-row" style="font-size:0.78rem;display:flex;align-items:${hasDetails ? 'flex-start' : 'center'};gap:0.5rem;flex-wrap:${hasDetails ? 'wrap' : 'nowrap'}" data-step-id="${sid}" data-step-sequence="${step.sequence}">
@@ -1379,22 +1393,73 @@
                                 style="width:100%;font-size:0.78rem;padding:6px 10px;background:var(--bg-secondary);border:1px solid var(--border-subtle);border-radius:6px;color:var(--text-primary);font-family:monospace;box-sizing:border-box;display:none">
                         </div>`;
             } else {
-                // Existing capture step — show the current capture type as info
-                const captureLabels = {
-                    capture_text: '📋 Text content',
-                    capture_html: '📝 HTML',
-                    capture_value: '🔢 Value',
-                    capture_attribute: '🏷️ Attribute',
-                    capture_url: '🔗 URL',
-                    capture_computed_style: '🎨 Computed style',
-                    capture_screenshot: '📸 Screenshot',
-                    capture_screenshot_full: '🖼️ Full page screenshot',
-                    capture_console: '🖥️ Console',
-                };
-                const capLabel = captureLabels[step.action] || step.action;
+                // Existing capture step — EDITABLE capture type dropdown pre-set to current action
+                const _curCap = step.action || 'capture_text';
+                const _existAttr = step.assertion_attribute || '';
                 captureTypeHtml = `
-                        <div style="font-size:0.68rem;color:var(--text-secondary);margin-bottom:8px;padding:4px 8px;background:var(--bg-tertiary);border-radius:4px">
-                            Capture type: <strong>${capLabel}</strong>
+                        <div style="margin-bottom:8px">
+                            <label style="font-size:0.68rem;color:var(--text-secondary);display:block;margin-bottom:2px">Capture type</label>
+                            <select id="cdp-io-capture-type"
+                                style="width:100%;font-size:0.78rem;padding:6px 10px;background:var(--bg-secondary);border:1px solid var(--border-subtle);border-radius:6px;color:var(--text-primary);box-sizing:border-box">
+                                <option value="capture_text" ${_curCap === 'capture_text' ? 'selected' : ''}>📋 Text content</option>
+                                <option value="capture_html" ${_curCap === 'capture_html' ? 'selected' : ''}>📝 HTML</option>
+                                <option value="capture_value" ${_curCap === 'capture_value' ? 'selected' : ''}>🔢 Value (form fields)</option>
+                                <option value="capture_attribute" ${_curCap === 'capture_attribute' ? 'selected' : ''}>🏷️ Attribute (href, data-id…)</option>
+                                <option value="capture_url" ${_curCap === 'capture_url' ? 'selected' : ''}>🔗 URL</option>
+                                <option value="capture_computed_style" ${_curCap === 'capture_computed_style' ? 'selected' : ''}>🎨 Computed style</option>
+                                <option value="capture_screenshot" ${_curCap === 'capture_screenshot' ? 'selected' : ''}>📸 Screenshot</option>
+                                <option value="capture_screenshot_full" ${_curCap === 'capture_screenshot_full' ? 'selected' : ''}>🖼️ Full page screenshot</option>
+                                <option value="capture_console" ${_curCap === 'capture_console' ? 'selected' : ''}>🖥️ Console</option>
+                            </select>
+                        </div>
+                        <div id="cdp-io-attr-name-row" style="${_curCap === 'capture_attribute' ? '' : 'display:none;'}margin-bottom:8px">
+                            <label style="font-size:0.68rem;color:var(--text-secondary);display:block;margin-bottom:2px">Attribute name</label>
+                            <select id="cdp-io-attr-select"
+                                style="width:100%;font-size:0.78rem;padding:6px 10px;background:var(--bg-secondary);border:1px solid var(--border-subtle);border-radius:6px;color:var(--text-primary);box-sizing:border-box;margin-bottom:4px">
+                                <option value="" disabled ${!_existAttr ? 'selected' : ''}>Select attribute…</option>
+                                <option value="href" ${_existAttr === 'href' ? 'selected' : ''}>href</option>
+                                <option value="src" ${_existAttr === 'src' ? 'selected' : ''}>src</option>
+                                <option value="data-testid" ${_existAttr === 'data-testid' ? 'selected' : ''}>data-testid</option>
+                                <option value="data-id" ${_existAttr === 'data-id' ? 'selected' : ''}>data-id</option>
+                                <option value="aria-label" ${_existAttr === 'aria-label' ? 'selected' : ''}>aria-label</option>
+                                <option value="title" ${_existAttr === 'title' ? 'selected' : ''}>title</option>
+                                <option value="alt" ${_existAttr === 'alt' ? 'selected' : ''}>alt</option>
+                                <option value="name" ${_existAttr === 'name' ? 'selected' : ''}>name</option>
+                                <option value="type" ${_existAttr === 'type' ? 'selected' : ''}>type</option>
+                                <option value="role" ${_existAttr === 'role' ? 'selected' : ''}>role</option>
+                                <option value="class" ${_existAttr === 'class' ? 'selected' : ''}>class</option>
+                                <option value="id" ${_existAttr === 'id' ? 'selected' : ''}>id</option>
+                                <option value="__custom__" ${_existAttr && ['href','src','data-testid','data-id','aria-label','title','alt','name','type','role','class','id'].indexOf(_existAttr) === -1 ? 'selected' : ''}>Custom…</option>
+                            </select>
+                            <input id="cdp-io-attr-name" type="text" placeholder="Custom attribute name"
+                                value="${esc(_existAttr && ['href','src','data-testid','data-id','aria-label','title','alt','name','type','role','class','id'].indexOf(_existAttr) === -1 ? _existAttr : '')}"
+                                style="width:100%;font-size:0.78rem;padding:6px 10px;background:var(--bg-secondary);border:1px solid var(--border-subtle);border-radius:6px;color:var(--text-primary);font-family:monospace;box-sizing:border-box;${_existAttr && ['href','src','data-testid','data-id','aria-label','title','alt','name','type','role','class','id'].indexOf(_existAttr) === -1 ? '' : 'display:none'}">
+                        </div>
+                        <div id="cdp-io-css-prop-row" style="${_curCap === 'capture_computed_style' ? '' : 'display:none;'}margin-bottom:8px">
+                            <label style="font-size:0.68rem;color:var(--text-secondary);display:block;margin-bottom:2px">CSS property</label>
+                            <select id="cdp-io-css-select"
+                                style="width:100%;font-size:0.78rem;padding:6px 10px;background:var(--bg-secondary);border:1px solid var(--border-subtle);border-radius:6px;color:var(--text-primary);box-sizing:border-box;margin-bottom:4px">
+                                <option value="" disabled ${!(_curCap === 'capture_computed_style' && _existAttr) ? 'selected' : ''}>Select property…</option>
+                                <option value="color" ${_curCap === 'capture_computed_style' && _existAttr === 'color' ? 'selected' : ''}>color</option>
+                                <option value="background-color" ${_curCap === 'capture_computed_style' && _existAttr === 'background-color' ? 'selected' : ''}>background-color</option>
+                                <option value="display" ${_curCap === 'capture_computed_style' && _existAttr === 'display' ? 'selected' : ''}>display</option>
+                                <option value="visibility" ${_curCap === 'capture_computed_style' && _existAttr === 'visibility' ? 'selected' : ''}>visibility</option>
+                                <option value="opacity" ${_curCap === 'capture_computed_style' && _existAttr === 'opacity' ? 'selected' : ''}>opacity</option>
+                                <option value="font-size" ${_curCap === 'capture_computed_style' && _existAttr === 'font-size' ? 'selected' : ''}>font-size</option>
+                                <option value="font-weight" ${_curCap === 'capture_computed_style' && _existAttr === 'font-weight' ? 'selected' : ''}>font-weight</option>
+                                <option value="width" ${_curCap === 'capture_computed_style' && _existAttr === 'width' ? 'selected' : ''}>width</option>
+                                <option value="height" ${_curCap === 'capture_computed_style' && _existAttr === 'height' ? 'selected' : ''}>height</option>
+                                <option value="margin" ${_curCap === 'capture_computed_style' && _existAttr === 'margin' ? 'selected' : ''}>margin</option>
+                                <option value="padding" ${_curCap === 'capture_computed_style' && _existAttr === 'padding' ? 'selected' : ''}>padding</option>
+                                <option value="border" ${_curCap === 'capture_computed_style' && _existAttr === 'border' ? 'selected' : ''}>border</option>
+                                <option value="position" ${_curCap === 'capture_computed_style' && _existAttr === 'position' ? 'selected' : ''}>position</option>
+                                <option value="z-index" ${_curCap === 'capture_computed_style' && _existAttr === 'z-index' ? 'selected' : ''}>z-index</option>
+                                <option value="overflow" ${_curCap === 'capture_computed_style' && _existAttr === 'overflow' ? 'selected' : ''}>overflow</option>
+                                <option value="text-align" ${_curCap === 'capture_computed_style' && _existAttr === 'text-align' ? 'selected' : ''}>text-align</option>
+                                <option value="__custom__">Custom…</option>
+                            </select>
+                            <input id="cdp-io-css-prop" type="text" placeholder="Custom CSS property"
+                                style="width:100%;font-size:0.78rem;padding:6px 10px;background:var(--bg-secondary);border:1px solid var(--border-subtle);border-radius:6px;color:var(--text-primary);font-family:monospace;box-sizing:border-box;display:none">
                         </div>`;
             }
 
@@ -1596,7 +1661,7 @@
             ioType = 'output';
             ioName = exportName;
 
-            // Capture type (only for non-capture steps that need a new capture step)
+            // Capture type (for all output steps — new or existing capture steps)
             const capTypeEl = document.getElementById('cdp-io-capture-type');
             if (capTypeEl) {
                 captureType = capTypeEl.value;
@@ -1652,6 +1717,16 @@
             if (result.step) {
                 Object.assign(stepData, result.step);
                 _cdpStepDataMap.set(stepData.id, stepData);
+                // Re-render the step row so badges appear immediately
+                const container = document.getElementById('cdp-rec-steps');
+                if (container) {
+                    const existingRow = container.querySelector('[data-step-id="' + stepData.id + '"]');
+                    if (existingRow) {
+                        const tmpDiv = document.createElement('div');
+                        tmpDiv.innerHTML = _cdpTestStepRow(stepData);
+                        existingRow.replaceWith(tmpDiv.firstElementChild);
+                    }
+                }
             }
             if (result.created_capture && result.step) {
                 _cdpStepDataMap.set(result.step.id, result.step);
@@ -1743,6 +1818,30 @@
                     }
                 }
             } catch (err) { console.error('[CDP SSE] Error handling step_modified:', err, e.data); }
+        });
+
+        // ── io_configured: I/O configured from target site or overlay ─
+        _cdpTestSSESource.addEventListener('cdp_test:io_configured', (e) => {
+            try {
+                const data = JSON.parse(e.data);
+                if (data.data?.session_id !== sessionId) return;
+                const step = data.data?.step;
+                if (!step) return;
+
+                // Update local data map
+                _cdpStepDataMap.set(step.id, step);
+
+                // Re-render the step row in the live recording list
+                const container = document.getElementById('cdp-rec-steps');
+                if (container) {
+                    const existingRow = container.querySelector(`[data-step-id="${step.id}"]`);
+                    if (existingRow) {
+                        const tmpDiv = document.createElement('div');
+                        tmpDiv.innerHTML = _cdpTestStepRow(step);
+                        existingRow.replaceWith(tmpDiv.firstElementChild);
+                    }
+                }
+            } catch (err) { console.error('[CDP SSE] Error handling io_configured:', err, e.data); }
         });
 
         _cdpTestSSESource.addEventListener('cdp_test:recorder_lost', (e) => {
@@ -1861,7 +1960,7 @@
 
     function _cdpTestAutoDetectIO(steps) {
         var inputs = {};   // name → { default_val, step_indices[] }
-        var outputs = {};  // name → { step_index, description }
+        var outputs = {};  // name → { step_index, description, action, assertion_attribute }
 
         for (var i = 0; i < steps.length; i++) {
             var s = steps[i];
@@ -1877,7 +1976,12 @@
             }
             // Detect export_as
             if (s.export_as) {
-                outputs[s.export_as] = { step_index: i, description: s.description || '' };
+                outputs[s.export_as] = {
+                    step_index: i,
+                    description: s.description || '',
+                    action: s.action || '',
+                    assertion_attribute: s.assertion_attribute || '',
+                };
             }
         }
         return { inputs: inputs, outputs: outputs };
@@ -1911,18 +2015,65 @@
         var hasIO = inputNames.length > 0 || outputNames.length > 0;
         var panelId = 'cdp-io-panel';
 
+        // ── Collect validation warnings ──
+        var warnings = [];
+
+        // Check for unresolved inputs (variable referenced but no output provides it)
+        for (var vi = 0; vi < inputNames.length; vi++) {
+            var vn = inputNames[vi];
+            if (!detected.outputs[vn]) {
+                // Not produced by any output in this suite — may come from runtime or upstream
+                var det = detected.inputs[vn];
+                var hasDefault = !!(savedVars[vn] || (det && det.default_val));
+                if (!hasDefault) {
+                    warnings.push({ type: 'warn', msg: '${' + vn + '} has no default value — will require runtime input' });
+                }
+            }
+        }
+
+        // Check for duplicate export names
+        var exportCounts = {};
+        for (var di = 0; di < steps.length; di++) {
+            if (steps[di].export_as) {
+                if (!exportCounts[steps[di].export_as]) exportCounts[steps[di].export_as] = [];
+                exportCounts[steps[di].export_as].push(di + 1);
+            }
+        }
+        var ecKeys = Object.keys(exportCounts);
+        for (var ek = 0; ek < ecKeys.length; ek++) {
+            if (exportCounts[ecKeys[ek]].length > 1) {
+                warnings.push({ type: 'error', msg: '"' + ecKeys[ek] + '" exported at steps ' + exportCounts[ecKeys[ek]].join(', ') + ' — duplicate export name' });
+            }
+        }
+
+        // Check for orphan outputs (exported but never consumed)
+        for (var oi2 = 0; oi2 < outputNames.length; oi2++) {
+            var on = outputNames[oi2];
+            if (!detected.inputs[on]) {
+                warnings.push({ type: 'info', msg: '"' + on + '" exported but not referenced by any input in this suite (may be used downstream)' });
+            }
+        }
+
+        // ── Header (auto-expand when I/O exists) ──
         var html = '<div style="margin-top:var(--space-sm);border-top:1px solid var(--border-subtle);padding-top:var(--space-xs)">';
         html += '<div style="display:flex;align-items:center;gap:6px;cursor:pointer;user-select:none" onclick="_cdpTestToggleIOPanel()">';
         html += '<span style="font-size:0.78rem;font-weight:600;color:var(--text-secondary)">📥📤 I/O Configuration</span>';
         if (hasIO) {
             html += '<span style="font-size:0.62rem;padding:1px 5px;background:var(--accent-dim);color:var(--accent);border-radius:8px">' + inputNames.length + ' in / ' + outputNames.length + ' out</span>';
         }
-        html += '<span id="cdp-io-chevron" style="font-size:0.65rem;color:var(--text-muted);transition:transform 0.2s">▶</span>';
+        if (warnings.length > 0) {
+            var errCount = warnings.filter(function(w) { return w.type === 'error'; }).length;
+            var warnCount = warnings.filter(function(w) { return w.type === 'warn'; }).length;
+            if (errCount > 0) html += '<span style="font-size:0.58rem;padding:1px 5px;background:#ef444422;color:#ef4444;border-radius:8px">❌ ' + errCount + '</span>';
+            if (warnCount > 0) html += '<span style="font-size:0.58rem;padding:1px 5px;background:#f59e0b22;color:#f59e0b;border-radius:8px">⚠️ ' + warnCount + '</span>';
+        }
+        html += '<span id="cdp-io-chevron" style="font-size:0.65rem;color:var(--text-muted);transition:transform 0.2s;' + (hasIO ? 'transform:rotate(90deg)' : '') + '">▶</span>';
         html += '</div>';
 
-        html += '<div id="' + panelId + '" style="display:none;margin-top:var(--space-xs)">';
+        // Auto-expand when I/O exists
+        html += '<div id="' + panelId + '" style="' + (hasIO ? '' : 'display:none;') + 'margin-top:var(--space-xs)">';
 
-        // ── Inputs table ──
+        // ── Inputs table (enriched) ──
         html += '<div style="margin-bottom:var(--space-xs)">';
         html += '<div style="font-size:0.72rem;font-weight:600;color:#8b5cf6;margin-bottom:4px">📥 Inputs (' + inputNames.length + ')</div>';
         if (inputNames.length > 0) {
@@ -1930,19 +2081,30 @@
             html += '<thead><tr style="border-bottom:1px solid var(--border-subtle);color:var(--text-muted)">';
             html += '<th style="text-align:left;padding:3px 6px">Name</th>';
             html += '<th style="text-align:left;padding:3px 6px">Default</th>';
-            html += '<th style="text-align:left;padding:3px 6px">Source</th>';
+            html += '<th style="text-align:left;padding:3px 6px">Used at</th>';
+            html += '<th style="text-align:center;padding:3px 6px;width:2rem">Status</th>';
             html += '</tr></thead><tbody>';
             for (var ii = 0; ii < inputNames.length; ii++) {
                 var iName = inputNames[ii];
-                var det = detected.inputs[iName];
-                var iDefault = savedVars[iName] || (det ? det.default_val : '');
-                var iSource = det ? ('Step ' + det.step_indices.map(function(x){ return x + 1; }).join(', ')) : 'manual';
+                var iDet = detected.inputs[iName];
+                var iDefault = savedVars[iName] || (iDet ? iDet.default_val : '');
+                var iSteps = iDet ? iDet.step_indices.map(function(x){ return x + 1; }) : [];
+                var iSource = iSteps.length > 0 ? ('Step ' + iSteps.join(', ')) : 'manual';
 
-                var firstStepIdx = det ? det.step_indices[0] : -1;
+                // Status: ✅ has default, ⚠️ no default, ❌ unresolved
+                var iStatus = '✅';
+                var iStatusTitle = 'Has default value';
+                if (!iDefault) {
+                    iStatus = '⚠️';
+                    iStatusTitle = 'No default value — requires runtime input';
+                }
+
+                var firstStepIdx = iDet ? iDet.step_indices[0] : -1;
                 html += '<tr style="border-bottom:1px solid var(--border-subtle);cursor:pointer" ' + (firstStepIdx >= 0 ? 'onclick="_cdpTestOpenIOFromValidation(' + firstStepIdx + ')" title="Click to configure I/O"' : '') + '>';
                 html += '<td style="padding:3px 6px;font-family:monospace;color:#8b5cf6">' + esc(iName) + '</td>';
-                html += '<td style="padding:3px 6px"><code style="font-size:0.65rem">' + esc(iDefault ? iDefault.slice(0, 30) : '\u2014') + '</code></td>';
+                html += '<td style="padding:3px 6px"><code style="font-size:0.65rem">' + esc(iDefault ? (iDefault.length > 30 ? iDefault.slice(0, 30) + '…' : iDefault) : '—') + '</code></td>';
                 html += '<td style="padding:3px 6px;color:var(--text-muted)">' + iSource + '</td>';
+                html += '<td style="padding:3px 6px;text-align:center" title="' + iStatusTitle + '">' + iStatus + '</td>';
                 html += '</tr>';
             }
             html += '</tbody></table>';
@@ -1951,27 +2113,56 @@
         }
         html += '</div>';
 
-        // ── Outputs table ──
+        // ── Outputs table (enriched with capture type + detail) ──
         html += '<div style="margin-bottom:var(--space-xs)">';
         html += '<div style="font-size:0.72rem;font-weight:600;color:#22c55e;margin-bottom:4px">📤 Outputs (' + outputNames.length + ')</div>';
         if (outputNames.length > 0) {
             html += '<table style="width:100%;font-size:0.7rem;border-collapse:collapse">';
             html += '<thead><tr style="border-bottom:1px solid var(--border-subtle);color:var(--text-muted)">';
             html += '<th style="text-align:left;padding:3px 6px">Name</th>';
-            html += '<th style="text-align:left;padding:3px 6px">Source</th>';
-            html += '<th style="text-align:left;padding:3px 6px">Description</th>';
+            html += '<th style="text-align:left;padding:3px 6px">Capture</th>';
+            html += '<th style="text-align:left;padding:3px 6px">Detail</th>';
+            html += '<th style="text-align:left;padding:3px 6px">Step</th>';
+            html += '<th style="text-align:center;padding:3px 6px;width:2rem">Status</th>';
             html += '</tr></thead><tbody>';
             for (var oi = 0; oi < outputNames.length; oi++) {
                 var oName = outputNames[oi];
                 var oDet = detected.outputs[oName];
-                var oSource = oDet ? ('Step ' + (oDet.step_index + 1)) : 'manual';
-                var oDesc = oDet ? oDet.description : (savedOutputs[oName] || '');
+                var oStepNum = oDet ? ('Step ' + (oDet.step_index + 1)) : 'manual';
+
+                // Capture type label
+                var oCap = '—';
+                var oDetail = '—';
+                if (oDet) {
+                    var oAct = oDet.action || '';
+                    if (oAct === 'capture_text') oCap = 'text';
+                    else if (oAct === 'capture_html') oCap = 'html';
+                    else if (oAct === 'capture_value') oCap = 'value';
+                    else if (oAct === 'capture_url') oCap = 'url';
+                    else if (oAct === 'capture_attribute') { oCap = 'attribute'; oDetail = oDet.assertion_attribute || '?'; }
+                    else if (oAct === 'capture_computed_style') { oCap = 'computed style'; oDetail = oDet.assertion_attribute || '?'; }
+                    else if (oAct === 'capture_screenshot' || oAct === 'capture_screenshot_full') oCap = 'screenshot';
+                    else if (oAct === 'capture_console') oCap = 'console';
+                }
+
+                // Status: ✅ consumed, ⚠️ orphan, ❌ duplicate
+                var oStatus = '✅';
+                var oStatusTitle = 'Consumed by input in this suite';
+                if (exportCounts[oName] && exportCounts[oName].length > 1) {
+                    oStatus = '❌';
+                    oStatusTitle = 'Duplicate export name';
+                } else if (!detected.inputs[oName]) {
+                    oStatus = '⚠️';
+                    oStatusTitle = 'Not consumed in this suite (may be used downstream)';
+                }
 
                 var oStepIdx = oDet ? oDet.step_index : -1;
                 html += '<tr style="border-bottom:1px solid var(--border-subtle);cursor:pointer" ' + (oStepIdx >= 0 ? 'onclick="_cdpTestOpenIOFromValidation(' + oStepIdx + ')" title="Click to configure I/O"' : '') + '>';
                 html += '<td style="padding:3px 6px;font-family:monospace;color:#22c55e">' + esc(oName) + '</td>';
-                html += '<td style="padding:3px 6px;color:var(--text-muted)">' + oSource + '</td>';
-                html += '<td style="padding:3px 6px">' + esc(oDesc || '—') + '</td>';
+                html += '<td style="padding:3px 6px"><span style="font-size:0.62rem;padding:1px 4px;background:var(--bg-secondary);border-radius:3px">' + esc(oCap) + '</span></td>';
+                html += '<td style="padding:3px 6px;font-family:monospace;font-size:0.65rem;color:var(--text-muted)">' + esc(oDetail) + '</td>';
+                html += '<td style="padding:3px 6px;color:var(--text-muted)">' + oStepNum + '</td>';
+                html += '<td style="padding:3px 6px;text-align:center" title="' + oStatusTitle + '">' + oStatus + '</td>';
                 html += '</tr>';
             }
             html += '</tbody></table>';
@@ -1980,21 +2171,17 @@
         }
         html += '</div>';
 
-        // Auto-detected hint
-        if (hasIO) {
-            var autoHints = [];
-            var detInKeys = Object.keys(detected.inputs);
-            for (var ah = 0; ah < detInKeys.length; ah++) {
-                var di = detected.inputs[detInKeys[ah]];
-                autoHints.push(detInKeys[ah] + ' (step ' + di.step_indices.map(function(x){ return x + 1; }).join(', ') + ')');
+        // ── Validation warnings ──
+        if (warnings.length > 0) {
+            html += '<div style="margin-top:var(--space-xs);padding:8px;border-radius:6px;background:var(--bg-tertiary)">';
+            html += '<div style="font-size:0.68rem;font-weight:600;color:var(--text-secondary);margin-bottom:4px">⚡ Validation</div>';
+            for (var wi = 0; wi < warnings.length; wi++) {
+                var w = warnings[wi];
+                var wIcon = w.type === 'error' ? '❌' : w.type === 'warn' ? '⚠️' : 'ℹ️';
+                var wColor = w.type === 'error' ? '#ef4444' : w.type === 'warn' ? '#f59e0b' : 'var(--text-muted)';
+                html += '<div style="font-size:0.62rem;color:' + wColor + ';padding:2px 0">' + wIcon + ' ' + esc(w.msg) + '</div>';
             }
-            var detOutKeys = Object.keys(detected.outputs);
-            for (var aoh = 0; aoh < detOutKeys.length; aoh++) {
-                autoHints.push(detOutKeys[aoh] + ' (step ' + (detected.outputs[detOutKeys[aoh]].step_index + 1) + ')');
-            }
-            if (autoHints.length > 0) {
-                html += '<div style="font-size:0.62rem;color:var(--text-muted);margin-top:2px">🔍 Auto-detected: ' + esc(autoHints.join(', ')) + '</div>';
-            }
+            html += '</div>';
         }
 
         html += '</div>';
@@ -2133,13 +2320,27 @@
             ? '<span style="font-size:0.58rem;padding:1px 4px;background:#f59e0b22;color:#f59e0b;border-radius:3px;margin-left:4px">optional</span>'
             : '';
 
-        // I/O badge
+        // I/O badge — enriched
         var ioBadge = '';
         var varMatch = (step.value || '').match(/^\$\{(\w+)\}$/);
         if (varMatch) {
-            ioBadge = '<span style="font-size:0.58rem;padding:1px 5px;background:#8b5cf622;color:#8b5cf6;border-radius:3px;margin-left:4px;font-family:monospace;font-weight:600">📥 ${' + esc(varMatch[1]) + '}</span>';
+            var _defVal = step.original_value || '';
+            var _defDisp = _defVal ? ' = "' + esc(_defVal.length > 20 ? _defVal.slice(0, 20) + '…' : _defVal) + '"' : '';
+            ioBadge = '<span style="font-size:0.58rem;padding:1px 5px;background:#8b5cf622;color:#8b5cf6;border-radius:3px;margin-left:4px;font-family:monospace;font-weight:600">📥 ' + esc(varMatch[1]) + _defDisp + '</span>';
         } else if (step.export_as) {
-            ioBadge = '<span style="font-size:0.58rem;padding:1px 5px;background:#22c55e22;color:#22c55e;border-radius:3px;margin-left:4px;font-family:monospace;font-weight:600">📤 ' + esc(step.export_as) + '</span>';
+            // Build capture detail
+            var _capDet = '';
+            var _sAct = step.action || '';
+            if (_sAct === 'capture_text') _capDet = 'text';
+            else if (_sAct === 'capture_html') _capDet = 'html';
+            else if (_sAct === 'capture_value') _capDet = 'value';
+            else if (_sAct === 'capture_url') _capDet = 'url';
+            else if (_sAct === 'capture_attribute') _capDet = 'attr:' + (step.assertion_attribute || '?');
+            else if (_sAct === 'capture_computed_style') _capDet = 'style:' + (step.assertion_attribute || '?');
+            else if (_sAct === 'capture_screenshot' || _sAct === 'capture_screenshot_full') _capDet = 'screenshot';
+            else if (_sAct === 'capture_console') _capDet = 'console';
+            var _capSfx = _capDet ? ' <span style="opacity:0.7">(' + esc(_capDet) + ')</span>' : '';
+            ioBadge = '<span style="font-size:0.58rem;padding:1px 5px;background:#22c55e22;color:#22c55e;border-radius:3px;margin-left:4px;font-family:monospace;font-weight:600">📤 ' + esc(step.export_as) + _capSfx + '</span>';
         }
 
         // 🔗 I/O button (value actions, capture actions, or any step with a selector)
@@ -2499,6 +2700,45 @@
         }
     }
 
+    // ── Capture type dropdown change — show/hide attribute/CSS rows ──
+    function _cdpTestCaptureTypeChanged() {
+        var sel = document.getElementById('mf-cdp-edit-capture-type');
+        if (!sel) return;
+        var v = sel.value;
+        var attrRow = document.getElementById('cdp-edit-attr-row');
+        var cssRow = document.getElementById('cdp-edit-css-row');
+        if (attrRow) attrRow.style.display = v === 'capture_attribute' ? '' : 'none';
+        if (cssRow) cssRow.style.display = v === 'capture_computed_style' ? '' : 'none';
+    }
+
+    // ── Attribute select change — show/hide custom input ──
+    function _cdpTestAttrSelectChanged() {
+        var sel = document.getElementById('mf-cdp-edit-attr-select');
+        var inp = document.getElementById('mf-cdp-edit-attr-name');
+        if (!sel || !inp) return;
+        if (sel.value === '__custom__') {
+            inp.style.display = '';
+            inp.focus();
+        } else {
+            inp.style.display = 'none';
+            inp.value = '';
+        }
+    }
+
+    // ── CSS select change — show/hide custom input ──
+    function _cdpTestCssSelectChanged() {
+        var sel = document.getElementById('mf-cdp-edit-css-select');
+        var inp = document.getElementById('mf-cdp-edit-css-name');
+        if (!sel || !inp) return;
+        if (sel.value === '__custom__') {
+            inp.style.display = '';
+            inp.focus();
+        } else {
+            inp.style.display = 'none';
+            inp.value = '';
+        }
+    }
+
     // Build only the action-specific fields
     function _cdpTestBuildDynamicFields(step) {
         var action = step.action;
@@ -2557,9 +2797,7 @@
             body += ' Mark as input parameter</label>';
             body += '<div id="cdp-edit-var-bind-fields" style="' + (isBound ? '' : 'display:none;') + 'margin-top:6px">';
             body += modalFormField({ name: 'cdp-edit-var-name-bind', label: 'Variable name', value: boundVarName, placeholder: 'LOGIN_EMAIL' });
-            if (originalVal) {
-                body += '<div style="font-size:0.68rem;color:var(--text-muted);margin-top:2px">Default: <code>' + esc(originalVal) + '</code> — configurable when running the suite</div>';
-            }
+            body += modalFormField({ name: 'cdp-edit-default-value', label: 'Default value', value: originalVal, placeholder: 'Value used when no runtime override' });
             body += '</div>';
             body += '</div>';
 
@@ -2572,21 +2810,65 @@
             }
         }
 
-        // ── Capture attribute: attribute name ────────────────────
-        if (action === 'capture_attribute') {
-            body += modalFormField({ name: 'cdp-edit-attr-name', label: 'Attribute Name', value: step.assertion_attribute || '', placeholder: 'href, data-id, aria-label\u2026' });
-        }
-
-        // ── Capture computed style: property name ────────────────
-        if (action === 'capture_computed_style') {
-            body += modalFormField({ name: 'cdp-edit-attr-name', label: 'CSS Property', value: step.assertion_attribute || '', placeholder: 'color, display, opacity\u2026' });
-        }
-
-        // ── OUTPUT: export name (capture actions ONLY) ──
+        // ── Capture steps: type dropdown + attribute/CSS selects + export ──
         var isCapture = action.indexOf('capture_') === 0;
         if (isCapture) {
             body += '<div style="grid-column:1/-1;margin-top:4px;padding:10px;border:1px solid #22c55e33;border-radius:8px;background:#22c55e0a">';
-            body += '<div style="font-weight:600;font-size:0.78rem;color:#22c55e;margin-bottom:6px">📤 Output — Export</div>';
+            body += '<div style="font-weight:600;font-size:0.78rem;color:#22c55e;margin-bottom:6px">📤 Capture &amp; Output</div>';
+
+            // Capture type dropdown — changes the step action
+            var _captureTypes = [
+                { value: 'capture_text', label: '📋 Text content' },
+                { value: 'capture_html', label: '📄 HTML content' },
+                { value: 'capture_value', label: '📝 Form value' },
+                { value: 'capture_attribute', label: '🏷️ Attribute' },
+                { value: 'capture_computed_style', label: '🎨 Computed style' },
+                { value: 'capture_url', label: '🔗 Current URL' },
+                { value: 'capture_screenshot', label: '📸 Screenshot' },
+                { value: 'capture_screenshot_full', label: '🖼️ Full page screenshot' },
+                { value: 'capture_console', label: '🖥️ Console output' },
+            ];
+            body += '<div class="modal-form-field" style="grid-column:1/-1;margin-bottom:8px">';
+            body += '<label class="modal-form-label">Capture type</label>';
+            body += '<select id="mf-cdp-edit-capture-type" class="modal-form-input" onchange="_cdpTestCaptureTypeChanged()">';
+            for (var ct = 0; ct < _captureTypes.length; ct++) {
+                body += '<option value="' + _captureTypes[ct].value + '"' + (action === _captureTypes[ct].value ? ' selected' : '') + '>' + _captureTypes[ct].label + '</option>';
+            }
+            body += '</select></div>';
+
+            // Attribute name — select + custom (shown only for capture_attribute)
+            body += '<div id="cdp-edit-attr-row" style="grid-column:1/-1;margin-bottom:8px;' + (action !== 'capture_attribute' ? 'display:none' : '') + '">';
+            body += '<label class="modal-form-label">Attribute name</label>';
+            var _curAttr = step.assertion_attribute || '';
+            var _attrOpts = ['href', 'src', 'data-testid', 'data-id', 'aria-label', 'title', 'alt', 'name', 'type', 'role', 'class', 'id'];
+            var _attrIsCustom = _curAttr && _attrOpts.indexOf(_curAttr) === -1;
+            body += '<select id="mf-cdp-edit-attr-select" class="modal-form-input" style="margin-bottom:4px" onchange="_cdpTestAttrSelectChanged()">';
+            body += '<option value="" disabled ' + (!_curAttr ? 'selected' : '') + '>Select attribute…</option>';
+            for (var ai = 0; ai < _attrOpts.length; ai++) {
+                body += '<option value="' + _attrOpts[ai] + '"' + (_curAttr === _attrOpts[ai] ? ' selected' : '') + '>' + _attrOpts[ai] + '</option>';
+            }
+            body += '<option value="__custom__"' + (_attrIsCustom ? ' selected' : '') + '>Custom…</option>';
+            body += '</select>';
+            body += '<input id="mf-cdp-edit-attr-name" type="text" class="modal-form-input" placeholder="Custom attribute name" value="' + esc(_attrIsCustom ? _curAttr : '') + '" style="' + (_attrIsCustom ? '' : 'display:none;') + 'font-family:monospace">';
+            body += '</div>';
+
+            // CSS property — select + custom (shown only for capture_computed_style)
+            body += '<div id="cdp-edit-css-row" style="grid-column:1/-1;margin-bottom:8px;' + (action !== 'capture_computed_style' ? 'display:none' : '') + '">';
+            body += '<label class="modal-form-label">CSS property</label>';
+            var _curCss = (action === 'capture_computed_style') ? (step.assertion_attribute || '') : '';
+            var _cssOpts = ['color', 'background-color', 'display', 'visibility', 'opacity', 'font-size', 'font-weight', 'width', 'height', 'margin', 'padding', 'border', 'position', 'z-index', 'overflow', 'text-align'];
+            var _cssIsCustom = _curCss && _cssOpts.indexOf(_curCss) === -1;
+            body += '<select id="mf-cdp-edit-css-select" class="modal-form-input" style="margin-bottom:4px" onchange="_cdpTestCssSelectChanged()">';
+            body += '<option value="" disabled ' + (!_curCss ? 'selected' : '') + '>Select property…</option>';
+            for (var ci = 0; ci < _cssOpts.length; ci++) {
+                body += '<option value="' + _cssOpts[ci] + '"' + (_curCss === _cssOpts[ci] ? ' selected' : '') + '>' + _cssOpts[ci] + '</option>';
+            }
+            body += '<option value="__custom__"' + (_cssIsCustom ? ' selected' : '') + '>Custom…</option>';
+            body += '</select>';
+            body += '<input id="mf-cdp-edit-css-name" type="text" class="modal-form-input" placeholder="Custom CSS property" value="' + esc(_cssIsCustom ? _curCss : '') + '" style="' + (_cssIsCustom ? '' : 'display:none;') + 'font-family:monospace">';
+            body += '</div>';
+
+            // Export name
             body += modalFormField({ name: 'cdp-edit-export-as', label: 'Export name', value: step.export_as || '', placeholder: 'AUTH_TOKEN (optional)' });
             body += '<div style="font-size:0.62rem;color:var(--text-muted);margin-top:2px">Captured value exported to plan namespace for downstream suites</div>';
             body += '</div>';
@@ -2673,8 +2955,11 @@
         if (varBindEl && varBindEl.checked) {
             var bindName = mfVal('cdp-edit-var-name-bind').trim();
             if (bindName) {
-                // Preserve the original value before overwriting
-                if (valEl && valEl.value && !valEl.value.match(/^\$\{\w+\}$/)) {
+                // Read editable default value
+                var defValEl = document.getElementById('mf-cdp-edit-default-value');
+                if (defValEl) {
+                    step.original_value = defValEl.value;
+                } else if (valEl && valEl.value && !valEl.value.match(/^\$\{\w+\}$/)) {
                     step.original_value = valEl.value;
                 } else if (!step.original_value) {
                     step.original_value = '';
@@ -2699,9 +2984,32 @@
             step.export_as = '';
         }
 
-        // Attribute name (for capture_attribute, capture_computed_style)
-        var attrEl = document.getElementById('mf-cdp-edit-attr-name');
-        if (attrEl) step.assertion_attribute = attrEl.value;
+        // Capture type dropdown — overrides action for capture steps
+        var captureTypeSel = document.getElementById('mf-cdp-edit-capture-type');
+        if (captureTypeSel) {
+            step.action = captureTypeSel.value;
+        }
+
+        // Attribute name / CSS property (from select+custom for capture steps)
+        var _isCapAttr = (step.action === 'capture_attribute');
+        var _isCapCss = (step.action === 'capture_computed_style');
+        if (_isCapAttr) {
+            var attrSel = document.getElementById('mf-cdp-edit-attr-select');
+            var attrInp = document.getElementById('mf-cdp-edit-attr-name');
+            if (attrSel && attrSel.value && attrSel.value !== '__custom__' && attrSel.value !== '') {
+                step.assertion_attribute = attrSel.value;
+            } else if (attrInp) {
+                step.assertion_attribute = attrInp.value.trim();
+            }
+        } else if (_isCapCss) {
+            var cssSel = document.getElementById('mf-cdp-edit-css-select');
+            var cssInp = document.getElementById('mf-cdp-edit-css-name');
+            if (cssSel && cssSel.value && cssSel.value !== '__custom__' && cssSel.value !== '') {
+                step.assertion_attribute = cssSel.value;
+            } else if (cssInp) {
+                step.assertion_attribute = cssInp.value.trim();
+            }
+        }
 
         // Assert-specific
         if (step.action === 'assert') {

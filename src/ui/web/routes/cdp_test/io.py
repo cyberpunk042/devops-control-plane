@@ -379,9 +379,13 @@ def _configure_suite_io(
 
 
 def _broadcast_io_change(bus_ref, session, step: dict) -> None:
-    """Broadcast an I/O configuration change via SSE."""
+    """Broadcast an I/O configuration change via SSE.
+
+    Uses ``step_modified`` so the frontend step_modified SSE handler
+    automatically re-renders the step row (showing I/O badges).
+    """
     bus_ref.publish(
-        "cdp_test:io_configured",
+        "cdp_test:step_modified",
         key=session.id,
         data={
             "session_id": session.id,
