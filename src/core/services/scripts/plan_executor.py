@@ -380,6 +380,16 @@ def _execute_cdp_test_step(
         replay_passed=run_result.passed_steps,
         replay_failed=run_result.failed_steps,
         replay_total=run_result.total_steps,
+        replay_step_results=[
+            {
+                "action": sr.get("action", ""),
+                "selector": sr.get("selector", ""),
+                "status": sr.get("status", ""),
+                "duration_ms": sr.get("duration_ms", 0),
+                "error": sr.get("error", ""),
+            }
+            for sr in run_result.step_results
+        ],
         variables_produced=produced,
     )
 
@@ -713,12 +723,17 @@ def execute_plan(
             "variables_produced": step_result.variables_produced,
             "error": step_result.error,
             # Drill-down data (script)
+            "script_run_id": step_result.script_run_id,
             "script_exit_code": step_result.script_exit_code,
             "script_lines": step_result.script_lines[-100:],
             # Drill-down data (CDP test)
+            "replay_run_id": step_result.replay_run_id,
             "replay_passed": step_result.replay_passed,
             "replay_failed": step_result.replay_failed,
             "replay_total": step_result.replay_total,
+            "replay_step_results": step_result.replay_step_results,
+            # Drill-down data (checkpoint)
+            "checkpoint_message": step.checkpoint_message or "",
         })
 
         # ── Check failure ──

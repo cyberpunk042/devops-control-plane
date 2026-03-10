@@ -1193,6 +1193,7 @@
         const failed = step.replay_failed || 0;
         const total = step.replay_total || 0;
         const pct = total > 0 ? Math.round(passed / total * 100) : 0;
+        const replaySteps = step.replay_step_results || [];
 
         let body = `<div style="display:flex;align-items:center;gap:1rem;margin-bottom:6px">`;
         body += `<span style="font-size:0.68rem;font-weight:600;color:var(--text-secondary)">CDP Test Replay</span>`;
@@ -1201,7 +1202,7 @@
         }
         body += `</div>`;
 
-        // Mini progress bar
+        // Summary bar
         const barColor = failed > 0 ? '#ef4444' : '#22c55e';
         body += `<div style="margin-bottom:6px">
             <div style="height:4px;background:var(--bg-tertiary);border-radius:2px;overflow:hidden">
@@ -1210,11 +1211,34 @@
         </div>`;
 
         // Stats row
-        body += `<div style="display:flex;gap:1rem;font-size:0.72rem">`;
+        body += `<div style="display:flex;gap:1rem;font-size:0.72rem;margin-bottom:8px">`;
         body += `<div><span style="color:#22c55e;font-weight:600">${passed}</span> <span style="color:var(--text-muted)">passed</span></div>`;
         if (failed > 0) body += `<div><span style="color:#ef4444;font-weight:600">${failed}</span> <span style="color:var(--text-muted)">failed</span></div>`;
         body += `<div><span style="font-weight:600">${total}</span> <span style="color:var(--text-muted)">total</span></div>`;
         body += `</div>`;
+
+        // Per-replay-step list
+        if (replaySteps.length > 0) {
+            body += `<div style="border-top:1px solid var(--border-subtle);padding-top:6px;max-height:200px;overflow-y:auto">`;
+            for (const rs of replaySteps) {
+                const sIcon = rs.status === 'passed' ? '<span style="color:#22c55e">✓</span>'
+                    : rs.status === 'failed' ? '<span style="color:#ef4444">✗</span>'
+                    : rs.status === 'skipped' ? '<span style="color:var(--text-muted)">⊘</span>'
+                    : '<span style="color:var(--text-muted)">·</span>';
+                const dur = rs.duration_ms ? `${rs.duration_ms}ms` : '';
+                const sel = rs.selector ? esc(rs.selector.length > 40 ? rs.selector.slice(0, 37) + '…' : rs.selector) : '';
+                const errLine = rs.error ? `<div style="font-size:0.58rem;color:var(--error);margin-left:22px;word-break:break-all">${esc(rs.error.slice(0, 120))}</div>` : '';
+
+                body += `<div style="display:flex;align-items:center;gap:6px;font-size:0.66rem;padding:2px 0">`;
+                body += `<span style="width:14px;text-align:center;flex-shrink:0">${sIcon}</span>`;
+                body += `<span style="color:var(--text-secondary);font-weight:500;min-width:60px">${esc(rs.action || '?')}</span>`;
+                body += `<span style="flex:1;color:var(--text-muted);font-family:var(--font-mono);font-size:0.60rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${sel}</span>`;
+                body += `<span style="flex-shrink:0;color:var(--text-muted);font-size:0.58rem">${dur}</span>`;
+                body += `</div>`;
+                body += errLine;
+            }
+            body += `</div>`;
+        }
 
         return `<div style="background:var(--bg-secondary);border:1px solid var(--border-subtle);border-radius:6px;padding:8px 10px">${body}</div>`;
     }
@@ -1293,11 +1317,15 @@
                         duration_ms: d.duration_ms,
                         error: d.error,
                         variables_produced: d.variables_produced,
+                        script_run_id: d.script_run_id,
                         script_exit_code: d.script_exit_code,
                         script_lines: d.script_lines,
+                        replay_run_id: d.replay_run_id,
                         replay_passed: d.replay_passed,
                         replay_failed: d.replay_failed,
                         replay_total: d.replay_total,
+                        replay_step_results: d.replay_step_results,
+                        checkpoint_message: d.checkpoint_message,
                     });
                 }
 

@@ -271,6 +271,7 @@ class StepResult:
     replay_passed: int = 0
     replay_failed: int = 0
     replay_total: int = 0
+    replay_step_results: list[dict] = field(default_factory=list)
 
     # ── Variables produced ────────────────────────────────────
     variables_produced: dict[str, str] = field(default_factory=dict)
@@ -294,6 +295,7 @@ class StepResult:
             "replay_passed": self.replay_passed,
             "replay_failed": self.replay_failed,
             "replay_total": self.replay_total,
+            "replay_step_results": self.replay_step_results,
             "variables_produced": self.variables_produced,
         }
 
@@ -317,6 +319,7 @@ class StepResult:
             replay_passed=data.get("replay_passed", 0),
             replay_failed=data.get("replay_failed", 0),
             replay_total=data.get("replay_total", 0),
+            replay_step_results=data.get("replay_step_results", []),
             variables_produced=data.get("variables_produced", {}),
         )
 
