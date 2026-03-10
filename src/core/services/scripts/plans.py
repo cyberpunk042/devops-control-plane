@@ -279,6 +279,9 @@ class StepResult:
     # ── Variables produced ────────────────────────────────────
     variables_produced: dict[str, Any] = field(default_factory=dict)
 
+    # ── Variables consumed (input) ────────────────────────────
+    variables_consumed: dict[str, Any] = field(default_factory=dict)
+
     def to_dict(self) -> dict:
         return {
             "step_id": self.step_id,
@@ -300,6 +303,7 @@ class StepResult:
             "replay_total": self.replay_total,
             "replay_step_results": self.replay_step_results,
             "variables_produced": self.variables_produced,
+            "variables_consumed": self.variables_consumed,
         }
 
     @classmethod
@@ -324,6 +328,7 @@ class StepResult:
             replay_total=data.get("replay_total", 0),
             replay_step_results=data.get("replay_step_results", []),
             variables_produced=data.get("variables_produced", {}),
+            variables_consumed=data.get("variables_consumed", {}),
         )
 
 

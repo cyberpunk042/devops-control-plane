@@ -334,6 +334,7 @@ def _execute_cdp_test_step(
     cdp_port: int | None,
     stop_event: threading.Event,
     callback: callable,
+    clear_site_data: bool | None = None,
 ) -> StepResult:
     """Execute a CDP test step via the replayer (synchronous)."""
     from src.core.services.cdp_test.replayer import replay_suite
@@ -350,9 +351,11 @@ def _execute_cdp_test_step(
             error=f"Suite '{step.suite_id}' not found",
         )
 
-    # Merge: step suite_variables override namespace values
-    variables = dict(namespace)
-    variables.update(step.suite_variables)
+    # Merge: namespace values override step suite_variables (defaults).
+    # suite_variables are pre-filled from the suite's declared defaults;
+    # the plan namespace (initial vars + runtime overrides) takes priority.
+    variables = dict(step.suite_variables)
+    variables.update(namespace)
 
     # Discover the target tab
     target_id, ws_url = _resolve_cdp_target(
@@ -392,6 +395,7 @@ def _execute_cdp_test_step(
         dcp_tab_id=dcp_tab_id,
         cdp_port=cdp_port,
         project_root=str(project_root),
+        clear_site_data=clear_site_data,
     )
 
     # Extract captured variables from diagnostic steps
@@ -426,6 +430,12 @@ def _execute_cdp_test_step(
         entry.pop("screenshot_path", None)
         replay_steps.append(entry)
 
+    # Build consumed vars — only the vars the suite actually declares
+    consumed: dict[str, Any] = {}
+    for k in suite.variables:
+        if k in variables:
+            consumed[k] = variables[k]
+
     return StepResult(
         step_id=step.id,
         step_name=step.name,
@@ -439,6 +449,7 @@ def _execute_cdp_test_step(
         replay_total=run_result.total_steps,
         replay_step_results=replay_steps,
         variables_produced=produced,
+        variables_consumed=consumed,
     )
 
 
@@ -634,6 +645,7 @@ def execute_plan(
     stop_event: threading.Event,
     *,
     run_id: str = "",
+    runtime_options: dict | None = None,
 ) -> PlanRunResult:
     """Execute an entire plan synchronously.
 
@@ -750,10 +762,17 @@ def execute_plan(
             )
 
         elif step.type == "cdp_test":
+            # clear_site_data applies only to the first CDP step (once,
+            # before the plan really starts), not to every step.
+            _clear_opt = (runtime_options or {}).get("clear_site_data")
             step_result = _execute_cdp_test_step(
                 project_root, step, namespace,
                 cdp_port, stop_event, callback,
+                clear_site_data=_clear_opt,
             )
+            # After first use, disable for remaining steps
+            if _clear_opt and runtime_options:
+                runtime_options.pop("clear_site_data", None)
 
         elif step.type == "checkpoint":
             step_result = _execute_checkpoint_step(
@@ -959,6 +978,7 @@ def start_plan(
     project_root: Path,
     plan: ExecutionPlan,
     callback: callable,
+    runtime_options: dict | None = None,
 ) -> str | PlanRunResult:
     """Start plan execution in a background thread.
 
@@ -991,6 +1011,7 @@ def start_plan(
                 callback=callback,
                 stop_event=plan_run.stop_event,
                 run_id=run_id,
+                runtime_options=runtime_options,
             )
         except Exception as exc:
             logger.exception("Plan execution thread crashed: %s", exc)

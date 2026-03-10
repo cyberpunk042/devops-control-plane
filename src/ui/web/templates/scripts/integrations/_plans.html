@@ -309,6 +309,7 @@
             const totalMissing = namespaceAtStep.reduce((acc, s) => acc + s.missing.length, 0);
             const isFullyAutomated = plan.mode === 'fully_automated';
             const blockExecution = isFullyAutomated && totalMissing > 0;
+            const hasCdpSteps = stepList.some(s => s.type === 'cdp_test');
 
             // ── Step list with I/O badges ──────────────────────────
             // Build a map of which step produces which var for source labels
@@ -441,6 +442,13 @@
                             ${Object.entries(plan.variables).map(([k, v]) => `<div>${esc(k)} = ${esc(typeof v === 'object' ? JSON.stringify(v) : v)}</div>`).join('')}
                         </div>
                     </div>` : ''}
+                    ${hasCdpSteps ? `
+                    <div style="margin-top:var(--space-sm);display:flex;align-items:center;gap:0.5rem">
+                        <input type="checkbox" id="plans-clear-site-data" checked>
+                        <label for="plans-clear-site-data" style="font-size:0.72rem;color:var(--text-secondary);cursor:pointer">
+                            🧹 Clear site data (cookies, storage) before execution
+                        </label>
+                    </div>` : ''}
                 </div>`,
                 size: 'wide',
                 footerButtons: [
@@ -468,9 +476,15 @@
         });
         const hasOverrides = Object.keys(fillOverrides).length > 0;
 
+        // Check clear_site_data checkbox
+        const clearCb = document.getElementById('plans-clear-site-data');
+        const clearSiteData = clearCb ? clearCb.checked : false;
+
         try {
-            const body = hasOverrides ? { variables: fillOverrides } : undefined;
-            const data = await apiPost(`/plans/${planId}/execute`, body);
+            const body = {};
+            if (hasOverrides) body.variables = fillOverrides;
+            if (clearSiteData) body.clear_site_data = true;
+            const data = await apiPost(`/plans/${planId}/execute`, Object.keys(body).length > 0 ? body : undefined);
 
             if (!data.ok) {
                 modalStatus(data.error || 'Failed to start', 'error');
@@ -1755,6 +1769,18 @@
         const statusIcon = _plansStatusIcon(step.status);
         const dur = step.duration_ms != null ? `${(step.duration_ms / 1000).toFixed(1)}s` : '';
 
+        // Variables consumed badge — input pills
+        let varsConsumedBadge = '';
+        const consumed = step.variables_consumed || {};
+        const consKeys = Object.keys(consumed);
+        if (consKeys.length > 0) {
+            const pills = consKeys.map(k => {
+                const val = _plansFormatValueShort(consumed[k]);
+                return `<span style="font-family:var(--font-mono);font-size:0.58rem;padding:1px 4px;background:color-mix(in srgb,var(--info) 10%,transparent);border-radius:3px;margin:0 1px">${esc(k)}<span style="color:var(--text-muted)">=${esc(val)}</span></span>`;
+            }).join(' ');
+            varsConsumedBadge = `<div style="font-size:0.62rem;color:var(--info);margin-top:2px;display:flex;gap:2px;flex-wrap:wrap;align-items:center">📥 ${pills}</div>`;
+        }
+
         // Variables produced badge — styled pills with values
         let varsBadge = '';
         const produced = step.variables_produced || {};
@@ -1803,6 +1829,7 @@
                     ${replayDetail}
                 </div>
                 ${errMsg}
+                ${varsConsumedBadge}
                 ${varsBadge}
             </div>
             <span style="flex-shrink:0;font-size:0.68rem;color:var(--text-muted)">${dur}</span>

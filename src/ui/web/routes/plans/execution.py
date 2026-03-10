@@ -66,6 +66,11 @@ def plans_execute(plan_id: str):
         bc = data["browser_config"]
         plan.browser_config = BrowserConfig.from_dict(bc) if bc else None
 
+    # Runtime options (not part of the plan model)
+    runtime_options = {}
+    if data.get("clear_site_data"):
+        runtime_options["clear_site_data"] = True
+
     # Create callback that publishes to the event bus
     def _bus_callback(event_type: str, event_data: dict):
         """Publish plan events to the global SSE bus."""
@@ -76,7 +81,7 @@ def plans_execute(plan_id: str):
         )
 
     # Start the plan
-    result = start_plan(root, plan, _bus_callback)
+    result = start_plan(root, plan, _bus_callback, runtime_options=runtime_options)
 
     if isinstance(result, PlanRunResult):
         # Startup error
