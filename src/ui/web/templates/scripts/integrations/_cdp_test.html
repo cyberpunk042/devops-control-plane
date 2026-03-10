@@ -418,7 +418,7 @@
             <div class="cdp-step-actions" style="display:flex;gap:2px;opacity:0;transition:opacity 0.15s;flex-shrink:0">
                 ${hasSelector ? `<button class="btn btn-xs cdp-step-action-btn" data-cdp-action="assert" data-cdp-step-id="${sid}"
                     title="Add assertion" style="font-size:0.65rem;padding:1px 5px;background:var(--bg-tertiary);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer">✅</button>` : ''}
-                ${hasSelector ? `<button class="btn btn-xs cdp-step-action-btn" data-cdp-action="capture" data-cdp-step-id="${sid}"
+                ${hasSelector && !isCaptureAction ? `<button class="btn btn-xs cdp-step-action-btn" data-cdp-action="capture" data-cdp-step-id="${sid}"
                     title="Add capture" style="font-size:0.65rem;padding:1px 5px;background:var(--bg-tertiary);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer">📋</button>` : ''}
                 ${hasSelector ? `<button class="btn btn-xs cdp-step-action-btn" data-cdp-action="diag" data-cdp-step-id="${sid}"
                     title="Add diagnostic" style="font-size:0.65rem;padding:1px 5px;background:var(--bg-tertiary);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer">💉</button>` : ''}
@@ -529,7 +529,7 @@
         if (stepVarMatch) {
             const _defVal = step.original_value || '';
             const _defDisplay = _defVal ? ` = "${esc(_defVal.length > 20 ? _defVal.slice(0, 20) + '…' : _defVal)}"` : '';
-            ioBadgeHtml = `<span style="font-size:0.58rem;padding:1px 5px;background:#8b5cf622;color:#8b5cf6;border-radius:3px;font-family:monospace;font-weight:600;flex-shrink:0">📥 ${esc(stepVarMatch[1])}${_defDisplay}</span>`;
+            ioBadgeHtml = `<span class="cdp-step-action-btn" data-cdp-action="io" data-cdp-step-id="${sid}" style="font-size:0.58rem;padding:1px 5px;background:#8b5cf622;color:#8b5cf6;border-radius:3px;font-family:monospace;font-weight:600;flex-shrink:0;cursor:pointer" title="Click to edit I/O config">📥 ${esc(stepVarMatch[1])}${_defDisplay}</span>`;
         } else if (step.export_as) {
             // Build capture detail: action → short label + attribute/CSS detail
             let _capDetail = '';
@@ -543,7 +543,7 @@
             else if (_act === 'capture_screenshot' || _act === 'capture_screenshot_full') _capDetail = 'screenshot';
             else if (_act === 'capture_console') _capDetail = 'console';
             const _capSuffix = _capDetail ? ` <span style="opacity:0.7">(${esc(_capDetail)})</span>` : '';
-            ioBadgeHtml = `<span style="font-size:0.58rem;padding:1px 5px;background:#22c55e22;color:#22c55e;border-radius:3px;font-family:monospace;font-weight:600;flex-shrink:0">📤 ${esc(step.export_as)}${_capSuffix}</span>`;
+            ioBadgeHtml = `<span class="cdp-step-action-btn" data-cdp-action="io" data-cdp-step-id="${sid}" style="font-size:0.58rem;padding:1px 5px;background:#22c55e22;color:#22c55e;border-radius:3px;font-family:monospace;font-weight:600;flex-shrink:0;cursor:pointer" title="Click to edit I/O config">📤 ${esc(step.export_as)}${_capSuffix}</span>`;
         }
 
         return `<div class="card-detect-row cdp-rec-step-row" style="font-size:0.78rem;display:flex;align-items:${hasDetails ? 'flex-start' : 'center'};gap:0.5rem;flex-wrap:${hasDetails ? 'wrap' : 'nowrap'}" data-step-id="${sid}" data-step-sequence="${step.sequence}">
