@@ -311,34 +311,58 @@
             const blockExecution = isFullyAutomated && totalMissing > 0;
 
             // ── Step list with I/O badges ──────────────────────────
+            // Build a map of which step produces which var for source labels
+            const _varSourceMap = {};  // varName → source label
+            for (const k of Object.keys(plan.variables || {})) _varSourceMap[k] = 'initial';
+
             let stepsHtml = '';
             for (let i = 0; i < stepList.length; i++) {
                 const s = stepList[i];
                 const io = namespaceAtStep[i];
                 const hasMissing = io.missing.length > 0;
 
-                // I/O wiring detail under each step
+                // I/O wiring detail — consumed vars with source resolution
                 let ioDetail = '';
                 if (io.consumed.length > 0 || io.produced.length > 0) {
-                    const consumedHtml = io.consumed.map(v => {
-                        const ok = !io.missing.includes(v);
-                        return `<span style="font-size:0.66rem;padding:1px 4px;border-radius:3px;background:${ok ? 'color-mix(in srgb,var(--success) 15%,transparent)' : 'color-mix(in srgb,var(--error) 15%,transparent)'}">${ok ? '✅' : '❌'} ${esc(v)}</span>`;
-                    }).join(' ');
-                    const producedHtml = io.produced.map(v =>
-                        `<span style="font-size:0.66rem;padding:1px 4px;border-radius:3px;background:color-mix(in srgb,var(--success) 15%,transparent)">📤 ${esc(v)}</span>`
-                    ).join(' ');
+                    let consumedHtml = '';
+                    if (io.consumed.length > 0) {
+                        consumedHtml = `<div style="margin-top:3px;display:flex;gap:3px;flex-wrap:wrap;align-items:center">
+                            <span style="font-size:0.60rem;color:var(--text-muted);font-weight:600">📥 needs:</span>
+                            ${io.consumed.map(v => {
+                                const ok = !io.missing.includes(v);
+                                const src = _varSourceMap[v];
+                                if (ok && src) {
+                                    return `<span style="font-size:0.64rem;padding:1px 5px;border-radius:3px;background:color-mix(in srgb,var(--success) 12%,transparent);font-family:var(--font-mono)">${esc(v)} <span style="color:var(--text-muted);font-size:0.58rem">← ${esc(src)}</span></span>`;
+                                } else {
+                                    return `<span style="font-size:0.64rem;padding:1px 5px;border-radius:3px;background:color-mix(in srgb,var(--error) 12%,transparent);color:var(--error);font-family:var(--font-mono)">❌ ${esc(v)} <span style="font-size:0.58rem">— no producer</span></span>`;
+                                }
+                            }).join(' ')}
+                        </div>`;
+                    }
 
-                    ioDetail = `<div style="margin-left:28px;margin-top:2px;display:flex;gap:4px;flex-wrap:wrap">
-                        ${consumedHtml ? `<span style="font-size:0.62rem;color:var(--text-muted)">needs:</span> ${consumedHtml}` : ''}
-                        ${producedHtml ? `<span style="font-size:0.62rem;color:var(--text-muted);${consumedHtml ? 'margin-left:6px' : ''}">outputs:</span> ${producedHtml}` : ''}
-                    </div>`;
+                    let producedHtml = '';
+                    if (io.produced.length > 0) {
+                        producedHtml = `<div style="margin-top:3px;display:flex;gap:3px;flex-wrap:wrap;align-items:center">
+                            <span style="font-size:0.60rem;color:var(--text-muted);font-weight:600">📤 outputs:</span>
+                            ${io.produced.map(v =>
+                                `<span style="font-size:0.64rem;padding:1px 5px;border-radius:3px;background:color-mix(in srgb,var(--success) 12%,transparent);font-family:var(--font-mono)">${esc(v)}</span>`
+                            ).join(' ')}
+                        </div>`;
+                    }
+
+                    ioDetail = `<div style="margin-left:28px">${consumedHtml}${producedHtml}</div>`;
                 }
 
-                // Flow arrow between steps
-                const arrow = i < stepList.length - 1 && (io.produced.length > 0)
-                    ? `<div style="margin-left:12px;color:var(--text-muted);font-size:0.64rem;line-height:1">↓</div>` : '';
+                // Flow arrow between steps — shows variable names flowing through
+                let arrow = '';
+                if (i < stepList.length - 1 && io.produced.length > 0) {
+                    const flowVars = io.produced.map(v => esc(v)).join(', ');
+                    arrow = `<div style="margin-left:16px;color:var(--text-muted);font-size:0.60rem;line-height:1;padding:2px 0">↓ <span style="font-family:var(--font-mono);font-size:0.56rem">${flowVars}</span></div>`;
+                } else if (i < stepList.length - 1) {
+                    arrow = `<div style="margin-left:16px;color:var(--border-subtle);font-size:0.60rem;line-height:1;padding:2px 0">↓</div>`;
+                }
 
-                stepsHtml += `<div style="padding:3px 0;${hasMissing ? 'border-left:2px solid var(--error);padding-left:6px' : ''}">
+                stepsHtml += `<div style="padding:5px 8px;margin:2px 0;border-radius:4px;background:${hasMissing ? 'color-mix(in srgb,var(--error) 4%,transparent)' : 'var(--bg-secondary)'};border-left:3px solid ${hasMissing ? 'var(--error)' : 'var(--border-subtle)'}">
                     <div style="display:flex;align-items:center;gap:0.5rem;font-size:0.78rem">
                         <span>${_plansStepIcon(s.type)}</span>
                         <span style="font-weight:500">${esc(s.name || s.type)}</span>
@@ -346,35 +370,47 @@
                     </div>
                     ${ioDetail}
                 </div>${arrow}`;
+
+                // After this step, register its produces for source resolution
+                for (const p of io.produced) {
+                    _varSourceMap[p] = `Step ${i + 1}`;
+                }
             }
 
-            // ── Missing inputs diagnostic ──────────────────────────
+            // ── Missing inputs — inline fill fields ──────────────────
+            // Collect unique missing variables
+            const _missingVars = new Set();
+            for (let i = 0; i < stepList.length; i++) {
+                for (const v of namespaceAtStep[i].missing) _missingVars.add(v);
+            }
+            const missingArr = [..._missingVars];
+
             let missingHtml = '';
-            if (totalMissing > 0) {
-                let missingItems = '';
-                for (let i = 0; i < stepList.length; i++) {
-                    const io = namespaceAtStep[i];
-                    if (io.missing.length > 0) {
-                        for (const v of io.missing) {
-                            missingItems += `<div style="font-size:0.72rem;padding:2px 0">
-                                Step ${i + 1} <strong>${esc(stepList[i].name || stepList[i].type)}</strong>
-                                needs <code style="background:var(--bg-tertiary);padding:1px 4px;border-radius:3px">${esc(v)}</code>
-                                — no producer, no initial value
-                            </div>`;
+            if (missingArr.length > 0) {
+                let fieldsHtml = '';
+                for (const v of missingArr) {
+                    // Find which steps need this var
+                    const neededBy = [];
+                    for (let i = 0; i < stepList.length; i++) {
+                        if (namespaceAtStep[i].missing.includes(v)) {
+                            neededBy.push(`Step ${i + 1}: ${stepList[i].name || stepList[i].type}`);
                         }
                     }
+                    fieldsHtml += `<div style="margin:4px 0;display:flex;align-items:center;gap:0.5rem">
+                        <label style="font-family:var(--font-mono);font-size:0.72rem;font-weight:600;min-width:100px">${esc(v)}</label>
+                        <input class="modal-form-input" id="plans-fill-${esc(v)}" data-fill-var="${esc(v)}"
+                            placeholder="Value for ${esc(v)}" style="flex:1;font-size:0.72rem"
+                            oninput="_plansCheckFillReady()">
+                        <span style="font-size:0.58rem;color:var(--text-muted)" title="${esc(neededBy.join(', '))}">← ${neededBy.length} step${neededBy.length !== 1 ? 's' : ''}</span>
+                    </div>`;
                 }
 
                 const severity = isFullyAutomated ? 'error' : 'warning';
-                const icon = isFullyAutomated ? '❌' : '⚠️';
-                missingHtml = `<div style="margin-top:var(--space-sm);padding:0.5rem;border-radius:6px;border:1px solid var(--${severity});background:color-mix(in srgb,var(--${severity}) 8%,transparent)">
-                    <div style="font-size:0.76rem;font-weight:600;color:var(--${severity})">${icon} ${totalMissing} input${totalMissing !== 1 ? 's' : ''} cannot be satisfied</div>
-                    ${missingItems}
-                    <div style="font-size:0.68rem;color:var(--text-muted);margin-top:4px">
-                        ${isFullyAutomated
-                            ? '💡 Add missing values to Initial Variables, or switch to <strong>semi_automated</strong>/<strong>interactive</strong> mode to fill them at runtime.'
-                            : '💡 These will need to be provided at runtime pause points.'}
-                    </div>
+                const icon = isFullyAutomated ? '🔧' : '⚠️';
+                missingHtml = `<div style="margin-top:var(--space-sm);padding:0.5rem;border-radius:6px;border:1px solid var(--${severity});background:color-mix(in srgb,var(--${severity}) 6%,transparent)">
+                    <div style="font-size:0.76rem;font-weight:600;color:var(--${severity})">${icon} ${missingArr.length} input${missingArr.length !== 1 ? 's' : ''} need${missingArr.length === 1 ? 's' : ''} a value</div>
+                    <div style="font-size:0.66rem;color:var(--text-muted);margin:4px 0">${isFullyAutomated ? 'Fill all fields to unlock execution, or go back and add to Initial Variables.' : 'Fill now or provide at runtime pause points.'}</div>
+                    ${fieldsHtml}
                 </div>`;
             } else if (stepList.some((_, i) => namespaceAtStep[i].consumed.length > 0)) {
                 missingHtml = `<div style="margin-top:var(--space-sm);font-size:0.72rem;color:var(--success)">✅ All required inputs satisfied</div>`;
@@ -409,8 +445,8 @@
                 size: 'wide',
                 footerButtons: [
                     { label: '← Back', cls: 'btn-secondary', onclick: '_plansRenderHome()' },
-                    blockExecution
-                        ? { label: '🚫 Cannot Execute — Missing Inputs', cls: 'btn-secondary', disabled: true }
+                    (blockExecution && missingArr.length > 0)
+                        ? { label: '▶ Execute', cls: 'btn-primary', onclick: `_plansDoRun('${esc(planId)}')`, id: 'plans-exec-btn', disabled: true }
                         : { label: '▶ Execute', cls: 'btn-primary', onclick: `_plansDoRun('${esc(planId)}')` },
                 ],
             });
@@ -423,8 +459,18 @@
     async function _plansDoRun(planId) {
         modalStatus('Starting plan…', 'info');
 
+        // Collect any filled-in missing variable values
+        const fillOverrides = {};
+        document.querySelectorAll('[data-fill-var]').forEach(inp => {
+            const name = inp.getAttribute('data-fill-var');
+            const val = inp.value.trim();
+            if (name && val) fillOverrides[name] = val;
+        });
+        const hasOverrides = Object.keys(fillOverrides).length > 0;
+
         try {
-            const data = await apiPost(`/plans/${planId}/execute`);
+            const body = hasOverrides ? { variables: fillOverrides } : undefined;
+            const data = await apiPost(`/plans/${planId}/execute`, body);
 
             if (!data.ok) {
                 modalStatus(data.error || 'Failed to start', 'error');
@@ -436,6 +482,18 @@
 
         } catch (e) {
             modalStatus(`Error: ${e.message}`, 'error');
+        }
+    }
+
+    /** Check if all fill fields have values; enable/disable execute button */
+    function _plansCheckFillReady() {
+        const fillInputs = document.querySelectorAll('[data-fill-var]');
+        const allFilled = [...fillInputs].every(inp => inp.value.trim() !== '');
+        const execBtn = document.getElementById('plans-exec-btn');
+        if (execBtn) {
+            execBtn.disabled = !allFilled;
+            execBtn.classList.toggle('btn-secondary', !allFilled);
+            execBtn.classList.toggle('btn-primary', allFilled);
         }
     }
 
@@ -548,6 +606,75 @@
             </div>
         </div>`;
 
+        // ── I/O Summary ──
+        const _ioAllProduces = [];  // {name, source}
+        const _ioAllConsumes = [];  // {name, source, satisfied}
+        const _ioAvail = {};
+        for (const k of Object.keys(_plansEditorVars || {})) _ioAvail[k] = 'Initial variables';
+        for (let idx = 0; idx < _plansEditorSteps.length; idx++) {
+            const st = _plansEditorSteps[idx];
+            const stepLabel = `Step ${idx + 1}: ${st.name || st.type}`;
+            for (const c of (st.consumes || [])) {
+                _ioAllConsumes.push({ name: c, step: stepLabel, satisfied: !!_ioAvail[c], source: _ioAvail[c] || null });
+            }
+            for (const p of (st.produces || [])) {
+                _ioAllProduces.push({ name: p, step: stepLabel });
+                _ioAvail[p] = stepLabel;
+            }
+        }
+        const hasAnyIO = _ioAllProduces.length > 0 || _ioAllConsumes.length > 0;
+        const missingCount = _ioAllConsumes.filter(c => !c.satisfied).length;
+
+        body += `<div style="border-top:1px solid var(--border-subtle);padding-top:var(--space-sm);margin-bottom:var(--space-sm)">
+            <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:var(--space-xs)">
+                <div style="font-size:0.78rem;font-weight:600;color:var(--text-secondary)">I/O Summary</div>
+                ${missingCount > 0 ? `<span style="font-size:0.62rem;padding:1px 6px;background:rgba(239,68,68,0.12);color:var(--error);border-radius:8px;font-weight:600">${missingCount} missing</span>` : ''}
+                ${hasAnyIO && missingCount === 0 ? '<span style="font-size:0.62rem;padding:1px 6px;background:rgba(34,197,94,0.12);color:var(--success);border-radius:8px">✅ all wired</span>' : ''}
+            </div>`;
+
+        if (!hasAnyIO) {
+            body += `<div style="font-size:0.72rem;color:var(--text-muted);padding:6px">No I/O detected. Steps have no declared inputs or outputs.</div>`;
+        } else {
+            body += `<div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem;font-size:0.70rem">`;
+
+            // Left: Consumed (inputs needed)
+            body += `<div style="border:1px solid var(--border-subtle);border-radius:6px;padding:6px;max-height:140px;overflow-y:auto">
+                <div style="font-weight:600;color:var(--info);margin-bottom:4px;font-size:0.68rem">📥 Inputs Needed (${_ioAllConsumes.length})</div>`;
+            if (_ioAllConsumes.length === 0) {
+                body += `<div style="color:var(--text-muted)">No inputs consumed</div>`;
+            } else {
+                for (const c of _ioAllConsumes) {
+                    const icon = c.satisfied ? '✅' : '❌';
+                    const srcLabel = c.satisfied ? `← ${c.source}` : '— no producer';
+                    const color = c.satisfied ? 'var(--text-secondary)' : 'var(--error)';
+                    body += `<div style="margin:2px 0;color:${color}">
+                        ${icon} <strong style="font-family:var(--font-mono)">${esc(c.name)}</strong>
+                        <span style="color:var(--text-muted);font-size:0.62rem">${esc(srcLabel)}</span>
+                        <span style="color:var(--text-muted);font-size:0.58rem;display:block;margin-left:18px">${esc(c.step)}</span>
+                    </div>`;
+                }
+            }
+            body += `</div>`;
+
+            // Right: Produced (outputs)
+            body += `<div style="border:1px solid var(--border-subtle);border-radius:6px;padding:6px;max-height:140px;overflow-y:auto">
+                <div style="font-weight:600;color:var(--success);margin-bottom:4px;font-size:0.68rem">📤 Outputs Produced (${_ioAllProduces.length})</div>`;
+            if (_ioAllProduces.length === 0) {
+                body += `<div style="color:var(--text-muted)">No outputs declared</div>`;
+            } else {
+                for (const p of _ioAllProduces) {
+                    body += `<div style="margin:2px 0">
+                        <strong style="font-family:var(--font-mono)">${esc(p.name)}</strong>
+                        <span style="color:var(--text-muted);font-size:0.62rem">← ${esc(p.step)}</span>
+                    </div>`;
+                }
+            }
+            body += `</div>`;
+
+            body += `</div>`;
+        }
+        body += `</div>`;
+
         // ── Variables ──
         body += `<div style="border-top:1px solid var(--border-subtle);padding-top:var(--space-sm)">
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-xs)">
@@ -574,6 +701,13 @@
 
     function _plansRenderEditorSteps() {
         let html = '';
+        // Build running available-vars map for upstream resolution
+        // Start with plan initial variables
+        const availableVars = {};  // varName → source label
+        for (const k of Object.keys(_plansEditorVars || {})) {
+            availableVars[k] = 'initial';
+        }
+
         for (let i = 0; i < _plansEditorSteps.length; i++) {
             const s = _plansEditorSteps[i];
             const icon = _plansStepIcon(s.type);
@@ -590,16 +724,37 @@
                 detail = `<span style="color:var(--text-muted)">${esc(s.checkpoint_message || '(no message)')}</span>`;
             }
 
+            // Named I/O badges with upstream resolution
+            let ioBadges = '';
+            const produces = s.produces || [];
+            const consumes = s.consumes || [];
+            if (produces.length > 0) {
+                const names = produces.map(v =>
+                    `<span style="font-family:var(--font-mono);font-size:0.56rem;padding:0 3px;background:var(--bg-tertiary);border-radius:2px">${esc(v)}</span>`
+                ).join(' ');
+                ioBadges += `<span style="font-size:0.58rem;padding:1px 5px;background:color-mix(in srgb,var(--success) 15%,transparent);border-radius:8px;display:inline-flex;align-items:center;gap:2px;flex-wrap:wrap">📤 ${names}</span>`;
+            }
+            if (consumes.length > 0) {
+                const pills = consumes.map(v => {
+                    const src = availableVars[v];
+                    if (src) {
+                        return `<span style="font-family:var(--font-mono);font-size:0.56rem;padding:0 3px;background:var(--bg-tertiary);border-radius:2px" title="${esc(v)} ← ${esc(src)}">${esc(v)} <span style="color:var(--text-muted)">← ${esc(src === 'initial' ? 'init' : src)}</span></span>`;
+                    } else {
+                        return `<span style="font-family:var(--font-mono);font-size:0.56rem;padding:0 3px;background:rgba(239,68,68,0.12);border-radius:2px;color:var(--error)" title="${esc(v)} — no producer found">❌${esc(v)}</span>`;
+                    }
+                }).join(' ');
+                ioBadges += `<span style="font-size:0.58rem;padding:1px 5px;background:color-mix(in srgb,var(--info) 15%,transparent);border-radius:8px;display:inline-flex;align-items:center;gap:2px;flex-wrap:wrap">📥 ${pills}</span>`;
+            }
+
             html += `<div class="card-detect-row" style="display:flex;align-items:center;gap:0.5rem;padding:4px 6px;font-size:0.78rem">
                 <span style="flex-shrink:0;width:22px;text-align:center;color:var(--text-muted);font-size:0.68rem">${i + 1}</span>
                 <span style="flex-shrink:0">${icon}</span>
                 <div style="flex:1;min-width:0">
-                    <div style="display:flex;align-items:center;gap:0.5rem">
+                    <div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap">
                         <strong style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(s.name || s.type)}</strong>
                         ${detail}
                         ${s.optional ? '<span style="font-size:0.58rem;padding:1px 5px;background:var(--bg-tertiary);border-radius:8px">optional</span>' : ''}
-                        ${(s.produces || []).length > 0 ? `<span style="font-size:0.58rem;padding:1px 5px;background:color-mix(in srgb,var(--success) 20%,transparent);border-radius:8px" title="Produces: ${(s.produces || []).join(', ')}">📤${s.produces.length}</span>` : ''}
-                        ${(s.consumes || []).length > 0 ? `<span style="font-size:0.58rem;padding:1px 5px;background:color-mix(in srgb,var(--info) 20%,transparent);border-radius:8px" title="Consumes: ${(s.consumes || []).join(', ')}">📥${s.consumes.length}</span>` : ''}
+                        ${ioBadges}
                     </div>
                 </div>
                 <div style="display:flex;gap:0.2rem;flex-shrink:0">
@@ -609,6 +764,11 @@
                     <button class="btn btn-xs btn-secondary" onclick="_plansRemoveStep(${i})" title="Remove" style="color:var(--error)">✕</button>
                 </div>
             </div>`;
+
+            // After rendering this step, add its produces to available vars
+            for (const p of produces) {
+                availableVars[p] = `Step ${i + 1}`;
+            }
         }
         return html;
     }
@@ -678,8 +838,8 @@
         }
     }
 
-    function _plansPickScript(scriptId, scriptName) {
-        _plansEditorSteps.push({
+    async function _plansPickScript(scriptId, scriptName) {
+        const newStep = {
             id: crypto.randomUUID(),
             sequence: _plansEditorSteps.length + 1,
             type: 'script',
@@ -692,9 +852,35 @@
             optional: false,
             produces: [],
             consumes: [],
-        });
+        };
+        _plansEditorSteps.push(newStep);
         // Return to editor — reconstruct plan from current form values
         _plansReturnToEditor();
+
+        // Fetch script metadata to auto-populate I/O
+        const meta = await _plansFetchScriptMeta(scriptId);
+        if (meta) {
+            // produces = declared output variable names
+            if (meta.outputs && meta.outputs.length > 0) {
+                newStep.produces = meta.outputs.map(o => o.name);
+            }
+            // consumes = required parameter names (optional params have defaults)
+            if (meta.parameters && meta.parameters.length > 0) {
+                newStep.consumes = meta.parameters
+                    .filter(p => p.required)
+                    .map(p => p.name);
+                // Pre-fill script_params with defaults
+                for (const p of meta.parameters) {
+                    if (p.default !== undefined && p.default !== null && p.default !== '') {
+                        if (!(p.name in newStep.script_params)) {
+                            newStep.script_params[p.name] = String(p.default);
+                        }
+                    }
+                }
+            }
+            // Re-render step list to show updated badges
+            _plansRefreshEditorSteps();
+        }
     }
 
     // ── Add CDP Test Step (inline picker) ─────────────────────────────
@@ -732,8 +918,8 @@
         }
     }
 
-    function _plansPickSuite(suiteId, suiteName) {
-        _plansEditorSteps.push({
+    async function _plansPickSuite(suiteId, suiteName) {
+        const newStep = {
             id: crypto.randomUUID(),
             sequence: _plansEditorSteps.length + 1,
             type: 'cdp_test',
@@ -746,8 +932,30 @@
             optional: false,
             produces: [],
             consumes: [],
-        });
+        };
+        _plansEditorSteps.push(newStep);
         _plansReturnToEditor();
+
+        // Fetch suite metadata to auto-populate I/O
+        const suite = await _plansFetchSuiteMeta(suiteId);
+        if (suite) {
+            // produces = declared output variable names
+            if (suite.outputs && Object.keys(suite.outputs).length > 0) {
+                newStep.produces = Object.keys(suite.outputs);
+            }
+            // consumes = declared input variable names
+            if (suite.variables && Object.keys(suite.variables).length > 0) {
+                newStep.consumes = Object.keys(suite.variables);
+                // Pre-fill suite_variables with defaults from suite declarations
+                for (const [k, v] of Object.entries(suite.variables)) {
+                    if (!(k in newStep.suite_variables)) {
+                        newStep.suite_variables[k] = v;
+                    }
+                }
+            }
+            // Re-render step list to show updated badges
+            _plansRefreshEditorSteps();
+        }
     }
 
     // ── Add Checkpoint Step ───────────────────────────────────────────
@@ -830,6 +1038,25 @@
             <option value="">← use variable</option>${options}</select>`;
     }
 
+    /** Re-derive produces/consumes on a step from fresh metadata (cache already cleared) */
+    async function _plansRefreshStepIO(index, stepType) {
+        const s = _plansEditorSteps[index];
+        if (!s) return;
+        if (stepType === 'cdp_test' && s.suite_id) {
+            const suite = await _plansFetchSuiteMeta(s.suite_id);
+            if (suite) {
+                s.produces = suite.outputs ? Object.keys(suite.outputs) : [];
+                s.consumes = suite.variables ? Object.keys(suite.variables) : [];
+            }
+        } else if (stepType === 'script' && s.script_id) {
+            const meta = await _plansFetchScriptMeta(s.script_id);
+            if (meta) {
+                s.produces = meta.outputs ? meta.outputs.map(o => o.name) : [];
+                s.consumes = meta.parameters ? meta.parameters.filter(p => p.required).map(p => p.name) : [];
+            }
+        }
+    }
+
     async function _plansEditStep(index) {
         _plansCaptureEditorState();
         const s = _plansEditorSteps[index];
@@ -840,6 +1067,9 @@
 
         if (s.type === 'script') {
             body += modalFormField({ name: 'step-script-id', label: 'Script ID', value: s.script_id || '', placeholder: 'e.g. audit-docker' });
+            body += `<div style="margin:-4px 0 6px"><button class="btn btn-xs btn-secondary" type="button"
+                onclick="delete _plansMetaCache.scripts['${esc(s.script_id)}']; _plansRefreshStepIO(${index}, 'script'); _plansEditStep(${index});"
+                style="font-size:0.62rem">🔄 Refresh metadata</button></div>`;
 
             // Fetch script metadata for typed fields
             const meta = s.script_id ? await _plansFetchScriptMeta(s.script_id) : null;
@@ -914,7 +1144,12 @@
 
         } else if (s.type === 'cdp_test') {
             body += `<div class="modal-form-group"><label class="modal-form-label">Suite ID</label>
-                <div style="font-size:0.78rem;font-family:var(--font-mono);padding:4px 6px;background:var(--bg-tertiary);border-radius:4px">${esc(s.suite_id || 'N/A')}</div></div>`;
+                <div style="display:flex;align-items:center;gap:0.5rem">
+                    <div style="font-size:0.78rem;font-family:var(--font-mono);padding:4px 6px;background:var(--bg-tertiary);border-radius:4px;flex:1">${esc(s.suite_id || 'N/A')}</div>
+                    <button class="btn btn-xs btn-secondary" type="button"
+                        onclick="delete _plansMetaCache.suites['${esc(s.suite_id)}']; _plansRefreshStepIO(${index}, 'cdp_test'); _plansEditStep(${index});"
+                        style="font-size:0.62rem;flex-shrink:0">🔄 Refresh</button>
+                </div></div>`;
 
             // Fetch suite metadata for typed variable fields
             const suite = s.suite_id ? await _plansFetchSuiteMeta(s.suite_id) : null;
@@ -959,8 +1194,47 @@
         }
 
         body += modalFormField({ name: 'step-optional', label: 'Optional (failure won\'t fail the plan)', type: 'checkbox', value: s.optional });
-        body += modalFormField({ name: 'step-produces', label: 'Produces (comma-separated)', value: (s.produces || []).join(', '), placeholder: 'VAR_A, VAR_B' });
-        body += modalFormField({ name: 'step-consumes', label: 'Consumes (comma-separated)', value: (s.consumes || []).join(', '), placeholder: 'PREV_VAR' });
+
+        // ── I/O Summary (auto-derived, with override option) ──────────
+        const autoProduces = s.produces || [];
+        const autoConsumes = s.consumes || [];
+        const hasIO = autoProduces.length > 0 || autoConsumes.length > 0;
+
+        body += `<div class="modal-form-group" style="margin-top:8px;border-top:1px solid var(--border);padding-top:8px">
+            <label class="modal-form-label">I/O Variables</label>`;
+
+        if (hasIO) {
+            if (autoProduces.length > 0) {
+                body += `<div style="font-size:0.72rem;margin:4px 0;padding:4px 8px;background:color-mix(in srgb,var(--success) 10%,transparent);border-radius:4px;border-left:3px solid var(--success)">
+                    <strong style="color:var(--success)">📤 Produces:</strong>
+                    ${autoProduces.map(v => `<span style="font-family:var(--font-mono);padding:1px 4px;background:var(--bg-tertiary);border-radius:3px;margin:0 2px">${esc(v)}</span>`).join('')}
+                    <span style="color:var(--text-muted);font-size:0.64rem;margin-left:4px">(from ${s.type === 'cdp_test' ? 'suite' : 'script'} declarations)</span>
+                </div>`;
+            }
+            if (autoConsumes.length > 0) {
+                body += `<div style="font-size:0.72rem;margin:4px 0;padding:4px 8px;background:color-mix(in srgb,var(--info) 10%,transparent);border-radius:4px;border-left:3px solid var(--info)">
+                    <strong style="color:var(--info)">📥 Consumes:</strong>
+                    ${autoConsumes.map(v => `<span style="font-family:var(--font-mono);padding:1px 4px;background:var(--bg-tertiary);border-radius:3px;margin:0 2px">${esc(v)}</span>`).join('')}
+                </div>`;
+            }
+        } else {
+            body += `<div style="font-size:0.68rem;color:var(--text-muted);margin:4px 0">No declared I/O. Add suite variables or script @output declarations to enable auto-wiring.</div>`;
+        }
+
+        // Override toggle — reveals editable fields for advanced users
+        body += `<div style="margin-top:6px">
+            <label style="font-size:0.68rem;cursor:pointer;color:var(--text-muted);display:flex;align-items:center;gap:4px">
+                <input type="checkbox" id="mf-io-override" onchange="document.getElementById('plans-io-override-fields').style.display=this.checked?'block':'none'">
+                ✏️ Override I/O manually
+            </label>
+            <div id="plans-io-override-fields" style="display:none;margin-top:4px">
+                <div style="margin:3px 0"><label style="font-size:0.68rem;font-weight:500">Produces</label>
+                    <input id="mf-step-produces" class="modal-form-input" value="${esc((s.produces || []).join(', '))}" placeholder="VAR_A, VAR_B" style="font-size:0.72rem"></div>
+                <div style="margin:3px 0"><label style="font-size:0.68rem;font-weight:500">Consumes</label>
+                    <input id="mf-step-consumes" class="modal-form-input" value="${esc((s.consumes || []).join(', '))}" placeholder="PREV_VAR" style="font-size:0.72rem"></div>
+            </div>
+        </div>
+        </div>`;
 
         modalOpen({
             title: `${_plansStepIcon(s.type)} Edit Step: ${esc(s.name || s.type)}`,
@@ -978,11 +1252,15 @@
         s.name = mfVal('step-name') || s.name;
         s.optional = mfVal('step-optional');
 
-        // Parse produces/consumes
-        const prodStr = mfVal('step-produces');
-        s.produces = prodStr ? prodStr.split(',').map(v => v.trim()).filter(Boolean) : [];
-        const consStr = mfVal('step-consumes');
-        s.consumes = consStr ? consStr.split(',').map(v => v.trim()).filter(Boolean) : [];
+        // Parse produces/consumes — only use override fields if toggle is checked
+        const ioOverride = document.getElementById('mf-io-override');
+        if (ioOverride && ioOverride.checked) {
+            const prodStr = mfVal('step-produces');
+            s.produces = prodStr ? prodStr.split(',').map(v => v.trim()).filter(Boolean) : [];
+            const consStr = mfVal('step-consumes');
+            s.consumes = consStr ? consStr.split(',').map(v => v.trim()).filter(Boolean) : [];
+        }
+        // If override is NOT checked, keep produces/consumes as-is (auto-derived from pick)
 
         if (s.type === 'script') {
             s.script_id = mfVal('step-script-id') || s.script_id;
@@ -1385,29 +1663,45 @@
             // Variable trace: initial → per-step → final
             const finalVars = result.variables || {};
             const finalKeys = Object.keys(finalVars);
-            if (finalKeys.length > 0 || steps.some(s => Object.keys(s.variables_produced || {}).length > 0)) {
+            const totalProduced = steps.reduce((sum, s) => sum + Object.keys(s.variables_produced || {}).length, 0);
+            if (finalKeys.length > 0 || totalProduced > 0) {
                 body += `<div style="margin-top:var(--space-sm)">`;
-                body += `<div style="font-size:0.72rem;font-weight:600;color:var(--text-secondary);margin-bottom:4px;cursor:pointer" onclick="var el=document.getElementById('plans-result-vars');el.style.display=el.style.display==='none'?'block':'none'">Variables ▾</div>`;
-                body += `<div id="plans-result-vars" style="font-size:0.70rem;font-family:var(--font-mono);background:var(--bg-tertiary);padding:0.5rem;border-radius:4px;max-height:180px;overflow-y:auto">`;
+                body += `<div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:4px;cursor:pointer" onclick="var el=document.getElementById('plans-result-vars');el.style.display=el.style.display==='none'?'block':'none'">`;
+                body += `<div style="font-size:0.72rem;font-weight:600;color:var(--text-secondary)">Variable Trace ▾</div>`;
+                body += `<span style="font-size:0.60rem;padding:1px 5px;background:color-mix(in srgb,#8b5cf6 12%,transparent);border-radius:8px;color:#8b5cf6">${totalProduced} produced → ${finalKeys.length} final</span>`;
+                body += `</div>`;
+                body += `<div id="plans-result-vars" style="font-size:0.70rem;background:var(--bg-tertiary);padding:0.5rem;border-radius:4px;max-height:200px;overflow-y:auto">`;
 
-                // Per-step variable trace
-                let accumulated = {};
-                for (const s of steps) {
-                    const produced = s.variables_produced || {};
-                    const prodKeys = Object.keys(produced);
-                    if (prodKeys.length > 0) {
-                        body += `<div style="color:var(--text-muted);font-size:0.62rem;margin:4px 0 2px 0;border-top:1px solid var(--border-subtle);padding-top:3px">← ${esc(s.step_name || s.step_type)}</div>`;
-                        for (const k of prodKeys) {
-                            body += `<div><strong style="color:#8b5cf6">${esc(k)}</strong> = ${_plansFormatValue(produced[k])}</div>`;
-                            accumulated[k] = produced[k];
+                // Per-step variable trace with styled headers
+                const _varOrigin = {};  // track which step produced each var
+                for (let si = 0; si < steps.length; si++) {
+                    const s = steps[si];
+                    const stepProduced = s.variables_produced || {};
+                    const stepProdKeys = Object.keys(stepProduced);
+                    if (stepProdKeys.length > 0) {
+                        body += `<div style="color:var(--text-muted);font-size:0.60rem;margin:6px 0 3px 0;border-top:1px solid var(--border-subtle);padding-top:4px;display:flex;align-items:center;gap:4px">`;
+                        body += `<span>${_plansStepIcon(s.step_type)}</span>`;
+                        body += `<strong>${esc(s.step_name || s.step_type)}</strong>`;
+                        body += `<span style="font-size:0.56rem;padding:0 4px;background:var(--bg-secondary);border-radius:3px">${stepProdKeys.length} var${stepProdKeys.length !== 1 ? 's' : ''}</span>`;
+                        body += `</div>`;
+                        for (const k of stepProdKeys) {
+                            body += `<div style="font-family:var(--font-mono);margin:2px 0 2px 20px">`;
+                            body += `<strong style="color:#8b5cf6">${esc(k)}</strong>`;
+                            body += ` = ${_plansFormatValue(stepProduced[k])}`;
+                            body += `</div>`;
+                            _varOrigin[k] = `Step ${si + 1}: ${s.step_name || s.step_type}`;
                         }
                     }
                 }
 
-                // Final accumulated
-                body += `<div style="color:var(--text-muted);font-size:0.62rem;margin:6px 0 2px 0;border-top:1px solid var(--border-subtle);padding-top:3px">Final namespace</div>`;
+                // Final namespace with origin
+                body += `<div style="color:var(--text-muted);font-size:0.60rem;margin:8px 0 3px 0;border-top:2px solid var(--border);padding-top:4px"><strong>Final Namespace</strong></div>`;
                 for (const k of finalKeys) {
-                    body += `<div><strong>${esc(k)}</strong> = ${_plansFormatValue(finalVars[k])}</div>`;
+                    const origin = _varOrigin[k];
+                    body += `<div style="font-family:var(--font-mono);margin:2px 0 2px 4px">`;
+                    body += `<strong>${esc(k)}</strong> = ${_plansFormatValue(finalVars[k])}`;
+                    if (origin) body += ` <span style="font-size:0.56rem;color:var(--text-muted)">← ${esc(origin)}</span>`;
+                    body += `</div>`;
                 }
                 body += `</div></div>`;
             }
@@ -1461,14 +1755,16 @@
         const statusIcon = _plansStatusIcon(step.status);
         const dur = step.duration_ms != null ? `${(step.duration_ms / 1000).toFixed(1)}s` : '';
 
-        // Variables produced badge
+        // Variables produced badge — styled pills with values
         let varsBadge = '';
         const produced = step.variables_produced || {};
         const prodKeys = Object.keys(produced);
         if (prodKeys.length > 0) {
-            const varSummary = prodKeys.map(k => `${k}=${_plansFormatValueShort(produced[k])}`).join(', ');
-            const short = varSummary.length > 60 ? varSummary.slice(0, 57) + '…' : varSummary;
-            varsBadge = `<div style="font-size:0.62rem;color:#8b5cf6;margin-top:2px">📤 ${esc(short)}</div>`;
+            const pills = prodKeys.map(k => {
+                const val = _plansFormatValueShort(produced[k]);
+                return `<span style="font-family:var(--font-mono);font-size:0.58rem;padding:1px 4px;background:color-mix(in srgb,#8b5cf6 10%,transparent);border-radius:3px;margin:0 1px">${esc(k)}<span style="color:var(--text-muted)">=${esc(val)}</span></span>`;
+            }).join(' ');
+            varsBadge = `<div style="font-size:0.62rem;color:#8b5cf6;margin-top:2px;display:flex;gap:2px;flex-wrap:wrap;align-items:center">📤 ${pills}</div>`;
         }
 
         // Error message
@@ -2033,12 +2329,17 @@
                             html += `<div style="font-size:0.68rem;margin:2px 0">Needs: `;
                             for (const c of nextConsumes) {
                                 const ok = c in vars;
-                                html += `<span style="padding:1px 4px;border-radius:3px;font-size:0.66rem;background:${ok ? 'color-mix(in srgb,var(--success) 15%,transparent)' : 'color-mix(in srgb,var(--error) 15%,transparent)'}">${ok ? '✅' : '❌'} ${esc(c)}</span> `;
+                                if (ok) {
+                                    // Show source: check if it was produced by a particular step or initial
+                                    html += `<span style="padding:1px 5px;border-radius:3px;font-size:0.64rem;background:color-mix(in srgb,var(--success) 12%,transparent);font-family:var(--font-mono)">✅ ${esc(c)} <span style="color:var(--text-muted);font-size:0.58rem">← in namespace</span></span> `;
+                                } else {
+                                    html += `<span style="padding:1px 5px;border-radius:3px;font-size:0.64rem;background:color-mix(in srgb,var(--error) 12%,transparent);color:var(--error);font-family:var(--font-mono)">❌ ${esc(c)} <span style="font-size:0.58rem">— add below</span></span> `;
+                                }
                             }
                             html += `</div>`;
                         }
                         if (nextProduces.length > 0) {
-                            html += `<div style="font-size:0.68rem;margin:2px 0;color:var(--text-muted)">Will produce: ${nextProduces.map(p => '📤 ' + esc(p)).join(', ')}</div>`;
+                            html += `<div style="font-size:0.68rem;margin:2px 0;color:var(--text-muted)">Will produce: ${nextProduces.map(p => '<span style="font-family:var(--font-mono);padding:1px 4px;background:var(--bg-tertiary);border-radius:3px">📤 ' + esc(p) + '</span>').join(' ')}</div>`;
                         }
                         html += `</div>`;
                     }
@@ -2046,22 +2347,31 @@
                     // ── Editable namespace ──
                     const vars = d.variables || {};
                     const varKeys = Object.keys(vars);
+                    const newlyProduced = Object.keys(produced);
+
+                    html += `<div style="margin:0.5rem 0" id="plans-pause-ns">
+                        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+                            <div style="font-size:0.72rem;font-weight:600">🔧 Namespace (editable)</div>
+                            <button class="btn btn-xs btn-secondary" onclick="_plansAddPauseVar()" style="font-size:0.60rem">+ Add Variable</button>
+                        </div>
+                        <div style="max-height:150px;overflow-y:auto;border:1px solid var(--border-subtle);border-radius:4px;padding:4px" id="plans-pause-ns-list">`;
                     if (varKeys.length > 0) {
-                        html += `<div style="margin:0.5rem 0" id="plans-pause-ns">
-                            <div style="font-size:0.72rem;font-weight:600;margin-bottom:4px">🔧 Namespace (editable)</div>
-                            <div style="max-height:150px;overflow-y:auto;border:1px solid var(--border-subtle);border-radius:4px;padding:4px">`;
                         for (const [k, v] of Object.entries(vars)) {
                             const display = typeof v === 'object' ? JSON.stringify(v) : String(v);
+                            const isNew = newlyProduced.includes(k);
                             html += `<div style="display:flex;align-items:center;gap:4px;margin:2px 0;font-size:0.72rem">
+                                ${isNew ? '<span style="color:var(--success);font-size:0.60rem" title="Newly produced">●</span>' : '<span style="width:8px"></span>'}
                                 <span style="font-weight:500;min-width:80px;font-family:var(--font-mono)">${esc(k)}</span>
                                 <input data-ns-key="${esc(k)}" class="modal-form-input" value="${esc(display)}"
                                     style="font-size:0.7rem;padding:2px 4px;flex:1">
                             </div>`;
                         }
-                        html += `</div>
-                            <div style="font-size:0.62rem;color:var(--text-muted);margin-top:2px">Edit values above before resuming. Changes will apply to subsequent steps.</div>
-                        </div>`;
+                    } else {
+                        html += `<div style="font-size:0.68rem;color:var(--text-muted);padding:4px">No variables in namespace yet.</div>`;
                     }
+                    html += `</div>
+                        <div style="font-size:0.62rem;color:var(--text-muted);margin-top:2px">Edit values or add new variables before resuming. Changes apply to subsequent steps.</div>
+                    </div>`;
 
                     container.insertAdjacentHTML('beforeend', html);
                     container.scrollTop = container.scrollHeight;
@@ -2255,12 +2565,41 @@
         }
     }
 
+
     async function _plansResumeRun(runId) {
         try {
             await apiPost(`/plans/run/${runId}/resume`);
         } catch (e) {
             toast(`Resume failed: ${e.message}`, 'error');
         }
+    }
+
+    /** Add a new variable row to the pause namespace editor */
+    function _plansAddPauseVar() {
+        const list = document.getElementById('plans-pause-ns-list');
+        if (!list) return;
+        // Remove "no variables" placeholder if present
+        const placeholder = list.querySelector('div[style*="color:var(--text-muted)"]');
+        if (placeholder && placeholder.textContent.includes('No variables')) placeholder.remove();
+        // Find a unique name
+        let idx = 1;
+        while (document.querySelector(`[data-ns-key="NEW_VAR_${idx}"]`)) idx++;
+        const name = `NEW_VAR_${idx}`;
+        const row = document.createElement('div');
+        row.style.cssText = 'display:flex;align-items:center;gap:4px;margin:2px 0;font-size:0.72rem';
+        row.innerHTML = `
+            <span style="color:var(--info);font-size:0.60rem" title="New variable">+</span>
+            <input data-ns-newkey class="modal-form-input" value="${esc(name)}"
+                style="font-size:0.7rem;padding:2px 4px;min-width:80px;max-width:120px;font-family:var(--font-mono);font-weight:500">
+            <input data-ns-key="${esc(name)}" class="modal-form-input" placeholder="value"
+                style="font-size:0.7rem;padding:2px 4px;flex:1"
+                onfocus="this.setAttribute('data-ns-key', this.previousElementSibling.value.trim())">
+            <button class="btn btn-xs btn-secondary" onclick="this.parentElement.remove()"
+                style="color:var(--error);font-size:0.60rem" title="Remove">✕</button>
+        `;
+        list.appendChild(row);
+        // Focus the name field
+        row.querySelector('[data-ns-newkey]').select();
     }
 
     async function _plansResumeWithVars(runId) {
@@ -2270,6 +2609,8 @@
         if (nsInputs.length > 0) {
             variables = {};
             nsInputs.forEach(inp => {
+                // Skip new-var rows — handled below
+                if (inp.previousElementSibling && inp.previousElementSibling.hasAttribute('data-ns-newkey')) return;
                 const key = inp.getAttribute('data-ns-key');
                 let val = inp.value;
                 // Try parsing JSON values back to objects
@@ -2277,6 +2618,23 @@
                     try { val = JSON.parse(val); } catch (_) { /* keep as string */ }
                 }
                 variables[key] = val;
+            });
+        }
+
+        // Collect newly added variables (key from data-ns-newkey, value from sibling)
+        const newKeyInputs = document.querySelectorAll('[data-ns-newkey]');
+        if (newKeyInputs.length > 0) {
+            if (!variables) variables = {};
+            newKeyInputs.forEach(keyInp => {
+                const key = keyInp.value.trim();
+                const valInp = keyInp.nextElementSibling;
+                if (key && valInp) {
+                    let val = valInp.value;
+                    if (val.startsWith('{') || val.startsWith('[')) {
+                        try { val = JSON.parse(val); } catch (_) {}
+                    }
+                    variables[key] = val;
+                }
             });
         }
 
