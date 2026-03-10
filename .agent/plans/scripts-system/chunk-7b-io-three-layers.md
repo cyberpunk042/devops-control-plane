@@ -1,558 +1,557 @@
-# CDP Test I/O — Complete Implementation Plan (Corrected)
+# CDP Test I/O — Complete System Design (From Scratch)
 
-> This plan replaces all previous I/O plans. The I/O model was corrected
-> after the original implementation used a wrong understanding of INPUT
-> and OUTPUT. This plan includes the correct model, damage assessment
-> of what was built wrong, and the complete implementation to the end.
+> Revolution. Not patching. This document defines what the I/O system IS,
+> from first principles. Everything currently in place is replaced.
 
 ---
 
-## Part 1: The I/O Model
+## The I/O System
 
-Two concepts. Determined by step type. No choice, no toggle.
+Suites have **INPUTS** — parameters they accept before running.
+Suites have **OUTPUTS** — values they produce after running.
+Steps are where I/O binds — an input parameter gets consumed by a step,
+a captured value gets exported by a step.
+Plans chain suites via I/O — Suite A's outputs wire to Suite B's inputs.
 
-### 📥 INPUT (suite parameter)
-
-- **Applies to**: value-consuming steps — `type`, `navigate`, `select`, `keypress`, `inject_js`
-- **What it means**: The step's value becomes a **suite parameter**. Before executing the suite, the user is presented with this variable and can set its value. The value recorded during recording becomes the default.
-- **At runtime**: `${VAR_NAME}` in the step's `value` field gets replaced with whatever the user (or the plan) provided.
-- **Data fields**:
-  - `value` → `${VAR_NAME}` (the variable reference)
-  - `_original_value` → the recorded default (e.g. `admin@test.com`)
-- **A type step can ONLY be INPUT.** It consumes data — it pushes a value into the page. It produces nothing to export.
-- **Example**: During recording, user types `admin@test.com` into a login field. They mark it as INPUT with variable name `LOGIN_EMAIL`. Before running the suite, user sees: "LOGIN_EMAIL: [admin@test.com]" and can change it to `test@example.com`.
-
-### 📤 OUTPUT (export)
-
-- **Applies to**: data-producing steps — `capture_text`, `capture_html`, `capture_value`, `capture_attribute`, `capture_screenshot`, `capture_url`, `capture_console`
-- **What it means**: The value captured by this step at runtime gets **exported to the plan namespace**. Available after execution for downstream suites.
-- **Data fields**:
-  - `export_as` → the export name (e.g. `AUTH_TOKEN`)
-- **A capture step can ONLY be OUTPUT.** It reads a value from the live page at runtime. You cannot make a captured value into a user-configurable parameter because the value doesn't exist until the capture runs.
-- **Example**: During recording, a capture_text step reads a CSRF token from the page. User marks it as OUTPUT with export name `CSRF_TOKEN`. After the suite runs, `CSRF_TOKEN` is available in the plan namespace for the next suite.
-
-### Rules
-
-1. **No choice needed.** The step's action type determines INPUT vs OUTPUT completely.
-2. **Mutually exclusive by nature.** Type = INPUT. Capture = OUTPUT. A step cannot be both.
-3. **"Store as variable" does not exist.** This was a bad label in the old step editor hack. It is not a valid concept.
-4. **No toggles, no radio buttons for INPUT/OUTPUT selection.** When you open I/O config on a type step, you see INPUT. When you open it on a capture step, you see OUTPUT. Period.
+Three UI layers let users configure this — target site, recording view,
+validation view. The data model stores it. The replayer executes it.
+The plan executor chains it.
 
 ---
 
-## Part 2: Damage Assessment
+## Concepts
 
-Code was written with a wrong model that showed both INPUT and OUTPUT on the same step,
-presented "Store as variable" as a third concept, and added mode toggles.
+### INPUT — Suite Parameter
 
-### ✅ CLEAN — Keep as-is
+An INPUT is a value that flows INTO the suite from outside.
 
-| File | Change | Lines | Why clean |
-|------|--------|-------|-----------|
-| `src/core/services/cdp_test/session.py` | `modify_step(step_id, updates)` | 91-107 | Generic utility. Finds step by ID, applies dict update. No I/O semantics. |
-| `src/ui/web/routes/cdp_test/recording.py` | `POST /record/modify-step` endpoint | 758-829 | Generic endpoint with field whitelist. Infrastructure only. |
-| `src/ui/web/templates/scripts/integrations/_cdp_test.html` | 🔗 badge in step toolbar (`canIO` condition) | ~405-425 | Button placement is correct. `canIO` shows badge for value actions AND capture actions — correct. |
-| `src/ui/web/templates/scripts/integrations/_cdp_test.html` | Event delegation `else if (action === 'io')` | ~548 | Dispatches to `_cdpTestOpenIOConfig`. Correct. |
+- The user records a step that consumes a value (types into a field, navigates to a URL, selects an option)
+- The user decides: "this value should be configurable when running the suite"
+- The user gives it a name (e.g. `LOGIN_EMAIL`)
+- The recorded value becomes the default
+- At runtime, the caller provides the actual value (or accepts the default)
+- The replayer substitutes `${LOGIN_EMAIL}` with the provided value
 
-### ⚠️ MINOR FIX
+An INPUT binds to a step. The step's value becomes `${VAR_NAME}`. The original
+recorded value is preserved separately as the default.
 
-| File | Change | Issue | Fix |
-|------|--------|-------|-----|
-| `recording.py` | `POST /modify-step` docstring | Shows `value` + `export_as` in same payload as if they go together | Separate into INPUT example and OUTPUT example |
-| `recording.py` | `io_bind` handler in `/record/event` (~510-558) | Sets `variable_name` AND `export_as` if both provided. No mutual exclusivity. | If `variable_name` → set input fields, clear `export_as`. If `export_as` → set export, clear input fields. |
+### OUTPUT — Suite Export
 
-### 🔴 REWRITE NEEDED
+An OUTPUT is a value that flows OUT of the suite to the caller.
 
-| File | Function/Section | What's wrong |
-|------|-----------------|--------------|
-| `_cdp_test.html` | `_cdpTestOpenIOConfig()` (~1190-1290) | Shows both input AND output sections simultaneously. Has "Store as variable" field. Wrong conditions (`isCaptureAction \|\| isValueAction` for output). |
-| `_cdp_test.html` | `_cdpTestSaveIO()` (~1292-1370) | Reads from all fields. Can send input + output in same request. |
-| `cdp_recorder.js` | I/O badge in `_showAssertBadge` (~470-535) | May be architecturally wrong — badge appears after clicks, but INPUT applies to type steps (input events). |
-| `cdp_recorder.js` | `_openIOModal()` (~1245-1430) | Has Input/Output mode toggle radio. Wrong labels. Wrong model. |
-| `cdp_recorder.js` | `_saveIO()` (~1445-1490) | Sends wrong payload. Can combine input + output. |
-| `cdp_recorder.js` | `_closeIOModal()` (~1435-1442) | Depends on `__dcp_io_overlay` ID from wrong modal — harmless but needs to match rewrite. |
+- During replay, a step captures a value from the live page (text content, input value, attribute, URL, etc.)
+- The user decides: "this captured value should be available after the suite runs"
+- The user gives it a name (e.g. `AUTH_TOKEN`)
+- At runtime, the replayer tags the captured value with that name
+- The caller (plan executor) receives it and can pass it to downstream suites
 
-### 🔴 NOT YET BUILT (from original plan)
+An OUTPUT binds to a capture step. The step's `export_as` field holds the
+export name. If the user wants to export from a non-capture step (e.g. the
+text content of a clicked element), the system adds a `capture_text` step
+targeting the same element.
 
-| Feature | File | Description |
-|---------|------|-------------|
-| 📋 Capture Config I/O | `_cdp_test.html` | Add OUTPUT field to capture config overlay (the "reverse" — set export_as at creation time) |
-| Step editor I/O section | `_cdp_test.html` | Replace dual "Store as variable" + "Export as" fields with correct single field per step type |
-| Step editor save fix | `_cdp_test.html` | `_cdpTestApplyStepEdit()` — enforce correct model |
-| Step row badges | `_cdp_test.html` | `_cdpTestValStepRow()` — show 📥/📤 indicators |
-| I/O summary panel fix | `_cdp_test.html` | `_cdpTestBuildIOPanel()` — make interactive, correct labels |
-| SSE handler for step_modified | `_cdp_test.html` | Listen for `cdp_test:step_modified` SSE events to update live step list |
+### User Choice
 
----
+The USER chooses whether an element is INPUT or OUTPUT. The system does not
+decide for them. A textarea can be INPUT (parameterize what gets typed into it)
+or OUTPUT (capture what's currently in it). The system detects the element type
+and offers the appropriate options:
 
-## Part 3: Implementation — Layer by Layer
+- **Form elements** (input, textarea, select): Can be INPUT or OUTPUT
+  - INPUT: parameterize the value being entered
+  - OUTPUT: capture the current value (adds `capture_value` step if needed)
+- **Non-form elements** (div, span, button, link, heading, etc.): OUTPUT only
+  - OUTPUT: capture the text content (adds `capture_text` step if needed)
+  - INPUT does not apply — you cannot type into these elements
 
-### Layer 1: Backend Foundation
-
-**Status: ✅ DONE (with minor fixes needed)**
-
-#### 1a. `session.py` — `modify_step()` ✅ DONE
-Generic method. No changes needed.
-
-#### 1b. `recording.py` — `POST /modify-step` ✅ DONE (docstring fix)
-- Fix docstring to show separate INPUT and OUTPUT examples
-- No code logic changes needed
-
-#### 1c. `recording.py` — `io_bind` handler ⚠️ FIX
-- Enforce mutual exclusivity in the handler
-- If `io_config.variable_name`: set `value = ${VAR}`, set `_original_value`, clear `export_as`
-- If `io_config.export_as`: set `export_as`, clear `variable_name` if present
-- Never set both
-
-#### 1d. `recording.py` — `POST /add-step` enhancement
-- The existing `add-step` endpoint accepts arbitrary step_data fields
-- `export_as` can be included in the request body — no backend change needed
-- The frontend (📋 overlay) just needs to send it
-
-#### 1e. SSE event `cdp_test:step_modified`
-- Already broadcast by `POST /modify-step` endpoint ✅
-- Already broadcast by `io_bind` handler ✅
-- Frontend SSE listener needed (Layer 2)
+The system SUGGESTS based on element detection (form field → suggest INPUT,
+non-form → suggest OUTPUT) but the user makes the final choice.
 
 ---
 
-### Layer 2: Admin Panel Recording View (`_cdp_test.html`)
+## Layer 1: Data Model
 
-#### 2a. 🔗 Badge in Step Toolbar ✅ DONE
-- Badge appears for value actions AND capture actions
-- Event delegation dispatches to `_cdpTestOpenIOConfig`
-- No changes needed
+### TestStep fields for I/O
 
-#### 2b. I/O Config Overlay — REWRITE `_cdpTestOpenIOConfig()` 🔴
+```python
+# Existing field — keep
+export_as: str = ""              # Export name for capture steps (e.g. "AUTH_TOKEN")
 
-**Current code (WRONG):** Shows both input binding section AND output export section. Has "Store as variable" concept. Has `isValueAction || isCaptureAction` condition allowing both.
+# NEW field — add to TestStep dataclass
+original_value: str = ""         # The recorded default value, preserved when
+                                 # value is replaced with ${VAR}. Used to show
+                                 # the default and to restore if I/O is removed.
+```
 
-**Correct implementation:**
+`original_value` replaces the ad-hoc `_original_value` dict key. It is a real
+field that survives serialization (`to_dict`/`from_dict`).
+
+### TestSuite fields for I/O
+
+```python
+# Existing field — keep, AUTO-POPULATE
+variables: dict[str, str]        # Variable name → default value
+                                 # Auto-populated from steps with ${VAR} in value
+                                 # No types. No descriptions. Name → default. That's it.
+
+# DROP variable_defs entirely. SuiteVariable is overengineered garbage.
+# Variables are simple: name and default value.
+
+# Existing field — keep, AUTO-POPULATE
+outputs: dict[str, str]          # Export name → description
+                                 # Auto-populated from steps with export_as set
+```
+
+### Auto-sync
+
+When I/O is configured on a step (via any of the 3 UI layers):
+
+**For INPUT:**
+1. Step's `value` becomes `${VAR_NAME}`
+2. Step's `original_value` stores the recorded value
+3. User sets the default value (pre-populated with the recorded value, editable)
+4. Suite's `variables[VAR_NAME]` is set to the user's chosen default
+
+**For OUTPUT:**
+1. Step's `export_as` is set to the export name
+2. Suite's `outputs[EXPORT_NAME]` is set
+
+**When I/O is removed:**
+1. For INPUT: Step's `value` restored from `original_value`. Variable removed
+   from suite's `variables`.
+2. For OUTPUT: Step's `export_as` cleared. Export removed from suite's `outputs`.
+
+### Auto-sync implementation
+
+A utility function `sync_suite_io(suite)` scans all steps and rebuilds
+`variables` and `outputs` from step data. Called:
+- After any I/O modification via UI
+- When saving a recording as a suite
+- When loading a suite for validation
+
+This is the SINGLE SOURCE OF TRUTH. Suite-level I/O declarations are always
+derived from step-level I/O bindings. Never manually maintained.
+
+---
+
+## Layer 2: Backend
+
+### I/O Configuration Endpoint
+
+A single endpoint for all I/O configuration, replacing the fragmented
+`io_bind` handler and `modify-step` workarounds.
 
 ```
-function _cdpTestOpenIOConfig(step) {
-    const isValueAction = ['navigate','type','select','keypress','inject_js'].includes(step.action);
-    const isCaptureAction = step.action.startsWith('capture_');
+POST /cdp-test/io/configure
+{
+    "step_id": "uuid",              // REQUIRED — identifies the step by ID, not selector
+    "session_id": "uuid",           // For recording context
+    "suite_id": "uuid",             // For validation context (mutually exclusive with session_id)
+    "io_type": "input" | "output",  // What the user chose
+    "name": "LOGIN_EMAIL",          // Variable name (input) or export name (output)
+    "default_value": "admin@test.com", // Default value (INPUT only, set by user)
+    "remove": false                 // true = remove I/O from this step
+}
+```
 
-    if (isValueAction) {
-        // Show INPUT overlay
-        // - Title: "📥 Input — Suite Parameter"
-        // - Subtitle: "This value becomes configurable when running the suite"
-        // - Field: Variable name (monospace, placeholder: "LOGIN_EMAIL")
-        // - Info: Current value shown as "Default: admin@test.com"
-        // - Pre-populate if already bound (detect ${VAR} in value)
-        // - Purple accent (#8b5cf6) for visual identity
-    } else if (isCaptureAction) {
-        // Show OUTPUT overlay
-        // - Title: "📤 Output — Export"
-        // - Subtitle: "The captured value will be exported to the plan namespace"
-        // - Field: Export name (monospace, placeholder: "AUTH_TOKEN")
-        // - Pre-populate if export_as already set
-        // - Green accent (#22c55e) for visual identity
+**Backend logic:**
+
+```
+if io_type == "input":
+    1. Validate step has a consumable value (action in value_actions)
+    2. Set step.original_value = step.value (preserve recorded value)
+    3. Set step.value = "${NAME}"
+    4. Set suite.variables[NAME] = default_value (user's chosen default)
+    5. Clear step.export_as (mutual exclusivity)
+    6. Sync suite-level variables
+
+if io_type == "output":
+    1. If step is already a capture_* action:
+       - Set step.export_as = NAME
+    2. If step is NOT a capture action (click, hover, type, etc.):
+       - Determine capture type from element:
+         - Form element (input/textarea/select) → capture_value
+         - Non-form element → capture_text
+       - CREATE a new capture step:
+         - action = determined capture type
+         - selector = same as original step
+         - xpath = same as original step
+         - export_as = NAME
+         - sequence = original step's sequence + 0.5 (inserted after)
+       - Re-sequence all steps
+    3. Clear any INPUT binding on original step (mutual exclusivity)
+    4. Sync suite-level outputs
+
+if remove:
+    1. If step has INPUT: restore value from original_value, clear variables
+    2. If step has OUTPUT: clear export_as, if step was auto-created capture → delete it
+    3. Sync suite-level I/O
+```
+
+**Response:**
+
+```json
+{
+    "ok": true,
+    "step": { ... },           // Updated step (or new capture step)
+    "suite_io": {              // Updated suite-level I/O summary
+        "inputs": [...],
+        "outputs": [...]
     }
 }
 ```
 
-**Key details:**
-- Purple border/accent for INPUT overlays
-- Green border/accent for OUTPUT overlays
-- Same overlay shell (position:fixed, backdrop-filter, same sizing)
-- Same dismiss behavior (click outside, cancel button)
-- Same overlay ID (`cdp-io-config-overlay`) — remove previous before creating
+**SSE broadcast:** `cdp_test:io_configured` with step data and suite I/O summary.
 
-#### 2c. I/O Save — REWRITE `_cdpTestSaveIO()` 🔴
+### Target Site Event Handler
 
-**Correct implementation:**
+The target site sends I/O configuration via the existing event endpoint.
+The handler routes to the same I/O logic:
 
 ```
-async function _cdpTestSaveIO() {
-    const stepData = _cdpStepDataMap.get(_cdpCurrentStepId);
-    const isValueAction = ['navigate','type','select','keypress','inject_js'].includes(stepData.action);
-    const updates = {};
-
-    if (isValueAction) {
-        // INPUT: read variable name, wrap value in ${VAR}
-        const varName = document.getElementById('cdp-io-var-name')?.value?.trim();
-        if (!varName) return;  // validation
-        const currentVal = stepData.value || '';
-        if (currentVal && !currentVal.match(/^\$\{\w+\}$/)) {
-            updates._original_value = currentVal;
-        }
-        updates.value = '${' + varName + '}';
-        updates.export_as = '';  // clear any stale export
-    } else {
-        // OUTPUT: read export name
-        const exportName = document.getElementById('cdp-io-export-name')?.value?.trim();
-        if (!exportName) return;  // validation
-        updates.export_as = exportName;
-    }
-
-    await api('/cdp-test/record/modify-step', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ step_id: stepData.id, updates }),
-    });
-
-    Object.assign(stepData, updates);
-    toast('I/O configured for step ' + (stepData.sequence + 1), 'success');
-    document.getElementById('cdp-io-config-overlay')?.remove();
+POST /cdp-test/record/event
+{
+    "action": "io_configure",
+    "selector": "...",           // Used to find the step (fallback)
+    "step_id": "...",            // If known (preferred)
+    "io_type": "input" | "output",
+    "name": "LOGIN_EMAIL"
 }
 ```
 
-#### 2d. 📋 Capture Config Enhancement (the "reverse") — NEW
-
-The existing `_cdpTestOpenCaptureConfig()` lets users add capture steps. Currently only picks capture type. Need to add OUTPUT field.
-
-**What to add before the "Add Capture" button:**
-
-```html
-<div style="margin-top:0.8rem;padding:10px;border:1px solid #22c55e33;border-radius:8px;background:#22c55e0a">
-    <div style="font-weight:600;font-size:0.78rem;color:#22c55e;margin-bottom:6px">📤 Export (optional)</div>
-    <input id="cdp-capture-export-name" type="text" placeholder="AUTH_TOKEN (optional)"
-        style="width:100%;font-size:0.78rem;padding:6px 10px;background:var(--bg-secondary);
-        border:1px solid var(--border-subtle);border-radius:6px;color:var(--text-primary);font-family:monospace">
-    <div style="font-size:0.62rem;color:var(--text-muted);margin-top:4px">
-        Exports captured value to plan namespace for downstream suites
-    </div>
-</div>
-```
-
-**What to change in `_cdpTestSaveCapture()`:**
-
-Add `export_as` to the step data sent to `/add-step`:
-```javascript
-const exportName = document.getElementById('cdp-capture-export-name')?.value?.trim() || '';
-// In the step object:
-body: JSON.stringify({
-    action: captureType,
-    selector: ...,
-    after_step_id: ...,
-    value: attrName,
-    export_as: exportName,  // ← ADD THIS
-}),
-```
-
-#### 2e. SSE Listener for `cdp_test:step_modified` — NEW
-
-In `_cdpTestStartSSE()`, add listener alongside the existing `cdp_test:step_captured`:
-
-```javascript
-_cdpTestSSESource.addEventListener('cdp_test:step_modified', (e) => {
-    try {
-        const data = JSON.parse(e.data);
-        if (data.data?.session_id !== sessionId) return;
-        const step = data.data?.step;
-        if (!step) return;
-
-        // Update local step data
-        _cdpStepDataMap.set(step.id, step);
-
-        // Find and re-render the step row in the live list
-        const row = document.querySelector(`.cdp-rec-step-row[data-step-id="${step.id}"]`);
-        if (row) {
-            // Update the row content with I/O indicators
-            _cdpTestUpdateStepRowIO(row, step);
-        }
-    } catch (err) {
-        console.warn('step_modified SSE parse error', err);
-    }
-});
-```
-
-#### 2f. Visual I/O Indicators in Live Step List — NEW
-
-When a step has I/O configured, show badges in the step row:
-
-**In `_cdpTestStepRow()` (the rendering function), after the desc line:**
-
-```javascript
-// I/O indicator
-let ioTag = '';
-const varMatch = (step.value || '').match(/^\$\{(\w+)\}$/);
-if (varMatch) {
-    ioTag = '<span style="font-size:0.6rem;padding:1px 5px;background:#8b5cf622;color:#8b5cf6;' +
-        'border-radius:3px;margin-left:4px;font-family:monospace">📥 ${' + esc(varMatch[1]) + '}</span>';
-}
-if (step.export_as) {
-    ioTag = '<span style="font-size:0.6rem;padding:1px 5px;background:#22c55e22;color:#22c55e;' +
-        'border-radius:3px;margin-left:4px;font-family:monospace">📤 ' + esc(step.export_as) + '</span>';
-}
-```
-
-Add `${ioTag}` to the row HTML after the description span.
-
-**Update function for SSE changes:**
-
-```javascript
-function _cdpTestUpdateStepRowIO(row, step) {
-    // Remove existing IO badge
-    row.querySelector('.cdp-io-badge')?.remove();
-    // Add new badge if applicable
-    const varMatch = (step.value || '').match(/^\$\{(\w+)\}$/);
-    if (varMatch) {
-        const badge = document.createElement('span');
-        badge.className = 'cdp-io-badge';
-        badge.style.cssText = 'font-size:0.6rem;padding:1px 5px;background:#8b5cf622;color:#8b5cf6;border-radius:3px;margin-left:4px;font-family:monospace';
-        badge.textContent = '📥 ${' + varMatch[1] + '}';
-        row.querySelector('.cdp-step-desc')?.appendChild(badge);
-    } else if (step.export_as) {
-        const badge = document.createElement('span');
-        badge.className = 'cdp-io-badge';
-        badge.style.cssText = 'font-size:0.6rem;padding:1px 5px;background:#22c55e22;color:#22c55e;border-radius:3px;margin-left:4px;font-family:monospace';
-        badge.textContent = '📤 ' + step.export_as;
-        row.querySelector('.cdp-step-desc')?.appendChild(badge);
-    }
-}
-```
+The handler finds the step (by ID if provided, by selector if not — walking
+backwards through recent steps). Then calls the same I/O configuration logic.
 
 ---
 
-### Layer 3: Target Site Overlay (`cdp_recorder.js`)
+## Layer 3: Replayer
 
-#### 3a. I/O Badge — DECISION NEEDED
+### INPUT execution
 
-**The question:** The I/O badge currently appears after every click, alongside the assert badge. But:
-- INPUT applies to type steps (triggered by input events, not clicks)
-- OUTPUT applies to capture steps (added separately via 📋 or assert modal)
+`_resolve_variables()` already works. No changes needed.
 
-**Option A: Remove target site I/O badge entirely.** I/O is configured from the admin panel only (🔗 toolbar button, 📋 capture config). Simpler. Less code to maintain.
+```python
+# Step value: "${LOGIN_EMAIL}"
+# Variables: {"LOGIN_EMAIL": "admin@test.com"}
+# Resolved: "admin@test.com"
+```
 
-**Option B: Keep badge but change behavior.** After clicking on a form field, the I/O badge lets you pre-mark that field as INPUT — so when the type event fires, the step is automatically created with `${VAR}` binding. This requires:
-- Storing a "pending I/O config" per selector
-- When `sendEvent({action:'type', selector:X})` fires, checking if that selector has pending I/O
-- Applying the I/O automatically
+The variables dict is built from:
+1. Suite's `variables` (defaults)
+2. Runtime overrides from the replay start API
+3. Plan executor's output→input mappings
 
-**Option C: Badge appears only AFTER a type step exists.** After the user types and lifts focus, the recorder could show an I/O badge on the field they just typed in, offering to mark it as INPUT. This requires:
-- Detecting that a type step was just recorded for an element
-- Showing the badge on that element after the type event is sent
-- The badge would open the INPUT overlay
+### OUTPUT execution
 
-**Recommendation:** Option A (remove) for now. The admin panel 🔗 button covers all I/O configuration. Target site badge can be added later if needed.
+The existing capture + export logic already works:
 
-**If Option A chosen:**
-- Remove I/O badge creation from `_showAssertBadge()` (lines ~470-535)
-- Remove `_lastIOBadge` and `_ioBadgeTimer` variables (lines 307-308)
-- Remove `_openIOModal()`, `_closeIOModal()`, `_saveIO()` (lines ~1245-1500)
-- Clean deletion, no replacement
+```python
+if step.action.startswith("capture_") and step_result["status"] == "passed":
+    captured_val = details.get("captured")
+    if captured_val is not None:
+        captures[step.id] = captured_val
+        if step.export_as:
+            result_record["export_name"] = step.export_as
+```
 
-**If Option B or C chosen:**
-- Rewrite `_openIOModal()` with correct model (INPUT only for type steps, OUTPUT only for capture steps — but capture steps aren't created from target site clicks, so this is effectively INPUT only)
-- Rewrite `_saveIO()` to send correct payload
+The replayer handles both sides of I/O: substituting `${VAR}` for inputs
+and capturing + exporting values for outputs. The layers above ensure
+OUTPUT binds to a capture step (creating one if needed).
 
-#### 3b. Target Site I/O Modal — REWRITE OR REMOVE
+### Result data
 
-If kept (Option B or C), the modal must:
+After replay, `TestRunResult.step_results` contains entries with:
+- `captured_value` — the actual captured data
+- `export_name` — the export name (from `step.export_as`)
 
-**For INPUT (shown when clicking a form field):**
-- Color palette: self-contained (no CSS vars — foreign page)
-- Title: "📥 Input — Suite Parameter"
-- Subtitle via `.textContent` (XSS-safe): selector shown
-- One field: variable name input
-- Info: current element value shown as "Default value"
-- Save button calls `sendEvent({ action: 'io_bind', selector, io_config: { variable_name } })`
-- Cancel / click-outside closes and resumes recording
-
-**For OUTPUT — probably NOT on target site.** Capture steps are added from the admin panel, not from target site clicks. So the target site modal would only ever show INPUT.
-
-#### 3c. Backend `io_bind` Handler Fix
-
-Already covered in Layer 1 (1c). Enforce mutual exclusivity.
+The plan executor reads these to build the output namespace.
 
 ---
 
-### Layer 4: Step Editor — Validation View (`_cdp_test.html`)
+## Layer 4: Target Site UI (`cdp_recorder.js`)
 
-#### 4a. Step Row Badges (`_cdpTestValStepRow`) — NEW
+### When to show the I/O badge
 
-When rendering steps in the validation view list, show I/O indicators:
+The I/O badge appears alongside the assert badge when the user interacts
+with an element. It appears:
 
-```javascript
-// In _cdpTestValStepRow(), after building the description:
-let ioBadge = '';
-const varMatch = (step.value || '').match(/^\$\{(\w+)\}$/);
-if (varMatch) {
-    ioBadge = `<span style="display:inline-block;font-size:0.6rem;padding:1px 6px;
-        background:#8b5cf622;color:#8b5cf6;border-radius:4px;margin-left:6px;
-        font-family:monospace;font-weight:600">📥 \${${esc(varMatch[1])}}</span>`;
-} else if (step.export_as) {
-    ioBadge = `<span style="display:inline-block;font-size:0.6rem;padding:1px 6px;
-        background:#22c55e22;color:#22c55e;border-radius:4px;margin-left:6px;
-        font-family:monospace;font-weight:600">📤 ${esc(step.export_as)}</span>`;
-}
-// Append ioBadge after the step description in the row HTML
-```
+- After a **click** on any element (user might want to export text content)
+- After **typing** into a form field (user might want to parameterize the input)
+- After **selecting** an option (user might want to parameterize the selection)
 
-#### 4b. Step Edit Form (`_cdpTestBuildEditForm`) — REWRITE I/O SECTION
+The badge does NOT appear for scroll or navigate steps (no meaningful I/O).
 
-**Current state (WRONG):** For capture steps, shows two separate text fields:
-- "Store as variable" (`cdp-edit-var-name`)
-- "Export as (plan output)" (`cdp-edit-export-as`)
+### I/O Modal
 
-For type steps with value, shows:
-- "Bind to variable" checkbox + variable name field
+When the user clicks the I/O badge:
 
-**Correct implementation:**
+1. **Detect element type** using `_isFormElement()`:
+   - Form element → show INPUT and OUTPUT options (radio toggle)
+   - Non-form element → show OUTPUT only (no toggle needed)
 
-**For value actions (type, navigate, select, keypress, inject_js):**
-```html
-<!-- 📥 INPUT section -->
-<div style="margin-top:0.8rem;padding:10px;border:1px solid #8b5cf633;border-radius:8px;background:#8b5cf60a">
-    <div style="font-weight:600;font-size:0.78rem;color:#8b5cf6;margin-bottom:6px">📥 Input — Suite Parameter</div>
-    <label style="font-size:0.72rem;display:flex;align-items:center;gap:6px;margin-bottom:6px">
-        <input type="checkbox" id="cdp-edit-io-input" [checked if ${VAR} detected]>
-        Mark as input parameter
-    </label>
-    <div id="cdp-edit-io-input-fields" style="[hidden if not checked]">
-        <input id="cdp-edit-io-var-name" type="text" value="[extracted var name]"
-            placeholder="LOGIN_EMAIL" style="monospace...">
-        <div style="font-size:0.62rem;color:var(--text-muted)">
-            Default: [original value] — configurable when running the suite
-        </div>
-    </div>
-</div>
-```
+2. **Suggest default choice**:
+   - Form element with recent type step → suggest INPUT
+   - Form element without type step → suggest OUTPUT
+   - Non-form element → OUTPUT (only option)
 
-**For capture actions:**
-```html
-<!-- 📤 OUTPUT section -->
-<div style="margin-top:0.8rem;padding:10px;border:1px solid #22c55e33;border-radius:8px;background:#22c55e0a">
-    <div style="font-weight:600;font-size:0.78rem;color:#22c55e;margin-bottom:6px">📤 Output — Export</div>
-    <input id="cdp-edit-io-export-name" type="text" value="[step.export_as]"
-        placeholder="AUTH_TOKEN (optional)" style="monospace...">
-    <div style="font-size:0.62rem;color:var(--text-muted)">
-        Captured value exported to plan namespace for downstream suites
-    </div>
-</div>
-```
+3. **Show the modal**:
+   - Selector chain picker (same as assertion modal — user can pick parent/child)
+   - Changing the selected element re-evaluates form detection and updates suggestions
+   - Mode toggle (INPUT / OUTPUT) — only for form elements
+   - Name field (variable name for INPUT, export name for OUTPUT)
+   - Default value field (INPUT only — pre-populated with element's current value, user can edit)
+   - Save / Cancel buttons
 
-**No "Store as variable" field. No dual fields. One section per step type.**
+4. **Pre-populate existing config**:
+   - If the most recent step for this selector already has `${VAR}` → show INPUT with the variable name filled in
+   - If there's already a capture step with `export_as` for this selector → show OUTPUT with the export name filled in
 
-#### 4c. Step Edit Save (`_cdpTestApplyStepEdit`) — FIX
+5. **On save**:
+   - Pause recording
+   - Send `io_configure` event to backend (with selector + io_type + name + default_value)
+   - Backend handles step modification or capture step creation
+   - Resume recording
+   - Close modal
+
+### Color palette
+
+- INPUT accent: purple (#8b5cf6) — consistent across all layers
+- OUTPUT accent: green (#22c55e) — consistent across all layers
+- Self-contained styling (no CSS vars — we're on a foreign page)
+
+---
+
+## Layer 5: Admin Recording View (`_cdp_test.html`)
+
+### I/O button visibility
+
+The 🔗 I/O button appears on steps where I/O makes sense:
+
+- **Value actions** (type, navigate, select, keypress, inject_js): Can be INPUT
+- **Capture actions** (capture_*): Can be OUTPUT
+- **Element-targeting actions** (click, hover): Can trigger OUTPUT (adds capture step)
+- **No I/O**: scroll, assert, wait — no 🔗 button
+
+### I/O Overlay
+
+When user clicks 🔗 on a step:
 
 **For value actions:**
-```javascript
-// Read INPUT config
-const inputChecked = document.getElementById('cdp-edit-io-input')?.checked;
-if (inputChecked) {
-    const varName = document.getElementById('cdp-edit-io-var-name')?.value?.trim();
-    if (varName) {
-        // Preserve original value
-        if (!step.value?.match(/^\$\{\w+\}$/)) {
-            step._original_value = step.value;
-        }
-        step.value = '${' + varName + '}';
-    }
-} else {
-    // Unbind — restore original value
-    if (step.value?.match(/^\$\{\w+\}$/)) {
-        step.value = step._original_value || '';
-    }
-}
-step.export_as = '';  // type steps cannot be output
-```
+- Show INPUT section (purple accent)
+- Title: "📥 Input — Suite Parameter"
+- Variable name field, pre-populated if already bound
+- Default value shown (from `original_value` or current value)
+- Option to switch to OUTPUT if the step targets a form element
+  (this would add a capture_value step and remove the INPUT binding)
 
 **For capture actions:**
-```javascript
-// Read OUTPUT config
-step.export_as = document.getElementById('cdp-edit-io-export-name')?.value?.trim() || '';
-// No variable binding for capture steps
+- Show OUTPUT section (green accent)
+- Title: "📤 Output — Export"
+- Export name field, pre-populated if `export_as` already set
+
+**For click/hover (element-targeting, non-value, non-capture):**
+- Show OUTPUT section (green accent)
+- Title: "📤 Export Element Content"
+- Explain: "Adds a capture step after this step to capture the element's text"
+- Export name field
+- On save → calls I/O configure endpoint → backend adds capture step
+- The new capture step appears in the step list
+
+### Save logic
+
+All saves go through the unified `/cdp-test/io/configure` endpoint with
+`step_id`. No more selector-based lookup. No more `modify-step` workaround.
+
+### Visual badges
+
+Steps with I/O show inline badges:
+- `📥 ${LOGIN_EMAIL}` — purple, for INPUT-bound steps
+- `📤 AUTH_TOKEN` — green, for OUTPUT-bound steps
+
+SSE listener for `cdp_test:io_configured` updates badges in real-time.
+
+---
+
+## Layer 6: Admin Validation/Edit View (`_cdp_test.html`)
+
+### Step Edit Form I/O Section
+
+When editing a step, the I/O section appears based on step type:
+
+**Value actions (type, navigate, select, keypress, inject_js):**
+```
+📥 Input — Suite Parameter
+[x] Mark as input parameter
+    Variable name: [LOGIN_EMAIL_______]
+    Default value: [admin@test.com____]  (pre-populated with recorded value, editable)
 ```
 
-#### 4d. I/O Summary Panel (`_cdpTestBuildIOPanel`) — FIX
+If the step also has a selector (which type steps do), an additional option:
+```
+📤 Or export element content instead
+    [Add Capture Step]
+```
+Clicking "Add Capture Step" creates a capture step after this one and
+removes any INPUT binding. Mutual exclusivity.
 
-**Current state:** `_cdpTestAutoDetectIO()` scans for `${VAR}` references and `export_as` declarations. `_cdpTestBuildIOPanel()` renders them in tables. Currently read-only and uses wrong labels.
+**Capture actions:**
+```
+📤 Output — Export
+    Export name: [AUTH_TOKEN__________]
+    Captured value exported to plan namespace for downstream suites
+```
 
-**What to fix:**
-- Rename columns: "Inputs" (not "Variables"), "Outputs" (not "Exports")
-- Input table: variable name, default value, which step uses it
-- Output table: export name, which step produces it
-- Make rows clickable → scroll to / highlight the corresponding step
-- Add "Configure I/O" button that opens the 🔗 overlay for the relevant step
+**Click/hover (element-targeting, non-capture):**
+```
+📤 Export Element Content
+    Export name: [ELEMENT_TEXT________]
+    Adds a capture step to export this element's text content
+    [Add Capture Step]
+```
 
-**Input table columns:**
+**Assert, scroll, wait:** No I/O section.
+
+### Step row badges
+
+Same as recording view — 📥 and 📤 badges inline.
+
+### I/O Summary Panel
+
+Two tables at the top of the validation view:
+
+**Inputs:**
 | Variable | Default | Step |
 |----------|---------|------|
 | LOGIN_EMAIL | admin@test.com | #3 type |
+| PASSWORD | secret123 | #4 type |
 
-**Output table columns:**
-| Export | Step |
-|--------|------|
-| AUTH_TOKEN | #7 capture_text |
+**Outputs:**
+| Export | Step | Source |
+|--------|------|--------|
+| AUTH_TOKEN | #7 capture_text | #login-token .value |
+| PAGE_TITLE | #12 capture_text | h1.title |
 
----
+Rows are clickable → scroll to the corresponding step and highlight it.
+Each row has a 🔗 button to open the I/O overlay for that step.
 
-## Part 4: Execution Order
+Empty state: "No inputs configured" / "No outputs configured" with
+guidance text on how to add them.
 
-Each step is one change, independently verifiable.
+### Save behavior
 
-### Phase A: Fix the broken code
-
-| # | What | File | Scope |
-|---|------|------|-------|
-| A1 | Rewrite `_cdpTestOpenIOConfig()` | `_cdp_test.html` | Replace overlay with correct INPUT/OUTPUT by step type |
-| A2 | Rewrite `_cdpTestSaveIO()` | `_cdp_test.html` | Match new overlay, enforce mutual exclusivity |
-| A3 | Fix `io_bind` handler | `recording.py` | Enforce mutual exclusivity |
-| A4 | Fix `modify-step` docstring | `recording.py` | Separate INPUT/OUTPUT examples |
-| A5 | User decision: target site badge | `cdp_recorder.js` | Remove or rewrite based on user choice |
-| A6 | Remove or rewrite target modal | `cdp_recorder.js` | Depends on A5 |
-
-### Phase B: Build the "reverse" (creation-time I/O)
-
-| # | What | File | Scope |
-|---|------|------|-------|
-| B1 | Add OUTPUT field to 📋 Capture Config | `_cdp_test.html` | `_cdpTestOpenCaptureConfig()` |
-| B2 | Send export_as in capture save | `_cdp_test.html` | `_cdpTestSaveCapture()` |
-
-### Phase C: Fix the step editor
-
-| # | What | File | Scope |
-|---|------|------|-------|
-| C1 | Replace dual fields with correct I/O section | `_cdp_test.html` | `_cdpTestBuildEditForm()` |
-| C2 | Fix step edit save | `_cdp_test.html` | `_cdpTestApplyStepEdit()` |
-
-### Phase D: Visual enhancements
-
-| # | What | File | Scope |
-|---|------|------|-------|
-| D1 | Step row badges in validation view | `_cdp_test.html` | `_cdpTestValStepRow()` |
-| D2 | Step row badges in recording view | `_cdp_test.html` | `_cdpTestStepRow()` |
-| D3 | SSE listener for step_modified | `_cdp_test.html` | `_cdpTestStartSSE()` |
-| D4 | Fix I/O summary panel | `_cdp_test.html` | `_cdpTestBuildIOPanel()` + `_cdpTestAutoDetectIO()` |
-
-### Phase E: Data model cleanup
-
-| # | What | File | Scope |
-|---|------|------|-------|
-| E1 | Remove `variable_name` from modify-step whitelist | `recording.py` | "Store as variable" is not a concept |
-| E2 | Clean up stale `variable_name` references | `_cdp_test.html` | Any remaining references from old hack |
+Validation view saves locally to the step data JSON. When the user
+clicks "Save Suite", the suite is persisted with `sync_suite_io()` called
+to ensure suite-level declarations are consistent with step-level bindings.
 
 ---
 
-## Part 5: File Map
+## Layer 7: Plan Executor
 
-All files that will be touched:
+### Reading suite I/O declarations
 
-| File | What changes |
-|------|-------------|
-| `src/core/services/cdp_test/session.py` | Nothing — already correct |
-| `src/ui/web/routes/cdp_test/recording.py` | Fix io_bind handler, fix docstring, clean whitelist |
-| `src/ui/web/templates/scripts/integrations/_cdp_test.html` | Rewrite overlay, rewrite save, add capture export field, fix step editor, add badges, SSE listener, fix IO panel |
-| `src/core/data/cdp_recorder.js` | Remove or rewrite I/O badge + modal (pending user decision) |
+The plan editor reads `suite.variables` and `suite.outputs` to present
+I/O wiring options. These are always up-to-date because `sync_suite_io()`
+maintains them.
+
+### Passing inputs
+
+When the plan executor starts a suite, it builds the variables dict:
+
+```python
+variables = {}
+# 1. Suite defaults (name → default value)
+variables.update(suite.variables)
+# 2. Plan-level overrides (user-configured in plan editor)
+variables.update(plan_step.variable_overrides)
+# 3. Output→input mappings from upstream suites
+for mapping in plan_step.input_mappings:
+    upstream_value = upstream_results.get(mapping.source_export)
+    if upstream_value is not None:
+        variables[mapping.target_variable] = upstream_value
+```
+
+This `variables` dict is passed to `start_replay()`.
+
+### Collecting outputs
+
+After a suite finishes, the plan executor reads the step results:
+
+```python
+suite_outputs = {}
+for step_result in run_result.step_results:
+    if step_result.get("export_name") and step_result.get("captured_value"):
+        suite_outputs[step_result["export_name"]] = step_result["captured_value"]
+```
+
+These outputs are stored in the plan's namespace and available for
+downstream suite mappings.
 
 ---
 
-## Part 6: Open Question
+## Layer 8: Plan Editor UI
 
-**Target site I/O badge — keep or remove?**
+### Suite I/O display
 
-Arguments for removal:
-- I/O is a configuration concern, not a recording concern
-- The admin panel 🔗 button already covers all I/O configuration
-- The badge appears after clicks, but INPUT applies to type steps (input events) — timing mismatch
-- Simpler, less code
+Each suite node in the plan editor shows:
+- **Left side (inputs):** Variable names with types, connected by wires
+- **Right side (outputs):** Export names, connected by wires to downstream inputs
 
-Arguments for keeping:
-- User sees the I/O option right there while recording
-- Can pre-configure INPUT on form fields before typing
+### Wiring
 
-**Awaiting user decision.**
+User drags from an output port to an input port on a downstream suite.
+This creates an `input_mapping`:
+
+```json
+{
+    "source_suite_id": "suite-a",
+    "source_export": "AUTH_TOKEN",
+    "target_suite_id": "suite-b",
+    "target_variable": "TOKEN"
+}
+```
+
+### Validation
+
+- Warn if an input has no mapping and no default value (required but unset)
+- Warn if an output is mapped but the capture step is optional
+- Show type compatibility (string→string ok, secret→string ok with warning)
+
+---
+
+## Execution Order
+
+The layers build on each other. Implementation order:
+
+1. **Data model** — Add `original_value` field to TestStep. Update `to_dict`/`from_dict`. Build `sync_suite_io()` utility.
+
+2. **Backend** — Build `/cdp-test/io/configure` endpoint. Update event handler for `io_configure` action. The endpoint uses step ID, validates step type, handles capture step creation, calls `sync_suite_io()`.
+
+3. **Replayer** — Verify no changes needed. The existing `_resolve_variables()` and `export_as` logic already work. Document this verification.
+
+4. **Target site UI** — Rewrite the I/O modal from scratch. Correct element detection, user choice, selector chain picker, pre-population, save via `io_configure` event.
+
+5. **Admin recording view** — Rewrite the I/O overlay from scratch. Correct step-type-aware sections, unified save via `/cdp-test/io/configure`, visual badges, SSE listener.
+
+6. **Admin validation view** — Rewrite the step edit form I/O section. Same correct model. I/O summary panel. Save with `sync_suite_io()`.
+
+7. **Plan executor** — Build input passing and output collection. Wire the variables and outputs through the replay lifecycle.
+
+8. **Plan editor** — Build I/O visualization and wiring UI. Connect to plan executor data model.
+
+Each layer is implemented and verified independently before moving to the next.
+Each change within a layer is one change, one test.
+
+---
+
+## File Map
+
+| Layer | Files |
+|-------|-------|
+| Data model | `src/core/services/cdp_test/models.py`, new `src/core/services/cdp_test/io_sync.py` |
+| Backend | `src/ui/web/routes/cdp_test/recording.py`, possibly new `src/ui/web/routes/cdp_test/io.py` |
+| Replayer | `src/core/services/cdp_test/replayer.py` (verify only) |
+| Target site | `src/core/data/cdp_recorder.js` |
+| Admin recording | `src/ui/web/templates/scripts/integrations/_cdp_test.html` |
+| Admin validation | `src/ui/web/templates/scripts/integrations/_cdp_test.html` |
+| Plan executor | `src/core/services/cdp_test/plan_executor.py` (new or existing) |
+| Plan editor | `src/ui/web/templates/scripts/integrations/_cdp_plan.html` (new or existing) |

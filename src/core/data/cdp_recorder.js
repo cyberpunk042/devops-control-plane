@@ -459,19 +459,8 @@
         document.body.appendChild(badge);
         _lastBadge = badge;
 
-        // Auto-dismiss after 4s
-        _badgeTimer = setTimeout(function () {
-            if (_lastBadge === badge) {
-                badge.style.opacity = '0';
-                badge.style.transition = 'opacity 0.3s';
-                setTimeout(function () { badge.remove(); }, 300);
-                _lastBadge = null;
-            }
-        }, 4000);
-
-        // ── I/O badge (purple, appears below assert badge) ──
+        // ── I/O badge (purple, appears beside assert badge) ──
         if (_lastIOBadge) { _lastIOBadge.remove(); _lastIOBadge = null; }
-        if (_ioBadgeTimer) { clearTimeout(_ioBadgeTimer); _ioBadgeTimer = null; }
 
         var ioBadge = document.createElement('div');
         ioBadge.className = '__dcp_io_badge';
@@ -494,9 +483,9 @@
             'transition:background 0.15s',
         ].join(';');
 
-        // Position below the assert badge
-        ioBadge.style.top = (top + 26) + 'px';
-        ioBadge.style.left = left + 'px';
+        // Position to the RIGHT of the assert badge — +110px gap to avoid overlap
+        ioBadge.style.top = top + 'px';
+        ioBadge.style.left = Math.min(window.innerWidth - 60, left + 110) + 'px';
 
         ioBadge.innerHTML = '<span style="font-size:13px">\ud83d\udd17</span><span>I/O</span>';
         ioBadge.title = 'Configure variable binding / output export for this element';
@@ -520,16 +509,6 @@
 
         document.body.appendChild(ioBadge);
         _lastIOBadge = ioBadge;
-
-        // Auto-dismiss I/O badge after 4s
-        _ioBadgeTimer = setTimeout(function () {
-            if (_lastIOBadge === ioBadge) {
-                ioBadge.style.opacity = '0';
-                ioBadge.style.transition = 'opacity 0.3s';
-                setTimeout(function () { ioBadge.remove(); }, 300);
-                _lastIOBadge = null;
-            }
-        }, 4000);
     }
 
 
@@ -1310,11 +1289,9 @@
 
     function _openIOModal(selector, elemText, elemRect, selectorChain) {
         selectorChain = selectorChain || [];
-        // Remove existing
         var existing = document.getElementById('__dcp_io_overlay');
         if (existing) existing.remove();
 
-        // Pause recording while configuring
         window.__dcp_recorder_paused = true;
         _dcpLog('info', 'I/O modal opened', { selector: selector, paused: true });
 
@@ -1327,14 +1304,12 @@
             'font-family:system-ui,-apple-system,sans-serif',
         ].join(';');
 
-        // Color palette (self-contained, no CSS vars — injected into foreign pages)
         var C = {
             bg: '#1a1a2e', bgCard: '#16213e', bgInput: '#0f3460',
             border: '#2a2a4a', borderLight: '#3a3a5a',
             text: '#e0e0e8', textMuted: '#8888aa', textSecondary: '#b0b0cc',
-            accent: '#8b5cf6', accentHover: '#7c3aed',
+            purple: '#8b5cf6', purpleHover: '#7c3aed',
             green: '#22c55e',
-            error: '#ef4444', warn: '#f59e0b',
         };
 
         var s = function (obj) {
@@ -1343,176 +1318,191 @@
 
         var sLabel = s({ 'font-size': '11px', 'font-weight': '700', color: C.textMuted, 'text-transform': 'uppercase', 'letter-spacing': '0.5px', 'margin-bottom': '6px' });
         var sRadioLabel = s({ display: 'flex', 'align-items': 'center', gap: '5px', 'font-size': '12px', cursor: 'pointer', padding: '5px 8px', background: C.bgInput, 'border-radius': '5px', border: '1px solid ' + C.border, color: C.text });
-        var sInput = s({ 'font-size': '12px', padding: '5px 8px', background: C.bgInput, border: '1px solid ' + C.border, 'border-radius': '5px', color: C.text, width: '100%', 'box-sizing': 'border-box', outline: 'none', 'font-family': 'monospace' });
+        var sInputField = s({ 'font-size': '12px', padding: '5px 8px', background: C.bgInput, border: '1px solid ' + C.border, 'border-radius': '5px', color: C.text, width: '100%', 'box-sizing': 'border-box', outline: 'none', 'font-family': 'monospace' });
         var sBtn = function (bg) {
             return s({ 'font-size': '12px', 'font-weight': '600', padding: '6px 16px', border: 'none', 'border-radius': '6px', cursor: 'pointer', background: bg, color: '#fff' });
         };
 
-        // Detect current element value (for default suggestion)
-        var currentElValue = '';
-        try {
-            var targetEl = document.querySelector(selector);
-            if (targetEl) {
-                currentElValue = targetEl.value || targetEl.textContent || '';
-                currentElValue = currentElValue.trim().slice(0, 80);
-            }
-        } catch (_) { }
+        // Suggest INPUT for form fields, OUTPUT for everything else — just a default
+        function _suggestInput(sel) {
+            try {
+                var el = document.querySelector(sel);
+                if (!el) return false;
+                var tag = el.tagName.toLowerCase();
+                if (tag === 'input' || tag === 'textarea' || tag === 'select') return true;
+                var child = el.querySelector('input, textarea, select');
+                if (child) return true;
+            } catch (_) { }
+            return false;
+        }
 
-        // §0: Target Element picker — DIFFERENT from assertion:
-        // Gone elements are NOT greyed out, they show as bindable
+        // §0: Target Element picker
         var chainHtml = '';
         if (selectorChain.length > 1) {
             var firstAvail = -1;
-            selectorChain.forEach(function (item, i) {
+            for (var ci = 0; ci < selectorChain.length; ci++) {
                 try {
-                    item.available = !!document.querySelector(item.selector);
+                    selectorChain[ci].available = !!document.querySelector(selectorChain[ci].selector);
                 } catch (_) {
-                    item.available = false;
+                    selectorChain[ci].available = false;
                 }
-                if (item.available && firstAvail === -1) firstAvail = i;
-            });
-            // For I/O, if no element is available, default to first (it's still bindable)
+                if (selectorChain[ci].available && firstAvail === -1) firstAvail = ci;
+            }
             if (firstAvail === -1) firstAvail = 0;
 
             chainHtml += '<div>' +
                 '<div style="' + sLabel + '">Target Element</div>' +
                 '<div style="display:flex;flex-direction:column;gap:3px">';
 
-            selectorChain.forEach(function (item, i) {
-                var indent = i === 0 ? '' : '\u21b3 '.repeat(i);
+            for (var ci2 = 0; ci2 < selectorChain.length; ci2++) {
+                var item = selectorChain[ci2];
+                var indent = ci2 === 0 ? '' : '\u21b3 '.repeat(ci2);
                 var selPreview = item.selector.length > 40 ? item.selector.slice(0, 37) + '\u2026' : item.selector;
-                var isDefault = (i === firstAvail);
+                var isDefault = (ci2 === firstAvail);
 
-                // Key difference: gone elements are NOT greyed out for I/O
-                if (item.available) {
-                    chainHtml += '<label style="' + sRadioLabel + ';padding:4px 8px">' +
-                        '<input type="radio" name="__dcp_io_target" value="' + i + '"' + (isDefault ? ' checked' : '') + '>' +
-                        '<span style="font-size:11px">' + indent +
-                        '<code style="color:' + C.accent + ';font-size:10px">&lt;' + item.tag + '&gt;</code> ' +
-                        '<span style="font-family:monospace;font-size:9px;color:' + C.textSecondary + '">' + selPreview + '</span>' +
-                        '<span style="font-size:8px;color:' + C.green + ';margin-left:4px">\u2713 in DOM</span>' +
-                        '</span>' +
-                        '</label>';
-                } else {
-                    // NOT greyed out — still selectable (bindable)
-                    chainHtml += '<label style="' + sRadioLabel + ';padding:4px 8px;border-color:' + C.accent + '40">' +
-                        '<input type="radio" name="__dcp_io_target" value="' + i + '"' + (isDefault ? ' checked' : '') + '>' +
-                        '<span style="font-size:11px">' + indent +
-                        '<code style="color:' + C.accent + ';font-size:10px">&lt;' + item.tag + '&gt;</code> ' +
-                        '<span style="font-family:monospace;font-size:9px;color:' + C.textSecondary + '">' + selPreview + '</span>' +
-                        '<span style="font-size:8px;color:' + C.accent + ';margin-left:4px">\ud83d\udd17 bindable</span>' +
-                        '</span>' +
-                        '</label>';
-                }
-            });
+                chainHtml += '<label style="' + sRadioLabel + ';padding:4px 8px">' +
+                    '<input type="radio" name="__dcp_io_target" value="' + ci2 + '"' + (isDefault ? ' checked' : '') + '>' +
+                    '<span style="font-size:11px">' + indent +
+                    '<code style="color:' + C.purple + ';font-size:10px">&lt;' + item.tag + '&gt;</code> ' +
+                    '<span style="font-family:monospace;font-size:9px;color:' + C.textSecondary + '">' + selPreview + '</span>' +
+                    (item.available
+                        ? '<span style="font-size:8px;color:' + C.green + ';margin-left:4px">\u2713</span>'
+                        : '<span style="font-size:8px;color:' + C.textMuted + ';margin-left:4px">\ud83d\udd17</span>') +
+                    '</span>' +
+                    '</label>';
+            }
 
             chainHtml += '</div></div>';
         }
 
-        // §1: Mode selection (Input vs Output)
+        // Initial suggestion
+        var initSuggest = _suggestInput(selector);
+
+        // §1: Mode toggle — INPUT / OUTPUT
         var modeHtml = '<div>' +
-            '<div style="' + sLabel + '">Mode</div>' +
+            '<div style="' + sLabel + '">I/O Type</div>' +
             '<div style="display:flex;gap:6px">' +
-            '<label style="' + sRadioLabel + ';flex:1">' +
-            '<input type="radio" name="__dcp_io_mode" value="input" checked>' +
-            '<span>\ud83d\udce5 Input \u2014 bind to variable</span>' +
+            '<label style="' + sRadioLabel + ';flex:1;justify-content:center;border-color:' + C.purple + '44">' +
+            '<input type="radio" name="__dcp_io_mode" value="input"' + (initSuggest ? ' checked' : '') + '>' +
+            '<span style="font-size:12px;color:' + C.purple + ';font-weight:600">\ud83d\udce5 Input</span>' +
             '</label>' +
-            '<label style="' + sRadioLabel + ';flex:1">' +
-            '<input type="radio" name="__dcp_io_mode" value="output">' +
-            '<span>\ud83d\udce4 Output \u2014 export value</span>' +
+            '<label style="' + sRadioLabel + ';flex:1;justify-content:center;border-color:' + C.green + '44">' +
+            '<input type="radio" name="__dcp_io_mode" value="output"' + (initSuggest ? '' : ' checked') + '>' +
+            '<span style="font-size:12px;color:' + C.green + ';font-weight:600">\ud83d\udce4 Output</span>' +
             '</label>' +
             '</div>' +
             '</div>';
 
-        // §2: Input section
-        var inputHtml = '<div id="__dcp_io_input_section">' +
+        // §2: INPUT section
+        var inputHtml = '<div id="__dcp_io_input_section" style="' + (initSuggest ? '' : 'display:none') + '">' +
+            '<div style="padding:10px;border:1px solid ' + C.purple + '33;border-radius:8px;background:' + C.purple + '0a">' +
+            '<div style="font-size:11px;font-weight:600;color:' + C.purple + ';margin-bottom:6px">\ud83d\udce5 Input \u2014 Suite Parameter</div>' +
+            '<div style="font-size:10px;color:' + C.textMuted + ';margin-bottom:8px">This value becomes configurable when running the suite</div>' +
             '<div style="' + sLabel + '">Variable Name</div>' +
-            '<input id="__dcp_io_var_name" type="text" placeholder="LOGIN_EMAIL" style="' + sInput + ';margin-bottom:6px">' +
-            (currentElValue ? '<div style="font-size:10px;color:' + C.textMuted + '">Current value: <code style="font-size:9px;padding:1px 4px;background:' + C.bgCard + ';border-radius:3px">' + currentElValue.slice(0, 50) + '</code>' +
-                '<br><span style="color:' + C.accent + '">\u2192 will become default for this variable</span></div>' : '') +
-            '</div>';
+            '<input id="__dcp_io_var_name" type="text" placeholder="LOGIN_EMAIL" style="' + sInputField + ';margin-bottom:6px">' +
+            '<div id="__dcp_io_default_hint" style="font-size:10px;color:' + C.textMuted + '"></div>' +
+            '</div></div>';
 
-        // §3: Output section (hidden by default)
-        var outputHtml = '<div id="__dcp_io_output_section" style="display:none">' +
+        // §3: OUTPUT section
+        var outputHtml = '<div id="__dcp_io_output_section" style="' + (initSuggest ? 'display:none' : '') + '">' +
+            '<div style="padding:10px;border:1px solid ' + C.green + '33;border-radius:8px;background:' + C.green + '0a">' +
+            '<div style="font-size:11px;font-weight:600;color:' + C.green + ';margin-bottom:6px">\ud83d\udce4 Output \u2014 Export</div>' +
+            '<div style="font-size:10px;color:' + C.textMuted + ';margin-bottom:8px">The captured value will be exported to the plan namespace</div>' +
             '<div style="' + sLabel + '">Export Name</div>' +
-            '<input id="__dcp_io_export_name" type="text" placeholder="AUTH_TOKEN" style="' + sInput + ';margin-bottom:6px">' +
-            '<div style="font-size:10px;color:' + C.textMuted + '">Captured value will be exported to the plan namespace</div>' +
-            '</div>';
+            '<input id="__dcp_io_export_name" type="text" placeholder="AUTH_TOKEN" style="' + sInputField + ';margin-bottom:6px">' +
+            '<div style="font-size:10px;color:' + C.textMuted + '">Available as a named output for downstream suites</div>' +
+            '</div></div>';
 
         overlay.innerHTML =
             '<div style="' + s({
-                background: C.bg, border: '1px solid ' + C.accent + '44', 'border-radius': '12px',
+                background: C.bg, border: '1px solid ' + C.purple + '44', 'border-radius': '12px',
                 width: '440px', 'max-width': '92vw', 'max-height': '85vh', 'overflow-y': 'auto',
                 'box-shadow': '0 20px 60px rgba(0,0,0,0.6)', color: C.text,
             }) + '">' +
-
-            // Header
             '<div style="' + s({ padding: '14px 18px 10px', 'border-bottom': '1px solid ' + C.border, display: 'flex', 'align-items': 'center', gap: '8px' }) + '">' +
             '<span style="font-size:16px">\ud83d\udd17</span>' +
             '<div>' +
             '<div style="font-weight:700;font-size:14px">I/O Configuration</div>' +
             '<div id="__dcp_io_header_selector" style="font-size:10px;color:' + C.textMuted + ';font-family:monospace;margin-top:2px"></div>' +
-            '</div>' +
-            '</div>' +
-
+            '</div></div>' +
             '<div style="padding:12px 18px;display:flex;flex-direction:column;gap:12px">' +
             chainHtml +
             modeHtml +
             inputHtml +
             outputHtml +
-
-            // Buttons
             '<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:4px">' +
             '<button id="__dcp_io_cancel" style="' + sBtn(C.border) + '">Cancel</button>' +
-            '<button id="__dcp_io_save" style="' + sBtn(C.accent) + '">\ud83d\udcbe Save I/O</button>' +
-            '</div>' +
-
-            '</div>' +
-            '</div>';
+            '<button id="__dcp_io_save" style="' + sBtn(C.purple) + '">\ud83d\udcbe Save I/O</button>' +
+            '</div></div></div>';
 
         document.body.appendChild(overlay);
 
-        // Set selector text safely (avoids XSS)
         var headerSel = document.getElementById('__dcp_io_header_selector');
         if (headerSel) headerSel.textContent = selector.slice(0, 70);
 
-        // Mode toggle — show/hide input vs output sections
-        overlay.querySelectorAll('input[name="__dcp_io_mode"]').forEach(function (radio) {
-            radio.addEventListener('change', function () {
-                var inSec = document.getElementById('__dcp_io_input_section');
-                var outSec = document.getElementById('__dcp_io_output_section');
-                if (radio.value === 'input') {
-                    if (inSec) inSec.style.display = '';
-                    if (outSec) outSec.style.display = 'none';
-                } else {
-                    if (inSec) inSec.style.display = 'none';
-                    if (outSec) outSec.style.display = '';
-                }
-            });
-        });
+        var _currentIsInput = initSuggest;
 
-        // Target element selection — update selector variable
-        overlay.querySelectorAll('input[name="__dcp_io_target"]').forEach(function (radio) {
-            radio.addEventListener('change', function () {
-                var idx = parseInt(radio.value, 10);
+        function _showSection(isInput) {
+            var inSec = document.getElementById('__dcp_io_input_section');
+            var outSec = document.getElementById('__dcp_io_output_section');
+            if (inSec) inSec.style.display = isInput ? '' : 'none';
+            if (outSec) outSec.style.display = isInput ? 'none' : '';
+            _currentIsInput = isInput;
+        }
+
+        function _updateHint(sel) {
+            var hintEl = document.getElementById('__dcp_io_default_hint');
+            if (!hintEl) return;
+            try {
+                var el = document.querySelector(sel);
+                if (el) {
+                    var val = (el.value || el.textContent || '').trim().slice(0, 60);
+                    if (val) {
+                        hintEl.innerHTML = 'Default: <code style="font-size:9px;padding:1px 4px;background:' + C.bgCard + ';border-radius:3px">' + val + '</code>';
+                        return;
+                    }
+                }
+            } catch (_) { }
+            hintEl.textContent = '';
+        }
+
+        _updateHint(selector);
+
+        // Mode toggle — user clicks INPUT or OUTPUT
+        var modeRadios = overlay.querySelectorAll('input[name="__dcp_io_mode"]');
+        for (var mi = 0; mi < modeRadios.length; mi++) {
+            modeRadios[mi].addEventListener('change', function () {
+                _showSection(this.value === 'input');
+            });
+        }
+
+        // Target element selection — update selector AND suggest mode (user can override)
+        var targetRadios = overlay.querySelectorAll('input[name="__dcp_io_target"]');
+        for (var ti = 0; ti < targetRadios.length; ti++) {
+            targetRadios[ti].addEventListener('change', function () {
+                var idx = parseInt(this.value, 10);
                 if (selectorChain[idx]) {
                     selector = selectorChain[idx].selector;
                     if (headerSel) headerSel.textContent = selector.slice(0, 70);
+                    var suggest = _suggestInput(selector);
+                    // Update mode radio to match suggestion
+                    for (var ri = 0; ri < modeRadios.length; ri++) {
+                        modeRadios[ri].checked = (modeRadios[ri].value === (suggest ? 'input' : 'output'));
+                    }
+                    _showSection(suggest);
+                    _updateHint(selector);
                 }
             });
-        });
+        }
 
-        // Cancel
         document.getElementById('__dcp_io_cancel').addEventListener('click', function () {
             _closeIOModal();
         });
 
-        // Save
         document.getElementById('__dcp_io_save').addEventListener('click', function () {
-            _saveIO(selector);
+            _saveIO(selector, _currentIsInput);
         });
 
-        // Click outside to close
         overlay.addEventListener('click', function (e) {
             if (e.target === overlay) _closeIOModal();
         });
@@ -1525,25 +1515,27 @@
         _dcpLog('info', 'I/O modal closed, recording resumed');
     }
 
-    function _saveIO(selector) {
-        var mode = 'input';
-        var modeRadios = document.querySelectorAll('input[name="__dcp_io_mode"]');
-        for (var i = 0; i < modeRadios.length; i++) {
-            if (modeRadios[i].checked) { mode = modeRadios[i].value; break; }
-        }
+    function _saveIO(selector, isInput) {
+        var ioType, name, defaultValue = '';
 
-        var ioConfig = {};
-        if (mode === 'input') {
+        if (isInput) {
+            // INPUT: variable name → suite parameter
             var varName = (document.getElementById('__dcp_io_var_name') || {}).value || '';
             varName = varName.trim();
             if (!varName) {
-                // Flash the input field
                 var inp = document.getElementById('__dcp_io_var_name');
                 if (inp) { inp.style.border = '2px solid #ef4444'; setTimeout(function () { inp.style.border = ''; }, 1500); }
                 return;
             }
-            ioConfig.variable_name = varName;
+            ioType = 'input';
+            name = varName;
+            // Read default value from the live element
+            try {
+                var el = document.querySelector(selector);
+                if (el) defaultValue = (el.value || el.textContent || '').trim();
+            } catch (_) { }
         } else {
+            // OUTPUT: export name
             var exportName = (document.getElementById('__dcp_io_export_name') || {}).value || '';
             exportName = exportName.trim();
             if (!exportName) {
@@ -1551,25 +1543,26 @@
                 if (inp2) { inp2.style.border = '2px solid #ef4444'; setTimeout(function () { inp2.style.border = ''; }, 1500); }
                 return;
             }
-            ioConfig.export_as = exportName;
+            ioType = 'output';
+            name = exportName;
         }
 
         // Resume recording BEFORE sending
         window.__dcp_recorder_paused = false;
-        _dcpLog('info', 'saveIO called', { selector: selector, mode: mode, config: ioConfig });
+        _dcpLog('info', 'saveIO called', { selector: selector, isInput: isInput, ioType: ioType, name: name });
 
-        // Send I/O config via the event endpoint (CORS-enabled)
+        // Send I/O config via the event endpoint (io_configure action)
         sendEvent({
-            action: 'io_bind',
+            action: 'io_configure',
             selector: selector,
-            io_config: ioConfig,
+            io_type: ioType,
+            name: name,
+            default_value: defaultValue,
         });
 
         _closeIOModal();
     }
 
-
-    // ── Input (debounced) ─────────────────────────────────────
 
     document.addEventListener('input', function (e) {
         if (window.__dcp_recorder_paused) return;

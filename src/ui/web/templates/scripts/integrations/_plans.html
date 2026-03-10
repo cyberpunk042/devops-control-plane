@@ -919,27 +919,7 @@
             // Fetch suite metadata for typed variable fields
             const suite = s.suite_id ? await _plansFetchSuiteMeta(s.suite_id) : null;
 
-            if (suite && suite.variable_defs && suite.variable_defs.length > 0) {
-                body += `<div class="modal-form-group" style="margin-top:8px">
-                    <label class="modal-form-label" style="color:var(--info)">📥 Declared Variables</label>`;
-                for (const v of suite.variable_defs) {
-                    const currentVal = (s.suite_variables || {})[v.name] || v.default || '';
-                    const reqBadge = v.required ? '<span style="color:var(--error);font-size:0.68rem;margin-left:4px">required</span>' : '';
-                    const typeBadge = `<span style="color:var(--text-muted);font-size:0.64rem;margin-left:4px">${v.type}</span>`;
-                    const desc = v.description ? `<div style="font-size:0.66rem;color:var(--text-muted);margin:1px 0 3px">${esc(v.description)}</div>` : '';
-                    body += `<div style="margin:4px 0;">
-                        <div style="display:flex;align-items:center;gap:6px">
-                            <label style="font-size:0.74rem;font-weight:500">${esc(v.name)}${typeBadge}${reqBadge}</label>
-                            ${_plansVarDropdown('sv-' + v.name, currentVal, upstream)}
-                        </div>
-                        ${desc}
-                        <input id="mf-sv-${esc(v.name)}" class="modal-form-input" data-sv-name="${esc(v.name)}"
-                            value="${esc(currentVal)}" placeholder="${esc(v.default || '')}">
-                    </div>`;
-                }
-                body += `</div>`;
-            } else if (suite && suite.variables && Object.keys(suite.variables).length > 0) {
-                // Fallback: render raw variables dict as fields
+            if (suite && suite.variables && Object.keys(suite.variables).length > 0) {
                 body += `<div class="modal-form-group" style="margin-top:8px">
                     <label class="modal-form-label" style="color:var(--info)">📥 Suite Variables</label>`;
                 for (const [vName, vDefault] of Object.entries(suite.variables)) {

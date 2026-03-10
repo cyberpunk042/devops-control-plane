@@ -405,10 +405,11 @@
         // Action toolbar — only for steps that target elements (have selector)
         // Uses data-action attributes instead of inline onclick (no JSON in HTML)
         const hasSelector = !!(step.selector && step.selector !== 'body');
-        // I/O badge: also appears for value-bearing steps without selector (navigate, inject_js)
-        const canIO = hasSelector
-            || ['navigate', 'type', 'select', 'keypress', 'inject_js'].indexOf(step.action) !== -1
-            || step.action.indexOf('capture_') === 0;
+        // I/O button: value actions (INPUT), capture actions (OUTPUT), element-targeting with selector (can add capture for OUTPUT)
+        const isValueAction = ['navigate', 'type', 'select', 'keypress', 'inject_js'].indexOf(step.action) !== -1;
+        const isCaptureAction = step.action.indexOf('capture_') === 0;
+        const canAddCapture = hasSelector && ['click', 'hover'].indexOf(step.action) !== -1;
+        const canIO = isValueAction || isCaptureAction || canAddCapture;
         const sid = esc(step.id);
         const ioBtn = canIO ? `
                 <button class="btn btn-xs cdp-step-action-btn" data-cdp-action="io" data-cdp-step-id="${sid}"
@@ -522,11 +523,21 @@
 
         const hasDetails = assertHtml || screenshotHtml || ocrHtml || consoleHtml;
 
+        // I/O badge for step row
+        let ioBadgeHtml = '';
+        const stepVarMatch = (step.value || '').match(/^\$\{(\w+)\}$/);
+        if (stepVarMatch) {
+            ioBadgeHtml = `<span style="font-size:0.58rem;padding:1px 5px;background:#8b5cf622;color:#8b5cf6;border-radius:3px;font-family:monospace;font-weight:600;flex-shrink:0">📥 \${${esc(stepVarMatch[1])}}</span>`;
+        } else if (step.export_as) {
+            ioBadgeHtml = `<span style="font-size:0.58rem;padding:1px 5px;background:#22c55e22;color:#22c55e;border-radius:3px;font-family:monospace;font-weight:600;flex-shrink:0">📤 ${esc(step.export_as)}</span>`;
+        }
+
         return `<div class="card-detect-row cdp-rec-step-row" style="font-size:0.78rem;display:flex;align-items:${hasDetails ? 'flex-start' : 'center'};gap:0.5rem;flex-wrap:${hasDetails ? 'wrap' : 'nowrap'}" data-step-id="${sid}" data-step-sequence="${step.sequence}">
             <span style="font-size:0.72rem;color:var(--text-muted);min-width:1.5rem;text-align:right">${step.sequence + 1}</span>
             <span style="font-size:0.82rem">${icon}</span>
             <span style="font-weight:500;min-width:3.5rem">${esc(step.action)}</span>
             <span style="color:var(--text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">${esc(desc)}</span>
+            ${ioBadgeHtml}
             ${toolbar}
             ${hasDetails ? `<div style="width:100%;padding-left:5rem">${assertHtml}${screenshotHtml}${ocrHtml}${consoleHtml}</div>` : ''}
         </div>`;
@@ -1026,6 +1037,13 @@
                     style="width:100%;font-size:0.78rem;padding:6px 10px;background:var(--bg-secondary);border:1px solid var(--border-subtle);border-radius:6px;color:var(--text-primary)">
             </div>
 
+            <div style="margin-bottom:1rem;padding:10px;border:1px solid #22c55e33;border-radius:8px;background:#22c55e0a">
+                <div style="font-weight:600;font-size:0.78rem;color:#22c55e;margin-bottom:6px">📤 Export (optional)</div>
+                <input id="cdp-capture-export-name" type="text" placeholder="AUTH_TOKEN"
+                    style="width:100%;font-size:0.78rem;padding:6px 10px;background:var(--bg-secondary);border:1px solid var(--border-subtle);border-radius:6px;color:var(--text-primary);font-family:monospace">
+                <div style="font-size:0.62rem;color:var(--text-muted);margin-top:4px">Exports captured value to plan namespace for downstream suites</div>
+            </div>
+
             <div style="display:flex;justify-content:flex-end;gap:8px">
                 <button class="btn btn-sm btn-secondary" onclick="document.getElementById('cdp-capture-config-overlay').remove()">Cancel</button>
                 <button class="btn btn-sm btn-primary" onclick="_cdpTestSaveCapture()">📋 Add Capture</button>
@@ -1082,6 +1100,7 @@
                         selector: captureType === 'capture_screenshot' ? '' : (stepData.selector || ''),
                         after_step_id: stepData.id,
                         value: attrName,
+                        export_as: (document.getElementById('cdp-capture-export-name')?.value || '').trim(),
                     }),
                 });
             }
@@ -1198,11 +1217,11 @@
         const isValueAction = ['navigate', 'type', 'select', 'keypress', 'inject_js'].indexOf(step.action) !== -1;
         const isCaptureAction = step.action.indexOf('capture_') === 0;
 
-        // Detect if already bound
+        // Detect if already bound to a variable (INPUT)
         const varMatch = currentValue.match(/^\$\{(\w+)\}$/);
         const isBound = !!varMatch;
         const boundVarName = isBound ? varMatch[1] : '';
-        const originalVal = step._original_value || (isBound ? '' : currentValue);
+        const originalVal = step.original_value || (isBound ? '' : currentValue);
 
         document.getElementById('cdp-io-config-overlay')?.remove();
         const overlay = document.createElement('div');
@@ -1213,159 +1232,159 @@
             background:rgba(0,0,0,0.55);backdrop-filter:blur(6px);
         `;
 
-        // Input binding section (for value actions)
-        let inputSection = '';
-        if (isValueAction) {
-            inputSection = `
-            <div style="margin-bottom:1rem;padding:10px;border:1px solid #8b5cf633;border-radius:8px;background:#8b5cf60a">
-                <div style="font-weight:600;font-size:0.78rem;color:#8b5cf6;margin-bottom:8px">📥 Input Binding</div>
-                <label class="modal-form-check" style="margin-bottom:8px;font-size:0.75rem">
-                    <input type="checkbox" id="cdp-io-var-bind" ${isBound ? 'checked' : ''}>
-                    Bind value to variable
-                </label>
-                <div id="cdp-io-var-fields" style="${isBound ? '' : 'display:none;'}">
-                    <div style="margin-bottom:6px">
-                        <label style="font-size:0.7rem;color:var(--text-secondary);display:block;margin-bottom:2px">Variable name</label>
-                        <input id="cdp-io-var-name" type="text" value="${esc(boundVarName)}" placeholder="LOGIN_EMAIL"
-                            style="width:100%;font-size:0.78rem;padding:6px 10px;background:var(--bg-secondary);border:1px solid var(--border-subtle);border-radius:6px;color:var(--text-primary);font-family:monospace">
-                    </div>
-                    ${originalVal ? `<div style="font-size:0.68rem;color:var(--text-muted);margin-top:2px">
-                        Current value: <code style="font-size:0.65rem;padding:1px 4px;background:var(--bg-tertiary);border-radius:3px">${esc(originalVal.slice(0, 60))}</code>
-                        <br><span style="color:#8b5cf6">→ will become default for this variable</span>
-                    </div>` : ''}
-                </div>
-            </div>`;
-        }
+        // Determine which section to show — value actions get INPUT, everything with a selector or capture gets OUTPUT
+        let ioSection = '';
+        let accentColor = '#8b5cf6';
+        let title = '🔗 I/O Configuration';
+        let subtitle = '';
+        const hasStepSelector = !!(step.selector && step.selector !== 'body');
 
-        // Output export section (for capture actions, or optionally for value actions)
-        let outputSection = '';
-        if (isCaptureAction || isValueAction) {
-            const exportVal = step.export_as || '';
-            const varNameVal = step.variable_name || '';
-            outputSection = `
-            <div style="margin-bottom:1rem;padding:10px;border:1px solid #22c55e33;border-radius:8px;background:#22c55e0a">
-                <div style="font-weight:600;font-size:0.78rem;color:#22c55e;margin-bottom:8px">📤 Output Export</div>
-                ${isCaptureAction ? `
+        if (isValueAction) {
+            // ───── INPUT: Suite Parameter ─────
+            accentColor = '#8b5cf6';
+            title = '📥 Input — Suite Parameter';
+            subtitle = 'This value becomes configurable when running the suite. The recorded value is the default.';
+            ioSection = `
+            <div style="padding:10px;border:1px solid #8b5cf633;border-radius:8px;background:#8b5cf60a;margin-bottom:1rem">
                 <div style="margin-bottom:6px">
-                    <label style="font-size:0.7rem;color:var(--text-secondary);display:block;margin-bottom:2px">Store as variable (suite-local)</label>
-                    <input id="cdp-io-var-store" type="text" value="${esc(varNameVal)}" placeholder="my_token (optional)"
-                        style="width:100%;font-size:0.78rem;padding:6px 10px;background:var(--bg-secondary);border:1px solid var(--border-subtle);border-radius:6px;color:var(--text-primary);font-family:monospace">
-                </div>` : ''}
-                <div style="margin-bottom:4px">
-                    <label style="font-size:0.7rem;color:var(--text-secondary);display:block;margin-bottom:2px">Export as (plan namespace)</label>
-                    <input id="cdp-io-export-as" type="text" value="${esc(exportVal)}" placeholder="AUTH_TOKEN (optional)"
+                    <label style="font-size:0.7rem;color:var(--text-secondary);display:block;margin-bottom:2px">Variable name</label>
+                    <input id="cdp-io-var-name" type="text" value="${esc(boundVarName)}" placeholder="LOGIN_EMAIL"
                         style="width:100%;font-size:0.78rem;padding:6px 10px;background:var(--bg-secondary);border:1px solid var(--border-subtle);border-radius:6px;color:var(--text-primary);font-family:monospace">
                 </div>
-                <div style="font-size:0.62rem;color:var(--text-muted)">Exports captured value to plan namespace for use by subsequent suites</div>
+                ${originalVal ? `<div style="font-size:0.68rem;color:var(--text-muted);margin-top:4px">
+                    Default: <code style="font-size:0.65rem;padding:1px 4px;background:var(--bg-tertiary);border-radius:3px">${esc(originalVal.slice(0, 60))}</code>
+                </div>` : ''}
+            </div>`;
+
+        } else if (isCaptureAction) {
+            // ───── OUTPUT: Export (capture actions) ─────
+            accentColor = '#22c55e';
+            title = '📤 Output — Export';
+            subtitle = 'The captured value will be exported to the plan namespace for downstream suites.';
+            const exportVal = step.export_as || '';
+            ioSection = `
+            <div style="padding:10px;border:1px solid #22c55e33;border-radius:8px;background:#22c55e0a;margin-bottom:1rem">
+                <div style="margin-bottom:6px">
+                    <label style="font-size:0.7rem;color:var(--text-secondary);display:block;margin-bottom:2px">Export name</label>
+                    <input id="cdp-io-export-name" type="text" value="${esc(exportVal)}" placeholder="AUTH_TOKEN"
+                        style="width:100%;font-size:0.78rem;padding:6px 10px;background:var(--bg-secondary);border:1px solid var(--border-subtle);border-radius:6px;color:var(--text-primary);font-family:monospace">
+                </div>
+                <div style="font-size:0.62rem;color:var(--text-muted)">Available as a named output in the plan namespace after execution</div>
+            </div>`;
+
+        } else if (hasStepSelector && ['click', 'hover'].indexOf(step.action) !== -1) {
+            // ───── OUTPUT via capture step addition (click/hover) ─────
+            accentColor = '#22c55e';
+            title = '📤 Export Element Content';
+            subtitle = 'Adds a capture step after this step to export the element\u2019s text content.';
+            ioSection = `
+            <div style="padding:10px;border:1px solid #22c55e33;border-radius:8px;background:#22c55e0a;margin-bottom:1rem">
+                <div style="margin-bottom:6px">
+                    <label style="font-size:0.7rem;color:var(--text-secondary);display:block;margin-bottom:2px">Export name</label>
+                    <input id="cdp-io-export-name" type="text" value="" placeholder="ELEMENT_TEXT"
+                        style="width:100%;font-size:0.78rem;padding:6px 10px;background:var(--bg-secondary);border:1px solid var(--border-subtle);border-radius:6px;color:var(--text-primary);font-family:monospace">
+                </div>
+                <div style="font-size:0.62rem;color:var(--text-muted)">A new capture step will be inserted after this ${esc(step.action)} step</div>
             </div>`;
         }
 
         overlay.innerHTML = `
-        <div style="background:var(--bg-primary);border:1px solid #8b5cf644;border-radius:12px;
+        <div style="background:var(--bg-primary);border:1px solid ${accentColor}44;border-radius:12px;
                     padding:1.2rem 1.5rem;width:440px;max-width:90vw;box-shadow:0 20px 60px rgba(0,0,0,0.5)">
 
             <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
-                <span style="font-size:1.1rem">🔗</span>
-                <span style="font-weight:700;font-size:0.95rem">I/O Configuration</span>
+                <span style="font-weight:700;font-size:0.95rem">${title}</span>
             </div>
             <div style="font-size:0.72rem;color:var(--text-muted);margin-bottom:4px">
                 <span style="font-family:monospace">${esc(step.action)}</span>
                 ${selector ? ` · <span style="font-family:monospace">${esc(selector.slice(0, 50))}</span>` : ''}
             </div>
-            <div style="font-size:0.65rem;color:#8b5cf6;margin-bottom:1rem">
-                ${isValueAction ? 'Bind input value to a variable — overrides hardcoded value at replay time' : ''}
-                ${isCaptureAction ? 'Export captured value for use in plans or subsequent suites' : ''}
+            <div style="font-size:0.65rem;color:${accentColor};margin-bottom:1rem">
+                ${subtitle}
             </div>
 
-            ${inputSection}
-            ${outputSection}
+            ${ioSection}
 
             <div style="display:flex;justify-content:flex-end;gap:8px">
                 <button class="btn btn-sm btn-secondary" onclick="document.getElementById('cdp-io-config-overlay').remove()">Cancel</button>
                 <button class="btn btn-sm" onclick="_cdpTestSaveIO()"
-                    style="background:#8b5cf6;color:white;border:none;border-radius:6px;padding:4px 14px;font-size:0.78rem;cursor:pointer">💾 Save I/O</button>
+                    style="background:${accentColor};color:white;border:none;border-radius:6px;padding:4px 14px;font-size:0.78rem;cursor:pointer">💾 Save</button>
             </div>
 
         </div>`;
 
         document.body.appendChild(overlay);
         overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
-
-        // Toggle variable binding fields
-        const bindCb = document.getElementById('cdp-io-var-bind');
-        if (bindCb) {
-            bindCb.addEventListener('change', () => {
-                document.getElementById('cdp-io-var-fields').style.display = bindCb.checked ? '' : 'none';
-            });
-        }
     }
 
     async function _cdpTestSaveIO() {
         const stepData = _cdpStepDataMap.get(_cdpCurrentStepId) || {};
-        const updates = {};
+        const isValueAction = ['navigate', 'type', 'select', 'keypress', 'inject_js'].indexOf(stepData.action) !== -1;
+        const isCaptureAction = (stepData.action || '').indexOf('capture_') === 0;
 
-        // Input binding
-        const bindCb = document.getElementById('cdp-io-var-bind');
-        if (bindCb) {
-            if (bindCb.checked) {
-                const varName = (document.getElementById('cdp-io-var-name')?.value || '').trim();
-                if (varName) {
-                    // Preserve original value before overwriting
-                    const currentVal = stepData.value || '';
-                    if (currentVal && !currentVal.match(/^\$\{\w+\}$/)) {
-                        updates._original_value = currentVal;
-                    } else if (stepData._original_value) {
-                        updates._original_value = stepData._original_value;
-                    }
-                    updates.value = '${' + varName + '}';
-                }
-            } else {
-                // Unbind — restore original value if currently bound
-                if (stepData.value && stepData.value.match(/^\$\{\w+\}$/)) {
-                    updates.value = stepData._original_value || '';
-                }
+        // Determine io_type and name from the overlay fields
+        let ioType, ioName, defaultValue = '';
+
+        if (isValueAction) {
+            const varName = (document.getElementById('cdp-io-var-name')?.value || '').trim();
+            if (!varName) {
+                toast('Variable name is required', 'error');
+                return;
             }
-        }
-
-        // Output export
-        const exportAs = (document.getElementById('cdp-io-export-as')?.value || '').trim();
-        if (exportAs !== (stepData.export_as || '')) {
-            updates.export_as = exportAs;
-        }
-
-        // Variable store (for captures)
-        const varStore = document.getElementById('cdp-io-var-store');
-        if (varStore) {
-            const storeName = (varStore.value || '').trim();
-            if (storeName !== (stepData.variable_name || '')) {
-                updates.variable_name = storeName;
+            ioType = 'input';
+            ioName = varName;
+            // Default value is the original recorded value
+            defaultValue = stepData.original_value || stepData.value || '';
+            if (defaultValue.match(/^\$\{\w+\}$/)) defaultValue = '';
+        } else {
+            const exportName = (document.getElementById('cdp-io-export-name')?.value || '').trim();
+            if (!exportName) {
+                toast('Export name is required', 'error');
+                return;
             }
+            ioType = 'output';
+            ioName = exportName;
         }
 
-        if (Object.keys(updates).length === 0) {
-            toast('No changes to save', 'info');
-            document.getElementById('cdp-io-config-overlay')?.remove();
-            return;
-        }
+        // Detect context: validation view (has cdp-val-steps-data) vs recording view (API call)
+        const valDataEl = document.getElementById('cdp-val-steps-data');
+        const isValidation = !!valDataEl;
 
         try {
-            await api('/cdp-test/record/modify-step', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    step_id: stepData.id,
-                    updates: updates,
-                }),
-            });
+            const payload = {
+                step_id: stepData.id,
+                io_type: ioType,
+                name: ioName,
+                default_value: defaultValue,
+            };
 
-            // Update local step data so the UI reflects changes
-            Object.assign(stepData, updates);
+            if (isValidation) {
+                const suiteId = document.getElementById('cdp-val-suite-id')?.value || '';
+                payload.suite_id = suiteId;
+            } else {
+                payload.session_id = _cdpActiveSessionId || '';
+            }
+
+            // api() returns parsed JSON directly and throws on HTTP errors
+            const result = await apiPost('/cdp-test/io/configure', payload);
+
+            // Update local step data
+            if (result.step) {
+                Object.assign(stepData, result.step);
+                _cdpStepDataMap.set(stepData.id, stepData);
+            }
+
+            // If a capture step was created, add it to local data
+            if (result.created_capture && result.step) {
+                _cdpStepDataMap.set(result.step.id, result.step);
+            }
 
             toast('I/O configured for step ' + (stepData.sequence + 1), 'success');
-            document.getElementById('cdp-io-config-overlay')?.remove();
         } catch (e) {
             toast('Failed to save I/O: ' + e.message, 'error');
         }
+
+        document.getElementById('cdp-io-config-overlay')?.remove();
     }
 
 
@@ -1422,6 +1441,30 @@
                     count.textContent = String(parseInt(count.textContent) + 1);
                 }
             } catch (err) { console.error('[CDP SSE] Error handling step:', err, e.data); }
+        });
+
+        // ── step_modified: update I/O config in live list ─────────
+        _cdpTestSSESource.addEventListener('cdp_test:step_modified', (e) => {
+            try {
+                const data = JSON.parse(e.data);
+                if (data.data?.session_id !== sessionId) return;
+                const step = data.data?.step;
+                if (!step) return;
+
+                // Update local data map
+                _cdpStepDataMap.set(step.id, step);
+
+                // Re-render the step row in the live recording list
+                const container = document.getElementById('cdp-rec-steps');
+                if (container) {
+                    const existingRow = container.querySelector(`[data-step-id="${step.id}"]`);
+                    if (existingRow) {
+                        const tmpDiv = document.createElement('div');
+                        tmpDiv.innerHTML = _cdpTestStepRow(step);
+                        existingRow.replaceWith(tmpDiv.firstElementChild);
+                    }
+                }
+            } catch (err) { console.error('[CDP SSE] Error handling step_modified:', err, e.data); }
         });
 
         _cdpTestSSESource.addEventListener('cdp_test:recorder_lost', (e) => {
@@ -1550,7 +1593,7 @@
             if (refs) {
                 for (var r = 0; r < refs.length; r++) {
                     var name = refs[r].slice(2, -1);
-                    if (!inputs[name]) inputs[name] = { default_val: s._original_value || '', step_indices: [] };
+                    if (!inputs[name]) inputs[name] = { default_val: s.original_value || '', step_indices: [] };
                     inputs[name].step_indices.push(i);
                 }
             }
@@ -1566,18 +1609,11 @@
 
     function _cdpTestBuildIOPanel(steps, suiteDraft) {
         var detected = _cdpTestAutoDetectIO(steps);
-        var savedVarDefs = suiteDraft.variable_defs || [];
         var savedOutputs = suiteDraft.outputs || {};
         var savedVars = suiteDraft.variables || {};
 
-        // Merge detected inputs with saved variable_defs
+        // Merge detected inputs with saved variables
         var inputNames = Object.keys(detected.inputs);
-        // Also include saved variables not in detected (manual ones)
-        for (var sv = 0; sv < savedVarDefs.length; sv++) {
-            if (inputNames.indexOf(savedVarDefs[sv].name) === -1) {
-                inputNames.push(savedVarDefs[sv].name);
-            }
-        }
         var savedVarKeys = Object.keys(savedVars);
         for (var sk = 0; sk < savedVarKeys.length; sk++) {
             if (inputNames.indexOf(savedVarKeys[sk]) === -1) {
@@ -1610,43 +1646,36 @@
 
         // ── Inputs table ──
         html += '<div style="margin-bottom:var(--space-xs)">';
-        html += '<div style="font-size:0.72rem;font-weight:600;color:var(--text-secondary);margin-bottom:4px">📥 Input Variables (' + inputNames.length + ')</div>';
+        html += '<div style="font-size:0.72rem;font-weight:600;color:#8b5cf6;margin-bottom:4px">📥 Inputs (' + inputNames.length + ')</div>';
         if (inputNames.length > 0) {
             html += '<table style="width:100%;font-size:0.7rem;border-collapse:collapse">';
             html += '<thead><tr style="border-bottom:1px solid var(--border-subtle);color:var(--text-muted)">';
             html += '<th style="text-align:left;padding:3px 6px">Name</th>';
-            html += '<th style="text-align:left;padding:3px 6px">Type</th>';
             html += '<th style="text-align:left;padding:3px 6px">Default</th>';
             html += '<th style="text-align:left;padding:3px 6px">Source</th>';
             html += '</tr></thead><tbody>';
             for (var ii = 0; ii < inputNames.length; ii++) {
                 var iName = inputNames[ii];
                 var det = detected.inputs[iName];
-                // Find saved def
-                var savedDef = null;
-                for (var sd = 0; sd < savedVarDefs.length; sd++) {
-                    if (savedVarDefs[sd].name === iName) { savedDef = savedVarDefs[sd]; break; }
-                }
-                var iType = savedDef ? (savedDef.type || 'string') : 'string';
-                var iDefault = savedDef ? (savedDef['default'] || savedDef.default_value || '') : (savedVars[iName] || (det ? det.default_val : ''));
+                var iDefault = savedVars[iName] || (det ? det.default_val : '');
                 var iSource = det ? ('Step ' + det.step_indices.map(function(x){ return x + 1; }).join(', ')) : 'manual';
 
-                html += '<tr style="border-bottom:1px solid var(--border-subtle)">';
-                html += '<td style="padding:3px 6px;font-family:monospace;color:var(--accent)">' + esc(iName) + '</td>';
-                html += '<td style="padding:3px 6px">' + esc(iType) + '</td>';
-                html += '<td style="padding:3px 6px"><code style="font-size:0.65rem">' + esc(iDefault ? iDefault.slice(0, 30) : '—') + '</code></td>';
+                var firstStepIdx = det ? det.step_indices[0] : -1;
+                html += '<tr style="border-bottom:1px solid var(--border-subtle);cursor:pointer" ' + (firstStepIdx >= 0 ? 'onclick="_cdpTestOpenIOFromValidation(' + firstStepIdx + ')" title="Click to configure I/O"' : '') + '>';
+                html += '<td style="padding:3px 6px;font-family:monospace;color:#8b5cf6">' + esc(iName) + '</td>';
+                html += '<td style="padding:3px 6px"><code style="font-size:0.65rem">' + esc(iDefault ? iDefault.slice(0, 30) : '\u2014') + '</code></td>';
                 html += '<td style="padding:3px 6px;color:var(--text-muted)">' + iSource + '</td>';
                 html += '</tr>';
             }
             html += '</tbody></table>';
         } else {
-            html += '<div style="font-size:0.68rem;color:var(--text-muted);padding:4px 0">No input variables detected. Bind step values to use variables.</div>';
+            html += '<div style="font-size:0.68rem;color:var(--text-muted);padding:4px 0">No inputs. Mark value steps as input parameters using the 📥 I/O button.</div>';
         }
         html += '</div>';
 
         // ── Outputs table ──
         html += '<div style="margin-bottom:var(--space-xs)">';
-        html += '<div style="font-size:0.72rem;font-weight:600;color:var(--text-secondary);margin-bottom:4px">📤 Declared Outputs (' + outputNames.length + ')</div>';
+        html += '<div style="font-size:0.72rem;font-weight:600;color:#22c55e;margin-bottom:4px">📤 Outputs (' + outputNames.length + ')</div>';
         if (outputNames.length > 0) {
             html += '<table style="width:100%;font-size:0.7rem;border-collapse:collapse">';
             html += '<thead><tr style="border-bottom:1px solid var(--border-subtle);color:var(--text-muted)">';
@@ -1660,7 +1689,8 @@
                 var oSource = oDet ? ('Step ' + (oDet.step_index + 1)) : 'manual';
                 var oDesc = oDet ? oDet.description : (savedOutputs[oName] || '');
 
-                html += '<tr style="border-bottom:1px solid var(--border-subtle)">';
+                var oStepIdx = oDet ? oDet.step_index : -1;
+                html += '<tr style="border-bottom:1px solid var(--border-subtle);cursor:pointer" ' + (oStepIdx >= 0 ? 'onclick="_cdpTestOpenIOFromValidation(' + oStepIdx + ')" title="Click to configure I/O"' : '') + '>';
                 html += '<td style="padding:3px 6px;font-family:monospace;color:#22c55e">' + esc(oName) + '</td>';
                 html += '<td style="padding:3px 6px;color:var(--text-muted)">' + oSource + '</td>';
                 html += '<td style="padding:3px 6px">' + esc(oDesc || '—') + '</td>';
@@ -1668,7 +1698,7 @@
             }
             html += '</tbody></table>';
         } else {
-            html += '<div style="font-size:0.68rem;color:var(--text-muted);padding:4px 0">No outputs declared. Use "Export as" on capture steps to declare outputs.</div>';
+            html += '<div style="font-size:0.68rem;color:var(--text-muted);padding:4px 0">No outputs declared. Use the 📤 I/O button on capture steps to declare exports.</div>';
         }
         html += '</div>';
 
@@ -1697,15 +1727,8 @@
         for (var xi = 0; xi < inputNames.length; xi++) {
             var xn = inputNames[xi];
             var xd = detected.inputs[xn];
-            var xDef = null;
-            for (var xsd = 0; xsd < savedVarDefs.length; xsd++) {
-                if (savedVarDefs[xsd].name === xn) { xDef = savedVarDefs[xsd]; break; }
-            }
             ioData.inputs[xn] = {
-                type: xDef ? (xDef.type || 'string') : 'string',
-                default_value: xDef ? (xDef['default'] || xDef.default_value || '') : (savedVars[xn] || (xd ? xd.default_val : '')),
-                description: xDef ? (xDef.description || '') : '',
-                required: xDef ? !!xDef.required : true,
+                default_value: savedVars[xn] || (xd ? xd.default_val : ''),
             };
         }
         for (var xo = 0; xo < outputNames.length; xo++) {
@@ -1832,11 +1855,31 @@
             ? '<span style="font-size:0.58rem;padding:1px 4px;background:#f59e0b22;color:#f59e0b;border-radius:3px;margin-left:4px">optional</span>'
             : '';
 
+        // I/O badge
+        var ioBadge = '';
+        var varMatch = (step.value || '').match(/^\$\{(\w+)\}$/);
+        if (varMatch) {
+            ioBadge = '<span style="font-size:0.58rem;padding:1px 5px;background:#8b5cf622;color:#8b5cf6;border-radius:3px;margin-left:4px;font-family:monospace;font-weight:600">📥 ${' + esc(varMatch[1]) + '}</span>';
+        } else if (step.export_as) {
+            ioBadge = '<span style="font-size:0.58rem;padding:1px 5px;background:#22c55e22;color:#22c55e;border-radius:3px;margin-left:4px;font-family:monospace;font-weight:600">📤 ' + esc(step.export_as) + '</span>';
+        }
+
+        // 🔗 I/O button (value actions, capture actions, or any step with a selector)
+        var isValueAction = ['navigate', 'type', 'select', 'keypress', 'inject_js'].indexOf(step.action) !== -1;
+        var isCaptureAction = step.action.indexOf('capture_') === 0;
+        var hasStepSelector = !!(step.selector && step.selector !== 'body');
+        var showIO = isValueAction || isCaptureAction || hasStepSelector;
+        var ioIsInput = isValueAction;
+        var ioBtn = showIO
+            ? '<button class="btn btn-xs" onclick="event.stopPropagation();_cdpTestOpenIOFromValidation(' + index + ')" title="Configure I/O" style="font-size:0.62rem;padding:1px 5px;background:' + (ioIsInput ? '#8b5cf622' : '#22c55e22') + ';color:' + (ioIsInput ? '#8b5cf6' : '#22c55e') + ';border:1px solid ' + (ioIsInput ? '#8b5cf633' : '#22c55e33') + ';border-radius:4px;cursor:pointer;font-weight:600">' + (ioIsInput ? '📥' : '📤') + ' I/O</button>'
+            : '';
+
         return '<div class="card-detect-row" style="font-size:0.75rem;display:flex;align-items:center;gap:0.5rem;padding:6px 10px;cursor:pointer;border-bottom:1px solid var(--border-subtle)" onclick="_cdpTestEditStep(' + index + ')" title="Click to edit">'
             + '<span style="font-size:0.68rem;color:var(--text-muted);min-width:1.5rem;text-align:right">' + (index + 1) + '</span>'
             + '<span style="font-size:0.82rem">' + icon + '</span>'
             + '<span style="font-weight:600;min-width:3rem;font-size:0.72rem">' + esc(step.action) + '</span>'
-            + '<span style="flex:1;overflow:hidden">' + detail + optBadge + '</span>'
+            + '<span style="flex:1;overflow:hidden">' + detail + optBadge + ioBadge + '</span>'
+            + ioBtn
             + '<button class="btn btn-xs btn-secondary" onclick="event.stopPropagation();_cdpTestRemoveStep(' + index + ')" title="Remove step" style="color:var(--error);font-size:0.7rem;padding:2px 6px">✕</button>'
             + '</div>';
     }
@@ -1872,6 +1915,21 @@
         }
     }
 
+
+    // ── Open I/O config directly from validation view ────────────
+
+    function _cdpTestOpenIOFromValidation(index) {
+        var dataEl = document.getElementById('cdp-val-steps-data');
+        if (!dataEl) return;
+        var steps = JSON.parse(dataEl.textContent);
+        var step = steps[index];
+        if (!step) return;
+
+        // Use the existing recording-view I/O overlay — it works on step objects
+        // We need to ensure _cdpStepDataMap has this step so _cdpTestSaveIO can find it
+        _cdpStepDataMap.set(step.id, step);
+        _cdpTestOpenIOConfig(step);
+    }
 
     // ── Edit step ────────────────────────────────────────────────
 
@@ -2212,16 +2270,17 @@
             var varMatch = currentVal.match(/^\$\{(\w+)\}$/);
             var isBound = !!varMatch;
             var boundVarName = isBound ? varMatch[1] : '';
-            var originalVal = step._original_value || (isBound ? '' : currentVal);
+            var originalVal = step.original_value || (isBound ? '' : currentVal);
 
-            body += '<div style="grid-column:1/-1;margin-top:4px;padding:8px;border:1px solid var(--border-subtle);border-radius:var(--radius-sm);background:var(--surface-raised)">';
+            body += '<div style="grid-column:1/-1;margin-top:4px;padding:10px;border:1px solid #8b5cf633;border-radius:8px;background:#8b5cf60a">';
+            body += '<div style="font-weight:600;font-size:0.78rem;color:#8b5cf6;margin-bottom:6px">📥 Input — Suite Parameter</div>';
             body += '<label class="modal-form-check" style="margin-bottom:6px">';
             body += '<input type="checkbox" id="mf-cdp-edit-var-bind" ' + (isBound ? 'checked' : '') + ' onchange="_cdpTestVarBindToggle()">';
-            body += ' Bind to variable</label>';
+            body += ' Mark as input parameter</label>';
             body += '<div id="cdp-edit-var-bind-fields" style="' + (isBound ? '' : 'display:none;') + 'margin-top:6px">';
             body += modalFormField({ name: 'cdp-edit-var-name-bind', label: 'Variable name', value: boundVarName, placeholder: 'LOGIN_EMAIL' });
             if (originalVal) {
-                body += '<div style="font-size:0.72rem;color:var(--text-muted);margin-top:2px">Default: <code>' + esc(originalVal) + '</code></div>';
+                body += '<div style="font-size:0.68rem;color:var(--text-muted);margin-top:2px">Default: <code>' + esc(originalVal) + '</code> — configurable when running the suite</div>';
             }
             body += '</div>';
             body += '</div>';
@@ -2245,11 +2304,14 @@
             body += modalFormField({ name: 'cdp-edit-attr-name', label: 'CSS Property', value: step.assertion_attribute || '', placeholder: 'color, display, opacity\u2026' });
         }
 
-        // ── Capture variable name (for captures that store results) ──
+        // ── OUTPUT: export name (capture actions ONLY) ──
         var isCapture = action.indexOf('capture_') === 0;
         if (isCapture) {
-            body += modalFormField({ name: 'cdp-edit-var-name', label: 'Store as variable', value: step.variable_name || '', placeholder: 'my_var (optional)' });
-            body += modalFormField({ name: 'cdp-edit-export-as', label: 'Export as (plan output)', value: step.export_as || '', placeholder: 'AUTH_TOKEN (optional)', hint: 'Exports to plan namespace' });
+            body += '<div style="grid-column:1/-1;margin-top:4px;padding:10px;border:1px solid #22c55e33;border-radius:8px;background:#22c55e0a">';
+            body += '<div style="font-weight:600;font-size:0.78rem;color:#22c55e;margin-bottom:6px">📤 Output — Export</div>';
+            body += modalFormField({ name: 'cdp-edit-export-as', label: 'Export name', value: step.export_as || '', placeholder: 'AUTH_TOKEN (optional)' });
+            body += '<div style="font-size:0.62rem;color:var(--text-muted);margin-top:2px">Captured value exported to plan namespace for downstream suites</div>';
+            body += '</div>';
         }
 
         // ── Assert: category-based check type system ──────────────
@@ -2335,26 +2397,29 @@
             if (bindName) {
                 // Preserve the original value before overwriting
                 if (valEl && valEl.value && !valEl.value.match(/^\$\{\w+\}$/)) {
-                    step._original_value = valEl.value;
-                } else if (!step._original_value) {
-                    step._original_value = '';
+                    step.original_value = valEl.value;
+                } else if (!step.original_value) {
+                    step.original_value = '';
                 }
                 step.value = '${' + bindName + '}';
             }
-        } else if (varBindEl && !varBindEl.checked && step._original_value) {
+        } else if (varBindEl && !varBindEl.checked && step.original_value) {
             // Toggle was unchecked — restore original value if current is ${...}
             if (step.value && step.value.match(/^\$\{\w+\}$/)) {
-                step.value = step._original_value;
+                step.value = step.original_value;
             }
         }
 
-        // Variable name (for captures)
-        var varEl = document.getElementById('mf-cdp-edit-var-name');
-        if (varEl) step.variable_name = varEl.value;
-
-        // Export as (for captures — exports to plan namespace)
+        // Export as (for captures — OUTPUT to plan namespace)
         var exportEl = document.getElementById('mf-cdp-edit-export-as');
-        if (exportEl) step.export_as = exportEl.value.trim();
+        if (exportEl) {
+            step.export_as = exportEl.value.trim();
+        }
+
+        // Mutual exclusivity: INPUT steps (value actions with var bind) cannot have export_as
+        if (varBindEl && varBindEl.checked) {
+            step.export_as = '';
+        }
 
         // Attribute name (for capture_attribute, capture_computed_style)
         var attrEl = document.getElementById('mf-cdp-edit-attr-name');
@@ -2457,20 +2522,12 @@
         var ioDataEl = document.getElementById('cdp-val-io-data');
         var ioData = ioDataEl ? JSON.parse(ioDataEl.textContent) : { inputs: {}, outputs: {} };
 
-        // Build variable_defs array and variables dict from ioData.inputs
-        var variableDefs = [];
+        // Build variables dict from ioData.inputs
         var variables = {};
         var inputKeys = Object.keys(ioData.inputs || {});
         for (var vi = 0; vi < inputKeys.length; vi++) {
             var vk = inputKeys[vi];
             var vd = ioData.inputs[vk];
-            variableDefs.push({
-                name: vk,
-                type: vd.type || 'string',
-                description: vd.description || '',
-                'default': vd.default_value || '',
-                required: vd.required !== false,
-            });
             variables[vk] = vd.default_value || '';
         }
 
@@ -2492,7 +2549,6 @@
                     target_url: mfVal('cdp-suite-url'),
                     category: mfVal('cdp-suite-category'),
                     steps: steps,
-                    variable_defs: variableDefs,
                     variables: variables,
                     outputs: ioData.outputs || {},
                 }),
@@ -2534,7 +2590,6 @@
                 steps: suite.steps,
                 target_url: suite.target_url,
                 suite_id: suiteId,
-                variable_defs: suite.variable_defs || [],
                 variables: suite.variables || {},
                 outputs: suite.outputs || {},
             });

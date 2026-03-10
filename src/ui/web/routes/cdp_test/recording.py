@@ -507,13 +507,19 @@ def cdp_test_record_event():
         _add_pna_cors(resp)
         return resp
 
-    # ── I/O binding from target site ───────────────────────────
-    # io_bind modifies the most recent step matching the selector
-    # (changes its value to ${VAR_NAME} for input binding, or sets
-    # export_as for output export). This is NOT a new step.
-    if data.get("action") in ("io_bind", "io_export"):
+    # ── I/O configuration from target site ───────────────────────
+    # io_configure finds the most recent step matching the selector
+    # and routes to the unified I/O configuration logic.
+    if data.get("action") == "io_configure":
         target_selector = data.get("selector", "")
-        io_config = data.get("io_config", {})
+        io_type = data.get("io_type", "")
+        io_name = data.get("name", "").strip()
+        default_value = data.get("default_value", "")
+
+        if not io_type or not io_name:
+            resp = jsonify({"ok": False, "error": "io_type and name required"})
+            _add_pna_cors(resp)
+            return resp, 400
 
         # Find most recent step with this selector (walk backwards)
         steps = session.get_steps()
@@ -531,30 +537,75 @@ def cdp_test_record_event():
             _add_pna_cors(resp)
             return resp, 404
 
-        # Build updates from io_config
-        updates = {}
-        if io_config.get("variable_name"):
-            original_val = target_step.get("value", "")
-            if original_val and not original_val.startswith("${"):
-                updates["_original_value"] = original_val
-            updates["value"] = "${" + io_config["variable_name"] + "}"
-        if io_config.get("export_as"):
-            updates["export_as"] = io_config["export_as"]
+        step_id = target_step["id"]
 
-        if updates:
-            step = session.modify_step(target_step["id"], updates)
+        if io_type == "input":
+            action = target_step.get("action", "")
+            value_actions = {"navigate", "type", "select", "keypress", "inject_js"}
+            if action not in value_actions:
+                resp = jsonify({
+                    "ok": False,
+                    "error": f"Step action '{action}' cannot be INPUT",
+                })
+                _add_pna_cors(resp)
+                return resp, 400
+
+            # Preserve original value before overwriting
+            current_value = target_step.get("value", "")
+            updates = {}
+            if not current_value.startswith("${"):
+                updates["original_value"] = current_value
+            updates["value"] = "${" + io_name + "}"
+            updates["export_as"] = ""  # Mutual exclusivity
+
+            step = session.modify_step(step_id, updates)
             bus.publish(
-                "cdp_test:step_modified",
+                "cdp_test:io_configured",
                 key=session.id,
-                data={
-                    "session_id": session.id,
-                    "step": step,
-                },
+                data={"session_id": session.id, "step": step},
             )
-            logger.info(
-                "I/O configured from target site: %s → %s",
-                target_selector[:50], list(updates.keys()),
-            )
+
+        elif io_type == "output":
+            action = target_step.get("action", "")
+            if action.startswith("capture_"):
+                # Already a capture step — set export_as
+                step = session.modify_step(step_id, {"export_as": io_name})
+                bus.publish(
+                    "cdp_test:io_configured",
+                    key=session.id,
+                    data={"session_id": session.id, "step": step},
+                )
+            else:
+                # Non-capture step — create a capture step after it
+                element_tag = target_step.get("element_tag", "").lower()
+                is_form = element_tag in ("input", "textarea", "select")
+                capture_action = "capture_value" if is_form else "capture_text"
+
+                capture_data = {
+                    "action": capture_action,
+                    "selector": target_step.get("selector", ""),
+                    "xpath": target_step.get("xpath", ""),
+                    "export_as": io_name,
+                    "page_url": target_step.get("page_url", ""),
+                    "element_tag": element_tag,
+                    "element_text": target_step.get("element_text", ""),
+                }
+                new_step = session.insert_step_after(step_id, capture_data)
+                bus.publish(
+                    "cdp_test:step_captured",
+                    key=session.id,
+                    data={
+                        "session_id": session.id,
+                        "step": new_step,
+                        "inserted": True,
+                        "io_generated": True,
+                    },
+                )
+
+        logger.info(
+            "I/O configured from target site: %s → %s:%s",
+            target_selector[:50], io_type, io_name,
+        )
 
         resp = jsonify({"ok": True, "io_applied": True})
         _add_pna_cors(resp)
@@ -821,12 +872,22 @@ def cdp_test_record_modify_step():
     (input binding → ${VAR_NAME}) or set export_as (output export)
     without inserting a new step.
 
-    Body (JSON):
+    INPUT and OUTPUT are mutually exclusive — a step is one or the other.
+
+    Body (JSON) — INPUT example:
         {
             "step_id": "uuid",
             "updates": {
                 "value": "${LOGIN_EMAIL}",
-                "_original_value": "admin@test.com",
+                "original_value": "admin@test.com",
+                "export_as": ""
+            }
+        }
+
+    Body (JSON) — OUTPUT example:
+        {
+            "step_id": "uuid",
+            "updates": {
                 "export_as": "AUTH_TOKEN"
             }
         }
@@ -850,7 +911,7 @@ def cdp_test_record_modify_step():
 
     # Only allow known fields to be modified (whitelist)
     allowed_fields = {
-        "value", "_original_value", "export_as", "variable_name",
+        "value", "original_value", "export_as",
         "description",
     }
     sanitized = {k: v for k, v in updates.items() if k in allowed_fields}
