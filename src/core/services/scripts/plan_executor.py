@@ -796,6 +796,7 @@ def execute_plan(
     if chrome_info and not browser_config.keep_alive:
         try:
             _kill_plan_browser(chrome_info["port"])
+            result.chrome_instance = None  # browser gone, don't show close button
         except Exception as exc:
             logger.warning("Failed to kill plan browser: %s", exc)
 
