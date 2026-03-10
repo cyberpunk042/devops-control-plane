@@ -3361,12 +3361,19 @@
         _cdpTestShowReplayConfig(suiteId);
     }
 
-    function _cdpTestShowReplayConfig(suiteId, defaults) {
+    async function _cdpTestShowReplayConfig(suiteId, defaults) {
         // Remove any existing config overlay first
         const existing = document.getElementById('cdp-replay-config-overlay');
         if (existing) existing.remove();
 
-        const suite = _cdpTestSuites?.find(s => s.id === suiteId);
+        // Fetch full suite with steps (the cached list only has summaries)
+        let suite = _cdpTestSuites?.find(s => s.id === suiteId) || {};
+        try {
+            const fullData = await api('/cdp-test/suites/' + encodeURIComponent(suiteId));
+            if (fullData.suite) suite = fullData.suite;
+        } catch (e) {
+            console.warn('[CDP] Failed to fetch full suite, using summary:', e);
+        }
         const visualDelay = defaults?.visual_delay_ms ?? suite?.visual_delay_ms ?? 300;
         const minDelay = defaults?.min_step_delay_ms ?? suite?.min_step_delay_ms ?? 700;
         const clearData = defaults?.clear_site_data ?? suite?.clear_site_data ?? false;
@@ -3392,6 +3399,40 @@
                 <div style="font-weight:600;font-size:0.9rem">${esc(suite?.name || suiteId)}</div>
                 <div style="font-size:0.72rem;color:var(--text-muted)">${suite?.steps?.length || '?'} steps · ${esc(suite?.target_url || 'unknown target')}</div>
             </div>
+
+            <!-- Input Parameters (extracted from steps with variable bindings) -->
+            ${(() => {
+                const params = {};
+                (suite?.steps || []).forEach(s => {
+                    const m = (s.value || '').match(/^\$\{(\w+)\}$/);
+                    if (m && !params[m[1]]) {
+                        params[m[1]] = {
+                            varName: m[1],
+                            defaultValue: s.original_value || '',
+                            action: s.action || '',
+                            selector: s.selector || '',
+                        };
+                    }
+                });
+                const entries = Object.values(params);
+                if (entries.length === 0) return '';
+                let html = '<div style="margin-bottom:var(--space-md);padding:10px;border:1px solid #8b5cf633;border-radius:8px;background:#8b5cf60a">';
+                html += '<div style="font-size:0.78rem;font-weight:600;margin-bottom:var(--space-xs);color:#8b5cf6">📥 Input Parameters</div>';
+                html += '<div style="font-size:0.65rem;color:var(--text-muted);margin-bottom:8px">These values were defined during recording. Override them for this run.</div>';
+                entries.forEach(p => {
+                    html += '<div style="margin-bottom:8px">';
+                    html += '<label style="font-size:0.72rem;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:2px">';
+                    html += '<code style="font-size:0.68rem;padding:1px 4px;background:var(--bg-tertiary);border-radius:2px;color:#8b5cf6">${' + esc(p.varName) + '}</code>';
+                    html += ' <span style="font-size:0.62rem;color:var(--text-muted);font-weight:400">' + esc(p.action) + ' → ' + esc(p.selector.slice(0, 40)) + '</span>';
+                    html += '</label>';
+                    html += '<input id="cdp-cfg-param-' + esc(p.varName) + '" type="text" value="' + esc(p.defaultValue) + '"';
+                    html += ' placeholder="' + esc(p.defaultValue || 'Enter value…') + '"';
+                    html += ' style="width:100%;font-size:0.78rem;padding:6px 10px;background:var(--bg-secondary);border:1px solid var(--border-subtle);border-radius:6px;color:var(--text-primary);font-family:monospace;box-sizing:border-box">';
+                    html += '</div>';
+                });
+                html += '</div>';
+                return html;
+            })()}
 
             <!-- Timing -->
             <div style="font-size:0.78rem;font-weight:600;margin-bottom:var(--space-xs);color:var(--text-secondary)">⏱ Timing</div>
@@ -3553,6 +3594,15 @@
             clear_site_data: document.getElementById('cdp-cfg-clear-data')?.checked ?? false,
             keep_background: document.getElementById('cdp-cfg-keep-bg')?.checked ?? false,
         };
+
+        // Collect input parameter overrides from the config modal
+        const params = {};
+        document.querySelectorAll('[id^="cdp-cfg-param-"]').forEach(el => {
+            const varName = el.id.replace('cdp-cfg-param-', '');
+            if (varName && el.value) params[varName] = el.value;
+        });
+        if (Object.keys(params).length > 0) overrides.params = params;
+
         // Persist background preference for next time
         localStorage.setItem('cdp-replay-keep-bg', String(overrides.keep_background));
         _cdpTestLastOverrides = overrides;
@@ -3616,6 +3666,7 @@
                     min_step_delay_ms: overrides?.min_step_delay_ms ?? null,
                     keep_background: overrides?.keep_background ?? false,
                     cdp_port: overrides?.cdp_port ?? null,
+                    params: overrides?.params ?? null,
                 }),
             });
 

@@ -156,6 +156,10 @@ def cdp_test_replay_start():
 
     # ── Merge variables ───────────────────────────────────────
     variables = data.get("variables") or {}
+    # params from the replay config modal (user-provided input overrides)
+    params = data.get("params") or {}
+    if params:
+        variables.update(params)
 
     # ── Create callback that publishes to the event bus ────────
     def _bus_callback(event_type: str, event_data: dict):
