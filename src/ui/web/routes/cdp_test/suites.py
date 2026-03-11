@@ -11,6 +11,10 @@ Endpoints:
     DELETE /cdp-test/suites/<suite_id>             — delete a suite
     POST   /cdp-test/suites/<suite_id>/duplicate   — clone a suite
 
+    POST   /cdp-test/suites/add-to-git             — add suite to ledger
+    POST   /cdp-test/suites/sync-to-git            — sync local changes to ledger
+    POST   /cdp-test/suites/remove-from-git        — remove suite from ledger
+
     GET    /cdp-test/results                       — list run results
     GET    /cdp-test/results/<run_id>              — single result detail
 """
@@ -170,6 +174,8 @@ def cdp_test_duplicate_suite(suite_id: str):
     original.last_run_at = ""
     original.last_run_status = ""
     original.run_count = 0
+    original.in_git = False
+    original.git_updated_at = ""
 
     # Give each step a new ID too
     for step in original.steps:
@@ -179,6 +185,128 @@ def cdp_test_duplicate_suite(suite_id: str):
 
     logger.info("Duplicated suite %s → %s", suite_id, original.id)
     return jsonify({"ok": True, "suite_id": original.id}), 201
+
+
+# ── Git operations ─────────────────────────────────────────────
+
+
+@cdp_test_bp.route("/cdp-test/suites/add-to-git", methods=["POST"])
+def cdp_test_add_suite_to_git():
+    """Add a test suite to the ledger (git) branch.
+
+    Body (JSON): ``{"suite_id": "..."}``
+    """
+    import threading
+
+    from src.core.services.cdp_test.storage import add_suite_to_git
+    from src.core.services.git_auth import is_auth_ok
+    from src.core.services.ledger.worktree import push_ledger_branch
+
+    root = _project_root()
+    data = request.get_json(silent=True) or {}
+    suite_id = data.get("suite_id", "")
+    if not suite_id:
+        return jsonify({"ok": False, "error": "suite_id is required"}), 400
+
+    ok = add_suite_to_git(root, suite_id)
+    if not ok:
+        return jsonify({"ok": False, "error": "Suite not found"}), 404
+
+    # Background push if auth is available
+    if is_auth_ok():
+        threading.Thread(
+            target=push_ledger_branch, args=(root,), daemon=True,
+        ).start()
+
+    return jsonify({"ok": True, "suite_id": suite_id, "in_git": True})
+
+
+@cdp_test_bp.route("/cdp-test/suites/sync-to-git", methods=["POST"])
+def cdp_test_sync_suite_to_git():
+    """Sync local suite changes to the ledger (git) branch.
+
+    Body (JSON): ``{"suite_id": "..."}``
+    """
+    import threading
+
+    from src.core.services.cdp_test.storage import sync_suite_to_git
+    from src.core.services.git_auth import is_auth_ok
+    from src.core.services.ledger.worktree import push_ledger_branch
+
+    root = _project_root()
+    data = request.get_json(silent=True) or {}
+    suite_id = data.get("suite_id", "")
+    if not suite_id:
+        return jsonify({"ok": False, "error": "suite_id is required"}), 400
+
+    ok = sync_suite_to_git(root, suite_id)
+    if not ok:
+        return jsonify({
+            "ok": False,
+            "error": "Suite not found or not in git",
+        }), 404
+
+    # Background push if auth is available
+    if is_auth_ok():
+        threading.Thread(
+            target=push_ledger_branch, args=(root,), daemon=True,
+        ).start()
+
+    return jsonify({
+        "ok": True, "suite_id": suite_id,
+        "in_git": True, "git_dirty": False,
+    })
+
+
+@cdp_test_bp.route("/cdp-test/suites/remove-from-git", methods=["POST"])
+def cdp_test_remove_suite_from_git():
+    """Remove a test suite from the ledger (git) branch.
+
+    The suite remains in local storage.
+    Body (JSON): ``{"suite_id": "..."}``
+    """
+    import threading
+
+    from src.core.services.cdp_test.storage import remove_suite_from_git
+    from src.core.services.git_auth import is_auth_ok
+    from src.core.services.ledger.worktree import push_ledger_branch
+
+    root = _project_root()
+    data = request.get_json(silent=True) or {}
+    suite_id = data.get("suite_id", "")
+    if not suite_id:
+        return jsonify({"ok": False, "error": "suite_id is required"}), 400
+
+    ok = remove_suite_from_git(root, suite_id)
+    if not ok:
+        return jsonify({"ok": False, "error": "Suite not found"}), 404
+
+    # Background push if auth is available
+    if is_auth_ok():
+        threading.Thread(
+            target=push_ledger_branch, args=(root,), daemon=True,
+        ).start()
+
+    return jsonify({"ok": True, "suite_id": suite_id, "in_git": False})
+
+
+# ── Dependency checks ─────────────────────────────────────────
+
+
+@cdp_test_bp.route("/cdp-test/suites/<suite_id>/git-dependents")
+def cdp_test_suite_git_dependents(suite_id: str):
+    """Check which in-git plans reference this suite.
+
+    Returns a list of ``{plan_id, plan_name}`` for plans that are
+    in git and have cdp_test steps pointing at this suite.
+    Used by the frontend before remove-from-git to warn about
+    breaking dependencies.
+    """
+    from src.core.services.scripts.plan_storage import find_plans_referencing_suite
+
+    root = _project_root()
+    dependents = find_plans_referencing_suite(root, suite_id)
+    return jsonify({"ok": True, "dependents": dependents})
 
 
 # ── List results ───────────────────────────────────────────────

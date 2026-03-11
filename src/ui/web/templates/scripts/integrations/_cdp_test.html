@@ -167,12 +167,31 @@
                 ? new Date(s.last_run_at).toLocaleString()
                 : 'Never run';
 
+            // Git status badge
+            let gitBadge = '';
+            if (s.in_git && s.git_dirty) {
+                gitBadge = `<span style="font-size:0.6rem;padding:1px 5px;border-radius:3px;background:rgba(255,170,0,0.15);color:#f0a030;font-weight:600;white-space:nowrap" title="Local changes not synced to git">⚠️ Git Outdated</span>`;
+            } else if (s.in_git) {
+                gitBadge = `<span style="font-size:0.6rem;padding:1px 5px;border-radius:3px;background:rgba(80,200,120,0.12);color:#50c878;font-weight:600;white-space:nowrap" title="Synced with git">📁 In Git</span>`;
+            }
+
+            // Git action button
+            let gitBtn = '';
+            if (!s.in_git) {
+                gitBtn = `<button class="btn btn-xs btn-secondary" onclick="_cdpTestAddToGit('${esc(s.id)}')" title="Add to Git" style="font-size:0.6rem">📁+</button>`;
+            } else if (s.git_dirty) {
+                gitBtn = `<button class="btn btn-xs btn-secondary" onclick="_cdpTestSyncToGit('${esc(s.id)}')" title="Sync to Git" style="font-size:0.6rem;color:#f0a030">🔄</button>`;
+            }
+
             html += `<div class="card-detect-row" style="cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:0.5rem"
                 onclick="_cdpTestOpenSuite('${esc(s.id)}')">
                 <div style="display:flex;align-items:center;gap:0.5rem;flex:1;min-width:0">
                     <span class="card-detect-icon">🧪</span>
                     <div style="min-width:0">
-                        <div style="font-size:0.82rem;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(s.name || 'Untitled')}</div>
+                        <div style="display:flex;align-items:center;gap:0.35rem">
+                            <span style="font-size:0.82rem;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(s.name || 'Untitled')}</span>
+                            ${gitBadge}
+                        </div>
                         <div style="font-size:0.68rem;color:var(--text-muted)">${s.step_count} step${s.step_count !== 1 ? 's' : ''} · ${esc(s.category || 'smoke')}</div>
                     </div>
                 </div>
@@ -182,8 +201,12 @@
                         <div style="font-size:0.62rem;color:var(--text-muted)">${esc(lastRun)}</div>
                     </div>
                     <div style="display:flex;gap:0.25rem" onclick="event.stopPropagation()">
+                        ${gitBtn}
                         <button class="btn btn-xs btn-secondary" onclick="_cdpTestReplaySuite('${esc(s.id)}')" title="Replay" ${_cdpTestReplayActive ? 'disabled style="opacity:0.4;cursor:not-allowed"' : ''}>▶</button>
                         <button class="btn btn-xs btn-secondary" onclick="_cdpTestDuplicateSuite('${esc(s.id)}')" title="Duplicate">📋</button>
+                        ${s.in_git
+                            ? `<button class="btn btn-xs btn-secondary" onclick="_cdpTestRemoveFromGit('${esc(s.id)}')" title="Remove from Git" style="font-size:0.6rem">📁✕</button>`
+                            : ''}
                         <button class="btn btn-xs btn-secondary" onclick="_cdpTestDeleteSuite('${esc(s.id)}')" title="Delete" style="color:var(--error)">✕</button>
                     </div>
                 </div>
@@ -4516,13 +4539,102 @@
     }
 
     async function _cdpTestDeleteSuite(suiteId) {
-        if (!confirm('Delete this test suite? This cannot be undone.')) return;
+        modalOpen({
+            title: '🗑️ Delete Test Suite',
+            body: `<p style="color:var(--text-secondary);font-size:0.85rem;line-height:1.5;margin:0">
+                This will permanently delete the test suite from local storage
+                and from git (if synced). This cannot be undone.
+            </p>`,
+            footerButtons: [
+                { label: 'Cancel', cls: 'btn-secondary', onclick: 'modalClose()' },
+                {
+                    label: '🗑️ Delete',
+                    cls: 'btn-secondary',
+                    style: 'color:var(--error);border-color:var(--error)',
+                    onclick: `(async()=>{
+                        modalClose();
+                        try {
+                            await api('/cdp-test/suites/${suiteId}', { method: 'DELETE' });
+                            toast('Suite deleted', 'success');
+                            _cdpTestRenderHome();
+                        } catch(e) { toast('Delete failed: ' + e.message, 'error'); }
+                    })()`,
+                },
+            ],
+        });
+    }
+
+    // ── Git operations ──────────────────────────────────────────────
+
+    async function _cdpTestAddToGit(suiteId) {
         try {
-            await api(`/cdp-test/suites/${suiteId}`, { method: 'DELETE' });
-            toast('Suite deleted', 'success');
+            await apiPost('/cdp-test/suites/add-to-git', { suite_id: suiteId });
+            toast('Suite added to git', 'success');
             _cdpTestRenderHome();
         } catch (e) {
-            toast('Delete failed: ' + e.message, 'error');
+            toast('Failed to add to git: ' + e.message, 'error');
+        }
+    }
+
+    async function _cdpTestSyncToGit(suiteId) {
+        try {
+            await apiPost('/cdp-test/suites/sync-to-git', { suite_id: suiteId });
+            toast('Suite synced to git', 'success');
+            _cdpTestRenderHome();
+        } catch (e) {
+            toast('Failed to sync to git: ' + e.message, 'error');
+        }
+    }
+
+    async function _cdpTestRemoveFromGit(suiteId) {
+        try {
+            // Check if any in-git plans reference this suite
+            const check = await api(`/cdp-test/suites/${suiteId}/git-dependents`);
+            const dependents = check.dependents || [];
+
+            let bodyHtml = `<p style="color:var(--text-secondary);font-size:0.85rem;line-height:1.5;margin:0 0 0.75rem">
+                The suite will remain in local storage but will be removed from the git ledger.
+                Other machines will no longer receive this suite.
+            </p>`;
+
+            if (dependents.length > 0) {
+                bodyHtml += `<div style="background:rgba(255,170,0,0.08);border:1px solid rgba(255,170,0,0.25);border-radius:8px;padding:0.75rem;margin-bottom:0.5rem">
+                    <div style="font-size:0.8rem;font-weight:600;color:#f0a030;margin-bottom:0.4rem">
+                        ⚠️ ${dependents.length} plan(s) in git reference this suite:
+                    </div>
+                    <ul style="margin:0;padding-left:1.2rem;font-size:0.78rem;color:var(--text-secondary)">
+                        ${dependents.map(d => `<li>${esc(d.plan_name || d.plan_id)}</li>`).join('')}
+                    </ul>
+                    <div style="font-size:0.72rem;color:var(--text-muted);margin-top:0.4rem">
+                        Removing this suite will break these plans on other machines.
+                    </div>
+                </div>`;
+            }
+
+            modalOpen({
+                title: '📁 Remove from Git',
+                body: bodyHtml,
+                footerButtons: [
+                    { label: 'Cancel', cls: 'btn-secondary', onclick: 'modalClose()' },
+                    {
+                        label: dependents.length > 0 ? '⚠️ Remove Anyway' : '📁 Remove from Git',
+                        cls: 'btn-secondary',
+                        style: dependents.length > 0
+                            ? 'color:#f0a030;border-color:#f0a030'
+                            : '',
+                        onclick: `(async()=>{
+                            modalClose();
+                            try {
+                                await apiPost('/cdp-test/suites/remove-from-git', { suite_id: '${suiteId}' });
+                                toast('Suite removed from git', 'success');
+                                _cdpTestRenderHome();
+                            } catch(e) { toast('Failed to remove from git: ' + e.message, 'error'); }
+                        })()`,
+                    },
+                ],
+            });
+        } catch (e) {
+            toast('Failed to check dependencies: ' + e.message, 'error');
         }
     }
 

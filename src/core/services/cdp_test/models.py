@@ -502,6 +502,13 @@ class TestSuite:
     last_run_status: str = ""           # "passed" | "failed" | "partial"
     run_count: int = 0                  # Total number of executions
 
+    # ── Git (ledger) ──────────────────────────────────────────
+    in_git: bool = False                # True = has a version on the ledger branch
+    git_updated_at: str = ""            # ISO timestamp of the LAST sync to ledger.
+                                        # When updated_at > git_updated_at, the git
+                                        # version is outdated (local has uncommitted
+                                        # changes).
+
     def to_dict(self) -> dict:
         """Serialize to a JSON-friendly dict."""
         d = {
@@ -529,6 +536,8 @@ class TestSuite:
             "last_run_at": self.last_run_at,
             "last_run_status": self.last_run_status,
             "run_count": self.run_count,
+            "in_git": self.in_git,
+            "git_updated_at": self.git_updated_at,
         }
         # Only include graph fields when in graph mode
         if self.steps_dict:
@@ -594,6 +603,8 @@ class TestSuite:
             last_run_at=data.get("last_run_at", ""),
             last_run_status=data.get("last_run_status", ""),
             run_count=data.get("run_count", 0),
+            in_git=data.get("in_git", False),
+            git_updated_at=data.get("git_updated_at", ""),
         )
 
 

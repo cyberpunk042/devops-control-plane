@@ -10,6 +10,10 @@ Endpoints:
     PUT    /plans/<plan_id>             — update a plan
     DELETE /plans/<plan_id>             — delete a plan
     POST   /plans/<plan_id>/duplicate   — clone a plan
+
+    POST   /plans/add-to-git            — add plan to ledger
+    POST   /plans/sync-to-git           — sync local changes to ledger
+    POST   /plans/remove-from-git       — remove plan from ledger
 """
 
 from __future__ import annotations
@@ -166,6 +170,8 @@ def plans_duplicate(plan_id: str):
     original.last_run_at = ""
     original.last_run_status = ""
     original.run_count = 0
+    original.in_git = False
+    original.git_updated_at = ""
 
     # Give each step a new ID too
     for step in original.steps:
@@ -175,3 +181,124 @@ def plans_duplicate(plan_id: str):
 
     logger.info("Duplicated plan %s → %s", plan_id, original.id)
     return jsonify({"ok": True, "plan_id": original.id}), 201
+
+
+# ── Git operations ─────────────────────────────────────────────
+
+
+@plans_bp.route("/plans/add-to-git", methods=["POST"])
+def plans_add_to_git():
+    """Add an execution plan to the ledger (git) branch.
+
+    Body (JSON): ``{"plan_id": "..."}``
+    """
+    import threading
+
+    from src.core.services.git_auth import is_auth_ok
+    from src.core.services.ledger.worktree import push_ledger_branch
+    from src.core.services.scripts.plan_storage import add_plan_to_git
+
+    root = _project_root()
+    data = request.get_json(silent=True) or {}
+    plan_id = data.get("plan_id", "")
+    if not plan_id:
+        return jsonify({"ok": False, "error": "plan_id is required"}), 400
+
+    ok = add_plan_to_git(root, plan_id)
+    if not ok:
+        return jsonify({"ok": False, "error": "Plan not found"}), 404
+
+    # Background push if auth is available
+    if is_auth_ok():
+        threading.Thread(
+            target=push_ledger_branch, args=(root,), daemon=True,
+        ).start()
+
+    return jsonify({"ok": True, "plan_id": plan_id, "in_git": True})
+
+
+@plans_bp.route("/plans/sync-to-git", methods=["POST"])
+def plans_sync_to_git():
+    """Sync local plan changes to the ledger (git) branch.
+
+    Body (JSON): ``{"plan_id": "..."}``
+    """
+    import threading
+
+    from src.core.services.git_auth import is_auth_ok
+    from src.core.services.ledger.worktree import push_ledger_branch
+    from src.core.services.scripts.plan_storage import sync_plan_to_git
+
+    root = _project_root()
+    data = request.get_json(silent=True) or {}
+    plan_id = data.get("plan_id", "")
+    if not plan_id:
+        return jsonify({"ok": False, "error": "plan_id is required"}), 400
+
+    ok = sync_plan_to_git(root, plan_id)
+    if not ok:
+        return jsonify({
+            "ok": False,
+            "error": "Plan not found or not in git",
+        }), 404
+
+    # Background push if auth is available
+    if is_auth_ok():
+        threading.Thread(
+            target=push_ledger_branch, args=(root,), daemon=True,
+        ).start()
+
+    return jsonify({
+        "ok": True, "plan_id": plan_id,
+        "in_git": True, "git_dirty": False,
+    })
+
+
+@plans_bp.route("/plans/remove-from-git", methods=["POST"])
+def plans_remove_from_git():
+    """Remove a plan from the ledger (git) branch.
+
+    The plan remains in local storage.
+    Body (JSON): ``{"plan_id": "..."}``
+    """
+    import threading
+
+    from src.core.services.git_auth import is_auth_ok
+    from src.core.services.ledger.worktree import push_ledger_branch
+    from src.core.services.scripts.plan_storage import remove_plan_from_git
+
+    root = _project_root()
+    data = request.get_json(silent=True) or {}
+    plan_id = data.get("plan_id", "")
+    if not plan_id:
+        return jsonify({"ok": False, "error": "plan_id is required"}), 400
+
+    ok = remove_plan_from_git(root, plan_id)
+    if not ok:
+        return jsonify({"ok": False, "error": "Plan not found"}), 404
+
+    # Background push if auth is available
+    if is_auth_ok():
+        threading.Thread(
+            target=push_ledger_branch, args=(root,), daemon=True,
+        ).start()
+
+    return jsonify({"ok": True, "plan_id": plan_id, "in_git": False})
+
+
+# ── Dependency checks ─────────────────────────────────────────
+
+
+@plans_bp.route("/plans/<plan_id>/git-check")
+def plans_git_check(plan_id: str):
+    """Check git status of suites referenced by this plan.
+
+    Returns which referenced suites are not in git (``not_in_git``)
+    and which are in git but have local changes (``dirty``).
+    Used by the frontend before add-to-git / sync-to-git.
+    """
+    from src.core.services.scripts.plan_storage import check_plan_suite_deps
+
+    root = _project_root()
+    deps = check_plan_suite_deps(root, plan_id)
+    return jsonify({"ok": True, **deps})
