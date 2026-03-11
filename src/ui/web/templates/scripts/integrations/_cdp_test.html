@@ -4538,30 +4538,97 @@
         }
     }
 
+    /**
+     * Show a layered confirm overlay that sits ABOVE any existing modal.
+     * Returns a Promise that resolves to the clicked button's key, or null if cancelled.
+     * @param {Object} opts
+     * @param {string} opts.title
+     * @param {string} opts.body - innerHTML
+     * @param {Array<{key:string, label:string, style?:string}>} opts.buttons
+     *   First button is always the cancel (secondary). The rest are action buttons.
+     */
+    function _gitConfirm(opts) {
+        return new Promise(resolve => {
+            const existing = document.getElementById('git-confirm-overlay');
+            if (existing) existing.remove();
+
+            const overlay = document.createElement('div');
+            overlay.id = 'git-confirm-overlay';
+            overlay.style.cssText = [
+                'position:fixed', 'inset:0', 'z-index:100000',
+                'display:flex', 'align-items:center', 'justify-content:center',
+                'background:rgba(0,0,0,0.55)',
+                'backdrop-filter:blur(4px)', '-webkit-backdrop-filter:blur(4px)',
+                'animation:fadeIn 0.15s ease',
+            ].join(';');
+
+            const btnHtml = opts.buttons.map(b =>
+                `<button class="btn btn-sm ${b.key === 'cancel' ? 'btn-secondary' : (b.primary ? 'btn-primary' : 'btn-secondary')}"
+                    data-key="${esc(b.key)}"
+                    style="${b.style || ''};font-family:inherit">${b.label}</button>`
+            ).join('');
+
+            overlay.innerHTML = `
+                <div style="
+                    background:var(--bg-card,#1e1e2e);
+                    border:1px solid var(--border,#333);
+                    border-radius:12px;
+                    padding:1.5rem;
+                    max-width:420px;
+                    width:calc(100% - 2rem);
+                    color:var(--text-primary,#e0e0e0);
+                    font-family:var(--font-sans,system-ui,sans-serif);
+                    box-shadow:0 24px 48px rgba(0,0,0,0.5);
+                ">
+                    <div style="font-size:0.95rem;font-weight:600;margin-bottom:0.75rem">${opts.title}</div>
+                    <div style="margin-bottom:1rem">${opts.body}</div>
+                    <div style="display:flex;gap:0.5rem;justify-content:flex-end">${btnHtml}</div>
+                </div>
+            `;
+
+            function close(key) {
+                overlay.remove();
+                resolve(key);
+            }
+
+            overlay.addEventListener('click', e => {
+                if (e.target === overlay) close(null);
+                const btn = e.target.closest('[data-key]');
+                if (btn) close(btn.dataset.key);
+            });
+
+            document.addEventListener('keydown', function esc(e) {
+                if (e.key === 'Escape') {
+                    document.removeEventListener('keydown', esc);
+                    close(null);
+                }
+            });
+
+            document.body.appendChild(overlay);
+        });
+    }
+
     async function _cdpTestDeleteSuite(suiteId) {
-        modalOpen({
+        const choice = await _gitConfirm({
             title: '🗑️ Delete Test Suite',
             body: `<p style="color:var(--text-secondary);font-size:0.85rem;line-height:1.5;margin:0">
                 This will permanently delete the test suite from local storage
                 and from git (if synced). This cannot be undone.
             </p>`,
-            footerButtons: [
-                { label: 'Cancel', cls: 'btn-secondary', onclick: 'modalClose()' },
-                {
-                    label: '🗑️ Delete',
-                    cls: 'btn-secondary',
-                    style: 'color:var(--error);border-color:var(--error)',
-                    onclick: `(async()=>{
-                        modalClose();
-                        try {
-                            await api('/cdp-test/suites/${suiteId}', { method: 'DELETE' });
-                            toast('Suite deleted', 'success');
-                            _cdpTestRenderHome();
-                        } catch(e) { toast('Delete failed: ' + e.message, 'error'); }
-                    })()`,
-                },
+            buttons: [
+                { key: 'cancel', label: 'Cancel' },
+                { key: 'delete', label: '🗑️ Delete', style: 'color:var(--error);border-color:var(--error)' },
             ],
         });
+        if (choice !== 'delete') return;
+
+        try {
+            await api(`/cdp-test/suites/${suiteId}`, { method: 'DELETE' });
+            toast('Suite deleted', 'success');
+            _cdpTestRenderHome();
+        } catch (e) {
+            toast('Delete failed: ' + e.message, 'error');
+        }
     }
 
     // ── Git operations ──────────────────────────────────────────────
@@ -4611,30 +4678,25 @@
                 </div>`;
             }
 
-            modalOpen({
+            const choice = await _gitConfirm({
                 title: '📁 Remove from Git',
                 body: bodyHtml,
-                footerButtons: [
-                    { label: 'Cancel', cls: 'btn-secondary', onclick: 'modalClose()' },
+                buttons: [
+                    { key: 'cancel', label: 'Cancel' },
                     {
+                        key: 'remove',
                         label: dependents.length > 0 ? '⚠️ Remove Anyway' : '📁 Remove from Git',
-                        cls: 'btn-secondary',
-                        style: dependents.length > 0
-                            ? 'color:#f0a030;border-color:#f0a030'
-                            : '',
-                        onclick: `(async()=>{
-                            modalClose();
-                            try {
-                                await apiPost('/cdp-test/suites/remove-from-git', { suite_id: '${suiteId}' });
-                                toast('Suite removed from git', 'success');
-                                _cdpTestRenderHome();
-                            } catch(e) { toast('Failed to remove from git: ' + e.message, 'error'); }
-                        })()`,
+                        style: dependents.length > 0 ? 'color:#f0a030;border-color:#f0a030' : '',
                     },
                 ],
             });
+            if (choice !== 'remove') return;
+
+            await apiPost('/cdp-test/suites/remove-from-git', { suite_id: suiteId });
+            toast('Suite removed from git', 'success');
+            _cdpTestRenderHome();
         } catch (e) {
-            toast('Failed to check dependencies: ' + e.message, 'error');
+            toast('Failed to remove from git: ' + e.message, 'error');
         }
     }
 

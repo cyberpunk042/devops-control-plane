@@ -586,29 +586,26 @@
     }
 
     async function _plansDelete(planId) {
-        modalOpen({
+        const choice = await _gitConfirm({
             title: '🗑️ Delete Execution Plan',
             body: `<p style="color:var(--text-secondary);font-size:0.85rem;line-height:1.5;margin:0">
                 This will permanently delete the execution plan from local storage
                 and from git (if synced). This cannot be undone.
             </p>`,
-            footerButtons: [
-                { label: 'Cancel', cls: 'btn-secondary', onclick: 'modalClose()' },
-                {
-                    label: '🗑️ Delete',
-                    cls: 'btn-secondary',
-                    style: 'color:var(--error);border-color:var(--error)',
-                    onclick: `(async()=>{
-                        modalClose();
-                        try {
-                            await api('/plans/${planId}', { method: 'DELETE' });
-                            toast('Plan deleted', 'success');
-                            _plansRenderHome();
-                        } catch(e) { toast('Failed to delete: ' + e.message, 'error'); }
-                    })()`,
-                },
+            buttons: [
+                { key: 'cancel', label: 'Cancel' },
+                { key: 'delete', label: '🗑️ Delete', style: 'color:var(--error);border-color:var(--error)' },
             ],
         });
+        if (choice !== 'delete') return;
+
+        try {
+            await api(`/plans/${planId}`, { method: 'DELETE' });
+            toast('Plan deleted', 'success');
+            _plansRenderHome();
+        } catch (e) {
+            toast(`Failed to delete: ${e.message}`, 'error');
+        }
     }
 
     async function _plansDuplicate(planId) {
@@ -630,15 +627,11 @@
             const notInGit = (deps.not_in_git || []).filter(s => s.suite_name !== '(missing)');
 
             if (notInGit.length > 0) {
-                // Show modal with dependency info
                 const listHtml = notInGit.map(s =>
                     `<li>${esc(s.suite_name || s.suite_id)}</li>`
                 ).join('');
 
-                // Store IDs in temp variable to avoid quote issues in onclick attrs
-                window._gitPendingAddIds = notInGit.map(s => s.suite_id);
-
-                modalOpen({
+                const choice = await _gitConfirm({
                     title: '📁 Add Plan to Git',
                     body: `<p style="color:var(--text-secondary);font-size:0.85rem;line-height:1.5;margin:0 0 0.75rem">
                         This plan references test suites that are not in git yet.
@@ -652,38 +645,26 @@
                             ${listHtml}
                         </ul>
                     </div>`,
-                    footerButtons: [
-                        { label: 'Cancel', cls: 'btn-secondary', onclick: 'modalClose()' },
-                        {
-                            label: 'Plan Only',
-                            cls: 'btn-secondary',
-                            onclick: `(async()=>{
-                                modalClose();
-                                try {
-                                    await apiPost('/plans/add-to-git', { plan_id: '${planId}' });
-                                    toast('Plan added to git', 'success');
-                                    _plansRenderHome();
-                                } catch(e) { toast('Failed: ' + e.message, 'error'); }
-                            })()`,
-                        },
-                        {
-                            label: '📁 Add All',
-                            cls: 'btn-primary',
-                            onclick: `(async()=>{
-                                modalClose();
-                                try {
-                                    var sIds = window._gitPendingAddIds || [];
-                                    for (var i = 0; i < sIds.length; i++) {
-                                        await apiPost('/cdp-test/suites/add-to-git', { suite_id: sIds[i] });
-                                    }
-                                    await apiPost('/plans/add-to-git', { plan_id: '${planId}' });
-                                    toast('Plan + ' + sIds.length + ' suite(s) added to git', 'success');
-                                    _plansRenderHome();
-                                } catch(e) { toast('Failed: ' + e.message, 'error'); }
-                            })()`,
-                        },
+                    buttons: [
+                        { key: 'cancel', label: 'Cancel' },
+                        { key: 'plan-only', label: 'Plan Only' },
+                        { key: 'add-all', label: '📁 Add All', primary: true },
                     ],
                 });
+
+                if (!choice || choice === 'cancel') return;
+
+                if (choice === 'add-all') {
+                    for (const s of notInGit) {
+                        await apiPost('/cdp-test/suites/add-to-git', { suite_id: s.suite_id });
+                    }
+                }
+
+                await apiPost('/plans/add-to-git', { plan_id: planId });
+                toast(choice === 'add-all'
+                    ? `Plan + ${notInGit.length} suite(s) added to git`
+                    : 'Plan added to git', 'success');
+                _plansRenderHome();
                 return;
             }
 
@@ -723,11 +704,7 @@
                     </ul>`;
                 }
 
-                // Store IDs in temp variable to avoid quote issues in onclick attrs
-                window._gitPendingSyncAddIds = notInGit.map(s => s.suite_id);
-                window._gitPendingSyncIds = dirty.map(s => s.suite_id);
-
-                modalOpen({
+                const choice = await _gitConfirm({
                     title: '🔄 Sync Plan to Git',
                     body: `<p style="color:var(--text-secondary);font-size:0.85rem;line-height:1.5;margin:0 0 0.75rem">
                         This plan references test suites with pending changes.
@@ -735,42 +712,29 @@
                     <div style="background:rgba(255,170,0,0.08);border:1px solid rgba(255,170,0,0.25);border-radius:8px;padding:0.75rem;margin-bottom:0.5rem">
                         ${depHtml}
                     </div>`,
-                    footerButtons: [
-                        { label: 'Cancel', cls: 'btn-secondary', onclick: 'modalClose()' },
-                        {
-                            label: 'Plan Only',
-                            cls: 'btn-secondary',
-                            onclick: `(async()=>{
-                                modalClose();
-                                try {
-                                    await apiPost('/plans/sync-to-git', { plan_id: '${planId}' });
-                                    toast('Plan synced to git', 'success');
-                                    _plansRenderHome();
-                                } catch(e) { toast('Failed: ' + e.message, 'error'); }
-                            })()`,
-                        },
-                        {
-                            label: '🔄 Sync All',
-                            cls: 'btn-primary',
-                            onclick: `(async()=>{
-                                modalClose();
-                                try {
-                                    var addIds = window._gitPendingSyncAddIds || [];
-                                    var syncIds = window._gitPendingSyncIds || [];
-                                    for (var i = 0; i < addIds.length; i++) {
-                                        await apiPost('/cdp-test/suites/add-to-git', { suite_id: addIds[i] });
-                                    }
-                                    for (var i = 0; i < syncIds.length; i++) {
-                                        await apiPost('/cdp-test/suites/sync-to-git', { suite_id: syncIds[i] });
-                                    }
-                                    await apiPost('/plans/sync-to-git', { plan_id: '${planId}' });
-                                    toast('Plan + ' + (addIds.length + syncIds.length) + ' suite(s) synced to git', 'success');
-                                    _plansRenderHome();
-                                } catch(e) { toast('Failed: ' + e.message, 'error'); }
-                            })()`,
-                        },
+                    buttons: [
+                        { key: 'cancel', label: 'Cancel' },
+                        { key: 'plan-only', label: 'Plan Only' },
+                        { key: 'sync-all', label: '🔄 Sync All', primary: true },
                     ],
                 });
+
+                if (!choice || choice === 'cancel') return;
+
+                if (choice === 'sync-all') {
+                    for (const s of notInGit) {
+                        await apiPost('/cdp-test/suites/add-to-git', { suite_id: s.suite_id });
+                    }
+                    for (const s of dirty) {
+                        await apiPost('/cdp-test/suites/sync-to-git', { suite_id: s.suite_id });
+                    }
+                }
+
+                await apiPost('/plans/sync-to-git', { plan_id: planId });
+                toast(choice === 'sync-all'
+                    ? `Plan + ${notInGit.length + dirty.length} suite(s) synced to git`
+                    : 'Plan synced to git', 'success');
+                _plansRenderHome();
                 return;
             }
 
@@ -784,28 +748,26 @@
     }
 
     async function _plansRemoveFromGit(planId) {
-        modalOpen({
+        const choice = await _gitConfirm({
             title: '📁 Remove Plan from Git',
             body: `<p style="color:var(--text-secondary);font-size:0.85rem;line-height:1.5;margin:0">
                 The plan will remain in local storage but will be removed from the git ledger.
                 Other machines will no longer receive this plan.
             </p>`,
-            footerButtons: [
-                { label: 'Cancel', cls: 'btn-secondary', onclick: 'modalClose()' },
-                {
-                    label: '📁 Remove from Git',
-                    cls: 'btn-secondary',
-                    onclick: `(async()=>{
-                        modalClose();
-                        try {
-                            await apiPost('/plans/remove-from-git', { plan_id: '${planId}' });
-                            toast('Plan removed from git', 'success');
-                            _plansRenderHome();
-                        } catch(e) { toast('Failed to remove from git: ' + e.message, 'error'); }
-                    })()`,
-                },
+            buttons: [
+                { key: 'cancel', label: 'Cancel' },
+                { key: 'remove', label: '📁 Remove from Git' },
             ],
         });
+        if (choice !== 'remove') return;
+
+        try {
+            await apiPost('/plans/remove-from-git', { plan_id: planId });
+            toast('Plan removed from git', 'success');
+            _plansRenderHome();
+        } catch (e) {
+            toast('Failed to remove from git: ' + e.message, 'error');
+        }
     }
 
     function _plansCreateNew() {
