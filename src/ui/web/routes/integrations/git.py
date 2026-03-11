@@ -227,3 +227,21 @@ def ledger_sync_status_route():  # type: ignore[no-untyped-def]
     from src.core.services.ledger.worktree import ledger_sync_status
     return jsonify(ledger_sync_status(_project_root()))
 
+
+@integrations_bp.route("/ledger/push", methods=["POST"])
+@requires_git_auth
+def ledger_push_route():  # type: ignore[no-untyped-def]
+    """Push the ledger branch to origin (fetch + rebase + push).
+
+    Returns ``{"ok": true}`` on success, ``{"ok": false, "error": "..."}``
+    on failure (e.g. conflict that requires manual resolution).
+    """
+    from src.core.services.ledger.worktree import push_ledger_branch
+    root = _project_root()
+    ok = push_ledger_branch(root)
+    if ok:
+        return jsonify({"ok": True, "message": "Ledger pushed to origin"})
+    return jsonify({
+        "ok": False,
+        "error": "Push failed — likely a rebase conflict. Open the ledger panel for resolution options.",
+    }), 409
