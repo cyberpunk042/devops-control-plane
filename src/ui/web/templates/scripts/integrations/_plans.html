@@ -98,7 +98,9 @@
 
         modalOpen({
             title: '📦 Execution Plans',
-            body: body,
+            body: body + `<div id="plans-cdp-status" style="margin-top:var(--space-sm);font-size:0.72rem;color:var(--text-muted);padding:8px 12px;background:var(--bg-tertiary);border-radius:6px">
+                🔍 Warming CDP connections…
+            </div>`,
             size: 'wide',
             footerButtons: [
                 { label: 'Close', cls: 'btn-secondary', onclick: '_plansCloseModal()' },
@@ -107,6 +109,9 @@
 
         // Update badge AFTER modalOpen renders the DOM
         _gitLedgerUpdateBadge('plans-ledger-badge', _plansCachedPlans || []);
+
+        // Background: warm all CDP connections (bridge + tunnel)
+        _plansWarmCdp();
     }
 
     // ── Active plan banner ───────────────────────────────────────────
@@ -588,6 +593,62 @@
             execBtn.disabled = !allFilled;
             execBtn.classList.toggle('btn-secondary', !allFilled);
             execBtn.classList.toggle('btn-primary', allFilled);
+        }
+    }
+
+    /** Background warm-up: bridge + tunnel (same as test suite pattern) */
+    async function _plansWarmCdp() {
+        const statusEl = document.getElementById('plans-cdp-status');
+        try {
+            // Initial warm call — starts bridge + tunnel
+            await fetch('/api/cdp-test/warm', { method: 'POST' });
+
+            // Poll until bridge is ready (max 10s)
+            for (let i = 0; i < 10; i++) {
+                await new Promise(r => setTimeout(r, 1000));
+                if (!document.getElementById('plans-cdp-status')) return; // modal closed
+
+                const res = await fetch('/api/cdp-test/warm', { method: 'POST' });
+                const data = await res.json();
+
+                const parts = [];
+                // WS Worker
+                if (data.ws?.ready) {
+                    parts.push('✅ WS Worker');
+                } else {
+                    parts.push('❌ WS Worker');
+                }
+                // Tunnel
+                if (data.tunnel?.active) {
+                    parts.push(`✅ Tunnel (port ${data.tunnel.port})`);
+                } else {
+                    parts.push('❌ Tunnel');
+                }
+                // Bridge
+                if (data.bridge?.ready) {
+                    parts.push('✅ Bridge');
+                } else if (data.bridge?.warming) {
+                    parts.push('⏳ Bridge warming…');
+                } else if (!data.bridge?.needed) {
+                    parts.push('⚡ No bridge needed');
+                } else {
+                    parts.push('❌ Bridge');
+                }
+
+                if (statusEl) {
+                    statusEl.innerHTML = parts.join(' · ');
+                    statusEl.style.borderLeft = data.bridge?.ready || !data.bridge?.needed
+                        ? '3px solid #22c55e' : '3px solid #f59e0b';
+                }
+
+                // All ready — stop polling
+                if (data.bridge?.ready || !data.bridge?.needed) break;
+            }
+        } catch (e) {
+            if (statusEl) {
+                statusEl.innerHTML = `❌ CDP warm-up failed: ${esc(e.message)}`;
+                statusEl.style.borderLeft = '3px solid #ef4444';
+            }
         }
     }
 

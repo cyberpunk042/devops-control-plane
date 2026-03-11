@@ -145,6 +145,11 @@ function _notifIcon(type) {
         'port_fallback': '🔀',
         'config_changed': '⚙️',
         'missing_dep': '📦',
+        'wsl_channel_upgrade': '🚀',
+        'wsl_hostname_resolution': '🌐',
+        'wsl_firewall_rule': '🛡️',
+        'wsl_curl_exe_missing': '🔧',
+        'wsl_networking_mode': 'ℹ️',
     };
     return icons[baseType] || '📋';
 }
@@ -187,6 +192,12 @@ function _renderNotifications(notifications) {
                 + ' data-recipe-id="' + _esc(n.meta.recipe_id) + '"'
                 + ' data-recipe-label="' + _esc(n.meta.recipe_label || n.meta.recipe_id) + '"';
             actionHint = '<div class="notif-item-action-hint">Click to install →</div>';
+            cursorStyle = ' style="cursor:pointer"';
+        } else if (n.type && n.type.indexOf('wsl_') === 0 && n.meta && n.meta.action_tab) {
+            actionAttr = ' data-action-type="navigate-tab"'
+                + ' data-action-tab="' + _esc(n.meta.action_tab) + '"'
+                + ' data-action-hash="' + _esc(n.meta.action_hash || '') + '"';
+            actionHint = '<div class="notif-item-action-hint">Click to open setup →</div>';
             cursorStyle = ' style="cursor:pointer"';
         }
 
@@ -357,6 +368,45 @@ function _notifItemAction(itemEl) {
                 });
             }
             break;
+
+        case 'navigate-tab':
+            var actionTab = itemEl.getAttribute('data-action-tab');
+            var actionHash = itemEl.getAttribute('data-action-hash') || '';
+            if (_notifPanelOpen) _toggleNotifPanel();
+
+            // WSL Channel: open a functional modal with WSL Channel setup
+            if (actionTab === 'wsl-channel') {
+                if (typeof modalOpen === 'function') {
+                    modalOpen({
+                        title: '🔌 WSL Channel Setup',
+                        body: '<div id="wsl-channel-modal-body" style="min-height:200px">' +
+                            '<div style="text-align:center;padding:2rem;color:var(--text-muted);font-size:0.76rem">' +
+                                '<div style="font-size:1.5rem;margin-bottom:8px">🔍</div>' +
+                                'Scanning WSL channel…' +
+                            '</div>' +
+                        '</div>',
+                        size: 'wide',
+                        footerButtons: [
+                            { label: 'Close', cls: 'btn-secondary', onclick: 'modalClose()' },
+                        ],
+                    });
+                    // Render WSL channel into the modal body
+                    if (typeof _meshShowWslChannel === 'function') {
+                        _meshShowWslChannel('wsl-channel-modal-body');
+                    }
+                }
+                break;
+            }
+
+            // Generic: navigate to hash / activate tab
+            if (actionHash) {
+                window.location.hash = actionHash;
+            }
+            // If there's a specific tab activator, try it
+            if (actionTab && typeof _activateTab === 'function') {
+                _activateTab(actionTab);
+            }
+            break;
     }
 }
 
@@ -412,6 +462,13 @@ document.addEventListener('sse:notification:new', function(e) {
                 });
             }
         }, 400);
+    }
+
+    // WSL interop — show toast for actionable notifications
+    if (notif.type && notif.type.indexOf('wsl_') === 0) {
+        var priority = notif.meta && notif.meta.priority;
+        var level = priority === 'imminent' ? 'error' : 'info';
+        toast(notif.title + ' — ' + (notif.message || '').substring(0, 120), level, 8000);
     }
 
     // Cross-tab sync: broadcast to other tabs

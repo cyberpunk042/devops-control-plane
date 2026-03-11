@@ -49,6 +49,8 @@ _curl_exe_path: str | None = None
 _curl_exe_resolved: bool = False
 _win_temp_dir: str | None = None
 _win_temp_dir_resolved: bool = False
+_windows_host_ip: str | None = None
+_windows_host_ip_resolved: bool = False
 
 
 def _detect_wsl2() -> bool:
@@ -62,6 +64,70 @@ def _detect_wsl2() -> bool:
     except OSError:
         _is_wsl2 = False
     return _is_wsl2
+
+
+def _get_windows_host_ip() -> str | None:
+    """Cached hostname.local → IP resolution.
+
+    When WSL2 has netsh portproxy + firewall rule set up, Chrome is
+    reachable at hostname.local:<port> via direct Python socket.
+    This is the fastest path (~5-15ms) — no subprocess, no tunnel.
+
+    Returns the IP or None if resolution fails.
+    """
+    global _windows_host_ip, _windows_host_ip_resolved
+    if _windows_host_ip_resolved:
+        return _windows_host_ip
+    _windows_host_ip_resolved = True
+    import socket
+    import subprocess
+    try:
+        r = subprocess.run(
+            ["hostname"], capture_output=True, text=True, timeout=3,
+        )
+        hostname = r.stdout.strip()
+        if not hostname:
+            return None
+        fqdn = f"{hostname}.local"
+        infos = socket.getaddrinfo(fqdn, None, socket.AF_INET, socket.SOCK_STREAM)
+        if infos:
+            _windows_host_ip = infos[0][4][0]
+            logger.info(
+                "Windows host IP resolved: %s → %s",
+                fqdn, _windows_host_ip,
+            )
+    except Exception:
+        pass
+    return _windows_host_ip
+
+
+def _direct_http_reachable(host_ip: str, port: int) -> bool:
+    """Quick TCP probe to check if host_ip:port accepts connections."""
+    import socket
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.settimeout(0.5)
+        s.connect((host_ip, port))
+        s.close()
+        return True
+    except (ConnectionRefusedError, OSError):
+        return False
+
+
+def _is_tunnel_active(port: int | None = None) -> bool:
+    """Check if the WSL tunnel is running for the given port.
+
+    Fast in-memory check — reads a module-level variable, no I/O.
+    When the tunnel is active, localhost:<port> is reachable via
+    the TCP proxy, so we can skip the curl.exe bridge.
+    """
+    from src.core.services.chrome.wsl_tunnel import get_active_tunnel
+
+    tunnel = get_active_tunnel()
+    if tunnel is None or not tunnel.is_running:
+        return False
+    check_port = port if port is not None else 9222
+    return tunnel.local_port == check_port
 
 
 def _get_curl_exe() -> str | None:
@@ -139,20 +205,69 @@ def _get_json(
         port: When provided, target ``http://localhost:{port}`` instead
               of the global endpoint.  Used for multi-instance support.
     """
-    base = f"http://localhost:{port}" if port is not None else _base_url()
-    url = f"{base}{path}"
-
-    # WSL2: skip direct HTTP (always fails), go straight to curl.exe
+    # WSL2: try fastest path first, fall back to slower ones.
+    #   1. Tunnel (localhost via TCP proxy) — ~5ms
+    #   2. Direct hostname.local (netsh portproxy) — ~10ms
+    #   3. curl.exe bridge (subprocess) — ~2000ms cold / ~50ms warm
     if _detect_wsl2():
+        import time as _t
+        target_port = port if port is not None else _DEFAULT_PORT
+
+        # ── Path 1: tunnel (if active) ──
+        if _is_tunnel_active(port):
+            tunnel_url = f"http://localhost:{target_port}{path}"
+            _t0 = _t.monotonic()
+            try:
+                req = urllib.request.Request(tunnel_url)
+                with urllib.request.urlopen(req, timeout=timeout) as resp:
+                    data = json.loads(resp.read().decode("utf-8"))
+                logger.debug(
+                    "CDP HTTP via tunnel: %s (%.0fms)",
+                    path, (_t.monotonic() - _t0) * 1000,
+                )
+                return data
+            except (urllib.error.URLError, OSError, ValueError,
+                    json.JSONDecodeError):
+                pass  # Tunnel failed — fall through
+
+        # ── Path 2: direct hostname.local (netsh portproxy) ──
+        host_ip = _get_windows_host_ip()
+        if host_ip:
+            direct_url = f"http://{host_ip}:{target_port}{path}"
+            _t0 = _t.monotonic()
+            try:
+                req = urllib.request.Request(direct_url)
+                with urllib.request.urlopen(req, timeout=timeout) as resp:
+                    data = json.loads(resp.read().decode("utf-8"))
+                logger.debug(
+                    "CDP HTTP via direct (%s:%d): %s (%.0fms)",
+                    host_ip, target_port, path, (_t.monotonic() - _t0) * 1000,
+                )
+                return data
+            except (urllib.error.URLError, OSError, ValueError,
+                    json.JSONDecodeError):
+                pass  # Direct failed — fall through to curl.exe
+
+        # ── Path 3: curl.exe bridge (always available) ──
+        base = f"http://localhost:{port}" if port is not None else _base_url()
+        url = f"{base}{path}"
+        _t0 = _t.monotonic()
         raw = _curl_exe_get(url, timeout=timeout)
         if raw:
             try:
-                return json.loads(raw)
+                data = json.loads(raw)
+                logger.debug(
+                    "CDP HTTP via curl.exe: %s (%.0fms)",
+                    path, (_t.monotonic() - _t0) * 1000,
+                )
+                return data
             except (ValueError, json.JSONDecodeError):
                 pass
         return None
 
     # Native Linux / direct access
+    base = f"http://localhost:{port}" if port is not None else _base_url()
+    url = f"{base}{path}"
     try:
         req = urllib.request.Request(url)
         with urllib.request.urlopen(req, timeout=timeout) as resp:
@@ -173,14 +288,38 @@ def _get_raw(
         port: When provided, target ``http://localhost:{port}`` instead
               of the global endpoint.
     """
-    base = f"http://localhost:{port}" if port is not None else _base_url()
-    url = f"{base}{path}"
-
-    # WSL2: skip direct HTTP (always fails), go straight to curl.exe
+    # WSL2: tunnel → direct hostname.local → curl.exe fallback
     if _detect_wsl2():
-        return _curl_exe_get(url, timeout=timeout)
+        target_port = port if port is not None else _DEFAULT_PORT
+
+        # ── Path 1: tunnel ──
+        if _is_tunnel_active(port):
+            tunnel_url = f"http://localhost:{target_port}{path}"
+            try:
+                req = urllib.request.Request(tunnel_url)
+                with urllib.request.urlopen(req, timeout=timeout) as resp:
+                    return resp.read().decode("utf-8")
+            except (urllib.error.URLError, OSError):
+                pass  # Tunnel failed — fall through
+
+        # ── Path 2: direct hostname.local (netsh portproxy) ──
+        host_ip = _get_windows_host_ip()
+        if host_ip:
+            direct_url = f"http://{host_ip}:{target_port}{path}"
+            try:
+                req = urllib.request.Request(direct_url)
+                with urllib.request.urlopen(req, timeout=timeout) as resp:
+                    return resp.read().decode("utf-8")
+            except (urllib.error.URLError, OSError):
+                pass  # Direct failed — fall through to curl.exe
+
+        # ── Path 3: curl.exe bridge ──
+        base = f"http://localhost:{port}" if port is not None else _base_url()
+        return _curl_exe_get(f"{base}{path}", timeout=timeout)
 
     # Native Linux / direct access
+    base = f"http://localhost:{port}" if port is not None else _base_url()
+    url = f"{base}{path}"
     try:
         req = urllib.request.Request(url)
         with urllib.request.urlopen(req, timeout=timeout) as resp:
@@ -475,7 +614,7 @@ class _PyWebSocket:
 
     __slots__ = ("_sock",)
 
-    def __init__(self, ws_url: str, timeout: float = 5.0):
+    def __init__(self, ws_url: str, timeout: float = 5.0, host_override: str | None = None):
         import socket
         import base64
         import os
@@ -490,10 +629,13 @@ class _PyWebSocket:
         self._sock.settimeout(timeout)
 
         # WebSocket upgrade handshake
+        # host_override lets us spoof Host: localhost when connecting
+        # through netsh portproxy (Chrome rejects non-localhost WS)
+        header_host = host_override or f"{host}:{port}"
         key = base64.b64encode(os.urandom(16)).decode()
         handshake = (
             f"GET {path} HTTP/1.1\r\n"
-            f"Host: {host}:{port}\r\n"
+            f"Host: {header_host}\r\n"
             f"Upgrade: websocket\r\n"
             f"Connection: Upgrade\r\n"
             f"Sec-WebSocket-Key: {key}\r\n"
@@ -631,6 +773,35 @@ _bridge_script_path: str | None = None
 _bridge_ready = False
 _bridge_queue: "_queue.Queue[str | None]" = _queue.Queue()
 _bridge_reader_thread: _threading.Thread | None = None
+_stale_bridge_cleaned = False
+
+
+def cleanup_stale_bridge() -> None:
+    """Kill any orphaned PowerShell bridge processes from previous runs.
+
+    Called once at startup.  Runs in a background thread to avoid
+    blocking server launch.  Cleans up temp cdp_bridge_*.ps1 files
+    from C:\\Windows\\Temp as an indicator of stale processes.
+    """
+    global _stale_bridge_cleaned
+    if _stale_bridge_cleaned:
+        return
+    _stale_bridge_cleaned = True
+
+    if not _detect_wsl2():
+        return
+
+    import subprocess
+    import glob
+
+    # Clean up stale cdp_bridge_*.ps1 temp files
+    stale_scripts = glob.glob("/mnt/c/Windows/Temp/cdp_bridge_*.ps1")
+    for script in stale_scripts:
+        try:
+            os.remove(script)
+            logger.debug("Removed stale bridge script: %s", script)
+        except OSError:
+            pass
 
 
 def _bridge_reader_loop() -> None:
@@ -840,16 +1011,37 @@ def _ensure_bridge() -> bool:
     return _bridge_ready
 
 
+_bridge_warming = False  # True while a warm-up thread is active
+
+
 def warm_bridge() -> None:
     """Pre-start the PowerShell bridge in a background thread.
 
     Call this at app startup so the ~3s PowerShell boot happens
     before the user clicks "Replay".
+
+    Safe to call repeatedly — will not spawn duplicate threads.
     """
+    global _bridge_warming
     if not _detect_wsl2():
         return
+    cleanup_stale_bridge()
+    # Already ready or already starting — nothing to do
+    if _bridge_ready and _bridge_process is not None and _bridge_process.poll() is None:
+        return
+    if _bridge_warming:
+        return
+    _bridge_warming = True
+
+    def _do_warm():
+        global _bridge_warming
+        try:
+            _ensure_bridge()
+        finally:
+            _bridge_warming = False
+
     _threading.Thread(
-        target=_ensure_bridge,
+        target=_do_warm,
         name="cdp-bridge-warmup",
         daemon=True,
     ).start()
@@ -983,6 +1175,65 @@ class CdpSession:
 
         import time as _t
         _t0 = _t.monotonic()
+
+        # ── Strategy 0: Tunnel path (fastest, additive) ────────
+        # When the WSL tunnel is active, rewrite ws_url to go through
+        # localhost (the tunnel endpoint) instead of the Windows IP.
+        # If this fails, fall through to Strategy 1/2/3 as before.
+        if _detect_wsl2() and _is_tunnel_active():
+            from urllib.parse import urlparse, urlunparse
+            parsed = urlparse(ws_url)
+            tunnel_port = parsed.port or _DEFAULT_PORT
+            tunnel_ws_url = urlunparse(parsed._replace(
+                netloc=f"localhost:{tunnel_port}",
+            ))
+            _t_tun = _t.monotonic()
+            try:
+                self._ws = _PyWebSocket(tunnel_ws_url, timeout=connect_timeout)
+                self._mode = "tunnel"
+                self._connected = True
+                logger.info(
+                    "CdpSession connected via tunnel to %s (%.0fms)",
+                    tunnel_ws_url, (_t.monotonic() - _t_tun) * 1000,
+                )
+                return
+            except Exception as exc:
+                logger.debug(
+                    "Tunnel WS failed in %.0fms (%s), trying other strategies",
+                    (_t.monotonic() - _t_tun) * 1000, exc,
+                )
+
+        # ── Strategy 0b: Direct hostname.local (netsh portproxy) ──
+        # With netsh portproxy active, Chrome is reachable at the
+        # hostname.local IP.  Rewrite ws_url to use that IP directly.
+        # Chrome rejects WS with non-localhost Host, so we override it.
+        if _detect_wsl2():
+            host_ip = _get_windows_host_ip()
+            if host_ip:
+                from urllib.parse import urlparse, urlunparse
+                parsed = urlparse(ws_url)
+                direct_port = parsed.port or _DEFAULT_PORT
+                direct_ws_url = urlunparse(parsed._replace(
+                    netloc=f"{host_ip}:{direct_port}",
+                ))
+                _t_direct = _t.monotonic()
+                try:
+                    self._ws = _PyWebSocket(
+                        direct_ws_url, timeout=min(0.5, connect_timeout),
+                        host_override=f"localhost:{direct_port}",
+                    )
+                    self._mode = "direct"
+                    self._connected = True
+                    logger.info(
+                        "CdpSession connected via direct channel to %s (%.0fms)",
+                        direct_ws_url, (_t.monotonic() - _t_direct) * 1000,
+                    )
+                    return
+                except Exception as exc:
+                    logger.info(
+                        "Direct WS to %s failed in %.0fms (%s), trying bridge",
+                        host_ip, (_t.monotonic() - _t_direct) * 1000, exc,
+                    )
 
         # ── Strategy 1: Python-native WebSocket (instant) ─────
         _t1 = _t.monotonic()
@@ -1149,7 +1400,7 @@ class CdpSession:
         """True if the session is alive."""
         if not self._connected:
             return False
-        if self._mode == "python":
+        if self._mode in ("python", "direct", "tunnel"):
             return self._ws is not None
         if self._mode == "bridge":
             return (
@@ -1185,7 +1436,7 @@ class CdpSession:
             "params": params,
         })
 
-        if self._mode == "python":
+        if self._mode in ("python", "direct", "tunnel"):
             return self._evaluate_python(cmd, timeout)
         if self._mode == "bridge":
             return _bridge_send(cmd, timeout)
@@ -1215,7 +1466,7 @@ class CdpSession:
             "params": params or {},
         })
 
-        if self._mode == "python":
+        if self._mode in ("python", "direct", "tunnel"):
             return self._evaluate_python(cmd, timeout)
         if self._mode == "bridge":
             return _bridge_send(cmd, timeout)
@@ -1325,12 +1576,11 @@ class CdpSession:
 def try_discover_endpoint() -> bool:
     """Try to find a working CDP endpoint.
 
-    Attempts localhost first, then the Windows host IP (for WSL2).
-    WSL2 uses a separate network namespace, so Chrome's 127.0.0.1:9222
-    is NOT reachable from WSL's localhost. We try:
+    Attempts multiple discovery methods in order of preference:
     1. localhost (works for native Linux / WSL2 mirrored networking)
-    2. resolv.conf nameserver (works when WSL generates it)
-    3. Default gateway IP (WSL2 NAT mode — most reliable)
+    2. hostname.local via mDNS (recommended WSL2 direct channel)
+    3. resolv.conf nameserver (works when WSL generates it)
+    4. Default gateway IP (WSL2 NAT mode — most reliable fallback)
 
     Sets the endpoint internally if found.
 
@@ -1344,7 +1594,37 @@ def try_discover_endpoint() -> bool:
         logger.info("CDP available at %s", _base_url())
         return True
 
-    # 2. Try Windows host IP via /etc/resolv.conf (WSL2 generated)
+    # 2. Try hostname.local via mDNS (recommended WSL2 direct channel)
+    # This resolves the Windows host by name — faster and more stable
+    # than IP-based methods. Requires Bonjour/mDNS on Windows.
+    try:
+        import socket
+        r = subprocess.run(
+            ["hostname"],
+            capture_output=True, text=True, timeout=3,
+        )
+        hostname = r.stdout.strip()
+        if hostname:
+            fqdn = f"{hostname}.local"
+            try:
+                infos = socket.getaddrinfo(
+                    fqdn, None, socket.AF_INET, socket.SOCK_STREAM,
+                )
+                if infos:
+                    host_ip = infos[0][4][0]
+                    set_endpoint(host_ip, _DEFAULT_PORT)
+                    if is_available():
+                        logger.info(
+                            "CDP available at %s (%s):%s",
+                            fqdn, host_ip, _DEFAULT_PORT,
+                        )
+                        return True
+            except (socket.gaierror, OSError):
+                pass
+    except (FileNotFoundError, OSError, subprocess.TimeoutExpired):
+        pass
+
+    # 3. Try Windows host IP via /etc/resolv.conf (WSL2 generated)
     try:
         with open("/etc/resolv.conf", encoding="utf-8") as f:
             for line in f:
@@ -1364,7 +1644,7 @@ def try_discover_endpoint() -> bool:
     except (FileNotFoundError, OSError, IndexError):
         pass
 
-    # 3. Try WSL2 default gateway (= Windows host in NAT mode)
+    # 4. Try WSL2 default gateway (= Windows host in NAT mode)
     try:
         r = subprocess.run(
             ["ip", "route", "show", "default"],

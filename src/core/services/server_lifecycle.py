@@ -512,7 +512,32 @@ def install_signal_handlers() -> None:
         except Exception:
             pass
 
-        # 3. Clean up PID file
+        # 3. Kill CDP bridge process (prevents zombie PowerShell on Windows)
+        try:
+            from src.ui.web import cdp_client
+            if (
+                hasattr(cdp_client, '_bridge_process')
+                and cdp_client._bridge_process is not None
+                and cdp_client._bridge_process.poll() is None
+            ):
+                cdp_client._bridge_process.kill()
+                cdp_client._bridge_process = None
+                cdp_client._bridge_ready = False
+                logger.debug("CDP bridge killed on shutdown")
+        except Exception:
+            pass
+
+        # 4. Stop WSL tunnel (prevents orphaned proxy on Windows)
+        try:
+            from src.core.services.chrome.wsl_tunnel import get_active_tunnel
+            tunnel = get_active_tunnel()
+            if tunnel and tunnel.is_running:
+                tunnel.stop()
+                logger.debug("WSL tunnel stopped on shutdown")
+        except Exception:
+            pass
+
+        # 5. Clean up PID file
         try:
             from src.core.context import get_project_root as _get_root
             _root = _get_root()

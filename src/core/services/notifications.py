@@ -220,6 +220,35 @@ def dismiss_notification(project_root: Path, notif_id: str) -> bool:
     return found
 
 
+def dismiss_notification_by_type(
+    project_root: Path,
+    notif_type: str,
+) -> int:
+    """Dismiss all active notifications of a given type.
+
+    Returns the number of notifications dismissed.
+    """
+    notifications = _load_raw(project_root)
+    count = 0
+
+    for notif in notifications:
+        if (
+            notif.get("type") == notif_type
+            and not notif.get("dismissed")
+        ):
+            notif["dismissed"] = True
+            count += 1
+            _publish("notification:dismissed", key=notif.get("id", ""))
+
+    if count:
+        _save_raw(project_root, notifications)
+        logger.info(
+            "Dismissed %d notification(s) of type=%s", count, notif_type,
+        )
+
+    return count
+
+
 def delete_notification(project_root: Path, notif_id: str) -> bool:
     """Permanently remove a notification from the file.
 

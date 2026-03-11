@@ -239,6 +239,10 @@ def create_app(
     if _startup_settings.get("file_logging_enabled"):
         toggle_file_logging(app.config["PROJECT_ROOT"], True)
 
+    # WSL→Windows tunnel: NOT auto-started.
+    # The user activates it from Tab Mesh → WSL Channel UI.
+    # When inactive, the system uses curl.exe bridge (the existing path).
+
     logger.info("Web admin app created (root=%s)", project_root)
     return app
 

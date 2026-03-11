@@ -587,12 +587,9 @@
             </div>
         </div>`;
 
-        // Bridge warmup status badge (visible only while warming)
-        body += `<div id="cdp-bridge-status" style="display:none;margin-bottom:var(--space-sm)">
-            <div style="display:flex;align-items:center;gap:0.4rem;padding:0.35rem 0.65rem;background:var(--bg-tertiary);border-radius:6px;font-size:0.72rem;color:var(--text-muted)">
-                <span class="spinner" style="width:12px;height:12px"></span>
-                <span id="cdp-bridge-label">Warming up replay engine…</span>
-            </div>
+        // CDP status bar (all connection components)
+        body += `<div id="cdp-home-status" style="margin-bottom:var(--space-sm);font-size:0.72rem;color:var(--text-muted);padding:8px 12px;background:var(--bg-tertiary);border-radius:6px">
+            🔍 Warming CDP connections…
         </div>`;
 
         try {
@@ -662,6 +659,9 @@
 
         // Update badge AFTER modalOpen renders the DOM
         _gitLedgerUpdateBadge('cdp-test-ledger-badge', _cdpTestSuites || []);
+
+        // Background: warm all CDP connections (bridge + tunnel + ws)
+        _cdpTestWarmHome();
     }
 
     function _cdpTestActiveRecordingBanner(session) {
@@ -4260,25 +4260,92 @@
         _cdpTestProbeTarget(suiteId);
     }
 
-    /** Background probe: warm bridge + check CDP while user reads config */
+    /** Background warm-up for Test Suites home view (all components) */
+    async function _cdpTestWarmHome() {
+        const statusEl = document.getElementById('cdp-home-status');
+        try {
+            await fetch('/api/cdp-test/warm', { method: 'POST' });
+            for (let i = 0; i < 10; i++) {
+                await new Promise(r => setTimeout(r, 1000));
+                if (!document.getElementById('cdp-home-status')) return;
+
+                const res = await fetch('/api/cdp-test/warm', { method: 'POST' });
+                const data = await res.json();
+
+                const parts = [];
+                if (data.ws?.ready) { parts.push('✅ WS Worker'); } else { parts.push('❌ WS Worker'); }
+                if (data.tunnel?.active) { parts.push('✅ Tunnel'); } else { parts.push('❌ Tunnel'); }
+                if (data.bridge?.ready) { parts.push('✅ Bridge'); }
+                else if (data.bridge?.warming) { parts.push('⏳ Bridge warming…'); }
+                else if (!data.bridge?.needed) { parts.push('⚡ No bridge needed'); }
+                else { parts.push('❌ Bridge'); }
+
+                if (statusEl) {
+                    statusEl.innerHTML = parts.join(' · ');
+                    statusEl.style.borderLeft = data.bridge?.ready || !data.bridge?.needed
+                        ? '3px solid #22c55e' : '3px solid #f59e0b';
+                }
+                if (data.bridge?.ready || !data.bridge?.needed) break;
+            }
+        } catch (e) {
+            if (statusEl) {
+                statusEl.innerHTML = `❌ CDP warm-up failed: ${esc(e.message)}`;
+                statusEl.style.borderLeft = '3px solid #ef4444';
+            }
+        }
+    }
+
+    /** Background probe: warm ALL options + poll until ready */
     async function _cdpTestProbeTarget(suiteId) {
         const statusEl = document.getElementById('cdp-cfg-tab-status');
         const suite = _cdpTestSuites?.find(s => s.id === suiteId);
         const targetUrl = suite?.target_url || '';
 
         try {
-            // Warm the bridge (the expensive step, ~3s on first boot)
-            const warmRes = await fetch('/api/cdp-test/warm', { method: 'POST' });
-            const warmData = await warmRes.json();
+            // Initial warm call — starts bridge + tunnel
+            await fetch('/api/cdp-test/warm', { method: 'POST' });
 
-            if (statusEl) {
-                if (warmData.bridge?.ready) {
-                    statusEl.innerHTML = `✅ Bridge warm · Target: <code style="font-size:0.68rem">${esc(targetUrl || 'auto-detect')}</code>`;
-                    statusEl.style.borderLeft = '3px solid #22c55e';
+            // Poll until bridge is ready (max 10s)
+            for (let i = 0; i < 10; i++) {
+                await new Promise(r => setTimeout(r, 1000));
+                if (!document.getElementById('cdp-cfg-tab-status')) return; // modal closed
+
+                const res = await fetch('/api/cdp-test/warm', { method: 'POST' });
+                const data = await res.json();
+
+                if (!statusEl) return;
+
+                const parts = [];
+                // WS Worker
+                if (data.ws?.ready) {
+                    parts.push('✅ WS Worker');
                 } else {
-                    statusEl.innerHTML = `⚡ CDP ready (no bridge) · Target: <code style="font-size:0.68rem">${esc(targetUrl || 'auto-detect')}</code>`;
-                    statusEl.style.borderLeft = '3px solid #3b82f6';
+                    parts.push('❌ WS Worker');
                 }
+                // Tunnel
+                if (data.tunnel?.active) {
+                    parts.push('✅ Tunnel');
+                } else {
+                    parts.push('❌ Tunnel');
+                }
+                // Bridge
+                if (data.bridge?.ready) {
+                    parts.push('✅ Bridge');
+                } else if (data.bridge?.warming) {
+                    parts.push('⏳ Bridge warming…');
+                } else if (!data.bridge?.needed) {
+                    parts.push('⚡ No bridge needed');
+                } else {
+                    parts.push('❌ Bridge');
+                }
+                parts.push(`Target: <code style="font-size:0.68rem">${esc(targetUrl || 'auto-detect')}</code>`);
+
+                statusEl.innerHTML = parts.join(' · ');
+                statusEl.style.borderLeft = data.bridge?.ready || !data.bridge?.needed
+                    ? '3px solid #22c55e' : '3px solid #f59e0b';
+
+                // All ready — stop polling
+                if (data.bridge?.ready || !data.bridge?.needed) break;
             }
         } catch (e) {
             if (statusEl) {

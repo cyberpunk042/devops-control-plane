@@ -839,6 +839,12 @@
         html += '<div style="font-size:0.62rem;margin:8px 0 2px;color:var(--text-muted)">' +
             '📡 ' + cdpBadge + '</div>';
 
+        // ── WSL Channel link ──
+        html += '<div style="font-size:0.62rem;margin:4px 0 2px;color:var(--text-muted)">' +
+            '🔌 <a href="#" onclick="_meshShowWslChannel();return false" ' +
+            'style="color:var(--accent);text-decoration:underline">WSL Channel Setup</a>' +
+            '</div>';
+
         body.innerHTML = html;
 
         // Async: fetch SW client list after render
@@ -918,7 +924,6 @@
             }
         }, 100);
     }
-
     // Listen for inspect dump responses
     window.addEventListener('tab-mesh:dump', function(e) {
         var dumpEl = document.getElementById('mesh-panel-dump');
@@ -927,4 +932,594 @@
             dumpEl.textContent = JSON.stringify(e.detail, null, 2);
         }
     });
+
+    // Track which container the WSL channel UI is rendered into
+    // (mesh-panel-body vs wsl-channel-modal-body)
+    var _wslChannelContainerId = 'mesh-panel-body';
+
+    // ── WSL Channel Setup UI (Phase 4) ──────────────────────────────
+    //
+    // _meshRenderWslChannel   — render the full WSL channel section
+    // _meshShowWslChannel     — standalone entry (fetch + render)
+    // _wslStartTunnel         — start a tunnel backend
+    // _wslStopTunnel          — stop the active tunnel
+    // _wslFixPrereq           — show inline prerequisite fix
+    // _wslCreateFirewallRule  — create firewall rule
+    // _wslRescan              — re-fetch + re-render
+    // ──────────────────────────────────────────────────────────────────
+
+    /**
+     * Standalone entry point: fetch wsl-channel-status and render.
+     * Called from notification clicks or direct navigation.
+     */
+    async function _meshShowWslChannel(containerId) {
+        _meshWizardActive = true;
+        if (containerId) _wslChannelContainerId = containerId;
+        var body = document.getElementById(_wslChannelContainerId);
+        if (!body) return;
+
+        body.innerHTML =
+            '<div style="text-align:center;padding:2rem;color:var(--text-muted);font-size:0.76rem">' +
+                '<div style="font-size:1.5rem;margin-bottom:8px">🔍</div>' +
+                'Scanning WSL channel…' +
+            '</div>';
+
+        var inModal = _wslChannelContainerId !== 'mesh-panel-body';
+        try {
+            var resp = await fetch('/api/tab-mesh/wsl-channel-status');
+            var status = await resp.json();
+            if (!status.is_wsl) {
+                body.innerHTML =
+                    '<div style="padding:1rem;color:var(--text-muted);font-size:0.74rem">' +
+                    'Not running under WSL — channel setup is not needed.</div>' +
+                    (inModal ? '' :
+                    '<div style="text-align:right;margin-top:10px">' +
+                    '<button class="btn btn-sm btn-ghost" onclick="_renderMeshPanel()">← Back</button></div>');
+                return;
+            }
+            _meshRenderWslChannel(body, status);
+        } catch (err) {
+            body.innerHTML =
+                '<div style="padding:1rem;color:var(--danger);font-size:0.74rem">' +
+                '❌ Failed to scan: ' + err.message + '</div>' +
+                (inModal ? '' :
+                '<div style="text-align:right;margin-top:10px">' +
+                '<button class="btn btn-sm btn-ghost" onclick="_renderMeshPanel()">← Back</button></div>');
+        }
+    }
+
+    /**
+     * Render the full WSL Channel setup section.
+     * Shows: level banner, detection grid, tunnel choices, actions.
+     */
+    function _meshRenderWslChannel(container, status) {
+        var html = '';
+
+        // ── Header ──
+        html += '<div style="font-size:0.78rem;font-weight:700;margin-bottom:10px;color:var(--text-primary)">' +
+            '📡 WSL Channel Setup</div>';
+
+        // ── Section 1: Level Banner ──
+        var levelColors = {
+            0: { bg: 'rgba(248,113,113,0.12)', color: '#f87171', label: 'No CDP' },
+            1: { bg: 'rgba(251,191,36,0.12)', color: '#fbbf24', label: 'curl.exe Bridge' },
+            2: { bg: 'rgba(52,211,153,0.12)', color: '#34d399', label: 'Direct Channel' },
+            3: { bg: 'rgba(96,165,250,0.12)', color: '#60a5fa', label: 'Native localhost' },
+        };
+        var lvl = levelColors[status.channel_level] || levelColors[0];
+        var speedLabel = status.channel_level === 0 ? 'N/A'
+            : status.channel_level === 1 ? '~2000ms per CDP call'
+            : status.channel_level === 2 ? '~5ms per CDP call'
+            : '<1ms per CDP call';
+
+        html += '<div style="display:flex;align-items:center;gap:10px;padding:10px 12px;' +
+            'border-radius:var(--radius-sm);background:' + lvl.bg + ';margin-bottom:12px">' +
+            '<span style="padding:3px 8px;border-radius:var(--radius-sm);font-size:0.64rem;' +
+            'font-weight:700;text-transform:uppercase;background:' + lvl.bg + ';color:' + lvl.color + '">' +
+            'Level ' + status.channel_level + '</span>' +
+            '<span style="font-size:0.72rem;font-weight:600;color:var(--text-primary)">' +
+            (status.channel_level_name || lvl.label) + '</span>' +
+            '<span style="font-size:0.62rem;color:var(--text-muted);margin-left:auto">' +
+            speedLabel + '</span>' +
+            '</div>';
+
+        // ── Section 2: Detection Grid ──
+        var detections = [
+            [true, '✅ WSL2 ' + (status.networking_mode || 'NAT') + ' mode'],
+            [status.hostname_local_resolves,
+             status.hostname_local_resolves
+                ? '✅ ' + (status.hostname || '?') + '.local → ' + (status.hostname_local_ip || '?')
+                : '❌ hostname.local not resolving'],
+            [status.firewall_port_reachable || status.firewall_rule_exists,
+             status.firewall_port_reachable
+                ? '✅ Firewall port reachable'
+                : status.firewall_rule_exists
+                    ? '⚠️ Firewall rule exists but port unreachable'
+                    : '❌ Firewall rule missing'],
+            [status.curl_exe_available,
+             status.curl_exe_available
+                ? '✅ curl.exe available'
+                : '⚠️ curl.exe not found — <a href="#" onclick="_wslInstallCurl();return false" ' +
+                  'style="color:var(--accent);text-decoration:underline;font-size:0.6rem">[Install]</a>'],
+            [status.tunnel_active,
+             status.tunnel_active
+                ? '✅ Tunnel active (' + (status.tunnel_method || 'unknown') + ')'
+                : '❌ No tunnel running'],
+        ];
+
+        html += '<div style="margin-bottom:14px">';
+        for (var di = 0; di < detections.length; di++) {
+            var ok = detections[di][0];
+            var text = detections[di][1];
+            html += '<div style="font-size:0.66rem;padding:2px 0;color:' +
+                (ok ? 'var(--text-primary)' : 'var(--text-muted)') + '">' +
+                text + '</div>';
+        }
+        html += '</div>';
+
+        // ── Section 3: Active Tunnel Controls ──
+        if (status.tunnel_active) {
+            html += '<div style="padding:10px 12px;border-radius:var(--radius-sm);' +
+                'background:rgba(52,211,153,0.06);border:1px solid rgba(52,211,153,0.15);margin-bottom:14px">' +
+                '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">' +
+                '<span style="font-size:0.72rem;font-weight:600;color:var(--success)">🟢 Tunnel Active</span>' +
+                '<button class="btn btn-sm btn-ghost" style="font-size:0.58rem;margin-left:auto;' +
+                'color:var(--danger);border-color:var(--danger)" ' +
+                'onclick="_wslStopTunnel()">Stop</button></div>';
+            if (status.tunnel_stats) {
+                var ts = status.tunnel_stats;
+                html += '<div style="font-size:0.6rem;color:var(--text-muted);font-family:var(--font-mono)">';
+                html += 'Method: ' + (ts.method || '?') + ' · Port: ' + (ts.local_port || '?');
+                if (ts.started_at) html += ' · Since: ' + ts.started_at.substring(11, 19);
+                html += '</div>';
+            }
+            html += '</div>';
+        }
+
+        // ── Section 4: Tunnel Choices ──
+        var choices = status.choices || [];
+        if (choices.length > 0) {
+            html += '<div style="font-size:0.72rem;font-weight:600;margin-bottom:8px;color:var(--text-primary)">' +
+                'Channel Method</div>';
+            html += '<div style="font-size:0.62rem;color:var(--text-muted);margin-bottom:10px">' +
+                'Choose how WSL communicates with Chrome on Windows. ' +
+                'The recommended option works out of the box.</div>';
+        }
+
+        for (var ci = 0; ci < choices.length; ci++) {
+            var c = choices[ci];
+            var cardBorder = c.recommended ? 'rgba(52,211,153,0.4)'
+                : c.risky ? 'rgba(251,191,36,0.4)'
+                : 'var(--border-subtle)';
+
+            html += '<div style="padding:10px 12px;border-radius:var(--radius-sm);' +
+                'border:1px solid ' + cardBorder + ';margin-bottom:6px;' +
+                'transition:border-color 0.15s;cursor:pointer" ' +
+                'onclick="var r=this.querySelector(\'input[type=radio]\');if(r&&!r.disabled){r.checked=true}">';
+
+            // Header row: radio + label + badges
+            html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">';
+            html += '<input type="radio" name="wsl-tunnel-method" value="' + c.id + '"' +
+                (c.recommended ? ' checked' : '') +
+                (!c.available && !c.risky ? ' disabled' : '') + '>';
+            html += '<span style="font-size:0.7rem;font-weight:600;color:var(--text-primary)">' +
+                c.label + '</span>';
+            if (c.recommended) {
+                html += '<span style="font-size:0.52rem;padding:1px 5px;border-radius:3px;' +
+                    'background:rgba(52,211,153,0.15);color:#34d399;font-weight:600">Recommended</span>';
+            }
+            if (c.risky) {
+                html += '<span style="font-size:0.52rem;padding:1px 5px;border-radius:3px;' +
+                    'background:rgba(251,191,36,0.15);color:#fbbf24;font-weight:600">⚠️ Risky</span>';
+            }
+            html += '<span style="font-size:0.58rem;color:var(--text-muted);margin-left:auto">' +
+                c.speed + '</span>';
+            html += '</div>';
+
+            // Description
+            html += '<div style="font-size:0.62rem;color:var(--text-muted);margin-bottom:4px;padding-left:24px">' +
+                c.description;
+            if (c.risky && c.risk_detail) {
+                html += ' <span style="color:var(--warning)">' + c.risk_detail + '</span>';
+            }
+            html += '</div>';
+
+            // Prerequisites
+            var prereqs = c.prerequisites || [];
+            if (prereqs.length > 0) {
+                html += '<div style="display:flex;gap:8px;flex-wrap:wrap;font-size:0.58rem;padding-left:24px">';
+                for (var pi = 0; pi < prereqs.length; pi++) {
+                    var p = prereqs[pi];
+                    html += '<span style="color:' + (p.ok ? 'var(--success)' : 'var(--danger)') + '">';
+                    html += (p.ok ? '✅' : '❌') + ' ' + p.name;
+                    if (!p.ok && p.name === 'firewall') {
+                        html += ' <a href="#" onclick="_wslFixPrereq(\'firewall\');return false" ' +
+                            'style="color:var(--accent);text-decoration:underline;font-size:0.56rem">[Fix]</a>';
+                    }
+                    if (!p.ok && p.name === 'socat') {
+                        html += ' <span style="color:var(--text-muted)">' + (p.detail || '') + '</span>';
+                    }
+                    html += '</span>';
+                }
+                html += '</div>';
+            }
+
+            html += '</div>';
+        }
+
+        // ── Section 5: Inline Prerequisite Fix Area ──
+        html += '<div id="wsl-prereq-fix-area" style="display:none"></div>';
+
+        // ── Section 6: Actions ──
+        var inModal = _wslChannelContainerId !== 'mesh-panel-body';
+        html += '<div style="margin-top:14px;display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap">';
+        if (!inModal) html += '<button class="btn btn-sm btn-ghost" onclick="_renderMeshPanel()">← Back</button>';
+        html += '<button class="btn btn-sm btn-ghost" onclick="_wslRescan()">🔄 Re-scan</button>';
+
+        if (!status.tunnel_active) {
+            html += '<button class="btn btn-sm btn-primary" id="wsl-start-btn" ' +
+                'onclick="_wslStartTunnel()">▶ Set Up</button>';
+        }
+        html += '<button class="btn btn-sm btn-ghost" onclick="_wslValidateChannel()">' +
+            '🧪 Validate</button>';
+        html += '</div>';
+
+        // ── Validation result area ──
+        html += '<div id="wsl-validation-result" style="display:none;margin-top:10px;padding:8px 10px;' +
+            'border-radius:var(--radius-sm);background:var(--bg-secondary);font-size:0.66rem;' +
+            'color:var(--text-muted)"></div>';
+
+        container.innerHTML = html;
+    }
+
+    /**
+     * Start a tunnel using the selected method.
+     */
+    async function _wslStartTunnel() {
+        var selected = document.querySelector('input[name="wsl-tunnel-method"]:checked');
+        var method = selected ? selected.value : 'python_proxy';
+        var btn = document.getElementById('wsl-start-btn');
+        if (btn) { btn.disabled = true; btn.textContent = '⏳ Starting…'; }
+
+        try {
+            var resp = await fetch('/api/tab-mesh/wsl-start-tunnel', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ method: method }),
+            });
+            var data = await resp.json();
+
+            if (data.ok) {
+                if (btn) {
+                    btn.textContent = '✅ Started';
+                    btn.style.background = 'var(--success)';
+                    btn.style.color = 'white';
+                }
+                // Re-render after brief pause
+                setTimeout(_wslRescan, 500);
+            } else {
+                if (btn) {
+                    btn.textContent = '❌ Failed';
+                    btn.disabled = false;
+                }
+                var resultEl = document.getElementById('wsl-validation-result');
+                if (resultEl) {
+                    resultEl.style.display = 'block';
+                    resultEl.innerHTML = '<span style="color:var(--danger)">❌ ' +
+                        (data.error || 'Failed to start tunnel.') + '</span>';
+                }
+            }
+        } catch (err) {
+            if (btn) { btn.textContent = '❌ Error'; btn.disabled = false; }
+        }
+    }
+
+    /**
+     * Stop the active tunnel.
+     */
+    async function _wslStopTunnel() {
+        try {
+            await fetch('/api/tab-mesh/wsl-stop-tunnel', { method: 'POST' });
+            _wslRescan();
+        } catch (err) {
+            console.error('[WSL Channel] Stop failed:', err);
+        }
+    }
+
+    /**
+     * Show inline fix UI for a prerequisite.
+     */
+    function _wslFixPrereq(prereqName) {
+        var area = document.getElementById('wsl-prereq-fix-area');
+        if (!area) return;
+
+        if (prereqName === 'firewall') {
+            area.style.display = 'block';
+            area.innerHTML =
+                '<div style="padding:10px 12px;border-radius:var(--radius-sm);' +
+                'background:rgba(99,102,241,0.04);border:1px solid rgba(99,102,241,0.15);margin-top:10px">' +
+                    '<div style="font-size:0.72rem;font-weight:600;margin-bottom:8px;color:var(--text-primary)">' +
+                    '🛡️ Create Firewall Rule</div>' +
+                    '<div style="font-size:0.64rem;color:var(--text-muted);margin-bottom:8px">' +
+                        '<label style="display:block;margin-bottom:4px;cursor:pointer">' +
+                            '<input type="radio" name="wsl-fw-scope" value="single" checked> ' +
+                            'Port 9222 only (minimal, recommended)' +
+                        '</label>' +
+                        '<label style="display:block;cursor:pointer">' +
+                            '<input type="radio" name="wsl-fw-scope" value="range"> ' +
+                            'Ports 9222–9232 (multiple Chrome instances)' +
+                        '</label>' +
+                    '</div>' +
+                    '<div style="font-size:0.6rem;color:var(--warning);margin-bottom:8px">' +
+                    '⚠️ Windows will ask for admin permission (UAC prompt)</div>' +
+                    '<div style="display:flex;gap:8px;align-items:center">' +
+                        '<button class="btn btn-sm btn-primary" id="wsl-fw-btn" ' +
+                        'onclick="_wslCreateFirewallRule()">Create Rule</button>' +
+                        '<span id="wsl-fw-status" style="font-size:0.62rem;color:var(--text-muted)"></span>' +
+                    '</div>' +
+                '</div>';
+        }
+    }
+
+    /**
+     * Create the firewall rule via elevated PowerShell.
+     */
+    async function _wslCreateFirewallRule() {
+        var scopeRadio = document.querySelector('input[name="wsl-fw-scope"]:checked');
+        var scope = scopeRadio ? scopeRadio.value : 'single';
+        var btn = document.getElementById('wsl-fw-btn');
+        var statusEl = document.getElementById('wsl-fw-status');
+        if (btn) { btn.disabled = true; btn.textContent = '⏳ Waiting for UAC…'; }
+        if (statusEl) statusEl.textContent = 'Waiting for admin approval…';
+
+        try {
+            var resp = await fetch('/api/tab-mesh/wsl-fix-firewall', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ scope: scope }),
+            });
+            var data = await resp.json();
+
+            if (data.ok) {
+                if (btn) {
+                    btn.textContent = '✅ Created';
+                    btn.style.background = 'var(--success)';
+                    btn.style.color = 'white';
+                }
+                if (statusEl) {
+                    statusEl.innerHTML = '<span style="color:var(--success)">' +
+                        data.message + '</span>';
+                }
+                // Re-scan to update prereq indicators
+                setTimeout(_wslRescan, 1000);
+            } else {
+                if (btn) { btn.textContent = '❌ Failed'; btn.disabled = false; }
+                if (statusEl) {
+                    statusEl.innerHTML = '<span style="color:var(--danger)">' +
+                        (data.message || 'Failed') + '</span>';
+                }
+            }
+        } catch (err) {
+            if (btn) { btn.textContent = '❌ Error'; btn.disabled = false; }
+            if (statusEl) statusEl.textContent = err.message;
+        }
+    }
+
+    /**
+     * Re-scan WSL channel status and re-render.
+     */
+    function _wslRescan() {
+        _meshShowWslChannel(_wslChannelContainerId);
+    }
+
+    // ── Phase 7: End-to-End Validation ────────────────────────────
+
+    /**
+     * Run full validation and render results.
+     */
+    async function _wslValidateChannel() {
+        var resultEl = document.getElementById('wsl-validation-result');
+        if (!resultEl) return;
+
+        resultEl.style.display = 'block';
+        resultEl.innerHTML =
+            '<div style="text-align:center;padding:6px;color:var(--text-muted)">' +
+            '🧪 Validating all layers…</div>';
+
+        try {
+            var resp = await fetch('/api/tab-mesh/wsl-validate', { method: 'POST' });
+            var data = await resp.json();
+            var html = '';
+
+            // ── Actual Level Badge ──
+            var lv = data.actual_level || { level: 0, level_name: 'Unknown' };
+            var lvColors = {
+                0: { bg: 'rgba(248,113,113,0.12)', color: '#f87171' },
+                1: { bg: 'rgba(251,191,36,0.12)', color: '#fbbf24' },
+                2: { bg: 'rgba(52,211,153,0.12)', color: '#34d399' },
+                3: { bg: 'rgba(96,165,250,0.12)', color: '#60a5fa' },
+            };
+            var lvC = lvColors[lv.level] || lvColors[0];
+            html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">' +
+                '<span style="padding:2px 7px;border-radius:var(--radius-sm);font-size:0.62rem;' +
+                'font-weight:700;background:' + lvC.bg + ';color:' + lvC.color + '">' +
+                'Level ' + lv.level + '</span>' +
+                '<span style="font-size:0.7rem;font-weight:600;color:var(--text-primary)">' +
+                lv.level_name + '</span></div>';
+
+            // ── Per-Layer Results ──
+            var layers = data.layers || {};
+            var layerOrder = [
+                'layer_0_wsl', 'layer_1_networking', 'layer_2_hostname',
+                'layer_3_firewall', 'layer_5_curl_exe', 'tunnel',
+            ];
+            for (var li = 0; li < layerOrder.length; li++) {
+                var key = layerOrder[li];
+                var l = layers[key];
+                if (!l) continue;
+                var icon = l.ok ? '✅' : '❌';
+                html += '<div style="font-size:0.64rem;padding:1px 0;color:var(--text-primary)">' +
+                    icon + ' ' + l.name + '</div>';
+            }
+
+            // ── Latency Comparison ──
+            var lat = data.latency || {};
+            var hasLatency = (lat.curl_exe_ms != null || lat.tunnel_ms != null || lat.direct_ms != null);
+            if (hasLatency) {
+                html += '<div style="margin-top:10px;padding:8px 10px;border-radius:var(--radius-sm);' +
+                    'background:rgba(99,102,241,0.04);border:1px solid rgba(99,102,241,0.1)">' +
+                    '<div style="font-size:0.66rem;font-weight:600;margin-bottom:6px;color:var(--text-primary)">' +
+                    '⚡ Latency Comparison</div>';
+
+                var latencies = [];
+                if (lat.curl_exe_ms != null) {
+                    latencies.push({ label: 'curl.exe bridge', ms: lat.curl_exe_ms, ok: lat.curl_exe_ok });
+                }
+                if (lat.tunnel_ms != null) {
+                    latencies.push({ label: 'Tunnel', ms: lat.tunnel_ms, ok: lat.tunnel_ok });
+                }
+                if (lat.direct_ms != null) {
+                    latencies.push({ label: 'Direct (hostname.local)', ms: lat.direct_ms, ok: lat.direct_ok });
+                }
+
+                // Find the slowest for comparison
+                var maxMs = 0;
+                for (var mi = 0; mi < latencies.length; mi++) {
+                    if (latencies[mi].ms > maxMs) maxMs = latencies[mi].ms;
+                }
+
+                for (var mi = 0; mi < latencies.length; mi++) {
+                    var m = latencies[mi];
+                    var msStr = m.ms != null ? m.ms.toFixed(1) + 'ms' : 'N/A';
+                    var badge = '';
+                    if (m.ms != null && maxMs > 0 && m.ms < maxMs && m.ms > 0) {
+                        var factor = Math.round(maxMs / m.ms);
+                        if (factor > 1) {
+                            badge = ' <span style="font-size:0.52rem;padding:1px 4px;border-radius:3px;' +
+                                'background:rgba(52,211,153,0.15);color:#34d399;font-weight:600">' +
+                                factor + 'x faster</span>';
+                        }
+                    }
+                    var statusIcon = m.ok ? '✅' : '❌';
+                    html += '<div style="font-size:0.62rem;padding:2px 0;color:var(--text-muted);' +
+                        'display:flex;align-items:center;gap:6px">' +
+                        '<span>' + statusIcon + '</span>' +
+                        '<span style="min-width:140px">' + m.label + '</span>' +
+                        '<span style="font-family:var(--font-mono);font-weight:600;color:var(--text-primary)">' +
+                        msStr + '</span>' + badge + '</div>';
+                }
+                html += '</div>';
+            }
+
+            // ── CDP Status ──
+            html += '<div style="margin-top:8px;font-size:0.64rem;color:var(--text-primary)">' +
+                (data.cdp_active ? '✅' : '❌') + ' CDP: ' +
+                (data.cdp_endpoint ? '<code style="font-size:0.58rem">' + data.cdp_endpoint + '</code>'
+                    : '<span style="color:var(--danger)">not reachable</span>') +
+                '</div>';
+
+            resultEl.innerHTML = html;
+        } catch (err) {
+            resultEl.innerHTML = '<span style="color:var(--danger)">❌ Validation failed: ' +
+                err.message + '</span>';
+        }
+    }
+
+    // ── Phase 6: curl.exe Install ─────────────────────────────────
+
+    /**
+     * Install curl.exe via the multi-method fallback chain.
+     * Shows progress in the prereq fix area, then renders result.
+     */
+    async function _wslInstallCurl() {
+        var area = document.getElementById('wsl-prereq-fix-area');
+        if (!area) return;
+
+        area.style.display = 'block';
+        area.innerHTML =
+            '<div style="padding:10px 12px;border-radius:var(--radius-sm);' +
+            'background:rgba(99,102,241,0.04);border:1px solid rgba(99,102,241,0.15);margin-top:10px">' +
+                '<div style="font-size:0.72rem;font-weight:600;margin-bottom:6px;color:var(--text-primary)">' +
+                '📦 Installing curl.exe</div>' +
+                '<div id="curl-install-status" style="font-size:0.64rem;color:var(--text-muted)">' +
+                '⏳ Trying installation methods (winget → scoop → choco → direct download)…<br>' +
+                '<span style="font-size:0.58rem;color:var(--warning)">This may take 30–120 seconds.</span>' +
+                '</div>' +
+            '</div>';
+
+        try {
+            var resp = await fetch('/api/tab-mesh/wsl-install-curl', { method: 'POST' });
+            var data = await resp.json();
+            var statusEl = document.getElementById('curl-install-status');
+            if (!statusEl) return;
+
+            if (data.ok) {
+                statusEl.innerHTML =
+                    '<span style="color:var(--success)">✅ Installed via <strong>' +
+                    (data.method || 'unknown') + '</strong></span><br>' +
+                    '<span style="font-family:var(--font-mono);font-size:0.58rem">' +
+                    'Path: ' + (data.path || '?') +
+                    (data.version ? ' · Version: ' + data.version : '') +
+                    '</span>';
+                // Re-scan to update detection grid
+                setTimeout(_wslRescan, 1000);
+            } else {
+                var html = '<span style="color:var(--danger)">❌ ' +
+                    (data.message || 'All installation methods failed.') + '</span>';
+
+                // Render attempt details
+                if (data.chain) {
+                    html += _renderAttemptDetails(data.chain);
+                }
+
+                // Manual install fallback
+                html += '<div style="margin-top:10px;padding:8px 10px;border-radius:var(--radius-sm);' +
+                    'background:var(--bg-secondary);font-size:0.62rem;color:var(--text-muted)">' +
+                    '<div style="font-weight:600;margin-bottom:4px;color:var(--text-primary)">' +
+                    '📋 Manual Installation</div>' +
+                    '<ol style="margin:0;padding-left:18px;line-height:1.6">' +
+                    '<li>Download curl from <a href="https://curl.se/windows/" target="_blank" ' +
+                    'style="color:var(--accent)">curl.se/windows/</a></li>' +
+                    '<li>Extract to a folder (e.g. C:\\Users\\YOU\\curl)</li>' +
+                    '<li>Add the bin folder to your Windows PATH</li>' +
+                    '<li>Restart WSL: <code>wsl --shutdown</code> then reopen</li>' +
+                    '</ol>' +
+                    '<button class="btn btn-sm btn-ghost" style="margin-top:6px" ' +
+                    'onclick="_wslRescan()">🔄 Re-scan after install</button>' +
+                    '</div>';
+
+                statusEl.innerHTML = html;
+            }
+        } catch (err) {
+            var statusEl = document.getElementById('curl-install-status');
+            if (statusEl) {
+                statusEl.innerHTML = '<span style="color:var(--danger)">❌ Error: ' +
+                    err.message + '</span>';
+            }
+        }
+    }
+
+    /**
+     * Render install chain attempt details (which methods tried/failed).
+     */
+    function _renderAttemptDetails(chain) {
+        if (!chain || !chain.length) return '';
+        var html = '<div style="margin-top:8px;font-size:0.6rem;font-family:var(--font-mono)">';
+        for (var i = 0; i < chain.length; i++) {
+            var a = chain[i];
+            var icon = a.success ? '✅' : a.attempted ? '❌' : '⏭️';
+            var label = a.label || a.method || ('Step ' + (i + 1));
+            html += '<div style="padding:1px 0;color:var(--text-muted)">' + icon + ' ' + label;
+            if (a.error) {
+                html += ' — <span style="color:var(--danger)">' + a.error + '</span>';
+            }
+            if (!a.available) {
+                html += ' <span style="color:var(--text-muted)">(not available)</span>';
+            }
+            html += '</div>';
+        }
+        html += '</div>';
+        return html;
+    }
+
 </script>

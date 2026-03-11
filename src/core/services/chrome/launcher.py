@@ -168,16 +168,75 @@ class ChromeInstance:
 # ── Port Checking ────────────────────────────────────────────
 
 
+# ── WSL2 hostname.local resolution cache ─────────────────────
+
+_wsl_host_ip: str | None = None
+_wsl_host_resolved: bool = False
+
+
+def _resolve_wsl_host() -> str | None:
+    """Resolve the Windows host IP via hostname.local (mDNS).
+
+    Cached — only resolves once per process lifetime.
+    Returns the IP string if hostname.local resolves, else None.
+    """
+    global _wsl_host_ip, _wsl_host_resolved
+    if _wsl_host_resolved:
+        return _wsl_host_ip
+
+    _wsl_host_resolved = True
+    try:
+        import socket
+        r = subprocess.run(
+            ["hostname"],
+            capture_output=True, text=True, timeout=3,
+        )
+        hostname = r.stdout.strip()
+        if hostname:
+            infos = socket.getaddrinfo(
+                f"{hostname}.local", None,
+                socket.AF_INET, socket.SOCK_STREAM,
+            )
+            if infos:
+                _wsl_host_ip = infos[0][4][0]
+                logger.debug(
+                    "WSL host resolved: %s.local → %s",
+                    hostname, _wsl_host_ip,
+                )
+    except Exception:
+        pass
+    return _wsl_host_ip
+
+
 def _port_in_use(port: int) -> bool:
     """Check if anything is listening on a Windows-side TCP port.
 
     In WSL2, Chrome binds to 127.0.0.1 on Windows. Python in WSL2
-    cannot directly reach this. We use curl.exe (runs in Windows
-    network namespace) as a bridge — same pattern as cdp_client.
-
-    Falls back to Python socket for non-WSL2 environments.
+    cannot directly reach this via localhost. Discovery order:
+    1. hostname.local direct channel (Python socket, ~5ms)
+    2. curl.exe bridge (Windows namespace, ~100ms)
+    3. Python socket fallback (works for non-WSL2 / mirrored)
     """
     if is_wsl():
+        # 1. Try hostname.local direct channel — HTTP check
+        # With netsh portproxy active, TCP connect always succeeds.
+        # Must check for actual Chrome by hitting /json/version.
+        host_ip = _resolve_wsl_host()
+        if host_ip:
+            import urllib.request
+            import urllib.error
+            try:
+                url = f"http://{host_ip}:{port}/json/version"
+                req = urllib.request.Request(url)
+                with urllib.request.urlopen(req, timeout=1) as resp:
+                    body = resp.read()
+                    if b"Browser" in body or b"webSocketDebuggerUrl" in body:
+                        return True  # Chrome is actually running
+                    return False
+            except (urllib.error.URLError, OSError, ValueError):
+                pass  # Not Chrome, or not reachable — fall through
+
+        # 2. Fallback: curl.exe bridge
         curl_exe = get_curl_exe()
         if curl_exe:
             try:
@@ -211,18 +270,35 @@ def _port_in_use(port: int) -> bool:
 def _cdp_responding(port: int) -> bool:
     """Check if a CDP endpoint is responding on the given port.
 
-    Uses curl.exe in WSL2 (same bridge pattern as cdp_client._get_json).
-    Falls back to urllib for non-WSL2 environments.
+    Discovery order for WSL2:
+    1. hostname.local direct channel (Python urllib, ~5ms)
+    2. curl.exe bridge (Windows namespace, ~100ms)
+    3. Python urllib fallback (non-WSL2 / mirrored)
     """
-    url = f"http://localhost:{port}/json/version"
-
     if is_wsl():
+        # 1. Try hostname.local direct channel
+        # NOTE: Only trust a SUCCESS here. On failure, fall through
+        # to curl.exe — Chrome may bind to 127.0.0.1 only.
+        host_ip = _resolve_wsl_host()
+        if host_ip:
+            url = f"http://{host_ip}:{port}/json/version"
+            import urllib.request
+            import urllib.error
+            try:
+                req = urllib.request.Request(url)
+                with urllib.request.urlopen(req, timeout=0.5) as resp:
+                    return resp.status == 200
+            except (urllib.error.URLError, OSError):
+                pass  # Fall through to curl.exe
+
+        # 2. Fallback: curl.exe bridge
         curl_exe = get_curl_exe()
         if curl_exe:
+            url = f"http://localhost:{port}/json/version"
             try:
                 r = subprocess.run(
-                    [curl_exe, "-s", "--connect-timeout", "2", url],
-                    capture_output=True, text=True, timeout=4,
+                    [curl_exe, "-s", "--connect-timeout", "1", url],
+                    capture_output=True, text=True, timeout=2,
                 )
                 if r.returncode == 0 and r.stdout.strip():
                     return True
@@ -231,11 +307,12 @@ def _cdp_responding(port: int) -> bool:
             return False
 
     # Fallback for non-WSL2
+    url = f"http://localhost:{port}/json/version"
     import urllib.request
     import urllib.error
     try:
         req = urllib.request.Request(url)
-        with urllib.request.urlopen(req, timeout=2) as resp:
+        with urllib.request.urlopen(req, timeout=0.5) as resp:
             return resp.status == 200
     except (urllib.error.URLError, OSError):
         return False
@@ -386,11 +463,10 @@ class ChromeLauncher:
     def _launch_wsl(
         self, config: ChromeLaunchConfig, port: int,
     ) -> ChromeInstance:
-        """Launch Chrome on Windows via PowerShell interop from WSL.
+        """Launch Chrome on Windows from WSL.
 
-        Uses Start-Process -PassThru to capture the Chrome PID.
-        Writes a PS1 script to C:\\Windows\\Temp and executes it
-        via powershell.exe.
+        Primary: direct .exe invocation via WSL interop (~50ms)
+        Fallback: powershell.exe Start-Process (~3-4s cold start)
         """
         windows_user = get_windows_user()
         if not windows_user:
@@ -407,7 +483,6 @@ class ChromeLauncher:
                 f"{landing_url}#chrome-signin&email={quote(config.email)}"
             )
 
-        # Chrome arguments (UNquoted — the args_str wrapper adds PS quotes)
         chrome_exe = config.chrome_exe or _DEFAULT_CHROME_EXE_WIN
         chrome_args = [
             f"--remote-debugging-port={port}",
@@ -420,69 +495,128 @@ class ChromeLauncher:
         if landing_url:
             chrome_args.append(landing_url)
 
-        # PowerShell -ArgumentList wants comma-separated, individually quoted
-        args_str = ",".join(f"'{a}'" for a in chrome_args)
-
-        # PS1 script with PID capture + error handling
-        ps_content = (
-            f'$ErrorActionPreference = "Stop"\n'
-            f'try {{\n'
-            f'    $proc = Start-Process "{chrome_exe}" '
-            f"-ArgumentList {args_str} -PassThru\n"
-            f'    Write-Host "PID:$($proc.Id)"\n'
-            f'}} catch {{\n'
-            f'    Write-Error $_.Exception.Message\n'
-            f'    exit 1\n'
-            f'}}\n'
-        )
-
-        # Write PS1 to Windows-accessible temp
-        tmp_dir = "/mnt/c/Windows/Temp"
-        script_name = f"chrome_launch_{port}.ps1"
-        script_path_wsl = f"{tmp_dir}/{script_name}"
-        script_path_win = f"C:\\Windows\\Temp\\{script_name}"
-
-        with open(script_path_wsl, "w", encoding="utf-8") as f:
-            f.write(ps_content)
-
-        # Execute PS1, capture PID
-        r = subprocess.run(
-            [
-                "powershell.exe", "-NoProfile",
-                "-ExecutionPolicy", "Bypass",
-                "-File", script_path_win,
-            ],
-            capture_output=True, text=True, timeout=15,
-        )
-
-        # Clean up temp script
-        try:
-            os.remove(script_path_wsl)
-        except OSError:
-            pass
-
-        # Parse PID from stdout
         pid = 0
-        for line in r.stdout.splitlines():
-            if line.startswith("PID:"):
-                try:
-                    pid = int(line[4:].strip())
-                except ValueError:
-                    pass
-                break
 
-        if r.returncode != 0:
-            raise ChromeStartupFailed(
-                f"PS1 launch failed (rc={r.returncode}): "
-                f"{r.stderr.strip()}",
-                stderr=r.stderr,
-                exit_code=r.returncode,
+        # ── Primary: direct .exe via WSL interop (fast) ──
+        # WSL can run Windows .exe files directly.  Convert the
+        # Windows path to a WSL /mnt/c path and use Popen.
+        wsl_chrome_path = chrome_exe.replace("\\", "/")
+        if wsl_chrome_path[1] == ":":
+            # C:\… → /mnt/c/…
+            drive = wsl_chrome_path[0].lower()
+            wsl_chrome_path = f"/mnt/{drive}{wsl_chrome_path[2:]}"
+
+        if os.path.isfile(wsl_chrome_path):
+            try:
+                proc = subprocess.Popen(
+                    [wsl_chrome_path] + chrome_args,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    start_new_session=True,
+                )
+                # The Popen PID is the WSL-side wrapper PID.
+                # We need the Windows PID for kill management.
+                # Query it via tasklist after a brief wait.
+                time.sleep(0.3)
+                try:
+                    # Use wmic to find the chrome.exe with our specific
+                    # debug port in its command line — this gives us the
+                    # correct main browser PID, not a random subprocess.
+                    r = subprocess.run(
+                        [
+                            "cmd.exe", "/C",
+                            "wmic", "process", "where",
+                            f"Name='chrome.exe' and CommandLine like '%--remote-debugging-port={port}%'",
+                            "get", "ProcessId", "/FORMAT:LIST",
+                        ],
+                        capture_output=True, text=True, timeout=5,
+                    )
+                    for line in r.stdout.splitlines():
+                        line = line.strip()
+                        if line.startswith("ProcessId="):
+                            try:
+                                candidate = int(line.split("=", 1)[1])
+                                if candidate > 0:
+                                    pid = candidate
+                                    break  # Take the first match
+                            except (ValueError, IndexError):
+                                pass
+                except (subprocess.TimeoutExpired, OSError):
+                    pass
+
+                if pid > 0:
+                    logger.info(
+                        "Chrome launched directly (pid=%d port=%d)",
+                        pid, port,
+                    )
+                else:
+                    # Use the WSL wrapper PID as fallback
+                    pid = proc.pid
+                    logger.info(
+                        "Chrome launched directly (wsl-pid=%d port=%d)",
+                        pid, port,
+                    )
+            except (OSError, subprocess.SubprocessError) as exc:
+                logger.debug(
+                    "Direct exe launch failed: %s, falling back to PS", exc,
+                )
+
+        # ── Fallback: PowerShell (slow but reliable) ──
+        if pid == 0:
+            args_ps = ",".join(f"'{a}'" for a in chrome_args)
+            ps_content = (
+                f'$ErrorActionPreference = "Stop"\n'
+                f'try {{\n'
+                f'    $proc = Start-Process "{chrome_exe}" '
+                f"-ArgumentList {args_ps} -PassThru\n"
+                f'    Write-Host "PID:$($proc.Id)"\n'
+                f'}} catch {{\n'
+                f'    Write-Error $_.Exception.Message\n'
+                f'    exit 1\n'
+                f'}}\n'
             )
+
+            tmp_dir = "/mnt/c/Windows/Temp"
+            script_name = f"chrome_launch_{port}.ps1"
+            script_path_wsl = f"{tmp_dir}/{script_name}"
+            script_path_win = f"C:\\Windows\\Temp\\{script_name}"
+
+            with open(script_path_wsl, "w", encoding="utf-8") as f:
+                f.write(ps_content)
+
+            r = subprocess.run(
+                [
+                    "powershell.exe", "-NoProfile",
+                    "-ExecutionPolicy", "Bypass",
+                    "-File", script_path_win,
+                ],
+                capture_output=True, text=True, timeout=15,
+            )
+
+            try:
+                os.remove(script_path_wsl)
+            except OSError:
+                pass
+
+            for line in r.stdout.splitlines():
+                if line.startswith("PID:"):
+                    try:
+                        pid = int(line[4:].strip())
+                    except ValueError:
+                        pass
+                    break
+
+            if r.returncode != 0:
+                raise ChromeStartupFailed(
+                    f"PS1 launch failed (rc={r.returncode}): "
+                    f"{r.stderr.strip()}",
+                    stderr=r.stderr,
+                    exit_code=r.returncode,
+                )
 
         if pid == 0:
             logger.warning(
-                "Chrome launched but PID not captured. "
-                "stdout: %s", r.stdout.strip(),
+                "Chrome launched but PID not captured."
             )
 
         # Build instance
@@ -626,7 +760,9 @@ class ChromeLauncher:
         """Kill a specific Chrome instance by its PID.
 
         Environment-aware:
-        - WSL: ``taskkill.exe /F /PID <pid>``
+        - WSL: finds the chrome.exe by ``--remote-debugging-port``
+          in command line (wmic), then ``taskkill.exe /F /T``.
+          Falls back to stored PID.
         - Native Linux: ``os.kill(pid, SIGTERM)`` → ``SIGKILL`` fallback
 
         Removes the instance from tracking on success.
@@ -636,11 +772,88 @@ class ChromeLauncher:
             return False
         try:
             if is_wsl():
-                r = subprocess.run(
-                    ["taskkill.exe", "/F", "/PID", str(instance.pid)],
-                    capture_output=True, text=True, timeout=10,
-                )
-                killed = r.returncode == 0
+                # wmic can't see Chrome command lines (all empty),
+                # so PID-based lookup doesn't work.  Use CDP
+                # Browser.close to shut down the instance cleanly.
+                killed = False
+                try:
+                    import json as _json
+                    import urllib.request
+                    import urllib.error
+
+                    # Resolve the Windows host IP for direct access
+                    host_ip = _resolve_wsl_host()
+                    base = (
+                        f"http://{host_ip}:{instance.port}"
+                        if host_ip
+                        else f"http://localhost:{instance.port}"
+                    )
+
+                    # Get browser WS URL
+                    req = urllib.request.Request(f"{base}/json/version")
+                    with urllib.request.urlopen(req, timeout=2) as resp:
+                        data = _json.loads(resp.read())
+                    ws_url = data.get("webSocketDebuggerUrl", "")
+
+                    if ws_url and host_ip:
+                        # Rewrite ws_url to use the host IP
+                        from urllib.parse import urlparse, urlunparse
+                        parsed = urlparse(ws_url)
+                        ws_url = urlunparse(parsed._replace(
+                            netloc=f"{host_ip}:{instance.port}",
+                        ))
+
+                    if ws_url:
+                        # Connect to browser WS and send Browser.close.
+                        # Browser.close causes Chrome to drop the WS
+                        # immediately, so send_command's recv() would
+                        # throw.  Fire-and-forget via raw ws.send().
+                        from src.ui.web.cdp_client import CdpSession
+                        import json as _json
+                        logger.info(
+                            "Attempting CdpSession to browser WS: %s",
+                            ws_url,
+                        )
+                        session = CdpSession(ws_url, connect_timeout=3)
+                        logger.info(
+                            "CdpSession connected=%s mode=%s",
+                            session.connected,
+                            getattr(session, '_mode', '?'),
+                        )
+                        if session.connected:
+                            close_cmd = _json.dumps({
+                                "id": 1,
+                                "method": "Browser.close",
+                                "params": {},
+                            })
+                            logger.info("Sending Browser.close...")
+                            session._ws.send(close_cmd)
+                            logger.info("Browser.close sent OK")
+                            killed = True
+                            logger.info(
+                                "Chrome closed via CDP Browser.close "
+                                "on port %d",
+                                instance.port,
+                            )
+                    else:
+                        logger.warning(
+                            "No webSocketDebuggerUrl in /json/version "
+                            "on port %d", instance.port,
+                        )
+                except Exception as exc:
+                    logger.warning(
+                        "CDP Browser.close failed on port %d: %s",
+                        instance.port, exc,
+                    )
+
+                # Fallback: taskkill with stored PID
+                if not killed:
+                    r = subprocess.run(
+                        ["taskkill.exe", "/F", "/T", "/PID",
+                         str(instance.pid)],
+                        capture_output=True, text=True, timeout=10,
+                    )
+                    killed = r.returncode == 0
             else:
                 # Native Linux: SIGTERM first, SIGKILL fallback
                 try:

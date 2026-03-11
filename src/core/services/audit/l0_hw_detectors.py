@@ -288,12 +288,31 @@ def _detect_wsl_interop() -> dict:
     Matches arch-system-model §WSL interop (Phase 6).
     Only meaningful on WSL systems — on native Linux/macOS, returns
     all-false/none values quickly.
+
+    Enriched fields (beyond the base detection):
+      - wslconfig_parsed: dict of parsed .wslconfig [wsl2] keys
+      - networking_mode: "nat" | "mirrored" | "unknown"
+      - hostname: Windows hostname from WSL
+      - hostname_local_resolves: whether $(hostname).local resolves via mDNS
+      - hostname_local_ip: resolved IP if mDNS works
+      - curl_exe_available: whether curl.exe is on PATH
+      - curl_exe_path: path to curl.exe if found
+      - cdp_channel_level: 0–3 operability level
     """
     result: dict[str, object] = {
         "available": False,
         "binfmt_registered": False,
         "windows_user": None,
         "wslconfig_path": None,
+        # ── Enriched fields ───────────────────────────────────
+        "wslconfig_parsed": None,
+        "networking_mode": "unknown",
+        "hostname": None,
+        "hostname_local_resolves": False,
+        "hostname_local_ip": None,
+        "curl_exe_available": False,
+        "curl_exe_path": None,
+        "cdp_channel_level": 0,
     }
 
     # Quick exit if not WSL — check /proc/version first
@@ -326,7 +345,7 @@ def _detect_wsl_interop() -> dict:
         except Exception:
             pass
 
-    # ── .wslconfig path ───────────────────────────────────────
+    # ── .wslconfig path + contents ────────────────────────────
     windows_user = result["windows_user"]
     if windows_user:
         # Standard location: C:\Users\USERNAME\.wslconfig
@@ -336,5 +355,104 @@ def _detect_wsl_interop() -> dict:
         )
         if wslconfig_candidate.exists():
             result["wslconfig_path"] = str(wslconfig_candidate)
+            result["wslconfig_parsed"] = _parse_wslconfig(
+                wslconfig_candidate,
+            )
+
+    # ── Networking mode ───────────────────────────────────────
+    parsed = result["wslconfig_parsed"]
+    if isinstance(parsed, dict):
+        mode = parsed.get("networkingMode", "").lower()
+        if mode == "mirrored":
+            result["networking_mode"] = "mirrored"
+        else:
+            # NAT is the default when not explicitly set
+            result["networking_mode"] = "nat"
+    else:
+        # No .wslconfig or unparseable — assume NAT (default)
+        result["networking_mode"] = "nat"
+
+    # ── Hostname + mDNS resolution ────────────────────────────
+    try:
+        r = subprocess.run(
+            ["hostname"],
+            capture_output=True, text=True, timeout=3,
+        )
+        hostname = r.stdout.strip()
+        if hostname:
+            result["hostname"] = hostname
+            # Test if hostname.local resolves via mDNS
+            import socket
+            try:
+                infos = socket.getaddrinfo(
+                    f"{hostname}.local", None,
+                    socket.AF_INET, socket.SOCK_STREAM,
+                )
+                if infos:
+                    resolved_ip = infos[0][4][0]
+                    result["hostname_local_resolves"] = True
+                    result["hostname_local_ip"] = resolved_ip
+            except (socket.gaierror, OSError):
+                pass
+    except Exception:
+        pass
+
+    # ── curl.exe availability ─────────────────────────────────
+    curl_exe_path = shutil.which("curl.exe")
+    if curl_exe_path:
+        result["curl_exe_available"] = True
+        result["curl_exe_path"] = curl_exe_path
+
+    # ── CDP channel level computation ─────────────────────────
+    # Level 0: No bridge at all (no curl.exe, no direct channel)
+    # Level 1: curl.exe bridge (fallback, ~100ms/call)
+    # Level 2: Direct channel via hostname.local (recommended, ~5ms)
+    #          hostname.local resolves = Layer 2 prerequisite met.
+    #          Firewall (Layer 3) and Chrome binding (Layer 4) are
+    #          checked separately in the diagnose/notification flow.
+    # Level 3: Mirrored networking (risky — may break VS Code)
+    if result["networking_mode"] == "mirrored":
+        result["cdp_channel_level"] = 3
+    elif result["hostname_local_resolves"]:
+        result["cdp_channel_level"] = 2
+    elif result["curl_exe_available"]:
+        result["cdp_channel_level"] = 1
+    else:
+        result["cdp_channel_level"] = 0
 
     return result
+
+
+def _parse_wslconfig(path: Path) -> dict | None:
+    """Parse .wslconfig INI-style file and extract [wsl2] settings.
+
+    Returns a flat dict of key=value pairs from the [wsl2] section,
+    or None if the file cannot be parsed.
+
+    Only reads the [wsl2] section — other sections are ignored.
+    Keys are returned as-is (case-preserved from the file).
+    """
+    try:
+        content = path.read_text(encoding="utf-8")
+    except (OSError, PermissionError):
+        return None
+
+    result: dict[str, str] = {}
+    in_wsl2_section = False
+
+    for line in content.splitlines():
+        stripped = line.strip()
+        # Skip empty lines and comments
+        if not stripped or stripped.startswith("#") or stripped.startswith(";"):
+            continue
+        # Section headers
+        if stripped.startswith("["):
+            section_name = stripped.strip("[]").strip().lower()
+            in_wsl2_section = (section_name == "wsl2")
+            continue
+        # Key=value pairs in [wsl2]
+        if in_wsl2_section and "=" in stripped:
+            key, _, value = stripped.partition("=")
+            result[key.strip()] = value.strip()
+
+    return result if result else None
