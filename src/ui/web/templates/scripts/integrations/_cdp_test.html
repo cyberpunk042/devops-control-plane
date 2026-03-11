@@ -42,6 +42,329 @@
     }
 
     // ══════════════════════════════════════════════════════════════════
+    //  SHARED — Git Ledger Badge + Status Modal
+    //  Used by both CDP Test Suites and Execution Plans views.
+    //  Mirrors the chat view's ledger badge/modal pattern with per-item
+    //  actions and bulk operations.
+    // ══════════════════════════════════════════════════════════════════
+
+    /** Data store — keyed by badge id. Avoids DOM dataset timing issues. */
+    const _gitLedgerData = {};
+
+    /**
+     * Render a ledger badge placeholder HTML.
+     * Call _gitLedgerUpdateBadge() AFTER the badge is in the DOM.
+     */
+    function _gitLedgerBadge(id, kind) {
+        // Initialize data slot
+        _gitLedgerData[id] = { kind: kind, items: [] };
+        return `<span id="${id}"
+            onclick="_gitLedgerOpenModal('${id}')"
+            style="cursor:pointer;font-size:0.72rem;padding:2px 8px;border-radius:10px;
+                   background:rgba(100,100,100,0.2);color:var(--text-muted);font-weight:600;
+                   display:inline-flex;align-items:center;gap:4px;line-height:1;
+                   transition:background 0.2s,color 0.2s"
+            title="Git ledger status — click to inspect">⚪ Ledger</span>`;
+    }
+
+    /**
+     * Update a ledger badge element AND store items for the modal.
+     * Each item must have { id, name, in_git, git_dirty }.
+     * MUST be called AFTER the badge element is in the DOM (after modalOpen).
+     */
+    function _gitLedgerUpdateBadge(id, items) {
+        // Always store — even if DOM element isn't ready yet
+        if (!_gitLedgerData[id]) _gitLedgerData[id] = { kind: 'items', items: [] };
+        _gitLedgerData[id].items = items.map(i => ({
+            name: i.name || i.id,
+            id: i.id,
+            in_git: !!i.in_git,
+            git_dirty: !!i.git_dirty,
+        }));
+
+        const el = document.getElementById(id);
+        if (!el) return;
+
+        const total = items.length;
+        const inGit = items.filter(i => i.in_git).length;
+        const dirty = items.filter(i => i.in_git && i.git_dirty).length;
+        const local = total - inGit;
+
+        if (total === 0) {
+            el.innerHTML = '⚪ Ledger';
+            el.style.background = 'rgba(100,100,100,0.2)';
+            el.style.color = 'var(--text-muted)';
+            el.title = 'No items tracked';
+        } else if (dirty > 0) {
+            el.innerHTML = `🟡 ${dirty} dirty`;
+            el.style.background = 'rgba(245,158,11,0.15)';
+            el.style.color = '#f0a030';
+            el.title = `${dirty} item(s) with un-synced changes — click to inspect`;
+        } else if (local > 0 && inGit > 0) {
+            el.innerHTML = `🔵 ${inGit}/${total} in git`;
+            el.style.background = 'rgba(99,102,241,0.15)';
+            el.style.color = 'var(--accent,#6366f1)';
+            el.title = `${local} item(s) not in git — click to inspect`;
+        } else if (inGit === total && total > 0) {
+            el.innerHTML = '🟢 All synced';
+            el.style.background = 'rgba(34,197,94,0.15)';
+            el.style.color = '#22c55e';
+            el.title = `All ${total} item(s) synced to git`;
+        } else {
+            el.innerHTML = `⚪ ${total} local`;
+            el.style.background = 'rgba(100,100,100,0.2)';
+            el.style.color = 'var(--text-muted)';
+            el.title = `${total} item(s) – none in git yet`;
+        }
+    }
+
+    /**
+     * Open a rich, layered ledger status panel above any existing modal.
+     * Shows per-item git status with action buttons + bulk operations.
+     */
+    function _gitLedgerOpenModal(badgeId) {
+        const data = _gitLedgerData[badgeId];
+        if (!data) return;
+
+        const items = data.items || [];
+        const kind = data.kind || 'items';
+        const isSuites = kind === 'suites';
+        const kindLabel = isSuites ? 'Test Suites' : 'Execution Plans';
+        const addEndpoint = isSuites ? '/cdp-test/suites/add-to-git' : '/plans/add-to-git';
+        const syncEndpoint = isSuites ? '/cdp-test/suites/sync-to-git' : '/plans/sync-to-git';
+        const removeEndpoint = isSuites ? '/cdp-test/suites/remove-from-git' : '/plans/remove-from-git';
+        const idKey = isSuites ? 'suite_id' : 'plan_id';
+        const refreshFn = isSuites ? '_cdpTestRenderHome' : '_plansRenderHome';
+
+        const synced = items.filter(i => i.in_git && !i.git_dirty);
+        const dirty  = items.filter(i => i.in_git && i.git_dirty);
+        const local  = items.filter(i => !i.in_git);
+
+        // ── Status summary bar ───────────────────────────────────
+        const total = items.length;
+        const statusIcon = dirty.length > 0 ? '🟡'
+            : local.length > 0 && synced.length > 0 ? '🔵'
+            : synced.length === total && total > 0 ? '🟢' : '⚪';
+        const statusLabel = dirty.length > 0 ? 'Changes pending'
+            : local.length > 0 && synced.length > 0 ? 'Partially tracked'
+            : synced.length === total && total > 0 ? 'Fully synced' : 'Not tracked';
+
+        const summaryHtml = `
+            <div style="display:flex;gap:12px;margin-bottom:1rem;flex-wrap:wrap">
+                <div style="padding:8px 14px;border-radius:8px;background:var(--bg-secondary,#111);font-size:0.85rem;display:flex;align-items:center;gap:6px">
+                    ${statusIcon} <strong>${statusLabel}</strong>
+                </div>
+                <div style="padding:8px 14px;border-radius:8px;background:var(--bg-secondary,#111);font-size:0.8rem;display:flex;align-items:center;gap:8px">
+                    <span>🟢 ${synced.length} synced</span>
+                    <span style="opacity:0.3">·</span>
+                    <span>🟡 ${dirty.length} dirty</span>
+                    <span style="opacity:0.3">·</span>
+                    <span>⚪ ${local.length} local</span>
+                </div>
+            </div>`;
+
+        // ── Per-item row builder ─────────────────────────────────
+        function itemRow(item, statusIcon, actionBtnHtml) {
+            return `<div style="display:flex;align-items:center;gap:8px;padding:6px 8px;border-bottom:1px solid var(--border-subtle,#333);font-size:0.8rem" data-item-id="${esc(item.id)}">
+                <span style="flex-shrink:0">${statusIcon}</span>
+                <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(item.name)}</span>
+                <span style="flex-shrink:0;display:flex;gap:4px">${actionBtnHtml}</span>
+            </div>`;
+        }
+
+        function actionBtn(label, cls, itemId, action) {
+            return `<button class="gl-action btn btn-xs ${cls}" data-item-id="${esc(itemId)}" data-action="${action}"
+                style="font-size:0.65rem;padding:2px 6px;cursor:pointer">${label}</button>`;
+        }
+
+        // ── Section builder ──────────────────────────────────────
+        let sectionsHtml = '';
+
+        if (dirty.length > 0) {
+            let rows = dirty.map(i => itemRow(i, '⚠️',
+                actionBtn('🔄 Sync', 'btn-secondary', i.id, 'sync')
+                + actionBtn('📁✕ Remove', 'btn-secondary', i.id, 'remove')
+            )).join('');
+            sectionsHtml += `
+                <div style="margin-bottom:0.75rem">
+                    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.3rem">
+                        <div style="font-size:0.78rem;font-weight:600;color:#f0a030">
+                            🟡 Local changes not synced (${dirty.length})
+                        </div>
+                        ${dirty.length > 1 ? `<button class="gl-bulk btn btn-xs btn-secondary" data-action="sync-all-dirty" style="font-size:0.62rem">🔄 Sync All Dirty</button>` : ''}
+                    </div>
+                    <div style="border:1px solid rgba(245,158,11,0.2);border-radius:8px;overflow:hidden;background:rgba(245,158,11,0.04)">
+                        ${rows}
+                    </div>
+                </div>`;
+        }
+
+        if (local.length > 0) {
+            let rows = local.map(i => itemRow(i, '📄',
+                actionBtn('📁+ Add', 'btn-secondary', i.id, 'add')
+            )).join('');
+            sectionsHtml += `
+                <div style="margin-bottom:0.75rem">
+                    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.3rem">
+                        <div style="font-size:0.78rem;font-weight:600;color:var(--text-muted)">
+                            ⚪ Local only — not in git (${local.length})
+                        </div>
+                        ${local.length > 1 ? `<button class="gl-bulk btn btn-xs btn-primary" data-action="add-all-local" style="font-size:0.62rem">📁+ Add All</button>` : ''}
+                    </div>
+                    <div style="border:1px solid var(--border-subtle,#333);border-radius:8px;overflow:hidden;background:rgba(100,100,100,0.04)">
+                        ${rows}
+                    </div>
+                </div>`;
+        }
+
+        if (synced.length > 0) {
+            let rows = synced.map(i => itemRow(i, '✅',
+                actionBtn('📁✕ Remove', 'btn-secondary', i.id, 'remove')
+            )).join('');
+            sectionsHtml += `
+                <div style="margin-bottom:0.75rem">
+                    <div style="font-size:0.78rem;font-weight:600;color:#22c55e;margin-bottom:0.3rem">
+                        🟢 Synced (${synced.length})
+                    </div>
+                    <div style="border:1px solid rgba(34,197,94,0.2);border-radius:8px;overflow:hidden;background:rgba(34,197,94,0.04)">
+                        ${rows}
+                    </div>
+                </div>`;
+        }
+
+        if (items.length === 0) {
+            sectionsHtml = `<div style="text-align:center;padding:2rem;color:var(--text-muted);font-size:0.82rem">
+                No ${kind} to track. Create one first.
+            </div>`;
+        }
+
+        // ── Error box for inline feedback ────────────────────────
+        const errorBoxHtml = `<div id="gl-error-box"></div>`;
+
+        // ── Build the overlay manually (like the chat ledger does) ──
+        const existing = document.getElementById('git-ledger-overlay');
+        if (existing) existing.remove();
+
+        const overlay = document.createElement('div');
+        overlay.id = 'git-ledger-overlay';
+        overlay.style.cssText = [
+            'position:fixed', 'inset:0', 'z-index:100000',
+            'display:flex', 'align-items:center', 'justify-content:center',
+            'background:rgba(0,0,0,0.55)',
+            'backdrop-filter:blur(4px)', '-webkit-backdrop-filter:blur(4px)',
+            'animation:fadeIn 0.15s ease',
+        ].join(';');
+
+        overlay.innerHTML = `
+            <div style="
+                background:var(--bg-card,#1e1e2e);
+                border:1px solid var(--border,#333);
+                border-radius:12px;
+                padding:24px 28px;
+                max-width:560px;
+                width:calc(100% - 2rem);
+                max-height:85vh;
+                overflow-y:auto;
+                color:var(--text-primary,#e0e0e0);
+                font-family:var(--font-sans,system-ui,sans-serif);
+                box-shadow:0 24px 48px rgba(0,0,0,0.5);
+            ">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.75rem">
+                    <div style="font-size:1rem;font-weight:600">📊 Git Ledger — ${kindLabel}</div>
+                    <button id="gl-close-btn" style="background:none;border:none;color:var(--text-primary,#e0e0e0);font-size:1.2rem;cursor:pointer;opacity:0.6;padding:4px">✕</button>
+                </div>
+                ${summaryHtml}
+                ${sectionsHtml}
+                ${errorBoxHtml}
+            </div>
+        `;
+
+        // ── Close handlers ───────────────────────────────────────
+        function closeOverlay() { overlay.remove(); }
+
+        overlay.querySelector('#gl-close-btn').onclick = closeOverlay;
+        overlay.addEventListener('click', e => { if (e.target === overlay) closeOverlay(); });
+        document.addEventListener('keydown', function escHandler(e) {
+            if (e.key === 'Escape') {
+                document.removeEventListener('keydown', escHandler);
+                closeOverlay();
+            }
+        });
+
+        // ── Per-item action handlers ─────────────────────────────
+        async function doAction(itemId, action) {
+            const errBox = overlay.querySelector('#gl-error-box');
+            try {
+                if (action === 'add') {
+                    await apiPost(addEndpoint, { [idKey]: itemId });
+                    toast('Added to git', 'success');
+                } else if (action === 'sync') {
+                    await apiPost(syncEndpoint, { [idKey]: itemId });
+                    toast('Synced to git', 'success');
+                } else if (action === 'remove') {
+                    await apiPost(removeEndpoint, { [idKey]: itemId });
+                    toast('Removed from git', 'success');
+                }
+                closeOverlay();
+                window[refreshFn]();
+            } catch (e) {
+                if (errBox) {
+                    errBox.innerHTML = `<div style="margin:8px 0;padding:8px 12px;border-radius:6px;background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.3);color:var(--error);font-size:0.78rem">
+                        ❌ ${action} failed: ${esc(e.message)}
+                    </div>`;
+                }
+            }
+        }
+
+        overlay.querySelectorAll('.gl-action').forEach(btn => {
+            btn.onclick = (e) => {
+                e.stopPropagation();
+                btn.disabled = true;
+                btn.style.opacity = '0.5';
+                doAction(btn.dataset.itemId, btn.dataset.action);
+            };
+        });
+
+        // ── Bulk action handlers ─────────────────────────────────
+        overlay.querySelectorAll('.gl-bulk').forEach(btn => {
+            btn.onclick = async (e) => {
+                e.stopPropagation();
+                btn.disabled = true;
+                btn.style.opacity = '0.5';
+                btn.innerHTML = '<span class="spinner" style="width:10px;height:10px"></span> Working…';
+                const errBox = overlay.querySelector('#gl-error-box');
+                try {
+                    if (btn.dataset.action === 'add-all-local') {
+                        for (const item of local) {
+                            await apiPost(addEndpoint, { [idKey]: item.id });
+                        }
+                        toast(`${local.length} ${kind} added to git`, 'success');
+                    } else if (btn.dataset.action === 'sync-all-dirty') {
+                        for (const item of dirty) {
+                            await apiPost(syncEndpoint, { [idKey]: item.id });
+                        }
+                        toast(`${dirty.length} ${kind} synced to git`, 'success');
+                    }
+                    closeOverlay();
+                    window[refreshFn]();
+                } catch (e) {
+                    btn.disabled = false;
+                    btn.style.opacity = '1';
+                    btn.innerHTML = '❌ Retry';
+                    if (errBox) {
+                        errBox.innerHTML = `<div style="margin:8px 0;padding:8px 12px;border-radius:6px;background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.3);color:var(--error);font-size:0.78rem">
+                            ❌ Bulk operation failed: ${esc(e.message)}
+                        </div>`;
+                    }
+                }
+            };
+        });
+
+        document.body.appendChild(overlay);
+    }
+
+
+    // ══════════════════════════════════════════════════════════════════
     //  HOME VIEW — suites list, record button, status
     // ══════════════════════════════════════════════════════════════════
 
@@ -55,7 +378,8 @@
                 <div style="font-weight:600;font-size:0.9rem">Browser Test Suites</div>
                 <div style="font-size:0.72rem;color:var(--text-muted)">Record, validate, and replay browser interactions</div>
             </div>
-            <div style="display:flex;gap:0.5rem">
+            <div style="display:flex;gap:0.5rem;align-items:center">
+                ${_gitLedgerBadge('cdp-test-ledger-badge', 'suites')}
                 <button class="btn btn-sm btn-primary" onclick="_cdpTestStartRecording()" id="cdp-test-record-btn">
                     🔴 New Recording
                 </button>
@@ -134,6 +458,9 @@
                 { label: 'Close', cls: 'btn-secondary', onclick: '_cdpTestCloseModal()' },
             ],
         });
+
+        // Update badge AFTER modalOpen renders the DOM
+        _gitLedgerUpdateBadge('cdp-test-ledger-badge', _cdpTestSuites || []);
     }
 
     function _cdpTestActiveRecordingBanner(session) {

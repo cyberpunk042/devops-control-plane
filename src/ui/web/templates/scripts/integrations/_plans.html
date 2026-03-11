@@ -55,9 +55,12 @@
             <div style="font-size:0.82rem;font-weight:600;color:var(--text-secondary)">
                 Manage and run execution plans
             </div>
-            <button class="btn btn-sm btn-primary" onclick="_plansCreateNew()">
-                ➕ New Plan
-            </button>
+            <div style="display:flex;gap:0.5rem;align-items:center">
+                ${_gitLedgerBadge('plans-ledger-badge', 'plans')}
+                <button class="btn btn-sm btn-primary" onclick="_plansCreateNew()">
+                    ➕ New Plan
+                </button>
+            </div>
         </div>`;
 
         try {
@@ -101,6 +104,9 @@
                 { label: 'Close', cls: 'btn-secondary', onclick: '_plansCloseModal()' },
             ],
         });
+
+        // Update badge AFTER modalOpen renders the DOM
+        _gitLedgerUpdateBadge('plans-ledger-badge', _plansCachedPlans || []);
     }
 
     // ── Active plan banner ───────────────────────────────────────────
