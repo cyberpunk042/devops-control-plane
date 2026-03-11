@@ -1,0 +1,72 @@
+{
+  "id": "29bc3e01-db7c-4b89-8949-1fbee83ebc30",
+  "name": "test02",
+  "description": "",
+  "steps": [
+    {
+      "id": "09d58594-d4fd-48f7-829d-7f778931ed4a",
+      "sequence": 1,
+      "type": "cdp_test",
+      "name": "test4",
+      "script_id": "",
+      "script_params": {},
+      "suite_id": "d105d66f-b569-42d3-a573-452a09a74113",
+      "suite_variables": {
+        "test_in2": "dsfdsfsdfds2"
+      },
+      "checkpoint_message": "",
+      "condition_step_id": "",
+      "condition": "passed",
+      "then_step_id": "",
+      "else_step_id": "",
+      "optional": false,
+      "timeout_seconds": 0,
+      "produces": [
+        "out2"
+      ],
+      "consumes": [
+        "test_in2"
+      ]
+    },
+    {
+      "id": "b1d88c0c-ad0b-43ee-a90b-29ddabd1c804",
+      "sequence": 2,
+      "type": "cdp_test",
+      "name": "test4",
+      "script_id": "",
+      "script_params": {},
+      "suite_id": "d105d66f-b569-42d3-a573-452a09a74113",
+      "suite_variables": {
+        "test_in2": "dsfdsfsdfds2"
+      },
+      "checkpoint_message": "",
+      "condition_step_id": "",
+      "condition": "passed",
+      "then_step_id": "",
+      "else_step_id": "",
+      "optional": false,
+      "timeout_seconds": 0,
+      "produces": [
+        "out2"
+      ],
+      "consumes": [
+        "test_in2"
+      ]
+    }
+  ],
+  "mode": "semi_automated",
+  "browser_config": {
+    "mode": "separate_instance",
+    "headless": false,
+    "port": 0,
+    "keep_alive": false
+  },
+  "variables": {},
+  "created_at": "2026-03-10T22:19:15.308239+00:00",
+  "updated_at": "2026-03-11T00:01:51.180751+00:00",
+  "last_run_at": "2026-03-11T00:01:50.839726+00:00",
+  "last_run_status": "passed",
+  "run_count": 10,
+  "in_git": true,
+  "git_updated_at": "2026-03-11T00:01:51.180751+00:00"
+}
