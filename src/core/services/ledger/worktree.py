@@ -464,51 +464,81 @@ def ledger_sync_status(project_root: Path) -> dict:
 
 
 def _content_merge(project_root: Path) -> dict:
-    """Content-level merge: keep ALL messages from both local and remote.
+    """Content-level merge: keep ALL data from both local and remote.
 
-    1. Read all local messages across all threads (by id)
+    Handles ALL ledger data types (chat, traces, suites, plans):
+
+    1. Snapshot ALL local files in the worktree
     2. Reset to remote (git reset --hard origin/ledger)
-    3. Read remote messages (now in working tree)
-    4. Find local-only messages (not in remote)
-    5. Append them to appropriate thread files
-    6. Commit + push
+    3. Snapshot ALL remote files (now in working tree)
+    4. Merge:
+       - Files only in local → restore
+       - .jsonl files on both sides → append local-only entries (by id)
+       - .json files on both sides → keep newer (by updated_at) or local
+    5. Commit + push
     """
     import json as _json
     global _rebase_fail_ts
 
     wt = worktree_path(project_root)
-    threads_dir = wt / "chat" / "threads"
+    skip_names = {".git", ".gitattributes"}
 
-    # Step 1: Read all local messages keyed by (thread_id, msg_id)
-    local_by_thread: dict[str, list[str]] = {}  # thread_id → [jsonl lines]
-    local_ids: dict[str, set[str]] = {}  # thread_id → {msg_ids}
-
-    if threads_dir.is_dir():
-        for thread_dir in threads_dir.iterdir():
-            if not thread_dir.is_dir():
+    # ── Helper: walk the worktree and snapshot all files ──────────
+    def _snapshot_all() -> dict[str, bytes]:
+        """Return {relative_path: file_bytes} for every file in the worktree."""
+        files: dict[str, bytes] = {}
+        if not wt.is_dir():
+            return files
+        for fpath in wt.rglob("*"):
+            if not fpath.is_file():
                 continue
-            tid = thread_dir.name
-            local_file = thread_dir / "messages.jsonl"
-            if not local_file.is_file():
+            # Skip git internals
+            rel = str(fpath.relative_to(wt))
+            if any(rel == s or rel.startswith(s + "/") for s in skip_names):
                 continue
-            local_by_thread[tid] = []
-            local_ids[tid] = set()
-            for line in local_file.read_text(encoding="utf-8").splitlines():
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    d = _json.loads(line)
-                    mid = d.get("id", "")
-                    if mid:
-                        local_by_thread[tid].append(line)
-                        local_ids[tid].add(mid)
-                except Exception:
-                    local_by_thread[tid].append(line)  # keep unparseable lines
+            if "/.git/" in ("/" + rel):
+                continue
+            try:
+                files[rel] = fpath.read_bytes()
+            except Exception:
+                pass  # permission error, broken symlink, etc.
+        return files
 
-    logger.info("Content merge: read %d threads locally", len(local_by_thread))
+    # ── Helper: extract ids from JSONL content ───────────────────
+    def _jsonl_ids(raw: bytes) -> set[str]:
+        """Return the set of 'id' values from a JSONL byte string."""
+        ids: set[str] = set()
+        for line in raw.decode("utf-8", errors="replace").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                d = _json.loads(line)
+                mid = d.get("id", "")
+                if mid:
+                    ids.add(mid)
+            except Exception:
+                pass
+        return ids
 
-    # Step 2: Reset to remote
+    # ── Helper: get updated_at from JSON content ─────────────────
+    def _json_updated_at(raw: bytes) -> str:
+        """Return the 'updated_at' field from a JSON file, or ''."""
+        try:
+            d = _json.loads(raw)
+            return str(d.get("updated_at", ""))
+        except Exception:
+            return ""
+
+    # ── Phase 1: Snapshot ALL local files ─────────────────────────
+    local_files = _snapshot_all()
+    logger.info(
+        "Content merge: snapshot %d local files (%s)",
+        len(local_files),
+        ", ".join(sorted({p.split("/")[0] for p in local_files})),
+    )
+
+    # ── Phase 2: Reset to remote ─────────────────────────────────
     _run_ledger_git("rebase", "--abort", project_root=project_root)
     r = _run_ledger_git(
         "reset", "--hard", f"origin/{LEDGER_BRANCH}",
@@ -519,68 +549,93 @@ def _content_merge(project_root: Path) -> dict:
 
     logger.info("Content merge: reset to origin/ledger")
 
-    # Step 3: Read remote messages (now in working tree after reset)
-    remote_ids: dict[str, set[str]] = {}
-    if threads_dir.is_dir():
-        for thread_dir in threads_dir.iterdir():
-            if not thread_dir.is_dir():
-                continue
-            tid = thread_dir.name
-            remote_ids[tid] = set()
-            remote_file = thread_dir / "messages.jsonl"
-            if not remote_file.is_file():
-                continue
-            for line in remote_file.read_text(encoding="utf-8").splitlines():
+    # ── Phase 3: Snapshot ALL remote files ────────────────────────
+    remote_files = _snapshot_all()
+    logger.info("Content merge: %d remote files after reset", len(remote_files))
+
+    # ── Phase 4: Merge ───────────────────────────────────────────
+    recovered = 0
+    paths_to_commit: list[str] = []
+
+    for rel_path, local_content in local_files.items():
+
+        if rel_path not in remote_files:
+            # ── Case A: local-only file → restore it ─────────────
+            dest = wt / rel_path
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_bytes(local_content)
+            paths_to_commit.append(rel_path)
+            recovered += 1
+            logger.debug("Content merge: restored local-only %s", rel_path)
+
+        elif rel_path.endswith(".jsonl"):
+            # ── Case B: JSONL on both sides → merge by id ────────
+            remote_content = remote_files[rel_path]
+            if local_content == remote_content:
+                continue  # identical — nothing to merge
+
+            remote_ids = _jsonl_ids(remote_content)
+            missing_lines: list[str] = []
+            for line in local_content.decode("utf-8", errors="replace").splitlines():
                 line = line.strip()
                 if not line:
                     continue
                 try:
                     d = _json.loads(line)
                     mid = d.get("id", "")
-                    if mid:
-                        remote_ids[tid].add(mid)
+                    if mid and mid not in remote_ids:
+                        missing_lines.append(line)
                 except Exception:
-                    pass
+                    pass  # skip unparseable
 
-    # Step 4: Find local-only messages and append them
-    recovered = 0
-    paths_to_commit = []
-    for tid, lines in local_by_thread.items():
-        remote_set = remote_ids.get(tid, set())
-        missing_lines = []
-        for line in lines:
-            try:
-                d = _json.loads(line)
-                mid = d.get("id", "")
-                if mid and mid not in remote_set:
-                    missing_lines.append(line)
-            except Exception:
-                pass  # skip unparseable
+            if missing_lines:
+                dest = wt / rel_path
+                with dest.open("a", encoding="utf-8") as f:
+                    for line in missing_lines:
+                        f.write(line + "\n")
+                        recovered += 1
+                paths_to_commit.append(rel_path)
+                logger.debug(
+                    "Content merge: appended %d entries to %s",
+                    len(missing_lines), rel_path,
+                )
 
-        if not missing_lines:
-            continue
+        elif rel_path.endswith(".json"):
+            # ── Case C: JSON on both sides → keep newer ──────────
+            remote_content = remote_files[rel_path]
+            if local_content == remote_content:
+                continue  # identical — nothing to merge
 
-        # Ensure thread dir exists
-        thread_dir = threads_dir / tid
-        thread_dir.mkdir(parents=True, exist_ok=True)
-        msgs_file = thread_dir / "messages.jsonl"
+            local_ts = _json_updated_at(local_content)
+            remote_ts = _json_updated_at(remote_content)
 
-        with msgs_file.open("a", encoding="utf-8") as f:
-            for line in missing_lines:
-                f.write(line + "\n")
+            # Keep local if: no timestamps, or local >= remote
+            if not remote_ts or local_ts >= remote_ts:
+                dest = wt / rel_path
+                dest.write_bytes(local_content)
+                paths_to_commit.append(rel_path)
+                recovered += 1
+                logger.debug("Content merge: kept local version of %s", rel_path)
+            # else: remote is newer — already in place after reset
+
+        else:
+            # ── Case D: other file types → keep local if different
+            remote_content = remote_files[rel_path]
+            if local_content != remote_content:
+                dest = wt / rel_path
+                dest.write_bytes(local_content)
+                paths_to_commit.append(rel_path)
                 recovered += 1
 
-        rel_path = f"chat/threads/{tid}/messages.jsonl"
-        paths_to_commit.append(rel_path)
+    logger.info("Content merge: recovered %d item(s) across %d files",
+                recovered, len(paths_to_commit))
 
-    logger.info("Content merge: recovered %d local-only messages", recovered)
-
-    # Step 5: Commit + push
+    # ── Phase 5: Commit + push ───────────────────────────────────
     if paths_to_commit:
         ledger_add_and_commit(
             project_root,
             paths=paths_to_commit,
-            message=f"ledger: content merge — recovered {recovered} message(s)",
+            message=f"ledger: content merge — recovered {recovered} item(s)",
         )
 
     # Push
@@ -598,7 +653,7 @@ def _content_merge(project_root: Path) -> dict:
 
     return {
         "ok": True,
-        "message": f"Content merge complete — {recovered} message(s) recovered. Sync restored.",
+        "message": f"Content merge complete — {recovered} item(s) recovered. Sync restored.",
         "recovered": recovered,
     }
 

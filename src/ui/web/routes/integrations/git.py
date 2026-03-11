@@ -199,6 +199,7 @@ def git_checkout_file_route():  # type: ignore[no-untyped-def]
 
 
 @integrations_bp.route("/ledger/resolve-conflict", methods=["POST"])
+@requires_git_auth
 def ledger_resolve_conflict_route():  # type: ignore[no-untyped-def]
     """Resolve a ledger rebase conflict.
 
