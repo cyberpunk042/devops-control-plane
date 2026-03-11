@@ -706,10 +706,15 @@
             // Header
             '<div style="' + s({ padding: '14px 18px 10px', 'border-bottom': '1px solid ' + C.border, display: 'flex', 'align-items': 'center', gap: '8px' }) + '">' +
             '<span style="font-size:16px">🔍</span>' +
-            '<div>' +
+            '<div style="flex:1">' +
             '<div style="font-weight:700;font-size:14px">Assertion Configuration</div>' +
             '<div id="__dcp_header_selector" style="font-size:10px;color:' + C.textMuted + ';font-family:monospace;margin-top:2px"></div>' +
             '</div>' +
+            '<button id="__dcp_peek_toggle" title="Peek: highlight matched element(s)" style="' + s({
+                'font-size': '12px', padding: '4px 10px', border: '1px solid ' + C.border,
+                'border-radius': '6px', cursor: 'pointer', background: C.bgInput, color: C.text,
+                display: 'flex', 'align-items': 'center', gap: '4px', 'flex-shrink': '0',
+            }) + '">👁 Peek</button>' +
             '</div>' +
 
             '<div style="padding:12px 18px;display:flex;flex-direction:column;gap:12px">' +
@@ -763,7 +768,7 @@
                 // Show help note if any element is unavailable
                 var anyGone = selectorChain.some(function (item) { return !item.available; });
                 if (anyGone) {
-                    chainHtml += '<div style="font-size:10px;color:' + C.warn + ';margin-top:4px;padding:4px 8px;background:rgba(245,158,11,0.1);border-radius:4px">' +
+                    chainHtml += '<div id="__dcp_gone_warning" style="font-size:10px;color:' + C.warn + ';margin-top:4px;padding:4px 8px;background:rgba(245,158,11,0.1);border-radius:4px;transition:all 0.2s">' +
                         '⚠ Grayed elements disappeared when focus was lost. ' +
                         'Dynamic elements (textareas, dropdowns) that only exist on focus cannot be asserted — ' +
                         'select a parent or sibling that persists in the DOM.' +
@@ -946,6 +951,82 @@
             _saveAssertion(ctx.selector);
         });
 
+        // ── Peek mode ──
+        var peekBtn = document.getElementById('__dcp_peek_toggle');
+        var _assertModal = overlay.querySelector('div');
+        function _assertPeekOn() {
+            overlay.style.background = 'rgba(0,0,0,0.05)';
+            overlay.style.backdropFilter = 'none';
+            overlay.style.webkitBackdropFilter = 'none';
+            if (_assertModal) _assertModal.style.opacity = '0.25';
+        }
+        function _assertPeekOff() {
+            overlay.style.background = 'rgba(0,0,0,0.55)';
+            overlay.style.backdropFilter = 'blur(6px)';
+            overlay.style.webkitBackdropFilter = 'blur(6px)';
+            if (_assertModal) _assertModal.style.opacity = '1';
+        }
+        function _highlightGoneWarning(on) {
+            var w = document.getElementById('__dcp_gone_warning');
+            if (!w) return;
+            if (on) {
+                w.style.background = 'rgba(245,158,11,0.55)';
+                w.style.boxShadow = '0 0 20px rgba(245,158,11,0.7), inset 0 0 10px rgba(245,158,11,0.3)';
+                w.style.borderLeft = '4px solid #f59e0b';
+                w.style.color = '#fff';
+                w.style.fontSize = '12px';
+                w.style.fontWeight = '600';
+                w.style.padding = '8px 12px';
+                w.style.transform = 'scale(1.03)';
+            } else {
+                w.style.background = 'rgba(245,158,11,0.1)';
+                w.style.boxShadow = 'none';
+                w.style.borderLeft = 'none';
+                w.style.color = '';
+                w.style.fontSize = '10px';
+                w.style.fontWeight = '';
+                w.style.padding = '4px 8px';
+                w.style.transform = 'none';
+            }
+        }
+        if (peekBtn) {
+            // Click: toggle peek mode (transparent backdrop, ghosted modal, NO highlight)
+            peekBtn.addEventListener('click', function (e) {
+                e.stopPropagation();
+                _peekActive = !_peekActive;
+                if (_peekActive) {
+                    this.textContent = '👁 Peek ON';
+                    this.style.borderColor = '#06b6d4';
+                    this.style.color = '#06b6d4';
+                } else {
+                    _peekClear();
+                    this.textContent = '👁 Peek';
+                    this.style.borderColor = C.border;
+                    this.style.color = C.text;
+                    _assertPeekOff();
+                }
+            });
+            // Hover peek button: preview opposite state
+            peekBtn.addEventListener('mouseenter', function () {
+                if (_peekActive) {
+                    // In peek mode → preview normal
+                    _peekClear();
+                    _highlightGoneWarning(false);
+                    _assertPeekOff();
+                } else {
+                    // Not in peek → preview peek (highlight current selector)
+                    var found = _peekHighlight(ctx.selector);
+                    if (found === 0) _highlightGoneWarning(true);
+                    _assertPeekOn();
+                }
+            });
+            peekBtn.addEventListener('mouseleave', function () {
+                _peekClear();
+                _highlightGoneWarning(false);
+                _assertPeekOff();
+            });
+        }
+
         // Target element picker → update selector/rect/text
         if (selectorChain.length > 1) {
             var targetRadios = overlay.querySelectorAll('input[name="__dcp_target"]');
@@ -957,20 +1038,42 @@
                         ctx.selector = picked.selector;
                         ctx.elemText = picked.text;
                         ctx.elemRect = picked.rect;
-                        // Update header
                         var hs = document.getElementById('__dcp_header_selector');
                         if (hs) hs.textContent = picked.selector.slice(0, 80);
-                        // Read current capture type (don't assume 'text')
                         var curCapType = 'text';
                         var cRadios = document.querySelectorAll('input[name="__dcp_cap"]');
                         for (var ci = 0; ci < cRadios.length; ci++) {
                             if (cRadios[ci].checked) { curCapType = cRadios[ci].value; break; }
                         }
-                        // Update live preview with the correct capture type
                         _refreshPreview(ctx.selector, curCapType);
                         _dcpLog('info', 'Target changed', { idx: idx, selector: ctx.selector, captureType: curCapType });
                     }
                 });
+
+                // Hover-to-peek on chain labels — ONLY when peek mode is ON
+                var label = targetRadios[ti].closest('label');
+                if (label) {
+                    (function (radio) {
+                        label.addEventListener('mouseenter', function () {
+                            if (!_peekActive) return;
+                            var idx = parseInt(radio.value, 10);
+                            var item = selectorChain[idx];
+                            if (!item) return;
+                            if (!item.available) {
+                                _highlightGoneWarning(true);
+                            } else {
+                                _peekHighlight(item.selector);
+                                _assertPeekOn();
+                            }
+                        });
+                        label.addEventListener('mouseleave', function () {
+                            if (!_peekActive) return;
+                            _peekClear();
+                            _assertPeekOff();
+                            _highlightGoneWarning(false);
+                        });
+                    })(targetRadios[ti]);
+                }
             }
         }
 
@@ -1232,8 +1335,83 @@
         if (existing) existing.remove();
     }
 
+
+    // ═══════════════════════════════════════════════════════════
+    //  Peek Highlight — show which element(s) a selector matches
+    // ═══════════════════════════════════════════════════════════
+
+    var _peekActive = false;  // toggle state
+
+    /** Highlight all elements matching a CSS selector on the page */
+    function _peekHighlight(selector) {
+        _peekClear();
+        if (!selector) return 0;
+        try {
+            var matches = document.querySelectorAll(selector);
+            if (matches.length === 0) return 0;
+
+            for (var pi = 0; pi < matches.length; pi++) {
+                var el = matches[pi];
+                var rect = el.getBoundingClientRect();
+                if (rect.width === 0 && rect.height === 0) continue;
+
+                var ov = document.createElement('div');
+                ov.className = '__dcp_peek_ov';
+                ov.style.cssText = [
+                    'position:fixed',
+                    'top:' + rect.top + 'px',
+                    'left:' + rect.left + 'px',
+                    'width:' + rect.width + 'px',
+                    'height:' + rect.height + 'px',
+                    'border:2px solid #06b6d4',
+                    'background:rgba(6,182,212,0.12)',
+                    'z-index:2147483644',
+                    'pointer-events:none',
+                    'box-sizing:border-box',
+                    'border-radius:3px',
+                    'transition:opacity 0.15s',
+                ].join(';');
+                // Pulsing animation
+                ov.animate([
+                    { borderColor: '#06b6d4', opacity: 1 },
+                    { borderColor: '#22d3ee', opacity: 0.6 },
+                    { borderColor: '#06b6d4', opacity: 1 },
+                ], { duration: 1500, iterations: Infinity });
+
+                // Index label for groups
+                if (matches.length > 1) {
+                    var idx = document.createElement('div');
+                    idx.style.cssText = [
+                        'position:absolute', 'top:-8px', 'right:-8px',
+                        'font-size:9px', 'font-family:system-ui,sans-serif',
+                        'background:#06b6d4', 'color:#fff',
+                        'width:16px', 'height:16px', 'line-height:16px',
+                        'text-align:center', 'border-radius:50%',
+                        'font-weight:700',
+                    ].join(';');
+                    idx.textContent = String(pi + 1);
+                    ov.appendChild(idx);
+                }
+
+                document.body.appendChild(ov);
+            }
+
+            return matches.length;
+        } catch (e) {
+            return 0;
+        }
+    }
+
+    /** Remove all peek highlight overlays */
+    function _peekClear() {
+        var overlays = document.querySelectorAll('.__dcp_peek_ov');
+        for (var ri = 0; ri < overlays.length; ri++) overlays[ri].remove();
+    }
+
     function _closeAssertModal() {
         _removeScreenshotOverlay();
+        _peekClear();
+        _peekActive = false;
         var overlay = document.getElementById('__dcp_assert_overlay');
         if (overlay) overlay.remove();
         // Resume recording
@@ -1537,10 +1715,16 @@
             }) + '">' +
             '<div style="' + s({ padding: '14px 18px 10px', 'border-bottom': '1px solid ' + C.border, display: 'flex', 'align-items': 'center', gap: '8px' }) + '">' +
             '<span style="font-size:16px">\ud83d\udd17</span>' +
-            '<div>' +
+            '<div style="flex:1">' +
             '<div style="font-weight:700;font-size:14px">I/O Configuration</div>' +
             '<div id="__dcp_io_header_selector" style="font-size:10px;color:' + C.textMuted + ';font-family:monospace;margin-top:2px"></div>' +
-            '</div></div>' +
+            '</div>' +
+            '<button id="__dcp_io_peek_toggle" title="Peek: highlight matched element(s)" style="' + s({
+                'font-size': '12px', padding: '4px 10px', border: '1px solid ' + C.border,
+                'border-radius': '6px', cursor: 'pointer', background: C.bgInput, color: C.text,
+                display: 'flex', 'align-items': 'center', gap: '4px', 'flex-shrink': '0',
+            }) + '">👁 Peek</button>' +
+            '</div>' +
             '<div style="padding:12px 18px;display:flex;flex-direction:column;gap:12px">' +
             chainHtml +
             modeHtml +
@@ -1602,6 +1786,131 @@
                     var dEl = document.getElementById('__dcp_io_default_value');
                     if (dEl && !dEl._userEdited) {
                         dEl.value = _readElementValue(selector);
+                    }
+                }
+            });
+
+            // Hover-to-peek on chain labels — ONLY when peek mode is ON
+            var label = targetRadios[ti].closest('label');
+            if (label) {
+                (function (radio) {
+                    // Save original inline styles before any hover modification
+                    label._origBg = label.style.background;
+                    label._origBorderColor = label.style.borderColor;
+                    label._origBoxShadow = label.style.boxShadow || 'none';
+                    label._origTransform = label.style.transform || 'none';
+                    label.addEventListener('mouseenter', function () {
+                        if (!_peekActive) return;
+                        var idx = parseInt(radio.value, 10);
+                        var item = selectorChain[idx];
+                        if (!item) return;
+                        if (!item.available) {
+                            // Highlight entire label row as gone
+                            var warnSpan = this.querySelector('span[title]');
+                            if (warnSpan) {
+                                warnSpan.style.fontSize = '16px';
+                                warnSpan.style.textShadow = '0 0 12px rgba(245,158,11,0.9)';
+                            }
+                            this.style.background = 'rgba(245,158,11,0.45)';
+                            this.style.borderColor = '#f59e0b';
+                            this.style.boxShadow = '0 0 16px rgba(245,158,11,0.5)';
+                            this.style.transform = 'scale(1.02)';
+                        } else {
+                            _peekHighlight(item.selector);
+                            _ioPeekOn();
+                        }
+                    });
+                    label.addEventListener('mouseleave', function () {
+                        if (!_peekActive) return;
+                        _peekClear();
+                        _ioPeekOff();
+                        // Restore original styles
+                        var warnSpan = this.querySelector('span[title]');
+                        if (warnSpan) {
+                            warnSpan.style.fontSize = '8px';
+                            warnSpan.style.textShadow = 'none';
+                        }
+                        this.style.background = this._origBg;
+                        this.style.borderColor = this._origBorderColor;
+                        this.style.boxShadow = this._origBoxShadow;
+                        this.style.transform = this._origTransform;
+                    });
+                })(targetRadios[ti]);
+            }
+        }
+
+        // ── Peek mode (IO modal) ──
+        var ioPeekBtn = document.getElementById('__dcp_io_peek_toggle');
+        var _ioModal = overlay.querySelector('div');
+        function _ioPeekOn() {
+            overlay.style.background = 'rgba(0,0,0,0.05)';
+            overlay.style.backdropFilter = 'none';
+            overlay.style.webkitBackdropFilter = 'none';
+            if (_ioModal) _ioModal.style.opacity = '0.25';
+        }
+        function _ioPeekOff() {
+            overlay.style.background = 'rgba(0,0,0,0.55)';
+            overlay.style.backdropFilter = 'blur(6px)';
+            overlay.style.webkitBackdropFilter = 'blur(6px)';
+            if (_ioModal) _ioModal.style.opacity = '1';
+        }
+        if (ioPeekBtn) {
+            // Click: toggle peek mode (no immediate highlight)
+            ioPeekBtn.addEventListener('click', function (e) {
+                e.stopPropagation();
+                _peekActive = !_peekActive;
+                if (_peekActive) {
+                    this.textContent = '👁 Peek ON';
+                    this.style.borderColor = '#06b6d4';
+                    this.style.color = '#06b6d4';
+                } else {
+                    _peekClear();
+                    this.textContent = '👁 Peek';
+                    this.style.borderColor = C.border;
+                    this.style.color = C.text;
+                    _ioPeekOff();
+                }
+            });
+            // Hover peek button: preview opposite state
+            ioPeekBtn.addEventListener('mouseenter', function () {
+                if (_peekActive) {
+                    _peekClear();
+                    _ioPeekOff();
+                } else {
+                    var found = _peekHighlight(selector);
+                    if (found === 0) {
+                        // Element is gone — highlight the ⚠ on currently selected label
+                        var selRadio = overlay.querySelector('input[name="__dcp_io_target"]:checked');
+                        if (selRadio) {
+                            var selLabel = selRadio.closest('label');
+                            if (selLabel) {
+                                var ws = selLabel.querySelector('span[title]');
+                                if (ws) {
+                                    ws.style.fontSize = '16px';
+                                    ws.style.textShadow = '0 0 12px rgba(245,158,11,0.9)';
+                                }
+                                selLabel.style.background = 'rgba(245,158,11,0.45)';
+                                selLabel.style.borderColor = '#f59e0b';
+                                selLabel.style.boxShadow = '0 0 16px rgba(245,158,11,0.5)';
+                            }
+                        }
+                    }
+                    _ioPeekOn();
+                }
+            });
+            ioPeekBtn.addEventListener('mouseleave', function () {
+                _peekClear();
+                _ioPeekOff();
+                // Restore any gone-element label highlight
+                var labels = overlay.querySelectorAll('input[name="__dcp_io_target"]');
+                for (var li = 0; li < labels.length; li++) {
+                    var lbl = labels[li].closest('label');
+                    if (lbl) {
+                        var ws = lbl.querySelector('span[title]');
+                        if (ws) { ws.style.fontSize = '8px'; ws.style.textShadow = 'none'; }
+                        lbl.style.background = lbl._origBg || '';
+                        lbl.style.borderColor = lbl._origBorderColor || '';
+                        lbl.style.boxShadow = lbl._origBoxShadow || 'none';
                     }
                 }
             });
@@ -1732,6 +2041,8 @@
     }
 
     function _closeIOModal() {
+        _peekClear();
+        _peekActive = false;
         var overlay = document.getElementById('__dcp_io_overlay');
         if (overlay) overlay.remove();
         window.__dcp_recorder_paused = false;
@@ -2082,6 +2393,14 @@
         if (assertOverlay) assertOverlay.remove();
         var badges = document.querySelectorAll('.__dcp_assert_badge');
         for (var bi = 0; bi < badges.length; bi++) badges[bi].remove();
+
+        // Remove IO modal
+        var ioOverlay = document.getElementById('__dcp_io_overlay');
+        if (ioOverlay) ioOverlay.remove();
+
+        // Remove peek overlays
+        var peekOvs = document.querySelectorAll('.__dcp_peek_ov');
+        for (var pi = 0; pi < peekOvs.length; pi++) peekOvs[pi].remove();
 
         // Clear state
         window.__dcp_recorder_active = false;
