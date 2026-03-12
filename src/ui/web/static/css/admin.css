@@ -4651,6 +4651,29 @@ pre .peek-link:hover {
     flex-shrink: 0;
 }
 
+.modal-box.preview.modal-preview-fullscreen {
+    max-width: 100vw;
+    max-height: 100vh;
+    width: 100vw;
+    height: 100vh;
+    border-radius: 0;
+    margin: 0;
+}
+
+.modal-box.preview.modal-preview-fullscreen .modal-body {
+    flex: 1;
+    overflow: auto;
+    min-height: 0;
+}
+
+.modal-box.preview.modal-preview-fullscreen #monaco-editor-container {
+    max-height: none;
+}
+
+.modal-overlay:has(.modal-preview-fullscreen) {
+    padding: 0;
+}
+
 /* Cap Monaco height inside modal so it doesn't force overflow */
 .modal-box.preview #monaco-editor-container {
     max-height: 55vh;

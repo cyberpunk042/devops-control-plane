@@ -336,6 +336,7 @@ browser.innerHTML = `
                         <button class="btn btn-secondary btn-sm" onclick="contentEncryptFromPreview()" title="Encrypt">🔒 Encrypt</button>
                         <button class="btn btn-secondary btn-sm" id="content-btn-move" onclick="contentMoveFile()" title="Move to…">📂 Move</button>
                         <button class="btn btn-secondary btn-sm" onclick="contentDeleteFromPreview()" title="Delete" style="color:var(--error)">🗑️ Delete</button>
+                        <button class="btn btn-secondary btn-sm" id="content-preview-fullscreen-btn" onclick="_contentPreviewToggleFullscreen()" title="Toggle fullscreen (Escape to exit)" style="display:none;font-size:1rem;padding:0.2rem 0.45rem">⤢</button>
                     </div>
     </div>
     <div id="content-preview-orphan-bar" style="display:none"></div>

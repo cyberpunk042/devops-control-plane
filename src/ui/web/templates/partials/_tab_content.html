@@ -53,6 +53,69 @@
             background: var(--accent-glow) !important;
             color: var(--accent) !important;
         }
+
+        /* ── Fullscreen mode ── */
+        #tab-content.content-fullscreen {
+            position: fixed !important;
+            top: 0; left: 0; right: 0; bottom: 0;
+            z-index: 900;
+            background: var(--bg-primary);
+            overflow: hidden;
+            padding: 0 !important;
+            margin: 0 !important;
+            max-width: none !important;
+            width: 100vw !important;
+            height: 100vh !important;
+            display: flex !important;
+            flex-direction: column;
+        }
+        #tab-content.content-fullscreen > header,
+        #tab-content.content-fullscreen > .content-modes {
+            display: none !important;
+        }
+        #tab-content.content-fullscreen > .grid {
+            flex: 1;
+            min-height: 0;
+            margin: 0;
+            padding: 0;
+            gap: 0;
+        }
+        #tab-content.content-fullscreen > .grid > .card.full-width {
+            flex: 1;
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            margin: 0;
+            padding: 0.5rem 0.75rem;
+            border: none;
+            border-radius: 0;
+            background: var(--bg-primary);
+        }
+        #tab-content.content-fullscreen > .grid > .card.full-width:hover {
+            box-shadow: none;
+            border: none;
+        }
+        #tab-content.content-fullscreen #content-main-flex {
+            flex: 1;
+            min-height: 0;
+            overflow: hidden;
+        }
+        #tab-content.content-fullscreen #content-browser {
+            overflow-y: auto;
+        }
+        #tab-content.content-fullscreen #content-glossary-panel {
+            overflow-y: auto;
+        }
+        #tab-content.content-fullscreen .content-preview-body {
+            overflow-y: auto;
+            max-height: none;
+        }
+        #content-fullscreen-btn.active {
+            background: var(--accent-glow) !important;
+            border-color: var(--accent) !important;
+            color: var(--accent) !important;
+        }
     </style>
     <header class="tab-header">
         <h1>📁 Content Vault</h1>
@@ -91,6 +154,11 @@
                         <button class="btn btn-primary btn-sm" id="content-upload-btn" onclick="contentShowUpload()"
                             title="Upload files" style="display:none">📤 Upload</button>
                         <button class="btn btn-secondary btn-sm" onclick="contentRefresh()" title="Refresh">🔄</button>
+                        <button class="btn btn-secondary btn-sm" id="content-fullscreen-btn"
+                            onclick="contentToggleFullscreen()"
+                            title="Toggle fullscreen (Escape to exit)"
+                            style="font-size:1rem;padding:0.2rem 0.45rem"
+                            >⤢</button>
                     </div>
                 </div>
                 <!-- Folder cards strip -->

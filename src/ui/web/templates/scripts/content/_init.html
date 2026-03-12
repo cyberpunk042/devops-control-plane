@@ -79,3 +79,221 @@ archive: '#a78bfa',
 encrypted: '#f87171',
 other: '#94a3b8',
 };
+
+// ── Fullscreen mode (layered: vault → modal → editor) ────────────
+// Stack tracks active fullscreen layers. Escape exits the innermost.
+let _contentFullscreen = false;
+let _monacoFullscreen = false;
+
+function contentToggleFullscreen(forceOff) {
+    const tab = document.getElementById('tab-content');
+    const btn = document.getElementById('content-fullscreen-btn');
+    if (!tab) return;
+
+    if (forceOff === true) {
+        _contentFullscreen = false;
+    } else {
+        _contentFullscreen = !_contentFullscreen;
+    }
+
+    if (_contentFullscreen) {
+        tab.classList.add('content-fullscreen');
+        if (btn) btn.classList.add('active');
+    } else {
+        tab.classList.remove('content-fullscreen');
+        if (btn) btn.classList.remove('active');
+    }
+
+    setTimeout(() => { window.dispatchEvent(new Event('resize')); }, 50);
+}
+
+/**
+ * Toggle fullscreen on the preview — works in both inline and modal contexts.
+ * In modal context, expands the modal-box to fill the viewport.
+ * In inline context, delegates to contentToggleFullscreen.
+ */
+function _contentPreviewToggleFullscreen() {
+    if (_modalPreviewActive) {
+        // We're inside the preview modal — toggle modal fullscreen
+        _modalPreviewToggleFullscreen();
+    } else {
+        // Inline preview — toggle the whole Content Vault fullscreen
+        contentToggleFullscreen();
+        // Sync the preview-specific button state
+        const pBtn = document.getElementById('content-preview-fullscreen-btn');
+        if (pBtn) {
+            if (_contentFullscreen) pBtn.classList.add('active');
+            else pBtn.classList.remove('active');
+        }
+    }
+}
+
+/**
+ * Toggle fullscreen on the preview modal's .modal-box.
+ */
+let _modalPreviewIsFullscreen = false;
+function _modalPreviewToggleFullscreen(overlay) {
+    if (!overlay) overlay = document.getElementById('active-modal-overlay');
+    if (!overlay) return;
+    const box = overlay.querySelector('.modal-box');
+    if (!box) return;
+
+    _modalPreviewIsFullscreen = !_modalPreviewIsFullscreen;
+    box.classList.toggle('modal-preview-fullscreen', _modalPreviewIsFullscreen);
+
+    // Sync button state
+    const btn = document.getElementById('content-preview-fullscreen-btn');
+    if (btn) {
+        btn.style.background = _modalPreviewIsFullscreen ? 'var(--accent-glow)' : '';
+        btn.style.borderColor = _modalPreviewIsFullscreen ? 'var(--accent)' : '';
+        btn.style.color = _modalPreviewIsFullscreen ? 'var(--accent)' : '';
+    }
+
+    setTimeout(() => { window.dispatchEvent(new Event('resize')); }, 50);
+}
+
+/**
+ * Toggle fullscreen on the Monaco editor container only.
+ * Shows the editor at 100vw × 100vh in a fixed overlay.
+ */
+function _monacoToggleFullscreen() {
+    const container = document.getElementById('monaco-editor-container');
+    if (!container) return;
+
+    _monacoFullscreen = !_monacoFullscreen;
+
+    if (_monacoFullscreen) {
+        // Save original styles
+        container._origStyle = container.style.cssText;
+        container._origParent = container.parentNode;
+
+        // Create fullscreen wrapper
+        const wrapper = document.createElement('div');
+        wrapper.id = 'monaco-fullscreen-wrapper';
+        wrapper.style.cssText = 'position:fixed;inset:0;z-index:9500;background:var(--bg-primary);display:flex;flex-direction:column';
+
+        // Header bar
+        const header = document.createElement('div');
+        header.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:0.3rem 0.75rem;background:var(--bg-secondary);border-bottom:1px solid var(--border)';
+        header.innerHTML = `<span style="font-size:0.82rem;color:var(--text-secondary)">📝 ${esc(previewCurrentName || 'Editor')}</span>
+            <button class="btn btn-secondary btn-sm" onclick="_monacoToggleFullscreen()" title="Exit fullscreen (Escape)" style="font-size:0.85rem;padding:0.15rem 0.5rem">✕ Exit Fullscreen</button>`;
+        wrapper.appendChild(header);
+
+        // Move container into wrapper
+        wrapper.appendChild(container);
+        document.body.appendChild(wrapper);
+
+        container.style.cssText = 'flex:1;min-height:0;border:none;border-radius:0';
+    } else {
+        const wrapper = document.getElementById('monaco-fullscreen-wrapper');
+        const container = document.getElementById('monaco-editor-container');
+        if (wrapper && container && container._origParent) {
+            container._origParent.appendChild(container);
+            container.style.cssText = container._origStyle || '';
+            wrapper.remove();
+        }
+    }
+
+    setTimeout(() => { window.dispatchEvent(new Event('resize')); }, 50);
+}
+
+// ── Floating fullscreen badge on Monaco editor hover ─────────────
+let _monacoFsBadge = null;
+let _monacoFsBadgeTimer = null;
+
+function _monacoShowFsBadge() {
+    const container = document.getElementById('monaco-editor-container');
+    if (!container || _monacoFullscreen) return;
+
+    if (!_monacoFsBadge) {
+        _monacoFsBadge = document.createElement('button');
+        _monacoFsBadge.id = 'monaco-fs-badge';
+        _monacoFsBadge.title = 'Fullscreen editor (Escape to exit)';
+        _monacoFsBadge.textContent = '⤢';
+        _monacoFsBadge.style.cssText = `
+            position:absolute;top:8px;right:16px;z-index:20;
+            font-size:1.1rem;padding:0.2rem 0.45rem;
+            background:rgba(30,30,40,0.85);color:var(--text-secondary);
+            border:1px solid var(--border);border-radius:6px;
+            cursor:pointer;transition:all 0.15s;opacity:0;
+            pointer-events:auto;backdrop-filter:blur(4px)`;
+        _monacoFsBadge.addEventListener('click', (e) => {
+            e.stopPropagation();
+            _monacoToggleFullscreen();
+            _monacoHideFsBadge();
+        });
+        _monacoFsBadge.addEventListener('mouseenter', () => {
+            _monacoFsBadge.style.background = 'var(--accent-glow)';
+            _monacoFsBadge.style.borderColor = 'var(--accent)';
+            _monacoFsBadge.style.color = 'var(--accent)';
+        });
+        _monacoFsBadge.addEventListener('mouseleave', () => {
+            _monacoFsBadge.style.background = 'rgba(30,30,40,0.85)';
+            _monacoFsBadge.style.borderColor = 'var(--border)';
+            _monacoFsBadge.style.color = 'var(--text-secondary)';
+        });
+    }
+
+    // Make sure container has position:relative for absolute badge
+    if (getComputedStyle(container).position === 'static') {
+        container.style.position = 'relative';
+    }
+
+    if (_monacoFsBadge.parentNode !== container) {
+        container.appendChild(_monacoFsBadge);
+    }
+
+    // Fade in
+    requestAnimationFrame(() => { _monacoFsBadge.style.opacity = '1'; });
+
+    // Auto-hide after 2s
+    clearTimeout(_monacoFsBadgeTimer);
+    _monacoFsBadgeTimer = setTimeout(_monacoHideFsBadge, 2000);
+}
+
+function _monacoHideFsBadge() {
+    if (_monacoFsBadge) {
+        _monacoFsBadge.style.opacity = '0';
+    }
+}
+
+// Listen for mouseover on monaco containers to show the badge
+document.addEventListener('mouseover', (e) => {
+    const container = e.target.closest('#monaco-editor-container');
+    if (container && !_monacoFullscreen) {
+        _monacoShowFsBadge();
+    }
+}, true);
+
+// ── Layered Escape key handler ──────────────────────────────────
+// Escape exits the INNERMOST fullscreen only, then stops.
+// Order: Monaco fullscreen → Modal fullscreen → Content Vault fullscreen
+document.addEventListener('keydown', function(e) {
+    if (e.key !== 'Escape') return;
+
+    // Level 3: Monaco editor fullscreen (innermost)
+    if (_monacoFullscreen) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        _monacoToggleFullscreen();
+        return;
+    }
+
+    // Level 2: Modal preview fullscreen
+    if (_modalPreviewIsFullscreen) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        _modalPreviewToggleFullscreen();
+        return;
+    }
+
+    // Level 1: Content Vault fullscreen
+    if (_contentFullscreen) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        contentToggleFullscreen(true);
+        return;
+    }
+
+    // Otherwise: let Escape propagate to modal close handlers
+}, true);  // capture phase — fires before modal Escape handlers

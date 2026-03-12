@@ -71,6 +71,10 @@ contentPreviewEncrypted(filePath, fileName);
 contentPreviewFile(filePath, fileName);
 }
 
+// Show the fullscreen button (hidden by default, only for modal context)
+const fsBtn = document.getElementById('content-preview-fullscreen-btn');
+if (fsBtn) fsBtn.style.display = '';
+
 // Push overlay hash entry so Back button closes the modal
 const baseHash = location.hash.slice(1).split('>>')[0]; // strip existing >>
 const overlayHash = `#${baseHash}>>modal/${filePath}`;
@@ -96,6 +100,7 @@ if (_overlayPushed) {
 function _modalPreviewRestore() {
 if (!_modalPreviewActive) return;
 _modalPreviewActive = false;
+_modalPreviewIsFullscreen = false;
 
 const browser = document.getElementById('content-browser');
 if (!browser || !_modalPreviewParent) return;
