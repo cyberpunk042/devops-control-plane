@@ -273,13 +273,26 @@ def _resolve_cdp_target(
         )
         new_tab = cdp_client.create_tab(suite_target_url, port=cdp_port)
         if new_tab and "id" in new_tab:
-            time.sleep(3.0)  # Let the page load
-            # Re-fetch to get ws_url
+            # Poll until the tab URL updates (page started loading)
+            # instead of blindly sleeping 3s.  Replayer handles
+            # element-level waits so we just need the tab to exist.
+            tab_id = new_tab["id"]
+            deadline = time.time() + 2.0
+            while time.time() < deadline:
+                time.sleep(0.2)
+                targets = cdp_client.get_targets(port=cdp_port)
+                for t in targets:
+                    if t.get("id") == tab_id:
+                        tab_url = t.get("url", "")
+                        if tab_url and tab_url != "about:blank":
+                            return t["id"], t.get("webSocketDebuggerUrl", "")
+                        break
+            # Fallback: return whatever we have
             targets = cdp_client.get_targets(port=cdp_port)
             for t in targets:
-                if t.get("id") == new_tab["id"]:
+                if t.get("id") == tab_id:
                     return t["id"], t.get("webSocketDebuggerUrl", "")
-            return new_tab["id"], ""
+            return tab_id, ""
 
     # No target_url — use the first page-type target
     for t in targets:
