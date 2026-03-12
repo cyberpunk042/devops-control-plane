@@ -25,12 +25,12 @@ THEORIZE: what do the user's LITERAL words say? Not what you
 think. What they LITERALLY say. If your planned action doesn't
 map to their exact words — you are hallucinating. Stop.
 
-🔴 TRACE OR DIE (read-before-write)
+🔴 TRACE OR DIE (READ-ALL-callers-TRACE-state-BEFORE-writing-code)
 You are about to guess how the code works. You always do.
 THEORIZE: have you actually READ the code you're about to
 touch? If you're working from memory — you're guessing. Stop.
 
-🔴 ONE BULLET (one-change-one-test)
+🔴 ONE SCOPE (ONE-SCOPE-find-ALL-sites-before-fixing)
 You are about to stack changes. You always do.
 THEORIZE: is this ONE change? If a previous change broke, are
 you layering a fix on top? Revert instead.

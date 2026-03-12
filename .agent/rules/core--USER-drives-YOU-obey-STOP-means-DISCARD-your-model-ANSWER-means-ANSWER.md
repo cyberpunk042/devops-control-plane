@@ -31,20 +31,21 @@ _________
 
 
 YOU MUST RESPECT THE RULES OF THIS PROJECT
-.agent/rules/main.md
-.agent/rules/meanings.md
-.agent/rules/no-abstraction.md
-.agent/rules/read-before-write.md
-.agent/rules/one-change-one-test.md
-.agent/rules/refactoring-integrity.md
-.agent/rules/assistant.md
-.agent/rules/process-or-die.md
-.agent/rules/dont-reinvent.md
+.agent/rules/main--NO-silent-assumptions-NO-compression-NO-fast-over-right-NO-scope-drift.md
+.agent/rules/meanings--REDO-can-mean-EVOLVE-or-REVOLVE-read-context-ASK-if-unsure.md
+.agent/rules/meanings--dont-assume-scope-of-REDO-ASK-when-ambiguous.md
+.agent/rules/important--no-abstraction--PROCESS-users-EXACT-words-NOT-your-interpretation.md
+.agent/rules/READ-ALL-callers-TRACE-state-BEFORE-writing-code.md
+.agent/rules/ONE-SCOPE-find-ALL-sites-before-fixing.md
+.agent/rules/refactoring-integrity--NEVER-generate-from-memory-always-READ-then-EXECUTE.md
+.agent/rules/scope--assistant--READ-content-principles-ENSURE-state-awareness-BEFORE-any-work.md
+.agent/rules/APPLY-rules-to-THIS-prompt-not-just-acknowledge-them.md
+.agent/rules/dont-reinvent--CHECK-existing-API-parameters-BEFORE-building-new-logic.md
 
 ## Workflow Routing — Read the RIGHT checklist for the task
 
 - Modifying backend Python? → .agent/workflows/before-change/backend.md
 - Modifying frontend JS templates? → .agent/workflows/before-change/frontend.md
-- Refactoring / splitting files? → .agent/rules/refactoring-integrity.md
+- Refactoring / splitting files? → .agent/rules/refactoring-integrity--NEVER-generate-from-memory-always-READ-then-EXECUTE.md
 - Debugging a comparison? → .agent/workflows/debug-by-tracing.md
 - Any code change? → .agent/workflows/before-change/common.md

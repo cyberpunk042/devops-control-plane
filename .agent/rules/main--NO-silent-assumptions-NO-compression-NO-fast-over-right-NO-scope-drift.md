@@ -16,7 +16,8 @@ trigger: always_on
 
 
 YOU MUST RESPECT THE RULES OF THIS PROJECT
-.agent/rules/core.md
-.agent/rules/meanings.md
-.agent/rules/no-abstraction.md
-.agent/rules/assistant.md
+.agent/rules/core--USER-drives-YOU-obey-STOP-means-DISCARD-your-model-ANSWER-means-ANSWER.md
+.agent/rules/meanings--REDO-can-mean-EVOLVE-or-REVOLVE-read-context-ASK-if-unsure.md
+.agent/rules/meanings--dont-assume-scope-of-REDO-ASK-when-ambiguous.md
+.agent/rules/important--no-abstraction--PROCESS-users-EXACT-words-NOT-your-interpretation.md
+.agent/rules/scope--assistant--READ-content-principles-ENSURE-state-awareness-BEFORE-any-work.md

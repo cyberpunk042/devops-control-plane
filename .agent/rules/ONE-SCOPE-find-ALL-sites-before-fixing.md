@@ -2,20 +2,32 @@
 trigger: always_on
 ---
 
-# ONE CHANGE, ONE TEST — Hard Constraint
+# ONE SCOPE, ONE FOCUS — Hard Constraint
 
-> **Never stack fixes. Every change stands alone.**
+> **Never stack unrelated fixes. Every change has one purpose.**
 > This rule exists because 8/14 post-mortems involved cascading
 > fix-on-fix failures where each "fix" made things worse.
 
 ---
 
-## Article 1: One change at a time
+## Article 1: One logical scope at a time
 
-Make ONE change. Tell the user. Wait for confirmation it works.
-Only then consider the next change.
+A "change" is a LOGICAL SCOPE — not a single line edit.
 
-Do NOT make Change A, then Change B, then Change C in one shot.
+If fixing badge dedup requires editing 2 code sites (SSE handler +
+BroadcastChannel handler), that is ONE change — one scope, one purpose.
+Do it all at once. Ship it complete.
+
+Do NOT fix ONE site, declare victory, then discover the other site
+is also broken. That's a PARTIAL fix, which is worse than no fix.
+
+**How to scope correctly:**
+- GREP for all affected sites FIRST (see GREP-FIRST rule)
+- If they all serve the same purpose → ONE change
+- If they serve different purposes → separate changes
+
+Do NOT make Change A (feature X), then Change B (feature Y),
+then Change C (refactor Z) in one shot.
 If Change A is wrong, B and C are built on a broken foundation.
 
 ## Article 2: If it breaks, revert — don't layer
@@ -47,15 +59,21 @@ This means:
 - No "you'll see errors but they'll go away after the next edit"
 - Each edit leaves the system in a working (or at least not worse) state
 
+**BUT:** if two edits are part of the SAME logical fix (same scope,
+same purpose), they go together. Don't split a fix that requires
+both sites to be changed to work.
+
 ---
 
 ## The Self-Test
 
 ```
-Q1: Am I making ONE change or multiple changes?
-    → If multiple → split them. Do one at a time.
+Q1: Am I making one SCOPED change or drifting across purposes?
+    → If drifting → split by purpose. One scope at a time.
 Q2: Am I fixing a fix? (Is this change correcting a previous change?)
     → If yes → STOP. Revert the broken change. Re-read the code.
 Q3: Is this my 3rd+ attempt at the same thing?
     → If yes → STOP. State what I don't understand. Ask.
+Q4: Did I find ALL sites that need this fix? (grep first)
+    → If no → find them ALL before making any edit.
 ```

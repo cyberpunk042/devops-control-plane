@@ -12,9 +12,9 @@ WAIT for the user. THE USER DRIVES.
 
 See: .agent/workflows/STOP-CONTEXT-WAS-TRUNCATED.md
 
-READ CAREFULLY: .agent/rules/core.md
+READ CAREFULLY: .agent/rules/core--USER-drives-YOU-obey-STOP-means-DISCARD-your-model-ANSWER-means-ANSWER.md
 
-AND ALSO READ CAREFULLY: .agent/rules/no-abstraction.md
+AND ALSO READ CAREFULLY: .agent/rules/important--no-abstraction--PROCESS-users-EXACT-words-NOT-your-interpretation.md
 
 **If this keeps happening to you its either because you try to make it swallow a context too big and/or too complex or possibly the provider itself is unfortunatelly experiencing limitation and throthling clients...
 Those are all possible realities.
