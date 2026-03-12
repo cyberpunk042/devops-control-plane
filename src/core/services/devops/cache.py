@@ -203,6 +203,9 @@ _WATCH_PATHS: dict[str, list[str]] = {
     "gh-pulls":     [".git/HEAD", ".git/refs/"],
     "gh-runs":      [".github/workflows/", ".git/HEAD"],
     "gh-workflows": [".github/workflows/"],
+    # ── System-state keys (no file watch — bust manually) ─────
+    "tools":        [],   # busted after tool install/update
+    "builders":     [],   # busted after tool install/update
 }
 
 

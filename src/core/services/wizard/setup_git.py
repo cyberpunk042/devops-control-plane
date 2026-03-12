@@ -58,7 +58,7 @@ def setup_git(root: Path, data: dict) -> dict:
             from src.core.services.detection import detect_modules
 
             project = load_project(root / "project.yml")
-            stacks = discover_stacks(root / "stacks")
+            stacks = discover_stacks()
             detection = detect_modules(project, root, stacks)
             stack_names = sorted(
                 {m.effective_stack for m in detection.modules if m.effective_stack}

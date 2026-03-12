@@ -167,10 +167,42 @@ def create_app(
         "wiz:detect",
     })
 
+    # ── Pre-compute stacks catalog (static — never changes at runtime) ──
+    from src.core.config.stack_loader import discover_stacks
+
+    try:
+        _stacks_raw = discover_stacks()
+        _stacks_js = [
+            {
+                "name": s.name,
+                "description": s.description,
+                "detail": s.detail,
+                "icon": s.icon,
+                "domain": s.domain,
+                "parent": s.parent,
+                "capabilities": [c.name for c in s.capabilities],
+                "capabilityDetails": [
+                    {"name": c.name, "command": c.command, "description": c.description, "adapter": c.adapter}
+                    for c in s.capabilities
+                ],
+                "requires": [
+                    {"adapter": r.adapter, "minVersion": r.min_version}
+                    for r in s.requires
+                ],
+                "detection": {
+                    "filesAnyOf": s.detection.files_any_of,
+                    "filesAllOf": s.detection.files_all_of,
+                    "contentContains": s.detection.content_contains,
+                },
+            }
+            for s in sorted(_stacks_raw.values(), key=lambda s: s.name)
+        ]
+    except Exception:
+        _stacks_js = []
+
     @app.context_processor
     def _inject_data_catalogs():  # type: ignore[no-untyped-def]
         from src.core.services.devops.cache import _load_cache
-        from src.core.config.stack_loader import discover_stacks
 
         # Build initial state from disk cache (available even on cold start)
         initial: dict[str, dict] = {}
@@ -183,37 +215,9 @@ def create_app(
         except Exception:
             pass  # Degrade gracefully — cards will fall back to API
 
-        # Merge static catalogs with project-level stacks
+        # Merge static catalogs with pre-computed stacks
         dcp = _registry.to_js_dict()
-        try:
-            stacks = discover_stacks(Path(project_root) / "stacks")
-            dcp["stacks"] = [
-                {
-                    "name": s.name,
-                    "description": s.description,
-                    "detail": s.detail,
-                    "icon": s.icon,
-                    "domain": s.domain,
-                    "parent": s.parent,
-                    "capabilities": [c.name for c in s.capabilities],
-                    "capabilityDetails": [
-                        {"name": c.name, "command": c.command, "description": c.description, "adapter": c.adapter}
-                        for c in s.capabilities
-                    ],
-                    "requires": [
-                        {"adapter": r.adapter, "minVersion": r.min_version}
-                        for r in s.requires
-                    ],
-                    "detection": {
-                        "filesAnyOf": s.detection.files_any_of,
-                        "filesAllOf": s.detection.files_all_of,
-                        "contentContains": s.detection.content_contains,
-                    },
-                }
-                for s in sorted(stacks.values(), key=lambda s: s.name)
-            ]
-        except Exception:
-            dcp["stacks"] = []
+        dcp["stacks"] = _stacks_js
 
         return {
             "dcp_data": dcp,

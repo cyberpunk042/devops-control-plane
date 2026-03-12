@@ -212,7 +212,7 @@ def docs_coverage(project_root: Path) -> dict:
         from src.core.services.detection import detect_modules
 
         project = load_project(project_root / "project.yml")
-        stacks = discover_stacks(project_root / "stacks")
+        stacks = discover_stacks()
         detection = detect_modules(project, project_root, stacks)
 
         for module in detection.modules:

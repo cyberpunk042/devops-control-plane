@@ -150,7 +150,7 @@ def generate_readme(project_root: Path) -> dict:
 
         project = load_project(project_root / "project.yml")
         name = project.name
-        all_stacks = discover_stacks(project_root / "stacks")
+        all_stacks = discover_stacks()
         detection = detect_modules(project, project_root, all_stacks)
         stacks = list({m.effective_stack for m in detection.modules if m.effective_stack})
         modules = [

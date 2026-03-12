@@ -86,7 +86,7 @@ def generate_compose(
         if not project_name:
             project_name = project.name
         if modules is None:
-            stacks = discover_stacks(project_root / "stacks")
+            stacks = discover_stacks()
             detection = detect_modules(project, project_root, stacks)
             modules = [m.model_dump() for m in detection.modules]
 

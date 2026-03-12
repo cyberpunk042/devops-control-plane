@@ -14,8 +14,7 @@ def api_stacks():  # type: ignore[no-untyped-def]
     """Available stack definitions."""
     from src.core.config.stack_loader import discover_stacks
 
-    stacks_dir = _project_root() / "stacks"
-    stacks = discover_stacks(stacks_dir)
+    stacks = discover_stacks()
 
     return jsonify({
         name: {

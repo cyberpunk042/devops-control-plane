@@ -327,7 +327,7 @@ def wizard_detect(root: Path) -> dict:
         from src.core.services.detection import detect_modules
 
         project = load_project(root / "project.yml")
-        stacks = discover_stacks(root / "stacks")
+        stacks = discover_stacks()
         detection = detect_modules(project, root, stacks)
         detected_stacks = sorted(
             {m.effective_stack for m in detection.modules if m.effective_stack}
@@ -449,11 +449,10 @@ def _wizard_stack_defaults(
     fails, returns a generic Python-based default set.
     """
     # ── Resolve stacks ──────────────────────────────────────────
-    stacks_dir = root / "stacks"
     resolved: dict = {}
     try:
         from src.core.config.stack_loader import discover_stacks
-        resolved = discover_stacks(stacks_dir)
+        resolved = discover_stacks()
     except Exception:
         pass
 

@@ -143,8 +143,7 @@ def get_capabilities(
 
     project = load_project(config_path)
     root = project_root or config_path.parent.resolve()
-    stacks_dir = root / "stacks"
-    stacks = discover_stacks(stacks_dir)
+    stacks = discover_stacks()
 
     capabilities: dict[str, dict] = {}
 

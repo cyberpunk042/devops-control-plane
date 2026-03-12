@@ -184,7 +184,15 @@ def set_meta():  # type: ignore[no-untyped-def]
 @pages_api_bp.route("/pages/builders")
 def list_builders_route():  # type: ignore[no-untyped-def]
     """List available page builders with pipeline stage info."""
-    return jsonify({"builders": list_builders_detail()})
+    from src.core.services.devops.cache import get_cached
+
+    root = _project_root()
+    force = request.args.get("bust", "") == "1"
+
+    def _compute() -> dict:
+        return {"builders": list_builders_detail()}
+
+    return jsonify(get_cached(root, "builders", _compute, force=force))
 
 
 @pages_api_bp.route("/pages/resolve-file")

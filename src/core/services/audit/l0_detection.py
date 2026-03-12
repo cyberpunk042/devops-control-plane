@@ -259,7 +259,7 @@ def _detect_modules(project_root: Path) -> list[dict]:
         from src.core.services.detection import detect_modules
 
         project = load_project(project_root / "project.yml")
-        stacks = discover_stacks(project_root / "stacks")
+        stacks = discover_stacks()
         detection = detect_modules(project, project_root, stacks)
 
         modules = []

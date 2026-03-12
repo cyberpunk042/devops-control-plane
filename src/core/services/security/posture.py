@@ -132,7 +132,7 @@ def security_posture(project_root: Path) -> dict:
             from src.core.services.detection import detect_modules
 
             project = load_project(project_root / "project.yml")
-            stacks = discover_stacks(project_root / "stacks")
+            stacks = discover_stacks()
             detection = detect_modules(project, project_root, stacks)
             stack_names = list({m.effective_stack for m in detection.modules if m.effective_stack})
         except Exception:

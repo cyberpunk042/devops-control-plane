@@ -86,8 +86,6 @@ def run_detect(
     assert project_root is not None
 
     # Discover stacks
-    if stacks_dir is None:
-        stacks_dir = project_root / "stacks"
     stacks = discover_stacks(stacks_dir)
     result.stacks_loaded = len(stacks)
 

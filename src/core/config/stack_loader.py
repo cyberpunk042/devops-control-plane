@@ -1,8 +1,11 @@
 """
 Stack loader — loads stack definitions from YAML files.
 
-Stacks live in stacks/<name>/stack.yml. This module discovers and
-loads them all into a registry keyed by name.
+Stacks live in ``src/core/data/stacks/<name>/stack.yml``.  This module
+discovers and loads them all into a registry keyed by name.
+
+The result is cached after the first call — stacks are static data
+that never changes at runtime.
 """
 
 from __future__ import annotations
@@ -15,6 +18,12 @@ import yaml
 from src.core.models.stack import Stack
 
 logger = logging.getLogger(__name__)
+
+# ── Default location (sibling to src/core/config → src/core/data/stacks) ──
+STACKS_DIR = Path(__file__).resolve().parent.parent / "data" / "stacks"
+
+# ── Module-level cache (stacks are static, parse once) ──
+_cache: dict[str, Stack] | None = None
 
 
 def load_stack(path: Path) -> Stack | None:
@@ -40,8 +49,12 @@ def load_stack(path: Path) -> Stack | None:
         return None
 
 
-def discover_stacks(stacks_dir: Path) -> dict[str, Stack]:
+def discover_stacks(stacks_dir: Path | None = None) -> dict[str, Stack]:
     """Discover, load, and resolve all stack definitions.
+
+    Args:
+        stacks_dir: Override path.  Defaults to the built-in
+                    ``src/core/data/stacks/`` directory.
 
     Expects structure::
 
@@ -58,10 +71,24 @@ def discover_stacks(stacks_dir: Path) -> dict[str, Stack]:
         3. Order by specificity (flavored stacks before base stacks)
 
     Returns pre-resolved, flat stacks.  Consumers never see parent refs.
+
+    Results are cached after the first successful call (stacks are
+    static data that never changes at runtime).
     """
-    raw = _load_all(stacks_dir)
+    global _cache
+
+    if _cache is not None and stacks_dir is None:
+        return _cache
+
+    directory = stacks_dir or STACKS_DIR
+    raw = _load_all(directory)
     resolved = _resolve_parents(raw)
     logger.info("Discovered %d stacks: %s", len(resolved), list(resolved.keys()))
+
+    # Cache only when using the default directory
+    if stacks_dir is None:
+        _cache = resolved
+
     return resolved
 
 

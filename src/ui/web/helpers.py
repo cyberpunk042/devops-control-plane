@@ -60,7 +60,7 @@ def get_stack_names() -> list[str]:
 
         root = project_root()
         project = load_project(root / "project.yml")
-        stacks = discover_stacks(root / "stacks")
+        stacks = discover_stacks()
         detection = detect_modules(project, root, stacks)
 
         seen: set[str] = set()
@@ -91,6 +91,8 @@ def bust_tool_caches() -> None:
         devops_cache.invalidate_scope(root, "integrations")
         devops_cache.invalidate_scope(root, "devops")
         devops_cache.invalidate(root, "wiz:detect")
+        devops_cache.invalidate(root, "tools")
+        devops_cache.invalidate(root, "builders")
     except Exception as exc:
         logger.warning("Failed to bust tool caches: %s", exc)
 

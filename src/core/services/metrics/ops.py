@@ -300,7 +300,7 @@ def _probe_quality(project_root: Path) -> dict:
                 from src.core.services.detection import detect_modules
 
                 project = load_project(project_root / "project.yml")
-                stacks = discover_stacks(project_root / "stacks")
+                stacks = discover_stacks()
                 detection = detect_modules(project, project_root, stacks)
                 stack_names = list({m.effective_stack for m in detection.modules if m.effective_stack})
             except Exception:
@@ -473,7 +473,7 @@ def project_summary(project_root: Path) -> dict:
 
         project = load_project(project_root / "project.yml")
         name = project.name
-        all_stacks = discover_stacks(project_root / "stacks")
+        all_stacks = discover_stacks()
         detection = detect_modules(project, project_root, all_stacks)
         module_count = len(detection.modules)
         stacks = list({m.effective_stack for m in detection.modules if m.effective_stack})
