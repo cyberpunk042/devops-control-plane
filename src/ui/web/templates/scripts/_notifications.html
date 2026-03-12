@@ -473,41 +473,16 @@ document.addEventListener('sse:notification:new', function(e) {
     }
 
     // WSL channel setup — auto-open a consent modal on reception
-    if (notif.type === 'wsl_channel_setup') {
+    if (notif.type === 'wsl_channel_setup' && !notif.silenced) {
         setTimeout(function() {
-            if (typeof modalOpen !== 'function') return;
-            modalOpen({
-                title: '⚡ CDP Channel Setup',
-                replace: false,  // Stack on top — don't destroy user's modal
-                body:
-                    '<div style="padding:0.5rem 0;font-size:0.85rem;line-height:1.6;color:var(--text,#e0e0e0)">' +
-                        '<p style="margin:0 0 1rem">' +
-                            'No fast channel to Chrome detected. The system is using ' +
-                            'the <strong>curl.exe fallback</strong> (~260ms/call).' +
-                        '</p>' +
-                        '<p style="margin:0 0 1rem">' +
-                            'Port forwarding is the recommended setup for WSL2. ' +
-                            'It creates persistent rules so Chrome is reachable ' +
-                            'at ~5ms — <strong>50× faster</strong>.' +
-                        '</p>' +
-                        '<p style="margin:0;color:var(--text-muted,#999);font-size:0.78rem">' +
-                            'This requires a one-time admin prompt (UAC) to create ' +
-                            'netsh portproxy rules. The rules persist across reboots.' +
-                        '</p>' +
-                    '</div>',
-                size: 'normal',
-                footerButtons: [
-                    { label: 'Later', cls: 'btn-secondary', onclick: 'modalClose()' },
-                    { label: 'More Options', cls: 'btn-secondary', onclick: '_wslChannelSetupMore()' },
-                    { label: 'Set Up Port Forwarding', cls: 'btn-primary', onclick: '_wslChannelSetupAccept()' },
-                ],
-            });
+            _wslChannelSetupModal(notif.id);
         }, 600);
     }
 
     // WSL interop — only toast for success confirmations, NOT discovery alerts.
     // Discovery alerts (firewall_rule, channel_upgrade, etc.) stay in the
     // notification panel badge. The consent modal is the entry point, not toasts.
+
     if (notif.type === 'wsl_channel_active') {
         toast(notif.title + ' — ' + (notif.message || '').substring(0, 120), 'success', 6000);
     }
@@ -515,6 +490,81 @@ document.addEventListener('sse:notification:new', function(e) {
     // Cross-tab sync: broadcast to other tabs
     _notifBroadcast({ type: 'notif:new', notif: notif });
 });
+
+/**
+ * Silence a WSL channel setup notification (do not ask again).
+ * The notification stays in the list but won't auto-open the modal.
+ */
+function _wslChannelSetupSilence(notifId) {
+    if (!notifId) { modalClose(); return; }
+    api('/notifications/silence', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: notifId }),
+    }).then(function() {
+        toast('CDP Channel setup prompt silenced. You can still set it up from the notification panel.', 'info', 5000);
+        modalClose();
+    }).catch(function() {
+        modalClose();
+    });
+}
+
+// ── Notification updated (dedup refresh) ──
+// Fires when an existing notification is refreshed by dedup.
+// Updates the notification list but only auto-prompts if NOT silenced.
+document.addEventListener('sse:notification:updated', function(e) {
+    var notif = e.detail && e.detail.data;
+    if (!notif) return;
+
+    // Refresh the notification list if panel is open
+    if (_notifPanelOpen && _notifActiveTab === 'notifications') {
+        _loadNotifications();
+    }
+
+    // WSL channel setup — re-prompt only if not silenced
+    if (notif.type === 'wsl_channel_setup' && !notif.silenced) {
+        setTimeout(function() {
+            _wslChannelSetupModal(notif.id);
+        }, 600);
+    }
+});
+
+/**
+ * Open the WSL channel setup consent modal.
+ * Extracted so both notification:new and notification:updated can call it.
+ */
+function _wslChannelSetupModal(notifId) {
+    if (typeof modalOpen !== 'function') return;
+    modalOpen({
+        title: '⚡ CDP Channel Setup',
+        replace: false,
+        body:
+            '<div style="padding:0.5rem 0;font-size:0.85rem;line-height:1.6;color:var(--text,#e0e0e0)">' +
+                '<p style="margin:0 0 1rem">' +
+                    'No fast channel to Chrome detected. The system is using ' +
+                    'the <strong>curl.exe fallback</strong> (~260ms/call).' +
+                '</p>' +
+                '<p style="margin:0 0 1rem">' +
+                    'Port forwarding is the recommended setup for WSL2. ' +
+                    'It creates persistent rules so Chrome is reachable ' +
+                    'at ~5ms — <strong>50× faster</strong>.' +
+                '</p>' +
+                '<p style="margin:0;color:var(--text-muted,#999);font-size:0.78rem">' +
+                    'This requires a one-time admin prompt (UAC) to create ' +
+                    'netsh portproxy rules. The rules persist across reboots.' +
+                '</p>' +
+            '</div>',
+        size: 'normal',
+        footerButtons: [
+            { label: 'Don\u2019t ask again', cls: 'btn-ghost', style: 'font-size:0.72rem;margin-right:auto', onclick: '_wslChannelSetupSilence(\'' + (notifId || '') + '\')' },
+            { label: 'Later', cls: 'btn-secondary', onclick: 'modalClose()' },
+            { label: 'More Options', cls: 'btn-secondary', onclick: '_wslChannelSetupMore()' },
+            { label: 'Set Up Port Forwarding', cls: 'btn-primary', onclick: '_wslChannelSetupAccept()' },
+        ],
+    });
+}
+
+
 
 document.addEventListener('sse:notification:dismissed', function(e) {
     var key = e.detail && e.detail.key;

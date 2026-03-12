@@ -93,6 +93,35 @@ def dismiss():
     return jsonify({"success": True})
 
 
+@notifications_bp.route("/notifications/silence", methods=["POST"])
+def silence():
+    """Silence a notification (do not auto-prompt again).
+
+    The notification stays active in the list but the frontend
+    will not auto-open a modal for it on refresh.
+
+    Request body::
+
+        { "id": "notif-abcd1234" }
+
+    Returns::
+
+        { "success": true }
+    """
+    from src.core.services.notifications import silence_notification
+
+    data = request.get_json(silent=True) or {}
+    notif_id = data.get("id", "")
+    if not notif_id:
+        return jsonify({"success": False, "error": "Missing 'id'"}), 400
+
+    found = silence_notification(_root(), notif_id)
+    if not found:
+        return jsonify({"success": False, "error": "Not found"}), 404
+
+    return jsonify({"success": True})
+
+
 @notifications_bp.route("/notifications/<notif_id>", methods=["DELETE"])
 def delete(notif_id: str):
     """Delete a notification permanently.

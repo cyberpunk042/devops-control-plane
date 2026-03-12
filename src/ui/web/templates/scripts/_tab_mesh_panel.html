@@ -1012,7 +1012,7 @@
             : status.channel_level === 2 ? '~5ms per CDP call'
             : '<1ms per CDP call';
 
-        html += '<div style="display:flex;align-items:center;gap:10px;padding:10px 12px;' +
+        html += '<div id="wsl-level-banner" style="display:flex;align-items:center;gap:10px;padding:10px 12px;' +
             'border-radius:var(--radius-sm);background:' + lvl.bg + ';margin-bottom:12px">' +
             '<span style="padding:3px 8px;border-radius:var(--radius-sm);font-size:0.64rem;' +
             'font-weight:700;text-transform:uppercase;background:' + lvl.bg + ';color:' + lvl.color + '">' +
@@ -1055,7 +1055,7 @@
         // ── Section 3: Active Tunnel Controls ──
         html += '<div id="wsl-tunnel-controls">';
         if (status.tunnel_active) {
-            html += _wslRenderTunnelActive(status.tunnel_stats);
+            html += _wslRenderTunnelActive(status.tunnel_stats, status.tunnel_method);
         }
         html += '</div>';
 
@@ -1172,10 +1172,8 @@
         if (!inModal) html += '<button class="btn btn-sm btn-ghost" onclick="_renderMeshPanel()">← Back</button>';
         html += '<button class="btn btn-sm btn-ghost" onclick="_wslRescan()">🔄 Re-scan</button>';
 
-        if (!status.tunnel_active) {
-            html += '<button class="btn btn-sm btn-primary" id="wsl-start-btn" ' +
-                'onclick="_wslStartTunnel()">▶ Set Up</button>';
-        }
+        html += '<button class="btn btn-sm btn-primary" id="wsl-start-btn" ' +
+            'onclick="_wslStartTunnel()">▶ Set Up</button>';
         html += '<button class="btn btn-sm btn-ghost" onclick="_wslValidateChannel()">' +
             '🧪 Validate</button>';
         html += '</div>';
@@ -1413,7 +1411,7 @@
     /**
      * Render the tunnel-active control box HTML.
      */
-    function _wslRenderTunnelActive(tunnelStats) {
+    function _wslRenderTunnelActive(tunnelStats, tunnelMethod) {
         var h = '<div style="padding:10px 12px;border-radius:var(--radius-sm);' +
             'background:rgba(52,211,153,0.06);border:1px solid rgba(52,211,153,0.15);margin-bottom:14px">' +
             '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">' +
@@ -1423,7 +1421,7 @@
             'onclick="_wslStopTunnel()">Stop</button></div>';
         if (tunnelStats) {
             h += '<div style="font-size:0.6rem;color:var(--text-muted);font-family:var(--font-mono)">';
-            h += 'Method: ' + (tunnelStats.method || '?') + ' · Port: ' + (tunnelStats.local_port || '?');
+            h += 'Method: ' + (tunnelMethod || tunnelStats.method || '?') + ' · Port: ' + (tunnelStats.local_port || '?');
             if (tunnelStats.started_at) h += ' · Since: ' + tunnelStats.started_at.substring(11, 19);
             h += '</div>';
         }
@@ -1452,16 +1450,46 @@
             var tunnelCtrl = document.getElementById('wsl-tunnel-controls');
             if (tunnelCtrl) {
                 tunnelCtrl.innerHTML = data.tunnel_active
-                    ? _wslRenderTunnelActive(data.tunnel_stats)
+                    ? _wslRenderTunnelActive(data.tunnel_stats, data.tunnel_method)
                     : '';
             }
 
-            // Update action bar: show/hide start button
+            // Update level banner
+            var levelBanner = document.getElementById('wsl-level-banner');
+            if (levelBanner) {
+                var levelColors = {
+                    0: { bg: 'rgba(248,113,113,0.12)', color: '#f87171', label: 'No CDP' },
+                    1: { bg: 'rgba(251,191,36,0.12)', color: '#fbbf24', label: 'curl.exe Bridge' },
+                    2: { bg: 'rgba(52,211,153,0.12)', color: '#34d399', label: 'Direct Channel' },
+                    3: { bg: 'rgba(96,165,250,0.12)', color: '#60a5fa', label: 'Native localhost' },
+                };
+                var cl = data.channel_level != null ? data.channel_level : 0;
+                var lvl = levelColors[cl] || levelColors[0];
+                var speedLabel = cl === 0 ? 'N/A'
+                    : cl === 1 ? '~2000ms per CDP call'
+                    : cl === 2 ? '~5ms per CDP call'
+                    : '<1ms per CDP call';
+                levelBanner.style.background = lvl.bg;
+                levelBanner.innerHTML =
+                    '<span style="padding:3px 8px;border-radius:var(--radius-sm);font-size:0.64rem;' +
+                    'font-weight:700;text-transform:uppercase;background:' + lvl.bg + ';color:' + lvl.color + '">' +
+                    'Level ' + cl + '</span>' +
+                    '<span style="font-size:0.72rem;font-weight:600;color:var(--text-primary)">' +
+                    lvl.label + '</span>' +
+                    '<span style="font-size:0.62rem;color:var(--text-muted);margin-left:auto">' +
+                    speedLabel + '</span>';
+            }
+
+            // Ensure start button is always visible and reset
             var startBtn = document.getElementById('wsl-start-btn');
-            if (data.tunnel_active && startBtn) {
-                startBtn.style.display = 'none';
-            } else if (!data.tunnel_active && !startBtn) {
-                // Re-add start button if missing
+            if (startBtn) {
+                startBtn.style.display = '';
+                startBtn.textContent = '▶ Set Up';
+                startBtn.disabled = false;
+                startBtn.style.background = '';
+                startBtn.style.color = '';
+            } else {
+                // Button was removed from DOM — re-create it
                 var actionBar = document.getElementById('wsl-action-bar');
                 if (actionBar) {
                     var btn = document.createElement('button');
@@ -1469,7 +1497,6 @@
                     btn.id = 'wsl-start-btn';
                     btn.onclick = _wslStartTunnel;
                     btn.textContent = '▶ Set Up';
-                    // Insert before validate button
                     var validate = actionBar.querySelector('[onclick*="Validate"]');
                     if (validate) actionBar.insertBefore(btn, validate);
                     else actionBar.appendChild(btn);

@@ -1747,14 +1747,27 @@ def wsl_channel_status():
     # Firewall status
     fw = check_wsl_firewall_status()
 
-    # Tunnel state
+    # Auto-restart any dead ephemeral tunnel from previous session
+    # (otherwise the panel only sees it after warm() runs)
+    from src.core.services.wsl_transport.router import get_router
+    from src.ui.web.cdp_client import _warm_channel_lifecycle
+    from pathlib import Path
+    router = get_router()
+    project_root = Path(__file__).resolve().parents[5]
+    _warm_channel_lifecycle(router, 9222, project_root)
+
+    # Tunnel state (after potential auto-restart)
     tunnel = get_active_tunnel()
     tunnel_active = tunnel is not None and tunnel.is_running if tunnel else False
     tunnel_method = None
     tunnel_stats = None
     if tunnel_active:
         tunnel_stats = tunnel.stats
-        tunnel_method = tunnel_stats.get("method")
+        # Derive method from class type (stats doesn't include it)
+        for method_id, info in TUNNEL_METHODS.items():
+            if isinstance(tunnel, info["class"]):
+                tunnel_method = method_id
+                break
 
     # socat availability
     socat_available = shutil.which("socat") is not None
@@ -1900,8 +1913,10 @@ def wsl_tunnel_state():
     Called after start/stop to update just the tunnel-related UI
     without re-scanning hostname, firewall, socat availability, etc.
     """
-    from src.core.services.chrome.wsl_tunnel import get_active_tunnel
-    from src.core.services.wsl_transport.router import WslTransportRouter
+    from src.core.services.wsl_transport.tunnel_backends import (
+        get_active_tunnel, TUNNEL_METHODS,
+    )
+    from src.core.services.wsl_transport.router import get_router
 
     tunnel = get_active_tunnel()
     tunnel_active = tunnel is not None and tunnel.is_running if tunnel else False
@@ -1909,10 +1924,14 @@ def wsl_tunnel_state():
     tunnel_stats = None
     if tunnel_active:
         tunnel_stats = tunnel.stats
-        tunnel_method = tunnel_stats.get("method")
+        # Derive method from class type (stats doesn't include it)
+        for method_id, info in TUNNEL_METHODS.items():
+            if isinstance(tunnel, info["class"]):
+                tunnel_method = method_id
+                break
 
     # Quick channel level: check if we have a fast channel
-    router = WslTransportRouter()
+    router = get_router()
     has_fast = router.has_fast_channel(9222)
     channel_level = 2 if has_fast else (1 if tunnel_active else 0)
 

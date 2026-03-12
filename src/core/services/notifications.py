@@ -173,12 +173,15 @@ def create_notification(
                 existing["message"] = message
                 existing["meta"] = meta or {}
                 existing["created_at"] = time.time()
+                # Preserve silenced flag — user chose "do not ask again"
+                # (silenced stays as-is; new notifications start unsilenced)
                 _save_raw(project_root, notifications)
                 logger.info(
-                    "Notification updated (dedup): id=%s type=%s",
+                    "Notification updated (dedup): id=%s type=%s silenced=%s",
                     existing.get("id"), notif_type,
+                    existing.get("silenced", False),
                 )
-                _publish("notification:new", key=existing["id"], data=existing)
+                _publish("notification:updated", key=existing["id"], data=existing)
                 return existing
 
     notif: dict[str, Any] = {
@@ -222,6 +225,32 @@ def dismiss_notification(project_root: Path, notif_id: str) -> bool:
         _save_raw(project_root, notifications)
         logger.info("Notification dismissed: id=%s", notif_id)
         _publish("notification:dismissed", key=notif_id)
+
+    return found
+
+
+def silence_notification(project_root: Path, notif_id: str) -> bool:
+    """Mark a notification as silenced (do not auto-prompt).
+
+    The notification stays active and visible in the notification
+    list, but the frontend will not auto-open a modal when it's
+    refreshed via dedup.  The user can still click it manually.
+
+    Returns ``True`` if the notification was found and silenced.
+    """
+    notifications = _load_raw(project_root)
+    found = False
+
+    for notif in notifications:
+        if notif.get("id") == notif_id:
+            notif["silenced"] = True
+            found = True
+            break
+
+    if found:
+        _save_raw(project_root, notifications)
+        logger.info("Notification silenced: id=%s", notif_id)
+        _publish("notification:silenced", key=notif_id)
 
     return found
 
