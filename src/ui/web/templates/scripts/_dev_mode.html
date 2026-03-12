@@ -16,9 +16,12 @@
      */
     async function _bootDevMode() {
         try {
-            const resp = await fetch('/api/dev/status');
-            if (!resp.ok) return;
-            const status = await resp.json();
+            let status = storeGet('dev-status');
+            if (!status) {
+                const resp = await fetch('/api/dev/status');
+                if (!resp.ok) return;
+                status = await resp.json();
+            }
             window._devModeStatus = status;
 
             // Check localStorage preference — owner can explicitly disable

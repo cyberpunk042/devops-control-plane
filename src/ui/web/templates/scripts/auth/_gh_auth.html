@@ -24,7 +24,7 @@ let _ensureGhResolve = null; // set when ensureGhReady() is waiting
 
 async function checkGhStatus() {
   try {
-    const data = await api('/integrations/gh/status');
+    const data = storeGet('gh-status') || await api('/integrations/gh/status');
     _ghAuthStatus = {
       installed: data.available !== false,
       authenticated: data.authenticated === true,

@@ -14,7 +14,7 @@
 
     async function _hydratePendingAudits() {
         try {
-            const res = await api('/audits/pending');
+            const res = storeGet('audits-pending') || await api('/audits/pending');
             const pending = res.pending || [];
             window._pendingAudits = {};
             for (const item of pending) {
@@ -41,8 +41,8 @@
         }
     }
 
-    // Hydrate once when the page loads
-    _hydratePendingAudits();
+    // Hydrate once when the page loads (after batch settles)
+    (async () => { try { await window.__batchReady; } catch (_) {} _hydratePendingAudits(); })();
 
     // ── Open the Audit Manager modal ──────────────────────────────
 

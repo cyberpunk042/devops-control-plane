@@ -101,7 +101,7 @@
     async function _fetchIntPrefs() {
         if (_intPrefs) return _intPrefs;
         try {
-            _intPrefs = await api('/devops/integration-prefs');
+            _intPrefs = storeGet('integration-prefs') || await api('/devops/integration-prefs');
         } catch {
             _intPrefs = Object.fromEntries(Object.keys(_INT_CARDS).map(k => [k, 'auto']));
         }

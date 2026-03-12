@@ -2,6 +2,11 @@
     // ── Boot ────────────────────────────────────────────────────────────
 
     document.addEventListener('DOMContentLoaded', async () => {
+        // Wait for batch prefetch to populate the store before
+        // running any card loaders.  If batch fails/times out,
+        // cards fall back to individual fetches as before.
+        try { await window.__batchReady; } catch (_) {}
+
         // Dev mode identity check (non-blocking — don't delay critical paint)
         _bootDevMode();
 

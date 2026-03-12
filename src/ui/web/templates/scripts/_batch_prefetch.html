@@ -1,0 +1,81 @@
+<script>
+    // ── Batch Prefetch — one request replaces 12 individual GETs ─────
+    //
+    // Fires ONCE on page load (cold start / F5).  Populates the
+    // in-memory store AND sessionStorage card cache so that when
+    // loadProjectPulse(), loadToolsStatus(), loadCapabilities() etc.
+    // run later, they find their data already present and skip
+    // the individual fetch.
+    //
+    // Exports window.__batchReady — a Promise that resolves once the
+    // store is populated.  Consumers (boot.html, _notifBoot) MUST
+    // await this before checking storeGet().
+
+    // ── Key mapping: batch response key → card cache key ─────
+    // These MUST match what each card's loadFn checks via cardCached().
+    const _BATCH_TO_CARD = {
+        'status':             'dash-status',
+        'health':             'dash-health',
+        'tools':              'tools-status',
+        'capabilities':       'dash-capabilities',
+        // Keys below have no existing card cache — stored under batch key
+        // and consumed via storeGet() by their respective loaders
+        'git-auth':           'git-auth',
+        'gh-status':          'gh-status',
+        'notifications-badge':'notifications-badge',
+        'audits-pending':     'audits-pending',
+        'server-status':      'server-status',
+        'dev-status':         'dev-status',
+        'devops-prefs':       'devops-prefs',
+        'integration-prefs':  'integration-prefs',
+    };
+
+    window.__batchReady = (async function _batchPrefetch() {
+        // Skip if already done (e.g. SPA-style re-entry within session)
+        if (window.__BATCH_DONE__) return;
+        window.__BATCH_DONE__ = true;
+
+        try {
+            const resp = await fetch('/api/batch', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    groups: ['boot-critical', 'boot-deferred', 'boot-config'],
+                }),
+            });
+
+            if (!resp.ok) {
+                console.warn('[Batch] HTTP', resp.status, '— falling back to individual fetches');
+                return;
+            }
+
+            const payload = await resp.json();
+            const results = payload.results || {};
+            const timing = payload.timing_ms || 0;
+            let hydrated = 0;
+
+            for (const [batchKey, data] of Object.entries(results)) {
+                if (data == null) continue;
+
+                const cardKey = _BATCH_TO_CARD[batchKey] || batchKey;
+
+                // Populate the in-memory SSE store (instant lookup, no parse)
+                if (typeof _store !== 'undefined') {
+                    _store[cardKey] = data;
+                }
+
+                // Populate sessionStorage card cache (10-min TTL)
+                cardStore(cardKey, data);
+
+                hydrated++;
+            }
+
+            console.debug(
+                '[Batch] prefetched %d keys in %dms (server: %dms)',
+                hydrated, Math.round(performance.now()), timing,
+            );
+        } catch (e) {
+            console.warn('[Batch] prefetch failed, cards will fetch individually:', e.message);
+        }
+    })();
+</script>

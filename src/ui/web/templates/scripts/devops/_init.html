@@ -26,7 +26,7 @@
     async function _fetchDevopsPrefs() {
         if (_devopsPrefs) return _devopsPrefs;
         try {
-            _devopsPrefs = await api('/devops/prefs');
+            _devopsPrefs = storeGet('devops-prefs') || await api('/devops/prefs');
         } catch {
             // Default: all auto
             _devopsPrefs = Object.fromEntries(Object.keys(_DEVOPS_CARDS).map(k => [k, 'auto']));

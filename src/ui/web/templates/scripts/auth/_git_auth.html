@@ -36,7 +36,7 @@ function _gitAuthCloseOverlay() {
 
 async function checkGitAuth() {
   try {
-    _gitAuthStatus = await api('/git/auth-status');
+    _gitAuthStatus = storeGet('git-auth') || await api('/git/auth-status');
     if (_gitAuthStatus.ok) return;
 
     // Check user preference — should we prompt on boot?

@@ -966,7 +966,10 @@ function _dismissPortFallbackBanner(dismissKey, notifId) {
 
 /** Boot-time check: if the server is in fallback mode, show the banner. */
 function _checkPortFallbackOnBoot() {
-    api('/server/status')
+    var _promise = storeGet('server-status')
+        ? Promise.resolve(storeGet('server-status'))
+        : api('/server/status');
+    _promise
         .then(function(data) {
             if (!data || !data.fallback_mode) return;
 
@@ -1097,15 +1100,24 @@ function _removeConfigChangedBanner(notifId) {
 
 // ── Boot ────────────────────────────────────────────────────────
 
-(function _notifBoot() {
-    // Fetch initial badge counts
-    api('/notifications/badge')
-        .then(function(data) {
-            if (!data) return;
-            _updateNotifBadge(data.notification_count || 0);
-            _updateErrorBadge(data.error_count || 0);
-        })
-        .catch(function() {});
+(async function _notifBoot() {
+    // Wait for batch prefetch so storeGet() has data
+    try { await window.__batchReady; } catch (_) {}
+
+    // Fetch initial badge counts (or use batch-prefetched data)
+    var _batchBadge = storeGet('notifications-badge');
+    if (_batchBadge) {
+        _updateNotifBadge(_batchBadge.notification_count || 0);
+        _updateErrorBadge(_batchBadge.error_count || 0);
+    } else {
+        api('/notifications/badge')
+            .then(function(data) {
+                if (!data) return;
+                _updateNotifBadge(data.notification_count || 0);
+                _updateErrorBadge(data.error_count || 0);
+            })
+            .catch(function() {});
+    }
 
     // Initialize cross-tab sync
     _notifInitBC();
