@@ -1237,6 +1237,7 @@ TUNNEL_METHODS: dict[str, dict] = {
         "recommended": True,
         "risky": False,
         "class": WslTunnel,
+        "install_recipe": None,  # pure Python, zero deps
     },
     "socat": {
         "label": "socat tunnel",
@@ -1245,6 +1246,7 @@ TUNNEL_METHODS: dict[str, dict] = {
         "recommended": False,
         "risky": False,
         "class": SocatTunnel,
+        "install_recipe": "socat-wsl-channel",
     },
     "netsh": {
         "label": "netsh portproxy",
@@ -1253,6 +1255,7 @@ TUNNEL_METHODS: dict[str, dict] = {
         "recommended": False,
         "risky": False,
         "class": NetshTunnel,
+        "install_recipe": None,  # PowerShell built-in, zero deps
     },
     "ssh": {
         "label": "SSH tunnel",
@@ -1261,6 +1264,7 @@ TUNNEL_METHODS: dict[str, dict] = {
         "recommended": False,
         "risky": False,
         "class": SshTunnel,
+        "install_recipe": "openssh-server-windows",
     },
     "mirrored": {
         "label": "Mirrored networking",
@@ -1270,6 +1274,7 @@ TUNNEL_METHODS: dict[str, dict] = {
         "risky": True,
         "risk_detail": "May break VS Code, Docker Desktop, and other IDE networking.",
         "class": MirroredConfig,
+        "install_recipe": "wsl-mirrored-networking",
     },
 }
 

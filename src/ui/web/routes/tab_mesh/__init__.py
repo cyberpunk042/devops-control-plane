@@ -1773,76 +1773,82 @@ def wsl_channel_status():
             "recommended": info.get("recommended", False),
             "risky": info.get("risky", False),
             "risk_detail": info.get("risk_detail", ""),
+            "install_recipe": info.get("install_recipe"),
             "prerequisites": [],
             "available": True,
         }
 
         # Build prerequisite list per method
         if method_id == "python_proxy":
-            choice["prerequisites"].append({
-                "name": "hostname",
-                "ok": hostname_resolves,
-                "detail": hostname_ip or "not resolved",
-            })
-            # The Python proxy auto-configures netsh portproxy + firewall
-            # on start, so this is always "ok" — it's handled automatically.
-            fw_ok = fw.get("port_reachable") or (
-                fw.get("rule_exists") and fw.get("rule_enabled")
-            )
-            choice["prerequisites"].append({
-                "name": "firewall",
-                "ok": True,  # auto-configured on start
-                "detail": (
-                    "port reachable" if fw.get("port_reachable")
-                    else "rule exists" if fw.get("rule_exists")
-                    else "auto-configured on start"
-                ),
-            })
+            # No blocking prereqs — pure Python, zero deps.
+            # hostname is info-only (setup resolves it automatically).
+            pass
         elif method_id == "socat":
+            # Hard prerequisite: socat binary must exist in WSL
             choice["prerequisites"].append({
                 "name": "socat",
                 "ok": socat_available,
-                "detail": "installed" if socat_available else "not installed (apt install socat)",
+                "detail": "installed" if socat_available else "not installed",
+                "install_recipe": None if socat_available else {
+                    "id": "socat-wsl-channel",
+                    "label": "socat (WSL channel relay)",
+                    "needs_sudo": True,
+                },
             })
+            # Info-only: hostname resolution (not a blocker)
             choice["prerequisites"].append({
                 "name": "hostname",
                 "ok": hostname_resolves,
                 "detail": hostname_ip or "not resolved",
             })
-            choice["prerequisites"].append({
-                "name": "firewall",
-                "ok": fw.get("port_reachable") or (
-                    fw.get("rule_exists") and fw.get("rule_enabled")
-                ),
-                "detail": "ok" if fw.get("port_reachable") else "needed",
-            })
         elif method_id == "netsh":
-            choice["prerequisites"].append({
-                "name": "admin",
-                "ok": True,
-                "detail": "UAC required",
-            })
-            choice["prerequisites"].append({
-                "name": "firewall",
-                "ok": fw.get("port_reachable") or (
-                    fw.get("rule_exists") and fw.get("rule_enabled")
-                ),
-                "detail": "ok" if fw.get("port_reachable") else "needed",
-            })
+            # netsh has no blocking prereqs — UAC is handled at start
+            pass
         elif method_id == "ssh":
+            # Hard prerequisite: ssh client must exist in WSL
             choice["prerequisites"].append({
-                "name": "ssh",
+                "name": "ssh client",
                 "ok": ssh_available,
                 "detail": "found" if ssh_available else "not found",
             })
+            # Info-only: OpenSSH Server status on Windows
+            # The setup flow handles enabling it if missing
+            sshd_running = False
+            try:
+                import subprocess as _sp
+                result = _sp.run(
+                    ["powershell.exe", "-NoProfile", "-Command",
+                     "(Get-Service sshd -ErrorAction SilentlyContinue"
+                     ").Status"],
+                    capture_output=True, text=True, timeout=5,
+                )
+                sshd_running = result.stdout.strip() == "Running"
+            except Exception:
+                pass
             choice["prerequisites"].append({
-                "name": "hostname",
-                "ok": hostname_resolves,
-                "detail": hostname_ip or "not resolved",
+                "name": "OpenSSH Server",
+                "ok": sshd_running,
+                "detail": (
+                    "running" if sshd_running
+                    else "not running"
+                ),
+                "install_recipe": None if sshd_running else {
+                    "id": "openssh-server-windows",
+                    "label": "OpenSSH Server (Windows)",
+                    "needs_sudo": False,
+                },
             })
         elif method_id == "mirrored":
-            # No prerequisites — but risky
-            pass
+            # No prerequisites — selecting this and clicking Set Up
+            # IS the action that configures .wslconfig
+            is_mirrored = interop.get("networking_mode") == "mirrored"
+            if is_mirrored:
+                choice["prerequisites"].append({
+                    "name": "mirrored networking",
+                    "ok": True,
+                    "detail": "active",
+                })
+
 
         # available = all prerequisites OK
         choice["available"] = all(

@@ -1092,7 +1092,7 @@
                 : c.risky ? 'rgba(251,191,36,0.4)'
                 : 'var(--border-subtle)';
 
-            html += '<div style="padding:10px 12px;border-radius:var(--radius-sm);' +
+            html += '<div id="wsl-choice-' + c.id + '" style="padding:10px 12px;border-radius:var(--radius-sm);' +
                 'border:1px solid ' + cardBorder + ';margin-bottom:6px;' +
                 'transition:border-color 0.15s;cursor:pointer" ' +
                 'onclick="var r=this.querySelector(\'input[type=radio]\');if(r&&!r.disabled){r.checked=true}">';
@@ -1100,6 +1100,7 @@
             // Header row: radio + label + badges
             html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">';
             html += '<input type="radio" name="wsl-tunnel-method" value="' + c.id + '"' +
+                ' id="wsl-radio-' + c.id + '"' +
                 (c.recommended ? ' checked' : '') +
                 (!c.available && !c.risky ? ' disabled' : '') + '>';
             html += '<span style="font-size:0.7rem;font-weight:600;color:var(--text-primary)">' +
@@ -1127,21 +1128,53 @@
             // Prerequisites
             var prereqs = c.prerequisites || [];
             if (prereqs.length > 0) {
-                html += '<div style="display:flex;gap:8px;flex-wrap:wrap;font-size:0.58rem;padding-left:24px">';
+                // Status line — show ✅/❌ for each prereq with unique IDs
+                html += '<div id="wsl-prereqs-' + c.id + '" style="display:flex;gap:8px;flex-wrap:wrap;font-size:0.58rem;padding-left:24px;margin-bottom:2px">';
                 for (var pi = 0; pi < prereqs.length; pi++) {
                     var p = prereqs[pi];
-                    html += '<span style="color:' + (p.ok ? 'var(--success)' : 'var(--danger)') + '">';
+                    var prereqId = (p.install_recipe && p.install_recipe.id) || '';
+                    html += '<span id="wsl-pq-' + c.id + '-' + pi + '"' +
+                        (prereqId ? ' data-recipe="' + prereqId + '"' : '') +
+                        ' data-ok="' + (p.ok ? '1' : '0') + '"' +
+                        ' style="color:' + (p.ok ? 'var(--success)' : 'var(--danger)') + '">';
                     html += (p.ok ? '✅' : '❌') + ' ' + p.name;
                     if (!p.ok && p.name === 'firewall') {
                         html += ' <a href="#" onclick="_wslFixPrereq(\'firewall\');return false" ' +
                             'style="color:var(--accent);text-decoration:underline;font-size:0.56rem">[Fix]</a>';
                     }
-                    if (!p.ok && p.name === 'socat') {
-                        html += ' <span style="color:var(--text-muted)">' + (p.detail || '') + '</span>';
-                    }
                     html += '</span>';
                 }
                 html += '</div>';
+
+                // Install buttons for prereqs with recipes
+                var missingForRecipe = [];
+                for (var mi = 0; mi < prereqs.length; mi++) {
+                    var mp = prereqs[mi];
+                    if (!mp.ok && mp.install_recipe) {
+                        missingForRecipe.push(mp.install_recipe);
+                    }
+                }
+                if (missingForRecipe.length > 0) {
+                    html += '<div id="wsl-install-banner-' + c.id + '" style="padding-left:24px;margin-top:4px">';
+                    html += '<div class="missing-tools-banner" style="margin:0">';
+                    html += '<div class="missing-tools-header">' +
+                        '<span style="font-size:0.9rem">⚠️</span>' +
+                        '<span style="font-size:0.72rem"><strong>' + missingForRecipe.length + ' tool' +
+                        (missingForRecipe.length > 1 ? 's' : '') + ' not installed</strong></span></div>';
+                    html += '<div class="missing-tools-list">';
+                    for (var ri = 0; ri < missingForRecipe.length; ri++) {
+                        var r = missingForRecipe[ri];
+                        html += '<div class="missing-tool-item">' +
+                            '<span class="missing-tool-label">' + r.label + '</span>' +
+                            '<button class="btn btn-sm btn-install-tool"' +
+                            ' data-tool-id="' + r.id + '"' +
+                            ' data-tool-label="' + r.label + '"' +
+                            ' data-method-id="' + c.id + '"' +
+                            ' onclick="_wslInstallPrereq(this)">' +
+                            '📦 Install</button></div>';
+                    }
+                    html += '</div></div></div>';
+                }
             }
 
             html += '</div>';
@@ -1259,6 +1292,85 @@
                     '</div>' +
                 '</div>';
         }
+    }
+
+    /**
+     * Install a WSL channel prerequisite via the plan-based flow.
+     * After success, surgically updates the DOM — no full rescan.
+     *
+     * @param {HTMLButtonElement} btn - The install button (has data-tool-id,
+     *        data-tool-label, data-method-id attributes)
+     */
+    function _wslInstallPrereq(btn) {
+        var toolId = btn.dataset.toolId;
+        var toolLabel = btn.dataset.toolLabel;
+        var methodId = btn.dataset.methodId;
+
+        btn.disabled = true;
+        btn.textContent = '⏳ Loading…';
+
+        installWithPlan(toolId, toolLabel || toolId, {
+            onComplete: function() {
+                btn.textContent = '✅ Installed';
+                btn.classList.add('btn-success');
+
+                // ── Targeted DOM update ──
+
+                // 1. Flip the prereq status span from ❌ to ✅
+                var prereqRow = document.getElementById('wsl-prereqs-' + methodId);
+                if (prereqRow) {
+                    var spans = prereqRow.querySelectorAll('span[data-recipe="' + toolId + '"]');
+                    for (var si = 0; si < spans.length; si++) {
+                        var span = spans[si];
+                        var name = span.textContent.replace(/^[❌✅]\s*/, '');
+                        span.style.color = 'var(--success)';
+                        span.textContent = '✅ ' + name;
+                        span.dataset.ok = '1';
+                    }
+                }
+
+                // 2. Remove the install banner if all recipe prereqs are satisfied
+                var banner = document.getElementById('wsl-install-banner-' + methodId);
+                if (banner) {
+                    // Check if any install buttons in this banner are NOT installed
+                    var remaining = banner.querySelectorAll('.btn-install-tool:not(.btn-success)');
+                    if (remaining.length === 0) {
+                        banner.remove();
+                    } else {
+                        // Update the count text
+                        var header = banner.querySelector('.missing-tools-header strong');
+                        if (header) {
+                            header.textContent = remaining.length + ' tool' +
+                                (remaining.length > 1 ? 's' : '') + ' not installed';
+                        }
+                    }
+                }
+
+                // 3. Enable the radio if ALL prereqs in this card are now OK
+                if (prereqRow) {
+                    var allOk = true;
+                    var allSpans = prereqRow.querySelectorAll('span[data-ok]');
+                    for (var ai = 0; ai < allSpans.length; ai++) {
+                        if (allSpans[ai].dataset.ok !== '1') {
+                            allOk = false;
+                            break;
+                        }
+                    }
+                    if (allOk) {
+                        var radio = document.getElementById('wsl-radio-' + methodId);
+                        if (radio) radio.disabled = false;
+                    }
+                }
+            },
+        });
+
+        // Re-enable button after timeout (modal takes over)
+        setTimeout(function() {
+            if (btn.textContent === '⏳ Loading…') {
+                btn.disabled = false;
+                btn.textContent = '📦 Install';
+            }
+        }, 3000);
     }
 
     /**
