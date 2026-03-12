@@ -26,7 +26,9 @@ from __future__ import annotations
 
 import json
 import logging
-import logging.handlers
+import os
+import shutil
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -44,6 +46,9 @@ _DEFAULTS: dict[str, Any] = {
 
 # Handler name used to identify our runtime file handler
 _FILE_HANDLER_NAME = "dcp_file_log"
+
+# Max number of archived session logs to keep
+_MAX_ARCHIVED_LOGS = 10
 
 
 # ── Public API ──────────────────────────────────────────────────
@@ -145,12 +150,14 @@ def toggle_file_logging(project_root: Path, enabled: bool) -> dict[str, Any]:
                 if isinstance(h, logging.StreamHandler) and not isinstance(h, logging.FileHandler):
                     _original_console_levels.append((h, h.level, h.formatter))
 
-        # ── File handler (DEBUG — full detail, rotating) ──
+        # ── Archive previous session log before opening new one ──
+        _rotate_log_on_startup(log_path)
+
+        # ── File handler (DEBUG — full detail, per-session) ──
         log_path.parent.mkdir(parents=True, exist_ok=True)
-        fh = logging.handlers.RotatingFileHandler(
+        fh = logging.FileHandler(
             str(log_path),
-            maxBytes=5 * 1024 * 1024,  # 5 MB per file
-            backupCount=3,             # keep web.log.1, .2, .3
+            mode="w",           # fresh file each session
             encoding="utf-8",
         )
         fh.name = _FILE_HANDLER_NAME
@@ -192,3 +199,71 @@ def toggle_file_logging(project_root: Path, enabled: bool) -> dict[str, Any]:
         logger.info("File logging disabled")
 
     return merged
+
+
+# ── Session-based log rotation ─────────────────────────────────
+
+
+def _rotate_log_on_startup(log_path: Path) -> None:
+    """Archive the previous session's log file before opening a new one.
+
+    Layout::
+
+        .state/web.log                          ← current session (always fresh)
+        .state/logs/web.2026-03-12_131625.log   ← archived session
+        .state/logs/web.2026-03-11_094512.log   ← older session
+        .state/logs/web.previous.log            ← symlink → latest archive
+
+    Only the last ``_MAX_ARCHIVED_LOGS`` archives are kept.
+    """
+    if not log_path.is_file() or log_path.stat().st_size == 0:
+        return  # nothing to archive
+
+    archive_dir = log_path.parent / "logs"
+    archive_dir.mkdir(parents=True, exist_ok=True)
+
+    # Use the log file's modification time for the archive name
+    # (reflects when the previous session last wrote)
+    mtime = datetime.fromtimestamp(log_path.stat().st_mtime)
+    stem = log_path.stem   # "web"
+    suffix = log_path.suffix  # ".log"
+    archive_name = f"{stem}.{mtime.strftime('%Y-%m-%d_%H%M%S')}{suffix}"
+    archive_path = archive_dir / archive_name
+
+    # Avoid overwriting if somehow the same timestamp exists
+    if archive_path.exists():
+        archive_name = f"{stem}.{mtime.strftime('%Y-%m-%d_%H%M%S')}.{os.getpid()}{suffix}"
+        archive_path = archive_dir / archive_name
+
+    try:
+        shutil.move(str(log_path), str(archive_path))
+    except OSError:
+        return  # can't archive — just let the new session overwrite
+
+    # Update "previous" symlink for convenience
+    previous_link = archive_dir / f"{stem}.previous{suffix}"
+    try:
+        if previous_link.is_symlink() or previous_link.exists():
+            previous_link.unlink()
+        previous_link.symlink_to(archive_path.name)
+    except OSError:
+        pass  # symlink not critical
+
+    # Prune old archives (keep only _MAX_ARCHIVED_LOGS most recent)
+    archives = sorted(
+        [
+            f for f in archive_dir.iterdir()
+            if f.is_file()
+            and not f.is_symlink()
+            and f.name.startswith(stem + ".")
+            and f.suffix == suffix
+            and f.name != f"{stem}.previous{suffix}"
+        ],
+        key=lambda f: f.stat().st_mtime,
+        reverse=True,
+    )
+    for old in archives[_MAX_ARCHIVED_LOGS:]:
+        try:
+            old.unlink()
+        except OSError:
+            pass
