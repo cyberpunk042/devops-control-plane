@@ -355,9 +355,9 @@ def warm(port: int = _DEFAULT_PORT) -> dict:
 
     1. Initializes the transport router (environment detection).
     2. Probes all channels for ``port`` (native, tunnel, direct, curl).
-    3. If WSL2 NAT mode and no fast channel → starts a tunnel,
-       then re-probes.
-    4. Only warms the PS bridge if no fast WS-capable channel
+    3. Checks saved channel state for auto-restart or IP change.
+    4. If WSL2 NAT mode and no fast channel → creates notification.
+    5. Only warms the PS bridge if no fast WS-capable channel
        is available after probing.
 
     Returns:
@@ -369,6 +369,14 @@ def warm(port: int = _DEFAULT_PORT) -> dict:
 
     # Probe channels for this port
     probe_results = router.probe(port)
+
+    # ── Channel lifecycle: auto-restart proxy / detect IP change ──
+    try:
+        from flask import current_app
+        project_root = Path(current_app.config["PROJECT_ROOT"])
+        _warm_channel_lifecycle(router, port, project_root)
+    except Exception as exc:
+        logger.debug("Channel lifecycle check failed: %s", exc)
 
     # If WSL2 NAT mode and no fast channel, notify the user
     if router.needs_tunnel(port):
@@ -414,6 +422,102 @@ def warm(port: int = _DEFAULT_PORT) -> dict:
         "bridge": bridge_st,
         "pool_size": len(_session_pool._pool),
     }
+
+
+def _warm_channel_lifecycle(
+    router, port: int, project_root: Path,
+) -> None:
+    """Handle channel auto-restart and IP change detection.
+
+    Reads ``.state/wsl_channel.json`` (saved by ``wsl_start_tunnel``
+    route) and:
+
+    1. If stored IP ≠ current IP → netsh rules are orphaned →
+       create notification for user to re-run setup.
+    2. If stored method is ``python_proxy`` and TCP proxy is dead
+       but direct channel works (same IP, rules persist) →
+       auto-restart the proxy silently for resilience.
+    """
+    import json as _json
+    from src.core.services.wsl_transport.network import resolve_host_ip
+
+    state_file = project_root / ".state" / "wsl_channel.json"
+    if not state_file.exists():
+        return
+
+    try:
+        state = _json.loads(state_file.read_text())
+    except (ValueError, OSError):
+        return
+
+    stored_method = state.get("method")
+    stored_host = state.get("target_host")
+    stored_port = state.get("port", 9222)
+
+    if not stored_host:
+        return
+
+    current_ip = resolve_host_ip()
+    if not current_ip:
+        return
+
+    # ── IP changed → netsh rules are orphaned ──
+    if stored_host != current_ip:
+        logger.warning(
+            "WSL host IP changed: %s → %s — netsh portproxy rules are orphaned",
+            stored_host, current_ip,
+        )
+        from src.core.services.notifications import create_notification
+        create_notification(
+            project_root,
+            notif_type="wsl_ip_changed",
+            title="CDP Channel: Host IP Changed",
+            message=(
+                f"WSL host IP changed from {stored_host} to {current_ip}. "
+                "Port forwarding rules need updating."
+            ),
+            meta={
+                "action_tab": "wsl-channel",
+                "action_hash": "#wsl-channel",
+                "old_ip": stored_host,
+                "new_ip": current_ip,
+            },
+            dedup=True,
+        )
+        # Update stored IP so we don't re-notify every warm()
+        try:
+            state["target_host"] = current_ip
+            state_file.write_text(_json.dumps(state, indent=2))
+        except OSError:
+            pass
+        return
+
+    # ── Same IP, auto-restart TCP proxy if needed ──
+    if stored_method == "python_proxy":
+        from src.core.services.wsl_transport.tunnel_backends import (
+            get_active_tunnel, start_tunnel,
+        )
+        tunnel = get_active_tunnel()
+        if tunnel and tunnel.is_running:
+            return  # proxy is alive, nothing to do
+
+        # Direct channel works (netsh persists) but proxy is dead
+        if router.has_fast_channel(port):
+            logger.info(
+                "Auto-restarting TCP proxy (netsh rules persist, proxy was dead)"
+            )
+            new_tunnel = start_tunnel(
+                local_port=stored_port,
+                target_host=stored_host,
+                method="python_proxy",
+            )
+            if new_tunnel:
+                logger.info("TCP proxy auto-restarted on port %d", stored_port)
+                # Re-probe to get updated rankings with tunnel channel
+                router.evict(port)
+                router.probe(port)
+            else:
+                logger.warning("TCP proxy auto-restart failed")
 
 
 # ── evaluate_js (pooled) ──────────────────────────────────────

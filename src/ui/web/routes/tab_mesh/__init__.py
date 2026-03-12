@@ -1967,6 +1967,21 @@ def wsl_start_tunnel():
         except Exception:
             pass  # Notifications must never break tunnel start
 
+        # Save channel state so warm() can auto-restart on app restart
+        try:
+            import json as _json
+            from datetime import datetime as _dt
+            state_dir = Path(current_app.config["PROJECT_ROOT"]) / ".state"
+            state_dir.mkdir(parents=True, exist_ok=True)
+            (state_dir / "wsl_channel.json").write_text(_json.dumps({
+                "method": method,
+                "target_host": target_host,
+                "port": port,
+                "setup_at": _dt.now().isoformat(),
+            }, indent=2))
+        except Exception:
+            pass  # State save must never break tunnel start
+
         return jsonify({
             "ok": True,
             "method": method,
