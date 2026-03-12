@@ -14,5 +14,4 @@ from src.core.services.wsl_transport.tunnel_backends import (  # noqa: F401
     get_active_tunnel,
     start_tunnel,
     stop_tunnel,
-    maybe_start_tunnel,
 )

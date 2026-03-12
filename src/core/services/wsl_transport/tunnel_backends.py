@@ -23,7 +23,6 @@ Module-level API::
 
     from src.core.services.wsl_transport.tunnel_backends import (
         TUNNEL_METHODS,       # registry of available backends
-        maybe_start_tunnel,   # auto-start if WSL2 + hostname resolves
         get_active_tunnel,    # returns tunnel instance | None
         start_tunnel,         # start a specific backend
         stop_tunnel,          # stop the active tunnel
@@ -1341,83 +1340,3 @@ def stop_tunnel() -> None:
         if _active_tunnel:
             _active_tunnel.stop()
             _active_tunnel = None
-
-
-def maybe_start_tunnel() -> None:
-    """Auto-start the WSL tunnel if conditions are met.
-
-    Runs in a background thread so it never blocks the main thread.
-    Conditions:
-        1. Running under WSL2
-        2. hostname.local resolves to a Windows host IP
-        3. The local port (9222) is not already in use
-
-    If any condition fails, silently returns — the app falls back
-    to curl.exe as before.
-    """
-    from src.core.services.chrome.detection import is_wsl
-
-    if not is_wsl():
-        return
-
-    def _startup_thread():
-        """Background thread: resolve hostname and start tunnel."""
-        try:
-            import subprocess
-
-            # Get the Windows hostname
-            r = subprocess.run(
-                ["hostname"],
-                capture_output=True, text=True, timeout=3,
-            )
-            hostname = r.stdout.strip()
-            if not hostname:
-                logger.debug("WSL tunnel: hostname command returned empty")
-                return
-
-            # Resolve hostname.local via mDNS
-            fqdn = f"{hostname}.local"
-            try:
-                infos = socket.getaddrinfo(
-                    fqdn, None, socket.AF_INET, socket.SOCK_STREAM,
-                )
-                if not infos:
-                    logger.debug(
-                        "WSL tunnel: %s did not resolve", fqdn,
-                    )
-                    return
-                host_ip = infos[0][4][0]
-            except (socket.gaierror, OSError) as exc:
-                logger.debug(
-                    "WSL tunnel: %s resolution failed: %s", fqdn, exc,
-                )
-                return
-
-            # Start the tunnel
-            cdp_port = 9222  # default CDP port
-            tunnel = start_tunnel(
-                local_port=cdp_port,
-                target_host=host_ip,
-            )
-            if tunnel:
-                logger.info(
-                    "WSL tunnel auto-started: "
-                    "127.0.0.1:%d → %s (%s):%d",
-                    cdp_port, fqdn, host_ip, cdp_port,
-                )
-            else:
-                logger.debug(
-                    "WSL tunnel: could not start on port %d "
-                    "(port may be in use)",
-                    cdp_port,
-                )
-
-        except Exception as exc:
-            logger.debug("WSL tunnel startup failed: %s", exc)
-
-    thread = threading.Thread(
-        target=_startup_thread,
-        name="wsl-tunnel-startup",
-        daemon=True,
-    )
-    thread.start()
