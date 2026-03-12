@@ -724,9 +724,11 @@ function _wslChannelSetupAccept() {
     api('/tab-mesh/wsl-start-tunnel', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ method: 'python_proxy', port: 9222 }),
+        body: JSON.stringify({ port: 9222 }),
     }).then(function(result) {
         if (result && result.ok) {
+            // Invalidate CDP warm cache so next modal open re-probes
+            if (typeof _cdpWarmResult !== 'undefined') { _cdpWarmResult = null; }
             // Dismiss the notification
             api('/notifications').then(function(data) {
                 if (data && data.notifications) {

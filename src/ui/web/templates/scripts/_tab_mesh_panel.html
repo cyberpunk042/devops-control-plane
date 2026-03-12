@@ -1223,6 +1223,8 @@
             var data = await resp.json();
 
             if (data.ok) {
+                // Invalidate CDP warm cache so next modal open re-probes
+                if (typeof _cdpWarmResult !== 'undefined') { _cdpWarmResult = null; }
                 if (btn) {
                     btn.textContent = '✅ Started';
                     btn.style.background = 'var(--success)';

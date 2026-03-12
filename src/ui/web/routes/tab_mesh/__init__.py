@@ -1899,8 +1899,22 @@ def wsl_start_tunnel():
         { "method": "python_proxy", "port": 9222 }
     """
     data = request.get_json(force=True, silent=True) or {}
-    method = data.get("method", "python_proxy")
+    method = data.get("method")
     port = data.get("port", 9222)
+
+    # If no method specified, preserve the user's previous choice
+    if not method:
+        try:
+            import json as _json
+            from flask import current_app
+            state_file = Path(current_app.config["PROJECT_ROOT"]) / ".state" / "wsl_channel.json"
+            if state_file.exists():
+                saved = _json.loads(state_file.read_text())
+                method = saved.get("method")
+        except Exception:
+            pass
+    if not method:
+        method = "python_proxy"  # ultimate default
 
     from src.core.services.chrome.wsl_tunnel import (
         TUNNEL_METHODS, start_tunnel,
@@ -1940,6 +1954,15 @@ def wsl_start_tunnel():
             "ok": False,
             "error": "Cannot resolve hostname.local — target host unknown.",
         }), 400
+
+    # User-initiated: ensure Windows routing (netsh portproxy) exists.
+    # This is the ONLY place UAC should fire — on explicit user action.
+    # tunnel.start() no longer calls this to prevent auto-restart UAC.
+    if method not in ("mirrored", "netsh"):
+        from src.core.services.wsl_transport.tunnel_backends import (
+            _ensure_windows_routing,
+        )
+        _ensure_windows_routing(target_host, port)
 
     tunnel = start_tunnel(
         local_port=port,
@@ -1999,6 +2022,82 @@ def wsl_start_tunnel():
             "ok": False,
             "method": method,
             "error": f"Failed to start {TUNNEL_METHODS[method]['label']}.",
+        }), 500
+
+
+@tab_mesh_bp.route("/tab-mesh/wsl-setup-routing", methods=["POST"])
+def wsl_setup_routing():
+    """Set up netsh portproxy routing WITHOUT starting a tunnel.
+
+    Creates the Windows-side netsh portproxy rules that forward
+    <host IP>:9222-9232 → 127.0.0.1:same.  Does NOT start or
+    change the active tunnel method — preserves the user's choice.
+
+    Used by the notification consent handler so the user can fix
+    routing without overriding their socat/ssh/python_proxy choice.
+
+    Requires UAC elevation (admin prompt on Windows).
+    """
+    import socket as _socket
+
+    from src.core.services.wsl_transport.tunnel_backends import (
+        _test_target_reachable, _ensure_windows_routing,
+    )
+
+    # Resolve target host IP
+    target_host = None
+    try:
+        hostname_r = subprocess.run(
+            ["hostname"],
+            capture_output=True, text=True, timeout=3,
+        )
+        hostname = hostname_r.stdout.strip()
+        if hostname:
+            fqdn = f"{hostname}.local"
+            try:
+                infos = _socket.getaddrinfo(
+                    fqdn, None, _socket.AF_INET, _socket.SOCK_STREAM,
+                )
+                if infos:
+                    target_host = infos[0][4][0]
+            except (_socket.gaierror, OSError):
+                pass
+    except Exception:
+        pass
+
+    if not target_host:
+        return jsonify({
+            "ok": False,
+            "error": "Cannot resolve hostname.local — target host unknown.",
+        }), 400
+
+    port = (request.get_json(force=True, silent=True) or {}).get("port", 9222)
+
+    # Set up netsh portproxy (may trigger UAC prompt)
+    ok = _ensure_windows_routing(target_host, port)
+
+    if ok:
+        # Dismiss the setup notification
+        try:
+            from flask import current_app
+            from src.core.services.notifications import dismiss_notification_by_type
+            project_root = Path(current_app.config["PROJECT_ROOT"])
+            dismiss_notification_by_type(project_root, "wsl_channel_setup")
+        except Exception:
+            pass
+
+        return jsonify({
+            "ok": True,
+            "message": "Windows routing is active. Chrome is reachable.",
+            "target_host": target_host,
+        })
+    else:
+        return jsonify({
+            "ok": False,
+            "error": (
+                "Routing setup failed or Chrome not running. "
+                "UAC may have been cancelled."
+            ),
         }), 500
 
 

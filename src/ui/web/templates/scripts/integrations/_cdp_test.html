@@ -8,6 +8,7 @@
     let _cdpTestSSESource = null;        // EventSource for live step updates
     let _cdpTestCurrentView = 'home';    // 'home' | 'recording' | 'validation' | 'replay'
     let _cdpBridgeReady = false;          // true once the PS bridge is warm
+    let _cdpWarmResult = null;             // cached warm() response (fast channels found)
     let _cdpTestSuites = null;            // Cached suite list for config modal
     let _cdpTestReplayActive = false;     // true while replay is running
     let _cdpTestReplayInfo = null;        // { replayInfo, suiteId } for returning to replay
@@ -4260,9 +4261,41 @@
         _cdpTestProbeTarget(suiteId);
     }
 
+    /** Render warm status into a status element */
+    function _cdpRenderWarmStatus(statusEl, data) {
+        if (!statusEl) return false;
+        const parts = [];
+        const rankings = data.rankings || {};
+        const portRanks = rankings['9222'] || {};
+        const channels = Object.keys(portRanks);
+        if (channels.length > 0) {
+            const fastest = channels.reduce((a, b) => portRanks[a] < portRanks[b] ? a : b);
+            const ms = Math.round(portRanks[fastest]);
+            parts.push(`✅ ${fastest} (${ms}ms)`);
+        } else {
+            parts.push('❌ No channel');
+        }
+        if (data.bridge?.ready) { parts.push('✅ Bridge'); }
+        else if (data.bridge?.warming) { parts.push('⏳ Bridge warming…'); }
+        else if (!data.bridge?.needed) { parts.push('⚡ No bridge needed'); }
+        else { parts.push('❌ Bridge'); }
+        if (data.pool_size > 0) { parts.push(`🔗 Pool: ${data.pool_size}`); }
+        statusEl.innerHTML = parts.join(' · ');
+        statusEl.style.borderLeft = channels.length > 0
+            ? '3px solid #22c55e' : '3px solid #f59e0b';
+        return channels.length > 0;
+    }
+
     /** Background warm-up for Test Suites home view (all components) */
     async function _cdpTestWarmHome() {
         const statusEl = document.getElementById('cdp-home-status');
+
+        // Use cached warm result if we already have fast channels
+        if (_cdpWarmResult) {
+            _cdpRenderWarmStatus(statusEl, _cdpWarmResult);
+            return;
+        }
+
         try {
             await fetch('/api/cdp-test/warm', { method: 'POST' });
             for (let i = 0; i < 10; i++) {
@@ -4272,37 +4305,11 @@
                 const res = await fetch('/api/cdp-test/warm', { method: 'POST' });
                 const data = await res.json();
 
-                const parts = [];
-
-                // Transport channel status (replaces old WS Worker / Tunnel)
-                const rankings = data.rankings || {};
-                const portRanks = rankings['9222'] || {};
-                const channels = Object.keys(portRanks);
-                if (channels.length > 0) {
-                    // Find fastest channel
-                    const fastest = channels.reduce((a, b) => portRanks[a] < portRanks[b] ? a : b);
-                    const ms = Math.round(portRanks[fastest]);
-                    parts.push(`✅ ${fastest} (${ms}ms)`);
-                } else {
-                    parts.push('❌ No channel');
+                const hasChannel = _cdpRenderWarmStatus(statusEl, data);
+                if (hasChannel) {
+                    _cdpWarmResult = data;  // Cache for subsequent opens
+                    break;
                 }
-
-                // Bridge status
-                if (data.bridge?.ready) { parts.push('✅ Bridge'); }
-                else if (data.bridge?.warming) { parts.push('⏳ Bridge warming…'); }
-                else if (!data.bridge?.needed) { parts.push('⚡ No bridge needed'); }
-                else { parts.push('❌ Bridge'); }
-
-                // Pool size
-                if (data.pool_size > 0) { parts.push(`🔗 Pool: ${data.pool_size}`); }
-
-                if (statusEl) {
-                    statusEl.innerHTML = parts.join(' · ');
-                    const hasChannel = channels.length > 0;
-                    statusEl.style.borderLeft = hasChannel
-                        ? '3px solid #22c55e' : '3px solid #f59e0b';
-                }
-                if (channels.length > 0) break;  // Transport is ready
             }
         } catch (e) {
             if (statusEl) {
@@ -4318,6 +4325,15 @@
         const suite = _cdpTestSuites?.find(s => s.id === suiteId);
         const targetUrl = suite?.target_url || '';
 
+        // Use cached warm result if fast channels already established
+        if (_cdpWarmResult) {
+            if (statusEl) {
+                _cdpRenderWarmStatus(statusEl, _cdpWarmResult);
+                statusEl.innerHTML += ` · Target: <code style="font-size:0.68rem">${esc(targetUrl || 'auto-detect')}</code>`;
+            }
+            return;
+        }
+
         try {
             // Initial warm call — starts bridge + tunnel
             await fetch('/api/cdp-test/warm', { method: 'POST' });
@@ -4332,43 +4348,13 @@
 
                 if (!statusEl) return;
 
-                const parts = [];
+                const hasChannel = _cdpRenderWarmStatus(statusEl, data);
+                statusEl.innerHTML += ` · Target: <code style="font-size:0.68rem">${esc(targetUrl || 'auto-detect')}</code>`;
 
-                // Transport channel status
-                const rankings = data.rankings || {};
-                const portRanks = rankings['9222'] || {};
-                const channels = Object.keys(portRanks);
-                if (channels.length > 0) {
-                    const fastest = channels.reduce((a, b) => portRanks[a] < portRanks[b] ? a : b);
-                    const ms = Math.round(portRanks[fastest]);
-                    parts.push(`✅ ${fastest} (${ms}ms)`);
-                } else {
-                    parts.push('❌ No channel');
+                if (hasChannel) {
+                    _cdpWarmResult = data;  // Cache for subsequent opens
+                    break;
                 }
-
-                // Bridge
-                if (data.bridge?.ready) {
-                    parts.push('✅ Bridge');
-                } else if (data.bridge?.warming) {
-                    parts.push('⏳ Bridge warming…');
-                } else if (!data.bridge?.needed) {
-                    parts.push('⚡ No bridge needed');
-                } else {
-                    parts.push('❌ Bridge');
-                }
-
-                // Pool
-                if (data.pool_size > 0) { parts.push(`🔗 Pool: ${data.pool_size}`); }
-
-                parts.push(`Target: <code style="font-size:0.68rem">${esc(targetUrl || 'auto-detect')}</code>`);
-
-                statusEl.innerHTML = parts.join(' · ');
-                const hasChannel = channels.length > 0;
-                statusEl.style.borderLeft = hasChannel
-                    ? '3px solid #22c55e' : '3px solid #f59e0b';
-
-                // All ready — stop polling
-                if (hasChannel) break;
             }
         } catch (e) {
             if (statusEl) {

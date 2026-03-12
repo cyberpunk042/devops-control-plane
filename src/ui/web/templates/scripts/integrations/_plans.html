@@ -599,6 +599,15 @@
     /** Background warm-up: bridge + tunnel (same as test suite pattern) */
     async function _plansWarmCdp() {
         const statusEl = document.getElementById('plans-cdp-status');
+
+        // Use cached warm result if fast channels already established
+        if (typeof _cdpWarmResult !== 'undefined' && _cdpWarmResult) {
+            if (typeof _cdpRenderWarmStatus === 'function') {
+                _cdpRenderWarmStatus(statusEl, _cdpWarmResult);
+            }
+            return;
+        }
+
         try {
             // Initial warm call — starts bridge + tunnel
             await fetch('/api/cdp-test/warm', { method: 'POST' });
@@ -646,8 +655,13 @@
                         ? '3px solid #22c55e' : '3px solid #f59e0b';
                 }
 
-                // All ready — stop polling
-                if (channels.length > 0) break;
+                // All ready — stop polling, cache result
+                if (channels.length > 0) {
+                    if (typeof _cdpWarmResult !== 'undefined') {
+                        _cdpWarmResult = data;
+                    }
+                    break;
+                }
             }
         } catch (e) {
             if (statusEl) {

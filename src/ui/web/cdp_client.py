@@ -492,32 +492,38 @@ def _warm_channel_lifecycle(
             pass
         return
 
-    # ── Same IP, auto-restart TCP proxy if needed ──
-    if stored_method == "python_proxy":
+    # ── Same IP, auto-restart ephemeral tunnel if needed ──
+    # All of python_proxy, socat, ssh are ephemeral (die with app).
+    # netsh creates persistent OS-level rules and needs no restart.
+    _EPHEMERAL_METHODS = {"python_proxy", "socat", "ssh"}
+
+    if stored_method in _EPHEMERAL_METHODS:
         from src.core.services.wsl_transport.tunnel_backends import (
             get_active_tunnel, start_tunnel,
         )
         tunnel = get_active_tunnel()
         if tunnel and tunnel.is_running:
-            return  # proxy is alive, nothing to do
+            return  # tunnel is alive, nothing to do
 
-        # Direct channel works (netsh persists) but proxy is dead
-        if router.has_fast_channel(port):
+        logger.info(
+            "Auto-restarting %s tunnel (was dead after app restart)",
+            stored_method,
+        )
+        new_tunnel = start_tunnel(
+            local_port=stored_port,
+            target_host=stored_host,
+            method=stored_method,
+        )
+        if new_tunnel:
             logger.info(
-                "Auto-restarting TCP proxy (netsh rules persist, proxy was dead)"
+                "%s tunnel auto-restarted on port %d",
+                stored_method, stored_port,
             )
-            new_tunnel = start_tunnel(
-                local_port=stored_port,
-                target_host=stored_host,
-                method="python_proxy",
-            )
-            if new_tunnel:
-                logger.info("TCP proxy auto-restarted on port %d", stored_port)
-                # Re-probe to get updated rankings with tunnel channel
-                router.evict(port)
-                router.probe(port)
-            else:
-                logger.warning("TCP proxy auto-restart failed")
+            # Re-probe to get updated rankings with tunnel channel
+            router.evict(port)
+            router.probe(port)
+        else:
+            logger.warning("%s tunnel auto-restart failed", stored_method)
 
 
 # ── evaluate_js (pooled) ──────────────────────────────────────
